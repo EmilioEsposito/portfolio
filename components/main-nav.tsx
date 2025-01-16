@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Settings, MessageSquare } from "lucide-react"
+import { Home, Settings, MessageSquare, FlaskConical } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -25,6 +25,11 @@ export function MainNav() {
       label: 'Chat',
       icon: MessageSquare,
       href: '/chat',
+    },
+    {
+      label: 'Test',
+      icon: FlaskConical,
+      href: '/test',
     },
     {
       label: 'Settings',
