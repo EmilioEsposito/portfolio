@@ -142,6 +142,13 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = 'dat
 
 
 
+def test_do_stream():
+    messages = [
+        {"role": "user", "content": "What is the weather in Tokyo?"}
+    ]
+    stream = do_stream(messages)
+    for chunk in stream:
+        print(chunk)
 
 @app.post("/api/chat")
 async def handle_chat_data(request: Request, protocol: str = Query('data')):
