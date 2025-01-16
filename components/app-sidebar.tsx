@@ -4,8 +4,10 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search
+  Calendar, Inbox, Search, ChevronLeft, Menu
 } from "lucide-react"
+import { useSidebar } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 
 import {
   Sidebar,
@@ -16,6 +18,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarHeader
 } from "@/components/ui/sidebar"
 
 // Menu items.
@@ -63,8 +66,21 @@ const items = [
 ]
 
 export function AppSidebar() {
+  const { toggleSidebar } = useSidebar()
+
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="flex justify-end border-b border-sidebar-border">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={toggleSidebar}
+          className="h-8 w-8"
+        >
+          <Menu className="h-4 w-4" />
+          <span className="sr-only">Toggle sidebar</span>
+        </Button>
+      </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Application</SidebarGroupLabel>
@@ -72,7 +88,7 @@ export function AppSidebar() {
             <SidebarMenu>
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild tooltip={item.title}>
                     <a href={item.url}>
                       <item.icon />
                       <span>{item.title}</span>
