@@ -144,11 +144,17 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = 'dat
 
 def test_do_stream():
     messages = [
-        {"role": "user", "content": "What is the weather in Tokyo?"}
+        {"role": "user", "content": "hello there"}
     ]
     stream = do_stream(messages)
+    print("\rRESPONSE TEXT:\n")
+
     for chunk in stream:
-        print(chunk)
+        text = chunk.choices[0].delta.content
+        if text is not None:
+            print(text, end="", flush=True)
+    print("\n\nDONE")
+    assert stream.response.status_code == 200
 
 @app.post("/api/chat")
 async def handle_chat_data(request: Request, protocol: str = Query('data')):
