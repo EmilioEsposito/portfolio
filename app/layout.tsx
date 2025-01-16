@@ -3,7 +3,7 @@ import { GeistSans } from "geist/font/sans";
 import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 
 export const metadata = {
@@ -39,10 +39,10 @@ export default function RootLayout({
         <Toaster position="top-center" richColors />
         <SidebarProvider>
           <AppSidebar />
-          <div>
+          <SidebarInset>
             <Navbar />
             {children}
-          </div>
+          </SidebarInset>
         </SidebarProvider>
       </body>
     </html>
