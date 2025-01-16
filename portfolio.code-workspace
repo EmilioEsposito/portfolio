@@ -11,6 +11,22 @@
 		"python.testing.pytestArgs": [
 			"."
 		],
-		"python.testing.autoTestDiscoverOnSaveEnabled": true
+		"python.testing.autoTestDiscoverOnSaveEnabled": true,
+		"sqltools.connections": [
+			{
+				"pgOptions": {
+					"ssl": {
+						"rejectUnauthorized": true
+					}
+				},
+				"previewLimit": 50,
+				"server": "ep-still-poetry-a4usu47r-pooler.us-east-1.aws.neon.tech",
+				"port": 5432,
+				"driver": "PostgreSQL",
+				"name": "portfolio",
+				"username": "neondb_owner",
+				"database": "neondb"
+			}
+		]
 	}
 }
