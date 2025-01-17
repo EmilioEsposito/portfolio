@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "./ui/button";
-import { GitIcon, VercelIcon } from "./icons";
+import { GitIcon, LinkedInIcon } from "./icons";
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -32,7 +32,12 @@ export const Navbar = () => {
         {/* View source code button */}
         <Link href="https://github.com/EmilioEsposito/portfolio">
           <Button variant="outline">
-            <GitIcon />Source Code
+            <GitIcon />
+          </Button>
+        </Link>
+        <Link href="https://github.com/EmilioEsposito/portfolio">
+          <Button variant="outline">
+            <LinkedInIcon />
           </Button>
         </Link>
 
