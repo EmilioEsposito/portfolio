@@ -8,6 +8,8 @@ import {
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { Moon } from "lucide-react"
+import { useEffect, useState } from "react"
 
 import {
   Sidebar,
@@ -21,52 +23,65 @@ import {
   SidebarHeader
 } from "@/components/ui/sidebar"
 
-// Menu items.
-const items = [
-  {
-    title: "Home",
-    url: "/",
-    icon: Home,
-  },
-  {
-    title: 'Chat',
-    url: '/chat',
-    icon: MessageSquare,
-  },
-  {
-    title: 'Test',
-    url: '/test',
-    icon: FlaskConical,
-  },
-  {
-    title: 'Settings',
-    url: '#',
-    icon: Settings,
-  },
-  {
-    title: "Inbox",
-    url: "#",
-    icon: Inbox,
-  },
-  {
-    title: "Calendar",
-    url: "#",
-    icon: Calendar,
-  },
-  {
-    title: "Search",
-    url: "#",
-    icon: Search,
-  },
-  {
-    title: "Settings",
-    url: "#",
-    icon: Settings,
-  },
-]
-
 export function AppSidebar() {
   const { toggleSidebar } = useSidebar()
+  const [theme, setTheme] = useState<"light" | "dark">("light")
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    root.classList.remove("light", "dark")
+    root.classList.add(theme)
+  }, [theme])
+
+  // Move items inside the component
+  const items = [
+    {
+      title: "Home",
+      url: "/",
+      icon: Home,
+    },
+    {
+      title: 'Chat',
+      url: '/chat',
+      icon: MessageSquare,
+    },
+    {
+      title: 'Test',
+      url: '/test',
+      icon: FlaskConical,
+    },
+    {
+      title: 'Settings',
+      url: '#',
+      icon: Settings,
+    },
+    {
+      title: "Inbox",
+      url: "#",
+      icon: Inbox,
+    },
+    {
+      title: "Calendar",
+      url: "#",
+      icon: Calendar,
+    },
+    {
+      title: "Search",
+      url: "#",
+      icon: Search,
+    },
+    {
+      title: "Settings",
+      url: "#",
+      icon: Settings,
+    },
+    {
+      title: "Light/Dark Mode",
+      url: "#",
+      icon: Moon,
+      onClick: () => setTheme(theme === "dark" ? "light" : "dark"),
+    }
+  ]
 
   return (
     <Sidebar collapsible="icon">
@@ -89,7 +104,7 @@ export function AppSidebar() {
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild tooltip={item.title}>
-                    <Link href={item.url}>
+                    <Link href={item.url} onClick={item.onClick}>
                       <item.icon />
                       <span>{item.title}</span>
                     </Link>
