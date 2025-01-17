@@ -11,7 +11,7 @@ from .utils.prompt import ClientMessage, convert_to_openai_messages
 from .utils.tools import get_current_weather
 
 
-load_dotenv(".env.local")
+load_dotenv(".env")
 
 app = FastAPI()
 
@@ -142,6 +142,19 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = 'dat
 
 
 
+def test_do_stream():
+    messages = [
+        {"role": "user", "content": "hello there"}
+    ]
+    stream = do_stream(messages)
+    print("\rRESPONSE TEXT:\n")
+
+    for chunk in stream:
+        text = chunk.choices[0].delta.content
+        if text is not None:
+            print(text, end="", flush=True)
+    print("\n\nDONE")
+    assert stream.response.status_code == 200
 
 @app.post("/api/chat")
 async def handle_chat_data(request: Request, protocol: str = Query('data')):

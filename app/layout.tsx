@@ -3,6 +3,8 @@ import { GeistSans } from "geist/font/sans";
 import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
 
 export const metadata = {
   title: "AI SDK Python Streaming Preview",
@@ -33,10 +35,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head></head>
-      <body className={cn(GeistSans.className, "antialiased dark")}>
+      <body className={cn(GeistSans.className, "antialiased")}>
         <Toaster position="top-center" richColors />
-        <Navbar />
-        {children}
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <Navbar />
+            {children}
+          </SidebarInset>
+        </SidebarProvider>
       </body>
     </html>
   );
