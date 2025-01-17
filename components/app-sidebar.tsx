@@ -10,6 +10,7 @@ import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Moon } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 import {
   Sidebar,
@@ -26,6 +27,7 @@ import {
 export function AppSidebar() {
   const { toggleSidebar } = useSidebar()
   const [theme, setTheme] = useState<"light" | "dark">("light")
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     const root = window.document.documentElement
@@ -33,53 +35,64 @@ export function AppSidebar() {
     root.classList.add(theme)
   }, [theme])
 
+  const toggleSidebarIfMobile = () => {
+    if (isMobile) {
+      toggleSidebar()
+    }
+  }
+
   // Move items inside the component
   const items = [
     {
       title: "Home",
       url: "/",
       icon: Home,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: 'Chat',
       url: '/chat',
       icon: MessageSquare,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: 'Test',
       url: '/test',
       icon: FlaskConical,
-    },
-    {
-      title: 'Settings',
-      url: '#',
-      icon: Settings,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: "Inbox",
       url: "#",
       icon: Inbox,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: "Calendar",
       url: "#",
       icon: Calendar,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: "Search",
       url: "#",
       icon: Search,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: "Settings",
       url: "#",
       icon: Settings,
+      onClick: toggleSidebarIfMobile,
     },
     {
       title: "Light/Dark Mode",
       url: "#",
       icon: Moon,
-      onClick: () => setTheme(theme === "dark" ? "light" : "dark"),
+      onClick: () => {
+        setTheme(theme === "dark" ? "light" : "dark");
+        console.log(`Changed theme to ${theme}`);
+      },
     }
   ]
 
