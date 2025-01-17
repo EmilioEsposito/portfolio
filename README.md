@@ -1,8 +1,14 @@
-# AI SDK Python Streaming Preview
+# Portfolio
 
-This template demonstrates the usage of [Data Stream Protocol](https://sdk.vercel.ai/docs/ai-sdk-ui/stream-protocol#data-stream-protocol) to stream chat completions from a Python endpoint ([FastAPI](https://fastapi.tiangolo.com)) and display them using the [useChat](https://sdk.vercel.ai/docs/ai-sdk-ui/chatbot#chatbot) hook in your Next.js application.
+This is my portfolio/sandbox website that I use to just play around with new technologies. 
 
-To run the example locally you need to:
+* Tech Stack:
+    * Frontend: Next.js
+        * UI: Shadcn UI & Tailwind CSS
+    * Backend: FastAPI
+        * Database: Neon Postgres
+    * Deployment: Vercel
+    * Package Managers: pnpm and pip
 
 # Setup
 
@@ -16,9 +22,5 @@ To run the example locally you need to:
 7. `pip install -r requirements.txt` to install the required Python dependencies.
 8. `pnpm dev` to launch the development server.
 
-## Learn More
 
-To learn more about the AI SDK or Next.js by Vercel, take a look at the following resources:
 
-- [AI SDK Documentation](https://sdk.vercel.ai/docs)
-- [Next.js Documentation](https://nextjs.org/docs)
