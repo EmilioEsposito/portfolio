@@ -35,7 +35,7 @@ export const Navbar = () => {
             <GitIcon />
           </Button>
         </Link>
-        <Link href="https://github.com/EmilioEsposito/portfolio">
+        <Link href="https://www.linkedin.com/in/emilioespositousa/">
           <Button variant="outline">
             <LinkedInIcon />
           </Button>
