@@ -4,10 +4,10 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 
 * Tech Stack:
     * Frontend: Next.js
-        * UI: Shadcn UI & Tailwind CSS
-    * Backend: FastAPI
-        * Database: Neon Postgres
-    * Deployment: Vercel
+        * UI: [Shadcn UI](https://ui.shadcn.com/docs)] & Tailwind CSS
+    * Backend: [FastAPI](https://fastapi.tiangolo.com/)
+        * Database: [Neon Postgres](https://neon.tech/)
+    * Deployment: [Vercel](https://vercel.com/)
     * Package Managers: pnpm and pip
 
 # Setup
