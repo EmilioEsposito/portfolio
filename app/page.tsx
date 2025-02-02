@@ -4,6 +4,7 @@ export default function Home() {
   return (
     <div className="p-4">
       <H1>Header 1</H1>
+      <P>Emilio Esposito</P>
       <P>
         Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
         tempor incididunt ut labore et dolore magna aliqua.

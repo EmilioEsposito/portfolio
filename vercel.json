@@ -3,5 +3,15 @@
     "api/**": {
       "excludeFiles": "{.next,.git,node_modules}/**"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron_job_example",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron_job_example_private",
+      "schedule": "0 12 * * *"
+    }
+  ]
 }
