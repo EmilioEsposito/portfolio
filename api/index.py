@@ -181,12 +181,14 @@ def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 
+# Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
 @app.get("/api/cron_job_example")
 async def cron_job_example():
 
     return {"message": "Cron job executed", "timestamp": datetime.now().isoformat()}
 
 
+# Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
 @app.get("/api/cron_job_example_private")
 async def cron_job_example_private(request: Request):
     auth_header = request.headers.get("authorization")
