@@ -34,11 +34,11 @@ async def message_received(
     payload: OpenPhoneWebhookPayload = Body(...),
 ):
     headers = dict(request.headers)
+    # TODO: secure it by checking the signature secret
     return {
         "message": "Hello from open_phone!",
         "payload": payload.model_dump(),
         "headers": headers,
     }
-
 
 
