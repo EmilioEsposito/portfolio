@@ -7,7 +7,19 @@ from api.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
 
 
 
-def test_open_phone_message_received(client):
+async def mock_verify(*args, **kwargs):
+    return True
+
+@fixture
+def mocked_client():
+    with TestClient(app) as client:
+        # Override the dependency directly in the app
+        app.dependency_overrides[verify_open_phone_signature] = lambda: True
+        yield client
+    # Clean up after the test
+    app.dependency_overrides.clear()
+
+def test_open_phone_message_received(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
     with open("api/tests/requests/open_phone_message_received.json", "r") as f:
         request = json.load(f)
@@ -19,7 +31,7 @@ def test_open_phone_message_received(client):
     print("\n\nVALIDATION RESULT:")
     pprint(validation_result)
 
-    response = client.post(
+    response = mocked_client.post(
         "/api/open_phone/message_received", json=body, headers=headers
     )
 

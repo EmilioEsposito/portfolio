@@ -89,7 +89,7 @@ async def message_received(
     try:
         request_body_json = json.loads(body.decode())
         logger.info("Raw request body: %s", body.decode())
-        logger.info("Raw request header: %s", request.headers)
+        logger.info("Raw request header: %s", dict(request.headers))
         # logger.info("Request body JSON: %s", json.dumps(request_body_json, indent=2))
         # logger.info("Request headers: %s", json.dumps(dict(request.headers), indent=2))
     except json.JSONDecodeError as e:
