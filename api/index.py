@@ -13,7 +13,7 @@ from .utils.tools import get_current_weather
 
 load_dotenv(".env")
 
-app = FastAPI()
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
