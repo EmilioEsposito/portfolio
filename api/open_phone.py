@@ -44,6 +44,10 @@ async def message_received(
 ):
     # Debug logging
     body = await request.body()
+    print('REQUEST BODY:')
+    print(body.decode())
+    print('REQUEST HEADERS:')
+    print(request.headers)
     logger.info("Raw request body: %s", body.decode())
     logger.info("Content-Type header: %s", request.headers.get("content-type"))
     
