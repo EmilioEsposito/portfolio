@@ -15,14 +15,11 @@ router = APIRouter(
     tags=["open_phone"],  # Optional: groups endpoints in the docs
 )
 
-class BaseModelWithConfig(BaseModel):
-    class Config:
-        extra = "ignore"
 
-class OpenPhoneWebhookPayload(BaseModelWithConfig):
-    class ObjectDict(BaseModelWithConfig):
-        class Data(BaseModelWithConfig):
-            class DataObject(BaseModelWithConfig):
+class OpenPhoneWebhookPayload(BaseModel):
+    class ObjectDict(BaseModel):
+        class Data(BaseModel):
+            class DataObject(BaseModel):
                 object: str
                 from_: str = Field(..., alias="from")
                 to: str
@@ -40,7 +37,7 @@ class OpenPhoneWebhookPayload(BaseModelWithConfig):
 @router.post("/message_received")
 async def message_received(
     request: Request,
-    payload: OpenPhoneWebhookPayload = Body(...),
+    payload: OpenPhoneWebhookPayload,
 ):
     # Debug logging
     body = await request.body()
