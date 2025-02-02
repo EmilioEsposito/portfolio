@@ -4,11 +4,12 @@ from typing import List
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from .utils.prompt import ClientMessage, convert_to_openai_messages
 from .utils.tools import get_current_weather
+from datetime import datetime
 
 
 load_dotenv(".env")
@@ -20,7 +21,7 @@ client = OpenAI(
 )
 
 
-class Request(BaseModel):
+class ChatRequest(BaseModel):
     messages: List[ClientMessage]
 
 
@@ -166,7 +167,7 @@ def test_do_stream():
 
 
 @app.post("/api/chat")
-async def handle_chat_data(request: Request, protocol: str = Query("data")):
+async def handle_chat_data(request: ChatRequest, protocol: str = Query("data")):
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)
 
@@ -178,3 +179,19 @@ async def handle_chat_data(request: Request, protocol: str = Query("data")):
 @app.get("/api/hello")
 def hello_fast_api():
     return {"message": "Hello from FastAPI"}
+
+
+@app.get("/api/cron_job_example")
+async def cron_job_example():
+
+    return {"message": "Cron job executed", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/api/cron_job_example_private")
+async def cron_job_example_private(request: Request):
+    auth_header = request.headers.get("authorization")
+    if not auth_header or auth_header != f"Bearer {os.environ.get('CRON_SECRET')}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return {"message": "Private Cron job executed", "timestamp": datetime.now().isoformat()}
+
