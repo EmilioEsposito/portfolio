@@ -26,6 +26,7 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 
 
 ## Environments:
+
 * Localhost: 
     * NextJS: http://localhost:3000
     * FastAPI: http://localhost:8000/api/docs (also at http://localhost:3000/api/docs)
@@ -35,3 +36,5 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 * Production: 
     * NextJS: https://eesposito.com
     * FastAPI: https://eesposito.com/api/docs
+
+[All Vercel Deployments](https://vercel.com/emilioespositos-projects/portfolio/deployments)
