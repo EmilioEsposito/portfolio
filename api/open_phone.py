@@ -20,22 +20,21 @@ class BaseModelWithConfig(BaseModel):
         extra = "ignore"
 
 class OpenPhoneWebhookPayload(BaseModelWithConfig):
-    class OpenPhoneObject(BaseModelWithConfig):
+    class ObjectDict(BaseModelWithConfig):
         class Data(BaseModelWithConfig):
-            class OpenPhoneSubObject(BaseModelWithConfig):
+            class DataObject(BaseModelWithConfig):
+                object: str
                 from_: str = Field(..., alias="from")
                 to: str
                 body: str
                 media: list = []
                 createdAt: str
                 userId: str
+                phoneNumberId: str
                 conversationId: str
-            
-            object: OpenPhoneSubObject
-        
+            object: DataObject
         data: Data
-    
-    object: OpenPhoneObject
+    object: ObjectDict
 
 @router.post("/message_received")
 async def message_received(
@@ -59,7 +58,7 @@ async def message_received(
     # TODO: secure it by checking the signature secret
     return {
         "message": "Hello from open_phone!",
-        "payload": payload.model_dump(),
+        "payload": payload,
         "headers": headers,
     }
 
