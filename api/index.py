@@ -182,7 +182,7 @@ async def handle_chat_data(request: ChatRequest, protocol: str = Query("data")):
 
 
 @app.get("/api/hello")
-def hello_fast_api():
+async def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 

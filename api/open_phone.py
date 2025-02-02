@@ -34,6 +34,7 @@ class OpenPhoneWebhookPayload(BaseModelWithConfig):
                 conversationId: str
             object: DataObject
         data: Data
+        object: str
     object: ObjectDict
 
 @router.post("/message_received")
