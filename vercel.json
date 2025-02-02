@@ -7,11 +7,11 @@
   "crons": [
     {
       "path": "/api/cron_job_example",
-      "schedule": "* * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron_job_example_private",
-      "schedule": "* * * * *"
+      "schedule": "*/30 * * * *"
     }
   ]
 }
