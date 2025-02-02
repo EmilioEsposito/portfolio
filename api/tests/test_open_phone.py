@@ -1,8 +1,10 @@
 import json
 from pprint import pprint
-from api.open_phone import OpenPhoneWebhookPayload
+from fastapi.testclient import TestClient
+from pytest import fixture
+from api.index import app
+from api.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
 
-# Note: client fixture is automatically available from conftest.py
 
 
 def test_open_phone_message_received(client):
