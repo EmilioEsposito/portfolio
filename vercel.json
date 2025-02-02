@@ -8,6 +8,10 @@
     {
       "path": "/api/cron_job_example",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron_job_example_private",
+      "schedule": "0 5 * * *"
     }
   ]
 }
