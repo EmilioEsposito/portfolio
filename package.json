@@ -47,6 +47,7 @@
     "tailwindcss-animate": "^1.0.7",
     "types": "link:next-themes/dist/types",
     "typescript": "5.0.4",
-    "usehooks-ts": "^3.1.0"
+    "usehooks-ts": "^3.1.0",
+    "vercel": "^40.1.0"
   }
 }

@@ -22,6 +22,12 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 6. `source venv/bin/activate` to activate the virtual environment.
 7. `pip install -r requirements.txt` to install the required Python dependencies.
 8. `pnpm dev` to launch the development server.
+9. Install and use Vercel CLI, which can help test Serverless functions.
+    ```bash
+    pnpm install vercel
+    pnpm vercel login
+    pnpm vercel dev
+    ```
 
 
 
