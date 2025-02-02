@@ -13,7 +13,7 @@ from .utils.tools import get_current_weather
 
 load_dotenv(".env")
 
-app = FastAPI()
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
@@ -173,3 +173,8 @@ async def handle_chat_data(request: Request, protocol: str = Query("data")):
     response = StreamingResponse(stream_text(openai_messages, protocol))
     response.headers["x-vercel-ai-data-stream"] = "v1"
     return response
+
+
+@app.get("/api/hello")
+def hello_fast_api():
+    return {"message": "Hello from FastAPI"}

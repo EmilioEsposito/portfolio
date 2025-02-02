@@ -4,11 +4,10 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search, ChevronLeft, Menu
+  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Moon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -23,6 +22,15 @@ import {
   SidebarMenuItem,
   SidebarHeader
 } from "@/components/ui/sidebar"
+
+type SidebarItem = {
+  title: string;
+  icon: LucideIcon;
+  onClick: (e: React.MouseEvent) => void;
+} & (
+  | { type: 'navigation'; url: string }
+  | { type: 'action' }
+)
 
 export function AppSidebar() {
   const { toggleSidebar } = useSidebar()
@@ -41,59 +49,65 @@ export function AppSidebar() {
     }
   }
 
-  // Move items inside the component
-  const items = [
+  const items: SidebarItem[] = [
     {
+      type: 'navigation',
       title: "Home",
       url: "/",
       icon: Home,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: 'Chat',
       url: '/chat',
       icon: MessageSquare,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: 'Test',
       url: '/test',
       icon: FlaskConical,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: "Inbox",
       url: "#",
       icon: Inbox,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: "Calendar",
       url: "#",
       icon: Calendar,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: "Search",
       url: "#",
       icon: Search,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'navigation',
       title: "Settings",
       url: "#",
       icon: Settings,
       onClick: toggleSidebarIfMobile,
     },
     {
+      type: 'action',
       title: "Light/Dark Mode",
-      url: "#",
       icon: Moon,
       onClick: () => {
         setTheme(theme === "dark" ? "light" : "dark");
         console.log(`Changed theme to ${theme}`);
       },
-    }
+    },
   ]
 
   return (
@@ -117,10 +131,17 @@ export function AppSidebar() {
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild tooltip={item.title}>
-                    <Link href={item.url} onClick={item.onClick}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
+                    {item.type === 'navigation' ? (
+                      <Link href={item.url} onClick={item.onClick}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    ) : (
+                      <button onClick={item.onClick} className="flex w-full">
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </button>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

@@ -2,15 +2,16 @@
 
 This is my portfolio/sandbox website that I use to just play around with new technologies. 
 
-* Tech Stack:
-    * Frontend: Next.js
-        * UI: [Shadcn UI](https://ui.shadcn.com/docs)] & Tailwind CSS
-    * Backend: [FastAPI](https://fastapi.tiangolo.com/)
-        * Database: [Neon Postgres](https://neon.tech/)
-    * Deployment: [Vercel](https://vercel.com/)
-    * Package Managers: pnpm and pip
 
-# Setup
+## Tech Stack:
+* Frontend: Next.js
+    * UI: [Shadcn UI](https://ui.shadcn.com/docs) & Tailwind CSS
+* Backend: [FastAPI](https://fastapi.tiangolo.com/)
+    * Database: [Neon Postgres](https://neon.tech/)
+* Deployment: [Vercel](https://vercel.com/)
+* Package Managers: pnpm and pip
+
+## Setup
 
 0. Clone the repository `git clone https://github.com/EmilioEsposito/portfolio.git`
 1. Sign up for accounts with the AI providers you want to use (e.g., OpenAI, Anthropic).
@@ -24,3 +25,13 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 
 
 
+## Environments:
+* Localhost: 
+    * NextJS: http://localhost:3000
+    * FastAPI: http://localhost:8000/api/docs (also at http://localhost:3000/api/docs)
+* Dev: 
+    * NextJS: https://dev.eesposito.com
+    * FastAPI: https://dev.eesposito.com/api/docs
+* Production: 
+    * NextJS: https://eesposito.com
+    * FastAPI: https://eesposito.com/api/docs
