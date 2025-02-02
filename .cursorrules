@@ -1,0 +1,13 @@
+
+General:
+Feel free to make suggestions on stylistic improvements if current patterns could be significantly improved; otherwise stick to the current patterns.
+
+
+NextJS:
+Always use Server Components by default.
+
+
+Python:
+Use FastAPI for API endpoints.
+
+

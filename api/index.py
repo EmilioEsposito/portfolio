@@ -4,19 +4,24 @@ from typing import List
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
-from .utils.prompt import ClientMessage, convert_to_openai_messages
-from .utils.tools import get_current_weather
+from api.utils.prompt import ClientMessage, convert_to_openai_messages
+from api.utils.tools import get_current_weather
 from datetime import datetime
 
-
+# Import the open_phone router
+from api.open_phone import router as open_phone_router
+from api.cron import router as cron_router
 load_dotenv(".env")
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
+# Include namespaces
+app.include_router(open_phone_router, prefix="/api")
+app.include_router(cron_router, prefix="/api")
 
-client = OpenAI(
+open_ai_client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
@@ -31,7 +36,7 @@ available_tools = {
 
 
 def do_stream(messages: List[ChatCompletionMessageParam]):
-    stream = client.chat.completions.create(
+    stream = open_ai_client.chat.completions.create(
         messages=messages,
         model="gpt-4o",
         stream=True,
@@ -67,7 +72,7 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
     draft_tool_calls = []
     draft_tool_calls_index = -1
 
-    stream = client.chat.completions.create(
+    stream = open_ai_client.chat.completions.create(
         messages=messages,
         model="gpt-4o",
         stream=True,
@@ -181,19 +186,4 @@ def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 
-# Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
-@app.get("/api/cron_job_example")
-async def cron_job_example():
-
-    return {"message": "Cron job executed", "timestamp": datetime.now().isoformat()}
-
-
-# Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
-@app.get("/api/cron_job_example_private")
-async def cron_job_example_private(request: Request):
-    auth_header = request.headers.get("authorization")
-    if not auth_header or auth_header != f"Bearer {os.environ.get('CRON_SECRET')}":
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    return {"message": "Private Cron job executed", "timestamp": datetime.now().isoformat()}
 
