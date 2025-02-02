@@ -12,6 +12,7 @@
 			"."
 		],
 		"python.testing.autoTestDiscoverOnSaveEnabled": true,
+		"python.terminal.launchArgs": ["-m", "IPython"],
 		"sqltools.connections": [
 			{
 				"pgOptions": {
