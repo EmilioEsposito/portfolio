@@ -11,9 +11,9 @@ class BaseModelWithConfig(BaseModel):
         extra = "ignore"
 
 class OpenPhoneWebhookPayload(BaseModelWithConfig):
-    class Object(BaseModelWithConfig):
+    class OpenPhoneObject(BaseModelWithConfig):
         class Data(BaseModelWithConfig):
-            class Object(BaseModelWithConfig):
+            class OpenPhoneSubObject(BaseModelWithConfig):
                 from_: str = Field(..., alias="from")
                 to: str
                 body: str
@@ -22,11 +22,11 @@ class OpenPhoneWebhookPayload(BaseModelWithConfig):
                 userId: str
                 conversationId: str
             
-            object: Object
+            object: OpenPhoneSubObject
         
         data: Data
     
-    object: Object
+    object: OpenPhoneObject
 
 @router.post("/message_received")
 async def message_received(
