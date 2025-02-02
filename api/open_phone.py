@@ -36,8 +36,8 @@ class OpenPhoneWebhookPayload(BaseModel):
 
 @router.post("/message_received")
 async def message_received(
-    request: Request,
-    payload: OpenPhoneWebhookPayload,
+    request: Request
+    # payload: OpenPhoneWebhookPayload,
 ):
     # Debug logging
     body = await request.body()
@@ -47,7 +47,7 @@ async def message_received(
     print(request.headers)
     logger.info("Raw request body: %s", body.decode())
     logger.info("Content-Type header: %s", request.headers.get("content-type"))
-    
+    raw_json = {}
     # Try parsing the raw body to see what we're getting
     try:
         raw_json = json.loads(body.decode())
@@ -60,7 +60,8 @@ async def message_received(
     # TODO: secure it by checking the signature secret
     return {
         "message": "Hello from open_phone!",
-        "payload": payload,
+        # "payload": payload,
+        "raw_json": raw_json,
         "headers": headers,
     }
 
