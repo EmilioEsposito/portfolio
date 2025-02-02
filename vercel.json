@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/**": {
-      "excludeFiles": "{.next,.git,node_modules}/**"
+      "excludeFiles": "{.next,.git,node_modules}/**",
+      "runtime": "python3.12"
     }
   },
   "crons": [
