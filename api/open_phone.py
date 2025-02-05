@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Body, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conint
 import json
 import logging
 from pprint import pprint
@@ -7,6 +7,7 @@ import os
 import base64
 import hmac
 import requests
+from typing import List, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -172,3 +173,73 @@ async def send_message_endpoint(request: Request):
     )
 
     return {"message": "Message sent", "open_phone_response": response.json()}
+
+
+
+@router.get("/contacts")
+async def get_contacts_by_external_ids(
+    external_ids: List[str] = ['sdf'],
+    sources: Optional[List[str]] = None,
+    page_token: Optional[str] = None,
+):
+    """
+    Fetch contacts by their external IDs and optionally filter by sources.
+
+    Args:
+        external_ids: List of external IDs to search for (required)
+        sources: Optional list of sources to filter by
+        max_results: Maximum number of results per page (1-50, default: 10)
+        page_token: Token for pagination
+
+    Returns:
+        JSON response containing matched contacts
+    """
+
+    max_results = 49
+
+    # Build query parameters
+    params = {"externalIds": external_ids, "maxResults": max_results}
+
+    if sources:
+        params["sources"] = sources
+    if page_token:
+        params["pageToken"] = page_token
+
+    # Get API key from environment
+    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenPhone API key not configured")
+
+    # Make request to OpenPhone API
+    headers = {"Authorization": api_key, "Content-Type": "application/json"}
+
+    try:
+        response = requests.get(
+            "https://api.openphone.com/v1/contacts", headers=headers, params=params
+        )
+
+        # Raise exception for error status codes
+        response.raise_for_status()
+
+        return response.json()
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching contacts: {str(e)}")
+
+        # Handle different types of errors
+        if isinstance(e, requests.exceptions.HTTPError):
+            if e.response.status_code == 401:
+                raise HTTPException(status_code=401, detail="Invalid OpenPhone API key")
+            elif e.response.status_code == 400:
+                raise HTTPException(
+                    status_code=400,
+                    detail=e.response.json().get("message", "Bad request"),
+                )
+
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching contacts: {str(e)}"
+        )
+
+
+
+

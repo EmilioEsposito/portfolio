@@ -40,3 +40,18 @@ def test_open_phone_message_received(mocked_client):
     pprint(response_data)
 
     assert response.status_code == 200
+
+
+def test_get_contacts_success(client):
+    """Test successful contact retrieval"""
+    # Mock the OpenPhone API response
+    response = client.get(
+        "/api/open_phone/contacts", params={"external_ids": ["123", "456"]}
+    )
+
+    response_data = response.json()
+    print("\n\nRESPONSE DATA:")
+    pprint(response_data)
+
+    assert response.status_code == 200
+
