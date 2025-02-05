@@ -155,10 +155,24 @@ def send_message(
     return response
 
 
-@router.post("/send_message")
+def local_only_route(request: Request):
+    """
+    Dependency function to restrict routes to local development only.
+    Raises 401 if not in development environment.
+    """
+    if os.getenv("VERCEL_ENV") != "development":
+        raise HTTPException(
+            status_code=401, 
+            detail="Unauthorized - this route is only available in development"
+        )
+    return True
+
+
+@router.post("/send_message", dependencies=[Depends(local_only_route)])
 async def send_message_endpoint(request: Request):
     """
     Simple endpoint wrapper around send_message.
+    Only available in development environment.
     """
 
     data = await request.json()
@@ -175,8 +189,7 @@ async def send_message_endpoint(request: Request):
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-
-@router.get("/contacts")
+@router.get("/contacts", dependencies=[Depends(local_only_route)])
 async def get_contacts_by_external_ids(
     external_ids: List[str] = ['sdf'],
     sources: Optional[List[str]] = None,
@@ -184,6 +197,8 @@ async def get_contacts_by_external_ids(
 ):
     """
     Fetch contacts by their external IDs and optionally filter by sources.
+
+    Only available in development environment.
 
     Args:
         external_ids: List of external IDs to search for (required)
