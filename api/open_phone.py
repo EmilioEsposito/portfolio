@@ -245,9 +245,9 @@ def get_contacts_from_sheetdb():
     response = requests.get(url, headers=headers)
     return response.json()
 
-def verify_building_message_password_hash(password_hash: str) -> bool:
+def verify_admin_password_hash(password_hash: str) -> bool:
     """
-    Verify the building message password hash.
+    Verify the admin password hash.
     Returns True if valid, raises HTTPException if invalid.
     """
     correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
@@ -260,14 +260,14 @@ def verify_building_message_password_hash(password_hash: str) -> bool:
     
     return True
 
-async def verify_building_message_auth(request: Request):
-    """Dependency function to verify building message password"""
+async def verify_admin_auth(request: Request):
+    """Dependency function to verify admin password"""
     try:
         body = await request.json()
         password_hash = body.get("password_hash")
         if not password_hash:
             raise HTTPException(401, "password_hash required")
-        return verify_building_message_password_hash(password_hash)
+        return verify_admin_password_hash(password_hash)
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON body")
 
@@ -276,7 +276,7 @@ class BuildingMessageRequest(BaseModel):
     message: str
     password_hash: str
 
-@router.post("/send_message_to_building", dependencies=[Depends(verify_building_message_auth)])
+@router.post("/send_message_to_building", dependencies=[Depends(verify_admin_auth)])
 async def send_message_to_building(
     request: BuildingMessageRequest,
 ):
