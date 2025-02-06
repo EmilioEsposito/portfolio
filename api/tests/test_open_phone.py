@@ -6,9 +6,9 @@ from api.index import app
 from api.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
 
 
-
 async def mock_verify(*args, **kwargs):
     return True
+
 
 @fixture
 def mocked_client():
@@ -18,6 +18,7 @@ def mocked_client():
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()
+
 
 def test_open_phone_message_received(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
@@ -46,10 +47,7 @@ def test_get_contacts_success(client):
     """Test successful contact retrieval"""
 
     response = client.get(
-        "/api/open_phone/contacts",
-        params={
-            "external_ids": ["e8024958857"]
-        }
+        "/api/open_phone/contacts", params={"external_ids": ["e8024958857"]}
     )
 
     response_data = response.json()
@@ -58,3 +56,16 @@ def test_get_contacts_success(client):
 
     assert response.status_code == 200
 
+
+def test_send_message_to_building(client):
+    """Test sending a message to a building"""
+
+    data = {
+        "building_name": "Test", 
+        "message": "Hello, world from Test!"
+    }
+    response = client.post(
+        "/api/open_phone/send_message_to_building",
+        json=data,
+    )
+    assert response.status_code == 200

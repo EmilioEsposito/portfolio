@@ -133,7 +133,9 @@ async def message_received(
 
 
 def send_message(
-    message: str, phone_number_id: str, from_phone_number: str, to_phone_number: str
+    message: str, 
+    to_phone_number: str,
+    from_phone_number: str="+14129101989",
 ):
     """
     Send a message to a phone number using the OpenPhone API.
@@ -146,10 +148,9 @@ def send_message(
         "Content-Type": "application/json",
     }
     data = {
-        "content": "Hello, world!",
-        "phoneNumberId": "OP1232abc",
-        "from": "+15555555555",
-        "to": ["+15555555555"],
+        "content": message,
+        "from": from_phone_number,
+        "to": [to_phone_number],
     }
     response = requests.post(
         "https://api.openphone.com/v1/messages", headers=headers, json=data
@@ -180,12 +181,11 @@ async def send_message_endpoint(request: Request):
     data = await request.json()
 
     message = data["message"]
-    phone_number_id = data["phone_number_id"]
     from_phone_number = data["from_phone_number"]
     to_phone_number = data["to_phone_number"]
 
     response = send_message(
-        message, phone_number_id, from_phone_number, to_phone_number
+        message, to_phone_number, from_phone_number
     )
 
     return {"message": "Message sent", "open_phone_response": response.json()}
@@ -244,6 +244,31 @@ def get_contacts_from_sheetdb():
     response = requests.get(url, headers=headers)
     return response.json()
 
+class BuildingMessageRequest(BaseModel):
+    building_name: str
+    message: str
+
+@router.post("/send_message_to_building", dependencies=[Depends(local_only_route)])
+async def send_message_to_building(
+    request: BuildingMessageRequest,
+):
+    contacts = get_contacts_from_sheetdb()
+
+    # Filter contacts for the specified building
+    contacts = [contact for contact in contacts if contact["Building"] == request.building_name]
+    
+    if not contacts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No contacts found for building: {request.building_name}"
+        )
+    
+    for contact in contacts:
+        send_message(
+            request.message,
+            to_phone_number="+1"+contact["Phone Number"],
+        )
+    return contacts
 
 def test_get_ghost_ids():
     headers = {
@@ -298,7 +323,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
         data = {
             "defaultFields": {
-                "company": contact["Building"],
+                "company": contact["Company"],
                 "emails": [{"name": " Email", "value": contact["Email"]}],
                 "firstName": contact["First Name"],
                 "lastName": contact["Last Name"],
