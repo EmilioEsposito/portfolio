@@ -57,7 +57,7 @@ export default function SendBuildingMessage() {
       }
 
       const data = await response.json();
-      setStatus(`Message sent to ${data.length} contacts`);
+      setStatus(data);
       
       // Clear form
       setBuilding('');

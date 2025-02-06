@@ -164,7 +164,7 @@ def test_send_message():
         to_phone_number="+14123703550",
     )
     pprint(response.json())
-    
+
 
 def local_only_route(request: Request):
     """
@@ -262,23 +262,60 @@ class BuildingMessageRequest(BaseModel):
 async def send_message_to_building(
     request: BuildingMessageRequest,
 ):
-    contacts = get_contacts_from_sheetdb()
+    try:
+        contacts = get_contacts_from_sheetdb()
 
-    # Filter contacts for the specified building
-    contacts = [contact for contact in contacts if contact["Building"] == request.building_name]
-    
-    if not contacts:
+        # Filter contacts for the specified building
+        contacts = [contact for contact in contacts if contact["Building"] == request.building_name]
+        
+        if not contacts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No contacts found for building: {request.building_name}"
+            )
+        
+        for contact in contacts:
+
+            try:
+                send_message(
+                    request.message,
+                    to_phone_number="+1"+contact["Phone Number"],
+                )
+                contact["sent"] = True
+            except Exception as e:
+                contact["sent"] = False
+                contact["error"] = str(e)
+                failures+=1
+
+        failures = sum(not contact["sent"] for contact in contacts)
+        successes = sum(contact["sent"] for contact in contacts)
+        # create agg stats on success/failurs, along with name/phone of any failures, and put in http response
+        agg_stats = {
+            "success": successes,
+            "failures": failures,
+            "failure_names": [contact["Name"] for contact in contacts if not contact["sent"]],
+            "failure_phones": [contact["Phone Number"] for contact in contacts if not contact["sent"]],
+            "failure_errors": [contact["error"] for contact in contacts if not contact["sent"]],
+        }
+
+        if failures>0 and successes>0:
+            raise HTTPException(
+                status_code=207,  # 207 Multi-Status indicates partial success
+                message = zip(agg_stats['failure_names'], agg_stats['failure_phones'], agg_stats['failure_errors']),
+                detail=f"Failed to send message to {failures} contacts: {agg_stats['failure_names']}\n{agg_stats['failure_phones']}"
+            )
+        elif failures>0 and successes==0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to send message to ALL {failures} contacts: {agg_stats['failure_names']}\n{agg_stats['failure_phones']}"
+            )
+        else:
+            return f"Successfully sent message to {successes} contacts!"
+    except Exception as e:
         raise HTTPException(
-            status_code=404,
-            detail=f"No contacts found for building: {request.building_name}"
+            status_code=500,
+            detail=f"Error: {str(e)}"
         )
-    
-    for contact in contacts:
-        send_message(
-            request.message,
-            to_phone_number="+1"+contact["Phone Number"],
-        )
-    return contacts
 
 def test_get_ghost_ids():
     headers = {
