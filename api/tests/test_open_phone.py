@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from pytest import fixture
 from api.index import app
 from api.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
-
+import os
 
 async def mock_verify(*args, **kwargs):
     return True
@@ -56,13 +56,14 @@ def test_get_contacts_success(client):
 
     assert response.status_code == 200
 
-
+ 
 def test_send_message_to_building(client):
     """Test sending a message to a building"""
 
     data = {
         "building_name": "Test", 
-        "message": "Hello, world from Test!"
+        "message": "Hello, world from Test!",
+        "password": os.environ['LOCAL_ADMIN_PASSWORD']
     }
     response = client.post(
         "/api/open_phone/send_message_to_building",

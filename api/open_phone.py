@@ -158,6 +158,13 @@ def send_message(
     )
     return response
 
+def test_send_message():
+    response = send_message(
+        message="Hello, world from Test!",
+        to_phone_number="+14123703550",
+    )
+    pprint(response.json())
+    
 
 def local_only_route(request: Request):
     """
