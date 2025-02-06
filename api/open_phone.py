@@ -9,6 +9,7 @@ import hmac
 import requests
 from typing import List, Optional, Union
 from datetime import datetime
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -190,27 +191,13 @@ async def send_message_endpoint(request: Request):
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-@router.get("/contacts", dependencies=[Depends(local_only_route)])
+# Create a non-route function for internal use
 async def get_contacts_by_external_ids(
-    external_ids: List[str] = Query(...), # ... means required
-    sources: Union[List[str], None] = Query(default=None),
-    page_token: Union[str, None] = None,
+    external_ids: List[str],
+    sources: Optional[List[str]] = None,
+    page_token: Optional[str] = None
 ):
-    """
-    Fetch contacts by their external IDs and optionally filter by sources.
-
-    Only available in development environment.
-
-    Args:
-        external_ids: List of external IDs to search for (required)
-        sources: Optional list of sources to filter by
-        max_results: Maximum number of results per page (1-50, default: 10)
-        page_token: Token for pagination
-
-    Returns:
-        JSON response containing matched contacts
-    """
-
+    """Internal function version without Query dependencies"""
     max_results = 49
 
     # Build query parameters
@@ -221,40 +208,31 @@ async def get_contacts_by_external_ids(
     if page_token:
         params["pageToken"] = page_token
 
-    # Get API key from environment
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="OpenPhone API key not configured")
 
-    # Make request to OpenPhone API
     headers = {"Authorization": api_key, "Content-Type": "application/json"}
 
     try:
         response = requests.get(
             "https://api.openphone.com/v1/contacts", headers=headers, params=params
         )
-
-        # Raise exception for error status codes
         response.raise_for_status()
-
         return response.json()
-
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching contacts: {str(e)}")
+        # Re-raise the appropriate exception
+        raise
 
-        # Handle different types of errors
-        if isinstance(e, requests.exceptions.HTTPError):
-            if e.response.status_code == 401:
-                raise HTTPException(status_code=401, detail="Invalid OpenPhone API key")
-            elif e.response.status_code == 400:
-                raise HTTPException(
-                    status_code=400,
-                    detail=e.response.json().get("message", "Bad request"),
-                )
-
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching contacts: {str(e)}"
-        )
+# Keep the original route but make it use the internal function
+@router.get("/contacts", dependencies=[Depends(local_only_route)])
+async def route_get_contacts_by_external_ids(
+    external_ids: List[str] = Query(...),
+    sources: Union[List[str], None] = Query(default=None),
+    page_token: Union[str, None] = None,
+):
+    return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
 
 def get_contacts_from_sheetdb():
@@ -284,7 +262,7 @@ def test_get_ghost_ids():
     assert set(response_codes)==set([200])
     
 
-# Still not working
+# Working! 
 async def test_create_contacts_in_openphone():
 
     headers = {
@@ -300,13 +278,18 @@ async def test_create_contacts_in_openphone():
     custom_fields_raw = requests.get(url, headers=headers).json()['data']
 
     custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
-    custom_field_key_to_name.pop("67a3fe231c0f12583994d994")
+
     contacts = get_contacts_from_sheetdb()
     contact = contacts[0]
 
     response_codes = []
+    responses = []
+
+    # The source name needs a timestamp, otherwise API will return 500 error on re-creation
+    source_name = f"API-Emilio-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     for contact in contacts:
+        print(contact['external_id'])
 
         contact["Lease Start Date"] = contact["Lease Start Date"][:10] + "T00:00:00.000Z"
         contact["Lease End Date"] = contact["Lease End Date"][:10] + "T00:00:00.000Z"
@@ -322,31 +305,34 @@ async def test_create_contacts_in_openphone():
                 "role": contact["Role"],
             },
             "createdByUserId": "USXAiFJxgv", # Emilio
-            "source": "API-Emilio",
+            "source": source_name,
             "externalId": contact["external_id"], # "e" + contact["Phone Number"],   # contact["external_id"]
             "customFields": [
                 {"key": key, "value": contact[field_name]}
                 for key, field_name in custom_field_key_to_name.items()
             ],
         }
-        pprint(data)
+        # pprint(data)
 
         
         # get contact by external id
-        existing_contact = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
-        if len(existing_contact['data'])>0:
+        existing_contacts = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
+        if len(existing_contacts['data'])>0:
             print("Contact already exists, deleting...")
-            # delete contact
-            url = f"https://api.openphone.com/v1/contacts/{existing_contact['data'][0]['id']}"
-            response = requests.delete(url, headers=headers)
-            pprint(response)
+            # delete contact(s)
+            for existing_contact in existing_contacts['data']:
+                url = f"https://api.openphone.com/v1/contacts/{existing_contact['id']}"
+                response = requests.delete(url, headers=headers)
+                pprint(response)
 
+        time.sleep(1)
         response = requests.post(
             "https://api.openphone.com/v1/contacts", headers=headers, json=data
         )
         response_codes.append(response.status_code)
         pprint(response.json())
         pprint(response.status_code)
+        responses.append(response.json())
 
     assert set(response_codes)==set([201])
 
