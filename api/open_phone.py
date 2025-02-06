@@ -10,6 +10,7 @@ import requests
 from typing import List, Optional, Union
 from datetime import datetime
 import time
+import hashlib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -244,11 +245,38 @@ def get_contacts_from_sheetdb():
     response = requests.get(url, headers=headers)
     return response.json()
 
+def verify_building_message_password(password: str) -> bool:
+    """
+    Verify the building message password hash.
+    Returns True if valid, raises HTTPException if invalid.
+    """
+    correct_hash = os.getenv("BUILDING_MESSAGE_PASSWORD_HASH")
+    
+    if not correct_hash:
+        raise HTTPException(500, "Password hash not configured")
+    
+    if not hmac.compare_digest(password, correct_hash):
+        raise HTTPException(401, "Invalid password")
+    
+    return True
+
+async def verify_building_message_auth(request: Request):
+    """Dependency function to verify building message password"""
+    try:
+        body = await request.json()
+        password = body.get("password")
+        if not password:
+            raise HTTPException(401, "Password required")
+        return verify_building_message_password(password)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON body")
+
 class BuildingMessageRequest(BaseModel):
     building_name: str
     message: str
+    password: str
 
-@router.post("/send_message_to_building", dependencies=[Depends(local_only_route)])
+@router.post("/send_message_to_building", dependencies=[Depends(verify_building_message_auth)])
 async def send_message_to_building(
     request: BuildingMessageRequest,
 ):

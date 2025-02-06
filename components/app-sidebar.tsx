@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon
+  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -69,6 +69,13 @@ export function AppSidebar() {
       title: 'Test',
       url: '/test',
       icon: FlaskConical,
+      onClick: toggleSidebarIfMobile,
+    },
+    {
+      type: 'navigation',
+      title: "Send Building Message",
+      url: "/send-building-message",
+      icon: Building,
       onClick: toggleSidebarIfMobile,
     },
     {
