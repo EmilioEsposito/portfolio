@@ -71,12 +71,12 @@ export default function SendBuildingMessage() {
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-lg">
+    <div className="max-w-md mx-auto mt-10 p-6 bg-card text-card-foreground rounded-lg shadow-lg">
       <h1 className="text-2xl font-bold mb-6">Send Building Message</h1>
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium mb-2">Building Name</label>
+          <label className="block text-sm font-medium text-foreground mb-2">Building Name</label>
           <Select
             value={building}
             onValueChange={(value: Building) => setBuilding(value)}
@@ -95,7 +95,7 @@ export default function SendBuildingMessage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Message</label>
+          <label className="block text-sm font-medium text-foreground mb-2">Message</label>
           <Textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -107,7 +107,7 @@ export default function SendBuildingMessage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Password</label>
+          <label className="block text-sm font-medium text-foreground mb-2">Password</label>
           <Input
             type="password"
             value={password}
@@ -118,14 +118,14 @@ export default function SendBuildingMessage() {
 
         <button
           type="submit"
-          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
         >
           Send Message
         </button>
       </form>
 
       {status && (
-        <div className="mt-4 p-3 rounded bg-gray-100">
+        <div className="mt-4 p-3 rounded bg-muted text-muted-foreground">
           {status}
         </div>
       )}
@@ -144,15 +144,15 @@ export default function SendBuildingMessage() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="mt-4 p-3 bg-gray-50 rounded-md">
-            <p className="text-sm font-medium text-gray-700">Message:</p>
-            <p className="mt-1 text-sm text-gray-600">{message}</p>
+          <div className="mt-4 p-3 bg-muted rounded-md">
+            <p className="text-sm font-medium text-foreground">Message:</p>
+            <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
 
           <DialogFooter className="mt-6">
             <button
               type="button"
-              className="mr-3 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="mr-3 px-4 py-2 text-sm font-medium text-muted-foreground bg-secondary border border-input rounded-md hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring"
               onClick={() => setShowConfirmation(false)}
             >
               Cancel
@@ -160,7 +160,7 @@ export default function SendBuildingMessage() {
             <button
               type="button"
               onClick={handleConfirmedSubmit}
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary border border-transparent rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring"
             >
               Confirm & Send
             </button>
