@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Body, Depends, HTTPException
+from fastapi import APIRouter, Request, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, conint
 import json
 import logging
@@ -7,7 +7,8 @@ import os
 import base64
 import hmac
 import requests
-from typing import List, Optional
+from typing import List, Optional, Union
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -162,8 +163,8 @@ def local_only_route(request: Request):
     """
     if os.getenv("VERCEL_ENV") != "development":
         raise HTTPException(
-            status_code=401, 
-            detail="Unauthorized - this route is only available in development"
+            status_code=401,
+            detail="Unauthorized - this route is only available in development",
         )
     return True
 
@@ -191,9 +192,9 @@ async def send_message_endpoint(request: Request):
 
 @router.get("/contacts", dependencies=[Depends(local_only_route)])
 async def get_contacts_by_external_ids(
-    external_ids: List[str] = ['sdf'],
-    sources: Optional[List[str]] = None,
-    page_token: Optional[str] = None,
+    external_ids: List[str] = Query(...), # ... means required
+    sources: Union[List[str], None] = Query(default=None),
+    page_token: Union[str, None] = None,
 ):
     """
     Fetch contacts by their external IDs and optionally filter by sources.
@@ -256,5 +257,97 @@ async def get_contacts_by_external_ids(
         )
 
 
+def get_contacts_from_sheetdb():
+    url = "https://sheetdb.io/api/v1/vs9ahjsfdc4a1?sheet=OpenPhone"
+    headers = {
+        "Authorization": f"Bearer {os.getenv('SHEETDB_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    response = requests.get(url, headers=headers)
+    return response.json()
+
+
+def test_get_ghost_ids():
+    headers = {
+        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    ghost_ids = ["67a3f0e374352083a596852c", "67a3ea7913bc7ac81079abce", "67a3f29874352083a5968570"]
+    response_codes = []
+    for id in ghost_ids:
+        url = f"https://api.openphone.com/v1/contacts/{id}"
+        response = requests.get(url, headers=headers)
+        print(response.json())
+        response_codes.append(response.status_code)
+    pprint(response_codes)
+
+    assert set(response_codes)==set([200])
+    
+
+# Still not working
+async def test_create_contacts_in_openphone():
+
+    headers = {
+        "Authorization": os.getenv("OPEN_PHONE_API_KEY"),
+        "Content-Type": "application/json",
+    }
+
+    url = "https://api.openphone.com/v1/contact-custom-fields"
+    headers = {
+        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    custom_fields_raw = requests.get(url, headers=headers).json()['data']
+
+    custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
+    custom_field_key_to_name.pop("67a3fe231c0f12583994d994")
+    contacts = get_contacts_from_sheetdb()
+    contact = contacts[0]
+
+    response_codes = []
+
+    for contact in contacts:
+
+        contact["Lease Start Date"] = contact["Lease Start Date"][:10] + "T00:00:00.000Z"
+        contact["Lease End Date"] = contact["Lease End Date"][:10] + "T00:00:00.000Z"
+
+
+        data = {
+            "defaultFields": {
+                "company": contact["Building"],
+                "emails": [{"name": " Email", "value": contact["Email"]}],
+                "firstName": contact["First Name"],
+                "lastName": contact["Last Name"],
+                "phoneNumbers": [{"name": "Phone", "value": contact["Phone Number"]}],
+                "role": contact["Role"],
+            },
+            "createdByUserId": "USXAiFJxgv", # Emilio
+            "source": "API-Emilio",
+            "externalId": contact["external_id"], # "e" + contact["Phone Number"],   # contact["external_id"]
+            "customFields": [
+                {"key": key, "value": contact[field_name]}
+                for key, field_name in custom_field_key_to_name.items()
+            ],
+        }
+        pprint(data)
+
+        
+        # get contact by external id
+        existing_contact = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
+        if len(existing_contact['data'])>0:
+            print("Contact already exists, deleting...")
+            # delete contact
+            url = f"https://api.openphone.com/v1/contacts/{existing_contact['data'][0]['id']}"
+            response = requests.delete(url, headers=headers)
+            pprint(response)
+
+        response = requests.post(
+            "https://api.openphone.com/v1/contacts", headers=headers, json=data
+        )
+        response_codes.append(response.status_code)
+        pprint(response.json())
+        pprint(response.status_code)
+
+    assert set(response_codes)==set([201])
 
 
