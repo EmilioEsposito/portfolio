@@ -274,10 +274,10 @@ async def send_message_to_building(
     request: BuildingMessageRequest,
 ):
     try:
-        contacts = get_contacts_from_sheetdb()
+        all_unfilterd_contacts = get_contacts_from_sheetdb()
 
         # Filter contacts for the specified building
-        contacts = [contact for contact in contacts if contact["Building"] == request.building_name]
+        contacts = [contact for contact in all_unfilterd_contacts if contact["Building"] == request.building_name]
         
         if not contacts:
             raise HTTPException(
