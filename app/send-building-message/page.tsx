@@ -12,11 +12,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 
 // This should match the salt in your .env
-const SALT = '10235d01010e2656132765eab1249459';
+const SALT = process.env.NEXT_PUBLIC_ADMIN_PASSWORD_SALT;
 
 async function hashPassword(password: string): Promise<string> {
   // Convert password+salt to Uint8Array
   const encoder = new TextEncoder();
+  console.log("SALT", SALT);
+  if (!SALT) {
+    throw new Error("SALT not found");
+  }
   const data = encoder.encode(password + SALT);
   
   // Hash using SHA-256
@@ -53,7 +57,7 @@ export default function SendBuildingMessage() {
         body: JSON.stringify({
           building_name: building,
           message: message,
-          password: hashedPassword,
+          password_hash: hashedPassword,
         }),
       });
 

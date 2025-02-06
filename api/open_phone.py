@@ -245,17 +245,17 @@ def get_contacts_from_sheetdb():
     response = requests.get(url, headers=headers)
     return response.json()
 
-def verify_building_message_password(password: str) -> bool:
+def verify_building_message_password_hash(password_hash: str) -> bool:
     """
     Verify the building message password hash.
     Returns True if valid, raises HTTPException if invalid.
     """
-    correct_hash = os.getenv("BUILDING_MESSAGE_PASSWORD_HASH")
+    correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
     
     if not correct_hash:
         raise HTTPException(500, "Password hash not configured")
     
-    if not hmac.compare_digest(password, correct_hash):
+    if not hmac.compare_digest(password_hash, correct_hash):
         raise HTTPException(401, "Invalid password")
     
     return True
@@ -264,17 +264,17 @@ async def verify_building_message_auth(request: Request):
     """Dependency function to verify building message password"""
     try:
         body = await request.json()
-        password = body.get("password")
-        if not password:
-            raise HTTPException(401, "Password required")
-        return verify_building_message_password(password)
+        password_hash = body.get("password_hash")
+        if not password_hash:
+            raise HTTPException(401, "password_hash required")
+        return verify_building_message_password_hash(password_hash)
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON body")
 
 class BuildingMessageRequest(BaseModel):
     building_name: str
     message: str
-    password: str
+    password_hash: str
 
 @router.post("/send_message_to_building", dependencies=[Depends(verify_building_message_auth)])
 async def send_message_to_building(

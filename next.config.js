@@ -25,6 +25,9 @@ const nextConfig = {
       },
     ];
   },
+  env: {
+    NEXT_PUBLIC_ADMIN_PASSWORD_SALT: process.env.NEXT_PUBLIC_ADMIN_PASSWORD_SALT,
+  },
 };
 
 module.exports = nextConfig;
