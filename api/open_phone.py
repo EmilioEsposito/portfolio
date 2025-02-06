@@ -263,7 +263,7 @@ def test_get_ghost_ids():
     
 
 # Working! 
-async def test_create_contacts_in_openphone():
+async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {
         "Authorization": os.getenv("OPEN_PHONE_API_KEY"),
@@ -280,13 +280,14 @@ async def test_create_contacts_in_openphone():
     custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
 
     contacts = get_contacts_from_sheetdb()
-    contact = contacts[0]
+    contact = contacts[35]
 
     response_codes = []
     responses = []
 
     # The source name needs a timestamp, otherwise API will return 500 error on re-creation
-    source_name = f"API-Emilio-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    if not source_name:
+        source_name = f"API-Emilio-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     for contact in contacts:
         print(contact['external_id'])
@@ -317,23 +318,30 @@ async def test_create_contacts_in_openphone():
         
         # get contact by external id
         existing_contacts = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
+        skip = False
         if len(existing_contacts['data'])>0:
-            print("Contact already exists, deleting...")
-            # delete contact(s)
-            for existing_contact in existing_contacts['data']:
-                url = f"https://api.openphone.com/v1/contacts/{existing_contact['id']}"
-                response = requests.delete(url, headers=headers)
-                pprint(response)
 
-        time.sleep(1)
-        response = requests.post(
-            "https://api.openphone.com/v1/contacts", headers=headers, json=data
-        )
-        response_codes.append(response.status_code)
-        pprint(response.json())
-        pprint(response.status_code)
-        responses.append(response.json())
+            if overwrite:
+                print("Contact already exists, deleting...")
+                # delete contact(s)
+                for existing_contact in existing_contacts['data']:
+                    url = f"https://api.openphone.com/v1/contacts/{existing_contact['id']}"
+                    response = requests.delete(url, headers=headers)
+                    pprint(response)
+            else:
+                print("Contact already exists, skipping...")
+                skip = True
 
-    assert set(response_codes)==set([201])
+        if not skip:
 
+            time.sleep(1)
+            response = requests.post(
+                "https://api.openphone.com/v1/contacts", headers=headers, json=data
+            )
+            response_codes.append(response.status_code)
+            pprint(response.json())
+            pprint(response.status_code)
+            responses.append(response.json())
+
+    assert set(response_codes)==set([201]) or response_codes==[]
 
