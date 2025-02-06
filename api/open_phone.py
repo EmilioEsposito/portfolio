@@ -245,11 +245,22 @@ async def route_get_contacts_by_external_ids(
 
 def get_contacts_from_sheetdb():
     url = "https://sheetdb.io/api/v1/vs9ahjsfdc4a1?sheet=OpenPhone"
+
+    if not os.getenv('SHEETDB_API_KEY'):
+        raise HTTPException(
+            status_code=500,
+            detail="SheetDB API key not configured"
+        )
     headers = {
         "Authorization": f"Bearer {os.getenv('SHEETDB_API_KEY')}",
         "Content-Type": "application/json",
     }
     response = requests.get(url, headers=headers)
+
+    # In 200 case: Does nothing and allows execution to continue
+    # In 400/500 case: Raises requests.exceptions.HTTPError with response details
+    response.raise_for_status()
+    
     return response.json()
 
 
@@ -293,21 +304,28 @@ async def send_message_to_building(
         agg_stats = {
             "success": successes,
             "failures": failures,
-            "failure_names": [contact["Name"] for contact in contacts if not contact["sent"]],
+            "failure_names": [contact["First Name"] for contact in contacts if not contact["sent"]],
             "failure_phones": [contact["Phone Number"] for contact in contacts if not contact["sent"]],
             "failure_errors": [contact["error"] for contact in contacts if not contact["sent"]],
         }
 
-        if failures>0 and successes>0:
-            raise HTTPException(
-                status_code=207,  # 207 Multi-Status indicates partial success
-                message = zip(agg_stats['failure_names'], agg_stats['failure_phones'], agg_stats['failure_errors']),
-                detail=f"Failed to send message to {failures} contacts: {agg_stats['failure_names']}\n{agg_stats['failure_phones']}"
+        if failures > 0:
+            failed_contacts = [f"{name}, ({phone})" for name, phone in zip(
+                agg_stats['failure_names'], 
+                agg_stats['failure_phones']
+            )]
+            error_messages = list(set(agg_stats['failure_errors']))
+            
+            message = (
+                f"{'Partial success' if successes > 0 else 'Failed'}: "
+                f"Failed to send message to {failures} contacts.\nFailed contacts:\n" +
+                "\n".join(failed_contacts) +
+                "\n\nErrors encountered:\n" + "\n".join(error_messages)
             )
-        elif failures>0 and successes==0:
+            
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to send message to ALL {failures} contacts: {agg_stats['failure_names']}\n{agg_stats['failure_phones']}"
+                status_code=207 if successes > 0 else 500,
+                detail=message
             )
         else:
             return f"Successfully sent message to {successes} contacts!"
