@@ -10,6 +10,15 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog"
 
 const BUILDINGS = ["Test"] as const;
 type Building = typeof BUILDINGS[number];
@@ -19,9 +28,15 @@ export default function SendBuildingMessage() {
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState('');
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmedSubmit = async () => {
+    setShowConfirmation(false);
     setStatus('Sending...');
 
     try {
@@ -114,6 +129,44 @@ export default function SendBuildingMessage() {
           {status}
         </div>
       )}
+
+      <Dialog 
+        open={showConfirmation} 
+        onOpenChange={(open) => {
+          if (!open) setShowConfirmation(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Message</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to send this message to {building}?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="mt-4 p-3 bg-gray-50 rounded-md">
+            <p className="text-sm font-medium text-gray-700">Message:</p>
+            <p className="mt-1 text-sm text-gray-600">{message}</p>
+          </div>
+
+          <DialogFooter className="mt-6">
+            <button
+              type="button"
+              className="mr-3 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              onClick={() => setShowConfirmation(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmedSubmit}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Confirm & Send
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 
