@@ -10,7 +10,7 @@ import requests
 from typing import List, Optional, Union
 from datetime import datetime
 import time
-import hashlib
+from api.password import verify_admin_auth
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -245,31 +245,6 @@ def get_contacts_from_sheetdb():
     response = requests.get(url, headers=headers)
     return response.json()
 
-def verify_admin_password_hash(password_hash: str) -> bool:
-    """
-    Verify the admin password hash.
-    Returns True if valid, raises HTTPException if invalid.
-    """
-    correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
-    
-    if not correct_hash:
-        raise HTTPException(500, "Password hash not configured")
-    
-    if not hmac.compare_digest(password_hash, correct_hash):
-        raise HTTPException(401, "Invalid password")
-    
-    return True
-
-async def verify_admin_auth(request: Request):
-    """Dependency function to verify admin password"""
-    try:
-        body = await request.json()
-        password_hash = body.get("password_hash")
-        if not password_hash:
-            raise HTTPException(401, "password_hash required")
-        return verify_admin_password_hash(password_hash)
-    except json.JSONDecodeError:
-        raise HTTPException(400, "Invalid JSON body")
 
 class BuildingMessageRequest(BaseModel):
     building_name: str
