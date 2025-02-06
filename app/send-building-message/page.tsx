@@ -11,28 +11,6 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 
-// This should match the salt in your .env
-const SALT = process.env.NEXT_PUBLIC_ADMIN_PASSWORD_SALT;
-
-async function hashPassword(password: string): Promise<string> {
-  // Convert password+salt to Uint8Array
-  const encoder = new TextEncoder();
-  console.log("SALT", SALT);
-  if (!SALT) {
-    throw new Error("SALT not found");
-  }
-  const data = encoder.encode(password + SALT);
-  
-  // Hash using SHA-256
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  
-  // Convert to hex string
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  return hashHex;
-}
-
 const BUILDINGS = ["Test"] as const;
 type Building = typeof BUILDINGS[number];
 
@@ -47,8 +25,6 @@ export default function SendBuildingMessage() {
     setStatus('Sending...');
 
     try {
-      const hashedPassword = await hashPassword(password);
-      
       const response = await fetch('/api/open_phone/send_message_to_building', {
         method: 'POST',
         headers: {
@@ -57,7 +33,7 @@ export default function SendBuildingMessage() {
         body: JSON.stringify({
           building_name: building,
           message: message,
-          password_hash: hashedPassword,
+          password: password,
         }),
       });
 

@@ -26,7 +26,7 @@ const nextConfig = {
     ];
   },
   env: {
-    NEXT_PUBLIC_ADMIN_PASSWORD_SALT: process.env.NEXT_PUBLIC_ADMIN_PASSWORD_SALT,
+    NEXT_PUBLIC_ENV_VAR_EXAMPLE: process.env.NEXT_PUBLIC_ENV_VAR_EXAMPLE,
   },
 };
 

@@ -16,33 +16,38 @@ def adhoc_generate_new_password():
     password_hash = hashlib.sha256(password_bytes).hexdigest()
 
     print(f"Add these to your .env file:")
-    print(f"NEXT_PUBLIC_ADMIN_PASSWORD_SALT={salt}")
-    print(f"BUILDING_MESSAGE_PASSWORD_HASH={password_hash}")
+    print(f"ADMIN_PASSWORD_SALT={salt}")
+    print(f"ADMIN_PASSWORD_HASH={password_hash}")
 
-
-
-def verify_admin_password_hash(password_hash: str) -> bool:
-    """
-    Verify the admin password hash.
-    Returns True if valid, raises HTTPException if invalid.
-    """
-    correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
+def hash_password(password: str) -> str:
+    """Hash a plaintext password using the salt from environment variables."""
+    import hashlib
     
-    if not correct_hash:
-        raise HTTPException(500, "Password hash not configured")
+    salt = os.getenv("ADMIN_PASSWORD_SALT")
+    if not salt:
+        raise HTTPException(500, "Password salt not configured")
     
-    if not hmac.compare_digest(password_hash, correct_hash):
-        raise HTTPException(401, "Invalid password")
-    
-    return True
+    # Create salted hash
+    password_bytes = (password + salt).encode('utf-8')
+    return hashlib.sha256(password_bytes).hexdigest()
 
-async def verify_admin_auth(request: Request):
-    """Dependency function to verify admin password"""
+async def verify_admin_auth(request: Request) -> bool:
+    """FastAPI dependency function to verify admin password from request body"""
     try:
         body = await request.json()
-        password_hash = body.get("password_hash")
-        if not password_hash:
-            raise HTTPException(401, "password_hash required")
-        return verify_admin_password_hash(password_hash)
+        password = body.get("password")
+        if not password:
+            raise HTTPException(401, "Password required")
+            
+        password_hash = hash_password(password)
+        correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
+        
+        if not correct_hash:
+            raise HTTPException(500, "Password hash not configured")
+        
+        if not hmac.compare_digest(password_hash, correct_hash):
+            raise HTTPException(401, "Invalid password")
+        
+        return True
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON body")

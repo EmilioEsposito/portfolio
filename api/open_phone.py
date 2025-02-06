@@ -249,7 +249,7 @@ def get_contacts_from_sheetdb():
 class BuildingMessageRequest(BaseModel):
     building_name: str
     message: str
-    password_hash: str
+    password: str
 
 @router.post("/send_message_to_building", dependencies=[Depends(verify_admin_auth)])
 async def send_message_to_building(
