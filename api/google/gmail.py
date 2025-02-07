@@ -10,8 +10,11 @@ from typing import Optional, Union
 from fastapi import HTTPException
 from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
+from google_auth_oauthlib.flow import Flow
 
 from api.google.auth import get_service_credentials, get_oauth_credentials, get_oauth_url, get_delegated_credentials
+
+SCOPES = ['https://www.googleapis.com/auth/gmail.send']
 
 def get_gmail_service(credentials: Union[Credentials, service_account.Credentials]):
     """
@@ -152,8 +155,8 @@ def test_send_email():
     """
     try:
         # Get service account credentials
-        service_creds = get_service_credentials()
-        print(f"✓ Got service account: {service_creds.service_account_email}")
+        # service_creds = get_service_credentials()
+        # print(f"✓ Got service account: {service_creds.service_account_email}")
         
         # Get delegated credentials
         delegated_credentials = get_delegated_credentials(
