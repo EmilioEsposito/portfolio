@@ -259,7 +259,7 @@ export const MultiSelect = React.forwardRef<
                 </div>
                 <div className="flex items-center justify-between">
                   <XIcon
-                    className="h-4 mx-2 cursor-pointer text-muted-foreground"
+                    className="h-4 mx-2 cursor-pointer text-foreground hover:text-foreground/80"
                     onClick={(event) => {
                       event.stopPropagation();
                       handleClear();
@@ -269,15 +269,15 @@ export const MultiSelect = React.forwardRef<
                     orientation="vertical"
                     className="flex min-h-6 h-full"
                   />
-                  <ChevronDown className="h-4 mx-2 cursor-pointer text-muted-foreground" />
+                  <ChevronDown className="h-4 mx-2 cursor-pointer text-foreground hover:text-foreground/80" />
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-between w-full mx-auto">
-                <span className="text-sm text-muted-foreground mx-3">
+                <span className="text-sm text-foreground mx-3">
                   {placeholder}
                 </span>
-                <ChevronDown className="h-4 cursor-pointer text-muted-foreground mx-2" />
+                <ChevronDown className="h-4 cursor-pointer text-foreground hover:text-foreground/80 mx-2" />
               </div>
             )}
           </Button>
@@ -291,6 +291,7 @@ export const MultiSelect = React.forwardRef<
             <CommandInput
               placeholder="Search..."
               onKeyDown={handleInputKeyDown}
+              className="text-foreground"
             />
             <CommandList>
               <CommandEmpty>No results found.</CommandEmpty>
@@ -298,14 +299,14 @@ export const MultiSelect = React.forwardRef<
                 <CommandItem
                   key="all"
                   onSelect={toggleAll}
-                  className="cursor-pointer"
+                  className="cursor-pointer data-[disabled]:opacity-100"
                 >
                   <div
                     className={cn(
                       "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
                       selectedValues.length === options.length
                         ? "bg-primary text-primary-foreground"
-                        : "opacity-50 [&_svg]:invisible"
+                        : "[&_svg]:invisible"
                     )}
                   >
                     <CheckIcon className="h-4 w-4" />
@@ -318,7 +319,7 @@ export const MultiSelect = React.forwardRef<
                     <CommandItem
                       key={option.value}
                       onSelect={() => toggleOption(option.value)}
-                      className="cursor-pointer"
+                      className="cursor-pointer data-[disabled]:opacity-100"
                       data-selected={isSelected}
                     >
                       <div
@@ -326,7 +327,7 @@ export const MultiSelect = React.forwardRef<
                           "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
                           isSelected
                             ? "bg-primary text-primary-foreground"
-                            : "opacity-50 [&_svg]:invisible"
+                            : "[&_svg]:invisible"
                         )}
                       >
                         <CheckIcon className="h-4 w-4" />
@@ -371,7 +372,7 @@ export const MultiSelect = React.forwardRef<
           <WandSparkles
             className={cn(
               "cursor-pointer my-2 text-foreground bg-background w-3 h-3",
-              isAnimating ? "" : "text-muted-foreground"
+              isAnimating ? "" : "text-foreground"
             )}
             onClick={() => setIsAnimating(!isAnimating)}
           />
