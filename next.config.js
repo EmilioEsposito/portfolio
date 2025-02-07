@@ -25,6 +25,9 @@ const nextConfig = {
       },
     ];
   },
+  env: {
+    NEXT_PUBLIC_ENV_VAR_EXAMPLE: process.env.NEXT_PUBLIC_ENV_VAR_EXAMPLE,
+  },
 };
 
 module.exports = nextConfig;

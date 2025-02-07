@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request, Body, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Request, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, conint
 import json
 import logging
 from pprint import pprint
@@ -7,6 +7,10 @@ import os
 import base64
 import hmac
 import requests
+from typing import List, Optional, Union
+from datetime import datetime
+import time
+from api.password import verify_admin_auth
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -130,7 +134,9 @@ async def message_received(
 
 
 def send_message(
-    message: str, phone_number_id: str, from_phone_number: str, to_phone_number: str
+    message: str, 
+    to_phone_number: str,
+    from_phone_number: str="+14129101989",
 ):
     """
     Send a message to a phone number using the OpenPhone API.
@@ -143,32 +149,289 @@ def send_message(
         "Content-Type": "application/json",
     }
     data = {
-        "content": "Hello, world!",
-        "phoneNumberId": "OP1232abc",
-        "from": "+15555555555",
-        "to": ["+15555555555"],
+        "content": message,
+        "from": from_phone_number,
+        "to": [to_phone_number],
     }
     response = requests.post(
         "https://api.openphone.com/v1/messages", headers=headers, json=data
     )
     return response
 
+def test_send_message():
+    response = send_message(
+        message="Hello, world from Test!",
+        to_phone_number="+14123703550",
+    )
+    pprint(response.json())
 
-@router.post("/send_message")
+
+def local_only_route(request: Request):
+    """
+    Dependency function to restrict routes to local development only.
+    Raises 401 if not in development environment.
+    """
+    if os.getenv("VERCEL_ENV") != "development":
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized - this route is only available in development",
+        )
+    return True
+
+
+@router.post("/send_message", dependencies=[Depends(local_only_route)])
 async def send_message_endpoint(request: Request):
     """
     Simple endpoint wrapper around send_message.
+    Only available in development environment.
     """
 
     data = await request.json()
 
     message = data["message"]
-    phone_number_id = data["phone_number_id"]
     from_phone_number = data["from_phone_number"]
     to_phone_number = data["to_phone_number"]
 
     response = send_message(
-        message, phone_number_id, from_phone_number, to_phone_number
+        message, to_phone_number, from_phone_number
     )
 
     return {"message": "Message sent", "open_phone_response": response.json()}
+
+
+# Create a non-route function for internal use
+async def get_contacts_by_external_ids(
+    external_ids: List[str],
+    sources: Optional[List[str]] = None,
+    page_token: Optional[str] = None
+):
+    """Internal function version without Query dependencies"""
+    max_results = 49
+
+    # Build query parameters
+    params = {"externalIds": external_ids, "maxResults": max_results}
+
+    if sources:
+        params["sources"] = sources
+    if page_token:
+        params["pageToken"] = page_token
+
+    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenPhone API key not configured")
+
+    headers = {"Authorization": api_key, "Content-Type": "application/json"}
+
+    try:
+        response = requests.get(
+            "https://api.openphone.com/v1/contacts", headers=headers, params=params
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching contacts: {str(e)}")
+        # Re-raise the appropriate exception
+        raise
+
+# Keep the original route but make it use the internal function
+@router.get("/contacts", dependencies=[Depends(local_only_route)])
+async def route_get_contacts_by_external_ids(
+    external_ids: List[str] = Query(...),
+    sources: Union[List[str], None] = Query(default=None),
+    page_token: Union[str, None] = None,
+):
+    return await get_contacts_by_external_ids(external_ids, sources, page_token)
+
+
+def get_contacts_from_sheetdb():
+    url = "https://sheetdb.io/api/v1/vs9ahjsfdc4a1?sheet=OpenPhone"
+
+    if not os.getenv('SHEETDB_API_KEY'):
+        raise HTTPException(
+            status_code=500,
+            detail="SheetDB API key not configured"
+        )
+    headers = {
+        "Authorization": f"Bearer {os.getenv('SHEETDB_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    response = requests.get(url, headers=headers)
+
+    # In 200 case: Does nothing and allows execution to continue
+    # In 400/500 case: Raises requests.exceptions.HTTPError with response details
+    response.raise_for_status()
+    
+    return response.json()
+
+
+class BuildingMessageRequest(BaseModel):
+    building_name: str
+    message: str
+    password: str
+
+@router.post("/send_message_to_building", dependencies=[Depends(verify_admin_auth)])
+async def send_message_to_building(
+    request: BuildingMessageRequest,
+):
+    try:
+        all_unfilterd_contacts = get_contacts_from_sheetdb()
+
+        # Filter contacts for the specified building
+        contacts = [contact for contact in all_unfilterd_contacts if contact["Building"] == request.building_name]
+        
+        if not contacts:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No contacts found for building: {request.building_name}"
+            )
+        
+        for contact in contacts:
+
+            try:
+                send_message(
+                    request.message,
+                    to_phone_number="+1"+contact["Phone Number"],
+                )
+                contact["sent"] = True
+            except Exception as e:
+                contact["sent"] = False
+                contact["error"] = str(e)
+                failures+=1
+
+        failures = sum(not contact["sent"] for contact in contacts)
+        successes = sum(contact["sent"] for contact in contacts)
+        # create agg stats on success/failurs, along with name/phone of any failures, and put in http response
+        agg_stats = {
+            "success": successes,
+            "failures": failures,
+            "failure_names": [contact["First Name"] for contact in contacts if not contact["sent"]],
+            "failure_phones": [contact["Phone Number"] for contact in contacts if not contact["sent"]],
+            "failure_errors": [contact["error"] for contact in contacts if not contact["sent"]],
+        }
+
+        if failures > 0:
+            failed_contacts = [f"{name}, ({phone})" for name, phone in zip(
+                agg_stats['failure_names'], 
+                agg_stats['failure_phones']
+            )]
+            error_messages = list(set(agg_stats['failure_errors']))
+            
+            message = (
+                f"{'Partial success' if successes > 0 else 'Failed'}: "
+                f"Failed to send message to {failures} contacts.\nFailed contacts:\n" +
+                "\n".join(failed_contacts) +
+                "\n\nErrors encountered:\n" + "\n".join(error_messages)
+            )
+            
+            raise HTTPException(
+                status_code=207 if successes > 0 else 500,
+                detail=message
+            )
+        else:
+            return f"Successfully sent message to {successes} contacts!"
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error: {str(e)}"
+        )
+
+def test_get_ghost_ids():
+    headers = {
+        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    ghost_ids = ["67a3f0e374352083a596852c", "67a3ea7913bc7ac81079abce", "67a3f29874352083a5968570"]
+    response_codes = []
+    for id in ghost_ids:
+        url = f"https://api.openphone.com/v1/contacts/{id}"
+        response = requests.get(url, headers=headers)
+        print(response.json())
+        response_codes.append(response.status_code)
+    pprint(response_codes)
+
+    assert set(response_codes)==set([200])
+    
+
+# Working! 
+async def create_contacts_in_openphone(overwrite=False, source_name=None):
+
+    headers = {
+        "Authorization": os.getenv("OPEN_PHONE_API_KEY"),
+        "Content-Type": "application/json",
+    }
+
+    url = "https://api.openphone.com/v1/contact-custom-fields"
+    headers = {
+        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+        "Content-Type": "application/json",
+    }
+    custom_fields_raw = requests.get(url, headers=headers).json()['data']
+
+    custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
+
+    contacts = get_contacts_from_sheetdb()
+    contact = contacts[35]
+
+    response_codes = []
+    responses = []
+
+    # The source name needs a timestamp, otherwise API will return 500 error on re-creation
+    if not source_name:
+        source_name = f"API-Emilio-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+    for contact in contacts:
+        print(contact['external_id'])
+
+        contact["Lease Start Date"] = contact["Lease Start Date"][:10] + "T00:00:00.000Z"
+        contact["Lease End Date"] = contact["Lease End Date"][:10] + "T00:00:00.000Z"
+
+
+        data = {
+            "defaultFields": {
+                "company": contact["Company"],
+                "emails": [{"name": " Email", "value": contact["Email"]}],
+                "firstName": contact["First Name"],
+                "lastName": contact["Last Name"],
+                "phoneNumbers": [{"name": "Phone", "value": contact["Phone Number"]}],
+                "role": contact["Role"],
+            },
+            "createdByUserId": "USXAiFJxgv", # Emilio
+            "source": source_name,
+            "externalId": contact["external_id"], # "e" + contact["Phone Number"],   # contact["external_id"]
+            "customFields": [
+                {"key": key, "value": contact[field_name]}
+                for key, field_name in custom_field_key_to_name.items()
+            ],
+        }
+        # pprint(data)
+
+        
+        # get contact by external id
+        existing_contacts = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
+        skip = False
+        if len(existing_contacts['data'])>0:
+
+            if overwrite:
+                print("Contact already exists, deleting...")
+                # delete contact(s)
+                for existing_contact in existing_contacts['data']:
+                    url = f"https://api.openphone.com/v1/contacts/{existing_contact['id']}"
+                    response = requests.delete(url, headers=headers)
+                    pprint(response)
+            else:
+                print("Contact already exists, skipping...")
+                skip = True
+
+        if not skip:
+
+            time.sleep(1)
+            response = requests.post(
+                "https://api.openphone.com/v1/contacts", headers=headers, json=data
+            )
+            response_codes.append(response.status_code)
+            pprint(response.json())
+            pprint(response.status_code)
+            responses.append(response.json())
+
+    assert set(response_codes)==set([201]) or response_codes==[]
+
