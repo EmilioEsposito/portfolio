@@ -251,7 +251,7 @@ def get_contacts_sheet_as_json():
 
 
 class BuildingMessageRequest(BaseModel):
-    building_name: str
+    building_names: List[str]  # Changed from building_name to building_names as a list
     message: str
     password: str
 
@@ -259,17 +259,18 @@ class BuildingMessageRequest(BaseModel):
 async def send_message_to_building(
     body: BuildingMessageRequest,
 ):
-    """Send a message to all contacts in a specific building."""
-    logger.info(f"Starting send_message_to_building request for building: {body.building_name}")
+    """Send a message to all contacts in the specified buildings."""
+    logger.info(f"Starting send_message_to_building request for buildings: {body.building_names}")
     
     try:
         # Verify required environment variables
         api_key = os.getenv("OPEN_PHONE_API_KEY")
         if not api_key:
-            logger.error("OpenPhone API key not configured")
+            message = "OpenPhone API key not configured"
+            logger.error(message)
             raise HTTPException(
                 status_code=500,
-                detail="OpenPhone API key not configured"
+                detail=message
             )
 
         # Get contacts from Google Sheet
@@ -284,15 +285,18 @@ async def send_message_to_building(
                 detail=f"Failed to fetch contacts: {str(e)}"
             )
 
-        # Filter contacts for the specified building
-        contacts = [contact for contact in all_unfiltered_contacts if contact["Building"] == body.building_name]
-        logger.info(f"Found {len(contacts)} contacts for building {body.building_name}")
+        # Filter contacts for all specified buildings
+        contacts = [
+            contact for contact in all_unfiltered_contacts 
+            if contact["Building"] in body.building_names
+        ]
+        logger.info(f"Found {len(contacts)} total contacts for buildings {body.building_names}")
         
         if not contacts:
-            logger.warning(f"No contacts found for building: {body.building_name}")
+            logger.warning(f"No contacts found for buildings: {body.building_names}")
             raise HTTPException(
                 status_code=404,
-                detail=f"No contacts found for building: {body.building_name}"
+                detail=f"No contacts found for buildings: {body.building_names}"
             )
 
         failures = 0
@@ -336,13 +340,14 @@ async def send_message_to_building(
                 failed_contacts.append({
                     "name": contact["First Name"],
                     "phone": contact["Phone Number"],
+                    "building": contact["Building"],
                     "error": error_message
                 })
                 logger.error(f"Failed to send message to {contact['First Name']}: {error_message}")
 
         # Prepare response
         if failures > 0:
-            failed_details = [f"{c['name']} ({c['phone']}): {c['error']}" for c in failed_contacts]
+            failed_details = [f"{c['name']} ({c['phone']}) in {c['building']}: {c['error']}" for c in failed_contacts]
             message = (
                 f"{'Partial success' if successes > 0 else 'Failed'}: "
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
@@ -360,8 +365,8 @@ async def send_message_to_building(
                     "failed_contacts": failed_contacts
                 }
             )
-        
-        success_message = f"Successfully sent message to all {successes} contacts in {body.building_name}!"
+        building_names_str = ", ".join(body.building_names)
+        success_message = f"Successfully sent message to all {successes} contacts in {building_names_str}!"
         logger.info(success_message)
         return JSONResponse(
             status_code=200,

@@ -19,12 +19,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { MultiSelect } from "@/components/multi-select"
 
 const BUILDINGS = ["Test"] as const;
 type Building = typeof BUILDINGS[number];
 
+const buildingOptions = BUILDINGS.map(building => ({
+  label: building,
+  value: building,
+}));
+
 export default function SendBuildingMessage() {
-  const [building, setBuilding] = useState<Building | ''>('');
+  const [buildingNames, setBuildingNames] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
@@ -33,6 +39,13 @@ export default function SendBuildingMessage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (buildingNames.length === 0) {
+      setStatus({
+        type: 'error',
+        message: 'Please select at least one building'
+      });
+      return;
+    }
     setShowConfirmation(true);
   };
 
@@ -48,7 +61,7 @@ export default function SendBuildingMessage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          building_name: building,
+          building_names: buildingNames,
           message: message,
           password: password,
         }),
@@ -73,13 +86,13 @@ export default function SendBuildingMessage() {
       
       // Handle partial success (some messages sent, some failed)
       if (data.successes > 0 && data.failures > 0) {
-        setStatus({ 
-          type: 'error', 
+        setStatus({
+          type: 'error',
           message: `Partial success: ${data.successes} messages sent, ${data.failures} failed. Check the logs for details.`
         });
         return;
       }
-      
+
       // Handle complete failure
       if (data.failures > 0 && data.successes === 0) {
         throw new Error(data.message || 'Failed to send messages');
@@ -87,13 +100,13 @@ export default function SendBuildingMessage() {
       
       // Handle complete success
       if (data.success || (data.successes > 0 && data.failures === 0)) {
-        setStatus({ 
-          type: 'success', 
+        setStatus({
+          type: 'success',
           message: data.message || `Successfully sent ${data.successes} messages!`
         });
-        
+
         // Clear form on success
-        setBuilding('');
+        setBuildingNames([]);
         setMessage('');
         setPassword('');
         return;
@@ -101,13 +114,13 @@ export default function SendBuildingMessage() {
 
       // Fallback error
       throw new Error(data.message || data.error || data.detail || 'Failed to send message');
-      
+
     } catch (error) {
       console.error('Error details:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setStatus({ 
-        type: 'error', 
-        message: errorMessage 
+      setStatus({
+        type: 'error',
+        message: errorMessage
       });
     } finally {
       setIsLoading(false);
@@ -121,21 +134,14 @@ export default function SendBuildingMessage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">Building Name</label>
-          <Select
-            value={building}
-            onValueChange={(value: Building) => setBuilding(value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a building" />
-            </SelectTrigger>
-            <SelectContent>
-              {BUILDINGS.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelect
+            options={buildingOptions}
+            onValueChange={setBuildingNames}
+            defaultValue={buildingNames}
+            placeholder="Select buildings"
+            maxCount={5}
+            className="w-full"
+          />
         </div>
 
         <div>
@@ -193,12 +199,14 @@ export default function SendBuildingMessage() {
           <DialogHeader>
             <DialogTitle>Confirm Message</DialogTitle>
             <DialogDescription>
-              Are you sure you want to send this message to {building}?
+              Are you sure you want to send this message to {buildingNames.length} building(s)?
             </DialogDescription>
           </DialogHeader>
           
           <div className="mt-4 p-3 bg-muted rounded-md">
-            <p className="text-sm font-medium text-foreground">Message:</p>
+            <p className="text-sm font-medium text-foreground">Selected Buildings:</p>
+            <p className="mt-1 text-sm text-muted-foreground">{buildingNames.join(', ')}</p>
+            <p className="text-sm font-medium text-foreground mt-2">Message:</p>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
 
