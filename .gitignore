@@ -42,3 +42,9 @@ next-env.d.ts
 
 
 api/tests/requests/
+
+
+
+# playwright
+playwright-report/
+test-results/

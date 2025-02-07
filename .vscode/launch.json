@@ -2,19 +2,56 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Full Stack",
+            "name": "Next.js Frontend",
             "type": "node",
             "request": "launch",
-            "runtimeExecutable": "npm",
+            "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "run",
-                "dev",
-                "--",
-                "--turbo"
+                "next-dev"
             ],
             "console": "integratedTerminal",
             "env": {
-                "NODE_OPTIONS": "--inspect"
+                "NODE_OPTIONS": "--inspect",
+                "NEXT_TURBO": "1"
+            },
+            "serverReadyAction": {
+                "pattern": "- Local:.+(https?://.+)",
+                "uriFormat": "%s",
+                "action": "debugWithChrome"
+            }
+        },
+        {
+            "name": "FastAPI Backend",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "api.index:app",
+                "--reload",
+                "--port",
+                "8000"
+            ],
+            "jinja": true,
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Full Stack",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": [
+                "dev"
+            ],
+            "console": "integratedTerminal",
+            "env": {
+                "NODE_OPTIONS": "--inspect",
+                "NEXT_TURBO": "1"
+            },
+            "serverReadyAction": {
+                "pattern": "- Local:.+(https?://.+)",
+                "uriFormat": "%s",
+                "action": "debugWithChrome"
             }
         },
         {
@@ -24,6 +61,18 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack (Compound)",
+            "configurations": ["FastAPI Backend", "Next.js Frontend"],
+            "presentation": {
+                "hidden": false,
+                "group": "fullstack",
+                "order": 2
+            },
+            "stopAll": true
         }
     ]
 } 

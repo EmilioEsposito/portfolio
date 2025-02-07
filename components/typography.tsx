@@ -28,7 +28,7 @@ export function H3({ className, children }: React.HTMLAttributes<HTMLHeadingElem
     return (
         <h3
             className={cn(
-                "mt-8 scroll-m-20 text-2xl font-semibold tracking-tight",
+                "scroll-m-20 text-2xl font-semibold tracking-tight -mb-2",
                 className
             )}
         >
@@ -42,7 +42,7 @@ export function P({ className, children }: React.HTMLAttributes<HTMLParagraphEle
     return (
         <p
             className={cn(
-                "leading-7 [&:not(:first-child)]:mt-6",
+                "leading-7 mb-2",
                 className
             )}  
         >

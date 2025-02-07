@@ -17,8 +17,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogClose,
 } from "@/components/ui/dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 const BUILDINGS = ["Test"] as const;
 type Building = typeof BUILDINGS[number];
@@ -27,8 +27,9 @@ export default function SendBuildingMessage() {
   const [building, setBuilding] = useState<Building | ''>('');
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +38,8 @@ export default function SendBuildingMessage() {
 
   const handleConfirmedSubmit = async () => {
     setShowConfirmation(false);
-    setStatus('Sending...');
+    setIsLoading(true);
+    setStatus({ type: 'loading', message: 'Sending...' });
 
     try {
       const response = await fetch('/api/open_phone/send_message_to_building', {
@@ -52,21 +54,63 @@ export default function SendBuildingMessage() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(await response.text());
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      // Handle authentication error
+      if (response.status === 401) {
+        setStatus({ 
+          type: 'error', 
+          message: data.detail || 'Authentication failed. Please check your password.'
+        });
+        return;
       }
 
-      const data = await response.json();
-      setStatus(data);
+      // Handle other error responses
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || data.error || 'Failed to send message');
+      }
       
-      // Clear form
-      setBuilding('');
-      setMessage('');
-      setPassword('');
+      // Handle partial success (some messages sent, some failed)
+      if (data.successes > 0 && data.failures > 0) {
+        setStatus({ 
+          type: 'error', 
+          message: `Partial success: ${data.successes} messages sent, ${data.failures} failed. Check the logs for details.`
+        });
+        return;
+      }
+      
+      // Handle complete failure
+      if (data.failures > 0 && data.successes === 0) {
+        throw new Error(data.message || 'Failed to send messages');
+      }
+      
+      // Handle complete success
+      if (data.success || (data.successes > 0 && data.failures === 0)) {
+        setStatus({ 
+          type: 'success', 
+          message: data.message || `Successfully sent ${data.successes} messages!`
+        });
+        
+        // Clear form on success
+        setBuilding('');
+        setMessage('');
+        setPassword('');
+        return;
+      }
+
+      // Fallback error
+      throw new Error(data.message || data.error || data.detail || 'Failed to send message');
       
     } catch (error) {
+      console.error('Error details:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setStatus(`Error: ${errorMessage}`);
+      setStatus({ 
+        type: 'error', 
+        message: errorMessage 
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -118,16 +162,25 @@ export default function SendBuildingMessage() {
 
         <button
           type="submit"
-          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+          disabled={isLoading}
+          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Send Message
+          {isLoading ? 'Sending...' : 'Send Message'}
         </button>
       </form>
 
       {status && (
-        <div className="mt-4 p-3 rounded bg-muted text-muted-foreground">
-          {status}
-        </div>
+        <Alert className={`mt-4 ${
+          status.type === 'error' 
+            ? 'bg-destructive/15 text-destructive' 
+            : status.type === 'loading'
+            ? 'bg-muted text-muted-foreground'
+            : 'bg-muted'
+        }`}>
+          <AlertDescription>
+            {status.message}
+          </AlertDescription>
+        </Alert>
       )}
 
       <Dialog 
@@ -159,10 +212,11 @@ export default function SendBuildingMessage() {
             </button>
             <button
               type="button"
+              disabled={isLoading}
               onClick={handleConfirmedSubmit}
-              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary border border-transparent rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary border border-transparent rounded-md hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Confirm & Send
+              {isLoading ? 'Sending...' : 'Confirm & Send'}
             </button>
           </DialogFooter>
         </DialogContent>

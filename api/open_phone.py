@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Body, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, conint
 import json
 import logging
@@ -11,6 +12,7 @@ from typing import List, Optional, Union
 from datetime import datetime
 import time
 from api.password import verify_admin_auth
+from api.google.sheets import get_sheet_as_json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -20,7 +22,6 @@ router = APIRouter(
     prefix="/open_phone",  # All endpoints here will be under /open_phone
     tags=["open_phone"],  # Optional: groups endpoints in the docs
 )
-
 
 class OpenPhoneWebhookPayload(BaseModel):
     class Data(BaseModel):
@@ -243,25 +244,10 @@ async def route_get_contacts_by_external_ids(
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
 
-def get_contacts_from_sheetdb():
-    url = "https://sheetdb.io/api/v1/vs9ahjsfdc4a1?sheet=OpenPhone"
+def get_contacts_sheet_as_json():
+    spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
+    return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
 
-    if not os.getenv('SHEETDB_API_KEY'):
-        raise HTTPException(
-            status_code=500,
-            detail="SheetDB API key not configured"
-        )
-    headers = {
-        "Authorization": f"Bearer {os.getenv('SHEETDB_API_KEY')}",
-        "Content-Type": "application/json",
-    }
-    response = requests.get(url, headers=headers)
-
-    # In 200 case: Does nothing and allows execution to continue
-    # In 400/500 case: Raises requests.exceptions.HTTPError with response details
-    response.raise_for_status()
-    
-    return response.json()
 
 
 class BuildingMessageRequest(BaseModel):
@@ -271,68 +257,132 @@ class BuildingMessageRequest(BaseModel):
 
 @router.post("/send_message_to_building", dependencies=[Depends(verify_admin_auth)])
 async def send_message_to_building(
-    request: BuildingMessageRequest,
+    body: BuildingMessageRequest,
 ):
+    """Send a message to all contacts in a specific building."""
+    logger.info(f"Starting send_message_to_building request for building: {body.building_name}")
+    
     try:
-        all_unfilterd_contacts = get_contacts_from_sheetdb()
+        # Verify required environment variables
+        api_key = os.getenv("OPEN_PHONE_API_KEY")
+        if not api_key:
+            logger.error("OpenPhone API key not configured")
+            raise HTTPException(
+                status_code=500,
+                detail="OpenPhone API key not configured"
+            )
+
+        # Get contacts from Google Sheet
+        try:
+            logger.info("Fetching contacts from Google Sheet")
+            all_unfiltered_contacts = get_contacts_sheet_as_json()
+            logger.info(f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet")
+        except Exception as e:
+            logger.error(f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch contacts: {str(e)}"
+            )
 
         # Filter contacts for the specified building
-        contacts = [contact for contact in all_unfilterd_contacts if contact["Building"] == request.building_name]
+        contacts = [contact for contact in all_unfiltered_contacts if contact["Building"] == body.building_name]
+        logger.info(f"Found {len(contacts)} contacts for building {body.building_name}")
         
         if not contacts:
+            logger.warning(f"No contacts found for building: {body.building_name}")
             raise HTTPException(
                 status_code=404,
-                detail=f"No contacts found for building: {request.building_name}"
+                detail=f"No contacts found for building: {body.building_name}"
             )
-        
+
+        failures = 0
+        successes = 0
+        failed_contacts = []
+        error_messages = set()
+
+        # Send messages
         for contact in contacts:
-
             try:
-                send_message(
-                    request.message,
-                    to_phone_number="+1"+contact["Phone Number"],
+                phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+                logger.info(f"Sending message to {contact['First Name']} at {phone_number}")
+                
+                response = send_message(
+                    message=body.message,
+                    to_phone_number=phone_number,
                 )
-                contact["sent"] = True
+                
+                # Check for both 200 (OK) and 202 (Accepted) as success statuses
+                if response.status_code not in [200, 202]:
+                    error_text = response.text
+                    try:
+                        error_json = response.json()
+                        error_text = json.dumps(error_json)
+                    except:
+                        pass
+                    raise Exception(f"OpenPhone API returned status {response.status_code}: {error_text}")
+                
+                # If we get here, the message was sent successfully
+                response_data = response.json()
+                if response_data.get("data", {}).get("status") == "sent":
+                    successes += 1
+                    logger.info(f"Successfully sent message to {contact['First Name']}")
+                else:
+                    raise Exception(f"Message not confirmed as sent: {json.dumps(response_data)}")
+                
             except Exception as e:
-                contact["sent"] = False
-                contact["error"] = str(e)
-                failures+=1
+                failures += 1
+                error_message = str(e)
+                error_messages.add(error_message)
+                failed_contacts.append({
+                    "name": contact["First Name"],
+                    "phone": contact["Phone Number"],
+                    "error": error_message
+                })
+                logger.error(f"Failed to send message to {contact['First Name']}: {error_message}")
 
-        failures = sum(not contact["sent"] for contact in contacts)
-        successes = sum(contact["sent"] for contact in contacts)
-        # create agg stats on success/failurs, along with name/phone of any failures, and put in http response
-        agg_stats = {
-            "success": successes,
-            "failures": failures,
-            "failure_names": [contact["First Name"] for contact in contacts if not contact["sent"]],
-            "failure_phones": [contact["Phone Number"] for contact in contacts if not contact["sent"]],
-            "failure_errors": [contact["error"] for contact in contacts if not contact["sent"]],
-        }
-
+        # Prepare response
         if failures > 0:
-            failed_contacts = [f"{name}, ({phone})" for name, phone in zip(
-                agg_stats['failure_names'], 
-                agg_stats['failure_phones']
-            )]
-            error_messages = list(set(agg_stats['failure_errors']))
-            
+            failed_details = [f"{c['name']} ({c['phone']}): {c['error']}" for c in failed_contacts]
             message = (
                 f"{'Partial success' if successes > 0 else 'Failed'}: "
-                f"Failed to send message to {failures} contacts.\nFailed contacts:\n" +
-                "\n".join(failed_contacts) +
-                "\n\nErrors encountered:\n" + "\n".join(error_messages)
+                f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
+                f"Failed contacts:\n" + "\n".join(failed_details)
             )
+            logger.warning(message)
             
-            raise HTTPException(
+            return JSONResponse(
                 status_code=207 if successes > 0 else 500,
-                detail=message
+                content={
+                    "message": message,
+                    "success": successes > 0,
+                    "failures": failures,
+                    "successes": successes,
+                    "failed_contacts": failed_contacts
+                }
             )
-        else:
-            return f"Successfully sent message to {successes} contacts!"
+        
+        success_message = f"Successfully sent message to all {successes} contacts in {body.building_name}!"
+        logger.info(success_message)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": success_message,
+                "success": True,
+                "successes": successes
+            }
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(
+        logger.error(f"Unexpected error in send_message_to_building: {str(e)}", exc_info=True)
+        return JSONResponse(
             status_code=500,
-            detail=f"Error: {str(e)}"
+            content={
+                "message": f"Unexpected error: {str(e)}",
+                "success": False,
+                "error": str(e)
+            }
         )
 
 def test_get_ghost_ids():
@@ -369,7 +419,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
 
-    contacts = get_contacts_from_sheetdb()
+    contacts = get_contacts_sheet_as_json()
     contact = contacts[35]
 
     response_codes = []
