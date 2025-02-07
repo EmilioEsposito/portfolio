@@ -13,5 +13,10 @@
       "path": "/api/cron_job_example_private",
       "schedule": "0 12 * * *"
     }
-  ]
+  ],
+  "build": {
+    "env": {
+      "PIP_NO_CACHE_DIR": "off"
+    }
+  }
 }
