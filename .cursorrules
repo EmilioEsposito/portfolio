@@ -13,7 +13,7 @@ This is a repo for me to put various projects and tools in. I like to keep thing
 - Feel free to make suggestions on stylistic improvements if current patterns could be significantly improved/simplified; otherwise stick to the current patterns.
 - Do not remove my comments. They are there for my benefit. You can suggest edits to them if they are wrong. 
 - I hate CSS. I have no desire to learn it. Keep styling simple and clean. 
-
+- Keep credentialing simple. I am a solo developer and don't need separate credentials for each microservice. 
 
 # NextJS Rules:
 You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.
