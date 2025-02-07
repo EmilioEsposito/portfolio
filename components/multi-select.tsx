@@ -163,11 +163,13 @@ export const MultiSelect = React.forwardRef<
         : [...selectedValues, option];
       setSelectedValues(newSelectedValues);
       onValueChange(newSelectedValues);
+      setIsPopoverOpen(false);
     };
 
     const handleClear = () => {
       setSelectedValues([]);
       onValueChange([]);
+      setIsPopoverOpen(false);
     };
 
     const handleTogglePopover = () => {
@@ -292,7 +294,7 @@ export const MultiSelect = React.forwardRef<
             />
             <CommandList>
               <CommandEmpty>No results found.</CommandEmpty>
-              <CommandGroup>
+              <CommandGroup className="[&_[cmdk-group-items]]:pointer-events-none [&_[cmdk-item]]:pointer-events-auto">
                 <CommandItem
                   key="all"
                   onSelect={toggleAll}
@@ -317,6 +319,7 @@ export const MultiSelect = React.forwardRef<
                       key={option.value}
                       onSelect={() => toggleOption(option.value)}
                       className="cursor-pointer"
+                      data-selected={isSelected}
                     >
                       <div
                         className={cn(
