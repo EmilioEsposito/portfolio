@@ -133,7 +133,7 @@ export default function SendBuildingMessage() {
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Building Name</label>
+          <label className="block text-sm font-medium text-foreground mb-2">Building Name(s)</label>
           <MultiSelect
             options={buildingOptions}
             onValueChange={setBuildingNames}
