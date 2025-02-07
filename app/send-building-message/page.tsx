@@ -141,6 +141,7 @@ export default function SendBuildingMessage() {
             placeholder="Select buildings"
             maxCount={5}
             className="w-full"
+            showSelectAll={false}
           />
         </div>
 
