@@ -8,7 +8,7 @@ from typing import List, Any, Dict
 from fastapi import HTTPException
 import logging
 
-from api.google.auth import get_service_credentials
+from api_src.google.auth import get_service_credentials
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

@@ -11,8 +11,8 @@ import requests
 from typing import List, Optional, Union
 from datetime import datetime
 import time
-from api.password import verify_admin_auth
-from api.google.sheets import get_sheet_as_json
+from api_src.password import verify_admin_auth
+from api_src.google.sheets import get_sheet_as_json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

@@ -12,7 +12,7 @@ from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
 from google_auth_oauthlib.flow import Flow
 
-from api.google.auth import get_service_credentials, get_oauth_credentials, get_oauth_url, get_delegated_credentials
+from api_src.google.auth import get_service_credentials, get_oauth_credentials, get_oauth_url, get_delegated_credentials
 
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.send',
