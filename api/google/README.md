@@ -114,10 +114,10 @@ calendar_service = build('calendar', 'v3', credentials=credentials)
 ### Google Sheets
 
 ```python
-from api.google.sheets import get_contacts_from_sheet
+from api.google.sheets import get_sheet_as_json
 
 # Get all contacts
-contacts = get_contacts_from_sheet(os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID'))
+contacts = get_sheet_as_json(os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID'))
 ```
 
 ### Gmail
@@ -145,12 +145,7 @@ send_email(
 
 ## API Endpoints
 
-### Gmail
-- `GET /api/google/auth/gmail` - Get OAuth authorization URL
-- `POST /api/google/send-email` - Send email (requires auth)
-
-### Sheets
-- `GET /api/google/sheets/contacts` - Get contacts from sheet (requires auth)
+Coming soon...
 
 ## Directory Structure
 
@@ -159,7 +154,7 @@ api/google/
 ├── README.md           # This file
 ├── __init__.py        # Package initialization
 ├── auth.py            # Shared authentication utilities
-├── routes.py          # FastAPI router and endpoints
+├── routes.py          # FastAPI router and endpoints (coming soon)
 ├── gmail.py           # Gmail API utilities
 └── sheets.py          # Google Sheets API utilities
 ```

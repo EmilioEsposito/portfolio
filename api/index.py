@@ -11,7 +11,7 @@ from api.utils.prompt import ClientMessage, convert_to_openai_messages
 from api.utils.tools import get_current_weather
 from datetime import datetime
 
-# Import the open_phone router
+# Import the routers
 from api.open_phone import router as open_phone_router
 from api.cron import router as cron_router
 load_dotenv(".env")
