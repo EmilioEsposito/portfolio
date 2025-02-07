@@ -30,8 +30,8 @@ This directory contains utilities for interacting with Google APIs, specifically
 
 6. Add the generated line to your `.env` file, along with any other needed variables:
    ```
-   # The script will generate this line for you
-   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS='{"type":"service_account",...}'
+   # The script will generate this base64 encoded line for you
+   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS="eyJ0...
    
    # Add other variables as needed
    GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id  # Optional: Only if using Sheets
@@ -55,10 +55,10 @@ If you need to access Workspace resources (like other users' calendars):
 4. In your code, when you need to act as a specific user:
    ```python
    from api.google.auth import get_service_credentials
-   
+   from googleapiclient.discovery import build
    # Get credentials and delegate to a user
    credentials = get_service_credentials()
-   delegated_credentials = credentials.with_subject('user@yourdomain.com')
+   delegated_credentials = credentials.with_subject('emilio@serniacapital.com')
    
    # Use these credentials with any Google service
    calendar_service = build('calendar', 'v3', credentials=delegated_credentials)
