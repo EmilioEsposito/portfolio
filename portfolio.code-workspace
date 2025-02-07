@@ -13,6 +13,7 @@
 		],
 		"python.testing.autoTestDiscoverOnSaveEnabled": true,
 		"python.terminal.launchArgs": ["-m", "IPython"],
+		"jupyter.notebookFileRoot": "${workspaceFolder}",
 		"sqltools.connections": [
 			{
 				"pgOptions": {
