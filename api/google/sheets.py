@@ -6,8 +6,12 @@ from googleapiclient.discovery import build
 import os
 from typing import List, Any, Dict
 from fastapi import HTTPException
+import logging
 
 from api.google.auth import get_service_credentials
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 def get_sheets_service():
     """
@@ -49,6 +53,7 @@ def read_sheet(spreadsheet_id: str, range_name: str) -> List[List[Any]]:
         message = f"Failed to read Google Sheet."
         message += f"\nDid you share it with account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com?"
         message += f"\nError: {str(e)}"
+        logger.error(message)
         raise HTTPException(
             status_code=500,
             detail=message

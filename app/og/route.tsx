@@ -1,6 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 
-import { ImageResponse } from "next/server";
+import { ImageResponse } from '@vercel/og';
 
 export const runtime = "edge";
 export const preferredRegion = ["iad1"];

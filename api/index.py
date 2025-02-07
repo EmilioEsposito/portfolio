@@ -1,25 +1,58 @@
+from dotenv import load_dotenv
+# Load environment variables first
+load_dotenv(".env")
 import os
 import json
 from typing import List
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
-from dotenv import load_dotenv
-from fastapi import FastAPI, Query
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from api.utils.prompt import ClientMessage, convert_to_openai_messages
 from api.utils.tools import get_current_weather
 from datetime import datetime
-
-# Import the routers
+import logging
+# Import the routers after environment variables are loaded
 from api.open_phone import router as open_phone_router
 from api.cron import router as cron_router
-load_dotenv(".env")
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
-# Include namespaces
+# Include namespaces routers
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
+
+# Add error handling
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Error processing request: {str(exc)}", exc_info=True)
+    
+    # Handle HTTPException specially
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": str(exc.detail),
+                "detail": str(exc.detail),
+                "status_code": exc.status_code
+            }
+        )
+    
+    # Handle other exceptions
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": str(exc),
+            "detail": "Internal Server Error",
+            "status_code": 500
+        }
+    )
 
 open_ai_client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
