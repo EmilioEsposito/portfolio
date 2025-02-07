@@ -2,9 +2,6 @@
   "functions": {
     "api/index.py": {
       "excludeFiles": "{.next,.git,node_modules}/**"
-    },
-    "api/tests/**": {
-      "excludeFiles": "**/*.py"
     }
   },
   "crons": [
