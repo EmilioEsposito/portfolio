@@ -14,6 +14,7 @@
 		"python.testing.autoTestDiscoverOnSaveEnabled": true,
 		"python.terminal.launchArgs": ["-m", "IPython"],
 		"jupyter.notebookFileRoot": "${workspaceFolder}",
+		"python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
 		"sqltools.connections": [
 			{
 				"pgOptions": {
