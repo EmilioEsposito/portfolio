@@ -30,6 +30,11 @@
 				"username": "neondb_owner",
 				"database": "neondb"
 			}
-		]
+		],
+		"javascript.updateImportsOnFileMove.enabled": "always",
+		"typescript.updateImportsOnFileMove.enabled": "always",
+		"markdown.updateLinksOnFileMove.enabled": "always",
+		"python.analysis.autoImportCompletions": true,
+		"python.terminal.activateEnvInCurrentTerminal": true
 	}
 }

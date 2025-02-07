@@ -3,7 +3,7 @@ from pprint import pprint
 from fastapi.testclient import TestClient
 from pytest import fixture
 from api.index import app
-from api.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
+from api_src.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
 import os
 
 async def mock_verify(*args, **kwargs):

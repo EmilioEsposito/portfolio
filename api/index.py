@@ -10,13 +10,13 @@ from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
-from api.utils.prompt import ClientMessage, convert_to_openai_messages
-from api.utils.tools import get_current_weather
+from api_src.utils.prompt import ClientMessage, convert_to_openai_messages
+from api_src.utils.tools import get_current_weather
 from datetime import datetime
 import logging
 # Import the routers after environment variables are loaded
-from api.open_phone import router as open_phone_router
-from api.cron import router as cron_router
+from api_src.open_phone import router as open_phone_router
+from api_src.cron import router as cron_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")

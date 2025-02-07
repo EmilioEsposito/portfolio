@@ -7,6 +7,7 @@
 
 # testing
 /coverage
+.pytest_cache
 
 # next.js
 /.next/
@@ -34,6 +35,8 @@ yarn-error.log*
 
 # vercel
 .vercel
+.vercel-build
+.vercel-build-temp
 
 # typescript
 *.tsbuildinfo
@@ -43,7 +46,8 @@ next-env.d.ts
 
 api/tests/requests/
 
-
+# Sensitive test files
+api_src/tests/requests/*
 
 # playwright
 playwright-report/
