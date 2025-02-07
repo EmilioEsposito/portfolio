@@ -14,7 +14,11 @@ from google_auth_oauthlib.flow import Flow
 
 from api.google.auth import get_service_credentials, get_oauth_credentials, get_oauth_url, get_delegated_credentials
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.send']
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/pubsub'
+]
 
 def get_gmail_service(credentials: Union[Credentials, service_account.Credentials]):
     """
@@ -179,6 +183,88 @@ def test_send_email():
         
     except Exception as e:
         print("\n❌ Test failed")
+        if isinstance(e, HTTPException):
+            print(f"Error: {e.detail}")
+        else:
+            print(f"Error: {str(e)}")
+        raise
+
+def stop_gmail_watch(user_id: str = 'me'):
+    """
+    Stops Gmail API push notifications.
+    """
+    try:
+        credentials = get_delegated_credentials(
+            user_email="emilio@serniacapital.com",
+            scopes=["https://www.googleapis.com/auth/gmail.readonly"]
+        )
+        service = get_gmail_service(credentials)
+        service.users().stop(userId=user_id).execute()
+        print("✓ Stopped existing Gmail watch")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to stop Gmail watch: {str(e)}")
+        return False
+
+def setup_gmail_watch(user_id: str = 'me', topic_name: str = 'projects/portfolio-450200/topics/gmail-notifications'):
+    """
+    Sets up Gmail API push notifications to a Pub/Sub topic.
+    
+    Args:
+        user_id: The user's email address or 'me' for authenticated user
+        topic_name: The full resource name of the Pub/Sub topic
+        
+    Returns:
+        The watch response from Gmail API
+    """
+    try:
+        # Stop any existing watch first
+        stop_gmail_watch(user_id)
+        
+        # Get delegated credentials with necessary scopes
+        credentials = get_delegated_credentials(
+            user_email="emilio@serniacapital.com",
+            scopes=[
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/pubsub"
+            ]
+        )
+        print(f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com")
+        
+        # Create Gmail service
+        service = get_gmail_service(credentials)
+        print("✓ Created Gmail service")
+        
+        # Set up the watch request
+        request = {
+            'labelIds': ['INBOX'],
+            'topicName': topic_name,
+            'labelFilterAction': 'include'
+        }
+        
+        # Start watching the mailbox
+        response = service.users().watch(userId=user_id, body=request).execute()
+        return response
+        
+    except Exception as e:
+        print(f"\n❌ Watch setup failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to set up Gmail watch: {str(e)}"
+        )
+
+def test_setup_watch():
+    """
+    Test setting up Gmail push notifications.
+    """
+    try:
+        response = setup_gmail_watch(user_id="emilio@serniacapital.com")
+        print("✓ Successfully set up Gmail watch")
+        print(f"✓ Expiration: {response.get('expiration')}")
+        print(f"✓ History ID: {response.get('historyId')}")
+        return response
+    except Exception as e:
+        print("\n❌ Watch setup failed")
         if isinstance(e, HTTPException):
             print(f"Error: {e.detail}")
         else:
