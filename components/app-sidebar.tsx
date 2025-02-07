@@ -122,7 +122,7 @@ export function AppSidebar() {
       <SidebarHeader className="flex justify-end border-b border-sidebar-border">
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           onClick={toggleSidebar}
           className="h-8 w-8"
         >
