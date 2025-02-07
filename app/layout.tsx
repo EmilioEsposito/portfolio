@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ThemeProvider } from "next-themes";
 
 export const metadata = {
   title: "Emilio Esposito - Portfolio",
@@ -33,17 +34,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head></head>
       <body className={cn(GeistSans.className, "antialiased")}>
-        <Toaster position="top-center" richColors />
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset>
-            <Navbar />
-            {children}
-          </SidebarInset>
-        </SidebarProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <Toaster position="top-center" richColors />
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset>
+              <Navbar />
+              {children}
+            </SidebarInset>
+          </SidebarProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

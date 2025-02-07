@@ -4,12 +4,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building
+  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building, Sun
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { useEffect, useState } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useTheme } from "next-themes"
+import { cn } from "@/lib/utils"
 
 import {
   Sidebar,
@@ -34,14 +36,14 @@ type SidebarItem = {
 
 export function AppSidebar() {
   const { toggleSidebar } = useSidebar()
-  const [theme, setTheme] = useState<"light" | "dark">("light")
+  const { theme, setTheme } = useTheme()
   const isMobile = useIsMobile()
+  const [mounted, setMounted] = useState(false)
 
+  // useEffect only runs on the client, so now we can safely show the UI
   useEffect(() => {
-    const root = window.document.documentElement
-    root.classList.remove("light", "dark")
-    root.classList.add(theme)
-  }, [theme])
+    setMounted(true)
+  }, [])
 
   const toggleSidebarIfMobile = () => {
     if (isMobile) {
@@ -108,14 +110,18 @@ export function AppSidebar() {
     },
     {
       type: 'action',
-      title: "Light/Dark Mode",
-      icon: Moon,
+      title: "Toggle theme",
+      icon: !mounted ? Moon : theme === 'dark' ? Sun : Moon,
       onClick: () => {
-        setTheme(theme === "dark" ? "light" : "dark");
-        console.log(`Changed theme to ${theme}`);
+        setTheme(theme === "dark" ? "light" : "dark")
       },
     },
   ]
+
+  // Prevent hydration mismatch by not rendering the sidebar until mounted
+  if (!mounted) {
+    return null
+  }
 
   return (
     <Sidebar collapsible="icon">
