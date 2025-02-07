@@ -8,7 +8,7 @@ This is my portfolio/sandbox website that I use to just play around with new tec
     * UI: [Shadcn UI](https://ui.shadcn.com/docs) & Tailwind CSS
 * Backend: [FastAPI](https://fastapi.tiangolo.com/)
     * Database: [Neon Postgres](https://neon.tech/)
-* Deployment: [Vercel](https://vercel.com/)
+* Deployment: [Vercel](https://vercel.com/) (FastAPI is deployed as a Serverless Function)
 * Package Managers: pnpm and pip
 
 ## Setup
