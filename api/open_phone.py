@@ -11,6 +11,7 @@ from typing import List, Optional, Union
 from datetime import datetime
 import time
 from api.password import verify_admin_auth
+from api.google.sheets import get_sheet_as_json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -243,25 +244,10 @@ async def route_get_contacts_by_external_ids(
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
 
-def get_contacts_from_sheetdb():
-    url = "https://sheetdb.io/api/v1/vs9ahjsfdc4a1?sheet=OpenPhone"
+def get_contacts_sheet_as_json():
+    spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
+    return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
 
-    if not os.getenv('SHEETDB_API_KEY'):
-        raise HTTPException(
-            status_code=500,
-            detail="SheetDB API key not configured"
-        )
-    headers = {
-        "Authorization": f"Bearer {os.getenv('SHEETDB_API_KEY')}",
-        "Content-Type": "application/json",
-    }
-    response = requests.get(url, headers=headers)
-
-    # In 200 case: Does nothing and allows execution to continue
-    # In 400/500 case: Raises requests.exceptions.HTTPError with response details
-    response.raise_for_status()
-    
-    return response.json()
 
 
 class BuildingMessageRequest(BaseModel):
@@ -274,7 +260,7 @@ async def send_message_to_building(
     request: BuildingMessageRequest,
 ):
     try:
-        all_unfilterd_contacts = get_contacts_from_sheetdb()
+        all_unfilterd_contacts = get_contacts_sheet_as_json()
 
         # Filter contacts for the specified building
         contacts = [contact for contact in all_unfilterd_contacts if contact["Building"] == request.building_name]
@@ -369,7 +355,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
 
-    contacts = get_contacts_from_sheetdb()
+    contacts = get_contacts_sheet_as_json()
     contact = contacts[35]
 
     response_codes = []
