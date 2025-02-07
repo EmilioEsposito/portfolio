@@ -341,13 +341,13 @@ export const MultiSelect = React.forwardRef<
                 })}
               </CommandGroup>
               <CommandSeparator />
-              <CommandGroup>
+              <CommandGroup className="[&_[cmdk-group-items]]:pointer-events-none [&_[cmdk-item]]:pointer-events-auto">
                 <div className="flex items-center justify-between">
                   {selectedValues.length > 0 && (
                     <>
                       <CommandItem
                         onSelect={handleClear}
-                        className="flex-1 justify-center cursor-pointer"
+                        className="flex-1 justify-center cursor-pointer data-[disabled]:opacity-100"
                       >
                         Clear
                       </CommandItem>
@@ -359,7 +359,7 @@ export const MultiSelect = React.forwardRef<
                   )}
                   <CommandItem
                     onSelect={() => setIsPopoverOpen(false)}
-                    className="flex-1 justify-center cursor-pointer max-w-full"
+                    className="flex-1 justify-center cursor-pointer data-[disabled]:opacity-100 max-w-full"
                   >
                     Close
                   </CommandItem>
