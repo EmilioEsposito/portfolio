@@ -16,11 +16,10 @@ export const Navbar = () => {
         {/* Hamburger menu button that only shows on mobile */}
         <Button
           variant="ghost"
-          size="icon"
           onClick={toggleSidebar}
-          className="h-8 w-8 md:hidden" // Show on mobile; hide on md and up
+          className="h-10 w-10 p-2 md:hidden" // Increased touch target and added padding
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-6 w-6" /> {/* Increased icon size */}
           <span className="sr-only">Toggle sidebar</span>
         </Button>
 

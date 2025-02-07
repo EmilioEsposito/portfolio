@@ -122,11 +122,10 @@ export function AppSidebar() {
       <SidebarHeader className="flex justify-end border-b border-sidebar-border">
         <Button
           variant="ghost"
-          size="sm"
           onClick={toggleSidebar}
-          className="h-8 w-8"
+          className="h-10 w-10 p-2"
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-6 w-6" />
           <span className="sr-only">Toggle sidebar</span>
         </Button>
       </SidebarHeader>
