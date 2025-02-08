@@ -10,11 +10,11 @@ import { ThemeProvider } from "next-themes";
 export const metadata = {
   title: "Emilio Esposito - Portfolio",
   description:
-    "Use the Data Stream Protocol to stream chat completions from a Python endpoint (FastAPI) and display them using the useChat hook in your Next.js application.",
+    "Emilio Esposito's personal portfolio and platform for production rental property management apps.",
   openGraph: {
     images: [
       {
-        url: "/og?title=AI SDK Python Streaming Preview",
+        url: "/og?title=Emilio Esposito - Portfolio",
       },
     ],
   },
@@ -22,7 +22,7 @@ export const metadata = {
     card: "summary_large_image",
     images: [
       {
-        url: "/og?title=AI SDK Python Streaming Preview",
+        url: "/og?title=Emilio Esposito - Portfolio",
       },
     ],
   },
