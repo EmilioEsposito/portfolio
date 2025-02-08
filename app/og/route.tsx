@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const description = searchParams.get("description");
 
   const imageData = await fetch(
-    new URL("./me.png", import.meta.url)
+    new URL("./sc_logo_notext_circle.png", import.meta.url)
   ).then((res) => res.arrayBuffer());
 
   const geistSemibold = await fetch(
