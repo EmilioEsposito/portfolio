@@ -21,16 +21,16 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { MultiSelect } from "@/components/multi-select"
 
-const BUILDINGS = ["Test"] as const;
-type Building = typeof BUILDINGS[number];
+const PROPERTIES = ["Test"] as const;
+type Property = typeof PROPERTIES[number];
 
-const buildingOptions = BUILDINGS.map(building => ({
-  label: building,
-  value: building,
+const propertyOptions = PROPERTIES.map(property => ({
+  label: property,
+  value: property,
 }));
 
-export default function SendBuildingMessage() {
-  const [buildingNames, setBuildingNames] = useState<string[]>([]);
+export default function TenantMassMessaging() {
+  const [propertyNames, setPropertyNames] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
@@ -39,10 +39,10 @@ export default function SendBuildingMessage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (buildingNames.length === 0) {
+    if (propertyNames.length === 0) {
       setStatus({
         type: 'error',
-        message: 'Please select at least one building'
+        message: 'Please select at least one property'
       });
       return;
     }
@@ -55,13 +55,13 @@ export default function SendBuildingMessage() {
     setStatus({ type: 'loading', message: 'Sending...' });
 
     try {
-      const response = await fetch('/api/open_phone/send_message_to_building', {
+      const response = await fetch('/api/open_phone/tenant_mass_message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          building_names: buildingNames,
+          property_names: propertyNames,
           message: message,
           password: password,
         }),
@@ -106,7 +106,7 @@ export default function SendBuildingMessage() {
         });
 
         // Clear form on success
-        setBuildingNames([]);
+        setPropertyNames([]);
         setMessage('');
         setPassword('');
         return;
@@ -129,16 +129,30 @@ export default function SendBuildingMessage() {
 
   return (
     <div className="max-w-md mx-auto mt-10 p-6 bg-card text-card-foreground rounded-lg shadow-lg">
-      <h1 className="text-2xl font-bold mb-6">Send Building Message</h1>
+      <h1 className="text-2xl font-bold mb-4">Tenant Mass Messaging</h1>
+      
+      <div className="mb-6 text-muted-foreground">
+        <p className="text-sm">
+          This tool allows property managers to send SMS messages to all tenants in 
+          selected properties. This is useful for notifying tenants of a building-wide event like a water leak, 
+          power outage, or common area maintenance.
+        </p><br/>
+        <p className="text-sm">
+          Since OpenPhone doesn't support mass messaging, this tool uses their API to send 
+          individual messages to each tenant. 
+          
+          Messages are sent securely and require password authentication.
+        </p>
+      </div>
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Building Name(s)</label>
+          <label className="block text-sm font-medium text-foreground mb-2">Property Name(s)</label>
           <MultiSelect
-            options={buildingOptions}
-            onValueChange={setBuildingNames}
-            defaultValue={buildingNames}
-            placeholder="Select buildings"
+            options={propertyOptions}
+            onValueChange={setPropertyNames}
+            defaultValue={propertyNames}
+            placeholder="Select properties to message"
             maxCount={5}
             className="w-full"
             showSelectAll={false}
@@ -200,13 +214,13 @@ export default function SendBuildingMessage() {
           <DialogHeader>
             <DialogTitle>Confirm Message</DialogTitle>
             <DialogDescription>
-              Are you sure you want to send this message to {buildingNames.length} building(s)?
+              Are you sure you want to send this message to {propertyNames.length} property(s)?
             </DialogDescription>
           </DialogHeader>
           
           <div className="mt-4 p-3 bg-muted rounded-md">
-            <p className="text-sm font-medium text-foreground">Selected Buildings:</p>
-            <p className="mt-1 text-sm text-muted-foreground">{buildingNames.join(', ')}</p>
+            <p className="text-sm font-medium text-foreground">Selected Properties:</p>
+            <p className="mt-1 text-sm text-muted-foreground">{propertyNames.join(', ')}</p>
             <p className="text-sm font-medium text-foreground mt-2">Message:</p>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
