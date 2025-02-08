@@ -35,6 +35,16 @@
 		"typescript.updateImportsOnFileMove.enabled": "always",
 		"markdown.updateLinksOnFileMove.enabled": "always",
 		"python.analysis.autoImportCompletions": true,
-		"python.terminal.activateEnvInCurrentTerminal": true
+		"python.terminal.activateEnvInCurrentTerminal": true,
+		"python.analysis.extraPaths": ["."],
+		"terminal.integrated.env.osx": {
+			"PYTHONPATH": "${workspaceFolder}"
+		},
+		"terminal.integrated.env.linux": {
+			"PYTHONPATH": "${workspaceFolder}"
+		},
+		"terminal.integrated.env.windows": {
+			"PYTHONPATH": "${workspaceFolder}"
+		}
 	}
 }
