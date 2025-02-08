@@ -53,12 +53,12 @@ export default function Home() {
         </P>
 
         <H3>
-          <Link href="/send-building-message">
-            Send Building Message
+          <Link href="/tenant-mass-message">
+            Tenant Mass Messaging
           </Link>
         </H3>
         <P>
-          Simple app to send a message to all tenants in a particular building. OpenPhone doesn't support sending to groups, so this app simply uses their API to achieve this. It also uses simple password protection to prevent unauthorized access.
+          Simple app to send SMS messages to all tenants in selected buildings. OpenPhone doesn't support sending to groups, so this app uses their API to achieve this. Messages are sent securely with password protection.
         </P>
 
       </div>

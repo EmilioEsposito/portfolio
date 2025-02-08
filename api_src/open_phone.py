@@ -250,26 +250,27 @@ def get_contacts_sheet_as_json():
 
 
 
-class BuildingMessageRequest(BaseModel):
-    building_name: str
+class TenantMassMessageRequest(BaseModel):
+    property_names: List[str]
     message: str
     password: str
 
-@router.post("/send_message_to_building", dependencies=[Depends(verify_admin_auth)])
-async def send_message_to_building(
-    body: BuildingMessageRequest,
+@router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
+async def send_tenant_mass_message(
+    body: TenantMassMessageRequest,
 ):
-    """Send a message to all contacts in a specific building."""
-    logger.info(f"Starting send_message_to_building request for building: {body.building_name}")
+    """Send a message to all tenants in the specified properties."""
+    logger.info(f"Starting tenant mass message request for properties: {body.property_names}")
     
     try:
         # Verify required environment variables
         api_key = os.getenv("OPEN_PHONE_API_KEY")
         if not api_key:
-            logger.error("OpenPhone API key not configured")
+            message = "OpenPhone API key not configured"
+            logger.error(message)
             raise HTTPException(
                 status_code=500,
-                detail="OpenPhone API key not configured"
+                detail=message
             )
 
         # Get contacts from Google Sheet
@@ -284,15 +285,18 @@ async def send_message_to_building(
                 detail=f"Failed to fetch contacts: {str(e)}"
             )
 
-        # Filter contacts for the specified building
-        contacts = [contact for contact in all_unfiltered_contacts if contact["Building"] == body.building_name]
-        logger.info(f"Found {len(contacts)} contacts for building {body.building_name}")
+        # Filter contacts for all specified properties
+        contacts = [
+            contact for contact in all_unfiltered_contacts 
+            if contact["Property"] in body.property_names
+        ]
+        logger.info(f"Found {len(contacts)} total contacts for properties {body.property_names}")
         
         if not contacts:
-            logger.warning(f"No contacts found for building: {body.building_name}")
+            logger.warning(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
-                detail=f"No contacts found for building: {body.building_name}"
+                detail=f"No contacts found for properties: {body.property_names}"
             )
 
         failures = 0
@@ -336,13 +340,14 @@ async def send_message_to_building(
                 failed_contacts.append({
                     "name": contact["First Name"],
                     "phone": contact["Phone Number"],
+                    "property": contact["Property"],
                     "error": error_message
                 })
                 logger.error(f"Failed to send message to {contact['First Name']}: {error_message}")
 
         # Prepare response
         if failures > 0:
-            failed_details = [f"{c['name']} ({c['phone']}): {c['error']}" for c in failed_contacts]
+            failed_details = [f"{c['name']} ({c['phone']}) in {c['property']}: {c['error']}" for c in failed_contacts]
             message = (
                 f"{'Partial success' if successes > 0 else 'Failed'}: "
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
@@ -360,8 +365,8 @@ async def send_message_to_building(
                     "failed_contacts": failed_contacts
                 }
             )
-        
-        success_message = f"Successfully sent message to all {successes} contacts in {body.building_name}!"
+        property_names_str = ", ".join(body.property_names)
+        success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
         logger.info(success_message)
         return JSONResponse(
             status_code=200,
@@ -375,7 +380,7 @@ async def send_message_to_building(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in send_message_to_building: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={

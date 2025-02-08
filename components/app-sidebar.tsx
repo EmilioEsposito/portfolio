@@ -76,7 +76,7 @@ export function AppSidebar() {
     {
       type: 'navigation',
       title: "Send Building Message",
-      url: "/send-building-message",
+      url: "/tenant-mass-message",
       icon: Building,
       onClick: toggleSidebarIfMobile,
     },

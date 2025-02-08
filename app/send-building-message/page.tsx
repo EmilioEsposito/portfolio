@@ -19,12 +19,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { MultiSelect } from "@/components/multi-select"
 
-const BUILDINGS = ["Test"] as const;
-type Building = typeof BUILDINGS[number];
+const PROPERTIES = ["Test"] as const;
+type Property = typeof PROPERTIES[number];
 
-export default function SendBuildingMessage() {
-  const [building, setBuilding] = useState<Building | ''>('');
+const propertyOptions = PROPERTIES.map(property => ({
+  label: property,
+  value: property,
+}));
+
+export default function TenantMassMessaging() {
+  const [propertyNames, setPropertyNames] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
@@ -33,6 +39,13 @@ export default function SendBuildingMessage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (propertyNames.length === 0) {
+      setStatus({
+        type: 'error',
+        message: 'Please select at least one property'
+      });
+      return;
+    }
     setShowConfirmation(true);
   };
 
@@ -42,13 +55,13 @@ export default function SendBuildingMessage() {
     setStatus({ type: 'loading', message: 'Sending...' });
 
     try {
-      const response = await fetch('/api/open_phone/send_message_to_building', {
+      const response = await fetch('/api/open_phone/tenant_mass_message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          building_name: building,
+          property_names: propertyNames,
           message: message,
           password: password,
         }),
@@ -73,13 +86,13 @@ export default function SendBuildingMessage() {
       
       // Handle partial success (some messages sent, some failed)
       if (data.successes > 0 && data.failures > 0) {
-        setStatus({ 
-          type: 'error', 
+        setStatus({
+          type: 'error',
           message: `Partial success: ${data.successes} messages sent, ${data.failures} failed. Check the logs for details.`
         });
         return;
       }
-      
+
       // Handle complete failure
       if (data.failures > 0 && data.successes === 0) {
         throw new Error(data.message || 'Failed to send messages');
@@ -87,13 +100,13 @@ export default function SendBuildingMessage() {
       
       // Handle complete success
       if (data.success || (data.successes > 0 && data.failures === 0)) {
-        setStatus({ 
-          type: 'success', 
+        setStatus({
+          type: 'success',
           message: data.message || `Successfully sent ${data.successes} messages!`
         });
-        
+
         // Clear form on success
-        setBuilding('');
+        setPropertyNames([]);
         setMessage('');
         setPassword('');
         return;
@@ -101,13 +114,13 @@ export default function SendBuildingMessage() {
 
       // Fallback error
       throw new Error(data.message || data.error || data.detail || 'Failed to send message');
-      
+
     } catch (error) {
       console.error('Error details:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setStatus({ 
-        type: 'error', 
-        message: errorMessage 
+      setStatus({
+        type: 'error',
+        message: errorMessage
       });
     } finally {
       setIsLoading(false);
@@ -116,26 +129,34 @@ export default function SendBuildingMessage() {
 
   return (
     <div className="max-w-md mx-auto mt-10 p-6 bg-card text-card-foreground rounded-lg shadow-lg">
-      <h1 className="text-2xl font-bold mb-6">Send Building Message</h1>
+      <h1 className="text-2xl font-bold mb-4">Tenant Mass Messaging</h1>
+      
+      <div className="mb-6 text-muted-foreground">
+        <p className="text-sm">
+          This tool allows property managers to send SMS messages to all tenants in 
+          selected properties. This is useful for notifying tenants of a building-wide event like a water leak, 
+          power outage, or common area maintenance.
+        </p><br/>
+        <p className="text-sm">
+          Since OpenPhone doesn't support mass messaging, this tool uses their API to send 
+          individual messages to each tenant. 
+          
+          Messages are sent securely and require password authentication.
+        </p>
+      </div>
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Building Name</label>
-          <Select
-            value={building}
-            onValueChange={(value: Building) => setBuilding(value)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select a building" />
-            </SelectTrigger>
-            <SelectContent>
-              {BUILDINGS.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <label className="block text-sm font-medium text-foreground mb-2">Property Name(s)</label>
+          <MultiSelect
+            options={propertyOptions}
+            onValueChange={setPropertyNames}
+            defaultValue={propertyNames}
+            placeholder="Select properties to message"
+            maxCount={5}
+            className="w-full"
+            showSelectAll={false}
+          />
         </div>
 
         <div>
@@ -193,12 +214,14 @@ export default function SendBuildingMessage() {
           <DialogHeader>
             <DialogTitle>Confirm Message</DialogTitle>
             <DialogDescription>
-              Are you sure you want to send this message to {building}?
+              Are you sure you want to send this message to {propertyNames.length} property(s)?
             </DialogDescription>
           </DialogHeader>
           
           <div className="mt-4 p-3 bg-muted rounded-md">
-            <p className="text-sm font-medium text-foreground">Message:</p>
+            <p className="text-sm font-medium text-foreground">Selected Properties:</p>
+            <p className="mt-1 text-sm text-muted-foreground">{propertyNames.join(', ')}</p>
+            <p className="text-sm font-medium text-foreground mt-2">Message:</p>
             <p className="mt-1 text-sm text-muted-foreground">{message}</p>
           </div>
 
