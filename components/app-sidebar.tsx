@@ -109,6 +109,13 @@ export function AppSidebar() {
     //   onClick: toggleSidebarIfMobile,
     // },
     {
+      type: 'navigation',
+      title: "API Docs",
+      url: "/api/docs",
+      icon: FlaskConical,
+      onClick: toggleSidebarIfMobile,
+    },
+    {
       type: 'action',
       title: "Toggle theme",
       icon: !mounted ? Moon : theme === 'dark' ? Sun : Moon,

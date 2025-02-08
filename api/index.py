@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
-# Load environment variables first
-load_dotenv(".env")
+# Load local development variables (does not impact preview/production)
+load_dotenv(".env.development.local", override=True)
 import os
 import json
 from typing import List
@@ -54,8 +54,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
+# Initialize OpenAI client after environment variables are loaded
 open_ai_client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
+    api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 
