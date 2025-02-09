@@ -52,10 +52,15 @@ export default function NeonFastAPIExample() {
       })
       const data = await response.json()
       if (data.data?.examples) {
-        setExamples(data.data.examples.map((ex: GraphQLExample) => ({
-          ...ex,
-          created_at: ex.createdAt
-        })))
+        const sortedExamples = data.data.examples
+          .map((ex: GraphQLExample) => ({
+            ...ex,
+            created_at: ex.createdAt
+          }))
+          .sort((a: Example, b: Example) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )
+        setExamples(sortedExamples)
       }
     } catch (error) {
       console.error("Error fetching examples:", error)

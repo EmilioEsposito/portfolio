@@ -33,7 +33,11 @@ export default function NeonNextJSExample() {
       }
       const data = await response.json()
       if (Array.isArray(data)) {
-        setExamples(data)
+        // Sort by created_at in descending order (newest first)
+        const sortedExamples = data.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        setExamples(sortedExamples)
       } else {
         console.error("Unexpected response format:", data)
       }
