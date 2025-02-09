@@ -27,7 +27,9 @@ export default function NeonNextJSExample() {
     try {
       const response = await fetch("/api/examples")
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json()
+        console.error('Server error details:', errorData)
+        throw new Error(`HTTP error! status: ${response.status}, details: ${JSON.stringify(errorData)}`)
       }
       const data = await response.json()
       if (Array.isArray(data)) {

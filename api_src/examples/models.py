@@ -4,7 +4,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from api_src.database.database import Base
 
 class Example(Base):
-    __tablename__ = "EXAMPLE_NEON1"
+    # Use lowercase for table name (will be unquoted by default)
+    __tablename__ = "example_neon1"
     
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String)
