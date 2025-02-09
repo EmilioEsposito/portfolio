@@ -14,6 +14,11 @@ This is a repo for me to put various projects and tools in. I like to keep thing
 - Do not remove my comments. They are there for my benefit. You can suggest edits to them if they are wrong. 
 - I hate CSS. I have no desire to learn it. Keep styling simple and clean. 
 - Keep credentialing simple. I am a solo developer and don't need separate credentials for each microservice. 
+- Do NOT remove functionality (e.g. remove an API route import) without asking me first. 
+- Only suggest code that is safe to deploy to main branch and production. Nothing that would require code to change on diff environments.
+- For imports, use absolute paths and avoid relative imports if possible. It makes refactoring easier.
+- The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add add <component>`. Old way gives errors.
+- Do not make unrelated changes to the task at hand without asking me first.
 
 # NextJS Rules:
 You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.

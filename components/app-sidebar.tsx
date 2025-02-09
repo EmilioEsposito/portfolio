@@ -4,7 +4,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building, Sun
+  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building, Sun,
+  Blocks
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -80,6 +81,13 @@ export function AppSidebar() {
       icon: Building,
       onClick: toggleSidebarIfMobile,
     },
+    {
+      type: 'navigation',
+      title: "Examples",
+      url: "/examples",
+      icon: Blocks,
+      onClick: toggleSidebarIfMobile,
+    },
     // {
     //   type: 'navigation',
     //   title: "Inbox",
@@ -108,6 +116,13 @@ export function AppSidebar() {
     //   icon: Settings,
     //   onClick: toggleSidebarIfMobile,
     // },
+    {
+      type: 'navigation',
+      title: "API Docs",
+      url: "/api/docs",
+      icon: FlaskConical,
+      onClick: toggleSidebarIfMobile,
+    },
     {
       type: 'action',
       title: "Toggle theme",

@@ -167,20 +167,9 @@ def test_send_message():
     pprint(response.json())
 
 
-def local_only_route(request: Request):
-    """
-    Dependency function to restrict routes to local development only.
-    Raises 401 if not in development environment.
-    """
-    if os.getenv("VERCEL_ENV") != "development":
-        raise HTTPException(
-            status_code=401,
-            detail="Unauthorized - this route is only available in development",
-        )
-    return True
 
 
-@router.post("/send_message", dependencies=[Depends(local_only_route)])
+@router.post("/send_message", dependencies=[Depends(verify_admin_auth)])
 async def send_message_endpoint(request: Request):
     """
     Simple endpoint wrapper around send_message.
@@ -235,7 +224,7 @@ async def get_contacts_by_external_ids(
         raise
 
 # Keep the original route but make it use the internal function
-@router.get("/contacts", dependencies=[Depends(local_only_route)])
+@router.get("/contacts", dependencies=[Depends(verify_admin_auth)])
 async def route_get_contacts_by_external_ids(
     external_ids: List[str] = Query(...),
     sources: Union[List[str], None] = Query(default=None),
@@ -253,7 +242,6 @@ def get_contacts_sheet_as_json():
 class TenantMassMessageRequest(BaseModel):
     property_names: List[str]
     message: str
-    password: str
 
 @router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
 async def send_tenant_mass_message(

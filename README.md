@@ -44,3 +44,45 @@ This is my portfolio/sandbox website that I use to just play around with new tec
     * FastAPI: https://eesposito.com/api/docs
 
 [All Vercel Deployments](https://vercel.com/emilioespositos-projects/portfolio/deployments)
+
+
+## Environment Variables Management
+
+This project uses Vercel for deployment and environment variable management.
+
+Locally, the file that takes all precedence is `.env.development.local`. 
+
+### Local Development Setup
+
+```bash
+vercel env pull .env.development.local
+```
+
+### Other Vercel env management commands
+```bash
+vercel env pull .env.development.local    # Pulls Development environment vars
+```
+
+```bash
+vercel env pull .env.production.local     # Pulls Production environment vars
+```
+
+```bash
+vercel env pull .env.preview.local        # Pulls Preview environment vars
+```
+
+# Add a new environment variable
+vercel env add MY_VAR                     # Interactive prompt will ask for value and environment
+
+# List all environment variables
+vercel env ls
+
+# Remove an environment variable
+vercel env rm MY_VAR
+
+# Add with specific environment target
+vercel env add MY_VAR production         # Specifically add to production
+vercel env add MY_VAR development        # Specifically add to development
+vercel env add MY_VAR preview            # Specifically add to preview
+```
+
