@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 from pytest import fixture
 from api.index import app
 from api_src.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
-import os
+from api_src.password import verify_admin_auth
+
 
 async def mock_verify(*args, **kwargs):
     return True
@@ -15,6 +16,7 @@ def mocked_client():
     with TestClient(app) as client:
         # Override the dependency directly in the app
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
+        app.dependency_overrides[verify_admin_auth] = lambda: True
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()
@@ -22,7 +24,7 @@ def mocked_client():
 
 def test_open_phone_message_received(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/tests/requests/open_phone_message_received.json", "r") as f:
+    with open("api_src/tests/requests/open_phone_message_received.json", "r") as f:
         request = json.load(f)
 
     headers = request["headers"]
@@ -43,10 +45,10 @@ def test_open_phone_message_received(mocked_client):
     assert response.status_code == 200
 
 
-def test_get_contacts_success(client):
+def test_get_contacts_success(mocked_client):
     """Test successful contact retrieval"""
 
-    response = client.get(
+    response = mocked_client.get(
         "/api/open_phone/contacts", params={"external_ids": ["e8024958857"]}
     )
 
@@ -57,16 +59,15 @@ def test_get_contacts_success(client):
     assert response.status_code == 200
 
  
-def test_send_message_to_building(client):
+def send_tenant_mass_message(mocked_client):
     """Test sending a message to a building"""
 
     data = {
-        "building_name": "Test", 
-        "message": "Hello, world from Test!",
-        "password": os.environ['LOCAL_ADMIN_PASSWORD']
+        "property_names": ["Test"], 
+        "message": "Hello, world from Test!"
     }
-    response = client.post(
-        "/api/open_phone/send_message_to_building",
+    response = mocked_client.post(
+        "/api/open_phone/tenant_mass_message",
         json=data,
     )
     assert response.status_code == 200
