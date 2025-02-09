@@ -1,9 +1,13 @@
 from typing import List, Optional
 import strawberry
 from datetime import datetime
-from sqlalchemy import select
-from api_src.database import get_session
+from sqlalchemy import select, desc
+import logging
+from api_src.database.database import get_session
 from api_src.examples.models import Example as ExampleModel
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 @strawberry.type
 class Example:
@@ -24,20 +28,36 @@ class Example:
         )
 
 @strawberry.type
+class ExampleError:
+    message: str
+
+@strawberry.type
+class ExampleResponse:
+    example: Optional[Example] = None
+    error: Optional[ExampleError] = None
+
+@strawberry.type
+class ExamplesResponse:
+    examples: List[Example]
+    error: Optional[ExampleError] = None
+
+@strawberry.type
 class Query:
     @strawberry.field
     async def examples(self) -> List[Example]:
         async with get_session() as session:
-            result = await session.execute(select(ExampleModel))
-            examples = result.scalars().all()
-            return [Example.from_model(ex) for ex in examples]
+            result = await session.execute(
+                select(ExampleModel).order_by(desc(ExampleModel.created_at))
+            )
+            return result.scalars().all()
     
     @strawberry.field
     async def example(self, id: int) -> Optional[Example]:
         async with get_session() as session:
-            result = await session.execute(select(ExampleModel).filter(ExampleModel.id == id))
-            example = result.scalar_one_or_none()
-            return Example.from_model(example) if example else None
+            result = await session.execute(
+                select(ExampleModel).filter(ExampleModel.id == id)
+            )
+            return result.scalar_one_or_none()
 
 @strawberry.type
 class Mutation:
@@ -48,19 +68,25 @@ class Mutation:
             session.add(example)
             await session.commit()
             await session.refresh(example)
-            return Example.from_model(example)
+            return example
     
     @strawberry.mutation
-    async def update_example(self, id: int, title: str, content: str) -> Optional[Example]:
+    async def update_example(
+        self, id: int, title: Optional[str] = None, content: Optional[str] = None
+    ) -> Optional[Example]:
         async with get_session() as session:
             example = await session.get(ExampleModel, id)
             if not example:
                 return None
-            example.title = title
-            example.content = content
+            
+            if title is not None:
+                example.title = title
+            if content is not None:
+                example.content = content
+            
             await session.commit()
             await session.refresh(example)
-            return Example.from_model(example)
+            return example
     
     @strawberry.mutation
     async def delete_example(self, id: int) -> bool:
@@ -68,6 +94,7 @@ class Mutation:
             example = await session.get(ExampleModel, id)
             if not example:
                 return False
+            
             await session.delete(example)
             await session.commit()
             return True
