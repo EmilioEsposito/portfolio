@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData
+from sqlalchemy.pool import NullPool
 import os
 import logging
 from contextlib import asynccontextmanager
@@ -33,9 +34,9 @@ convention = {
 metadata = MetaData(naming_convention=convention)
 
 # Get the DATABASE_URL from environment variables
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL_UNPOOLED")
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is not set")
+    raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
 # Log the database URL (with credentials removed) for debugging
 db_url_for_logging = DATABASE_URL.replace(
@@ -44,35 +45,27 @@ db_url_for_logging = DATABASE_URL.replace(
 )
 logger.info(f"Database URL format: {db_url_for_logging}")
 
-# Convert the URL to async format
+# Convert the URL to async format if needed
 if DATABASE_URL.startswith("postgres://"):
     base_url = DATABASE_URL.split("?")[0]
     DATABASE_URL = base_url.replace("postgres://", "postgresql+asyncpg://")
 
 logger.info("Creating database engine...")
 
-def create_engine():
-    """Create a new engine instance with appropriate settings"""
-    return create_async_engine(
-        DATABASE_URL,
-        echo=True,  # Enable SQL logging
-        pool_size=1,  # Minimal pool for serverless
-        max_overflow=0,  # No overflow in serverless
-        pool_timeout=30,  # Shorter timeout
-        pool_pre_ping=True,  # Enable connection health checks
-        pool_use_lifo=True,  # Last In First Out - better for serverless
-        connect_args={
-            "ssl": True,
-            "server_settings": {
-                "quote_all_identifiers": "off",
-                "application_name": "fastapi_app",
-            },
-            "command_timeout": 10  # 10 second timeout on commands
-        }
-    )
-
-# Create engine
-engine = create_engine()
+# Create engine with NullPool - no connection pooling for serverless
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=True,  # Enable SQL logging
+    poolclass=NullPool,  # Disable connection pooling
+    connect_args={
+        "ssl": True,
+        "server_settings": {
+            "quote_all_identifiers": "off",
+            "application_name": "fastapi_app",
+        },
+        "command_timeout": 10  # 10 second timeout on commands
+    }
+)
 
 logger.info("Creating session factory...")
 
@@ -81,7 +74,7 @@ AsyncSessionFactory = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflush=False  # Disable autoflush for better performance
+    autoflush=False
 )
 
 # Base class for models
