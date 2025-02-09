@@ -17,6 +17,8 @@ This is a repo for me to put various projects and tools in. I like to keep thing
 - Do NOT remove functionality (e.g. remove an API route import) without asking me first. 
 - Only suggest code that is safe to deploy to main branch and production. Nothing that would require code to change on diff environments.
 - For imports, use absolute paths and avoid relative imports if possible. It makes refactoring easier.
+- The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add add <component>`. Old way gives errors.
+
 
 # NextJS Rules:
 You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.

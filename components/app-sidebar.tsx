@@ -4,7 +4,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Settings, MessageSquare, FlaskConical,
-  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building, Sun
+  Calendar, Inbox, Search, ChevronLeft, Menu, Moon, LucideIcon, Building, Sun,
+  Blocks
 } from "lucide-react"
 import { useSidebar } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -78,6 +79,13 @@ export function AppSidebar() {
       title: "Tenant Mass Messaging",
       url: "/tenant-mass-messaging",
       icon: Building,
+      onClick: toggleSidebarIfMobile,
+    },
+    {
+      type: 'navigation',
+      title: "Examples",
+      url: "/examples",
+      icon: Blocks,
       onClick: toggleSidebarIfMobile,
     },
     // {

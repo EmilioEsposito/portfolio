@@ -61,8 +61,15 @@ vercel env pull .env.development.local
 ### Other Vercel env management commands
 ```bash
 vercel env pull .env.development.local    # Pulls Development environment vars
+```
+
+```bash
 vercel env pull .env.production.local     # Pulls Production environment vars
+```
+
+```bash
 vercel env pull .env.preview.local        # Pulls Preview environment vars
+```
 
 # Add a new environment variable
 vercel env add MY_VAR                     # Interactive prompt will ask for value and environment
