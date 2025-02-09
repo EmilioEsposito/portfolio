@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
+import asyncio
 
 # Configure logging with more detailed format for debugging
 logging.basicConfig(
@@ -50,29 +51,37 @@ if DATABASE_URL.startswith("postgres://"):
 
 logger.info("Creating database engine...")
 
-# Create async engine with minimal settings
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=True,  # Enable SQL logging
-    pool_size=5,  # Small pool size for better reliability
-    max_overflow=3,  # Allow small overflow
-    pool_pre_ping=True,  # Enable connection health checks
-    connect_args={
-        "ssl": True,
-        "server_settings": {
-            "quote_all_identifiers": "off",
-            "application_name": "fastapi_app",
+def create_engine():
+    """Create a new engine instance with appropriate settings"""
+    return create_async_engine(
+        DATABASE_URL,
+        echo=True,  # Enable SQL logging
+        pool_size=1,  # Minimal pool for serverless
+        max_overflow=0,  # No overflow in serverless
+        pool_timeout=30,  # Shorter timeout
+        pool_pre_ping=True,  # Enable connection health checks
+        pool_use_lifo=True,  # Last In First Out - better for serverless
+        connect_args={
+            "ssl": True,
+            "server_settings": {
+                "quote_all_identifiers": "off",
+                "application_name": "fastapi_app",
+            },
+            "command_timeout": 10  # 10 second timeout on commands
         }
-    }
-)
+    )
+
+# Create engine
+engine = create_engine()
 
 logger.info("Creating session factory...")
 
-# Basic session factory
+# Session factory with appropriate settings for serverless
 AsyncSessionFactory = async_sessionmaker(
-    engine,
+    bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
+    autoflush=False  # Disable autoflush for better performance
 )
 
 # Base class for models
@@ -82,13 +91,17 @@ class Base(DeclarativeBase):
 # Session context manager
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    logger.info("Starting new database session")
-    async with AsyncSessionFactory() as session:
-        try:
-            yield session
-            await session.commit()
-            logger.info("Session committed successfully")
-        except Exception as e:
-            await session.rollback()
-            logger.error(f"Database session error: {str(e)}", exc_info=True)
-            raise 
+    """Get a database session with proper error handling and cleanup"""
+    session = AsyncSessionFactory()
+    try:
+        logger.info("Starting new database session")
+        yield session
+        await session.commit()
+        logger.info("Session committed successfully")
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Database session error: {str(e)}", exc_info=True)
+        raise
+    finally:
+        await session.close()
+        logger.info("Session closed") 
