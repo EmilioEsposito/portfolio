@@ -38,17 +38,28 @@ DATABASE_URL = os.environ.get("DATABASE_URL_UNPOOLED")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
-# Log the database URL (with credentials removed) for debugging
+# Remove sslmode from URL if present and log the URL (with credentials removed)
+if "sslmode=" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.split("?")[0]
+
 db_url_for_logging = DATABASE_URL.replace(
     "//" + DATABASE_URL.split("@")[0].split("//")[1],
     "//<credentials>"
 )
 logger.info(f"Database URL format: {db_url_for_logging}")
 
-# Convert the URL to async format if needed
+# Always convert to asyncpg format
 if DATABASE_URL.startswith("postgres://"):
-    base_url = DATABASE_URL.split("?")[0]
-    DATABASE_URL = base_url.replace("postgres://", "postgresql+asyncpg://")
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+
+# Log the final URL format (with credentials removed)
+final_url_for_logging = DATABASE_URL.replace(
+    "//" + DATABASE_URL.split("@")[0].split("//")[1],
+    "//<credentials>"
+)
+logger.info(f"Final database URL format: {final_url_for_logging}")
 
 logger.info("Creating database engine...")
 
@@ -58,12 +69,13 @@ engine = create_async_engine(
     echo=True,  # Enable SQL logging
     poolclass=NullPool,  # Disable connection pooling
     connect_args={
-        "ssl": True,
+        "ssl": True,  # Enable SSL
         "server_settings": {
             "quote_all_identifiers": "off",
             "application_name": "fastapi_app",
         },
-        "command_timeout": 10  # 10 second timeout on commands
+        "command_timeout": 10,  # 10 second timeout on commands
+        "statement_cache_size": 0,  # Disable statement cache for serverless
     }
 )
 
