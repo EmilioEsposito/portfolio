@@ -242,7 +242,6 @@ def get_contacts_sheet_as_json():
 class TenantMassMessageRequest(BaseModel):
     property_names: List[str]
     message: str
-    password: str
 
 @router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
 async def send_tenant_mass_message(
