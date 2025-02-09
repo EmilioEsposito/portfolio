@@ -59,7 +59,7 @@ def test_get_contacts_success(mocked_client):
     assert response.status_code == 200
 
  
-def send_tenant_mass_message(mocked_client):
+def test_send_tenant_mass_message(mocked_client):
     """Test sending a message to a building"""
 
     data = {
