@@ -11,13 +11,13 @@ import asyncio
 
 # Configure logging with more detailed format for debugging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # Enable SQLAlchemy logging for debugging
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
