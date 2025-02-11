@@ -3,7 +3,7 @@ echo "DB_MIGRATION: STARTING..."
 
 # Install dependencies
 echo "DB_MIGRATION: INSTALLING DEPENDENCIES..."
-pip3 install -r requirements.txt --quiet
+pip3 install -r requirements.txt --quiet --disable-pip-version-check
 
 # Set PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:$(pwd)
