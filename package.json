@@ -7,6 +7,7 @@
     "next-dev": "next dev",
     "dev": "concurrently \"next dev\" \"pip3 install -r requirements.txt && python3 -m uvicorn api.index:app --reload --port 8000\"",
     "build": "next build",
+    "postbuild": "cd api_src && alembic upgrade head",
     "start": "next start",
     "lint": "next lint",
     "test:e2e": "playwright test",
