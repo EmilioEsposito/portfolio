@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from pytest import fixture
 from api.index import app
 from api_src.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
-from api_src.password import verify_admin_auth
+from api_src.utils.password import verify_admin_auth
 
 
 async def mock_verify(*args, **kwargs):
