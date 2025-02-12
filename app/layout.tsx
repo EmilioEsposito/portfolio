@@ -6,6 +6,7 @@ import { Navbar } from "@/components/navbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "next-themes";
+import { Analytics } from "@vercel/analytics/react"
 
 export const metadata = {
   title: "Emilio Esposito - Portfolio",
@@ -47,6 +48,7 @@ export default function RootLayout({
             </SidebarInset>
           </SidebarProvider>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
