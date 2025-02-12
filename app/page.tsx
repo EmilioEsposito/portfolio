@@ -40,10 +40,8 @@ export default function Home() {
       <div className="mb-12">
         <H2>About</H2>
         <P className="mt-4">
-          This platform serves two purposes: showcasing some of my technical projects that I do for fun/learning, but also to host production solutions to
-          Sernia Capital's property management operations. Sernia Capital is a residential 
-          real estate business that uses AI and automation to streamline tenant communications,  
-          maintenance requests, and general operations.
+          This platform has some technical projects that I do for fun/learning, but also hosts production apps used for Sernia Capital's in-house property managment operations. Sernia Capital is a residential 
+          real estate business that uses AI and automation to streamline various aspects of property mangagement, including tenant communications, maintenance requests, and general operations.
         </P>
       </div>
 
@@ -52,9 +50,7 @@ export default function Home() {
         <div className="space-y-2">
           <H2>Property Management Tools</H2>
           <P>
-            Built on my experience in fintech and legal tech, these tools help manage our 
-            growing portfolio of residential properties. Features include collaborative SMS (using OpenPhone API) and AI-powered 
-            auto-replies to both SMS and Emails. 
+            Below are some of the production apps I've built and maintain for Sernia Capital. 
           </P>
         </div>
 
