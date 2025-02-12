@@ -87,6 +87,13 @@ export function AppSidebar() {
           icon: Home,
           onClick: toggleSidebarIfMobile,
         },
+        {
+          type: "navigation",
+          title: "Schedule Meeting",
+          url: "/calendly",
+          icon: Calendar,
+          onClick: toggleSidebarIfMobile,
+        },
       ],
     },
     {
