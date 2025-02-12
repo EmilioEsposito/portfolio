@@ -30,7 +30,7 @@ export default function Home() {
             </P>
             <P>
             I also have over 13 years of experience in rental real estate investing & operations, 
-            and currently serve as VP & Managing Partner for both Sernia Capital LLC and PANE Partners 
+            and currently serve as VP & Managing Member for both Sernia Capital LLC and PANE Partners 
             LLC, where we own and manage 40 apartment units. 
           </P>
         </div>
