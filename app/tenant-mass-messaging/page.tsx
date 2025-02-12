@@ -21,16 +21,19 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { MultiSelect } from "@/components/multi-select"
 
-const PROPERTIES = ["Test"] as const;
-type Property = typeof PROPERTIES[number];
-
-const propertyOptions = PROPERTIES.map(property => ({
-  label: property,
-  value: property,
-}));
+const PROPERTIES = [
+  { label: "TEST Property", value: "Test" },
+  { label: "320 S Mathilda St", value: "320" },
+  { label: "324 S Mathilda St", value: "324" },
+  { label: "332 S Mathilda St", value: "332" },
+  { label: "665 Maryland Ave", value: "665" },
+  { label: "659 Maryland Ave", value: "659" },
+  { label: "5807 Elmer St", value: "5807" },
+] satisfies Array<{ label: string, value: string }>;
+type Property = (typeof PROPERTIES)[number]["value"];
 
 export default function TenantMassMessaging() {
-  const [propertyNames, setPropertyNames] = useState<string[]>([]);
+  const [propertyNames, setPropertyNames] = useState<Property[]>([]);
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
@@ -150,7 +153,7 @@ export default function TenantMassMessaging() {
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Property Name(s)</label>
             <MultiSelect
-              options={propertyOptions}
+              options={PROPERTIES}
               onValueChange={setPropertyNames}
               defaultValue={propertyNames}
               placeholder="Select properties to message"
@@ -221,7 +224,11 @@ export default function TenantMassMessaging() {
             
             <div className="mt-4 p-3 bg-muted rounded-md">
               <p className="text-sm font-medium text-foreground">Selected Properties:</p>
-              <p className="mt-1 text-sm text-muted-foreground">{propertyNames.join(', ')}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {propertyNames.map(value => 
+                  PROPERTIES.find(p => p.value === value)?.label || value
+                ).join(', ')}
+              </p>
               <p className="text-sm font-medium text-foreground mt-2">Message:</p>
               <p className="mt-1 text-sm text-muted-foreground">{message}</p>
             </div>
