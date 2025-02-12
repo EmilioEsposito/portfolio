@@ -1,15 +1,29 @@
 import { H1, H2, H3, P } from "@/components/typography";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Hero Section */}
       <div className="space-y-4 mb-12">
-        <H1>Emilio Esposito</H1>
-        <P className="text-lg text-muted-foreground">
-          Engineering & Data Science Leader | Founder of Sernia Capital
-        </P>
+        <div className="flex items-center gap-8">
+          <div className="flex-1">
+            <H1>Emilio Esposito</H1>
+            <P className="text-lg text-muted-foreground">
+              Engineering & Data Science Leader | Founder of Sernia Capital
+            </P>
+          </div>
+          <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
+            <Image
+              src="/images/me.png"
+              alt="Emilio Esposito"
+              fill
+              className="object-cover"
+              priority
+            />
+          </div>
+        </div>
         <div className="mt-4 text-muted-foreground">
           <P>
             Distinguished Engineer (Data/AI), with prior experience in various Director/Manager/IC roles in Data Science & Analytics at LegalZoom and Intuit.
