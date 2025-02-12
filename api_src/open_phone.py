@@ -11,7 +11,7 @@ import requests
 from typing import List, Optional, Union
 from datetime import datetime
 import time
-from api_src.password import verify_admin_auth
+from api_src.utils.password import verify_admin_auth
 from api_src.google.sheets import get_sheet_as_json
 
 # Configure logging
@@ -396,6 +396,7 @@ def test_get_ghost_ids():
     
 
 # Working! 
+@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_auth)])
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {

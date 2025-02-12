@@ -64,7 +64,7 @@ export default function Home() {
       </div>
 
       {/* Navigation Links */}
-      <div className="mt-12 flex gap-4">
+      {/* <div className="mt-12 flex gap-4">
         <Link 
           href="/tools" 
           className="text-primary hover:underline font-medium"
@@ -77,7 +77,7 @@ export default function Home() {
         >
           View Projects
         </Link>
-      </div>
+      </div> */}
     </div>
   );
 }

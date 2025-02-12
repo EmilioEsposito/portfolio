@@ -1,3 +1,5 @@
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(".env.development.local"), override=True)
 import json
 from typing import List
 from fastapi import APIRouter, Query
@@ -8,6 +10,9 @@ from pydantic import BaseModel
 from api_src.utils.prompt import ClientMessage, convert_to_openai_messages
 from api_src.utils.tools import get_current_weather
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,6 +28,7 @@ available_tools = {
     "get_current_weather": get_current_weather,
 }
 
+# Simpler version - not used in the chat route
 def do_stream(messages: List[ChatCompletionMessageParam]):
     stream = open_ai_client.chat.completions.create(
         messages=messages,
@@ -54,13 +60,26 @@ def do_stream(messages: List[ChatCompletionMessageParam]):
     )
     return stream
 
+def test_do_stream():
+    messages = [{"role": "user", "content": "hello there"}]
+    stream = do_stream(messages)
+    print("\rRESPONSE TEXT:\n")
+
+    for chunk in stream:
+        text = chunk.choices[0].delta.content
+        if text is not None:
+            print(text, end="", flush=True)
+    print("\n\nDONE")
+    assert stream.response.status_code == 200
+
+# Actual logic used in the chat route
 def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "data"):
     draft_tool_calls = []
     draft_tool_calls_index = -1
 
     stream = open_ai_client.chat.completions.create(
         messages=messages,
-        model="gpt-4o",
+        model="gpt-4-turbo-preview",
         stream=True,
         tools=[
             {
@@ -143,23 +162,13 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
                 completion=completion_tokens,
             )
 
-def test_do_stream():
-    messages = [{"role": "user", "content": "hello there"}]
-    stream = do_stream(messages)
-    print("\rRESPONSE TEXT:\n")
 
-    for chunk in stream:
-        text = chunk.choices[0].delta.content
-        if text is not None:
-            print(text, end="", flush=True)
-    print("\n\nDONE")
-    assert stream.response.status_code == 200
 
 @router.post("/chat")
 async def handle_chat_data(request: ChatRequest, protocol: str = Query("data")):
+    logger.info(f"Received chat request: {request}")
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)
-
     response = StreamingResponse(stream_text(openai_messages, protocol))
     response.headers["x-vercel-ai-data-stream"] = "v1"
     return response 

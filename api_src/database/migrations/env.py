@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import your models
 from api_src.examples.models import Example
-from api_src.database.database import DATABASE_URL, engine
+from api_src.database.database import DATABASE_URL, engine, Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -22,7 +22,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-target_metadata = Example.metadata
+target_metadata = Base.metadata
 
 def get_next_revision_id():
     """Get the next sequential revision ID."""
@@ -62,8 +62,12 @@ def process_revision_directives(context, revision, directives):
     if description:
         # Convert description to snake case and clean it
         description = re.sub(r'[^\w\s-]', '', description.lower())
-        description = re.sub(r'[-\s]+', '_', description)
+        description = re.sub(r'[-\s]+', '_', description).rstrip('_')
+        print(f"Description: {description}")
+        # Set the rev_id to include the description
         migration_script.rev_id = f"{new_rev_id}_{description}"
+        # Clear the message so it won't be used in the filename
+        migration_script.message = ''
     else:
         migration_script.rev_id = new_rev_id
 
