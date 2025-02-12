@@ -5,6 +5,9 @@ import { GitIcon, LinkedInIcon } from "./icons";
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "@/components/ui/sidebar";
+import { track } from '@vercel/analytics';
+
+
 
 export const Navbar = () => {
   const { toggleSidebar } = useSidebar();
@@ -29,12 +32,12 @@ export const Navbar = () => {
 
 
         {/* View source code button */}
-        <Link href="https://github.com/EmilioEsposito/portfolio">
+        <Link href="https://github.com/EmilioEsposito/portfolio" onClick={() => track('github-click')}>
           <Button variant="outline">
             <GitIcon />
           </Button>
         </Link>
-        <Link href="https://www.linkedin.com/in/emilioespositousa/">
+        <Link href="https://www.linkedin.com/in/emilioespositousa/" onClick={() => track('linkedin-click')}>
           <Button variant="outline">
             <LinkedInIcon />
           </Button>

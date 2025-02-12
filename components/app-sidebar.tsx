@@ -24,6 +24,8 @@ import { useEffect, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 import {
   Sidebar,
@@ -60,7 +62,7 @@ type SidebarSection = {
 };
 
 export function AppSidebar() {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, state } = useSidebar();
   const { theme, setTheme } = useTheme();
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
@@ -144,11 +146,9 @@ export function AppSidebar() {
       items: [
         {
           type: "action",
-          title: "Toggle theme",
-          icon: !mounted ? Moon : theme === "dark" ? Sun : Moon,
-          onClick: () => {
-            setTheme(theme === "dark" ? "light" : "dark");
-          },
+          title: "toggle-theme",
+          icon: !mounted ? Moon : theme === "dark" ? Moon : Sun,
+          onClick: () => {}, // We'll handle the click in the custom render below
         },
       ],
     },
@@ -177,23 +177,47 @@ export function AppSidebar() {
             <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {section.items.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
-                      {item.type === "navigation" ? (
-                        <Link href={item.url} onClick={item.onClick}>
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </Link>
-                      ) : (
-                        <button onClick={item.onClick} className="flex w-full">
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </button>
-                      )}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                {section.items.map((item) => 
+                  item.title === "toggle-theme" ? (
+                    // Only render theme toggle when expanded
+                    state === "expanded" && (
+                      <SidebarMenuItem key={item.title}>
+                        <div className="flex w-full items-center justify-between px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <item.icon className="h-4 w-4" />
+                            <Label htmlFor="dark-mode">
+                              Light/Dark mode
+                            </Label>
+                          </div>
+                          <Switch
+                            id="dark-mode"
+                            checked={theme === "dark"}
+                            onCheckedChange={(checked) =>
+                              setTheme(checked ? "dark" : "light")
+                            }
+                          />
+                        </div>
+                      </SidebarMenuItem>
+                    )
+                  ) : (
+                    // All other items
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild tooltip={item.title}>
+                        {item.type === "navigation" ? (
+                          <Link href={item.url} onClick={item.onClick}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </Link>
+                        ) : (
+                          <button onClick={item.onClick} className="flex w-full">
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </button>
+                        )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
