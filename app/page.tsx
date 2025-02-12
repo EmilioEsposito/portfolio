@@ -11,7 +11,7 @@ export default function Home() {
           <div className="flex-1">
             <H1>Emilio Esposito</H1>
             <P className="text-lg text-muted-foreground">
-              Engineering & Data Science Leader | Founder of Sernia Capital
+              Engineering & Data Science Leader | VP & Managing Partner at Sernia Capital
             </P>
           </div>
           <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
@@ -31,8 +31,7 @@ export default function Home() {
             <P>
             I also have over 13 years of experience in rental real estate investing & operations, 
             and currently serve as VP & Managing Partner for both Sernia Capital LLC and PANE Partners 
-            LLC (40 apartment units under management), where I build tech solutions for residential 
-            real estate management.
+            LLC, where we own and manage 40 apartment units. 
           </P>
         </div>
       </div>
@@ -41,7 +40,7 @@ export default function Home() {
       <div className="mb-12">
         <H2>About</H2>
         <P className="mt-4">
-          This platform serves two purposes: showcasing some of my technical projects that I do for fun, but also to host production solutions to
+          This platform serves two purposes: showcasing some of my technical projects that I do for fun/learning, but also to host production solutions to
           Sernia Capital's property management operations. Sernia Capital is a residential 
           real estate business that uses AI and automation to streamline tenant communications,  
           maintenance requests, and general operations.
@@ -73,6 +72,33 @@ export default function Home() {
         </H3>
         <P>
           Simple app to send SMS messages to all tenants in selected buildings. OpenPhone doesn't support sending to groups, so this app uses their API to achieve this. Messages are sent securely with password protection.
+        </P>
+
+        <H3>
+          <Link href="/tenant-mass-message">
+            Rental Listing Email Auto-Replies via Agentic AI (coming soon)
+          </Link>
+        </H3>
+        <P>
+          This app will auto-respond to inbound leasing inquiries from our Zillow ads. 
+          It will have context on all our properties via RAG, current rental listings (via Zillow API or scraping), 
+          as well as our listing agent's calendar availability & scheduling preferences. 
+          It will monitor our Gmail Worspace inbox for new inquiries, and will answer basic questions,
+          will scan requestors Zillow profile and clarify any potential issues (e.g. if they have dogs but our listing is dog-free),
+          and propose meeting times. 
+        </P>
+
+        <H3>
+          <Link href="/tenant-mass-message">
+            SMS Emergency Routing via Agentic AI (coming soon)
+          </Link>
+        </H3>
+        <P>
+          This will monitor all incoming SMS mesages to Sernia 
+          Capital's phone number, and will escalate them as needed if it detects the issue 
+          is urgent (e.g. water leaks, fire, police activity, etc.).
+          It will kick off a call to a dedicated emergency number that calls and texts all 
+          owners/property managers and can bypass Do Not Disturb settings during off hours. 
         </P>
 
       </div>
