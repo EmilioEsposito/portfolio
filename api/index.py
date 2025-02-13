@@ -14,6 +14,7 @@ import strawberry
 from api_src.chat.routes import router as chat_router
 from api_src.open_phone import router as open_phone_router
 from api_src.cron import router as cron_router
+from api_src.google.routes import router as google_router
 
 # Import all GraphQL schemas
 from api_src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
@@ -50,6 +51,7 @@ app.include_router(graphql_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
+app.include_router(google_router, prefix="/api")
 
 # Add error handling
 @app.exception_handler(Exception)
