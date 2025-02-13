@@ -29,6 +29,7 @@ from api_src.google.gmail import (
     get_gmail_service,
     get_delegated_credentials
 )
+from email.utils import parsedate_to_datetime
 
 # Configure logging
 logging.basicConfig(
@@ -419,6 +420,18 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         # Extract body content
         body = extract_email_body(message)
         
+        # Parse the date using email.utils since Gmail uses RFC 2822 format
+        date_str = headers.get('date')
+        if not date_str:
+            logger.error("No date header found in message")
+            raise ValueError("No date header found in message")
+            
+        try:
+            parsed_date = parsedate_to_datetime(date_str)
+        except Exception as e:
+            logger.error(f"Failed to parse date '{date_str}': {e}")
+            raise ValueError(f"Could not parse date '{date_str}'") from e
+        
         # Create a processed message object
         return {
             'message_id': message['id'],
@@ -426,7 +439,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
             'subject': headers.get('subject', 'No Subject'),
             'from_address': headers.get('from'),  # Aligned with model's from_address field
             'to_address': headers.get('to'),      # Aligned with model's to_address field
-            'date': headers.get('date'),
+            'date': parsed_date.isoformat(),      # Convert to ISO format for consistency
             'body_text': body['text'],
             'body_html': body['html'],
             'raw_payload': message  # Aligned with model's raw_payload field
