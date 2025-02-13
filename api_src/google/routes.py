@@ -11,6 +11,8 @@ from google.auth import jwt, crypt
 # from google.oauth2 import id_token
 from google.auth.transport import requests
 from api_src.utils.dependencies import verify_cron_or_admin
+from api_src.database.database import get_session
+from api_src.google.db_ops import save_email_message, get_email_by_message_id
 from pydantic import BaseModel
 from typing import Union
 import logging
@@ -33,6 +35,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/google", tags=["google"])
 
@@ -315,7 +319,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
 
 async def process_gmail_notification(notification_data: dict) -> List[Dict[str, Any]]:
     """
-    Process a Gmail notification and fetch the actual email contents.
+    Process a Gmail notification and store messages in the database.
     
     Args:
         notification_data: The decoded notification data from Pub/Sub
@@ -325,7 +329,7 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
             }
     
     Returns:
-        List of processed email messages with their contents
+        List of processed email messages
         
     Raises:
         HTTPException: If processing fails
@@ -341,7 +345,7 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
                 detail="Missing required fields in notification"
             )
         
-        logging.info(f"Processing notification for {email_address} with history ID: {history_id}")
+        logger.info(f"Processing notification for {email_address} with history ID: {history_id}")
         
         # Get Gmail service with delegated credentials
         credentials = get_delegated_credentials(
@@ -352,56 +356,85 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
         
         # Get message IDs from history
         message_ids = await get_email_changes(service, history_id)
-        logging.info(f"Found {len(message_ids)} new messages")
+        logger.info(f"Found {len(message_ids)} new messages")
         
         processed_messages = []
         
-        # Fetch each message
-        for msg_id in message_ids:
-            try:
-                message = await get_email_content(service, msg_id)
-                
-                # Extract headers for easier access
-                headers = {
-                    h['name'].lower(): h['value'] 
-                    for h in message.get('payload', {}).get('headers', [])
-                }
-                
-                # Extract body content
-                body = extract_email_body(message)
-                
-                # Create a processed message object
-                processed_message = {
-                    'id': msg_id,
-                    'threadId': message.get('threadId'),
-                    'subject': headers.get('subject', 'No Subject'),
-                    'from': headers.get('from'),
-                    'to': headers.get('to'),
-                    'date': headers.get('date'),
-                    'body_text': body['text'],
-                    'body_html': body['html'],
-                    'raw_message': message  # Include full message for custom processing
-                }
-                
-                processed_messages.append(processed_message)
-                logging.info(
-                    f"Processed email: {processed_message['subject']} (ID: {msg_id})\n"
-                    f"Text body preview: {processed_message['body_text'][:100]}..."
-                )
-                
-            except Exception as msg_error:
-                logging.error(f"Failed to process message {msg_id}: {str(msg_error)}")
-                # Continue processing other messages even if one fails
-                continue
+        async with get_session() as session:
+            # Process each message
+            for msg_id in message_ids:
+                try:
+                    # Check if message already exists in database
+                    existing_msg = await get_email_by_message_id(session, msg_id)
+                    if existing_msg:
+                        logger.info(f"Message {msg_id} already exists in database, skipping")
+                        continue
+                    
+                    # Fetch and process message
+                    message = await get_email_content(service, msg_id)
+                    processed_msg = await process_single_message(message)
+                    
+                    # Save to database
+                    saved_msg = await save_email_message(session, processed_msg)
+                    if saved_msg:
+                        processed_messages.append(processed_msg)
+                        logger.info(
+                            f"Successfully processed and saved message: "
+                            f"{processed_msg['subject']} (ID: {msg_id})"
+                        )
+                    
+                except Exception as msg_error:
+                    logger.error(
+                        f"Failed to process message {msg_id}: {str(msg_error)}",
+                        exc_info=True
+                    )
+                    continue
         
         return processed_messages
         
     except Exception as e:
-        logging.error(f"Failed to process Gmail notification: {str(e)}")
+        logger.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process Gmail notification: {str(e)}"
         )
+
+async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process a single Gmail message into our standard format.
+    
+    Args:
+        message: Raw Gmail API message
+        
+    Returns:
+        Processed message data ready for database storage
+    """
+    try:
+        # Extract headers for easier access
+        headers = {
+            h['name'].lower(): h['value'] 
+            for h in message.get('payload', {}).get('headers', [])
+        }
+        
+        # Extract body content
+        body = extract_email_body(message)
+        
+        # Create a processed message object
+        return {
+            'message_id': message['id'],
+            'thread_id': message.get('threadId'),
+            'subject': headers.get('subject', 'No Subject'),
+            'from_address': headers.get('from'),  # Aligned with model's from_address field
+            'to_address': headers.get('to'),      # Aligned with model's to_address field
+            'date': headers.get('date'),
+            'body_text': body['text'],
+            'body_html': body['html'],
+            'raw_payload': message  # Aligned with model's raw_payload field
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to process message: {str(e)}", exc_info=True)
+        raise
 
 @pytest.mark.asyncio
 async def test_process_gmail_notification():
