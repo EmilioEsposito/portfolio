@@ -12,6 +12,7 @@ from api_src.utils.dependencies import verify_cron_or_admin
 from pydantic import BaseModel
 from typing import Union
 import logging
+import traceback
 from api_src.google.gmail import (
     send_email,
     get_oauth_url,
@@ -19,6 +20,12 @@ from api_src.google.gmail import (
     stop_gmail_watch,
     get_gmail_service,
     get_delegated_credentials
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 router = APIRouter(prefix="/google", tags=["google"])
@@ -30,24 +37,36 @@ async def verify_pubsub_token(request: Request) -> bool:
     """
     auth_header = request.headers.get("authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
+        logging.error(f"Invalid auth header: {auth_header}")
         raise HTTPException(status_code=401, detail="Invalid or missing authorization token")
     
     try:
+        # Log the token for debugging (careful with sensitive data in prod)
+        token = auth_header.split("Bearer ")[1]
+        logging.info(f"Verifying token: {token[:20]}...")
+        
         # Verify token signature and claims
-        claims = jwt.decode(auth_header[7:], verify=True)
+        claims = jwt.decode(token, verify=True)
+        logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
         # Verify audience and issuer
-        if claims.get('aud') != f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT_ID')}":
+        expected_audience = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT_ID')}"
+        logging.info(f"Expected audience: {expected_audience}")
+        if claims.get('aud') != expected_audience:
+            logging.error(f"Invalid audience. Expected {expected_audience}, got {claims.get('aud')}")
             raise HTTPException(status_code=401, detail="Invalid token audience")
         
-        if not claims.get('email', '').endswith('@pubsub.gserviceaccount.com'):
+        email = claims.get('email', '')
+        if not email.endswith('@pubsub.gserviceaccount.com'):
+            logging.error(f"Invalid issuer email: {email}")
             raise HTTPException(status_code=401, detail="Invalid token issuer")
         
         return True
         
     except Exception as e:
         logging.error(f"Pub/Sub token verification failed: {str(e)}")
-        raise HTTPException(status_code=401, detail="Token verification failed")
+        logging.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 async def get_email_changes(service, history_id: str, user_id: str = "me"):
     """
@@ -241,47 +260,63 @@ async def handle_gmail_notifications(request: Request):
     Receives Gmail push notifications from Google Pub/Sub.
     """
     try:
+        # Log request details
+        logging.info("=== New Gmail Notification ===")
+        logging.info(f"Headers: {dict(request.headers)}")
+        
         # Verify the request is from Google Pub/Sub
-        logging.info(f"Received Gmail notification, verifying token...")
+        logging.info("Verifying Pub/Sub token...")
         await verify_pubsub_token(request)
+        logging.info("✓ Token verified")
         
         # Get the raw request body
         body = await request.body()
-        
-        # Log the notification for debugging
-        logging.info(f"Received Gmail notification body.decode(): {body.decode()}")
+        body_str = body.decode()
+        logging.info(f"Raw request body: {body_str}")
         
         # Parse the message data
         data = await request.json()
-        if 'message' in data:
-            # Extract and decode the message data
-            message_data = data['message'].get('data', '')
-            if message_data:
-                try:
-                    # Decode base64 message data
-                    decoded_bytes = base64.b64decode(message_data)
-                    decoded_json = json.loads(decoded_bytes.decode('utf-8'))
-                    logging.info(f"Gmail decoded_json: {json.dumps(decoded_json, indent=2)}")
-                    
-                    # Process the notification
-                    processed_messages = await process_gmail_notification(decoded_json)
-                    
-                    # TODO: Do something with the processed messages
-                    # For now, we just log them
-                    for msg in processed_messages:
-                        logging.info(f"New email processed: {msg['subject']} from {msg['from']}")
-                    
-                except (base64.binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
-                    logging.error(f"Failed to decode message data: {str(e)}")
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Failed to decode message data: {str(e)}"
-                    )
+        logging.info(f"Parsed JSON data: {json.dumps(data, indent=2)}")
+        
+        if 'message' not in data:
+            logging.error("No 'message' field in request data")
+            raise HTTPException(status_code=400, detail="Missing message field")
+            
+        # Extract and decode the message data
+        message_data = data['message'].get('data', '')
+        if not message_data:
+            logging.error("No 'data' field in message")
+            raise HTTPException(status_code=400, detail="Missing message data")
+            
+        try:
+            # Decode base64 message data
+            decoded_bytes = base64.b64decode(message_data)
+            decoded_json = json.loads(decoded_bytes.decode('utf-8'))
+            logging.info(f"Decoded Pub/Sub message: {json.dumps(decoded_json, indent=2)}")
+            
+            # Process the notification
+            processed_messages = await process_gmail_notification(decoded_json)
+            
+            # Log results
+            for msg in processed_messages:
+                logging.info(f"Processed email: {msg['subject']} from {msg['from']}")
+            
+            logging.info(f"✓ Successfully processed {len(processed_messages)} messages")
+            
+        except (base64.binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
+            logging.error(f"Failed to decode message data: {str(e)}")
+            logging.error(f"Full traceback:\n{traceback.format_exc()}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to decode message data: {str(e)}"
+            )
         
         # Return 204 to acknowledge receipt
         return Response(status_code=204)
         
     except Exception as e:
+        logging.error(f"Unhandled error in Gmail notification handler: {str(e)}")
+        logging.error(f"Full traceback:\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process Gmail notification: {str(e)}"
