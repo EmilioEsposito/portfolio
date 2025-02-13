@@ -97,7 +97,7 @@ async def verify_pubsub_token(request: Request) -> bool:
         logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
         # Verify audience
-        token_audience = claims.get('aud')
+        token_audience = claims.get('aud').split('?')[0] # ignore query params
         if token_audience != expected_audience:
             logging.error(f"Invalid audience. Expected {expected_audience}, got {token_audience}")
             raise HTTPException(status_code=401, detail="Invalid token audience")
