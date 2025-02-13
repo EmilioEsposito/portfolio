@@ -16,6 +16,8 @@ from typing import Union
 import logging
 import traceback
 import time
+import pytest
+import asyncio
 import requests as http_requests
 from api_src.google.gmail import (
     send_email,
@@ -126,30 +128,52 @@ async def verify_pubsub_token(request: Request) -> bool:
 async def get_email_changes(service, history_id: str, user_id: str = "me"):
     """
     Fetches email changes using the history ID.
+    Uses exponential backoff to handle cases where history ID isn't available yet (race condition)
     Returns a list of message IDs that were added.
     """
-    try:
-        # List all changes since the last history ID
-        results = service.users().history().list(
-            userId=user_id,
-            startHistoryId=history_id
-        ).execute()
-        
-        message_ids = set()
-        
-        if 'history' in results:
-            for history in results['history']:
-                # Look for added messages
-                if 'messagesAdded' in history:
-                    for msg in history['messagesAdded']:
-                        msg_id = msg['message']['id']
-                        message_ids.add(msg_id)
-        
-        return list(message_ids)
-        
-    except Exception as e:
-        logging.error(f"Failed to fetch history: {str(e)}")
-        raise
+    max_retries = 5
+    wait_time = 2  # Start with 2 seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # List all changes since the last history ID
+            results = service.users().history().list(
+                userId=user_id,
+                startHistoryId=history_id
+            ).execute()
+            
+            message_ids = set()
+            
+            if 'history' in results:
+                for history in results['history']:
+                    # Look for added messages
+                    if 'messagesAdded' in history:
+                        for msg in history['messagesAdded']:
+                            msg_id = msg['message']['id']
+                            message_ids.add(msg_id)
+                
+                return list(message_ids)
+            else:
+                # If no history found, wait and retry
+                logging.info(f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:  # Don't sleep on last attempt
+                    await asyncio.sleep(wait_time)
+                    wait_time *= 2  # Exponential backoff
+                continue
+            
+        except Exception as e:
+            if "Invalid history ID" in str(e):
+                logging.info(f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:  # Don't sleep on last attempt
+                    await asyncio.sleep(wait_time)
+                    wait_time *= 2  # Exponential backoff
+                continue
+            else:
+                logging.error(f"Failed to fetch history: {str(e)}")
+                raise
+    
+    logging.warning(f"Failed to retrieve history after {max_retries} retries")
+    return []  # Return empty list if we couldn't get the history after all retries
 
 async def get_email_content(service, message_id: str, user_id: str = "me"):
     """
@@ -307,6 +331,27 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
             detail=f"Failed to process Gmail notification: {str(e)}"
         )
 
+@pytest.mark.asyncio
+async def test_process_gmail_notification():
+    """
+    Test function to test the process_gmail_notification function.
+    """
+    # Create a mock Gmail service
+    notification_data = {
+        "emailAddress": "emilio@serniacapital.com",
+        "historyId": 6521115
+    }
+    
+    # Call the function
+    processed_messages = await process_gmail_notification(notification_data)
+
+
+    assert len(processed_messages) > 0
+    
+    # Log the results
+    for msg in processed_messages:
+        print(f"Processed email: {msg['subject']} from {msg['from']}")
+        assert msg['subject'] is not None
 
 # https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
 @router.post("/gmail/notifications")
