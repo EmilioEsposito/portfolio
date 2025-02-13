@@ -2,6 +2,8 @@
 Shared authentication utilities for Google APIs.
 """
 
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv('.env.development.local'))
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -10,7 +12,6 @@ import json
 import base64
 from typing import List, Optional, Union
 from fastapi import HTTPException
-from dotenv import load_dotenv
 
 # Update these scopes as you add more Google services
 DEFAULT_SCOPES = [
@@ -37,7 +38,7 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
         if not credentials_b64:
             raise HTTPException(
                 status_code=500,
-                detail="Google service account credentials not configured"
+                detail="Missing GOOGLE_SERVICE_ACCOUNT_CREDENTIALS environment variable"
             )
         
         # Parse the JSON string safely

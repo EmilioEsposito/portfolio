@@ -257,12 +257,15 @@ def test_setup_watch():
     """
     Test setting up Gmail push notifications.
     """
+    # stop any existing watch
+    stop_gmail_watch()
+
     try:
         response = setup_gmail_watch(user_id="emilio@serniacapital.com")
         print("✓ Successfully set up Gmail watch")
         print(f"✓ Expiration: {response.get('expiration')}")
         print(f"✓ History ID: {response.get('historyId')}")
-        return response
+        assert response.get('expiration')
     except Exception as e:
         print("\n❌ Watch setup failed")
         if isinstance(e, HTTPException):
