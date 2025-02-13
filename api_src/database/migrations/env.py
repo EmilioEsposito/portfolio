@@ -2,14 +2,25 @@ import asyncio
 from logging.config import fileConfig
 import re
 from datetime import datetime
+import logging
 
 from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Import your models
-from api_src.examples.models import Example
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('alembic.env')
+
+# Import your models - using explicit imports for clarity
+from api_src.examples.models import *  # noqa
+from api_src.google.models import *  # noqa
 from api_src.database.database import DATABASE_URL, engine, Base
+
+# Log the tables that SQLAlchemy knows about
+logger.info("Detected tables in metadata:")
+for table in Base.metadata.tables:
+    logger.info(f"  - {table}")
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
