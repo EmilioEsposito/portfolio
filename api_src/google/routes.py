@@ -7,8 +7,8 @@ from typing import Dict, Any, List
 import os
 import json
 from api_src.utils.dependencies import verify_cron_or_admin
-
-
+from pydantic import BaseModel
+from typing import Union
 from api_src.google.gmail import (
     send_email,
     get_oauth_url,
@@ -54,9 +54,13 @@ async def handle_gmail_notifications(request: Request):
         )
 
 
+class OptionalPassword(BaseModel):
+    password: Union[str, None] = None
+
+
 # Cron job route
 @router.post("/gmail/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
-async def stop_watch():
+async def stop_watch(payload: OptionalPassword):
     """
     Stops Gmail push notifications.
     """
@@ -71,7 +75,7 @@ async def stop_watch():
 
 # Cron job route
 @router.post("/gmail/watch/start", dependencies=[Depends(verify_cron_or_admin)])
-async def start_watch():
+async def start_watch(payload: OptionalPassword):
     """
     Starts Gmail push notifications.
     """
@@ -91,7 +95,7 @@ async def start_watch():
 
 # Cron job route to refresh Gmail watch
 @router.post("/gmail/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
-async def refresh_watch():
+async def refresh_watch(payload: OptionalPassword):
     """
     Refreshes Gmail push notifications idempotently. Stops any existing watch and starts a new one.
     If no watch exists, just starts a new one.
