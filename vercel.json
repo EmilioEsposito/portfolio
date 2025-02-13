@@ -10,8 +10,8 @@
       "schedule": "0 12 * * *"
     },
     {
-      "path": "/api/cron_job_example_private",
-      "schedule": "0 12 * * *"
+      "path": "/api/google/gmail/watch/refresh",
+      "schedule": "0 7 * * *"
     }
   ],
   "build": {
