@@ -468,7 +468,7 @@ async def test_process_gmail_notification():
     
     # Log the results
     for msg in processed_messages:
-        print(f"Processed email: {msg['subject']} from {msg['from']}")
+        print(f"Processed email: {msg['subject']} from {msg['from_address']}")
         assert msg['subject'] is not None
 
 # https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
@@ -517,7 +517,7 @@ async def handle_gmail_notifications(request: Request):
             
             # Log results
             for msg in processed_messages:
-                logging.info(f"Processed email: {msg['subject']} from {msg['from']}")
+                logging.info(f"Processed email: {msg['subject']} from {msg['from_address']}")
             
             logging.info(f"✓ Successfully processed {len(processed_messages)} messages")
             
