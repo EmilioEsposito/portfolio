@@ -8,12 +8,15 @@ import os
 import json
 import base64
 from google.auth import jwt, crypt
+# from google.oauth2 import id_token
 from google.auth.transport import requests
 from api_src.utils.dependencies import verify_cron_or_admin
 from pydantic import BaseModel
 from typing import Union
 import logging
 import traceback
+import time
+import requests as http_requests
 from api_src.google.gmail import (
     send_email,
     get_oauth_url,
@@ -31,6 +34,41 @@ logging.basicConfig(
 
 router = APIRouter(prefix="/google", tags=["google"])
 
+# Cache for Google's public keys
+_GOOGLE_PUBLIC_KEYS = None
+_GOOGLE_PUBLIC_KEYS_EXPIRY = 0
+
+def get_google_public_keys():
+    """
+    Fetches and caches Google's public keys used for JWT verification.
+    Keys are cached until their expiry time.
+    """
+    global _GOOGLE_PUBLIC_KEYS, _GOOGLE_PUBLIC_KEYS_EXPIRY
+    
+    # Return cached keys if they're still valid
+    if _GOOGLE_PUBLIC_KEYS and time.time() < _GOOGLE_PUBLIC_KEYS_EXPIRY:
+        return _GOOGLE_PUBLIC_KEYS
+    
+    # Fetch new keys
+    resp = http_requests.get('https://www.googleapis.com/oauth2/v1/certs')
+    if resp.status_code != 200:
+        raise ValueError(f"Failed to fetch Google public keys: {resp.status_code}")
+    
+    # Cache the keys and their expiry time
+    _GOOGLE_PUBLIC_KEYS = resp.json()
+    
+    # Get cache expiry from headers (with some buffer time)
+    cache_control = resp.headers.get('Cache-Control', '')
+    if 'max-age=' in cache_control:
+        max_age = int(cache_control.split('max-age=')[1].split(',')[0])
+        _GOOGLE_PUBLIC_KEYS_EXPIRY = time.time() + max_age - 60  # 1 minute buffer
+    else:
+        _GOOGLE_PUBLIC_KEYS_EXPIRY = time.time() + 3600  # 1 hour default
+    
+    return _GOOGLE_PUBLIC_KEYS
+
+
+
 async def verify_pubsub_token(request: Request) -> bool:
     """
     Verifies the Google Pub/Sub authentication token.
@@ -46,25 +84,32 @@ async def verify_pubsub_token(request: Request) -> bool:
         token = auth_header.split("Bearer ")[1]
         logging.info(f"Verifying token: {token[:20]}...")
         
-        # Create request object for verification
-        request = requests.Request()
+        # The audience in the token is the full URL of our endpoint
+        expected_audience = f"https://{request.headers.get('host', '')}/api/google/gmail/notifications"
+        logging.info(f"Expected audience: {expected_audience}")
         
-        # Verify token signature and claims
-        # Note: Google's auth library will automatically fetch the public keys
-        # and verify the signature
-        claims = jwt.decode(token, request=request)
+        # Get Google's public keys
+        certs = get_google_public_keys()
+        
+        # Verify token signature and claims using jwt.decode
+        claims = jwt.decode(token, certs=certs)
         logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
-        # Verify audience and issuer
-        expected_audience = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT_ID')}"
-        logging.info(f"Expected audience: {expected_audience}")
-        if claims.get('aud') != expected_audience:
-            logging.error(f"Invalid audience. Expected {expected_audience}, got {claims.get('aud')}")
+        # Verify audience
+        token_audience = claims.get('aud')
+        if token_audience != expected_audience:
+            logging.error(f"Invalid audience. Expected {expected_audience}, got {token_audience}")
             raise HTTPException(status_code=401, detail="Invalid token audience")
         
+        # Verify issuer
+        if claims.get('iss') != 'https://accounts.google.com':
+            logging.error(f"Invalid issuer: {claims.get('iss')}")
+            raise HTTPException(status_code=401, detail="Invalid token issuer")
+        
+        # Verify service account email
         email = claims.get('email', '')
-        if not email.endswith('@pubsub.gserviceaccount.com'):
-            logging.error(f"Invalid issuer email: {email}")
+        if not email.endswith('gserviceaccount.com'):
+            logging.error(f"Invalid service account email: {email}")
             raise HTTPException(status_code=401, detail="Invalid token issuer")
         
         return True
