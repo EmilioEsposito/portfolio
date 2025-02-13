@@ -18,7 +18,7 @@ from api_src.google.gmail import (
 
 router = APIRouter(prefix="/google", tags=["google"])
 
-# TODO: Add verification of the request
+# https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
 @router.post("/gmail/notifications")
 async def handle_gmail_notifications(request: Request):
     """

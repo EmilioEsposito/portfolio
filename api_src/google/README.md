@@ -177,3 +177,12 @@ api/google/
 4. **Resource Sharing**:
    - Only share necessary resources with service account
    - Use most restrictive permissions possible 
+
+
+## Gmail PubSub Notifications
+
+Gmail PubSub notifications are used to notify the server when new emails arrive.
+
+It requires a watch to be set up and refreshed at least every 7 days. There is a cron job calling the `/api/google/gmail/watch/refresh` endpoint every day at 7am UTC.
+
+You can monitor the [gmail-notifications-sub here.](https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200)
