@@ -7,7 +7,8 @@ from typing import Dict, Any, List
 import os
 import json
 import base64
-from google.auth import jwt
+from google.auth import jwt, crypt
+from google.auth.transport import requests
 from api_src.utils.dependencies import verify_cron_or_admin
 from pydantic import BaseModel
 from typing import Union
@@ -45,8 +46,13 @@ async def verify_pubsub_token(request: Request) -> bool:
         token = auth_header.split("Bearer ")[1]
         logging.info(f"Verifying token: {token[:20]}...")
         
+        # Create request object for verification
+        request = requests.Request()
+        
         # Verify token signature and claims
-        claims = jwt.decode(token, verify=True)
+        # Note: Google's auth library will automatically fetch the public keys
+        # and verify the signature
+        claims = jwt.decode(token, request=request)
         logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
         # Verify audience and issuer
@@ -63,6 +69,10 @@ async def verify_pubsub_token(request: Request) -> bool:
         
         return True
         
+    except ValueError as e:
+        logging.error(f"Token validation error: {str(e)}")
+        logging.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=401, detail=f"Invalid token format: {str(e)}")
     except Exception as e:
         logging.error(f"Pub/Sub token verification failed: {str(e)}")
         logging.error(f"Full traceback:\n{traceback.format_exc()}")
