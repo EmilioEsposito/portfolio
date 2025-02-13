@@ -86,3 +86,13 @@ vercel env add MY_VAR development        # Specifically add to development
 vercel env add MY_VAR preview            # Specifically add to preview
 ```
 
+## 3rd Party Dev
+
+I use a `x-vercel-protection-bypass` param in external services like OpenPhone and Google PubSub in order to allow testing on preview deployments. 
+This allows those webhooks to to my preview routes, bypassing Vercel protection (which is fine since I verify the calls anyways). 
+
+[Vercel Deployment Protection](https://vercel.com/emilioespositos-projects/portfolio/settings/deployment-protection)
+
+OpenPhone has a prod and dev webhook, each with its own secret. 
+
+For now, on Google PubSub I'm using just using the dev endpoint since the product is not production ready yet. 
