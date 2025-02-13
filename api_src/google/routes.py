@@ -70,7 +70,6 @@ def get_google_public_keys():
     return _GOOGLE_PUBLIC_KEYS
 
 
-
 async def verify_pubsub_token(request: Request) -> bool:
     """
     Verifies the Google Pub/Sub authentication token.
@@ -133,7 +132,7 @@ async def get_email_changes(service, history_id: str, user_id: str = "me"):
     """
     max_retries = 5
     wait_time = 2  # Start with 2 seconds
-    
+
     for attempt in range(max_retries):
         try:
             # List all changes since the last history ID
@@ -141,17 +140,90 @@ async def get_email_changes(service, history_id: str, user_id: str = "me"):
                 userId=user_id,
                 startHistoryId=history_id
             ).execute()
-            
+
+            # results = {
+            #     "history": [
+            #         {
+            #             "id": "6521444",
+            #             "messages": [
+            #                 {"id": "194fd747652006ca", "threadId": "194fd747652006ca"}
+            #             ],
+            #         },
+            #         {
+            #             "id": "6521445",
+            #             "messages": [
+            #                 {"id": "194fd747652006ca", "threadId": "194fd747652006ca"}
+            #             ],
+            #             "labelsRemoved": [
+            #                 {
+            #                     "message": {
+            #                         "id": "194fd747652006ca",
+            #                         "threadId": "194fd747652006ca",
+            #                         "labelIds": [
+            #                             "IMPORTANT",
+            #                             "CATEGORY_PERSONAL",
+            #                             "INBOX",
+            #                         ],
+            #                     },
+            #                     "labelIds": ["UNREAD"],
+            #                 }
+            #             ],
+            #         },
+            #         {
+            #             "id": "6521484",
+            #             "messages": [
+            #                 {"id": "194fd86cf22d77f5", "threadId": "194fd747652006ca"}
+            #             ],
+            #         },
+            #         {
+            #             "id": "6521485",
+            #             "messages": [
+            #                 {"id": "194fd86cf22d77f5", "threadId": "194fd747652006ca"}
+            #             ],
+            #             "labelsRemoved": [
+            #                 {
+            #                     "message": {
+            #                         "id": "194fd86cf22d77f5",
+            #                         "threadId": "194fd747652006ca",
+            #                         "labelIds": [
+            #                             "IMPORTANT",
+            #                             "CATEGORY_PERSONAL",
+            #                             "INBOX",
+            #                         ],
+            #                     },
+            #                     "labelIds": ["UNREAD"],
+            #                 }
+            #             ],
+            #         },
+            #         {
+            #             "id": "6521486",
+            #             "messages": [
+            #                 {"id": "194fd86cf22d77f5", "threadId": "194fd747652006ca"}
+            #             ],
+            #         },
+            #         {
+            #             "id": "6521520",
+            #             "messages": [
+            #                 {"id": "194fd86cf22d77f5", "threadId": "194fd747652006ca"}
+            #             ],
+            #         },
+            #     ],
+            #     "historyId": "6521544",
+            # }
+
             message_ids = set()
-            
+
             if 'history' in results:
                 for history in results['history']:
+                    if 'messages' in history:
+                        for msg in history['messages']:
+                            message_ids.add(msg['id'])
                     # Look for added messages
                     if 'messagesAdded' in history:
                         for msg in history['messagesAdded']:
                             msg_id = msg['message']['id']
                             message_ids.add(msg_id)
-                
+
                 return list(message_ids)
             else:
                 # If no history found, wait and retry
@@ -160,7 +232,7 @@ async def get_email_changes(service, history_id: str, user_id: str = "me"):
                     await asyncio.sleep(wait_time)
                     wait_time *= 2  # Exponential backoff
                 continue
-            
+
         except Exception as e:
             if "Invalid history ID" in str(e):
                 logging.info(f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}")
@@ -171,7 +243,7 @@ async def get_email_changes(service, history_id: str, user_id: str = "me"):
             else:
                 logging.error(f"Failed to fetch history: {str(e)}")
                 raise
-    
+
     logging.warning(f"Failed to retrieve history after {max_retries} retries")
     return []  # Return empty list if we couldn't get the history after all retries
 
@@ -339,7 +411,7 @@ async def test_process_gmail_notification():
     # Create a mock Gmail service
     notification_data = {
         "emailAddress": "emilio@serniacapital.com",
-        "historyId": 6521115
+        "historyId": 6521441
     }
     
     # Call the function
@@ -492,4 +564,3 @@ async def refresh_watch(payload: OptionalPassword):
             status_code=500,
             detail=f"Failed to refresh Gmail watch: {str(e)}"
         )
-
