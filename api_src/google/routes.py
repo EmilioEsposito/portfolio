@@ -242,6 +242,7 @@ async def handle_gmail_notifications(request: Request):
     """
     try:
         # Verify the request is from Google Pub/Sub
+        logging.info(f"Received Gmail notification, verifying token...")
         await verify_pubsub_token(request)
         
         # Get the raw request body
