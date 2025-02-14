@@ -141,7 +141,16 @@ ${selectedEmail.body_html}`;
   return (
     <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
       <div className="space-y-4">
-        <h1 className="text-3xl font-bold">AI Email Responder Preview Tool</h1>
+        <div className="flex items-baseline justify-between">
+          <h1 className="text-3xl font-bold">AI Email Responder Preview Tool</h1>
+          <Link 
+            href="/ai-email-responder/architecture"
+            className="text-sm text-muted-foreground hover:text-blue-500 flex items-center gap-2 group"
+          >
+            View System Architecture
+            <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+          </Link>
+        </div>
         <div className="prose dark:prose-invert max-w-none">
           <p className="text-muted-foreground">
             This tool helps test and refine AI agent instructions for automated Zillow rental inquiry responses. The workflow is simple:
@@ -162,6 +171,16 @@ ${selectedEmail.body_html}`;
             </Link>
             {" "}to automatically respond to incoming Zillow inquiries in real-time.
           </p>
+          <div className="text-muted-foreground mt-4">
+            For more information on the final production implementation, see the{" "}
+            <Link 
+              href="/ai-email-responder/architecture" 
+              className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
+            >
+              System Architecture
+            </Link>
+            {" "}page.
+          </div>
         </div>
       </div>
       
