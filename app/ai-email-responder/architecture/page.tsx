@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Mermaid from "@/components/ui/mermaid";
+import { H1, H2, H3, P } from "@/components/typography";
 
 export default function AIEmailResponderArchitecture() {
   const diagram = `
@@ -41,10 +42,10 @@ export default function AIEmailResponderArchitecture() {
   `;
 
   return (
-    <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="space-y-4">
         <div className="flex items-baseline gap-4">
-          <h1 className="text-3xl font-bold">AI Email Responder Architecture</h1>
+          <H1>AI Email Responder Architecture</H1>
           <Link 
             href="/ai-email-responder"
             className="text-blue-500 hover:text-blue-600 hover:underline text-sm"
@@ -53,71 +54,85 @@ export default function AIEmailResponderArchitecture() {
           </Link>
         </div>
 
-        <div className="prose dark:prose-invert max-w-none">
-          <h2 className="text-2xl font-semibold mt-8 mb-4">Overview</h2>
-          <p className="text-lg mb-6">
-            The AI Email Responder is designed to automatically respond to Zillow rental inquiries in real-time. 
-            This page outlines the production architecture and how different components interact to create a 
-            seamless automated response system.
-          </p>
+        <div className="space-y-8">
+          <div>
+            <H2>Overview</H2>
+            <P className="mt-4">
+              The AI Email Responder is designed to automatically respond to Zillow rental inquiries in real-time. 
+              This page outlines the production architecture and how different components interact to create a 
+              seamless automated response system.
+            </P>
+          </div>
 
-          <h2 className="text-2xl font-semibold mt-8 mb-4">Architecture Diagram</h2>
-          <p className="text-lg mb-6">
-            The diagram below illustrates how these components interact in the production environment. 
-            The flow starts when a new Zillow inquiry arrives in Gmail and ends with the AI agent potentially 
-            sending an automated response.
-          </p>
-        </div>
+          <div>
+            <H2>Architecture Diagram</H2>
+            <P className="mt-4">
+              The diagram below illustrates how these components interact in the production environment. 
+              The flow starts when a new Zillow inquiry arrives in Gmail and ends with the AI agent potentially 
+              sending an automated response.
+            </P>
 
-        <div className="border rounded-lg p-8 bg-white dark:bg-zinc-950 my-8">
-          <Mermaid chart={diagram} />
-        </div>
+            <div className="border rounded-lg p-8 bg-white dark:bg-zinc-950 mt-6">
+              <Mermaid chart={diagram} />
+            </div>
+          </div>
 
-        <div className="prose dark:prose-invert max-w-none">
-          <h2 className="text-2xl font-semibold mt-8 mb-4">System Components</h2>
-          
-          <h3 className="text-xl font-medium mt-4 mb-2">1. Gmail Integration</h3>
-          <ul className="list-disc pl-6 space-y-1 mb-4">
-            <li>Gmail inbox monitors for new Zillow rental inquiry emails</li>
-            <li>When a new email arrives, Gmail triggers a notification to Google PubSub</li>
-          </ul>
+          <div>
+            <H2>System Components</H2>
+            
+            <div className="mt-6 space-y-6">
+              <div>
+                <H3>1. Gmail Integration</H3>
+                <ul className="mt-2 list-disc pl-6 space-y-1 text-muted-foreground">
+                  <li>Gmail inbox monitors for new Zillow rental inquiry emails</li>
+                  <li>When a new email arrives, Gmail triggers a notification to Google PubSub</li>
+                </ul>
+              </div>
 
-          <h3 className="text-xl font-medium mt-4 mb-2">2. Google Cloud Platform</h3>
-          <ul className="list-disc pl-6 space-y-1 mb-4">
-            <li>A PubSub Topic receives Gmail notifications</li>
-            <li>A PubSub Subscription processes these notifications and triggers our FastAPI endpoint</li>
-            <li>System Instructions are stored in a Google Doc for easy editing by non-technical users</li>
-          </ul>
+              <div>
+                <H3>2. Google Cloud Platform</H3>
+                <ul className="mt-2 list-disc pl-6 space-y-1 text-muted-foreground">
+                  <li>A PubSub Topic receives Gmail notifications</li>
+                  <li>A PubSub Subscription processes these notifications and triggers our FastAPI endpoint</li>
+                  <li>System Instructions are stored in a Google Doc for easy editing by non-technical users</li>
+                </ul>
+              </div>
 
-          <h3 className="text-xl font-medium mt-4 mb-2">3. Backend Services</h3>
-          <ul className="list-disc pl-6 space-y-1 mb-4">
-            <li>FastAPI endpoint receives PubSub notifications</li>
-            <li>Retrieves email content using Gmail API</li>
-            <li>Fetches current System Instructions from Google Doc</li>
-            <li>Constructs final prompt and calls OpenAI API</li>
-          </ul>
+              <div>
+                <H3>3. Backend Services</H3>
+                <ul className="mt-2 list-disc pl-6 space-y-1 text-muted-foreground">
+                  <li>FastAPI endpoint receives PubSub notifications</li>
+                  <li>Retrieves email content using Gmail API</li>
+                  <li>Fetches current System Instructions from Google Doc</li>
+                  <li>Constructs final prompt and calls OpenAI API</li>
+                </ul>
+              </div>
 
-          <h3 className="text-xl font-medium mt-4 mb-2">4. AI Agent</h3>
-          <ul className="list-disc pl-6 space-y-1 mb-4">
-            <li>GPT-4 model processes the email with provided instructions</li>
-            <li>Has access to a "Send Email" tool function</li>
-            <li>Can decide whether to send an automated response</li>
-            <li>If appropriate, generates and sends response in real-time</li>
-          </ul>
+              <div>
+                <H3>4. AI Agent</H3>
+                <ul className="mt-2 list-disc pl-6 space-y-1 text-muted-foreground">
+                  <li>GPT-4 model processes the email with provided instructions</li>
+                  <li>Has access to a "Send Email" tool function</li>
+                  <li>Can decide whether to send an automated response</li>
+                  <li>If appropriate, generates and sends response in real-time</li>
+                </ul>
+              </div>
+            </div>
+          </div>
 
-    
-
-          <h2 className="text-2xl font-semibold mt-8 mb-4">Customization</h2>
-          <p className="text-lg mb-6">
-            The System Instructions stored in Google Docs can be updated at any time. Changes take effect immediately
-            for all new incoming emails. This allows for quick adjustments to the AI's response style without requiring
-            any code changes or deployments.
-          </p>
+          <div>
+            <H2>Customization</H2>
+            <P className="mt-4">
+              The System Instructions stored in Google Docs can be updated at any time. Changes take effect immediately
+              for all new incoming emails. This allows for quick adjustments to the AI's response style without requiring
+              any code changes or deployments.
+            </P>
+          </div>
         </div>
       </div>
 
       {/* Footnote */}
-      <div className="text-sm text-muted-foreground italic text-center border-t pt-4">
+      <div className="text-sm text-muted-foreground italic text-center border-t mt-12 pt-4">
         This documentation and architecture diagram were created with Cursor AI (Claude 3.5 Sonnet Model)
       </div>
     </div>

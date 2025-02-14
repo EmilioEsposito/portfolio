@@ -29,12 +29,30 @@ interface SystemInstruction {
 export default function AIEmailResponder() {
   const [emails, setEmails] = useState<ZillowEmail[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<ZillowEmail | null>(null);
-  const [systemInstructions, setSystemInstructions] = useState<SystemInstruction[]>([
-    {
+  const [systemInstructions, setSystemInstructions] = useState<SystemInstruction[]>(() => {
+    // Try to load saved instructions from localStorage
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('systemInstructions');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error('Failed to parse saved instructions:', e);
+        }
+      }
+    }
+    // Default instruction if nothing in localStorage
+    return [{
       id: "default",
       text: "You are a property manager. Be professional but friendly. Keep the response concise. Address their questions directly. Sign off as 'Property Management Team'."
-    }
-  ]);
+    }];
+  });
+  
+  // Save instructions to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('systemInstructions', JSON.stringify(systemInstructions));
+  }, [systemInstructions]);
+
   const [newInstruction, setNewInstruction] = useState("");
   const [selectedInstruction, setSelectedInstruction] = useState<string>("default");
   const [generatedResponse, setGeneratedResponse] = useState("");
