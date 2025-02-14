@@ -25,3 +25,11 @@ class EmailMessageResponse(EmailMessageBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)  # Replaces the old Config class 
+
+class ZillowEmailResponse(BaseModel):
+    """Pydantic model for Zillow email responses"""
+    id: int
+    subject: str
+    sender: str
+    received_at: datetime
+    body_html: Optional[str] = None

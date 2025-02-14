@@ -32,6 +32,7 @@ from api_src.google.gmail import (
 from email.utils import parsedate_to_datetime
 from sqlalchemy import select, func
 from api_src.google.models import EmailMessage
+from api_src.google.schema import ZillowEmailResponse
 
 # Configure logging
 logging.basicConfig(
@@ -613,26 +614,36 @@ async def refresh_watch(payload: OptionalPassword):
             detail=f"Failed to refresh Gmail watch: {str(e)}"
         )
 
-@router.get("/get_zillow_emails")
-async def get_zillow_emails(db: AsyncSession = Depends(get_db)):
-    """Get a sample of Zillow rental inquiry emails."""
-    query = select(EmailMessage).where(
-        and_(
-            EmailMessage.subject.ilike("%zillow%"),
-            EmailMessage.subject.ilike("%rental%")
+@router.get("/get_zillow_emails", response_model=list[ZillowEmailResponse])
+async def get_zillow_emails():
+    """
+    Fetch 10 random email messages containing 'zillow' in the body HTML,
+    excluding daily listing emails.
+    """
+    try:
+        async with get_session() as db:
+            # Construct the query
+            query = (
+                select(EmailMessage)
+                .where(
+                    EmailMessage.body_html.ilike('%zillow%'),
+                    ~EmailMessage.subject.like('%daily listing%'),  # ~ is the NOT operator in SQLAlchemy
+                    ~EmailMessage.subject.like('Re%')  # is NOT a reply
+                )
+                .order_by(func.random())
+                .limit(5)
+            )
+            
+            # Execute the query
+            result = await db.execute(query)
+            emails = result.scalars().all()
+            
+            return emails
+        
+    except Exception as e:
+        logger.error(f"Error fetching Zillow emails: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch Zillow emails: {str(e)}"
         )
-    ).order_by(func.random()).limit(5)
-    
-    result = await db.execute(query)
-    emails = result.scalars().all()
-    
-    return [
-        {
-            "id": str(email.id),
-            "subject": email.subject,
-            "sender": email.from_address,
-            "received_at": email.received_date.isoformat(),
-            "body_html": email.body_html
-        }
-        for email in emails
-    ]
