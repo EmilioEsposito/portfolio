@@ -117,7 +117,7 @@ ${selectedEmail.body_html}`;
   }
 
   return (
-    <div className="container mx-auto py-8 space-y-8">
+    <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
       <h1 className="text-3xl font-bold mb-6">AI Email Responder</h1>
       
       {/* Sample Emails and Preview Section */}
@@ -182,7 +182,7 @@ ${selectedEmail.body_html}`;
         {/* Selected Email Preview */}
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold">Email Content</h2>
-          <div className="border rounded-lg p-4 h-[50vh] overflow-auto">
+          <div className="border rounded-lg p-4 h-[40vh] overflow-auto">
             {selectedEmail ? (
               <div 
                 className="prose max-w-none dark:prose-invert"
