@@ -44,3 +44,13 @@ The table doesn't show the body_html though. When the user selects a row, it ren
 
 
 Take some liberties to make the UI feel organized, clean, and intuitive. 
+
+## Follow ups
+
+Add some sort of loading incidator while data is being fetched.  And add a button to get new random emails. 
+
+Cap the height of the Email Content container to be 50% of height (make it scrollable). 
+
+Make the width of the Email Content container much larger vs the Select a Sample Email table. 
+
+Make it more 

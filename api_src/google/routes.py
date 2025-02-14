@@ -33,6 +33,7 @@ from email.utils import parsedate_to_datetime
 from sqlalchemy import select, func
 from api_src.google.models import EmailMessage
 from api_src.google.schema import ZillowEmailResponse
+from openai import AsyncOpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -41,6 +42,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+client = AsyncOpenAI()  # Create async client instance
 
 router = APIRouter(prefix="/google", tags=["google"])
 
@@ -656,4 +658,45 @@ async def get_zillow_emails():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Zillow emails: {str(e)}"
+        )
+
+class GenerateResponseRequest(BaseModel):
+    """Request model for generating AI responses."""
+    email_content: str
+    system_instruction: str
+
+@router.post("/generate_email_response")
+async def generate_email_response(request: GenerateResponseRequest):
+    """Generate an AI response to a Zillow email using the provided system instruction."""
+    try:
+        # Construct the prompt
+        prompt = f"""You are an AI assistant helping to respond to a Zillow rental inquiry email.
+
+System Instruction: {request.system_instruction}
+
+Original Email:
+{request.email_content}
+
+Please generate a professional and appropriate response:"""
+
+        # Call OpenAI API using async client
+        openai_response = await client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": "You are a professional real estate assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        response_text = openai_response.choices[0].message.content
+        return {"response": response_text}
+        
+    except Exception as e:
+        logger.error(f"Error generating email response: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate email response: {str(e)}"
         )
