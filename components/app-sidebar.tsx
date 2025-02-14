@@ -108,6 +108,13 @@ export function AppSidebar() {
           icon: MessageSquare,
           onClick: toggleSidebarIfMobile,
         },
+        {
+          type: "navigation",
+          title: "AI Email Responder",
+          url: "/ai-email-responder",
+          icon: Inbox,
+          onClick: toggleSidebarIfMobile,
+        },
       ],
     },
     {

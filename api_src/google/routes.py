@@ -11,6 +11,8 @@ from google.auth import jwt, crypt
 # from google.oauth2 import id_token
 from google.auth.transport import requests
 from api_src.utils.dependencies import verify_cron_or_admin
+from api_src.database.database import get_session
+from api_src.google.db_ops import save_email_message, get_email_by_message_id
 from pydantic import BaseModel
 from typing import Union
 import logging
@@ -27,12 +29,20 @@ from api_src.google.gmail import (
     get_gmail_service,
     get_delegated_credentials
 )
+from email.utils import parsedate_to_datetime
+from sqlalchemy import select, func
+from api_src.google.models import EmailMessage
+from api_src.google.schema import ZillowEmailResponse
+from openai import AsyncOpenAI
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+logger = logging.getLogger(__name__)
+client = AsyncOpenAI()  # Create async client instance
 
 router = APIRouter(prefix="/google", tags=["google"])
 
@@ -97,7 +107,7 @@ async def verify_pubsub_token(request: Request) -> bool:
         logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
         # Verify audience
-        token_audience = claims.get('aud')
+        token_audience = claims.get('aud').split('?')[0] # ignore query params
         if token_audience != expected_audience:
             logging.error(f"Invalid audience. Expected {expected_audience}, got {token_audience}")
             raise HTTPException(status_code=401, detail="Invalid token audience")
@@ -315,7 +325,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
 
 async def process_gmail_notification(notification_data: dict) -> List[Dict[str, Any]]:
     """
-    Process a Gmail notification and fetch the actual email contents.
+    Process a Gmail notification and store messages in the database.
     
     Args:
         notification_data: The decoded notification data from Pub/Sub
@@ -325,7 +335,7 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
             }
     
     Returns:
-        List of processed email messages with their contents
+        List of processed email messages
         
     Raises:
         HTTPException: If processing fails
@@ -341,7 +351,7 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
                 detail="Missing required fields in notification"
             )
         
-        logging.info(f"Processing notification for {email_address} with history ID: {history_id}")
+        logger.info(f"Processing notification for {email_address} with history ID: {history_id}")
         
         # Get Gmail service with delegated credentials
         credentials = get_delegated_credentials(
@@ -352,56 +362,97 @@ async def process_gmail_notification(notification_data: dict) -> List[Dict[str, 
         
         # Get message IDs from history
         message_ids = await get_email_changes(service, history_id)
-        logging.info(f"Found {len(message_ids)} new messages")
+        logger.info(f"Found {len(message_ids)} new messages")
         
         processed_messages = []
         
-        # Fetch each message
-        for msg_id in message_ids:
-            try:
-                message = await get_email_content(service, msg_id)
-                
-                # Extract headers for easier access
-                headers = {
-                    h['name'].lower(): h['value'] 
-                    for h in message.get('payload', {}).get('headers', [])
-                }
-                
-                # Extract body content
-                body = extract_email_body(message)
-                
-                # Create a processed message object
-                processed_message = {
-                    'id': msg_id,
-                    'threadId': message.get('threadId'),
-                    'subject': headers.get('subject', 'No Subject'),
-                    'from': headers.get('from'),
-                    'to': headers.get('to'),
-                    'date': headers.get('date'),
-                    'body_text': body['text'],
-                    'body_html': body['html'],
-                    'raw_message': message  # Include full message for custom processing
-                }
-                
-                processed_messages.append(processed_message)
-                logging.info(
-                    f"Processed email: {processed_message['subject']} (ID: {msg_id})\n"
-                    f"Text body preview: {processed_message['body_text'][:100]}..."
-                )
-                
-            except Exception as msg_error:
-                logging.error(f"Failed to process message {msg_id}: {str(msg_error)}")
-                # Continue processing other messages even if one fails
-                continue
+        async with get_session() as session:
+            # Process each message
+            for msg_id in message_ids:
+                try:
+                    # Check if message already exists in database
+                    existing_msg = await get_email_by_message_id(session, msg_id)
+                    if existing_msg:
+                        logger.info(f"Message {msg_id} already exists in database, skipping")
+                        continue
+                    
+                    # Fetch and process message
+                    message = await get_email_content(service, msg_id)
+                    processed_msg = await process_single_message(message)
+                    
+                    # Save to database
+                    saved_msg = await save_email_message(session, processed_msg)
+                    if saved_msg:
+                        processed_messages.append(processed_msg)
+                        logger.info(
+                            f"Successfully processed and saved message: "
+                            f"{processed_msg['subject']} (ID: {msg_id})"
+                        )
+                    
+                except Exception as msg_error:
+                    logger.error(
+                        f"Failed to process message {msg_id}: {str(msg_error)}",
+                        exc_info=True
+                    )
+                    continue
         
         return processed_messages
         
     except Exception as e:
-        logging.error(f"Failed to process Gmail notification: {str(e)}")
+        logger.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process Gmail notification: {str(e)}"
         )
+
+async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process a single Gmail message into our standard format.
+    
+    Args:
+        message: Raw Gmail API message
+        
+    Returns:
+        Processed message data ready for database storage
+    """
+    try:
+        # Extract headers for easier access
+        headers = {
+            h['name'].lower(): h['value'] 
+            for h in message.get('payload', {}).get('headers', [])
+        }
+        
+        # Extract body content
+        body = extract_email_body(message)
+        
+        # Parse the date using email.utils since Gmail uses RFC 2822 format
+        date_str = headers.get('date')
+        if not date_str:
+            logger.error("No date header found in message")
+            raise ValueError("No date header found in message")
+            
+        try:
+            parsed_date = parsedate_to_datetime(date_str)
+        except Exception as e:
+            logger.error(f"Failed to parse date '{date_str}': {e}")
+            raise ValueError(f"Could not parse date '{date_str}'") from e
+        
+        # Create a processed message object
+        return {
+            'message_id': message['id'],
+            'thread_id': message.get('threadId'),
+            'subject': headers.get('subject', 'No Subject'),
+            'from_address': headers.get('from'),  # Aligned with model's from_address field
+            'to_address': headers.get('to'),      # Aligned with model's to_address field
+            'date': parsed_date.isoformat(),      # Convert to ISO format for consistency
+            'body_text': body['text'],
+            'body_html': body['html'],
+            'raw_payload': message  # Aligned with model's raw_payload field
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to process message: {str(e)}", exc_info=True)
+        raise
 
 @pytest.mark.asyncio
 async def test_process_gmail_notification():
@@ -422,7 +473,7 @@ async def test_process_gmail_notification():
     
     # Log the results
     for msg in processed_messages:
-        print(f"Processed email: {msg['subject']} from {msg['from']}")
+        print(f"Processed email: {msg['subject']} from {msg['from_address']}")
         assert msg['subject'] is not None
 
 # https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
@@ -471,7 +522,7 @@ async def handle_gmail_notifications(request: Request):
             
             # Log results
             for msg in processed_messages:
-                logging.info(f"Processed email: {msg['subject']} from {msg['from']}")
+                logging.info(f"Processed email: {msg['subject']} from {msg['from_address']}")
             
             logging.info(f"✓ Successfully processed {len(processed_messages)} messages")
             
@@ -563,4 +614,91 @@ async def refresh_watch(payload: OptionalPassword):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to refresh Gmail watch: {str(e)}"
+        )
+
+@router.get("/get_zillow_emails")
+async def get_zillow_emails():
+    """
+    Fetch 10 random email messages containing 'zillow' in the body HTML,
+    excluding daily listing emails.
+    """
+    try:
+        async with get_session() as db:
+            # Construct the query
+            query = (
+                select(EmailMessage)
+                .where(
+                    EmailMessage.body_html.ilike('%zillow%'),
+                    EmailMessage.subject.like('%is requesting%'),  # Only inquiries
+                    ~EmailMessage.subject.like('Re%')  # is NOT a reply
+                    # ~EmailMessage.subject.like('%Daily Listing%'),  # ~ is the NOT operator in SQLAlchemy
+                    # ~EmailMessage.subject.like('%Zillow Rentals Invoice%'),  # ~ is the NOT operator in SQLAlchemy
+                )
+                .order_by(func.random())
+                .limit(5)
+            )
+            
+            # Execute the query
+            result = await db.execute(query)
+            emails = result.scalars().all()
+            
+            # Format the response to match frontend expectations
+            return [
+                {
+                    "id": str(email.id),
+                    "subject": email.subject,
+                    "sender": email.from_address,
+                    "received_at": email.received_date.isoformat(),
+                    "body_html": email.body_html
+                }
+                for email in emails
+            ]
+        
+    except Exception as e:
+        logger.error(f"Error fetching Zillow emails: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch Zillow emails: {str(e)}"
+        )
+
+class GenerateResponseRequest(BaseModel):
+    """Request model for generating AI responses."""
+    email_content: str
+    system_instruction: str
+
+@router.post("/generate_email_response")
+async def generate_email_response(request: GenerateResponseRequest):
+    """Generate an AI response to a Zillow email using the provided system instruction."""
+    try:
+        # Construct the prompt
+        prompt = f"""You are an AI assistant helping to respond to a Zillow rental inquiry email.
+
+System Instruction: {request.system_instruction}
+
+Original Email:
+{request.email_content}
+
+Please generate a professional and appropriate response:"""
+
+        # Call OpenAI API using async client
+        openai_response = await client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": "You are a professional real estate assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+        
+        response_text = openai_response.choices[0].message.content
+        return {"response": response_text}
+        
+    except Exception as e:
+        logger.error(f"Error generating email response: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate email response: {str(e)}"
         )
