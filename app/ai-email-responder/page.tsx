@@ -140,7 +140,23 @@ ${selectedEmail.body_html}`;
 
   return (
     <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
-      <h1 className="text-3xl font-bold mb-6">AI Email Responder</h1>
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold">AI Email Responder Preview Tool</h1>
+        <div className="prose dark:prose-invert max-w-none">
+          <p className="text-muted-foreground">
+            This tool helps test and refine AI agent instructions for automated Zillow rental inquiry responses. The workflow is simple:
+          </p>
+          <ol className="text-muted-foreground list-decimal list-inside space-y-1">
+            <li>Select a sample email from real Zillow inquiries</li>
+            <li>Create or modify AI agent instructions to define the response style</li>
+            <li>Click Generate to preview how the AI would respond</li>
+          </ol>
+          <p className="text-muted-foreground mt-4">
+            Once the optimal instructions are determined, they'll be used in production where Google PubSub 
+            notifications trigger our FastAPI endpoint to automatically respond to incoming Zillow inquiries in real-time.
+          </p>
+        </div>
+      </div>
       
       {/* Main Grid Layout */}
       <div className="grid lg:grid-cols-[1fr,1fr] gap-8">
