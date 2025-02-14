@@ -22,7 +22,7 @@ Use route name `/api/google/get_zillow_emails`.
 
 # Frontend Task 
 
-I want to create a new frontend feature that allows one to test out an AI-powered responses to email messages. 
+I want to create a new frontend feature that allows one to test out an AI-powered responses to Zillow rental email messages. 
 
 Core Elements:
 
