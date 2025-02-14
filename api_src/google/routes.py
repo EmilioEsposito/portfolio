@@ -614,7 +614,7 @@ async def refresh_watch(payload: OptionalPassword):
             detail=f"Failed to refresh Gmail watch: {str(e)}"
         )
 
-@router.get("/get_zillow_emails", response_model=list[ZillowEmailResponse])
+@router.get("/get_zillow_emails")
 async def get_zillow_emails():
     """
     Fetch 10 random email messages containing 'zillow' in the body HTML,
@@ -627,7 +627,7 @@ async def get_zillow_emails():
                 select(EmailMessage)
                 .where(
                     EmailMessage.body_html.ilike('%zillow%'),
-                    ~EmailMessage.subject.like('%daily listing%'),  # ~ is the NOT operator in SQLAlchemy
+                    ~EmailMessage.subject.like('%Daily Listing%'),  # ~ is the NOT operator in SQLAlchemy
                     ~EmailMessage.subject.like('Re%')  # is NOT a reply
                 )
                 .order_by(func.random())
@@ -638,7 +638,17 @@ async def get_zillow_emails():
             result = await db.execute(query)
             emails = result.scalars().all()
             
-            return emails
+            # Format the response to match frontend expectations
+            return [
+                {
+                    "id": str(email.id),
+                    "subject": email.subject,
+                    "sender": email.from_address,
+                    "received_at": email.received_date.isoformat(),
+                    "body_html": email.body_html
+                }
+                for email in emails
+            ]
         
     except Exception as e:
         logger.error(f"Error fetching Zillow emails: {str(e)}")
