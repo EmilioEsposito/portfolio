@@ -12,7 +12,7 @@ SELECT
 FROM EMAIL_MESSAGES AS EM
 WHERE EM.BODY_HTML ILIKE '%ZILLOW%' AND SUBJECT NOT LIKE '%DAILY LISTING%'
 ORDER BY RANDOM()
-LIMIT 10 
+LIMIT 5 
 ;
 ```
 
@@ -27,7 +27,7 @@ I want to create a new frontend feature that allows one to test out an AI-powere
 Core Elements:
 
 1. "Select a Sample Email"
-A scrollable table of 10 random Zillow emails from the database. Fetch the data using the FastAPI route `/api/google/get_zillow_emails`.
+A scrollable table of 5 random Zillow emails from the database. Fetch the data using a GET request to the FastAPI route `/api/google/get_zillow_emails`.
 
 The table doesn't show the body_html though. When the user selects a row, it renders the HTML in a container below. 
 
