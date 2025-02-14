@@ -242,7 +242,7 @@ ${selectedEmail.body_html}`;
 
         {/* AI Instructions Container */}
         <div className="space-y-2">
-          <h2 className="text-xl font-semibold px-1">Response Style Configuration</h2>
+          <h2 className="text-xl font-semibold px-1">AI Agent Instructions</h2>
           <div className="border rounded-lg grid grid-cols-[auto,1fr]">
             {/* Instructions Tabs */}
             <div className="border-r bg-muted/50">
@@ -280,7 +280,6 @@ ${selectedEmail.body_html}`;
             <div className="h-[40vh]">
               <div className="h-full flex flex-col p-4">
                 <div className="flex-shrink-0 space-y-4">
-                  <h2 className="text-xl font-semibold">AI Agent Instructions</h2>
                   <div className="text-sm text-muted-foreground">
                     Define how the AI agent should respond to the selected email. Edit the instruction and click Save to update it.
                   </div>
