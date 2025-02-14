@@ -629,8 +629,10 @@ async def get_zillow_emails():
                 select(EmailMessage)
                 .where(
                     EmailMessage.body_html.ilike('%zillow%'),
-                    ~EmailMessage.subject.like('%Daily Listing%'),  # ~ is the NOT operator in SQLAlchemy
+                    EmailMessage.subject.like('%is requesting%'),  # Only inquiries
                     ~EmailMessage.subject.like('Re%')  # is NOT a reply
+                    # ~EmailMessage.subject.like('%Daily Listing%'),  # ~ is the NOT operator in SQLAlchemy
+                    # ~EmailMessage.subject.like('%Zillow Rentals Invoice%'),  # ~ is the NOT operator in SQLAlchemy
                 )
                 .order_by(func.random())
                 .limit(5)
