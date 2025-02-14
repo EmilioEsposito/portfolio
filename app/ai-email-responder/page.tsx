@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import Link from "next/link";
 interface ZillowEmail {
   id: string;
   subject: string;
@@ -153,7 +153,14 @@ ${selectedEmail.body_html}`;
           </ol>
           <p className="text-muted-foreground mt-4">
             Once the optimal instructions are determined, they'll be used in production where Google PubSub 
-            notifications trigger our FastAPI endpoint to automatically respond to incoming Zillow inquiries in real-time.
+            notifications will call the{" "}
+            <Link 
+              href="api/docs#/google/handle_gmail_notifications_api_google_gmail_notifications_post"
+              className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
+            >
+              FastAPI /api/google/gmail/notifications endpoint
+            </Link>
+            {" "}to automatically respond to incoming Zillow inquiries in real-time.
           </p>
         </div>
       </div>
@@ -327,6 +334,11 @@ ${selectedEmail.body_html}`;
             />
           </div>
         )}
+      </div>
+
+      {/* Footnote */}
+      <div className="text-sm text-muted-foreground italic text-center border-t pt-4">
+        This frontend UI was created entirely with Cursor AI (Claude 3.5 Sonnet Model)
       </div>
     </div>
   );
