@@ -14,7 +14,7 @@ import strawberry
 from api_src.chat.routes import router as chat_router
 from api_src.open_phone import router as open_phone_router
 from api_src.cron import router as cron_router
-from api_src.google.routes import router as google_router
+from api_src.google.common.routes import router as google_router
 
 # Import all GraphQL schemas
 from api_src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation

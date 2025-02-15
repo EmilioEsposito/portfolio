@@ -1,26 +1,30 @@
-"""
-SQLAlchemy models for Gmail-related database tables.
-"""
-
-from sqlalchemy import Column, String, DateTime, JSON, Integer
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
+from datetime import datetime
+from sqlalchemy import String, DateTime, func, JSON, Text
+from sqlalchemy.orm import Mapped, mapped_column
+from api_src.database.database import Base
 
 class EmailMessage(Base):
-    """Model for storing Gmail messages."""
-    __tablename__ = 'email_messages'
-
-    id = Column(Integer, primary_key=True)
-    message_id = Column(String, unique=True, nullable=False)
-    thread_id = Column(String)
-    subject = Column(String)
-    from_address = Column(String)
-    to_address = Column(String)
-    received_date = Column(DateTime)
-    body_text = Column(String)
-    body_html = Column(String)
-    raw_payload = Column(JSON)
-
-    def __repr__(self):
-        return f"<EmailMessage(id={self.id}, subject='{self.subject}')>" 
+    """SQLAlchemy model for storing Gmail messages"""
+    __tablename__ = "email_messages"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[str] = mapped_column(String, unique=True, index=True)  # Gmail's message ID
+    thread_id: Mapped[str] = mapped_column(String, index=True)  # Gmail's thread ID
+    subject: Mapped[str] = mapped_column(String)
+    from_address: Mapped[str] = mapped_column(String)  # Using from_address since 'from' is a reserved word
+    to_address: Mapped[str] = mapped_column(String)
+    received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    body_text: Mapped[str] = mapped_column(Text, nullable=True)  # Plain text body
+    body_html: Mapped[str] = mapped_column(Text, nullable=True)  # HTML body
+    raw_payload: Mapped[dict] = mapped_column(JSON)  # Store the full message payload for future processing
+    
+    # Metadata timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+        onupdate=func.now(),
+    ) 

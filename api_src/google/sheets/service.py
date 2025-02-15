@@ -8,6 +8,7 @@ import os
 from typing import List, Any, Dict
 from fastapi import HTTPException
 import logging
+import pytest
 
 from api_src.google.common.auth import get_service_credentials
 
