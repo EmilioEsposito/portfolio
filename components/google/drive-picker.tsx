@@ -14,6 +14,19 @@ declare global {
           initTokenClient: (config: any) => any
         }
       }
+      picker: {
+        View: any
+        ViewId: {
+          DOCS: any
+        }
+        PickerBuilder: any
+        Action: {
+          PICKED: any
+        }
+        Feature: {
+          MULTISELECT_ENABLED: any
+        }
+      }
     }
   }
 }
