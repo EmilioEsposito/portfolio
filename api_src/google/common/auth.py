@@ -91,6 +91,10 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
             status_code=500,
             detail=f"Failed to initialize Google service account credentials: {str(e)}"
         )
+    
+def test_get_service_credentials():
+    creds = get_service_credentials()
+    print(creds)
 
 def get_delegated_credentials(
     user_email: str,

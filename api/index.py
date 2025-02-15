@@ -83,5 +83,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy"}
+
 
 

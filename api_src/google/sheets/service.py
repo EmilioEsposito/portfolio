@@ -1,14 +1,15 @@
 """
-Utilities for interacting with Google Sheets API.
+Service functionality for Google Sheets operations.
 """
-
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv('.env.development.local'))
 from googleapiclient.discovery import build
 import os
 from typing import List, Any, Dict
 from fastapi import HTTPException
 import logging
 
-from api_src.google.auth import get_service_credentials
+from api_src.google.common.auth import get_service_credentials
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -108,8 +109,6 @@ def get_sheet_as_json(spreadsheet_id: str, sheet_name: str = 'Sheet1') -> List[D
             detail=f"Failed to convert sheet to JSON: {str(e)}"
         ) 
 
-
-def test_get_sheet_as_json():
+def test_get_contacts_sheet_as_json():
     spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
-    sheet_name = 'OpenPhone'
-    print(get_sheet_as_json(spreadsheet_id, sheet_name))
+    return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")

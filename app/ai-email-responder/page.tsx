@@ -67,7 +67,7 @@ export default function AIEmailResponder() {
   async function fetchEmails() {
     setIsFetchingEmails(true);
     try {
-      const response = await fetch("/api/google/get_zillow_emails");
+      const response = await fetch("/api/google/gmail/get_zillow_emails");
       const data = await response.json();
       setEmails(data);
       setSelectedEmail(null); // Reset selection when fetching new emails
@@ -131,7 +131,7 @@ From: ${selectedEmail.sender}
 Message:
 ${selectedEmail.body_html}`;
 
-      const response = await fetch("/api/google/generate_email_response", {
+      const response = await fetch("/api/google/gmail/generate_email_response", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -182,10 +182,10 @@ ${selectedEmail.body_html}`;
             Once the optimal instructions are determined, they'll be used in production where Google PubSub 
             notifications will call the{" "}
             <Link 
-              href="api/docs#/google/handle_gmail_notifications_api_google_gmail_notifications_post"
+              href="api/docs#/google/handle_gmail_notifications_api_google_pubsub_gmail_notifications_post"
               className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
             >
-              FastAPI /api/google/gmail/notifications endpoint
+              FastAPI /api/google/pubsub/gmail/notifications endpoint
             </Link>
             {" "}to automatically respond to incoming Zillow inquiries in real-time.
           </p>

@@ -4,7 +4,8 @@ Utility script to prepare Google service account credentials for .env file.
 Usage: python prepare_credentials.py path/to/service-account.json
 E.g. python ~/portfolio/api/google/scripts/prepare_credentials.py ~/downloads/portfolio-450200-34e7805b4547.json
 """
-
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv('.env.development.local'))
 import json
 import sys
 from pathlib import Path

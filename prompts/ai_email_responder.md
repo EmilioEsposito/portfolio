@@ -16,7 +16,7 @@ LIMIT 5
 ;
 ```
 
-Use route name `/api/google/get_zillow_emails`.
+Use route name `/api/google/gmail/get_zillow_emails`.
 
 
 
@@ -27,7 +27,7 @@ I want to create a new frontend feature that allows one to test out an AI-powere
 Core Elements:
 
 1. "Select a Sample Email"
-A scrollable table of 5 random Zillow emails from the database. Fetch the data using a GET request to the FastAPI route `/api/google/get_zillow_emails`.
+A scrollable table of 5 random Zillow emails from the database. Fetch the data using a GET request to the FastAPI route `/api/google/gmail/get_zillow_emails`.
 
 The table doesn't show the body_html though. When the user selects a row, it renders the HTML in a container below. 
 
