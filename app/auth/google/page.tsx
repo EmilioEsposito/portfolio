@@ -21,9 +21,9 @@ export default function GoogleAuthPage() {
         if (data.authenticated) {
           toast({
             title: "Already authenticated",
-            description: "You are already signed in with Google"
+            description: "You are already signed in with Google. Redirecting home."
           })
-          router.push('/dashboard')
+          router.push('/')
         }
       } catch (error) {
         console.error('Auth check failed:', error)
