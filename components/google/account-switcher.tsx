@@ -190,13 +190,17 @@ export function AccountSwitcher({ className, isCollapsed = false }: AccountSwitc
   // Logged in - expanded state
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 p-2 rounded-lg bg-muted">
+      <button 
+        onClick={handleSwitchAccount}
+        disabled={isLoading}
+        className="flex items-center gap-2 p-2 rounded-lg bg-muted w-full hover:bg-accent"
+      >
         <img 
           src={userInfo.picture}
           alt={userInfo.name} 
           className="w-8 h-8 rounded-full"
         />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-left">
           <div className="text-sm font-medium truncate">
             {userInfo.name}
           </div>
@@ -204,26 +208,17 @@ export function AccountSwitcher({ className, isCollapsed = false }: AccountSwitc
             {userInfo.email}
           </div>
         </div>
-      </div>
-      <div className="flex gap-2">
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={handleSwitchAccount}
-          disabled={isLoading}
-          className="flex-1"
-        >
-          Switch Account
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="sm"
-          onClick={handleLogout}
-          disabled={isLoading}
-        >
-          <LogOut className="w-4 h-4" />
-        </Button>
-      </div>
+      </button>
+      <Button 
+        variant="ghost" 
+        size="sm"
+        onClick={handleLogout}
+        disabled={isLoading}
+        className="w-full justify-start"
+      >
+        <LogOut className="w-4 h-4 mr-2" />
+        Sign out
+      </Button>
     </div>
   )
 } 
