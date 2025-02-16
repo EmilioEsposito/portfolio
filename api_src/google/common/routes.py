@@ -153,8 +153,27 @@ async def auth_callback(
         # Store user_id in session
         request.session["user_id"] = user_id
         
-        # Redirect to frontend success page
-        frontend_url = request.base_url.scheme + "://" + request.base_url.netloc
+        # Get frontend URL from the registered OAuth redirect URI
+        redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+        if not redirect_uri:
+            raise HTTPException(
+                status_code=500, 
+                detail="GOOGLE_OAUTH_REDIRECT_URI not configured"
+            )
+            
+        # Parse the redirect URI to get the base URL
+        # Example: "https://example.com/api/google/auth/callback" -> "https://example.com"
+        try:
+            frontend_url = '/'.join(redirect_uri.split('/')[:3])
+            logger.info(f"Derived frontend URL from redirect URI: {frontend_url}")
+        except Exception as e:
+            logger.error(f"Failed to parse redirect URI: {redirect_uri}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid redirect URI format: {redirect_uri}"
+            )
+        
+        logger.info(f"Redirecting to frontend URL: {frontend_url}/auth/success")
         return RedirectResponse(f"{frontend_url}/auth/success")
         
     except Exception as e:

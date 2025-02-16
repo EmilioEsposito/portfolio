@@ -19,6 +19,12 @@ GROUP BY 1
 order by 1 desc;
 
 
+select * 
+from google_oauth_tokens 
+order by id;
+
+
+    em.message_id,
 select 
     em.message_id,
     em.thread_id,
