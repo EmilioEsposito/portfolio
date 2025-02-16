@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { CheckCircle2 } from "lucide-react"
 
-export default function GoogleAuthPage() {
+function GoogleAuthContent() {
   const { toast } = useToast()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -120,5 +120,22 @@ export default function GoogleAuthPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function GoogleAuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="container flex items-center justify-center min-h-screen py-10">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Loading...</CardTitle>
+            <CardDescription>Please wait while we set up authentication</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    }>
+      <GoogleAuthContent />
+    </Suspense>
   )
 } 
