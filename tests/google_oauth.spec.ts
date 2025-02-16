@@ -20,7 +20,7 @@ test('Google authentication flow', async ({ page }) => {
   });
 
   // Wait for navigation to the success page
-  await page.waitForURL('**/auth/success');
+  await page.waitForURL('**/auth/success', { timeout: 5000 });
   
   // Verify we're on the success page
   await expect(page).toHaveURL(/.*\/auth\/success$/);
