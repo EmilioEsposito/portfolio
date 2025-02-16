@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request as GoogleRequest
 from api_src.database.database import get_session
 from api_src.google.common.auth import (
     get_oauth_url,
@@ -136,7 +137,7 @@ async def auth_callback(
         request.session["user_id"] = user_id
         
         # Redirect to frontend success page
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        frontend_url = request.base_url.scheme + "://" + request.base_url.netloc
         return RedirectResponse(f"{frontend_url}/auth/success")
         
     except Exception as e:
@@ -193,7 +194,7 @@ async def get_token(
         
         # Refresh token
         try:
-            credentials.refresh(Request())
+            credentials.refresh(GoogleRequest())
             
             # Update token in database
             await save_oauth_token(
@@ -202,7 +203,7 @@ async def get_token(
                 {
                     "token": credentials.token,
                     "refresh_token": credentials.refresh_token or token.refresh_token,
-                    "token_type": credentials.token_type,
+                    "token_type": "Bearer",  # Google OAuth2 always uses Bearer tokens
                     "expiry": credentials.expiry.isoformat()
                 },
                 credentials.scopes
@@ -211,6 +212,7 @@ async def get_token(
             return {"access_token": credentials.token}
             
         except Exception as e:
+            logger.error(f"Failed to refresh token: {str(e)}", exc_info=True)  # Add logging
             raise HTTPException(
                 status_code=401,
                 detail=f"Failed to refresh token: {str(e)}"
