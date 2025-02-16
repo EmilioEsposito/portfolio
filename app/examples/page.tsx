@@ -3,6 +3,12 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 
 const examples = [
   {
+    title: "Google Drive File Picker Integration",
+    description: "Demonstrates integrating Google Drive File Picker with Next.js. Features file selection, type filtering, and OAuth authentication handling.",
+    href: "/examples/google-drive-picker",
+    tags: ["Next.js", "Google Drive API", "OAuth", "TypeScript"]
+  },
+  {
     title: "FastAPI + GraphQL + Neon Postgres Example",
     description: "Demonstrates using FastAPI with GraphQL and Neon Postgres. Shows how to handle GraphQL queries, mutations, and field mapping.",
     href: "/examples/neon-fastapi",

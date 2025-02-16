@@ -35,7 +35,7 @@ export default function GoogleDrivePickerPage() {
 
   return (
     <PageContainer className="space-y-6">
-      <H1>Google Drive Integration</H1>
+      <H1>Google Drive File Picker Integration</H1>
       <Lead>Access and manage your Google Drive files directly from the application.</Lead>
       
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
