@@ -1,6 +1,6 @@
 import "./globals.css";
 import { GeistSans } from "geist/font/sans";
-import { Toaster } from "sonner";
+import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { Navbar } from "@/components/navbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -39,7 +39,7 @@ export default function RootLayout({
       <head></head>
       <body className={cn(GeistSans.className, "antialiased")}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <Toaster position="top-center" richColors />
+          <Toaster />
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>

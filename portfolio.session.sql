@@ -1,7 +1,9 @@
 SELECT *
 FROM EXAMPLE_NEON1
 order by id;
-SELECT *
+
+
+SELECT received_date, subject
 FROM email_messages -- WHERE subject ilike '%blair%'
 order by received_date desc;
 

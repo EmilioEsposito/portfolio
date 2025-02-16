@@ -1,14 +1,17 @@
 """
-Database operations for Gmail messages
+Database operations for Gmail-related functionality.
 """
-import logging
-from datetime import datetime
-from sqlalchemy import select
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from api_src.google.models import EmailMessage
-from api_src.google.schema import EmailMessageCreate
-from typing import Optional, List, Dict, Any
+from sqlalchemy import select
+from datetime import datetime
+import pytz
+from typing import Dict, Any, Optional
+from api_src.google.gmail.models import EmailMessage
 import pytest
+import logging
+from typing import List
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,6 +33,28 @@ async def save_email_message(
     try:
         logger.info(f"Saving email message {message_data.get('message_id')} to database")
         
+        # Parse the date and ensure it's timezone aware
+        date_str = message_data['date']
+        try:
+            # Parse the date string
+            received_date = datetime.fromisoformat(date_str)
+            
+            # If the datetime is naive, assume UTC
+            if received_date.tzinfo is None:
+                received_date = pytz.UTC.localize(received_date)
+            else:
+                # Convert to UTC if it's not already
+                received_date = received_date.astimezone(pytz.UTC)
+                
+            # Remove timezone info before saving to database
+            # This is because the column is TIMESTAMP WITHOUT TIME ZONE
+            received_date = received_date.replace(tzinfo=None)
+            
+        except ValueError as e:
+            # Fallback to UTC now if date parsing fails
+            logger.warning(f"Failed to parse date {date_str}, using current UTC time: {str(e)}")
+            received_date = datetime.now(pytz.UTC).replace(tzinfo=None)
+        
         # Create new email message instance
         email_msg = EmailMessage(
             message_id=message_data['message_id'],
@@ -37,7 +62,7 @@ async def save_email_message(
             subject=message_data['subject'],
             from_address=message_data['from_address'],
             to_address=message_data['to_address'],
-            received_date=datetime.fromisoformat(message_data['date'].replace('Z', '+00:00')),
+            received_date=received_date,
             body_text=message_data['body_text'],
             body_html=message_data['body_html'],
             raw_payload=message_data['raw_payload']
@@ -55,6 +80,8 @@ async def save_email_message(
         logger.error(f"Failed to save email message: {str(e)}", exc_info=True)
         await session.rollback()
         return None
+
+
 
 @pytest.mark.asyncio
 async def test_save_email_message():

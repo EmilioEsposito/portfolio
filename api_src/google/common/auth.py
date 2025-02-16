@@ -12,13 +12,26 @@ import json
 import base64
 from typing import List, Optional, Union
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from api_src.google.common.models import GoogleOAuthToken
+from datetime import datetime, timedelta
+import asyncio
 
 # Update these scopes as you add more Google services
-DEFAULT_SCOPES = [
+SERVICE_ACCOUNT_DEFAULT_SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',  # Full access to Sheets
     'https://www.googleapis.com/auth/drive',         # Full access to Drive
     'https://www.googleapis.com/auth/gmail.send',    # Send-only access to Gmail
     'https://www.googleapis.com/auth/calendar',      # Full access to Calendar
+]
+
+OAUTH_DEFAULT_SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",     # Access to user-selected Drive files
+    "https://www.googleapis.com/auth/gmail.readonly", # Read emails
+    "https://www.googleapis.com/auth/gmail.labels",   # Read Gmail labels
+    "https://www.googleapis.com/auth/gmail.metadata", # Read metadata
+    "https://www.googleapis.com/auth/gmail.send"      # Send emails
 ]
 
 def get_service_credentials(scopes: Optional[List[str]] = None) -> service_account.Credentials:
@@ -79,7 +92,7 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
         # Create credentials object
         credentials = service_account.Credentials.from_service_account_info(
             creds_dict,
-            scopes=scopes or DEFAULT_SCOPES
+            scopes=scopes or SERVICE_ACCOUNT_DEFAULT_SCOPES
         )
         
         return credentials
@@ -91,6 +104,10 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
             status_code=500,
             detail=f"Failed to initialize Google service account credentials: {str(e)}"
         )
+    
+def test_get_service_credentials():
+    creds = get_service_credentials()
+    print(creds)
 
 def get_delegated_credentials(
     user_email: str,
@@ -143,12 +160,88 @@ def get_oauth_credentials(credentials_json: dict, scopes: Optional[List[str]] = 
             detail=f"Failed to initialize Google OAuth credentials: {str(e)}"
         )
 
-def get_oauth_url(scopes: Optional[List[str]] = None) -> str:
+async def save_oauth_token(
+    session: AsyncSession,
+    user_id: str,
+    credentials_json: dict,
+    scopes: List[str]
+) -> GoogleOAuthToken:
     """
-    Generates a URL for OAuth 2.0 authorization.
+    Save or update OAuth token in database
     
     Args:
-        scopes: Optional list of scopes. If None, uses DEFAULT_SCOPES.
+        session: SQLAlchemy async session
+        user_id: User's email or unique identifier
+        credentials_json: OAuth credentials as dictionary
+        scopes: List of granted scopes
+        
+    Returns:
+        Saved GoogleOAuthToken instance
+    """
+    try:
+        # Check for existing token
+        stmt = select(GoogleOAuthToken).where(GoogleOAuthToken.user_id == user_id)
+        result = await session.execute(stmt)
+        token = result.scalar_one_or_none()
+        
+        if token:
+            # Update existing token
+            token.access_token = credentials_json['token']
+            token.refresh_token = credentials_json.get('refresh_token', token.refresh_token)
+            token.token_type = credentials_json['token_type']
+            token.expiry = datetime.fromisoformat(credentials_json['expiry'])
+            token.scopes = scopes
+        else:
+            # Create new token
+            token = GoogleOAuthToken(
+                user_id=user_id,
+                access_token=credentials_json['token'],
+                refresh_token=credentials_json.get('refresh_token'),
+                token_type=credentials_json['token_type'],
+                expiry=datetime.fromisoformat(credentials_json['expiry']),
+                scopes=scopes
+            )
+            session.add(token)
+        
+        await session.commit()
+        await session.refresh(token)
+        return token
+        
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save OAuth token: {str(e)}"
+        )
+
+async def get_oauth_token(
+    session: AsyncSession,
+    user_id: str
+) -> Optional[GoogleOAuthToken]:
+    """
+    Get OAuth token from database
+    
+    Args:
+        session: SQLAlchemy async session
+        user_id: User's email or unique identifier
+        
+    Returns:
+        GoogleOAuthToken instance if found, None otherwise
+    """
+    stmt = select(GoogleOAuthToken).where(GoogleOAuthToken.user_id == user_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+def get_oauth_url(scopes: Optional[List[str]] = None, state: Optional[str] = None) -> str:
+    """
+    Generate OAuth URL with proper scopes and state
+    
+    Args:
+        scopes: Optional list of scopes. If None, uses DEFAULT_SCOPES
+        state: Optional state parameter for CSRF protection
+        
+    Returns:
+        OAuth authorization URL
     """
     try:
         client_config = {
@@ -163,23 +256,95 @@ def get_oauth_url(scopes: Optional[List[str]] = None) -> str:
         
         flow = Flow.from_client_config(
             client_config,
-            scopes=scopes or DEFAULT_SCOPES,
+            scopes=scopes or OAUTH_DEFAULT_SCOPES,
             redirect_uri=os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
         )
         
         auth_url, _ = flow.authorization_url(
             access_type='offline',
-            include_granted_scopes='true'
+            include_granted_scopes='true',
+            state=state,
+            prompt='consent'  # Force consent screen to get refresh token
         )
         
         return auth_url
-    
+        
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate OAuth URL: {str(e)}"
-        ) 
+        )
+
+def get_oauth_credentials_from_token(token: GoogleOAuthToken) -> Credentials:
+    """
+    Create OAuth credentials from database token
     
+    Args:
+        token: GoogleOAuthToken instance from database
+        
+    Returns:
+        Google OAuth credentials
+    """
+    try:
+        credentials = Credentials(
+            token=token.access_token,
+            refresh_token=token.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("GOOGLE_OAUTH_CLIENT_ID"),
+            client_secret=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+            scopes=token.scopes
+        )
+        
+        # Set expiry
+        credentials.expiry = token.expiry
+        
+        return credentials
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create credentials from token: {str(e)}"
+        )
+
+# Test functions
+async def test_oauth_token_crud():
+    """Test OAuth token CRUD operations"""
+    from api_src.database.database import AsyncSessionFactory
+    
+    async with AsyncSessionFactory() as session:
+        # Test data
+        user_id = "test@example.com"
+        credentials_json = {
+            "token": "test_token",
+            "refresh_token": "test_refresh",
+            "token_type": "Bearer",
+            "expiry": (datetime.now() + timedelta(hours=1)).isoformat()
+        }
+        scopes = OAUTH_DEFAULT_SCOPES
+        
+        # Test save
+        token = await save_oauth_token(session, user_id, credentials_json, scopes)
+        assert token.user_id == user_id
+        assert token.access_token == credentials_json["token"]
+        
+        # Test get
+        retrieved = await get_oauth_token(session, user_id)
+        assert retrieved is not None
+        assert retrieved.user_id == user_id
+        
+        # Test update
+        new_credentials = {
+            "token": "new_token",
+            "token_type": "Bearer",
+            "expiry": (datetime.now() + timedelta(hours=1)).isoformat()
+        }
+        updated = await save_oauth_token(session, user_id, new_credentials, scopes)
+        assert updated.access_token == "new_token"
+        assert updated.refresh_token == "test_refresh"  # Should keep old refresh token
+        
+        # Clean up
+        await session.delete(token)
+        await session.commit()
 
 if __name__ == "__main__":
     # Load environment variables
@@ -206,3 +371,6 @@ if __name__ == "__main__":
             print(f"HTTP Status: {e.status_code}")
             print(f"Detail: {e.detail}")
         raise
+
+    # Run new OAuth tests
+    asyncio.run(test_oauth_token_crud())
