@@ -27,11 +27,14 @@ SERVICE_ACCOUNT_DEFAULT_SCOPES = [
 ]
 
 OAUTH_DEFAULT_SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",     # Access to user-selected Drive files
-    "https://www.googleapis.com/auth/gmail.readonly", # Read emails
-    "https://www.googleapis.com/auth/gmail.labels",   # Read Gmail labels
-    "https://www.googleapis.com/auth/gmail.metadata", # Read metadata
-    "https://www.googleapis.com/auth/gmail.send"      # Send emails
+    "openid",                                        # OpenID Connect
+    "https://www.googleapis.com/auth/userinfo.email",# Get user's email address
+    "https://www.googleapis.com/auth/userinfo.profile", # Get user's basic profile info
+    "https://www.googleapis.com/auth/drive.file",    # Access to user-selected Drive files
+    "https://www.googleapis.com/auth/gmail.readonly",# Read emails
+    "https://www.googleapis.com/auth/gmail.labels",  # Read Gmail labels
+    "https://www.googleapis.com/auth/gmail.metadata",# Read metadata
+    "https://www.googleapis.com/auth/gmail.send"     # Send emails
 ]
 
 def get_service_credentials(scopes: Optional[List[str]] = None) -> service_account.Credentials:

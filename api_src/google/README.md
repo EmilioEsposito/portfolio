@@ -83,6 +83,7 @@ Some APIs (like Gmail for sending from your personal account) require user-level
 2. Create OAuth client ID (Web application)
 3. Add authorized redirect URIs:
    - Development: `http://localhost:3000/api/google/auth/callback`
+   - Preview: `https://dev.eesposito.com/api/google/auth/callback`
    - Production: `https://eesposito.com/api/google/auth/callback`
 4. Add to `.env`:
    ```

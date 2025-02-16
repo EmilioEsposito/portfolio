@@ -2,15 +2,16 @@
 FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 import logging
 import json
 import traceback
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api_src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
 from api_src.google.gmail.service import process_single_message
 from api_src.database.database import get_session
-from api_src.google.gmail.db_ops import save_email_message, get_email_by_message_id
+from api_src.google.gmail.db_ops import save_email_message, get_email_by_message_id, get_test_session
 from api_src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
 from api_src.google.common.auth import get_delegated_credentials
 import pytest
@@ -26,7 +27,10 @@ router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 
 # https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
 @router.post("/gmail/notifications")
-async def handle_gmail_notifications(request: Request):
+async def handle_gmail_notifications(
+    request: Request,
+    session: AsyncSession = Depends(get_session)
+):
     """
     Receives Gmail push notifications from Google Pub/Sub.
     """
@@ -64,8 +68,8 @@ async def handle_gmail_notifications(request: Request):
             # Decode and process the notification
             decoded_json = decode_pubsub_message(message_data)
             
-            # Process the notification
-            processed_messages = await process_gmail_notification(decoded_json)
+            # Process the notification with the provided session
+            processed_messages = await process_gmail_notification(decoded_json, session)
             
             # Log results
             for msg in processed_messages:
@@ -92,7 +96,7 @@ async def handle_gmail_notifications(request: Request):
             detail=f"Failed to process Gmail notification: {str(e)}"
         )
 
-async def process_gmail_notification(notification_data: dict):
+async def process_gmail_notification(notification_data: dict, session: AsyncSession):
     """
     Process a Gmail notification and store messages in the database.
     
@@ -102,6 +106,7 @@ async def process_gmail_notification(notification_data: dict):
                 "emailAddress": "user@example.com",
                 "historyId": "12345"
             }
+        session: SQLAlchemy async session
     
     Returns:
         List of processed email messages
@@ -135,38 +140,36 @@ async def process_gmail_notification(notification_data: dict):
         
         processed_messages = []
         
-        async with get_session() as session:
-            # Process each message
-            for msg_id in message_ids:
-                try:
+        # Process each message
+        for msg_id in message_ids:
+            try:
+                # Fetch and process message
+                message = await get_email_content(service, msg_id)
+                processed_msg = await process_single_message(message)
 
-                    # Fetch and process message
-                    message = await get_email_content(service, msg_id)
-                    processed_msg = await process_single_message(message)
-
-                    # Check if message already exists in database
-                    existing_msg = await get_email_by_message_id(session, msg_id)
-                    if existing_msg:
-                        logger.info(f"Message {msg_id} already exists in database, skipping")
-                        # let's count it as processed even though it's already in the database
-                        processed_messages.append(processed_msg)
-                        continue
-                    
-                    # Save to database
-                    saved_msg = await save_email_message(session, processed_msg)
-                    if saved_msg:
-                        processed_messages.append(processed_msg)
-                        logger.info(
-                            f"Successfully processed and saved message: "
-                            f"{processed_msg['subject']} (ID: {msg_id})"
-                        )
-                    
-                except Exception as msg_error:
-                    logger.error(
-                        f"Failed to process message {msg_id}: {str(msg_error)}",
-                        exc_info=True
-                    )
+                # Check if message already exists in database
+                existing_msg = await get_email_by_message_id(session, msg_id)
+                if existing_msg:
+                    logger.info(f"Message {msg_id} already exists in database, skipping")
+                    # let's count it as processed even though it's already in the database
+                    processed_messages.append(processed_msg)
                     continue
+                
+                # Save to database
+                saved_msg = await save_email_message(session, processed_msg)
+                if saved_msg:
+                    processed_messages.append(processed_msg)
+                    logger.info(
+                        f"Successfully processed and saved message: "
+                        f"{processed_msg['subject']} (ID: {msg_id})"
+                    )
+                
+            except Exception as msg_error:
+                logger.error(
+                    f"Failed to process message {msg_id}: {str(msg_error)}",
+                    exc_info=True
+                )
+                continue
         
         return processed_messages
         
@@ -175,8 +178,8 @@ async def process_gmail_notification(notification_data: dict):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process Gmail notification: {str(e)}"
-        ) 
-    
+        )
+
 @pytest.mark.asyncio
 async def test_process_gmail_notification():
     """
@@ -188,13 +191,14 @@ async def test_process_gmail_notification():
         "historyId": 6531598
     }
     
-    # Call the function
-    processed_messages = await process_gmail_notification(notification_data)
+    # Use the test session for the test
+    async with get_test_session() as session:
+        # Call the function with the test session
+        processed_messages = await process_gmail_notification(notification_data, session)
 
-
-    assert len(processed_messages) > 0
-    
-    # Log the results
-    for msg in processed_messages:
-        print(f"Processed email: {msg['subject']} from {msg['from_address']}")
-        assert msg['subject'] is not None
+        assert len(processed_messages) > 0
+        
+        # Log the results
+        for msg in processed_messages:
+            print(f"Processed email: {msg['subject']} from {msg['from_address']}")
+            assert msg['subject'] is not None

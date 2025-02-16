@@ -21,6 +21,9 @@ from typing import Optional
 from api_src.google.gmail.routes import router as gmail_router
 from api_src.google.pubsub.routes import router as pubsub_router
 # from api_src.google.sheets.routes import router as sheets_router
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Create main router
 router = APIRouter(prefix="/google", tags=["google"])
@@ -78,8 +81,12 @@ async def auth_callback(
             redirect_uri=os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
         )
         
-        # Exchange code for credentials
-        flow.fetch_token(code=code)
+        # Exchange code for credentials with scope validation disabled
+        flow.fetch_token(
+            code=code,
+            # Don't validate scopes - allow Google to add additional scopes like 'openid'
+            include_granted_scopes=True
+        )
         credentials = flow.credentials
         
         # Get user info
@@ -94,20 +101,35 @@ async def auth_callback(
         })
         
         # Get user info from userinfo endpoint
-        userinfo = authed_session.get("https://www.googleapis.com/oauth2/v2/userinfo").json()
+        userinfo_response = authed_session.get("https://www.googleapis.com/oauth2/v2/userinfo")
+        if not userinfo_response.ok:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to get user info: {userinfo_response.status_code} - {userinfo_response.text}"
+            )
+
+        userinfo = userinfo_response.json()
+        logger.info(f"Userinfo response: {userinfo}")  # Log the response for debugging
+
+        if "email" not in userinfo:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Email not found in user info. Available fields: {list(userinfo.keys())}"
+            )
+
         user_id = userinfo["email"]
         
-        # Save token to database
+        # Save token to database with the actual granted scopes
         await save_oauth_token(
             session,
             user_id,
             {
                 "token": credentials.token,
                 "refresh_token": credentials.refresh_token,
-                "token_type": credentials.token_type,
+                "token_type": "Bearer",  # Google OAuth2 always uses Bearer tokens
                 "expiry": credentials.expiry.isoformat()
             },
-            credentials.scopes
+            credentials.scopes  # Use the actual scopes granted by Google
         )
         
         # Store user_id in session
@@ -118,6 +140,7 @@ async def auth_callback(
         return RedirectResponse(f"{frontend_url}/auth/success")
         
     except Exception as e:
+        logger.error(f"OAuth callback error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to complete OAuth flow: {str(e)}"

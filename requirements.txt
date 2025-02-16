@@ -48,3 +48,4 @@ sqlalchemy[asyncio]==2.0.27
 alembic==1.13.1
 strawberry-graphql[fastapi]==0.219.2
 alembic==1.13.1
+itsdangerous==2.2.0

@@ -93,20 +93,16 @@ AsyncSessionFactory = async_sessionmaker(
 class Base(DeclarativeBase):
     metadata = metadata
 
-# Session context manager
-@asynccontextmanager
+# Session dependency for FastAPI
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get a database session with proper error handling and cleanup"""
-    session = AsyncSessionFactory()
-    try:
-        logger.info("Starting new database session")
-        yield session
-        await session.commit()
-        logger.info("Session committed successfully")
-    except Exception as e:
-        await session.rollback()
-        logger.error(f"Database session error: {str(e)}", exc_info=True)
-        raise
-    finally:
-        await session.close()
-        logger.info("Session closed") 
+    """Get a database session with proper error handling and cleanup.
+    This is designed to work with FastAPI's dependency injection system.
+    """
+    async with AsyncSessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Database session error: {str(e)}", exc_info=True)
+            raise 
