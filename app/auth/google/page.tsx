@@ -36,8 +36,21 @@ export default function GoogleAuthPage() {
   const handleAuth = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/google/auth/url')
+      // Generate a random state value
+      const state = Math.random().toString(36).substring(2)
+      
+      // Get auth URL with state parameter
+      const response = await fetch('/api/google/auth/url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ state })
+      })
       const data = await response.json()
+      
+      // Store state in sessionStorage for verification after redirect
+      sessionStorage.setItem('oauth_state', state)
       
       // Redirect to Google OAuth
       window.location.href = data.url

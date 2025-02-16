@@ -31,6 +31,8 @@ OAUTH_DEFAULT_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",# Get user's email address
     "https://www.googleapis.com/auth/userinfo.profile", # Get user's basic profile info
     "https://www.googleapis.com/auth/drive.file",    # Access to user-selected Drive files
+    "https://www.googleapis.com/auth/drive.readonly", # Read-only access to Drive files
+    "https://www.googleapis.com/auth/drive.metadata.readonly", # Read metadata for Drive files
     "https://www.googleapis.com/auth/gmail.readonly",# Read emails
     "https://www.googleapis.com/auth/gmail.labels",  # Read Gmail labels
     "https://www.googleapis.com/auth/gmail.metadata",# Read metadata

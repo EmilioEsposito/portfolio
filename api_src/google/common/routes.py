@@ -23,6 +23,7 @@ from api_src.google.gmail.routes import router as gmail_router
 from api_src.google.pubsub.routes import router as pubsub_router
 # from api_src.google.sheets.routes import router as sheets_router
 import logging
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -34,22 +35,30 @@ router.include_router(gmail_router)
 router.include_router(pubsub_router)
 # router.include_router(sheets_router)
 
-@router.get("/auth/url")
+class AuthUrlRequest(BaseModel):
+    state: str
+
+@router.post("/auth/url")
 async def get_auth_url(
     request: Request,
+    body: AuthUrlRequest,
     session: AsyncSession = Depends(get_session)
 ) -> dict:
-    """Get Google OAuth URL"""
-    # Generate state token for CSRF protection
-    state = secrets.token_urlsafe(32)
-    
-    # Store state in session
-    request.session["oauth_state"] = state
-    
-    # Get auth URL with state
-    auth_url = get_oauth_url(scopes=OAUTH_DEFAULT_SCOPES, state=state)
-    
-    return {"url": auth_url}
+    """Get Google OAuth URL with state parameter"""
+    try:
+        # Store state in session
+        request.session["oauth_state"] = body.state
+        
+        # Get auth URL with state
+        auth_url = get_oauth_url(scopes=OAUTH_DEFAULT_SCOPES, state=body.state)
+        
+        return {"url": auth_url}
+    except Exception as e:
+        logger.error(f"Failed to generate auth URL: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate auth URL: {str(e)}"
+        )
 
 @router.get("/auth/callback")
 async def auth_callback(
@@ -61,8 +70,16 @@ async def auth_callback(
     """Handle OAuth callback"""
     # Verify state
     stored_state = request.session.get("oauth_state")
-    if not stored_state or stored_state != state:
+    if not stored_state:
+        logger.error("No stored state found in session")
+        raise HTTPException(status_code=400, detail="No stored state found")
+        
+    if stored_state != state:
+        logger.error(f"State mismatch. Expected: {stored_state}, Got: {state}")
         raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
+    # Clear the state from session after verification
+    request.session.pop("oauth_state", None)
     
     try:
         # Create flow instance
