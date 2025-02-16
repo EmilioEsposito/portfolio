@@ -190,18 +190,25 @@ async def save_oauth_token(
         token = result.scalar_one_or_none()
         
         if token:
-            # Update existing token
+            # Update existing token, preserving refresh_token if not provided
             token.access_token = credentials_json['token']
-            token.refresh_token = credentials_json.get('refresh_token', token.refresh_token)
+            if credentials_json.get('refresh_token'):
+                token.refresh_token = credentials_json['refresh_token']
+            # Otherwise keep the existing refresh_token
             token.token_type = credentials_json['token_type']
             token.expiry = datetime.fromisoformat(credentials_json['expiry'])
             token.scopes = scopes
         else:
-            # Create new token
+            # Create new token - refresh_token is required for new tokens
+            if not credentials_json.get('refresh_token'):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Refresh token is required for new OAuth tokens"
+                )
             token = GoogleOAuthToken(
                 user_id=user_id,
                 access_token=credentials_json['token'],
-                refresh_token=credentials_json.get('refresh_token'),
+                refresh_token=credentials_json['refresh_token'],
                 token_type=credentials_json['token_type'],
                 expiry=datetime.fromisoformat(credentials_json['expiry']),
                 scopes=scopes
@@ -266,7 +273,7 @@ def get_oauth_url(scopes: Optional[List[str]] = None, state: Optional[str] = Non
         )
         
         auth_url, _ = flow.authorization_url(
-            access_type='offline',
+            access_type='offline',  # Request a refresh token
             include_granted_scopes='true',
             state=state,
             prompt='consent'  # Force consent screen to get refresh token

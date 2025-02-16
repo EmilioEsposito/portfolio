@@ -188,7 +188,7 @@ async def check_auth(
     request: Request,
     session: AsyncSession = Depends(get_session)
 ) -> dict:
-    """Check if user is authenticated"""
+    """Check if user is authenticated and return user info"""
     user_id = request.session.get("user_id")
     if not user_id:
         return {"authenticated": False}
@@ -196,6 +196,33 @@ async def check_auth(
     token = await get_oauth_token(session, user_id)
     if not token:
         return {"authenticated": False}
+    
+    try:
+        # Get user info if we have a valid token
+        credentials = get_oauth_credentials_from_token(token)
+        
+        # Create authorized session
+        import requests
+        authed_session = requests.Session()
+        authed_session.headers.update({
+            "Authorization": f"Bearer {credentials.token}"
+        })
+        
+        # Get user info from userinfo endpoint
+        userinfo_response = authed_session.get("https://www.googleapis.com/oauth2/v2/userinfo")
+        if userinfo_response.ok:
+            userinfo = userinfo_response.json()
+            return {
+                "authenticated": True,
+                "user_id": user_id,
+                "name": userinfo.get("name"),
+                "picture": userinfo.get("picture"),
+                "scopes": token.scopes
+            }
+    except Exception as e:
+        logger.error(f"Failed to get user info: {str(e)}")
+        # Fall back to basic response if user info fetch fails
+        pass
     
     return {
         "authenticated": True,
