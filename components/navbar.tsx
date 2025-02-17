@@ -5,9 +5,8 @@ import { GitIcon, LinkedInIcon } from "./icons";
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "@/components/ui/sidebar";
-import { track } from '@vercel/analytics';
-
-
+import { track } from "@vercel/analytics";
+import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 export const Navbar = () => {
   const { toggleSidebar } = useSidebar();
@@ -15,7 +14,6 @@ export const Navbar = () => {
   return (
     <div className="p-2 flex flex-row gap-2 justify-between items-center">
       <div className="flex gap-2 items-center">
-
         {/* Hamburger menu button that only shows on mobile */}
         <Button
           variant="ghost"
@@ -25,23 +23,33 @@ export const Navbar = () => {
           <Menu className="h-6 w-6" /> {/* Increased icon size */}
           <span className="sr-only">Toggle sidebar</span>
         </Button>
-
       </div>
 
       <div className="flex gap-2">
-
-
         {/* View source code button */}
-        <Link href="https://github.com/EmilioEsposito/portfolio" onClick={() => track('github-click')}>
+        <Link
+          href="https://github.com/EmilioEsposito/portfolio"
+          onClick={() => track("github-click")}
+        >
           <Button variant="outline">
             <GitIcon />
           </Button>
         </Link>
-        <Link href="https://www.linkedin.com/in/emilioespositousa/" onClick={() => track('linkedin-click')}>
+        <Link
+          href="https://www.linkedin.com/in/emilioespositousa/"
+          onClick={() => track("linkedin-click")}
+        >
           <Button variant="outline">
             <LinkedInIcon />
           </Button>
         </Link>
+
+        <SignedOut>
+          <SignInButton />
+        </SignedOut>
+        <SignedIn>
+          <UserButton />
+        </SignedIn>
 
         {/* <Link href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-python-streaming&env=OPENAI_API_KEY%2CVERCEL_FORCE_PYTHON_STREAMING&envDescription=API+keys+needed+for+application&envLink=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-python-streaming%2Fblob%2Fmain%2F.env.example&teamSlug=vercel-labs">
           <Button>

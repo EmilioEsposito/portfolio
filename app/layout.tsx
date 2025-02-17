@@ -52,12 +52,6 @@ export default async function RootLayout({
               <AppSidebar />
               <SidebarInset>
                 <Navbar />
-                <SignedOut>
-                  <SignInButton />
-                </SignedOut>
-                <SignedIn>
-                  <UserButton />
-                </SignedIn>
                 {children}
               </SidebarInset>
             </SidebarProvider>
