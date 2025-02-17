@@ -18,8 +18,8 @@ markdown-it-py==3.0.0
 MarkupSafe==2.1.5
 mdurl==0.1.2
 openai==1.63.2
-pydantic==2.8.2
-pydantic_core==2.20.1
+pydantic==2.10.6
+pydantic_core==2.27.2
 Pygments==2.18.0
 pytz==2025.1
 python-dotenv==1.0.1
