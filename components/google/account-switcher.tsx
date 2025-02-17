@@ -66,9 +66,8 @@ export function AccountSwitcher({ className, isCollapsed = false }: AccountSwitc
       
       // Add prompt=select_account to force account selection
       const authUrl = new URL(data.url)
-      authUrl.searchParams.set('prompt', 'select_account')
-      
-      // Redirect to Google OAuth
+      // authUrl.searchParams.set('prompt', 'select_account') // This is problematic if we need to change auth scopes
+
       window.location.href = authUrl.toString()
     } catch (error) {
       console.error('Failed to initiate auth:', error)
