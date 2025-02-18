@@ -68,9 +68,9 @@ export default function AuthSuccessPage() {
             <div className="flex space-x-4">
               <Button 
                 className="flex-1"
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push('/')}
               >
-                Go to Dashboard
+                Go Home
               </Button>
               <Button 
                 variant="outline"

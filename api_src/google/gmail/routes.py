@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import logging
 from openai import AsyncOpenAI
 from sqlalchemy import select, func
-
+from sqlalchemy.ext.asyncio import AsyncSession
 from api_src.utils.dependencies import verify_cron_or_admin
 from api_src.database.database import get_session
 from api_src.google.gmail.db_ops import save_email_message, get_email_by_message_id
@@ -39,41 +39,40 @@ client = AsyncOpenAI()  # Create async client instance
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
 @router.get("/get_zillow_emails")
-async def get_zillow_emails():
+async def get_zillow_emails(session: AsyncSession = Depends(get_session)) -> List[ZillowEmailResponse]:
     """
     Fetch 10 random email messages containing 'zillow' in the body HTML,
     excluding daily listing emails.
     """
     try:
-        async with get_session() as db:
-            # Construct the query
-            query = (
-                select(EmailMessage)
-                .where(
-                    EmailMessage.body_html.ilike('%zillow%'),
-                    EmailMessage.subject.like('%is requesting%'),  # Only inquiries
-                    ~EmailMessage.subject.like('Re%')  # is NOT a reply
-                )
-                .order_by(func.random())
-                .limit(5)
+        # Construct the query
+        query = (
+            select(EmailMessage)
+            .where(
+                EmailMessage.body_html.ilike('%zillow%'),
+                EmailMessage.subject.like('%is requesting%'),  # Only inquiries
+                ~EmailMessage.subject.like('Re%')  # is NOT a reply
             )
-            
-            # Execute the query
-            result = await db.execute(query)
-            emails = result.scalars().all()
-            
-            # Format the response to match frontend expectations
-            return [
-                {
-                    "id": str(email.id),
-                    "subject": email.subject,
-                    "sender": email.from_address,
-                    "received_at": email.received_date.isoformat(),
-                    "body_html": email.body_html
-                }
-                for email in emails
-            ]
+            .order_by(func.random())
+            .limit(5)
+        )
         
+        # Execute the query
+        result = await session.execute(query)
+        emails = result.scalars().all()
+        
+        # Format the response to match frontend expectations
+        return [
+            {
+                "id": str(email.id),
+                "subject": email.subject,
+                "sender": email.from_address,
+                "received_at": email.received_date.isoformat(),
+                "body_html": email.body_html
+            }
+            for email in emails
+        ]
+    
     except Exception as e:
         logger.error(f"Error fetching Zillow emails: {str(e)}")
         raise HTTPException(

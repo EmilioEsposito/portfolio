@@ -96,3 +96,14 @@ This allows those webhooks to to my preview routes, bypassing Vercel protection 
 OpenPhone has a prod and dev webhook, each with its own secret. 
 
 For now, on Google PubSub I'm using just using the dev endpoint since the product is not production ready yet. 
+
+
+# Deprecation Candidates
+
+* Google PubSub (replace with Oauth)
+* app/components/google/account-switcher.tsx (replace with Clerk)
+* Native Google Oauth handling - replace with Clerk Oauth
+    * api_src/google/common/auth.py oauth portions
+    * api_src/google/common/models.py
+    * app/auth
+

@@ -10,11 +10,25 @@ from typing import Dict, Any, Optional
 from api_src.google.gmail.models import EmailMessage
 import pytest
 import logging
-from typing import List
+from typing import List, AsyncGenerator
+from contextlib import asynccontextmanager
+from api_src.database.database import AsyncSessionFactory
 
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Test helper for creating database sessions
+@asynccontextmanager
+async def get_test_session() -> AsyncGenerator[AsyncSession, None]:
+    """Create a database session specifically for testing"""
+    async with AsyncSessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 async def save_email_message(
     session: AsyncSession,
@@ -86,8 +100,6 @@ async def save_email_message(
 @pytest.mark.asyncio
 async def test_save_email_message():
     """Test saving and retrieving an email message"""
-    from api_src.database.database import get_session
-    
     # Test data with proper datetime
     message_data = {
         'message_id': '1234567890',
@@ -101,7 +113,8 @@ async def test_save_email_message():
         'raw_payload': {'test': 'data'}
     }
     
-    async with get_session() as session:
+    saved_msg = None
+    async with get_test_session() as session:
         try:
             # Save message
             saved_msg = await save_email_message(session, message_data)

@@ -3,6 +3,18 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 
 const examples = [
   {
+    title: "Protected Endpoint with Clerk Auth",
+    description: "Shows how to protect FastAPI endpoints with Clerk authentication and access them from Next.js. Features JWT token handling, error states, and user data display.",
+    href: "/examples/protected",
+    tags: ["FastAPI", "Clerk", "Authentication", "Next.js"]
+  },
+  {
+    title: "Google Drive File Picker Integration",
+    description: "Demonstrates integrating Google Drive File Picker with Next.js. Features file selection, type filtering, and OAuth authentication handling.",
+    href: "/examples/google-drive-picker",
+    tags: ["Next.js", "Google Drive API", "OAuth", "TypeScript"]
+  },
+  {
     title: "FastAPI + GraphQL + Neon Postgres Example",
     description: "Demonstrates using FastAPI with GraphQL and Neon Postgres. Shows how to handle GraphQL queries, mutations, and field mapping.",
     href: "/examples/neon-fastapi",

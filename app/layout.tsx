@@ -6,7 +6,14 @@ import { Navbar } from "@/components/navbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "next-themes";
-import { Analytics } from "@vercel/analytics/react"
+import { Analytics } from "@vercel/analytics/react";
+import {
+  ClerkProvider,
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+} from "@clerk/nextjs";
 
 export const metadata = {
   title: "Emilio Esposito - Portfolio",
@@ -29,27 +36,29 @@ export const metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head></head>
-      <body className={cn(GeistSans.className, "antialiased")}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <Toaster />
-          <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset>
-              <Navbar />
-              {children}
-            </SidebarInset>
-          </SidebarProvider>
-        </ThemeProvider>
-        <Analytics />
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <head></head>
+        <body className={cn(GeistSans.className, "antialiased")}>
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <Toaster />
+            <SidebarProvider>
+              <AppSidebar />
+              <SidebarInset>
+                <Navbar />
+                {children}
+              </SidebarInset>
+            </SidebarProvider>
+          </ThemeProvider>
+          <Analytics />
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
