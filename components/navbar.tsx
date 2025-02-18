@@ -2,15 +2,21 @@
 
 import { Button } from "./ui/button";
 import { GitIcon, LinkedInIcon } from "./icons";
-import { Menu } from "lucide-react";
+import { Menu, UserIcon } from "lucide-react";
 import Link from "next/link";
 import { useSidebar } from "@/components/ui/sidebar";
 import { track } from "@vercel/analytics";
-import { SignInButton, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import {
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  UserButton,
+  useUser,
+} from "@clerk/nextjs";
 
 export const Navbar = () => {
   const { toggleSidebar } = useSidebar();
-
+  const { user } = useUser();
   return (
     <div className="p-2 flex flex-row gap-2 justify-between items-center">
       <div className="flex gap-2 items-center">
@@ -44,11 +50,20 @@ export const Navbar = () => {
           </Button>
         </Link>
 
+        {/* Clerk Buttons */}
         <SignedOut>
-          <SignInButton />
+          <SignInButton mode="modal">
+            <Button variant="outline">
+              <UserIcon />
+              &nbsp;Login
+            </Button>
+          </SignInButton>
         </SignedOut>
         <SignedIn>
-          <UserButton />
+          <div className="flex items-center gap-2">
+            {user?.firstName}
+            <UserButton />
+          </div>
         </SignedIn>
 
         {/* <Link href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-python-streaming&env=OPENAI_API_KEY%2CVERCEL_FORCE_PYTHON_STREAMING&envDescription=API+keys+needed+for+application&envLink=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fai-sdk-preview-python-streaming%2Fblob%2Fmain%2F.env.example&teamSlug=vercel-labs">
