@@ -15,6 +15,7 @@ logger = logging.getLogger('alembic.env')
 # Import your models - using explicit imports for clarity
 from api_src.examples.models import *  # noqa
 from api_src.google.gmail.models import *  # noqa
+from api_src.oauth.models import *  # noqa
 from api_src.database.database import DATABASE_URL, engine, Base
 
 # Log the tables that SQLAlchemy knows about

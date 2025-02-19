@@ -15,7 +15,9 @@ import logging
 import asyncio
 from email.utils import parsedate_to_datetime
 
-from api_src.google.common.auth import get_service_credentials, get_oauth_credentials, get_oauth_url, get_delegated_credentials
+from api_src.google.common.auth import get_service_credentials, get_delegated_credentials
+from api_src.oauth.service import get_oauth_credentials
+
 
 # Configure logging
 logging.basicConfig(

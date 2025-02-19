@@ -1,3 +1,4 @@
+import imp
 from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
@@ -10,6 +11,9 @@ from google.auth.transport import requests
 from google.oauth2.credentials import Credentials
 from typing import Union
 import logging
+from api_src.database.database import AsyncSessionFactory
+from api_src.oauth.service import get_oauth_credentials, save_oauth_credentials
+import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -89,43 +93,60 @@ async def get_auth_user(request: Request):
     return user
 
 
-async def get_google_credentials(request: Request):
+async def get_google_credentials(request: Request) -> Credentials:
     """
     FastAPI dependency that returns the Google credentials for the authenticated user.
+    Checks database for existing credentials, retrieves from Clerk if not found or expired.
     """
     auth_state = await get_auth_state(request)
-
-    # TODO: modify function to check db table for existing creds, and retrieve if found, and refresh if found but expired
 
     if not auth_state.is_signed_in:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User is not signed in.",
         )
-    else:
-        user_id = auth_state.payload["sub"]
 
-        # Get new creds if not found or if expired
-        list_creds = clerk_client.users.get_o_auth_access_token(
-            user_id=user_id, provider="oauth_google"
+    user_id = auth_state.payload["sub"]
+    provider = "oauth_google"
+
+    # Check database for existing credentials
+    async with AsyncSessionFactory() as session:
+        db_creds = await get_oauth_credentials(session, user_id, provider)
+        
+        # If we have valid credentials in the database, use them
+        if db_creds and not db_creds.is_expired():
+            return Credentials(
+                token=db_creds.access_token,
+                scopes=db_creds.scopes,
+                expiry=db_creds.expires_at
+            )
+        
+        # Get new credentials from Clerk
+        list_creds_responses = await clerk_client.users.get_o_auth_access_token_async(
+            user_id=user_id, provider=provider
         )
 
-        # TODO: Store each creds in the Oauth backend table (also add column for the raw payload)
-
-        if len(list_creds) == 0:
+        if len(list_creds_responses) == 0:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User has no Google credentials.",
             )
-        elif len(list_creds) > 1:
+        elif len(list_creds_responses) > 1:
             logger.warning(
                 f"User {user_id} has multiple Google credentials, using the first one."
             )
 
-        creds_resp = list_creds[0]
-        creds_dict = creds_resp.model_dump()
-        # creds_dict.keys()
-        # dict_keys(['object', 'external_account_id', 'provider_user_id', 'token', 'provider', 'public_metadata', 'label', 'scopes', 'expires_at'])
+        for creds_response in list_creds_responses:
+            db_creds = await save_oauth_credentials(
+                session=session,
+                user_id=user_id,
+                provider=provider,
+                creds_response=creds_response
+            )
 
-        credentials = Credentials(creds_dict["token"])
-        return credentials
+        # Return last saved Google credentials object # TODO: Return all credentials?
+        return Credentials(
+            token=db_creds.access_token,
+            scopes=db_creds.scopes,
+            expiry=db_creds.expires_at
+        )
