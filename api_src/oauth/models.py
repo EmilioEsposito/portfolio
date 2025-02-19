@@ -18,7 +18,7 @@ class OAuthCredential(Base):
     access_token: Mapped[str] = mapped_column(String)
     refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     token_type: Mapped[str] = mapped_column(String)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False)) # Google expects naive datetime
     scopes: Mapped[list] = mapped_column(JSON)  # Store granted scopes
     raw_response: Mapped[dict] = mapped_column(JSON)  # Store complete provider response
     label: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Optional label from provider
@@ -36,7 +36,8 @@ class OAuthCredential(Base):
 
     def is_expired(self) -> bool:
         """Check if the token is expired"""
-        return datetime.now(self.expires_at.tzinfo) >= self.expires_at
+        utc_now_naive = datetime.now(pytz.UTC).replace(tzinfo=None)
+        return utc_now_naive >= self.expires_at
     
     __table_args__ = (
         UniqueConstraint('user_id', 'provider', name='uix_user_provider'),
