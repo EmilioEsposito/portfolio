@@ -46,7 +46,7 @@ async def save_oauth_credentials(
             # Update existing credentials
             creds.access_token = creds_dict["token"]
             creds.provider_user_id = creds_dict["provider_user_id"]
-            creds.expires_at = datetime.fromtimestamp(creds_dict["expires_at"])
+            creds.expires_at = expires_at
             creds.scopes = creds_dict["scopes"]
             creds.label = creds_dict.get("label")
             creds.raw_response = creds_dict
@@ -94,7 +94,7 @@ async def test_save_oauth_credentials():
     await save_oauth_credentials(
         session, user_id, provider, creds_response
     )
-    session.close()
+    await session.close()
 
 
 async def get_oauth_credentials(
