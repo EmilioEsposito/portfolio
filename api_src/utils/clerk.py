@@ -1,4 +1,5 @@
 from dotenv import load_dotenv, find_dotenv
+
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 from typing import Annotated, Optional
 from fastapi import Depends, HTTPException, Header, Request, status
@@ -22,23 +23,19 @@ clerk_client = Clerk(bearer_auth=clerk_secret_key)
 
 # Documentation: https://github.com/clerk/clerk-sdk-python?tab=readme-ov-file#sdk-installation
 
-async def get_auth_state(
-    request: Request
-) -> RequestState:
+
+async def get_auth_state(request: Request) -> RequestState:
     """
     FastAPI dependency that returns the authenticated state from Clerk.
     """
     auth_state = clerk_client.authenticate_request(
-        request,
-        AuthenticateRequestOptions()
+        request, AuthenticateRequestOptions()
     )
 
     return auth_state
 
 
-async def is_signed_in(
-    request: Request
-) -> bool:
+async def is_signed_in(request: Request) -> bool:
     """
     FastAPI dependency that checks if the user is signed in.
     """
@@ -53,9 +50,7 @@ async def is_signed_in(
         return auth_state.is_signed_in
 
 
-async def get_auth_session(
-    request: Request
-) -> Session:
+async def get_auth_session(request: Request) -> Session:
     """
     FastAPI dependency that validates the JWT token and returns the Clerk session.
     Raises 401 if token is invalid or missing.
@@ -69,15 +64,13 @@ async def get_auth_session(
             detail="User is not signed in.",
         )
     else:
-        session_id = auth_state.payload['sid']
+        session_id = auth_state.payload["sid"]
         session = clerk_client.sessions.get(session_id=session_id)
-    
 
     return session
 
-async def get_auth_user(
-    request: Request
-):
+
+async def get_auth_user(request: Request):
     """
     FastAPI dependency that returns the authenticated user from Clerk.
     Must be used with get_auth_session.
@@ -90,20 +83,19 @@ async def get_auth_user(
             detail="User is not signed in.",
         )
     else:
-        user_id = auth_state.payload['sub']
+        user_id = auth_state.payload["sub"]
         user = clerk_client.users.get(user_id=user_id)
-    
+
     return user
 
 
-
-async def get_google_credentials(
-    request: Request
-):
+async def get_google_credentials(request: Request):
     """
     FastAPI dependency that returns the Google credentials for the authenticated user.
     """
     auth_state = await get_auth_state(request)
+
+    # TODO: modify function to check db table for existing creds, and retrieve if found, and refresh if found but expired
 
     if not auth_state.is_signed_in:
         raise HTTPException(
@@ -111,8 +103,14 @@ async def get_google_credentials(
             detail="User is not signed in.",
         )
     else:
-        user_id = auth_state.payload['sub']
-        list_creds = clerk_client.users.get_o_auth_access_token(user_id=user_id, provider="oauth_google")
+        user_id = auth_state.payload["sub"]
+
+        # Get new creds if not found or if expired
+        list_creds = clerk_client.users.get_o_auth_access_token(
+            user_id=user_id, provider="oauth_google"
+        )
+
+        # TODO: Store each creds in the Oauth backend table (also add column for the raw payload)
 
         if len(list_creds) == 0:
             raise HTTPException(
@@ -120,13 +118,14 @@ async def get_google_credentials(
                 detail="User has no Google credentials.",
             )
         elif len(list_creds) > 1:
-            logger.warning(f"User {user_id} has multiple Google credentials, using the first one.")
-        
+            logger.warning(
+                f"User {user_id} has multiple Google credentials, using the first one."
+            )
+
         creds_resp = list_creds[0]
         creds_dict = creds_resp.model_dump()
         # creds_dict.keys()
         # dict_keys(['object', 'external_account_id', 'provider_user_id', 'token', 'provider', 'public_metadata', 'label', 'scopes', 'expires_at'])
-        
-        credentials = Credentials(creds_dict['token'])
+
+        credentials = Credentials(creds_dict["token"])
         return credentials
-    
