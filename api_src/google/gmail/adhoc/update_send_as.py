@@ -109,19 +109,25 @@ def update_send_as(
 if __name__ == "__main__":
 
     # INPUTS
-    first_name = "Anna"
-    target_alias_email = "all@serniacapital.com"
+    first_names = [
+        "Example",
+        "Example",
+        "Example",
+        "Example",
+    ]
 
+    for first_name in first_names:
+        target_alias_email = "all@serniacapital.com"
 
-    user_email = f"{first_name.lower()}@serniacapital.com"
-    send_as_configuration = {
-        "displayName": "Sernia Capital",
-        "treatAsAlias": True,
-        "signature": f'<div dir="ltr"><div style="font-family:arial"><b><br></b></div><div style="font-family:arial"><b>{first_name.title()}</b></div><div style="font-family:arial"><a href="mailto:{target_alias_email}" target="_blank">{target_alias_email}</a></div></div>',
-    }
+        user_email = f"{first_name.lower()}@serniacapital.com"
+        send_as_configuration = {
+            "displayName": "Sernia Capital",
+            "treatAsAlias": True,
+            "signature": f'<div dir="ltr"><div style="font-family:arial"><b><br></b></div><div style="font-family:arial"><b>{first_name.title()}</b></div><div style="font-family:arial"><a href="mailto:{target_alias_email}" target="_blank">{target_alias_email}</a></div><div style="font-family:arial">412-910-1989</div></div>',
+        }
 
-    update_send_as(
-        send_as_configuration=send_as_configuration,
-        user_email=user_email,
-        target_alias_email=target_alias_email,
-    )
+        update_send_as(
+            send_as_configuration=send_as_configuration,
+            user_email=user_email,
+            target_alias_email=target_alias_email,
+        )
