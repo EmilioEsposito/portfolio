@@ -1,14 +1,10 @@
 from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
-from typing import Annotated, Optional
 from fastapi import Depends, HTTPException, Header, Request, status
 from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState
 import os
-from google.oauth2 import id_token
-from google.auth.transport import requests
 from google.oauth2.credentials import Credentials
-from typing import Union
 import logging
 from api_src.database.database import AsyncSessionFactory
 from api_src.oauth.service import get_oauth_credentials, save_oauth_credentials

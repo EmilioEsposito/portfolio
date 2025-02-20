@@ -5,17 +5,12 @@ Shared authentication utilities for Google APIs.
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv('.env.development.local'))
 from google.oauth2 import service_account
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 import os
 import json
 import base64
-from typing import List, Optional, Union
+from typing import List, Optional
 from fastapi import HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import datetime, timedelta
-import asyncio
+
 
 # Update these scopes as you add more Google services
 SERVICE_ACCOUNT_DEFAULT_SCOPES = [
@@ -25,18 +20,6 @@ SERVICE_ACCOUNT_DEFAULT_SCOPES = [
     'https://www.googleapis.com/auth/calendar',      # Full access to Calendar
 ]
 
-OAUTH_DEFAULT_SCOPES = [
-    "openid",                                        # OpenID Connect
-    "https://www.googleapis.com/auth/userinfo.email",# Get user's email address
-    "https://www.googleapis.com/auth/userinfo.profile", # Get user's basic profile info
-    "https://www.googleapis.com/auth/drive.file",    # Access to user-selected Drive files
-    "https://www.googleapis.com/auth/drive.readonly", # Read-only access to Drive files
-    "https://www.googleapis.com/auth/drive.metadata.readonly", # Read metadata for Drive files
-    "https://www.googleapis.com/auth/gmail.readonly",# Read emails
-    "https://www.googleapis.com/auth/gmail.labels",  # Read Gmail labels
-    "https://www.googleapis.com/auth/gmail.metadata",# Read metadata
-    "https://www.googleapis.com/auth/gmail.send"     # Send emails
-]
 
 def get_service_credentials(scopes: Optional[List[str]] = None) -> service_account.Credentials:
     """

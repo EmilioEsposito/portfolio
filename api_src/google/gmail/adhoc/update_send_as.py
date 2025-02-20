@@ -3,7 +3,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import json
 from pprint import pprint
-from api_src.google.common.auth import get_delegated_credentials
+from api_src.google.common.service_account_auth import get_delegated_credentials
 
 
 def update_send_as(

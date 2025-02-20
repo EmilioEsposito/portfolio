@@ -13,7 +13,7 @@ from api_src.google.gmail.service import process_single_message
 from api_src.database.database import get_session
 from api_src.google.gmail.db_ops import save_email_message, get_email_by_message_id, get_test_session
 from api_src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
-from api_src.google.common.auth import get_delegated_credentials
+from api_src.google.common.service_account_auth import get_delegated_credentials
 import pytest
 
 # Configure logging

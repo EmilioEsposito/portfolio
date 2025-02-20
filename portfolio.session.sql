@@ -19,8 +19,11 @@ GROUP BY 1
 order by 1 desc;
 
 
+select * FROM alembic_version
+;
+
 select * 
-from google_oauth_tokens 
+from oauth_credentials 
 order by id;
 
 

@@ -103,7 +103,5 @@ For now, on Google PubSub I'm using just using the dev endpoint since the produc
 * Google PubSub (replace with Oauth)
 * app/components/google/account-switcher.tsx (replace with Clerk)
 * Native Google Oauth handling - replace with Clerk Oauth
-    * api_src/google/common/auth.py oauth portions
-    * api_src/google/common/models.py
     * app/auth
 
