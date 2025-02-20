@@ -1,4 +1,3 @@
-import imp
 from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
@@ -13,7 +12,6 @@ from typing import Union
 import logging
 from api_src.database.database import AsyncSessionFactory
 from api_src.oauth.service import get_oauth_credentials, save_oauth_credentials
-import pickle
 
 logger = logging.getLogger(__name__)
 
