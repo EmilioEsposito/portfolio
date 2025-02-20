@@ -1,8 +1,11 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from clerk_backend_api import Session, User, RequestState
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
-from api_src.utils.clerk import is_signed_in, get_auth_session, get_auth_user
+from api_src.utils.clerk import is_signed_in, get_auth_session, get_auth_user, get_google_credentials
+from api_src.google.gmail import get_gmail_service
 
 router = APIRouter(prefix="/examples", tags=["examples"])
 
@@ -62,3 +65,24 @@ async def protected_route_get_user(
         "dummy_data": "dummy"
     }
     return data
+
+@router.get("/protected_google")
+async def protected_route_google(
+    request: Request,
+    credentials: Annotated[Credentials, Depends(get_google_credentials)]
+):
+    """
+    Example protected endpoint that uses Google OAuth credentials from Clerk.
+    Returns basic user profile info from Google.
+    """
+    # Create Google People API client
+    gmail_service = get_gmail_service(credentials=credentials)
+    
+    # Do search for "Zillow" and return first result
+    first_result = gmail_service.users().messages().list(userId="me", q="Zillow").execute()['messages'][0]
+    first_result_content = gmail_service.users().messages().get(userId="me", id=first_result['id']).execute()
+    
+    return {
+        "message": "Successfully accessed Google API!",
+        "first_result_content": first_result_content
+    }
