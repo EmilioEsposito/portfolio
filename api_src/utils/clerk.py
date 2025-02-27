@@ -109,13 +109,20 @@ async def get_google_credentials(request: Request) -> Credentials:
         
         # If we have valid credentials in the database, use them
         if db_creds and not db_creds.is_expired():
+            print(f"Using existing credentials from database, expires at: {db_creds.expires_at}")
             return Credentials(
                 token=db_creds.access_token,
                 scopes=db_creds.scopes,
-                expiry=db_creds.expires_at
+                expiry=db_creds.expires_at,
+                # Add these fields to enable token refresh
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=os.getenv("GOOGLE_CLIENT_ID"),
+                client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+                refresh_token=db_creds.refresh_token
             )
         
         # Get new credentials from Clerk
+        print("Getting fresh credentials from Clerk")
         list_creds_responses = await clerk_client.users.get_o_auth_access_token_async(
             user_id=user_id, provider=provider
         )
@@ -139,8 +146,14 @@ async def get_google_credentials(request: Request) -> Credentials:
             )
 
         # Return last saved Google credentials object # TODO: Return all credentials?
+        print(f"Returning fresh credentials from Clerk, expires at: {db_creds.expires_at}")
         return Credentials(
             token=db_creds.access_token,
             scopes=db_creds.scopes,
-            expiry=db_creds.expires_at
+            expiry=db_creds.expires_at,
+            # Add these fields to enable token refresh
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=os.getenv("GOOGLE_CLIENT_ID"),
+            client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+            refresh_token=db_creds.refresh_token
         )
