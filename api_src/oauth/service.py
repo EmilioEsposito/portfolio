@@ -100,7 +100,7 @@ async def test_save_oauth_credentials():
     with open("api_src/tests/sensitive/creds_response.pkl", "rb") as f:
         creds_response = pickle.load(f)
 
-    user_id = "user_2tBC2KuZVNUxuyjkB4SmwrKzQi7"
+    user_id = "user_2tHQGipY2lem9Xat1823wKuGl7J"
     provider = "oauth_google"
 
     session = AsyncSessionFactory()
