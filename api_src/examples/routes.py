@@ -99,40 +99,7 @@ async def protected_route_google(
     }
     pprint(f"Credential debug info: {debug_info}")
     
-    # Try to refresh token if it's expired
-    if credentials.expired:
-        try:
-            print("Token is expired, attempting to refresh...")
-            from google.auth.transport.requests import Request
-            
-            # Create a proper Request object
-            request_obj = Request()
-            
-            # Check if we have all required refresh fields
-            if not all([
-                getattr(credentials, 'refresh_token', None),
-                getattr(credentials, 'client_id', None),
-                getattr(credentials, 'client_secret', None),
-                getattr(credentials, 'token_uri', None)
-            ]):
-                print("Missing required fields for token refresh:")
-                print(f"  refresh_token: {bool(getattr(credentials, 'refresh_token', None))}")
-                print(f"  client_id: {bool(getattr(credentials, 'client_id', None))}")
-                print(f"  client_secret: {bool(getattr(credentials, 'client_secret', None))}")
-                print(f"  token_uri: {bool(getattr(credentials, 'token_uri', None))}")
-                raise Exception("Missing required fields for token refresh")
-                
-            # Attempt to refresh the token
-            credentials.refresh(request_obj)
-            print("Token refreshed successfully!")
-            print(f"New expiry: {credentials.expiry}")
-            
-            # Recreate the Gmail service with refreshed credentials
-            gmail_service = get_gmail_service(credentials=credentials)
-        except Exception as e:
-            print(f"Token refresh failed: {str(e)}")
-            # Continue with the expired token and let the API call fail if needed
-    
+
     # Do search for "Zillow" and return first result
     try:
         first_result = gmail_service.users().messages().list(userId="me", q="Zillow").execute()
