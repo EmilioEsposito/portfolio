@@ -7,13 +7,14 @@ from fastapi import HTTPException
 from typing import Optional, List
 from clerk_backend_api import ResponseBody
 import pytest
-
-
+from typing import Union
+import pytz
 async def save_oauth_credentials(
     session: AsyncSession,
     user_id: str,
     provider: str,
-    creds_response: ResponseBody,
+    creds_response: Union[ResponseBody, dict] = None,
+    creds_dict: Union[dict, None] = None
 ) -> OAuthCredential:
     """
     Save or update OAuth credentials in database
@@ -22,14 +23,19 @@ async def save_oauth_credentials(
         session: SQLAlchemy async session
         user_id: Clerk user ID
         provider: OAuth provider (e.g. 'oauth_google')
-        creds_response: Clerk OAuth response
+        creds_response: Clerk OAuth response,
+        creds_dict: dict
         
     Returns:
         Saved OAuthCredential instance
     """
+    assert creds_dict or creds_response, "Either creds_dict or creds_response must be provided, but not both"
     try:
-        # Convert response to dict for storage
-        creds_dict = creds_response.model_dump()
+        if creds_response:
+            # Convert response to dict for storage
+            creds_dict = creds_response.model_dump()
+        else:
+            creds_dict = creds_dict
 
         # Check for existing credentials
         stmt = select(OAuthCredential).where(
@@ -40,7 +46,14 @@ async def save_oauth_credentials(
         creds = result.scalar_one_or_none()
 
         # expires_at is in ms. e.g. 1740010044175
-        expires_at = datetime.fromtimestamp(creds_dict["expires_at"] / 1000)
+        # Convert to UTC datetime and then make it timezone-naive for Google
+        expires_at_timestamp = creds_dict["expires_at"] / 1000
+        expires_at = datetime.fromtimestamp(expires_at_timestamp, tz=pytz.UTC).replace(tzinfo=None)
+        
+        # Log the conversion for debugging
+        print(f"Original expires_at (ms): {creds_dict['expires_at']}")
+        print(f"Converted to UTC datetime: {expires_at}")
+        print(f"Current UTC time: {datetime.now(pytz.UTC).replace(tzinfo=None)}")
 
         if creds:
             # Update existing credentials
@@ -87,12 +100,12 @@ async def test_save_oauth_credentials():
     with open("api_src/tests/sensitive/creds_response.pkl", "rb") as f:
         creds_response = pickle.load(f)
 
-    user_id = "user_2tHQGipY2lem9Xat1823wKuGl7J"
+    user_id = "user_2tBC2KuZVNUxuyjkB4SmwrKzQi7"
     provider = "oauth_google"
 
     session = AsyncSessionFactory()
     await save_oauth_credentials(
-        session, user_id, provider, creds_response
+        session, user_id, provider, creds_response=creds_response
     )
     await session.close()
 

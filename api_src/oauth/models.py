@@ -36,8 +36,10 @@ class OAuthCredential(Base):
 
     def is_expired(self) -> bool:
         """Check if the token is expired"""
-        utc_now_naive = datetime.now(pytz.UTC).replace(tzinfo=None)
-        return utc_now_naive >= self.expires_at
+        # Use timezone-aware UTC time and convert to naive for comparison
+        utc_now = datetime.now(pytz.UTC).replace(tzinfo=None)
+        print(f"Checking expiration - Current UTC: {utc_now}, Token expires: {self.expires_at}")
+        return utc_now >= self.expires_at
     
     __table_args__ = (
         UniqueConstraint('user_id', 'provider', name='uix_user_provider'),
