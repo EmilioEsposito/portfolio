@@ -6,7 +6,7 @@
   },
   "crons": [
     {
-      "path": "/api/cron_job_example",
+      "path": "/api/cron/cron_job_example",
       "schedule": "0 12 * * *"
     },
     {
