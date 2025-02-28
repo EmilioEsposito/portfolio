@@ -115,11 +115,12 @@ Please generate a professional and appropriate response:"""
             detail=f"Failed to generate email response: {str(e)}"
         )
 
-# Cron job route
-@router.get("/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
-async def stop_watch(payload: OptionalPassword):
+# Cron job route - supports both GET and POST
+@router.api_route("/watch/stop", methods=["GET", "POST"], dependencies=[Depends(verify_cron_or_admin)])
+async def stop_watch(payload: OptionalPassword = None):
     """
     Stops Gmail push notifications.
+    Can be called via GET (for cron) or POST (with optional password in body).
     """
     try:
         result = stop_gmail_watch()
@@ -130,11 +131,12 @@ async def stop_watch(payload: OptionalPassword):
             detail=f"Failed to stop Gmail watch: {str(e)}"
         )
 
-# Cron job route
-@router.get("/watch/start", dependencies=[Depends(verify_cron_or_admin)])
-async def start_watch(payload: OptionalPassword):
+# Cron job route - supports both GET and POST
+@router.api_route("/watch/start", methods=["GET", "POST"], dependencies=[Depends(verify_cron_or_admin)])
+async def start_watch(payload: OptionalPassword = None):
     """
     Starts Gmail push notifications.
+    Can be called via GET (for cron) or POST (with optional password in body).
     """
     try:
         result = setup_gmail_watch()
@@ -149,12 +151,13 @@ async def start_watch(payload: OptionalPassword):
             detail=f"Failed to start Gmail watch: {str(e)}"
         )
 
-# Cron job route to refresh Gmail watch
-@router.get("/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
-async def refresh_watch(payload: OptionalPassword):
+# Cron job route to refresh Gmail watch - supports both GET and POST
+@router.api_route("/watch/refresh", methods=["GET", "POST"], dependencies=[Depends(verify_cron_or_admin)])
+async def refresh_watch(payload: OptionalPassword = None):
     """
     Refreshes Gmail push notifications idempotently. Stops any existing watch and starts a new one.
     If no watch exists, just starts a new one.
+    Can be called via GET (for cron) or POST (with optional password in body).
     """
     try:
         # Try to stop any existing watch, but don't fail if there isn't one
