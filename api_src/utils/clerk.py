@@ -8,7 +8,7 @@ from google.oauth2.credentials import Credentials
 import logging
 from api_src.database.database import AsyncSessionFactory
 from api_src.oauth.service import get_oauth_credentials, save_oauth_credentials
-
+from pprint import pprint
 logger = logging.getLogger(__name__)
 
 # Initialize Clerk client - in production, this would use os.environ

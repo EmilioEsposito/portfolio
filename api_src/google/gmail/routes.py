@@ -116,7 +116,7 @@ Please generate a professional and appropriate response:"""
         )
 
 # Cron job route
-@router.post("/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
+@router.get("/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
 async def stop_watch(payload: OptionalPassword):
     """
     Stops Gmail push notifications.
@@ -131,7 +131,7 @@ async def stop_watch(payload: OptionalPassword):
         )
 
 # Cron job route
-@router.post("/watch/start", dependencies=[Depends(verify_cron_or_admin)])
+@router.get("/watch/start", dependencies=[Depends(verify_cron_or_admin)])
 async def start_watch(payload: OptionalPassword):
     """
     Starts Gmail push notifications.
@@ -150,7 +150,7 @@ async def start_watch(payload: OptionalPassword):
         )
 
 # Cron job route to refresh Gmail watch
-@router.post("/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
+@router.get("/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
 async def refresh_watch(payload: OptionalPassword):
     """
     Refreshes Gmail push notifications idempotently. Stops any existing watch and starts a new one.
