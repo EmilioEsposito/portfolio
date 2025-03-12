@@ -2,10 +2,14 @@ import json
 from pprint import pprint
 from fastapi.testclient import TestClient
 from pytest import fixture
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from api.index import app
 from api_src.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
 from api_src.utils.password import verify_admin_auth
-
+from api_src.utils.dependencies import verify_cron_or_admin
+from datetime import datetime
+from pprint import pprint
 
 async def mock_verify(*args, **kwargs):
     return True
@@ -17,6 +21,7 @@ def mocked_client():
         # Override the dependency directly in the app
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
         app.dependency_overrides[verify_admin_auth] = lambda: True
+        app.dependency_overrides[verify_cron_or_admin] = lambda: True
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()
@@ -70,4 +75,24 @@ def test_send_tenant_mass_message(mocked_client):
         "/api/open_phone/tenant_mass_message",
         json=data,
     )
+    assert response.status_code == 200
+
+
+def test_check_unreplied_emails(mocked_client):
+    """Test the check_unreplied_emails endpoint with a custom phone number"""
+
+    # Test with custom phone number
+    target_phone = "+14123703550"
+    response = mocked_client.post(
+        "/api/open_phone/check_unreplied_emails",
+        params={"target_phone_number": target_phone}
+    )
+
+    
+    # Verify the response
+    # assert response.status_code == 200
+    response_data = response.json()
+    print("\n\nRESPONSE DATA:")
+    pprint(response_data)
+
     assert response.status_code == 200
