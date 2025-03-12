@@ -8,11 +8,15 @@ import os
 import base64
 import hmac
 import requests
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 from datetime import datetime
 import time
 from api_src.utils.password import verify_admin_auth
 from api_src.google.sheets import get_sheet_as_json
+from api_src.utils.dependencies import verify_cron_or_admin
+from sqlalchemy import text
+from api_src.database.database import get_session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -22,6 +26,7 @@ router = APIRouter(
     prefix="/open_phone",  # All endpoints here will be under /open_phone
     tags=["open_phone"],  # Optional: groups endpoints in the docs
 )
+
 
 class OpenPhoneWebhookPayload(BaseModel):
     class Data(BaseModel):
@@ -135,9 +140,9 @@ async def message_received(
 
 
 def send_message(
-    message: str, 
+    message: str,
     to_phone_number: str,
-    from_phone_number: str="+14129101989",
+    from_phone_number: str = "+14129101989",
 ):
     """
     Send a message to a phone number using the OpenPhone API.
@@ -159,14 +164,13 @@ def send_message(
     )
     return response
 
+
 def test_send_message():
     response = send_message(
         message="Hello, world from Test!",
         to_phone_number="+14123703550",
     )
     pprint(response.json())
-
-
 
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_auth)])
@@ -182,9 +186,7 @@ async def send_message_endpoint(request: Request):
     from_phone_number = data["from_phone_number"]
     to_phone_number = data["to_phone_number"]
 
-    response = send_message(
-        message, to_phone_number, from_phone_number
-    )
+    response = send_message(message, to_phone_number, from_phone_number)
 
     return {"message": "Message sent", "open_phone_response": response.json()}
 
@@ -193,7 +195,7 @@ async def send_message_endpoint(request: Request):
 async def get_contacts_by_external_ids(
     external_ids: List[str],
     sources: Optional[List[str]] = None,
-    page_token: Optional[str] = None
+    page_token: Optional[str] = None,
 ):
     """Internal function version without Query dependencies"""
     max_results = 49
@@ -223,6 +225,7 @@ async def get_contacts_by_external_ids(
         # Re-raise the appropriate exception
         raise
 
+
 # Keep the original route but make it use the internal function
 @router.get("/contacts", dependencies=[Depends(verify_admin_auth)])
 async def route_get_contacts_by_external_ids(
@@ -234,57 +237,62 @@ async def route_get_contacts_by_external_ids(
 
 
 def get_contacts_sheet_as_json():
-    spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
+    spreadsheet_id = "1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M"
     return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
-
 
 
 class TenantMassMessageRequest(BaseModel):
     property_names: List[str]
     message: str
 
+
 @router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
 async def send_tenant_mass_message(
     body: TenantMassMessageRequest,
 ):
     """Send a message to all tenants in the specified properties."""
-    logger.info(f"Starting tenant mass message request for properties: {body.property_names}")
-    
+    logger.info(
+        f"Starting tenant mass message request for properties: {body.property_names}"
+    )
+
     try:
         # Verify required environment variables
         api_key = os.getenv("OPEN_PHONE_API_KEY")
         if not api_key:
             message = "OpenPhone API key not configured"
             logger.error(message)
-            raise HTTPException(
-                status_code=500,
-                detail=message
-            )
+            raise HTTPException(status_code=500, detail=message)
 
         # Get contacts from Google Sheet
         try:
             logger.info("Fetching contacts from Google Sheet")
             all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logger.info(f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet")
+            logger.info(
+                f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
+            )
         except Exception as e:
-            logger.error(f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True)
+            logger.error(
+                f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True
+            )
             raise HTTPException(
-                status_code=500,
-                detail=f"Failed to fetch contacts: {str(e)}"
+                status_code=500, detail=f"Failed to fetch contacts: {str(e)}"
             )
 
         # Filter contacts for all specified properties
         contacts = [
-            contact for contact in all_unfiltered_contacts 
+            contact
+            for contact in all_unfiltered_contacts
             if contact["Property"] in body.property_names
         ]
-        logger.info(f"Found {len(contacts)} total contacts for properties {body.property_names}")
-        
+        logger.info(
+            f"Found {len(contacts)} total contacts for properties {body.property_names}"
+        )
+
         if not contacts:
             logger.warning(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
-                detail=f"No contacts found for properties: {body.property_names}"
+                detail=f"No contacts found for properties: {body.property_names}",
             )
 
         failures = 0
@@ -295,14 +303,18 @@ async def send_tenant_mass_message(
         # Send messages
         for contact in contacts:
             try:
-                phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-                logger.info(f"Sending message to {contact['First Name']} at {phone_number}")
-                
+                phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
+                    " ", ""
+                ).replace("(", "").replace(")", "")
+                logger.info(
+                    f"Sending message to {contact['First Name']} at {phone_number}"
+                )
+
                 response = send_message(
                     message=body.message,
                     to_phone_number=phone_number,
                 )
-                
+
                 # Check for both 200 (OK) and 202 (Accepted) as success statuses
                 if response.status_code not in [200, 202]:
                     error_text = response.text
@@ -311,38 +323,49 @@ async def send_tenant_mass_message(
                         error_text = json.dumps(error_json)
                     except:
                         pass
-                    raise Exception(f"OpenPhone API returned status {response.status_code}: {error_text}")
-                
+                    raise Exception(
+                        f"OpenPhone API returned status {response.status_code}: {error_text}"
+                    )
+
                 # If we get here, the message was sent successfully
                 response_data = response.json()
                 if response_data.get("data", {}).get("status") == "sent":
                     successes += 1
                     logger.info(f"Successfully sent message to {contact['First Name']}")
                 else:
-                    raise Exception(f"Message not confirmed as sent: {json.dumps(response_data)}")
-                
+                    raise Exception(
+                        f"Message not confirmed as sent: {json.dumps(response_data)}"
+                    )
+
             except Exception as e:
                 failures += 1
                 error_message = str(e)
                 error_messages.add(error_message)
-                failed_contacts.append({
-                    "name": contact["First Name"],
-                    "phone": contact["Phone Number"],
-                    "property": contact["Property"],
-                    "error": error_message
-                })
-                logger.error(f"Failed to send message to {contact['First Name']}: {error_message}")
+                failed_contacts.append(
+                    {
+                        "name": contact["First Name"],
+                        "phone": contact["Phone Number"],
+                        "property": contact["Property"],
+                        "error": error_message,
+                    }
+                )
+                logger.error(
+                    f"Failed to send message to {contact['First Name']}: {error_message}"
+                )
 
         # Prepare response
         if failures > 0:
-            failed_details = [f"{c['name']} ({c['phone']}) in {c['property']}: {c['error']}" for c in failed_contacts]
+            failed_details = [
+                f"{c['name']} ({c['phone']}) in {c['property']}: {c['error']}"
+                for c in failed_contacts
+            ]
             message = (
                 f"{'Partial success' if successes > 0 else 'Failed'}: "
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
                 f"Failed contacts:\n" + "\n".join(failed_details)
             )
             logger.warning(message)
-            
+
             return JSONResponse(
                 status_code=207 if successes > 0 else 500,
                 content={
@@ -350,8 +373,8 @@ async def send_tenant_mass_message(
                     "success": successes > 0,
                     "failures": failures,
                     "successes": successes,
-                    "failed_contacts": failed_contacts
-                }
+                    "failed_contacts": failed_contacts,
+                },
             )
         property_names_str = ", ".join(body.property_names)
         success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
@@ -361,29 +384,36 @@ async def send_tenant_mass_message(
             content={
                 "message": success_message,
                 "success": True,
-                "successes": successes
-            }
+                "successes": successes,
+            },
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True)
+        logger.error(
+            f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True
+        )
         return JSONResponse(
             status_code=500,
             content={
                 "message": f"Unexpected error: {str(e)}",
                 "success": False,
-                "error": str(e)
-            }
+                "error": str(e),
+            },
         )
+
 
 def test_get_ghost_ids():
     headers = {
         "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
         "Content-Type": "application/json",
     }
-    ghost_ids = ["67a3f0e374352083a596852c", "67a3ea7913bc7ac81079abce", "67a3f29874352083a5968570"]
+    ghost_ids = [
+        "67a3f0e374352083a596852c",
+        "67a3ea7913bc7ac81079abce",
+        "67a3f29874352083a5968570",
+    ]
     response_codes = []
     for id in ghost_ids:
         url = f"https://api.openphone.com/v1/contacts/{id}"
@@ -392,10 +422,10 @@ def test_get_ghost_ids():
         response_codes.append(response.status_code)
     pprint(response_codes)
 
-    assert set(response_codes)==set([200])
-    
+    assert set(response_codes) == set([200])
 
-# Working! 
+
+# Working!
 @router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_auth)])
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
@@ -409,9 +439,11 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
         "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
         "Content-Type": "application/json",
     }
-    custom_fields_raw = requests.get(url, headers=headers).json()['data']
+    custom_fields_raw = requests.get(url, headers=headers).json()["data"]
 
-    custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
+    custom_field_key_to_name = {
+        field["key"]: field["name"] for field in custom_fields_raw
+    }
 
     contacts = get_contacts_sheet_as_json()
     contact = contacts[35]
@@ -424,11 +456,12 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
         source_name = f"API-Emilio-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
     for contact in contacts:
-        print(contact['external_id'])
+        print(contact["external_id"])
 
-        contact["Lease Start Date"] = contact["Lease Start Date"][:10] + "T00:00:00.000Z"
+        contact["Lease Start Date"] = (
+            contact["Lease Start Date"][:10] + "T00:00:00.000Z"
+        )
         contact["Lease End Date"] = contact["Lease End Date"][:10] + "T00:00:00.000Z"
-
 
         data = {
             "defaultFields": {
@@ -439,9 +472,11 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
                 "phoneNumbers": [{"name": "Phone", "value": contact["Phone Number"]}],
                 "role": contact["Role"],
             },
-            "createdByUserId": "USXAiFJxgv", # Emilio
+            "createdByUserId": "USXAiFJxgv",  # Emilio
             "source": source_name,
-            "externalId": contact["external_id"], # "e" + contact["Phone Number"],   # contact["external_id"]
+            "externalId": contact[
+                "external_id"
+            ],  # "e" + contact["Phone Number"],   # contact["external_id"]
             "customFields": [
                 {"key": key, "value": contact[field_name]}
                 for key, field_name in custom_field_key_to_name.items()
@@ -449,16 +484,17 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
         }
         # pprint(data)
 
-        
         # get contact by external id
-        existing_contacts = await get_contacts_by_external_ids(external_ids=[contact["external_id"]])
+        existing_contacts = await get_contacts_by_external_ids(
+            external_ids=[contact["external_id"]]
+        )
         skip = False
-        if len(existing_contacts['data'])>0:
+        if len(existing_contacts["data"]) > 0:
 
             if overwrite:
                 print("Contact already exists, deleting...")
                 # delete contact(s)
-                for existing_contact in existing_contacts['data']:
+                for existing_contact in existing_contacts["data"]:
                     url = f"https://api.openphone.com/v1/contacts/{existing_contact['id']}"
                     response = requests.delete(url, headers=headers)
                     pprint(response)
@@ -477,5 +513,110 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
             pprint(response.status_code)
             responses.append(response.json())
 
-    assert set(response_codes)==set([201]) or response_codes==[]
+    assert set(response_codes) == set([201]) or response_codes == []
 
+
+@router.api_route(
+    "/check_unreplied_emails",
+    methods=["GET", "POST"],
+    dependencies=[Depends(verify_cron_or_admin)],
+)
+async def check_unreplied_emails(
+    target_phone_number: str = "+14129101989",
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Cron endpoint to check for unreplied emails and send a summary via OpenPhone.
+    This endpoint is scheduled to run at 8am, 12pm, and 5pm ET via vercel.json.
+
+    Args:
+        target_phone_number: Optional phone number to send the alert to. Defaults to +14122703505.
+    """
+    logger.info(
+        f"Running check for unreplied emails, target phone: {target_phone_number}"
+    )
+
+    try:
+        # SQL query to find unreplied emails within past week that were received >4 hours ago
+        sql_query = """
+        select 
+        -- e.id,
+        --     e.message_id,
+            -- e.received_date,
+            -- convert utc to ET
+            -- format date as Mar 3, 2:25pm
+            TO_CHAR(e.received_date at time zone 'America/New_York', 'Mon DD, HH12:MIpm') as received_date_str,
+            e.subject
+            -- re.id,
+            -- re.message_id,
+            -- re.received_date,
+            -- re.subject,
+        from email_messages as e
+            left join email_messages as re on e.thread_id = re.thread_id
+            and re.subject ilike 'Re%'
+            and re.received_date > e.received_date
+            and e.id <> re.id
+            and re.received_date > current_date - interval '1 week'
+        where 
+            e.raw_payload::text like '%Label_5289438082921996324%' -- label: zillowlisting
+            and e.subject ilike '%requesting%'
+            and e.subject not ilike 'Re%'
+            and re.id is null
+            and e.received_date > current_date - interval '1 week'
+            and e.received_date < current_timestamp - interval '4 hour'
+        order by e.received_date desc
+        limit 10;
+        """
+
+        # Execute the query
+        result = await session.execute(text(sql_query))
+        unreplied_emails = result.fetchall()
+
+        # If no unreplied emails, return early
+        if not unreplied_emails:
+            logger.info("No unreplied emails found")
+            return {"message": "No unreplied emails found"}
+
+        # Format the results for the message
+        formatted_results = []
+        for email in unreplied_emails:
+            received_date = email[0]
+            subject = email[1]
+            formatted_results.append(f"• {received_date}: {subject}")
+
+        # Create the message
+        message = f"📬 Unreplied Zillow Emails 📬\n\nYou have {len(unreplied_emails)} unreplied Zillow emails:\n\n"
+        message += "\n".join(formatted_results)
+        message += "\n\nPlease check your email and reply to these messages."
+
+        # Send the message via OpenPhone
+        response = send_message(
+            message=message,
+            to_phone_number=target_phone_number,
+            from_phone_number="+14129101500",
+        )
+
+        if response.status_code not in [200, 202]:
+            logger.error(f"Failed to send OpenPhone message: {response.text}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "message": f"Failed to send OpenPhone message: {response.text}"
+                },
+            )
+
+        logger.info(
+            f"Successfully sent summary of {len(unreplied_emails)} unreplied emails to {target_phone_number}"
+        )
+        return {
+            "message": f"Successfully sent summary of {len(unreplied_emails)} unreplied emails",
+            "unreplied_count": len(unreplied_emails),
+            "target_phone_number": target_phone_number,
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking unreplied emails: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Error checking unreplied emails: {str(e)}"},
+        )

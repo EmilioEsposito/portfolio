@@ -12,6 +12,18 @@
     {
       "path": "/api/google/gmail/watch/refresh",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/open_phone/check_unreplied_emails",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/open_phone/check_unreplied_emails",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/open_phone/check_unreplied_emails",
+      "schedule": "0 21 * * *"
     }
   ],
   "build": {
