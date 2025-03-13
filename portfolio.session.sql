@@ -83,14 +83,17 @@ FROM
     AND re.subject ilike 'Re%'
     AND re.received_date > e.received_date
     AND e.id <> re.id
-    AND re.received_date > current_date - INTERVAL '1 week'
+    AND re.received_date > CURRENT_DATE - INTERVAL '1 week'
+    -- AND re.received_date < CURRENT_TIMESTAMP - INTERVAL '24 hour' -- uncomment to backtest
 WHERE
-    e.raw_payload :: text LIKE '%Label_5289438082921996324%' -- label: zillowlisting
+    TRUE
+    AND 'Label_5289438082921996324' = ANY(e.label_ids) -- label: zillowlisting
+    AND 'INBOX' = ANY(e.label_ids) -- label: inbox
     AND e.subject ilike '%requesting%'
     AND e.subject NOT ilike 'Re%'
-    AND re.id IS NULL
-    AND e.received_date > current_date - INTERVAL '1 week'
+    AND e.received_date > CURRENT_DATE - INTERVAL '1 week'
     AND e.received_date < CURRENT_TIMESTAMP - INTERVAL '4 hour'
+    AND re.id IS NULL -- no reply found!
 ORDER BY
     e.received_date DESC
 LIMIT
@@ -102,7 +105,8 @@ SELECT
     label_ids,
     subject,
     first_history_id,
-    history_ids
+    history_ids,
+    raw_payload
 FROM
     email_messages AS e
 ORDER BY

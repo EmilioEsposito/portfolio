@@ -84,7 +84,7 @@ def test_check_unreplied_emails(mocked_client):
     # Test with custom phone number
     target_phone = "+14123703550"
     response = mocked_client.post(
-        "/api/open_phone/check_unreplied_emails",
+        "/api/cron/check_unreplied_emails",
         params={"target_phone_number": target_phone}
     )
 
