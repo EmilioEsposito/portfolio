@@ -148,8 +148,10 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
             # List all changes since the last history ID
             results = gmail_service.users().history().list(
                 userId=user_id,
-                startHistoryId=history_id
+                startHistoryId=history_id,
+                labelId="INBOX"  # Only check INBOX history (this is all we watch anyway)
             ).execute()
+
 
             email_message_ids = set()
 
