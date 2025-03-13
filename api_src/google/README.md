@@ -98,7 +98,8 @@ Some APIs (like Gmail for sending from your personal account) require user-level
 ### Service Account Authentication
 
 ```python
-from api.google.auth import get_service_credentials
+from api_src.google.common.service_account_auth import get_service_credentials
+from googleapiclient.discovery import build
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -115,10 +116,10 @@ calendar_service = build('calendar', 'v3', credentials=credentials)
 ### Google Sheets
 
 ```python
-from api.google.sheets import get_sheet_as_json
+from api_src.google.sheets import get_sheet_as_json
 
 # Get all contacts
-contacts = get_sheet_as_json(os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID'))
+contacts = get_sheet_as_json(spreadsheet_id=os.getenv('GOOGLE_SHEETS_SPREADSHEET_ID'))
 ```
 
 ### Gmail

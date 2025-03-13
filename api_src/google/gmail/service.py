@@ -14,6 +14,8 @@ from google_auth_oauthlib.flow import Flow
 import logging
 import asyncio
 from email.utils import parsedate_to_datetime
+from googleapiclient.discovery_cache.base import Cache
+
 
 from api_src.google.common.service_account_auth import get_service_credentials, get_delegated_credentials
 from api_src.oauth.service import get_oauth_credentials
@@ -125,37 +127,55 @@ def send_email(
             detail=f"Failed to send email: {str(e)}"
         )
 
-async def get_email_changes(service, history_id: str, user_id: str = "me") -> List[str]:
+async def get_email_changes(gmail_service, history_id: str, user_id: str = "me"):
     """
     Fetches email changes using the history ID.
     Uses exponential backoff to handle cases where history ID isn't available yet (race condition)
-    Returns a list of message IDs that were added.
+    
+    Returns:
+        Dictionary with:
+        - status: "success", "no_messages", or "retry_needed"
+        - email_message_ids: List of message IDs that were added
+        - reason: Explanation string for what happened
     """
-    max_retries = 5
-    wait_time = 2  # Start with 2 seconds
+    max_retries = 4
+    wait_time = 20  # Start with 10 seconds
+
+    logging.info(f"Fetching email changes for history ID: {history_id}")
 
     for attempt in range(max_retries):
         try:
             # List all changes since the last history ID
-            results = service.users().history().list(
+            results = gmail_service.users().history().list(
                 userId=user_id,
                 startHistoryId=history_id
             ).execute()
 
-            message_ids = set()
+            email_message_ids = set()
 
             if 'history' in results:
                 for history in results['history']:
                     if 'messages' in history:
                         for msg in history['messages']:
-                            message_ids.add(msg['id'])
+                            email_message_ids.add(msg['id'])
                     # Look for added messages
                     if 'messagesAdded' in history:
                         for msg in history['messagesAdded']:
                             msg_id = msg['message']['id']
-                            message_ids.add(msg_id)
+                            email_message_ids.add(msg_id)
 
-                return list(message_ids)
+                if email_message_ids:
+                    return {
+                        "status": "success",
+                        "email_message_ids": list(email_message_ids),
+                        "reason": f"Found {len(email_message_ids)} new messages"
+                    }
+                else:
+                    return {
+                        "status": "no_messages",
+                        "email_message_ids": [],
+                        "reason": f"History found for ID {history_id}, but no new messages"
+                    }
             else:
                 # If no history found, wait and retry
                 logging.info(f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}")
@@ -173,10 +193,18 @@ async def get_email_changes(service, history_id: str, user_id: str = "me") -> Li
                 continue
             else:
                 logging.error(f"Failed to fetch history: {str(e)}")
-                raise
+                return {
+                    "status": "retry_needed",
+                    "email_message_ids": [],
+                    "reason": f"Exception fetching history: {str(e)}"
+                }
 
     logging.warning(f"Failed to retrieve history after {max_retries} retries")
-    return []  # Return empty list if we couldn't get the history after all retries
+    return {
+        "status": "retry_needed",
+        "email_message_ids": [],
+        "reason": f"Failed to retrieve history after {max_retries} retries"
+    }
 
 async def get_email_content(service, message_id: str, user_id: str = "me"):
     """
