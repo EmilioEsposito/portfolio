@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/index.py": {
-      "excludeFiles": "{.next,.git,node_modules}/**"
+      "excludeFiles": "{.next,.git,node_modules}/**",
+      "maxDuration": 300
     }
   },
   "crons": [
