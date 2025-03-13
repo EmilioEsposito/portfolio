@@ -99,7 +99,10 @@ LIMIT
 SELECT
     received_date,
     updated_at,
-    subject
+    label_ids,
+    subject,
+    first_history_id,
+    history_ids
 FROM
     email_messages AS e
 ORDER BY
@@ -122,4 +125,4 @@ SELECT
 FROM
     email_messages
 WHERE
-    array_length(history_ids, 1) > 1;
+    array_length(label_ids, 1) > 1;
