@@ -280,6 +280,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         return {
             'message_id': message['id'],
             'thread_id': message.get('threadId'),
+            'label_ids': headers.get('labelIds', []),
             'subject': headers.get('subject', 'No Subject'),
             'from_address': headers.get('from'),  # Aligned with model's from_address field
             'to_address': headers.get('to'),      # Aligned with model's to_address field

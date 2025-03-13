@@ -10,7 +10,6 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from api_src.utils.dependencies import verify_cron_or_admin
 from api_src.database.database import get_session
-from api_src.google.gmail.db_ops import save_email_message, get_email_by_message_id
 from api_src.google.gmail.service import (
     send_email,
     setup_gmail_watch,

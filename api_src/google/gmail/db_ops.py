@@ -32,7 +32,8 @@ async def get_test_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def save_email_message(
     session: AsyncSession,
-    message_data: Dict[str, Any]
+    message_data: Dict[str, Any],
+    history_id: Optional[int] = None
 ) -> Optional[EmailMessage]:
     """
     Save a Gmail message to the database.
@@ -40,12 +41,17 @@ async def save_email_message(
     Args:
         session: SQLAlchemy async session
         message_data: Processed message data containing all required fields
+        history_id: The Gmail history ID related to this message (optional)
         
     Returns:
         The saved EmailMessage instance or None if save failed
     """
     try:
-        logger.info(f"Saving email message {message_data.get('message_id')} to database")
+        message_id = message_data.get('message_id')
+        logger.info(f"Saving email message {message_id} to database")
+        
+        # Check if message already exists
+        existing_msg = await get_email_by_message_id(session, message_id)
         
         # Parse the date and ensure it's timezone aware
         date_str = message_data['date']
@@ -69,26 +75,52 @@ async def save_email_message(
             logger.warning(f"Failed to parse date {date_str}, using current UTC time: {str(e)}")
             received_date = datetime.now(pytz.UTC).replace(tzinfo=None)
         
-        # Create new email message instance
-        email_msg = EmailMessage(
-            message_id=message_data['message_id'],
-            thread_id=message_data['thread_id'],
-            subject=message_data['subject'],
-            from_address=message_data['from_address'],
-            to_address=message_data['to_address'],
-            received_date=received_date,
-            body_text=message_data['body_text'],
-            body_html=message_data['body_html'],
-            raw_payload=message_data['raw_payload']
-        )
-        
-        # Add to session and commit
-        session.add(email_msg)
-        await session.commit()
-        await session.refresh(email_msg)
-        
-        logger.info(f"Successfully saved email message {email_msg.message_id}")
-        return email_msg
+        if existing_msg:
+            logger.info(f"Updating existing message {message_id}")
+            
+            # Update raw_payload
+            existing_msg.raw_payload = message_data['raw_payload']
+            
+            # Update label_ids if present in message_data
+            if 'label_ids' in message_data and message_data['label_ids']:
+                existing_msg.label_ids = message_data['label_ids']
+            
+            # Append to history_ids if history_id is provided
+            if history_id:
+                if existing_msg.history_ids is None:
+                    existing_msg.history_ids = [history_id]
+                elif history_id not in existing_msg.history_ids:
+                    existing_msg.history_ids = existing_msg.history_ids + [history_id]
+            
+            await session.commit()
+            await session.refresh(existing_msg)
+            
+            logger.info(f"Successfully updated email message {message_id}")
+            return existing_msg
+        else:
+            # Create new email message instance
+            email_msg = EmailMessage(
+                message_id=message_id,
+                thread_id=message_data['thread_id'],
+                subject=message_data['subject'],
+                from_address=message_data['from_address'],
+                to_address=message_data['to_address'],
+                received_date=received_date,
+                body_text=message_data['body_text'],
+                body_html=message_data['body_html'],
+                raw_payload=message_data['raw_payload'],
+                first_history_id=history_id,
+                history_ids=[history_id] if history_id else None,
+                label_ids=message_data.get('label_ids')
+            )
+            
+            # Add to session and commit
+            session.add(email_msg)
+            await session.commit()
+            await session.refresh(email_msg)
+            
+            logger.info(f"Successfully saved new email message {email_msg.message_id}")
+            return email_msg
         
     except Exception as e:
         logger.error(f"Failed to save email message: {str(e)}", exc_info=True)
@@ -110,21 +142,42 @@ async def test_save_email_message():
         'date': datetime.now().isoformat(),  # Current time in ISO format
         'body_text': 'Test body',
         'body_html': '<p>Test body</p>',
-        'raw_payload': {'test': 'data'}
+        'raw_payload': {'test': 'data'},
+        'label_ids': ['INBOX', 'UNREAD']
     }
+    
+    # Test history ID
+    history_id = 12345
     
     saved_msg = None
     async with get_test_session() as session:
         try:
-            # Save message
-            saved_msg = await save_email_message(session, message_data)
+            # Save message with history_id
+            saved_msg = await save_email_message(session, message_data, history_id)
             assert saved_msg is not None
             assert saved_msg.message_id == message_data['message_id']
+            assert saved_msg.first_history_id == history_id
+            assert saved_msg.history_ids == [history_id]
+            assert saved_msg.label_ids == message_data['label_ids']
             
             # Verify we can retrieve it
             retrieved = await get_email_by_message_id(session, message_data['message_id'])
             assert retrieved is not None
             assert retrieved.subject == message_data['subject']
+            
+            # Test update with a new history_id
+            new_history_id = 67890
+            updated_data = message_data.copy()
+            updated_data['raw_payload'] = {'test': 'updated data'}
+            updated_data['label_ids'] = ['INBOX', 'READ']
+            
+            updated_msg = await save_email_message(session, updated_data, new_history_id)
+            assert updated_msg is not None
+            assert updated_msg.message_id == message_data['message_id']
+            assert updated_msg.first_history_id == history_id  # First history should not change
+            assert new_history_id in updated_msg.history_ids  # New history should be added
+            assert updated_msg.label_ids == updated_data['label_ids']  # Labels should be updated
+            assert updated_msg.raw_payload == updated_data['raw_payload']  # Payload should be updated
             
         finally:
             # Cleanup: Delete test message

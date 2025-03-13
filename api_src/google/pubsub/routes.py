@@ -147,16 +147,9 @@ async def process_gmail_notification(notification_data: dict, session: AsyncSess
                 message = await get_email_content(service, msg_id)
                 processed_msg = await process_single_message(message)
 
-                # Check if message already exists in database
-                existing_msg = await get_email_by_message_id(session, msg_id)
-                if existing_msg:
-                    logger.info(f"Message {msg_id} already exists in database, skipping")
-                    # let's count it as processed even though it's already in the database
-                    processed_messages.append(processed_msg)
-                    continue
-                
-                # Save to database
-                saved_msg = await save_email_message(session, processed_msg)
+                 
+                # Save to database (will update if message exists)
+                saved_msg = await save_email_message(session, processed_msg, history_id)
                 if saved_msg:
                     processed_messages.append(processed_msg)
                     logger.info(
