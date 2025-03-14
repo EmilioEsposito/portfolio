@@ -15,6 +15,7 @@ import logging
 import asyncio
 from email.utils import parsedate_to_datetime
 from googleapiclient.discovery_cache.base import Cache
+import googleapiclient.errors
 
 
 from api_src.google.common.service_account_auth import get_service_credentials, get_delegated_credentials
@@ -210,7 +211,17 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
 
 async def get_email_content(service, message_id: str, user_id: str = "me"):
     """
-    Fetches the content of a specific email message.
+    Get the full content of an email message by its ID.
+    
+    Args:
+        service: Gmail API service instance
+        message_id: The ID of the message to retrieve
+        
+    Returns:
+        The full message content as a dictionary
+        
+    Raises:
+        HttpError: If the API request fails for reasons other than 404 Not Found
     """
     try:
         # Get the email message
@@ -221,9 +232,12 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
         ).execute()
         
         return message
-        
-    except Exception as e:
-        logging.error(f"Failed to fetch message {message_id}: {str(e)}")
+    except googleapiclient.errors.HttpError as error:
+        if error.resp.status == 404:
+            # Message not found - this can happen if it was deleted
+            logging.warning(f"Message {message_id} not found (may have been deleted)")
+            return None
+        # Re-raise other errors
         raise
 
 def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
@@ -310,8 +324,8 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         return {
             'message_id': message['id'],
             'thread_id': message.get('threadId'),
-            'label_ids': message.get('labelIds', []),
-            'subject': headers.get('subject', 'No Subject'),
+            'label_ids': message.get('labelIds'),
+            'subject': headers.get('subject'),
             'from_address': headers.get('from'),  # Aligned with model's from_address field
             'to_address': headers.get('to'),      # Aligned with model's to_address field
             'date': parsed_date.isoformat(),      # Convert to ISO format for consistency

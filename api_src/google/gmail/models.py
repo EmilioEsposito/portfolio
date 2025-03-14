@@ -10,7 +10,7 @@ class EmailMessage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     message_id: Mapped[str] = mapped_column(String, unique=True, index=True)  # Gmail's message ID
     thread_id: Mapped[str] = mapped_column(String, index=True)  # Gmail's thread ID
-    subject: Mapped[str] = mapped_column(String)
+    subject: Mapped[str] = mapped_column(String, nullable=True)
     from_address: Mapped[str] = mapped_column(String)  # Using from_address since 'from' is a reserved word
     to_address: Mapped[str] = mapped_column(String, nullable=True)
     received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
