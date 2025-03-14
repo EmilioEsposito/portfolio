@@ -80,6 +80,9 @@ async def handle_gmail_notifications(
             elif processing_result["status"] == "no_messages":
                 logging.info(f"No messages to process: {processing_result['reason']}")
                 return Response(status_code=204)
+            elif processing_result["status"] == "partial_success_failure":
+                logging.info(f"Partial success: {processing_result['reason']}")
+                return Response(status_code=500, content=processing_result["reason"])
             else:  # "retry_needed"
                 logging.warning(f"Retry needed: {processing_result['reason']}")
                 return Response(status_code=503, content=processing_result["reason"])
@@ -191,21 +194,21 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
             return {
                 "status": "success", 
                 "messages": processed_email_messages,
-                "reason": "All messages processed successfully"
+                "reason": "All email messages processed successfully"
             }
         elif not processed_email_messages:
             # We found message IDs but couldn't process any - need retry
             return {
                 "status": "retry_needed",
                 "messages": [],
-                "reason": f"Found {len(email_message_ids)} messages but processed none. Failed IDs: {email_message_ids}"
+                "reason": f"Found {len(email_message_ids)} email messages but processed none. Failed IDs: {email_message_ids}"
             }
         else:
             # Partial success - some messages processed, some failed
             return {
-                "status": "retry_needed",
+                "status": "partial_success_failure",
                 "messages": processed_email_messages,
-                "reason": f"Processed {len(processed_email_messages)}/{len(email_message_ids)} messages. Failed IDs: {failed_email_ids}"
+                "reason": f"Action required. Check logs for details. Processed {len(processed_email_messages)}/{len(email_message_ids)} email messages. Failed IDs: {failed_email_ids}"
             }
         
     except Exception as e:
