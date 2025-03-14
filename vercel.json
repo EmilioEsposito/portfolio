@@ -15,16 +15,8 @@
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/api/cron/check_unreplied_emails",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/cron/check_unreplied_emails",
-      "schedule": "0 16 * * *"
-    },
-    {
-      "path": "/api/cron/check_unreplied_emails",
-      "schedule": "0 21 * * *"
+      "path": "/api/cron/check_unreplied_emails", 
+      "schedule": "0 12,16,21 * * *"
     }
   ],
   "build": {
