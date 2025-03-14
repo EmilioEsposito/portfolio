@@ -12,7 +12,7 @@ class EmailMessage(Base):
     thread_id: Mapped[str] = mapped_column(String, index=True)  # Gmail's thread ID
     subject: Mapped[str] = mapped_column(String)
     from_address: Mapped[str] = mapped_column(String)  # Using from_address since 'from' is a reserved word
-    to_address: Mapped[str] = mapped_column(String)
+    to_address: Mapped[str] = mapped_column(String, nullable=True)
     received_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     body_text: Mapped[str] = mapped_column(Text, nullable=True)  # Plain text body
     body_html: Mapped[str] = mapped_column(Text, nullable=True)  # HTML body
