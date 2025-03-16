@@ -274,13 +274,26 @@ async def send_tenant_mass_message(
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch contacts: {str(e)}"
             )
+        
+        property_names = body.property_names
+        # property_names = ['Test']
 
         # Filter contacts for all specified properties
         contacts = [
             contact
             for contact in all_unfiltered_contacts
-            if contact["Property"] in body.property_names
+            if contact["Property"] in property_names
         ]
+
+        # Filter out contacts where Lease End Date is in the past
+        for contact in contacts:
+            if "Lease End Date" in contact:
+                if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
+                    contacts.remove(contact)
+                    logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
+            else:
+                logger.warning(f"Contact {contact['First Name']} has no Lease End Date")
+
         logger.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
         )
