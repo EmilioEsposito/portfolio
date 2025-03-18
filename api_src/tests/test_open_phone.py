@@ -69,7 +69,7 @@ def test_send_tenant_mass_message(mocked_client):
 
     data = {
         "property_names": ["Test"], 
-        "message": "Hello, world from Test!"
+        "message": "Please ignore, this is a test."
     }
     response = mocked_client.post(
         "/api/open_phone/tenant_mass_message",

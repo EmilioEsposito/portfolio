@@ -13,6 +13,8 @@ from datetime import datetime
 import time
 from api_src.utils.password import verify_admin_auth
 from api_src.google.sheets import get_sheet_as_json
+import pytest
+import asyncio
 
 
 # Configure logging
@@ -136,7 +138,7 @@ async def message_received(
 # The OpenPhone API does not use a Bearer token for authentication.
 
 
-def send_message(
+async def send_message(
     message: str,
     to_phone_number: str,
     from_phone_number: str = "+14129101989",
@@ -162,8 +164,9 @@ def send_message(
     return response
 
 
-def test_send_message():
-    response = send_message(
+@pytest.mark.asyncio
+async def test_send_message():
+    response = await send_message(
         message="Hello, world from Test!",
         to_phone_number="+14123703550",
     )
@@ -310,20 +313,50 @@ async def send_tenant_mass_message(
         failed_contacts = []
         error_messages = set()
 
-        # Send messages
+        # Create a list of coroutines for concurrent message sending
+        message_tasks = []
         for contact in contacts:
             try:
                 phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
                     " ", ""
                 ).replace("(", "").replace(")", "")
                 logger.info(
-                    f"Sending message to {contact['First Name']} at {phone_number}"
+                    f"Preparing message to {contact['First Name']} at {phone_number}"
                 )
 
-                response = send_message(
-                    message=body.message,
-                    to_phone_number=phone_number,
+                # Create a coroutine for each message
+                message_tasks.append(
+                    send_message(
+                        message=body.message,
+                        to_phone_number=phone_number,
+                    )
                 )
+
+            except Exception as e:
+                failures += 1
+                error_message = str(e)
+                error_messages.add(error_message)
+                failed_contacts.append(
+                    {
+                        "name": contact["First Name"],
+                        "phone": contact["Phone Number"],
+                        "property": contact["Property"],
+                        "error": error_message,
+                    }
+                )
+                logger.error(
+                    f"Failed to prepare message for {contact['First Name']}: {error_message}"
+                )
+
+        # Send all messages concurrently
+        responses = await asyncio.gather(*message_tasks, return_exceptions=True)
+
+        # Process responses
+        for contact, response in zip(contacts, responses):
+            try:
+                # Skip if this was an exception
+                if isinstance(response, Exception):
+                    raise response
 
                 # Check for both 200 (OK) and 202 (Accepted) as success statuses
                 if response.status_code not in [200, 202]:
