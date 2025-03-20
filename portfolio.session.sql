@@ -62,7 +62,6 @@ FROM
 LIMIT
     100;
 
-
 SELECT
     received_date,
     updated_at,
@@ -74,14 +73,16 @@ SELECT
 FROM
     email_messages AS e
 ORDER BY
-    updated_at DESC;
+    received_date DESC
+LIMIT
+    10;
 
 SELECT
     *
 FROM
     email_messages AS e
 WHERE
-    6596931 = ANY(history_ids);
+    e.message_id = '192fc775897f1518';
 
 SELECT
     max(array_length(history_ids, 1))

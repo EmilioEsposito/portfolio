@@ -80,6 +80,9 @@ async def handle_gmail_notifications(
             elif processing_result["status"] == "no_messages":
                 logging.info(f"No messages to process: {processing_result['reason']}")
                 return Response(status_code=204)
+            elif processing_result["status"] == "partial_success_failure":
+                logging.info(f"Partial success: {processing_result['reason']}")
+                return Response(status_code=500, content=processing_result["reason"])
             else:  # "retry_needed"
                 logging.warning(f"Retry needed: {processing_result['reason']}")
                 return Response(status_code=503, content=processing_result["reason"])
@@ -157,12 +160,20 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
         
         processed_email_messages = []
         failed_email_ids = []
+        legitimately_skipped_message_ids = []  # Track messages that were not found (404)
         
         # Process each message
         for email_message_id in email_message_ids:
             try:
                 # Fetch and process message
                 email_message = await get_email_content(gmail_service, email_message_id)
+                
+                # Skip if message not found (404) - this is expected in some cases
+                if email_message is None:
+                    logger.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
+                    legitimately_skipped_message_ids.append(email_message_id)
+                    continue
+                
                 processed_email_message = await process_single_message(email_message)
                  
                 # Save to database (will update if message exists)
@@ -185,27 +196,38 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 )
                 continue
         
+        # Calculate the number of messages we actually attempted to process
+        # (excluding skipped messages that were not found)
+        attempted_message_count = len(email_message_ids) - len(legitimately_skipped_message_ids)
+        
         # Only override the status if we had issues processing messages
-        if len(processed_email_messages) == len(email_message_ids):
-            # All messages processed successfully - maintain success status
+        if attempted_message_count == 0:
+            # All messages were skipped due to 404s
+            return {
+                "status": "success", 
+                "messages": [],
+                "reason": f"All {len(legitimately_skipped_message_ids)} messages were not found (likely deleted)"
+            }
+        elif len(processed_email_messages) == attempted_message_count:
+            # All attempted messages processed successfully
             return {
                 "status": "success", 
                 "messages": processed_email_messages,
-                "reason": "All messages processed successfully"
+                "reason": f"All {attempted_message_count} messages processed successfully. {len(legitimately_skipped_message_ids)} messages were skipped (not found)."
             }
         elif not processed_email_messages:
             # We found message IDs but couldn't process any - need retry
             return {
                 "status": "retry_needed",
                 "messages": [],
-                "reason": f"Found {len(email_message_ids)} messages but processed none. Failed IDs: {email_message_ids}"
+                "reason": f"Found {attempted_message_count} email messages but processed none. Failed IDs: {failed_email_ids}"
             }
         else:
             # Partial success - some messages processed, some failed
             return {
-                "status": "retry_needed",
+                "status": "partial_success_failure",
                 "messages": processed_email_messages,
-                "reason": f"Processed {len(processed_email_messages)}/{len(email_message_ids)} messages. Failed IDs: {failed_email_ids}"
+                "reason": f"Action required. Check logs for details. Processed {len(processed_email_messages)}/{attempted_message_count} email messages. Failed IDs: {failed_email_ids}. {len(legitimately_skipped_message_ids)} messages were skipped (not found)."
             }
         
     except Exception as e:
