@@ -10,13 +10,6 @@ from typing import AsyncGenerator
 import asyncio
 
 
-# Configure logging with more detailed format for debugging
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 # Enable SQLAlchemy logging for debugging
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
@@ -64,34 +57,11 @@ logging.info(f"Final database URL format: {final_url_for_logging}")
 
 logging.info("Creating database engine...")
 
-# Determine if we're in a serverless environment
-# In serverless, you want to avoid connection pooling
-# In long-running server, you want connection pooling
-IS_SERVERLESS = os.environ.get("VERCEL") == "1"
-
-# Connection pooling configuration
-if IS_SERVERLESS:
-    poolclass = NullPool  # No connection pooling for serverless
-    pool_size = None
-    max_overflow = None
-    pool_pre_ping = False
-    pool_recycle = -1
-else:
-    poolclass = None  # Use default pooling for server environments
-    pool_size = 5  # Start with 5 connections
-    max_overflow = 10  # Allow up to 10 additional connections
-    pool_pre_ping = True  # Verify connections are still alive
-    pool_recycle = 3600  # Recycle connections after 1 hour
-
-# Create engine with appropriate pooling
+# Create engine with NullPool - no connection pooling for serverless
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,  # Disable SQL logging for better performance
-    poolclass=poolclass,
-    pool_size=pool_size,
-    max_overflow=max_overflow,
-    pool_pre_ping=pool_pre_ping,
-    pool_recycle=pool_recycle,
+    echo=True,  # Enable SQL logging
+    poolclass=NullPool,  # Disable connection pooling
     connect_args={
         "ssl": True,  # Enable SSL
         "server_settings": {
@@ -99,7 +69,7 @@ engine = create_async_engine(
             "application_name": "fastapi_app",
         },
         "command_timeout": 10,  # 10 second timeout on commands
-        "statement_cache_size": 0 if IS_SERVERLESS else 100,  # Enable statement caching in non-serverless
+        "statement_cache_size": 0,  # Disable statement cache for serverless
     }
 )
 
