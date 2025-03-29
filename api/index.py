@@ -1,10 +1,11 @@
 # this file is entry point for the API, so we need to import custom logger here
-from api.logger import logger 
+import logging
+logger = logging.getLogger(__name__)
 from dotenv import load_dotenv, find_dotenv
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
-import logging
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
