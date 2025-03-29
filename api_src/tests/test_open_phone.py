@@ -5,31 +5,41 @@ from pytest import fixture
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from api.index import app
-from api_src.open_phone import OpenPhoneWebhookPayload, verify_open_phone_signature
+from api_src.open_phone.routes import OpenPhoneWebhookPayload, verify_open_phone_signature
 from api_src.utils.password import verify_admin_auth
 from api_src.utils.dependencies import verify_cron_or_admin
 from datetime import datetime
 from pprint import pprint
+from sqlalchemy.ext.asyncio import AsyncSession
+from api_src.database.database import get_session
 
 async def mock_verify(*args, **kwargs):
     return True
 
+@fixture
+def mock_db_session():
+    """Mock database session"""
+    session = AsyncMock(spec=AsyncSession)
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
 
 @fixture
-def mocked_client():
+def mocked_client(mock_db_session):
     with TestClient(app) as client:
-        # Override the dependency directly in the app
+        # Override the dependencies
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
         app.dependency_overrides[verify_admin_auth] = lambda: True
         app.dependency_overrides[verify_cron_or_admin] = lambda: True
+        app.dependency_overrides[get_session] = lambda: mock_db_session
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()
 
-
 def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api_src/tests/requests/open_phone_webhook.json", "r") as f:
+    with open("api_src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json", "r") as f:
         request = json.load(f)
 
     headers = request["headers"]

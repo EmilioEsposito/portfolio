@@ -15,6 +15,10 @@ from api_src.google.gmail.models import *  # noqa
 from api_src.oauth.models import *  # noqa
 from api_src.database.database import DATABASE_URL, engine, Base
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('alembic.env')
+
 # Log the tables that SQLAlchemy knows about
 logging.info("Detected tables in metadata:")
 for table in Base.metadata.tables:

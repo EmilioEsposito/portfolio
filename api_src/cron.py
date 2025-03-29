@@ -6,7 +6,7 @@ from api_src.utils.dependencies import verify_cron_or_admin
 from sqlalchemy import text
 from api_src.database.database import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
-from api_src.open_phone import send_message
+from api_src.open_phone.client import send_message
 from fastapi.responses import JSONResponse
 
 
@@ -84,7 +84,7 @@ async def check_unreplied_emails(
         message += "\n\nPlease check your email and reply to these messages."
 
         # Send the message via OpenPhone
-        response = send_message(
+        response = await send_message(
             message=message,
             to_phone_number=target_phone_number,
             from_phone_number="+14129101500",

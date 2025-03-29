@@ -24,3 +24,4 @@ This is a repo for me to put various projects and tools in. I like to keep thing
 - For imports, use absolute paths and avoid relative imports if possible. It makes refactoring easier.
 - The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add add <component>`. Old way gives errors.
 - Do not make unrelated changes to the task at hand without asking me first.
+- Do not EVER remove my comments if the comment is still valid. 
