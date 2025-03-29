@@ -8,7 +8,6 @@ from api_src.google.pubsub.routes import router as pubsub_router
 # from api_src.google.sheets.routes import router as sheets_router
 import logging
 
-logger = logging.getLogger(__name__)
 
 # Create main router
 router = APIRouter(prefix="/google", tags=["google"])

@@ -11,7 +11,6 @@ from google.auth import jwt
 from typing import Dict, Any
 
 
-logger = logging.getLogger(__name__)
 
 # Cache for Google's public keys
 _GOOGLE_PUBLIC_KEYS = None
@@ -61,46 +60,46 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
         HTTPException: If verification fails
     """
     if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"Invalid auth header: {auth_header}")
+        logging.error(f"Invalid auth header: {auth_header}")
         raise HTTPException(status_code=401, detail="Invalid or missing authorization token")
     
     try:
         # Extract token
         token = auth_header.split("Bearer ")[1]
-        logger.info(f"Verifying token: {token[:20]}...")
-        logger.info(f"Expected audience: {expected_audience}")
+        logging.info(f"Verifying token: {token[:20]}...")
+        logging.info(f"Expected audience: {expected_audience}")
         
         # Get Google's public keys
         certs = get_google_public_keys()
         
         # Verify token signature and claims using jwt.decode
         claims = jwt.decode(token, certs=certs)
-        logger.info(f"Token claims: {json.dumps(claims, indent=2)}")
+        logging.info(f"Token claims: {json.dumps(claims, indent=2)}")
         
         # Verify audience
         token_audience = claims.get('aud').split('?')[0]  # ignore query params
         if token_audience != expected_audience:
-            logger.error(f"Invalid audience. Expected {expected_audience}, got {token_audience}")
+            logging.error(f"Invalid audience. Expected {expected_audience}, got {token_audience}")
             raise HTTPException(status_code=401, detail="Invalid token audience")
         
         # Verify issuer
         if claims.get('iss') != 'https://accounts.google.com':
-            logger.error(f"Invalid issuer: {claims.get('iss')}")
+            logging.error(f"Invalid issuer: {claims.get('iss')}")
             raise HTTPException(status_code=401, detail="Invalid token issuer")
         
         # Verify service account email
         email = claims.get('email', '')
         if not email.endswith('gserviceaccount.com'):
-            logger.error(f"Invalid service account email: {email}")
+            logging.error(f"Invalid service account email: {email}")
             raise HTTPException(status_code=401, detail="Invalid token issuer")
         
         return True
         
     except ValueError as e:
-        logger.error(f"Token validation error: {str(e)}")
+        logging.error(f"Token validation error: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Invalid token format: {str(e)}")
     except Exception as e:
-        logger.error(f"Pub/Sub token verification failed: {str(e)}")
+        logging.error(f"Pub/Sub token verification failed: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
 def decode_pubsub_message(message_data: str) -> Dict[str, Any]:
@@ -121,11 +120,11 @@ def decode_pubsub_message(message_data: str) -> Dict[str, Any]:
         # Decode base64 message data
         decoded_bytes = base64.b64decode(message_data)
         decoded_json = json.loads(decoded_bytes.decode('utf-8'))
-        logger.info(f"Decoded Pub/Sub message: {json.dumps(decoded_json, indent=2)}")
+        logging.info(f"Decoded Pub/Sub message: {json.dumps(decoded_json, indent=2)}")
         return decoded_json
         
     except (base64.binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
-        logger.error(f"Failed to decode message data: {str(e)}")
+        logging.error(f"Failed to decode message data: {str(e)}")
         raise HTTPException(
             status_code=400,
             detail=f"Failed to decode message data: {str(e)}"

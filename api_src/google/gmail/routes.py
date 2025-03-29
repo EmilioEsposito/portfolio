@@ -27,7 +27,6 @@ from api_src.google.gmail.schema import (
     OptionalPassword
 )
 
-logger = logging.getLogger(__name__)
 client = AsyncOpenAI()  # Create async client instance
 
 router = APIRouter(prefix="/gmail", tags=["gmail"])
@@ -68,7 +67,7 @@ async def get_zillow_emails(session: AsyncSession = Depends(get_session)) -> Lis
         ]
     
     except Exception as e:
-        logger.error(f"Error fetching Zillow emails: {str(e)}")
+        logging.error(f"Error fetching Zillow emails: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Zillow emails: {str(e)}"
@@ -103,7 +102,7 @@ Please generate a professional and appropriate response:"""
         return {"response": response_text}
         
     except Exception as e:
-        logger.error(f"Error generating email response: {str(e)}")
+        logging.error(f"Error generating email response: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate email response: {str(e)}"
@@ -157,13 +156,13 @@ async def refresh_watch(payload: OptionalPassword = None):
         # Try to stop any existing watch, but don't fail if there isn't one
         try:
             stop_gmail_watch()
-            logger.info("✓ Stopped existing watch")
+            logging.info("✓ Stopped existing watch")
         except Exception as stop_error:
-            logger.info(f"Note: Could not stop existing watch: {stop_error}")
+            logging.info(f"Note: Could not stop existing watch: {stop_error}")
         
         # Start a new watch
         result = setup_gmail_watch()
-        logger.info(f"✓ Started new watch (expires: {result.get('expiration')})")
+        logging.info(f"✓ Started new watch (expires: {result.get('expiration')})")
         
         return {
             "success": True,

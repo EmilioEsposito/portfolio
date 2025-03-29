@@ -6,7 +6,6 @@ import logging
 from api_src.database.database import get_session
 from api_src.examples.models import Example as ExampleModel
 
-logger = logging.getLogger(__name__)
 
 @strawberry.type
 class Example:

@@ -1,6 +1,4 @@
-# this file is entry point for the API, so we need to import custom logger here
 import logging
-logger = logging.getLogger(__name__)
 from dotenv import load_dotenv, find_dotenv
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
@@ -111,7 +109,7 @@ app.include_router(examples_router, prefix="/api")
 # Add error handling
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Error processing request: {str(exc)}", exc_info=True)
+    logging.error(f"Error processing request: {str(exc)}", exc_info=True)
     
     # Handle HTTPException specially
     if isinstance(exc, HTTPException):

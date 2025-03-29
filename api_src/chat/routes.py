@@ -12,7 +12,6 @@ from api_src.utils.tools import get_current_weather
 import os
 import logging
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -166,7 +165,7 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
 
 @router.post("/chat")
 async def handle_chat_data(request: ChatRequest, protocol: str = Query("data")):
-    logger.info(f"Received chat request: {request}")
+    logging.info(f"Received chat request: {request}")
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)
     response = StreamingResponse(stream_text(openai_messages, protocol))

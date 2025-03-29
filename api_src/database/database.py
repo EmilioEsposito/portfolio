@@ -9,7 +9,6 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 
-logger = logging.getLogger(__name__)
 
 # Enable SQLAlchemy logging for debugging
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
@@ -41,7 +40,7 @@ db_url_for_logging = DATABASE_URL.replace(
     "//" + DATABASE_URL.split("@")[0].split("//")[1],
     "//<credentials>"
 )
-logger.info(f"Database URL format: {db_url_for_logging}")
+logging.info(f"Database URL format: {db_url_for_logging}")
 
 # Always convert to asyncpg format
 if DATABASE_URL.startswith("postgres://"):
@@ -54,9 +53,9 @@ final_url_for_logging = DATABASE_URL.replace(
     "//" + DATABASE_URL.split("@")[0].split("//")[1],
     "//<credentials>"
 )
-logger.info(f"Final database URL format: {final_url_for_logging}")
+logging.info(f"Final database URL format: {final_url_for_logging}")
 
-logger.info("Creating database engine...")
+logging.info("Creating database engine...")
 
 # Create engine with NullPool - no connection pooling for serverless
 engine = create_async_engine(
@@ -74,7 +73,7 @@ engine = create_async_engine(
     }
 )
 
-logger.info("Creating session factory...")
+logging.info("Creating session factory...")
 
 # Session factory with appropriate settings for serverless
 AsyncSessionFactory = async_sessionmaker(
@@ -99,5 +98,5 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logger.error(f"Database session error: {str(e)}", exc_info=True)
+            logging.error(f"Database session error: {str(e)}", exc_info=True)
             raise 

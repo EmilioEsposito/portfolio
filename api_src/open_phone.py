@@ -17,7 +17,6 @@ import pytest
 import asyncio
 
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/open_phone",  # All endpoints here will be under /open_phone
@@ -69,10 +68,10 @@ async def verify_open_phone_signature(request: Request):
 
     # Make sure the computed digest matches the digest in the openphone header.
     if provided_digest == computed_digest:
-        logger.info("signature verification succeeded")
+        logging.info("signature verification succeeded")
         return True
     else:
-        logger.error("signature verification failed")
+        logging.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
 
 
@@ -92,15 +91,15 @@ async def message_received(
     try:
         request_body_json = json.loads(body.decode())
 
-        logger.info("Request body JSON: %s", json.dumps(request_body_json, indent=2))
-        logger.info("Request headers: %s", json.dumps(dict(request.headers), indent=2))
-        logger.info("Payload: %s", payload)
+        logging.info("Request body JSON: %s", json.dumps(request_body_json, indent=2))
+        logging.info("Request headers: %s", json.dumps(dict(request.headers), indent=2))
+        logging.info("Payload: %s", payload)
 
         # TODO: read the message, process it, and send a response using send_message
 
     except json.JSONDecodeError as e:
-        logger.error("Failed to parse JSON: %s", str(e))
-        logger.info("Request headers: %s", dict(request.headers))
+        logging.error("Failed to parse JSON: %s", str(e))
+        logging.info("Request headers: %s", dict(request.headers))
         return {
             "message": "Failed to parse JSON",
             "body": body.decode(),
@@ -218,7 +217,7 @@ async def get_contacts_by_external_ids(
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching contacts: {str(e)}")
+        logging.error(f"Error fetching contacts: {str(e)}")
         # Re-raise the appropriate exception
         raise
 
@@ -248,7 +247,7 @@ async def send_tenant_mass_message(
     body: TenantMassMessageRequest,
 ):
     """Send a message to all tenants in the specified properties."""
-    logger.info(
+    logging.info(
         f"Starting tenant mass message request for properties: {body.property_names}"
     )
 
@@ -257,18 +256,18 @@ async def send_tenant_mass_message(
         api_key = os.getenv("OPEN_PHONE_API_KEY")
         if not api_key:
             message = "OpenPhone API key not configured"
-            logger.error(message)
+            logging.error(message)
             raise HTTPException(status_code=500, detail=message)
 
         # Get contacts from Google Sheet
         try:
-            logger.info("Fetching contacts from Google Sheet")
+            logging.info("Fetching contacts from Google Sheet")
             all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logger.info(
+            logging.info(
                 f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
             )
         except Exception as e:
-            logger.error(
+            logging.error(
                 f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True
             )
             raise HTTPException(
@@ -290,17 +289,17 @@ async def send_tenant_mass_message(
             if "Lease End Date" in contact:
                 if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
                     contacts.remove(contact)
-                    logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
+                    logging.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
             else:
                 contacts.remove(contact)
-                logger.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
+                logging.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
 
-        logger.info(
+        logging.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
         )
 
         if not contacts:
-            logger.warning(f"No contacts found for properties: {body.property_names}")
+            logging.warning(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
                 detail=f"No contacts found for properties: {body.property_names}",
@@ -318,7 +317,7 @@ async def send_tenant_mass_message(
                 phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
                     " ", ""
                 ).replace("(", "").replace(")", "")
-                logger.info(
+                logging.info(
                     f"Preparing message to {contact['First Name']} at {phone_number}"
                 )
 
@@ -342,7 +341,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logging.error(
                     f"Failed to prepare message for {contact['First Name']}: {error_message}"
                 )
 
@@ -372,7 +371,7 @@ async def send_tenant_mass_message(
                 response_data = response.json()
                 if response_data.get("data", {}).get("status") == "sent":
                     successes += 1
-                    logger.info(f"Successfully sent message to {contact['First Name']}")
+                    logging.info(f"Successfully sent message to {contact['First Name']}")
                 else:
                     raise Exception(
                         f"Message not confirmed as sent: {json.dumps(response_data)}"
@@ -390,7 +389,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logging.error(
                     f"Failed to send message to {contact['First Name']}: {error_message}"
                 )
 
@@ -405,7 +404,7 @@ async def send_tenant_mass_message(
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
                 f"Failed contacts:\n" + "\n".join(failed_details)
             )
-            logger.warning(message)
+            logging.warning(message)
 
             return JSONResponse(
                 status_code=207 if successes > 0 else 500,
@@ -419,7 +418,7 @@ async def send_tenant_mass_message(
             )
         property_names_str = ", ".join(body.property_names)
         success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
-        logger.info(success_message)
+        logging.info(success_message)
         return JSONResponse(
             status_code=200,
             content={
@@ -432,7 +431,7 @@ async def send_tenant_mass_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
+        logging.error(
             f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True
         )
         return JSONResponse(
