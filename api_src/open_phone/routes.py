@@ -15,6 +15,7 @@ from api_src.open_phone.client import send_message, get_contacts_by_external_ids
 from api_src.utils.password import verify_admin_auth
 import asyncio
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(
     prefix="/open_phone",
@@ -119,6 +120,12 @@ async def webhook(
         logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
         return {"message": "Event recorded successfully"}
         
+    except IntegrityError as e:
+        # If the event already exists, that's fine - just return success
+        if "uq_open_phone_events_event_id" in str(e):
+            logging.info(f"Event {payload.id} already processed, skipping")
+            return {"message": "Event already processed"}
+        raise HTTPException(500, f"Database error: {str(e)}")
     except Exception as e:
         logging.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
         await session.rollback()

@@ -12,6 +12,7 @@ from datetime import datetime
 from pprint import pprint
 from sqlalchemy.ext.asyncio import AsyncSession
 from api_src.database.database import get_session
+import uuid
 
 async def mock_verify(*args, **kwargs):
     return True
@@ -41,6 +42,9 @@ def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
     with open("api_src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json", "r") as f:
         request = json.load(f)
+
+    # create random event id
+    request["body"]["id"] = str(uuid.uuid4())
 
     headers = request["headers"]
     body = request["body"]
