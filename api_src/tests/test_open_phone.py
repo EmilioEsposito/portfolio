@@ -16,23 +16,23 @@ from api_src.database.database import get_session
 async def mock_verify(*args, **kwargs):
     return True
 
-@fixture
-def mock_db_session():
-    """Mock database session"""
-    session = AsyncMock(spec=AsyncSession)
-    session.commit = AsyncMock()
-    session.rollback = AsyncMock()
-    session.refresh = AsyncMock()
-    return session
+# @fixture
+# def mock_db_session():
+#     """Mock database session"""
+#     session = AsyncMock(spec=AsyncSession)
+#     session.commit = AsyncMock()
+#     session.rollback = AsyncMock()
+#     session.refresh = AsyncMock()
+#     return session
 
 @fixture
-def mocked_client(mock_db_session):
+def mocked_client():
     with TestClient(app) as client:
         # Override the dependencies
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
         app.dependency_overrides[verify_admin_auth] = lambda: True
         app.dependency_overrides[verify_cron_or_admin] = lambda: True
-        app.dependency_overrides[get_session] = lambda: mock_db_session
+        # app.dependency_overrides[get_session] = lambda: mock_db_session
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()

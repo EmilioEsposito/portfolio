@@ -64,11 +64,34 @@ logging.info(f"Final database URL format: {final_url_for_logging}")
 
 logging.info("Creating database engine...")
 
-# Create engine with NullPool - no connection pooling for serverless
+# Determine if we're in a serverless environment
+# In serverless, you want to avoid connection pooling
+# In long-running server, you want connection pooling
+IS_SERVERLESS = os.environ.get("VERCEL") == "1"
+
+# Connection pooling configuration
+if IS_SERVERLESS:
+    poolclass = NullPool  # No connection pooling for serverless
+    pool_size = None
+    max_overflow = None
+    pool_pre_ping = False
+    pool_recycle = -1
+else:
+    poolclass = None  # Use default pooling for server environments
+    pool_size = 5  # Start with 5 connections
+    max_overflow = 10  # Allow up to 10 additional connections
+    pool_pre_ping = True  # Verify connections are still alive
+    pool_recycle = 3600  # Recycle connections after 1 hour
+
+# Create engine with appropriate pooling
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Enable SQL logging
-    poolclass=NullPool,  # Disable connection pooling
+    echo=False,  # Disable SQL logging for better performance
+    poolclass=poolclass,
+    pool_size=pool_size,
+    max_overflow=max_overflow,
+    pool_pre_ping=pool_pre_ping,
+    pool_recycle=pool_recycle,
     connect_args={
         "ssl": True,  # Enable SSL
         "server_settings": {
@@ -76,7 +99,7 @@ engine = create_async_engine(
             "application_name": "fastapi_app",
         },
         "command_timeout": 10,  # 10 second timeout on commands
-        "statement_cache_size": 0,  # Disable statement cache for serverless
+        "statement_cache_size": 0 if IS_SERVERLESS else 100,  # Enable statement caching in non-serverless
     }
 )
 
@@ -94,10 +117,24 @@ AsyncSessionFactory = async_sessionmaker(
 class Base(DeclarativeBase):
     metadata = metadata
 
+@asynccontextmanager
+async def session_context() -> AsyncGenerator[AsyncSession, None]:
+    """Async context manager for database sessions.
+    Use with 'async with' statements.
+    """
+    async with AsyncSessionFactory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"Database session error: {str(e)}", exc_info=True)
+            raise
+
 # Session dependency for FastAPI
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get a database session with proper error handling and cleanup.
-    This is designed to work with FastAPI's dependency injection system.
+    """Database session as a FastAPI dependency.
+    Use with FastAPI Depends().
     """
     async with AsyncSessionFactory() as session:
         try:

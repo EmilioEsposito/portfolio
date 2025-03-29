@@ -5,7 +5,7 @@ import json
 import os
 import base64
 import hmac
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Union
 from pydantic import BaseModel
 from api_src.database.database import get_session
@@ -55,10 +55,27 @@ async def verify_open_phone_signature(request: Request):
 
 def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
     """Extract relevant fields from the event data based on event type"""
+    # Convert the payload to dict first
+    payload_dict = payload.dict()
+    
+    # Convert any datetime objects to ISO format strings in the payload_dict
+    def convert_datetime_to_str(obj):
+        if isinstance(obj, dict):
+            return {k: convert_datetime_to_str(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_datetime_to_str(item) for item in obj]
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        else:
+            return obj
+    
+    # Apply the conversion to the entire payload dict
+    payload_dict = convert_datetime_to_str(payload_dict)
+    
     event_data = {
         "event_type": payload.type,
         "event_id": payload.id,
-        "event_data": payload.dict(),
+        "event_data": payload_dict,  # Use the converted dict
         "created_at": payload.createdAt,
     }
     
@@ -87,24 +104,24 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
 async def webhook(
     request: Request,
     payload: OpenPhoneWebhookPayload,
-    db: Session = Depends(get_session)
+    session: AsyncSession = Depends(get_session)
 ):
     try:
         # Extract event data
         event_data = extract_event_data(payload)
         
         # Create database record
-        db_event = OpenPhoneEvent(**event_data)
-        db.add(db_event)
-        await db.commit()
-        await db.refresh(db_event)
+        open_phone_event = OpenPhoneEvent(**event_data)
+        session.add(open_phone_event)
+        await session.commit()
+        await session.refresh(open_phone_event)
         
         logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
         return {"message": "Event recorded successfully"}
         
     except Exception as e:
         logging.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
-        await db.rollback()
+        await session.rollback()
         raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_auth)])

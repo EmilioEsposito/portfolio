@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from api_src.examples.models import *  # noqa
 from api_src.google.gmail.models import *  # noqa
 from api_src.oauth.models import *  # noqa
+from api_src.open_phone.models import *  # noqa
 from api_src.database.database import DATABASE_URL, engine, Base
 
 
