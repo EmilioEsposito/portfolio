@@ -1,8 +1,9 @@
+import logging
 from dotenv import load_dotenv, find_dotenv
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
-import logging
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,9 +25,6 @@ from api_src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api_src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api_src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
 
 # Verify critical environment variables
 required_env_vars = {
@@ -56,6 +54,12 @@ required_env_vars = {
         "  Development: vercel env add GOOGLE_OAUTH_REDIRECT_URI development 'http://localhost:3000/api/google/auth/callback'\n"
         "  Preview: vercel env add GOOGLE_OAUTH_REDIRECT_URI preview 'https://dev.eesposito.com/api/google/auth/callback'\n"
         "  Production: vercel env add GOOGLE_OAUTH_REDIRECT_URI production 'https://eesposito.com/api/google/auth/callback'"
+    ),
+    "OPEN_PHONE_WEBHOOK_SECRET": (
+        "Required for OpenPhone webhook. Set up in OpenPhone dashboard.\n"
+        "  Development: vercel env add OPEN_PHONE_WEBHOOK_SECRET development\n"
+        "  Preview: vercel env add OPEN_PHONE_WEBHOOK_SECRET preview\n"
+        "  Production: vercel env add OPEN_PHONE_WEBHOOK_SECRET production"
     )
 }
 
@@ -111,7 +115,7 @@ app.include_router(examples_router, prefix="/api")
 # Add error handling
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Error processing request: {str(exc)}", exc_info=True)
+    logging.error(f"Error processing request: {str(exc)}", exc_info=True)
     
     # Handle HTTPException specially
     if isinstance(exc, HTTPException):

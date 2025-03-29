@@ -3,11 +3,9 @@ import strawberry
 from datetime import datetime
 from sqlalchemy import select, desc
 import logging
-from api_src.database.database import get_session
+from api_src.database.database import session_context
 from api_src.examples.models import Example as ExampleModel
 
-# Configure logging
-logger = logging.getLogger(__name__)
 
 @strawberry.type
 class Example:
@@ -45,7 +43,7 @@ class ExamplesResponse:
 class Query:
     @strawberry.field
     async def examples(self) -> List[Example]:
-        async with get_session() as session:
+        async with session_context() as session:
             result = await session.execute(
                 select(ExampleModel).order_by(desc(ExampleModel.created_at))
             )
@@ -53,7 +51,7 @@ class Query:
     
     @strawberry.field
     async def example(self, id: int) -> Optional[Example]:
-        async with get_session() as session:
+        async with session_context() as session:
             result = await session.execute(
                 select(ExampleModel).filter(ExampleModel.id == id)
             )
@@ -63,7 +61,7 @@ class Query:
 class Mutation:
     @strawberry.mutation
     async def create_example(self, title: str, content: str) -> Example:
-        async with get_session() as session:
+        async with session_context() as session:
             example = ExampleModel(title=title, content=content)
             session.add(example)
             await session.commit()
@@ -74,7 +72,7 @@ class Mutation:
     async def update_example(
         self, id: int, title: Optional[str] = None, content: Optional[str] = None
     ) -> Optional[Example]:
-        async with get_session() as session:
+        async with session_context() as session:
             example = await session.get(ExampleModel, id)
             if not example:
                 return None
@@ -90,7 +88,7 @@ class Mutation:
     
     @strawberry.mutation
     async def delete_example(self, id: int) -> bool:
-        async with get_session() as session:
+        async with session_context() as session:
             example = await session.get(ExampleModel, id)
             if not example:
                 return False

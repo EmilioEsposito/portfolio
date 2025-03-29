@@ -1,55 +1,32 @@
-from fastapi import APIRouter, Request, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, conint
-import json
 import logging
-from pprint import pprint
+import json
 import os
 import base64
 import hmac
-import requests
-from typing import List, Optional, Union, Dict, Any
-from datetime import datetime
-import time
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Optional, Union
+from pydantic import BaseModel
+from api_src.database.database import get_session
+from api_src.open_phone.models import OpenPhoneEvent
+from api_src.open_phone.schema import OpenPhoneWebhookPayload
+from api_src.open_phone.client import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api_src.utils.password import verify_admin_auth
-from api_src.google.sheets import get_sheet_as_json
-import pytest
 import asyncio
-
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(
-    prefix="/open_phone",  # All endpoints here will be under /open_phone
-    tags=["open_phone"],  # Optional: groups endpoints in the docs
+    prefix="/open_phone",
+    tags=["open_phone"],
 )
 
-
-class OpenPhoneWebhookPayload(BaseModel):
-    class Data(BaseModel):
-        class DataObject(BaseModel):
-            object: str
-            from_: str = Field(..., alias="from")
-            to: str
-            body: str
-            media: list = []
-            createdAt: str
-            userId: str
-            phoneNumberId: str
-            conversationId: str
-
-        object: DataObject
-
-    data: Data
-    object: str
-
-
-# https://support.openphone.com/hc/en-us/articles/4690754298903-How-to-use-webhooks
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
-    signing_key = os.getenv("OPEN_PHONE_MESSAGE_RECEIVED_WEBHOOK_SECRET")
+    signing_key = os.getenv("OPEN_PHONE_WEBHOOK_SECRET")
+    if not signing_key:
+        raise HTTPException(403, "OPEN_PHONE_WEBHOOK_SECRET not configured")
     data = await request.body()
     # Parse the fields from the openphone-signature header.
     signature = request.headers["openphone-signature"]
@@ -71,107 +48,88 @@ async def verify_open_phone_signature(request: Request):
 
     # Make sure the computed digest matches the digest in the openphone header.
     if provided_digest == computed_digest:
-        print("signature verification succeeded")
+        logging.info("signature verification succeeded")
         return True
     else:
-        print("signature verification failed")
+        logging.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
-        # return True
 
+def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
+    """Extract relevant fields from the event data based on event type"""
+    # Convert the payload to dict first
+    payload_dict = payload.dict()
+    
+    # Convert any datetime objects to ISO format strings in the payload_dict
+    def convert_datetime_to_str(obj):
+        if isinstance(obj, dict):
+            return {k: convert_datetime_to_str(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_datetime_to_str(item) for item in obj]
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        else:
+            return obj
+    
+    # Apply the conversion to the entire payload dict
+    payload_dict = convert_datetime_to_str(payload_dict)
+    
+    event_data = {
+        "event_type": payload.type,
+        "event_id": payload.id,
+        "event_data": payload_dict,  # Use the converted dict
+        "created_at": payload.createdAt,
+    }
+    
+    # Extract common fields
+    data_object = payload.data.object
+    event_data.update({
+        "conversation_id": data_object.conversationId,
+        "user_id": data_object.userId,
+        "phone_number_id": data_object.phoneNumberId,
+    })
+    
+    # Extract type-specific fields
+    if hasattr(data_object, "from_"):
+        event_data["from_number"] = data_object.from_
+    if hasattr(data_object, "to"):
+        event_data["to_number"] = data_object.to
+    if hasattr(data_object, "body"):
+        event_data["message_text"] = data_object.body
+        
+    return event_data
 
 @router.post(
-    "/message_received",
+    "/webhook",
     dependencies=[Depends(verify_open_phone_signature)],
 )
-async def message_received(
+async def webhook(
     request: Request,
-    payload: OpenPhoneWebhookPayload,  # Using this caused lots of 422 errors!
+    payload: OpenPhoneWebhookPayload,
+    session: AsyncSession = Depends(get_session)
 ):
-    # If we are here, the signature was valid
-
-    body = await request.body()
-
-    # Try parsing the raw body to see what we're getting
     try:
-        request_body_json = json.loads(body.decode())
-
-        logger.info("Request body JSON: %s", json.dumps(request_body_json, indent=2))
-        logger.info("Request headers: %s", json.dumps(dict(request.headers), indent=2))
-        logger.info("Payload: %s", payload)
-
-        # TODO: read the message, process it, and send a response using send_message
-
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse JSON: %s", str(e))
-        logger.info("Request headers: %s", dict(request.headers))
-        return {
-            "message": "Failed to parse JSON",
-            "body": body.decode(),
-            "headers": dict(request.headers),
-        }
-
-    return {
-        "message": "Hello from open_phone!",
-        "payload": payload,
-        "request_body_json": request_body_json,
-        "headers": request.headers,
-    }
-
-
-# curl --request POST \
-#   --url https://api.openphone.com/v1/messages \
-#   --header 'Content-Type: application/json' \
-#   --data '{
-#   "content": "<string>",
-#   "phoneNumberId": "OP1232abc",
-#   "from": "+15555555555",
-#   "to": [
-#     "+15555555555"
-#   ],
-#   "userId": "US123abc",
-#   "setInboxStatus": "done"
-# }'
-
-# Implement authentication
-
-# Include your API key in the Authorization header of each request: Authorization: YOUR_API_KEY
-# The OpenPhone API does not use a Bearer token for authentication.
-
-
-async def send_message(
-    message: str,
-    to_phone_number: str,
-    from_phone_number: str = "+14129101989",
-):
-    """
-    Send a message to a phone number using the OpenPhone API.
-    """
-
-    # User OpenPhone API to send a message
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
-    headers = {
-        "Authorization": api_key,
-        "Content-Type": "application/json",
-    }
-    data = {
-        "content": message,
-        "from": from_phone_number,
-        "to": [to_phone_number],
-    }
-    response = requests.post(
-        "https://api.openphone.com/v1/messages", headers=headers, json=data
-    )
-    return response
-
-
-@pytest.mark.asyncio
-async def test_send_message():
-    response = await send_message(
-        message="Hello, world from Test!",
-        to_phone_number="+14123703550",
-    )
-    pprint(response.json())
-
+        # Extract event data
+        event_data = extract_event_data(payload)
+        
+        # Create database record
+        open_phone_event = OpenPhoneEvent(**event_data)
+        session.add(open_phone_event)
+        await session.commit()
+        await session.refresh(open_phone_event)
+        
+        logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
+        return {"message": "Event recorded successfully"}
+        
+    except IntegrityError as e:
+        # If the event already exists, that's fine - just return success
+        if "uq_open_phone_events_event_id" in str(e):
+            logging.info(f"Event {payload.id} already processed, skipping")
+            return {"message": "Event already processed"}
+        raise HTTPException(500, f"Database error: {str(e)}")
+    except Exception as e:
+        logging.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
+        await session.rollback()
+        raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_auth)])
 async def send_message_endpoint(request: Request):
@@ -179,54 +137,15 @@ async def send_message_endpoint(request: Request):
     Simple endpoint wrapper around send_message.
     Only available in development environment.
     """
-
     data = await request.json()
-
     message = data["message"]
     from_phone_number = data["from_phone_number"]
     to_phone_number = data["to_phone_number"]
 
-    response = send_message(message, to_phone_number, from_phone_number)
-
+    response = await send_message(message, to_phone_number, from_phone_number)
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-# Create a non-route function for internal use
-async def get_contacts_by_external_ids(
-    external_ids: List[str],
-    sources: Optional[List[str]] = None,
-    page_token: Optional[str] = None,
-):
-    """Internal function version without Query dependencies"""
-    max_results = 49
-
-    # Build query parameters
-    params = {"externalIds": external_ids, "maxResults": max_results}
-
-    if sources:
-        params["sources"] = sources
-    if page_token:
-        params["pageToken"] = page_token
-
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OpenPhone API key not configured")
-
-    headers = {"Authorization": api_key, "Content-Type": "application/json"}
-
-    try:
-        response = requests.get(
-            "https://api.openphone.com/v1/contacts", headers=headers, params=params
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching contacts: {str(e)}")
-        # Re-raise the appropriate exception
-        raise
-
-
-# Keep the original route but make it use the internal function
 @router.get("/contacts", dependencies=[Depends(verify_admin_auth)])
 async def route_get_contacts_by_external_ids(
     external_ids: List[str] = Query(...),
@@ -235,43 +154,29 @@ async def route_get_contacts_by_external_ids(
 ):
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
-
-def get_contacts_sheet_as_json():
-    spreadsheet_id = "1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M"
-    return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
-
-
 class TenantMassMessageRequest(BaseModel):
     property_names: List[str]
     message: str
-
 
 @router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
 async def send_tenant_mass_message(
     body: TenantMassMessageRequest,
 ):
     """Send a message to all tenants in the specified properties."""
-    logger.info(
+    logging.info(
         f"Starting tenant mass message request for properties: {body.property_names}"
     )
 
     try:
-        # Verify required environment variables
-        api_key = os.getenv("OPEN_PHONE_API_KEY")
-        if not api_key:
-            message = "OpenPhone API key not configured"
-            logger.error(message)
-            raise HTTPException(status_code=500, detail=message)
-
         # Get contacts from Google Sheet
         try:
-            logger.info("Fetching contacts from Google Sheet")
+            logging.info("Fetching contacts from Google Sheet")
             all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logger.info(
+            logging.info(
                 f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
             )
         except Exception as e:
-            logger.error(
+            logging.error(
                 f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True
             )
             raise HTTPException(
@@ -279,7 +184,6 @@ async def send_tenant_mass_message(
             )
         
         property_names = body.property_names
-        # property_names = ['Test']
 
         # Filter contacts for all specified properties
         contacts = [
@@ -293,16 +197,17 @@ async def send_tenant_mass_message(
             if "Lease End Date" in contact:
                 if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
                     contacts.remove(contact)
-                    logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
+                    logging.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
             else:
-                logger.warning(f"Contact {contact['First Name']} has no Lease End Date")
+                contacts.remove(contact)
+                logging.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
 
-        logger.info(
+        logging.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
         )
 
         if not contacts:
-            logger.warning(f"No contacts found for properties: {body.property_names}")
+            logging.warning(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
                 detail=f"No contacts found for properties: {body.property_names}",
@@ -320,7 +225,7 @@ async def send_tenant_mass_message(
                 phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
                     " ", ""
                 ).replace("(", "").replace(")", "")
-                logger.info(
+                logging.info(
                     f"Preparing message to {contact['First Name']} at {phone_number}"
                 )
 
@@ -344,7 +249,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logging.error(
                     f"Failed to prepare message for {contact['First Name']}: {error_message}"
                 )
 
@@ -374,7 +279,7 @@ async def send_tenant_mass_message(
                 response_data = response.json()
                 if response_data.get("data", {}).get("status") == "sent":
                     successes += 1
-                    logger.info(f"Successfully sent message to {contact['First Name']}")
+                    logging.info(f"Successfully sent message to {contact['First Name']}")
                 else:
                     raise Exception(
                         f"Message not confirmed as sent: {json.dumps(response_data)}"
@@ -392,7 +297,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logging.error(
                     f"Failed to send message to {contact['First Name']}: {error_message}"
                 )
 
@@ -407,7 +312,7 @@ async def send_tenant_mass_message(
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
                 f"Failed contacts:\n" + "\n".join(failed_details)
             )
-            logger.warning(message)
+            logging.warning(message)
 
             return JSONResponse(
                 status_code=207 if successes > 0 else 500,
@@ -421,7 +326,7 @@ async def send_tenant_mass_message(
             )
         property_names_str = ", ".join(body.property_names)
         success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
-        logger.info(success_message)
+        logging.info(success_message)
         return JSONResponse(
             status_code=200,
             content={
@@ -434,7 +339,7 @@ async def send_tenant_mass_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
+        logging.error(
             f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True
         )
         return JSONResponse(
@@ -447,25 +352,25 @@ async def send_tenant_mass_message(
         )
 
 
-def test_get_ghost_ids():
-    headers = {
-        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
-        "Content-Type": "application/json",
-    }
-    ghost_ids = [
-        "67a3f0e374352083a596852c",
-        "67a3ea7913bc7ac81079abce",
-        "67a3f29874352083a5968570",
-    ]
-    response_codes = []
-    for id in ghost_ids:
-        url = f"https://api.openphone.com/v1/contacts/{id}"
-        response = requests.get(url, headers=headers)
-        print(response.json())
-        response_codes.append(response.status_code)
-    pprint(response_codes)
+# def test_get_ghost_ids():
+#     headers = {
+#         "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+#         "Content-Type": "application/json",
+#     }
+#     ghost_ids = [
+#         "67a3f0e374352083a596852c",
+#         "67a3ea7913bc7ac81079abce",
+#         "67a3f29874352083a5968570",
+#     ]
+#     response_codes = []
+#     for id in ghost_ids:
+#         url = f"https://api.openphone.com/v1/contacts/{id}"
+#         response = requests.get(url, headers=headers)
+#         print(response.json())
+#         response_codes.append(response.status_code)
+#     pprint(response_codes)
 
-    assert set(response_codes) == set([200])
+#     assert set(response_codes) == set([200])
 
 
 # Working!

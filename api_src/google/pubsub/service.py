@@ -10,12 +10,7 @@ from fastapi import HTTPException
 from google.auth import jwt
 from typing import Dict, Any
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
 
 # Cache for Google's public keys
 _GOOGLE_PUBLIC_KEYS = None

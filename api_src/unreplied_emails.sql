@@ -7,12 +7,12 @@ SELECT
     -- re.id,
     -- re.message_id,
     -- re.received_date,
-    re.subject,
+    -- re.subject as reply_subject,
+    e.subject,
     TO_CHAR(
         e.received_date at time zone 'America/New_York',
         'Mon DD, HH12:MIpm'
-    ) AS received_date_str,
-    e.subject
+    ) AS received_date_str
 FROM
     email_messages AS e
     LEFT JOIN email_messages AS re ON e.thread_id = re.thread_id

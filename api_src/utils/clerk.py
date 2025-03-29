@@ -9,7 +9,6 @@ import logging
 from api_src.database.database import AsyncSessionFactory
 from api_src.oauth.service import get_oauth_credentials, save_oauth_credentials
 from pprint import pprint
-logger = logging.getLogger(__name__)
 
 # Initialize Clerk client - in production, this would use os.environ
 
@@ -133,7 +132,7 @@ async def get_google_credentials(request: Request) -> Credentials:
                 detail="User has no Google credentials.",
             )
         elif len(list_creds_responses) > 1:
-            logger.warning(
+            logging.warning(
                 f"User {user_id} has multiple Google credentials, using the first one."
             )
 

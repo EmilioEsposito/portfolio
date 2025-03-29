@@ -22,12 +22,6 @@ from api_src.google.common.service_account_auth import get_service_credentials, 
 from api_src.oauth.service import get_oauth_credentials
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.send',
@@ -311,13 +305,13 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         # Parse the date using email.utils since Gmail uses RFC 2822 format
         date_str = headers.get('date')
         if not date_str:
-            logger.error("No date header found in message")
+            logging.error("No date header found in message")
             raise ValueError("No date header found in message")
             
         try:
             parsed_date = parsedate_to_datetime(date_str)
         except Exception as e:
-            logger.error(f"Failed to parse date '{date_str}': {e}")
+            logging.error(f"Failed to parse date '{date_str}': {e}")
             raise ValueError(f"Could not parse date '{date_str}'") from e
         
         # Create a processed message object
@@ -335,7 +329,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        logger.error(f"Failed to process message: {str(e)}")
+        logging.error(f"Failed to process message: {str(e)}")
         raise
 
 def stop_gmail_watch(user_id: str = 'me'):
@@ -349,10 +343,10 @@ def stop_gmail_watch(user_id: str = 'me'):
         )
         service = get_gmail_service(credentials)
         service.users().stop(userId=user_id).execute()
-        logger.info("✓ Stopped existing Gmail watch")
+        logging.info("✓ Stopped existing Gmail watch")
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to stop Gmail watch: {str(e)}")
+        logging.error(f"❌ Failed to stop Gmail watch: {str(e)}")
         return False
 
 def setup_gmail_watch(user_id: str = 'me', topic_name: str = 'projects/portfolio-450200/topics/gmail-notifications'):
@@ -378,11 +372,11 @@ def setup_gmail_watch(user_id: str = 'me', topic_name: str = 'projects/portfolio
                 "https://www.googleapis.com/auth/pubsub"
             ]
         )
-        logger.info(f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com")
+        logging.info(f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com")
         
         # Create Gmail service
         service = get_gmail_service(credentials)
-        logger.info("✓ Created Gmail service")
+        logging.info("✓ Created Gmail service")
         
         # Set up the watch request
         request = {
@@ -396,7 +390,7 @@ def setup_gmail_watch(user_id: str = 'me', topic_name: str = 'projects/portfolio
         return response
         
     except Exception as e:
-        logger.error(f"\n❌ Watch setup failed: {str(e)}")
+        logging.error(f"\n❌ Watch setup failed: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to set up Gmail watch: {str(e)}"

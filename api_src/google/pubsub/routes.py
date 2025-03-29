@@ -16,12 +16,6 @@ from api_src.google.gmail.service import get_gmail_service, get_email_changes, g
 from api_src.google.common.service_account_auth import get_delegated_credentials
 import pytest
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 
@@ -133,7 +127,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 "reason": "Missing required fields in pubsub notification"
             }
         
-        logger.info(f"Processing notification for {email_address} with history ID: {history_id}")
+        logging.info(f"Processing notification for {email_address} with history ID: {history_id}")
         
         # Get Gmail service with delegated credentials
         credentials = get_delegated_credentials(
@@ -147,7 +141,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
         
         # If we got a non-success status, pass it through directly
         if email_changes_result["status"] != "success":
-            logger.info(f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}")
+            logging.info(f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}")
             return {
                 "status": email_changes_result["status"],
                 "messages": [],
@@ -156,7 +150,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
             
         # We have email messages to process
         email_message_ids = email_changes_result["email_message_ids"]
-        logger.info(f"Found {len(email_message_ids)} new messages to process")
+        logging.info(f"Found {len(email_message_ids)} new messages to process")
         
         processed_email_messages = []
         failed_email_ids = []
@@ -170,7 +164,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 
                 # Skip if message not found (404) - this is expected in some cases
                 if email_message is None:
-                    logger.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
+                    logging.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
                     legitimately_skipped_message_ids.append(email_message_id)
                     continue
                 
@@ -180,17 +174,17 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 saved_msg = await save_email_message(session, processed_email_message, history_id)
                 if saved_msg:
                     processed_email_messages.append(processed_email_message)
-                    logger.info(
+                    logging.info(
                         f"Successfully processed and saved message: "
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
                 else:
                     failed_email_ids.append(email_message_id)
-                    logger.error(f"Failed to save message {email_message_id}")
+                    logging.error(f"Failed to save message {email_message_id}")
                 
             except Exception as msg_error:
                 failed_email_ids.append(email_message_id)
-                logger.error(
+                logging.error(
                     f"Failed to process message {email_message_id}: {str(msg_error)}",
                     exc_info=True
                 )
@@ -231,7 +225,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
             }
         
     except Exception as e:
-        logger.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
+        logging.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
         return {
             "status": "retry_needed",
             "messages": [],
