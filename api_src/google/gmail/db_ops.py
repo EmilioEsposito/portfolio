@@ -15,7 +15,6 @@ from contextlib import asynccontextmanager
 from api_src.database.database import AsyncSessionFactory
 
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 # Test helper for creating database sessions

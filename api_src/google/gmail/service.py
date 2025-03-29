@@ -22,11 +22,6 @@ from api_src.google.common.service_account_auth import get_service_credentials, 
 from api_src.oauth.service import get_oauth_credentials
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 SCOPES = [
@@ -142,7 +137,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
     max_retries = 4
     wait_time = 20  # Start with 10 seconds
 
-    logging.info(f"Fetching email changes for history ID: {history_id}")
+    logger.info(f"Fetching email changes for history ID: {history_id}")
 
     for attempt in range(max_retries):
         try:
@@ -181,7 +176,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                     }
             else:
                 # If no history found, wait and retry
-                logging.info(f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}")
+                logger.info(f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:  # Don't sleep on last attempt
                     await asyncio.sleep(wait_time)
                     wait_time *= 2  # Exponential backoff
@@ -189,20 +184,20 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
 
         except Exception as e:
             if "Invalid history ID" in str(e):
-                logging.info(f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}")
+                logger.info(f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:  # Don't sleep on last attempt
                     await asyncio.sleep(wait_time)
                     wait_time *= 2  # Exponential backoff
                 continue
             else:
-                logging.error(f"Failed to fetch history: {str(e)}")
+                logger.error(f"Failed to fetch history: {str(e)}")
                 return {
                     "status": "retry_needed",
                     "email_message_ids": [],
                     "reason": f"Exception fetching history: {str(e)}"
                 }
 
-    logging.warning(f"Failed to retrieve history after {max_retries} retries")
+    logger.warning(f"Failed to retrieve history after {max_retries} retries")
     return {
         "status": "retry_needed",
         "email_message_ids": [],
@@ -235,7 +230,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
     except googleapiclient.errors.HttpError as error:
         if error.resp.status == 404:
             # Message not found - this can happen if it was deleted
-            logging.warning(f"Message {message_id} not found (may have been deleted)")
+            logger.warning(f"Message {message_id} not found (may have been deleted)")
             return None
         # Re-raise other errors
         raise
@@ -260,7 +255,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
             padded = data + '=' * (4 - len(data) % 4)
             return base64.urlsafe_b64decode(padded).decode('utf-8')
         except Exception as e:
-            logging.error(f"Failed to decode body: {str(e)}")
+            logger.error(f"Failed to decode body: {str(e)}")
             return ""
     
     def extract_parts(payload: Dict[str, Any]) -> Dict[str, str]:

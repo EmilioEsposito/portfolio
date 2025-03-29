@@ -16,7 +16,6 @@ from api_src.google.gmail.service import get_gmail_service, get_email_changes, g
 from api_src.google.common.service_account_auth import get_delegated_credentials
 import pytest
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pubsub", tags=["pubsub"])

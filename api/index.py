@@ -1,3 +1,5 @@
+# this file is entry point for the API, so we need to import custom logger here
+from api.logger import logger 
 from dotenv import load_dotenv, find_dotenv
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
@@ -24,13 +26,6 @@ from api_src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api_src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api_src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
 
 # Verify critical environment variables
 required_env_vars = {

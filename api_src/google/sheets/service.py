@@ -12,7 +12,6 @@ import pytest
 
 from api_src.google.common.service_account_auth import get_service_credentials
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 def get_sheets_service():

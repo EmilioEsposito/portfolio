@@ -9,11 +9,6 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 
-# Configure logging with more detailed format for debugging
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # Enable SQLAlchemy logging for debugging

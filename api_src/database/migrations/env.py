@@ -8,9 +8,7 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('alembic.env')
+logger = logging.getLogger(__name__)
 
 # Import your models - using explicit imports for clarity
 from api_src.examples.models import *  # noqa

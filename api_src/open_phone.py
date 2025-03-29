@@ -17,7 +17,6 @@ import pytest
 import asyncio
 
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(

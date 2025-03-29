@@ -27,11 +27,6 @@ from api_src.google.gmail.schema import (
     OptionalPassword
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 client = AsyncOpenAI()  # Create async client instance
 
