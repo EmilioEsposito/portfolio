@@ -54,6 +54,12 @@ required_env_vars = {
         "  Development: vercel env add GOOGLE_OAUTH_REDIRECT_URI development 'http://localhost:3000/api/google/auth/callback'\n"
         "  Preview: vercel env add GOOGLE_OAUTH_REDIRECT_URI preview 'https://dev.eesposito.com/api/google/auth/callback'\n"
         "  Production: vercel env add GOOGLE_OAUTH_REDIRECT_URI production 'https://eesposito.com/api/google/auth/callback'"
+    ),
+    "OPEN_PHONE_WEBHOOK_SECRET": (
+        "Required for OpenPhone webhook. Set up in OpenPhone dashboard.\n"
+        "  Development: vercel env add OPEN_PHONE_WEBHOOK_SECRET development\n"
+        "  Preview: vercel env add OPEN_PHONE_WEBHOOK_SECRET preview\n"
+        "  Production: vercel env add OPEN_PHONE_WEBHOOK_SECRET production"
     )
 }
 

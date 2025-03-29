@@ -46,7 +46,9 @@ class OpenPhoneWebhookPayload(BaseModel):
 # https://support.openphone.com/hc/en-us/articles/4690754298903-How-to-use-webhooks
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
-    signing_key = os.getenv("OPEN_PHONE_MESSAGE_RECEIVED_WEBHOOK_SECRET")
+    signing_key = os.getenv("OPEN_PHONE_WEBHOOK_SECRET")
+    if not signing_key:
+        raise HTTPException(403, "OPEN_PHONE_WEBHOOK_SECRET not configured")
     data = await request.body()
     # Parse the fields from the openphone-signature header.
     signature = request.headers["openphone-signature"]
@@ -76,10 +78,10 @@ async def verify_open_phone_signature(request: Request):
 
 
 @router.post(
-    "/message_received",
+    "/webhook",
     dependencies=[Depends(verify_open_phone_signature)],
 )
-async def message_received(
+async def webhook(
     request: Request,
     payload: OpenPhoneWebhookPayload,  # Using this caused lots of 422 errors!
 ):

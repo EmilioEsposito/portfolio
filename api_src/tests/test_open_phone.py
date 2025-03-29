@@ -27,9 +27,9 @@ def mocked_client():
     app.dependency_overrides.clear()
 
 
-def test_open_phone_message_received(mocked_client):
+def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api_src/tests/requests/open_phone_message_received.json", "r") as f:
+    with open("api_src/tests/requests/open_phone_webhook.json", "r") as f:
         request = json.load(f)
 
     headers = request["headers"]
@@ -40,7 +40,7 @@ def test_open_phone_message_received(mocked_client):
     pprint(validation_result)
 
     response = mocked_client.post(
-        "/api/open_phone/message_received", json=body, headers=headers
+        "/api/open_phone/webhook", json=body, headers=headers
     )
 
     response_data = response.json()
