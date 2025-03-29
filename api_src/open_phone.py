@@ -18,7 +18,6 @@ import asyncio
 
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -71,12 +70,11 @@ async def verify_open_phone_signature(request: Request):
 
     # Make sure the computed digest matches the digest in the openphone header.
     if provided_digest == computed_digest:
-        print("signature verification succeeded")
+        logger.info("signature verification succeeded")
         return True
     else:
-        print("signature verification failed")
+        logger.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
-        # return True
 
 
 @router.post(
@@ -295,7 +293,8 @@ async def send_tenant_mass_message(
                     contacts.remove(contact)
                     logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
             else:
-                logger.warning(f"Contact {contact['First Name']} has no Lease End Date")
+                contacts.remove(contact)
+                logger.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
 
         logger.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"

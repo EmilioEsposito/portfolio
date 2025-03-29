@@ -25,7 +25,11 @@ from api_src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api_src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 # Verify critical environment variables
