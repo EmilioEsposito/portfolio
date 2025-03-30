@@ -42,9 +42,9 @@ This directory contains utilities for interacting with Google APIs, specifically
 If you need to access Workspace resources (like other users' calendars):
 
 1. Go to your Google Workspace Admin Console
-2. Navigate to Security > API Controls > Domain-Wide Delegation
+2. Navigate to Security > API Controls > [Domain-Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation)
 3. Click "Add new" and enter:
-   - Client ID: Your service account's client ID (not OAuth client ID)
+   - Client ID: Your [service account's client ID](https://console.cloud.google.com/iam-admin/serviceaccounts/details/107124113760936638778?inv=1&invt=AbtXoA&project=portfolio-450200) (not OAuth client ID)
    - OAuth Scopes: (one per line)
      ```
      https://www.googleapis.com/auth/calendar
@@ -125,24 +125,18 @@ contacts = get_sheet_as_json(spreadsheet_id=os.getenv('GOOGLE_SHEETS_SPREADSHEET
 ### Gmail
 
 ```python
-from api.google.gmail import send_email, get_oauth_url
-
+from api_src.google.gmail.service import send_email
+from api_src.google.common.service_account_auth import get_delegated_credentials
 # For sending from service account
 send_email(
-    credentials=get_service_credentials(),
-    to="recipient@example.com",
-    subject="Test Email",
-    message="Hello from the service account!"
-)
+        to="espo412@gmail.com",
+        subject="Test email",
+        message_text="This is a test email",
+        credentials=get_delegated_credentials(
+            user_email="emilio@serniacapital.com", scopes=["https://mail.google.com"]
+        ),
+    )
 
-# For sending from your personal account (requires OAuth)
-auth_url = await get_gmail_auth_url()  # First time setup
-send_email(
-    credentials_json=eval(os.getenv('GOOGLE_GMAIL_CREDENTIALS')),
-    to="recipient@example.com",
-    subject="Test Email",
-    message="Hello from your personal account!"
-)
 ```
 
 ## API Endpoints
