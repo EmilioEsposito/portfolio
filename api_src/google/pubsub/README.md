@@ -79,9 +79,9 @@ flowchart TD
     
     handle_gmail_notifications --> return_status
     return_status -- "204: Success/No msgs" --> return_204["Return 204 (Success)"]
-    return_status -- "503: Retry needed" --> return_503["Return 503 (Retry)"]
+    return_status -- "429: Retry needed" --> return_429["Return 429 (Retry)"]
     
-    return_503 -- "triggers retry of" --> pubsub
+    return_429 -- "triggers retry of" --> pubsub
     
     %% Styling
     classDef external fill:#ddd,stroke:#333,stroke-width:1px
@@ -90,7 +90,7 @@ flowchart TD
     classDef db fill:#fdb,stroke:#333,stroke-width:2px
     
     class email,pubsub external
-    class handle_gmail_notifications,process_gmail_notification,return_status,return_204,return_503 routes
+    class handle_gmail_notifications,process_gmail_notification,return_status,return_204,return_429 routes
     class get_email_changes,status_decision,return_success,return_no_messages,return_retry,get_email_content,process_single_message,extract_email_body gmail
     class save_email_message,get_email_by_message_id db
 ```
@@ -109,7 +109,7 @@ This is the entry point - a FastAPI route that receives notifications from Googl
 
 **Status Codes:**
 - `204`: Successfully processed or confirmed no messages to process
-- `503`: Temporary failure; Pub/Sub should retry
+- `429`: Temporary failure; Pub/Sub should retry
 
 ### 2. `process_gmail_notification`
 
@@ -170,11 +170,12 @@ The system is designed to handle temporary failures gracefully:
 - When we've confirmed there are no messages to process for this notification
 - This tells Pub/Sub the message was handled successfully
 
-### When 503 (Service Unavailable) is Returned
+### When 429 (Too Many Requests) is Returned
 - When Gmail history ID isn't available yet (race condition)
 - When we found message IDs but couldn't process them
 - When unexpected errors occur during processing
 - This tells Pub/Sub to retry the notification later
+- Includes Retry-After header (5 seconds) and X-Retry-Reason header for debugging
 
 ## Pub/Sub Configuration
 
@@ -184,7 +185,7 @@ For reliable processing, the Pub/Sub subscription should have:
 
 ## Common Issues and Debugging
 
-- **Same notification appears multiple times**: This is normal if the Gmail API hasn't made the messages available yet. The 503 status code triggers Pub/Sub to retry.
+- **Same notification appears multiple times**: This is normal if the Gmail API hasn't made the messages available yet. The 429 status code triggers Pub/Sub to retry.
 - **"No new messages found"**: The Gmail API sometimes sends notifications before changes are available. The system will retry until it can access the messages.
 - **Messages not appearing in database**: Check the logs for specific message processing errors.
 
@@ -203,4 +204,4 @@ Status determinations flow through the system as follows:
 
 3. **HTTP Response Status** - Determined in `handle_gmail_notifications`:
    - 204: For "success" and "no_messages" results (acknowledged)
-   - 503: For "retry_needed" results (temporary failure, retry) 
+   - 429: For "retry_needed" results (temporary failure, retry) 

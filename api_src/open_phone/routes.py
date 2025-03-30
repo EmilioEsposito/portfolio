@@ -16,6 +16,9 @@ from api_src.utils.password import verify_admin_auth
 import asyncio
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
+from pprint import pprint
+import time
+import requests
 
 router = APIRouter(
     prefix="/open_phone",
@@ -77,7 +80,7 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
         "event_type": payload.type,
         "event_id": payload.id,
         "event_data": payload_dict,  # Use the converted dict
-        "created_at": payload.createdAt,
+        "event_timestamp": payload.createdAt,  # Changed from created_at to event_timestamp
     }
     
     # Extract common fields
