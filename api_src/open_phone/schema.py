@@ -35,12 +35,14 @@ class ContactObject(BaseOpenPhoneObject):
     lastName: str
     company: str
     role: str
-    pictureUrl: str
+    pictureUrl: Optional[str] = ""
     fields: Dict[str, Any]
     notes: List[Any] = []
     sharedWith: List[str]
     clientId: str
     updatedAt: datetime
+    phoneNumberId: Optional[str] = None
+    conversationId: Optional[str] = None
 
 class OpenPhoneEventData(BaseModel):
     object: Union[MessageObject, CallObject, ContactObject]
@@ -51,4 +53,6 @@ class OpenPhoneWebhookPayload(BaseModel):
     createdAt: datetime
     apiVersion: str
     type: str
-    data: OpenPhoneEventData 
+    data: OpenPhoneEventData
+
+    
