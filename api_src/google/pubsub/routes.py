@@ -79,7 +79,14 @@ async def handle_gmail_notifications(
                 return Response(status_code=500, content=processing_result["reason"])
             else:  # "retry_needed"
                 logging.warning(f"Retry needed: {processing_result['reason']}")
-                return Response(status_code=503, content=processing_result["reason"])
+                return Response(
+                    status_code=429,
+                    content=processing_result["reason"],
+                    headers={
+                        "Retry-After": "5",
+                        "X-Retry-Reason": "waiting_for_gmail_history"
+                    }
+                )
             
         except Exception as e:
             logging.error(f"Failed to process notification: {str(e)}")
