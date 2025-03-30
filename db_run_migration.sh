@@ -10,7 +10,5 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 # Run migrations
 echo "DB_MIGRATION: RUNNING MIGRATIONS..."
-cd api_src/database
-python3 -m alembic --quiet upgrade head
-
+alembic upgrade head
 echo "DB_MIGRATION: COMPLETED"

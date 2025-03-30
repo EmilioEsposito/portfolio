@@ -80,7 +80,7 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
         "event_type": payload.type,
         "event_id": payload.id,
         "event_data": payload_dict,  # Use the converted dict
-        "created_at": payload.createdAt,
+        "event_timestamp": payload.createdAt,  # Changed from created_at to event_timestamp
     }
     
     # Extract common fields
