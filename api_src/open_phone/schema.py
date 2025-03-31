@@ -7,8 +7,8 @@ class BaseOpenPhoneObject(BaseModel):
     object: str
     createdAt: datetime
     userId: str
-    phoneNumberId: str
-    conversationId: str
+    phoneNumberId: Optional[str] = None
+    conversationId: Optional[str] = None
 
 class MessageObject(BaseOpenPhoneObject):
     from_: str = Field(..., alias="from")
@@ -33,16 +33,14 @@ class CallObject(BaseOpenPhoneObject):
 class ContactObject(BaseOpenPhoneObject):
     firstName: str
     lastName: str
-    company: str
-    role: str
+    company: Optional[str] = ""
+    role: Optional[str] = ""
     pictureUrl: Optional[str] = ""
-    fields: Dict[str, Any]
+    fields: Optional[Dict[str, Any]] = {}
     notes: List[Any] = []
     sharedWith: List[str]
     clientId: str
     updatedAt: datetime
-    phoneNumberId: Optional[str] = None
-    conversationId: Optional[str] = None
 
 class OpenPhoneEventData(BaseModel):
     object: Union[MessageObject, CallObject, ContactObject]
