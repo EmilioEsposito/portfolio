@@ -64,7 +64,11 @@ async def protected_route_get_user(
     Example protected endpoint that requires authentication.
     Returns user information from Clerk.
     """
+
+    user_email = user.email_addresses[0].email_address 
+
     data = {
+        "user_email": user_email,
         "user": user,
         "dummy_data": "dummy"
     }
