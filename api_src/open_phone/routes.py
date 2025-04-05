@@ -14,11 +14,12 @@ from api_src.open_phone.schema import OpenPhoneWebhookPayload
 from api_src.open_phone.client import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api_src.utils.password import verify_admin_auth
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
+from api_src.utils.dependencies import verify_serniacapital_user, verify_admin_or_serniacapital
 
 router = APIRouter(
     prefix="/open_phone",
@@ -134,7 +135,7 @@ async def webhook(
         await session.rollback()
         raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
-@router.post("/send_message", dependencies=[Depends(verify_admin_auth)])
+@router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def send_message_endpoint(request: Request):
     """
     Simple endpoint wrapper around send_message.
@@ -142,6 +143,12 @@ async def send_message_endpoint(request: Request):
     """
     data = await request.json()
     message = data["message"]
+
+    if "from_phone_number" not in data:
+        raise HTTPException(400, "from_phone_number is required")
+    if "to_phone_number" not in data:
+        raise HTTPException(400, "to_phone_number is required")
+
     from_phone_number = data["from_phone_number"]
     to_phone_number = data["to_phone_number"]
 
@@ -465,4 +472,48 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
             responses.append(response.json())
 
     assert set(response_codes) == set([201]) or response_codes == []
+
+@router.get("/tenants", dependencies=[Depends(verify_serniacapital_user)])
+async def get_tenant_data():
+    """
+    Fetch tenant contact data from the Google Sheet.
+    Adds an 'Active Lease' boolean field based on Lease Start/End Dates.
+    Requires the user to be authenticated with a @serniacapital.com email.
+    """
+    try:
+        logging.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
+        tenant_data = get_contacts_sheet_as_json()
+        logging.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
+        
+        # Add 'Active Lease' field
+        today = date.today()
+        processed_data = []
+        for tenant in tenant_data:
+            try:
+                start_date_str = tenant.get('Lease Start Date')
+                end_date_str = tenant.get('Lease End Date')
+                
+                is_active = False
+                if start_date_str and end_date_str:
+                    # Attempt to parse YYYY-MM-DD format (or first 10 chars)
+                    start_date = date.fromisoformat(start_date_str[:10])
+                    end_date = date.fromisoformat(end_date_str[:10])
+                    if start_date <= today <= end_date:
+                        is_active = True
+                
+                tenant['Active Lease'] = is_active
+                processed_data.append(tenant)
+            except (ValueError, TypeError) as date_err:
+                logging.warning(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
+                tenant['Active Lease'] = False # Default to False if dates are invalid
+                processed_data.append(tenant)
+
+        return processed_data
+    except Exception as e:
+        logging.error(
+            f"Failed to fetch or process tenant contacts: {str(e)}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch or process tenant contacts: {str(e)}"
+        )
 

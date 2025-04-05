@@ -17,6 +17,7 @@ import {
   Building,
   Sun,
   Blocks,
+  MessagesSquare,
 } from "lucide-react";
 import { useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AccountSwitcher } from "@/components/google/account-switcher"
+import { useUser } from "@clerk/nextjs";
 
 import {
   Sidebar,
@@ -65,6 +67,7 @@ type SidebarSection = {
 export function AppSidebar() {
   const { toggleSidebar, state } = useSidebar();
   const { theme, setTheme } = useTheme();
+  const { user } = useUser();
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
 
@@ -78,6 +81,12 @@ export function AppSidebar() {
       toggleSidebar();
     }
   };
+
+  // Determine if user is a verified SerniaCapital user
+  const isSerniaCapitalUser = user?.emailAddresses?.some(
+    email => email.emailAddress.endsWith('@serniacapital.com') && 
+             email.verification?.status === 'verified'
+  ) ?? false;
 
   const sidebarSections: SidebarSection[] = [
     {
@@ -128,6 +137,13 @@ export function AppSidebar() {
           icon: Building,
           onClick: toggleSidebarIfMobile,
         },
+        ...(isSerniaCapitalUser ? [{
+          type: "navigation" as const,
+          title: "Message Tenants",
+          url: "/message-tenants",
+          icon: MessagesSquare,
+          onClick: toggleSidebarIfMobile,
+        }] : []),
       ],
     },
     {
