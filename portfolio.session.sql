@@ -95,3 +95,5 @@ FROM
     email_messages
 WHERE
     array_length(label_ids, 1) > 1;
+;
+
