@@ -7,7 +7,7 @@ from fastapi import HTTPException
 import logging
 from api_src.google.sheets import get_sheet_as_json
 import json
-from twilio.rest import Client
+# from twilio.rest import Client # removed to reduce bundle size
 import pytest
 from datetime import datetime
 import pytz
@@ -24,7 +24,7 @@ if not TWILIO_ACCOUNT_SID:
 if not TWILIO_AUTH_TOKEN:
     raise HTTPException(status_code=500, detail="TWILIO_AUTH_TOKEN is missing")
 
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+# twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) # removed to reduce bundle size
 
 async def send_message(
     message: str,
@@ -95,38 +95,64 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
 
     now_et = datetime.now(pytz.timezone('US/Eastern'))
 
+    # Default flow numbers, adjust as needed or make dynamic
+    flow_to_number = ""
+    flow_from_number = ""
+
     # Unit Test Escalation
     if event_from_number == "+14123703505":
         should_escalate = True
-        flow_to_number = "+14123703550"
-        flow_from_number = "+14129001989"
+        flow_to_number = "+14123703550" # Specific target for test
+        flow_from_number = "+14129001989" # Specific sender for test
 
     # 320-09 Escalation between 8pm and 7am
-    if event_from_number == "+14124786168" and (now_et.hour >= 20 or now_et.hour <= 7):
+    elif event_from_number == "+14124786168" and (now_et.hour >= 20 or now_et.hour <= 7):
         should_escalate = True
-        flow_to_number = "+14126800593"
-        flow_from_number = "+14129001989"
-        event_message_text = "320-09 said:" + event_message_text
+        flow_to_number = "+14126800593" # Specific target for 320-09
+        flow_from_number = "+14129001989" # Specific sender for 320-09
+        event_message_text = f"320-09 said: {event_message_text}" # Prepend identifier
 
-    event_message_text += f"\nIncident ID: {incident_id}"
+    if event_message_text: # Only add incident ID if there's a message
+        event_message_text += f"\nIncident ID: {incident_id}"
+    else:
+        event_message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
 
     if should_escalate:
-
         logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for number {flow_to_number}")
         try:
-            # Make sure the client is available (check added due to potential init failure)
-            if not twilio_client:
-                 logging.error("Twilio client not available for escalation.")
-                 raise Exception("Twilio client not available for escalation.")
+            # Construct the API URL
+            studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
-            execution = twilio_client.studio.v2.flows(TWILIO_FLOW_ID).executions.create(
-                to=flow_to_number,
-                from_=flow_from_number,
-                parameters={"message_text": event_message_text} # Optional: Pass event data to the flow if needed
+            # Prepare the payload
+            payload = {
+                'To': flow_to_number,
+                'From': flow_from_number,
+                'Parameters': json.dumps({"message_text": event_message_text}) # Parameters must be a JSON string
+            }
+
+            # Make the request using Basic Auth
+            response = requests.post(
+                studio_api_url,
+                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                data=payload
             )
-            logging.info(f"Successfully created Twilio execution: {execution.sid} for event {open_phone_event.get('event_id')}")
+            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+
+            execution_data = response.json()
+            execution_sid = execution_data.get('sid')
+            logging.info(f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}")
+
+        except requests.exceptions.RequestException as e:
+             # Log the error, including the response text if available
+            error_message = f"Failed to create Twilio execution for event {open_phone_event.get('event_id')}: {str(e)}"
+            if e.response is not None:
+                error_message += f"\nResponse status: {e.response.status_code}"
+                error_message += f"\nResponse text: {e.response.text}"
+            logging.error(error_message, exc_info=True) # exc_info=True adds traceback
         except Exception as e:
-            logging.error(f"Failed to create Twilio execution for event {open_phone_event.get('event_id')}: {str(e)}", exc_info=True)
+            # Catch any other unexpected errors during the process
+             logging.error(f"An unexpected error occurred during Twilio escalation for event {open_phone_event.get('event_id')}: {str(e)}", exc_info=True)
+
     else:
          logging.debug(f"Event {open_phone_event.get('event_id')} (type: {open_phone_event.get('event_type')}) did not meet Twilio escalation criteria.")
 
