@@ -50,4 +50,4 @@ strawberry-graphql[fastapi]==0.219.2
 alembic==1.13.1
 itsdangerous==2.2.0
 clerk-backend-api==1.7.2
-# twilio==9.5.2 # Temporarily removed to reduce bundle size
+twilio==9.5.2 # Temporarily removed to reduce bundle size
