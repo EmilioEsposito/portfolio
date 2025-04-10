@@ -106,7 +106,8 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
         flow_from_number = "+14129001989" # Specific sender for test
 
     # 320-09 Escalation between 8pm and 7am
-    elif event_from_number == "+14124786168" and (now_et.hour >= 20 or now_et.hour <= 7):
+    unit32009_numbers = ["+14124786168", "+14122280772"]
+    if event_from_number in unit32009_numbers and (now_et.hour >= 20 or now_et.hour <= 7):
         should_escalate = True
         flow_to_number = "+14126800593" # Specific target for 320-09
         flow_from_number = "+14129001989" # Specific sender for 320-09
