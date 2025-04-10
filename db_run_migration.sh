@@ -10,5 +10,5 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 
 # Run migrations
 echo "DB_MIGRATION: RUNNING MIGRATIONS..."
-alembic upgrade head
+python3 -m alembic upgrade head
 echo "DB_MIGRATION: COMPLETED"
