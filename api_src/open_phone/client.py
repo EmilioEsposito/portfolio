@@ -90,31 +90,30 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
 
     incident_id = random.randint(100,999)
     event_from_number = open_phone_event.get("from_number")
-    event_to_number = open_phone_event.get("to_number")
     event_message_text = open_phone_event.get("message_text")
     event_id = open_phone_event.get("event_id","")
 
     now_et = datetime.now(pytz.timezone('US/Eastern'))
 
     # Default flow numbers, adjust as needed or make dynamic
-    flow_to_numbers = []
-    flow_from_number = ""
+    escalate_to_numbers = []
+    escalate_from_number = ""
 
     # Unit Test Escalation
     if event_id == "1234567890":
         should_escalate = True
-        flow_to_numbers = [
+        escalate_to_numbers = [
             "+14123703550",
             # "+14128770257",
         ]
-        flow_from_number = "+14129001989" # Specific sender for test
+        escalate_from_number = "+14129001989" # Specific sender for test
 
     # # 320-09 Escalation between 8pm and 7am
     # unit32009_numbers = ["+14124786168", "+14122280772"]
     # if event_from_number in unit32009_numbers and (now_et.hour >= 20 or now_et.hour <= 7):
     #     should_escalate = True
-    #     flow_to_numbers = ["+14126800593"] # Specific target for 320-09
-    #     flow_from_number = "+14129001989" # Specific sender for 320-09
+    #     escalate_to_numbers = ["+14126800593"] # Specific target for 320-09
+    #     escalate_from_number = "+14129001989" # Specific sender for 320-09
 
     # Explicit keywords Escalation
     explicit_keywords = [
@@ -142,13 +141,13 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
     # Check for explicit keywords in the message text
     if any(keyword in event_message_text.lower() for keyword in explicit_keywords):
         should_escalate = True
-        flow_to_numbers = [
+        escalate_to_numbers = [
             "+14123703550",
             "+14126800593",
             # "+14124172322",
             # "+14123703505",
         ] 
-        flow_from_number = "+14129001989" # Specific sender for 320-09
+        escalate_from_number = "+14129001989" # Specific sender for 320-09
         event_message_text = f"URGENT! {event_from_number} said: {event_message_text}" # Prepend identifier
 
     # Add incident ID to the message text
@@ -158,18 +157,18 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
         event_message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
 
     if should_escalate:
-        logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for numbers {flow_to_numbers}")
+        logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for numbers {escalate_to_numbers}")
         try:
             # Construct the API URL
             studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
 
-            for flow_to_number in flow_to_numbers:
+            for escalate_to_number in escalate_to_numbers:
 
                 # Prepare the payload
                 payload = {
-                    'To': flow_to_number,
-                    'From': flow_from_number,
+                    'To': escalate_to_number,
+                    'From': escalate_from_number,
                     'Parameters': json.dumps({"message_text": event_message_text}) # Parameters must be a JSON string
                 }
 
