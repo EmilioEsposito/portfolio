@@ -115,8 +115,9 @@ async def webhook(
         # Extract event data
         event_data = extract_event_data(payload)
         
-        # Analyze for potential Twilio escalation before saving to DB
-        await analyze_for_twilio_escalation(event_data)
+        # Analyze messages for potential Twilio escalation before saving to DB
+        if payload.type=="message.received":
+            await analyze_for_twilio_escalation(event_data)
         
         # Create database record
         open_phone_event = OpenPhoneEvent(**event_data)
