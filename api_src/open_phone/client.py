@@ -92,56 +92,98 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
     event_from_number = open_phone_event.get("from_number")
     event_to_number = open_phone_event.get("to_number")
     event_message_text = open_phone_event.get("message_text")
+    event_id = open_phone_event.get("event_id","")
 
     now_et = datetime.now(pytz.timezone('US/Eastern'))
 
     # Default flow numbers, adjust as needed or make dynamic
-    flow_to_number = ""
+    flow_to_numbers = []
     flow_from_number = ""
 
     # Unit Test Escalation
-    if event_from_number == "+14123703505":
+    if event_id == "1234567890":
         should_escalate = True
-        flow_to_number = "+14123703550" # Specific target for test
+        flow_to_numbers = [
+            "+14123703550",
+            # "+14128770257",
+        ]
         flow_from_number = "+14129001989" # Specific sender for test
 
-    # 320-09 Escalation between 8pm and 7am
-    unit32009_numbers = ["+14124786168", "+14122280772"]
-    if event_from_number in unit32009_numbers and (now_et.hour >= 20 or now_et.hour <= 7):
-        should_escalate = True
-        flow_to_number = "+14126800593" # Specific target for 320-09
-        flow_from_number = "+14129001989" # Specific sender for 320-09
-        event_message_text = f"320-09 said: {event_message_text}" # Prepend identifier
+    # # 320-09 Escalation between 8pm and 7am
+    # unit32009_numbers = ["+14124786168", "+14122280772"]
+    # if event_from_number in unit32009_numbers and (now_et.hour >= 20 or now_et.hour <= 7):
+    #     should_escalate = True
+    #     flow_to_numbers = ["+14126800593"] # Specific target for 320-09
+    #     flow_from_number = "+14129001989" # Specific sender for 320-09
 
-    if event_message_text: # Only add incident ID if there's a message
+    # Explicit keywords Escalation
+    explicit_keywords = [
+        "urgent",
+        "emergency",
+        "911",
+        "fire",
+        "smoke",
+        "explosion",
+        "explode",
+        "exploding",
+        "explosion",
+        "water",
+        "flood",
+        "leak",
+        "violent",
+        "burglar",
+        "robbery",
+        "gun",
+        "police",
+        "officer",
+        "ambulance",
+    ]
+
+    # Check for explicit keywords in the message text
+    if any(keyword in event_message_text.lower() for keyword in explicit_keywords):
+        should_escalate = True
+        flow_to_numbers = [
+            "+14123703550",
+            "+14126800593",
+            # "+14124172322",
+            # "+14123703505",
+        ] 
+        flow_from_number = "+14129001989" # Specific sender for 320-09
+        event_message_text = f"URGENT! {event_from_number} said: {event_message_text}" # Prepend identifier
+
+    # Add incident ID to the message text
+    if event_message_text:
         event_message_text += f"\nIncident ID: {incident_id}"
     else:
         event_message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
 
     if should_escalate:
-        logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for number {flow_to_number}")
+        logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for numbers {flow_to_numbers}")
         try:
             # Construct the API URL
             studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
-            # Prepare the payload
-            payload = {
-                'To': flow_to_number,
-                'From': flow_from_number,
-                'Parameters': json.dumps({"message_text": event_message_text}) # Parameters must be a JSON string
-            }
 
-            # Make the request using Basic Auth
-            response = requests.post(
-                studio_api_url,
-                auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
-                data=payload
-            )
-            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+            for flow_to_number in flow_to_numbers:
 
-            execution_data = response.json()
-            execution_sid = execution_data.get('sid')
-            logging.info(f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}")
+                # Prepare the payload
+                payload = {
+                    'To': flow_to_number,
+                    'From': flow_from_number,
+                    'Parameters': json.dumps({"message_text": event_message_text}) # Parameters must be a JSON string
+                }
+
+                # Make the request using Basic Auth
+                response = requests.post(
+                    studio_api_url,
+                    auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                    data=payload
+                )
+                response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+
+                execution_data = response.json()
+                execution_sid = execution_data.get('sid')
+                logging.info(f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}")
 
         except requests.exceptions.RequestException as e:
              # Log the error, including the response text if available
@@ -160,7 +202,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
     return should_escalate
 
 @pytest.mark.asyncio
-async def test_twilio_escalation():
+async def test_twilio_escalation_unit_test():
     """
     Test function to verify Twilio escalation functionality.
     """
@@ -174,7 +216,7 @@ async def test_twilio_escalation():
     }
     await analyze_for_twilio_escalation(open_phone_event)
 
-    
+
     
 
 def get_contacts_sheet_as_json():
