@@ -6,6 +6,7 @@ services:
     container_name: portfolio-backend
     ports:
       - "8000:8000"
+    # these are available on run time, but not on build time
     env_file:
       - .env.development.local
     networks:
@@ -14,12 +15,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      secrets:
-        # Reference the top-level secret named 'dotenv'
-        - dotenv
+      # these are available on build time, but not on run time
+      args:
+        MY_TEST_SECRET: ${MY_TEST_SECRET}
+        DATABASE_URL: ${DATABASE_URL}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     container_name: portfolio-frontend
     ports:
       - "3000:3000"
+    # these are available on run time, but not on build time
     env_file:
       - .env.development.local
     depends_on:
@@ -31,16 +35,3 @@ networks:
   portfolio-net:
     driver: bridge
 
-# Define the secrets available to builds
-secrets:
-  # Define secret from DATABASE_URL environment variable
-  # db_url_secret:
-  #   environment: DATABASE_URL
-
-  # Define secret from NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY environment variable
-  # clerk_key_secret:
-  #  environment: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-
-  # Use the original file-based secret
-  dotenv:
-    file: .env.development.local 
