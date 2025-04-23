@@ -29,7 +29,28 @@ This is my portfolio/sandbox website that I use to just play around with new tec
     pnpm vercel dev
     ```
 
+## Docker Setup
 
+These instructions assume you have Docker and Docker Compose installed (e.g., via Docker Desktop).
+
+1. The [docker-compose.yml](docker-compose.yml) is just meant for local builds. Ensure `.env.development.local` file exists for local development.  The file will use this file to populate the environment variables for the containers.
+
+2. **Build and Run:**
+   ```bash
+   docker compose up --build
+   ```
+   This command builds the Docker images for the frontend and backend (if they don't exist or have changed) and starts the containers.
+
+3. **Accessing the Application:**
+   - Frontend: [http://localhost:3000](http://localhost:3000)
+   - Backend API Docs: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
+
+4. **Stopping the Application:**
+   Press `Ctrl+C` in the terminal where `docker compose up` is running.
+   To remove the containers (optional):
+   ```bash
+   docker compose down
+   ```
 
 ## Environments:
 
