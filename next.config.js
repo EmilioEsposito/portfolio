@@ -12,7 +12,7 @@ const nextConfig = {
     if (railwayEnvVarExists) {
       // Use HTTP for internal Railway communication
       // Railway's internal DNS routes backend.railway.internal to the correct container and PORT.
-      backendDestination = "http://backend.railway.internal/api/:path*";
+      backendDestination = "http://backend.railway.internal:8000/api/:path*";
     } else if (dockerEnvVarExists) {
       // Assume if the variable exists, we are in Docker Compose
       backendDestination = "http://backend:8000/api/:path*";

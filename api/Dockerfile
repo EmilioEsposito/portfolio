@@ -26,4 +26,4 @@ EXPOSE 8000
 # Imports from api_src should work as it's now in /app/api_src
 # Uses the PORT environment variable if set by the platform (e.g., Railway), otherwise defaults to 8000.
 # Binds to IPv6 ([::]) as required for Railway Private Networking.
-CMD ["sh", "-c", "hypercorn index:app -b [::]:${PORT:-8000}"] 
+CMD ["sh", "-c", "hypercorn index:app -b [::]:8000"] 
