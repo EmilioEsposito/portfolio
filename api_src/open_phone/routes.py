@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from api_src.database.database import get_session
 from api_src.open_phone.models import OpenPhoneEvent
 from api_src.open_phone.schema import OpenPhoneWebhookPayload
-from api_src.open_phone.client import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json, analyze_for_twilio_escalation
+from api_src.open_phone.client import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
+from api_src.open_phone.escalate import analyze_for_twilio_escalation
 from api_src.utils.password import verify_admin_auth
 import asyncio
 from datetime import datetime, date
