@@ -37,8 +37,22 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
 
 2. **Build and Run:**
    ```bash
-   docker compose up -d --build | tee docker_up_build.log       
+   docker compose --env-file .env.development.local build --no-cache | tee docker_build.log       
+   docker compose --env-file .env.development.local up -d | tee docker_up.log       
    ```
+
+   Frontend only:
+
+   ```bash
+   docker compose --env-file .env.development.local build frontend --no-cache  | tee docker_build.log        
+   docker compose up -d frontend | tee docker_up.log       
+   ```
+
+    Or all in one with cache:
+    ```bash
+    docker compose --env-file .env.development.local up -d --build | tee docker_up_build.log       
+    ```
+
    This command builds the Docker images for the frontend and backend (if they don't exist or have changed) and starts the containers.
 
 3. **Accessing the Application:**

@@ -1,6 +1,18 @@
 # Base image for building the frontend
 FROM node:20-alpine AS builder
 
+# # Declare build-time arguments
+# ARG MY_TEST_SECRET
+ARG DATABASE_URL
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
+# ENV MY_TEST_SECRET=${MY_TEST_SECRET}
+# ENV DATABASE_URL=${DATABASE_URL}
+# ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+
+RUN echo ">>> Building frontend..."
+RUN echo "$(date)"
+
 # Install pnpm
 RUN npm install -g pnpm
 
@@ -18,30 +30,15 @@ COPY . .
 # Explicitly set the Docker Compose flag for the build environment.
 ENV DOCKER_ENV=true
 
+# fail if any of these are missing
+RUN if [ -z "$DOCKER_ENV" ]; then echo '>>> ERROR: DOCKER_ENV is missing!'; exit 1; fi
+RUN if [ -z "$DATABASE_URL" ]; then echo '>>> ERROR: DATABASE_URL is missing!'; exit 1; fi
+RUN if [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then echo '>>> ERROR: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is missing!'; exit 1; fi
+
 # Build the Next.js application
 RUN echo ">>> Attempting pnpm build..."
 
-# Prioritize ENV VARS, fallback to sourcing optional secret file (should only be used locally), then build.
-RUN --mount=type=secret,id=dotenv,required=false \
-    # Check if secret file exists and source it if it does (this should only be used locally)
-    if [ -f /run/secrets/dotenv ]; then \
-      echo ">>> Sourcing /run/secrets/dotenv with set -a..." && \
-      set -a && . /run/secrets/dotenv && set +a; \
-    else \
-      echo ">>> /run/secrets/dotenv not found, relying on pre-existing environment variables."; \
-    fi && \
-    \
-    # Final check & export: ensure required variables are set (DB URL, Clerk Key)
-    echo ">>> Final check: DATABASE_URL starts with: $(echo $DATABASE_URL | cut -c 1-10)..." && \
-    if [ -z "$DATABASE_URL" ]; then echo '>>> ERROR: DATABASE_URL is missing!'; exit 1; fi && \
-    export DATABASE_URL && \
-    \
-    echo ">>> Final check: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY starts with: $(echo $NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY | cut -c 1-10)..." && \
-    if [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then echo '>>> ERROR: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is missing!'; exit 1; fi && \
-    export NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && \
-    \
-    echo ">>> Running pnpm build..." && \
-    pnpm build
+RUN pnpm build
 
 RUN echo ">>> pnpm build finished."
 
