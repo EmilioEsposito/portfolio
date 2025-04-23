@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 # Declare build-time arguments
 ARG DATABASE_URL
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ARG RAILWAY_ENVIRONMENT_NAME # Declare Railway env name as build arg
+ARG RAILWAY_ENVIRONMENT_NAME
 
 # # Set environment variables available during the build
 # ENV DATABASE_URL=${DATABASE_URL}
