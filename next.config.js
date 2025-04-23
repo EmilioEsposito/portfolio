@@ -11,7 +11,7 @@ const nextConfig = {
 
     if (railwayEnvVarExists) {
       // Assume if the variable exists, we are in Railway and use https!
-      backendDestination = "https://backend:8000/api/:path*";
+      backendDestination = "https://backend.railway.internal/api/:path*";
     } else if (dockerEnvVarExists) {
       // Assume if the variable exists, we are in Docker Compose
       backendDestination = "http://backend:8000/api/:path*";
