@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 // Log the DATABASE_URL (with credentials removed) for debugging
 const dbUrlForLogging = process.env.DATABASE_URL?.replace(/\/\/[^@]+@/, '//<credentials>@') || 'not set';
 console.log('[API] Database URL format:', dbUrlForLogging);
+console.log('[DEBUG] DOCKER_ENV:', process.env.DOCKER_ENV);
 
 if (!process.env.DATABASE_URL) {
   console.error('[API] DATABASE_URL is not set');

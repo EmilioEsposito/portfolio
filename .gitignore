@@ -53,3 +53,6 @@ api_src/tests/requests/*
 # playwright
 playwright-report/
 test-results/
+
+# docker
+docker*.log

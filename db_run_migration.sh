@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 echo "DB_MIGRATION: STARTING..."
 
 # Install dependencies

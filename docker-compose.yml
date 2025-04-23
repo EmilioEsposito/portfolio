@@ -1,0 +1,46 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: portfolio-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.development.local
+    networks:
+      - portfolio-net
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        # Reference the top-level secret named 'dotenv'
+        - dotenv
+    container_name: portfolio-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.development.local
+    depends_on:
+      - backend
+    networks:
+      - portfolio-net
+
+networks:
+  portfolio-net:
+    driver: bridge
+
+# Define the secrets available to builds
+secrets:
+  # Define secret from DATABASE_URL environment variable
+  # db_url_secret:
+  #   environment: DATABASE_URL
+
+  # Define secret from NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY environment variable
+  # clerk_key_secret:
+  #  environment: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+
+  # Use the original file-based secret
+  dotenv:
+    file: .env.development.local 
