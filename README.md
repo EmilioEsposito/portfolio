@@ -37,7 +37,7 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
 
 2. **Build and Run:**
    ```bash
-   docker compose up --build
+   docker compose up -d --build | tee docker_up_build.log       
    ```
    This command builds the Docker images for the frontend and backend (if they don't exist or have changed) and starts the containers.
 

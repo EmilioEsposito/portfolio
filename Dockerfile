@@ -15,6 +15,9 @@ RUN pnpm install --frozen-lockfile
 # Copy the rest of the application code
 COPY . .
 
+# Explicitly set the Docker Compose flag for the build environment.
+ENV DOCKER_ENV=true
+
 # Build the Next.js application
 RUN echo ">>> Attempting pnpm build..."
 
@@ -28,7 +31,7 @@ RUN --mount=type=secret,id=dotenv,required=false \
       echo ">>> /run/secrets/dotenv not found, relying on pre-existing environment variables."; \
     fi && \
     \
-    # Final check & export: ensure required variables are set
+    # Final check & export: ensure required variables are set (DB URL, Clerk Key)
     echo ">>> Final check: DATABASE_URL starts with: $(echo $DATABASE_URL | cut -c 1-10)..." && \
     if [ -z "$DATABASE_URL" ]; then echo '>>> ERROR: DATABASE_URL is missing!'; exit 1; fi && \
     export DATABASE_URL && \
