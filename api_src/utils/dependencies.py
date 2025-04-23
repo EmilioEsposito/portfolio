@@ -51,9 +51,9 @@ async def verify_serniacapital_user(
     if not is_authorized:
         logging.warning(f"SerniaCapital check failed for user {user.id}. No verified @serniacapital.com email found.")
         raise HTTPException(status_code=401, detail="Unauthorized: User requires a verified @serniacapital.com email.")
-        
-    logging.info(f"SerniaCapital user check successful for user {user.id} via email {verified_sernia_email}")
-    return True
+    else:
+        logging.info(f"SerniaCapital user check successful for user {user.id} via email {verified_sernia_email}")
+        return True
 
 # Combined dependency for OR logic
 async def verify_admin_or_serniacapital(

@@ -1,9 +1,13 @@
 import os
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(".env.development.local"), override=True)
 import requests
 from typing import List, Optional, Union
 from fastapi import HTTPException
 import logging
 from api_src.google.sheets import get_sheet_as_json
+
+
 
 async def send_message(
     message: str,
@@ -59,6 +63,7 @@ async def get_contacts_by_external_ids(
     except requests.exceptions.RequestException as e:
         logging.error(f"Error fetching contacts: {str(e)}")
         raise
+
 
 def get_contacts_sheet_as_json():
     spreadsheet_id = "1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M"
