@@ -18,9 +18,11 @@ COPY api/ .
 COPY api_src/ ./api_src
 
 # Expose the port the API runs on (default 8000)
+# Note: Railway might assign a different port via the PORT env var.
 EXPOSE 8000
 
 # Command to run the Hypercorn server
 # It will find index:app in the /app directory
 # Imports from api_src should work as it's now in /app/api_src
-CMD ["hypercorn", "index:app", "-b", "0.0.0.0:8000"] 
+# Uses the PORT environment variable if set by the platform (e.g., Railway), otherwise defaults to 8000.
+CMD ["sh", "-c", "hypercorn index:app -b 0.0.0.0:${PORT:-8000}"] 
