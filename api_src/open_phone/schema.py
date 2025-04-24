@@ -31,15 +31,15 @@ class CallObject(BaseOpenPhoneObject):
     completedAt: Optional[datetime] = None
 
 class ContactObject(BaseOpenPhoneObject):
-    firstName: str
-    lastName: str
+    firstName: Optional[str] = ""
+    lastName: Optional[str] = ""
     company: Optional[str] = ""
     role: Optional[str] = ""
     pictureUrl: Optional[str] = ""
-    fields: Optional[Dict[str, Any]] = {}
+    fields: Optional[List[Dict[str, Any]]] = []
     notes: List[Any] = []
     sharedWith: List[str]
-    clientId: str
+    clientId: Optional[str] = ""
     updatedAt: datetime
 
 class OpenPhoneEventData(BaseModel):
