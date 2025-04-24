@@ -181,7 +181,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 # Order matters: Middlewares process requests top-to-bottom, responses bottom-to-top.
 # Error handling should wrap everything, so it's usually added early (but after essential ones like CORS/Session).
 
-is_hosted = len(os.getenv("VERCEL_ENV","")) > 0 or len(os.getenv("RAILWAY_ENVIRONMENT_NAME","") > 0)
+is_hosted = len(os.getenv("VERCEL_ENV","")) > 0 or len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
 
 # Add session middleware - MUST be added before CORS middleware
 app.add_middleware(
