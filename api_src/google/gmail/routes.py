@@ -26,6 +26,7 @@ from api_src.google.gmail.schema import (
     GenerateResponseRequest,
     OptionalPassword
 )
+import os
 
 client = AsyncOpenAI()  # Create async client instance
 
@@ -160,16 +161,23 @@ async def refresh_watch(payload: OptionalPassword = None):
         except Exception as stop_error:
             logging.info(f"Note: Could not stop existing watch: {stop_error}")
         
-        # Start a new watch
-        result = setup_gmail_watch()
-        logging.info(f"✓ Started new watch (expires: {result.get('expiration')})")
-        
-        return {
-            "success": True,
-            "message": "Watch refreshed successfully",
-            "expiration": result.get('expiration'),
-            "historyId": result.get('historyId')
-        }
+        if os.getenv("RAILWAY_ENVIRONMENT") == "development":
+            logging.info("Skipping Gmail watch refresh in hosted development environment")
+            return {
+                "success": True,
+                "message": "Skipping Gmail watch refresh in hosted development environment",
+            }
+        else:
+            # Start a new watch
+            result = setup_gmail_watch()
+            logging.info(f"✓ Started new watch (expires: {result.get('expiration')})")
+            
+            return {
+                "success": True,
+                "message": "Watch refreshed successfully",
+                "expiration": result.get('expiration'),
+                "historyId": result.get('historyId')
+            }
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -83,30 +83,38 @@ async def check_unreplied_emails(
         message += "\n".join(formatted_results)
         message += "\n\nPlease check your email and reply to these messages."
 
-        # Send the message via OpenPhone
-        response = await send_message(
-            message=message,
-            to_phone_number=target_phone_number,
-            from_phone_number="+14129101500",
-        )
-
-        if response.status_code not in [200, 202]:
-            logging.error(f"Failed to send OpenPhone message: {response.text}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "message": f"Failed to send OpenPhone message: {response.text}"
-                },
+        if os.getenv("RAILWAY_ENVIRONMENT") == "development":
+            logging.info("Skipping OpenPhone message in hosted development environment")
+            return {
+                "message": f"Skipping OpenPhone message in hosted development environment",
+                "unreplied_count": len(unreplied_emails),
+                "target_phone_number": target_phone_number,
+            }
+        else:
+            # Send the message via OpenPhone
+            response = await send_message(
+                message=message,
+                to_phone_number=target_phone_number,
+                from_phone_number="+14129101500",
             )
 
-        logging.info(
-            f"Successfully sent summary of {len(unreplied_emails)} unreplied emails to {target_phone_number}"
-        )
-        return {
-            "message": f"Successfully sent summary of {len(unreplied_emails)} unreplied emails",
-            "unreplied_count": len(unreplied_emails),
-            "target_phone_number": target_phone_number,
-        }
+            if response.status_code not in [200, 202]:
+                logging.error(f"Failed to send OpenPhone message: {response.text}")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "message": f"Failed to send OpenPhone message: {response.text}"
+                    },
+                )
+
+            logging.info(
+                f"Successfully sent summary of {len(unreplied_emails)} unreplied emails to {target_phone_number}"
+            )
+            return {
+                "message": f"Successfully sent summary of {len(unreplied_emails)} unreplied emails",
+                "unreplied_count": len(unreplied_emails),
+                "target_phone_number": target_phone_number,
+            }
 
     except Exception as e:
         logging.error(f"Error checking unreplied emails: {str(e)}", exc_info=True)
