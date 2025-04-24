@@ -6,6 +6,7 @@ import os
 import base64
 import hmac
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List, Optional, Union
 from pydantic import BaseModel
 from api_src.database.database import get_session
@@ -120,14 +121,21 @@ async def webhook(
         if payload.type=="message.received":
             await analyze_for_twilio_escalation(event_data)
         
-        # Create database record
-        open_phone_event = OpenPhoneEvent(**event_data)
-        session.add(open_phone_event)
-        await session.commit()
-        await session.refresh(open_phone_event)
-        
-        logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
-        return {"message": "Event recorded successfully"}
+        # check if event_id is already in the database
+        existing_event = await session.execute(
+            select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
+        )
+        if existing_event:
+            logging.info(f"Event {event_data['event_id']} already processed, skipping")
+            return {"message": "Event already processed"}
+        else:
+            # Create database record
+            open_phone_event = OpenPhoneEvent(**event_data)
+            session.add(open_phone_event)
+            await session.commit()
+            await session.refresh(open_phone_event)
+            logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
+            return {"message": "Event recorded successfully"}
         
     except IntegrityError as e:
         # If the event already exists, that's fine - just return success

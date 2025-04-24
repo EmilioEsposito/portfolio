@@ -26,6 +26,7 @@ from api_src.google.gmail.schema import (
     GenerateResponseRequest,
     OptionalPassword
 )
+import os
 
 client = AsyncOpenAI()  # Create async client instance
 
@@ -153,23 +154,30 @@ async def refresh_watch(payload: OptionalPassword = None):
     Can be called via GET (for cron) or POST (with optional password in body).
     """
     try:
-        # Try to stop any existing watch, but don't fail if there isn't one
-        try:
-            stop_gmail_watch()
-            logging.info("✓ Stopped existing watch")
-        except Exception as stop_error:
-            logging.info(f"Note: Could not stop existing watch: {stop_error}")
-        
-        # Start a new watch
-        result = setup_gmail_watch()
-        logging.info(f"✓ Started new watch (expires: {result.get('expiration')})")
-        
-        return {
-            "success": True,
-            "message": "Watch refreshed successfully",
-            "expiration": result.get('expiration'),
-            "historyId": result.get('historyId')
-        }
+        if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
+            logging.info("Skipping Gmail watch refresh in hosted development environment")
+            return {
+                "success": True,
+                "message": "Skipping Gmail watch refresh in hosted development environment",
+            }
+        else:
+            # Try to stop any existing watch, but don't fail if there isn't one
+            try:
+                stop_gmail_watch()
+                logging.info("✓ Stopped existing watch")
+            except Exception as stop_error:
+                logging.info(f"Note: Could not stop existing watch: {stop_error}")
+
+            # Start a new watch
+            result = setup_gmail_watch()
+            logging.info(f"✓ Started new watch (expires: {result.get('expiration')})")
+            
+            return {
+                "success": True,
+                "message": "Watch refreshed successfully",
+                "expiration": result.get('expiration'),
+                "historyId": result.get('historyId')
+            }
     except Exception as e:
         raise HTTPException(
             status_code=500,
