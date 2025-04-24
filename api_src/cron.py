@@ -83,7 +83,7 @@ async def check_unreplied_emails(
         message += "\n".join(formatted_results)
         message += "\n\nPlease check your email and reply to these messages."
 
-        if os.getenv("RAILWAY_ENVIRONMENT") == "development":
+        if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
             logging.info("Skipping OpenPhone message in hosted development environment")
             return {
                 "message": f"Skipping OpenPhone message in hosted development environment",

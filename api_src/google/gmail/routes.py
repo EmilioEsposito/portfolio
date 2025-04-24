@@ -161,7 +161,7 @@ async def refresh_watch(payload: OptionalPassword = None):
         except Exception as stop_error:
             logging.info(f"Note: Could not stop existing watch: {stop_error}")
         
-        if os.getenv("RAILWAY_ENVIRONMENT") == "development":
+        if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
             logging.info("Skipping Gmail watch refresh in hosted development environment")
             return {
                 "success": True,
