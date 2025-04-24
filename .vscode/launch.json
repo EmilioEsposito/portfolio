@@ -24,12 +24,12 @@
             "name": "FastAPI Backend",
             "type": "debugpy",
             "request": "launch",
-            "module": "uvicorn",
+            "module": "hypercorn",
             "args": [
                 "api.index:app",
                 "--reload",
-                "--port",
-                "8000"
+                "-b",
+                "0.0.0.0:8000"
             ],
             "jinja": true,
             "console": "integratedTerminal",
