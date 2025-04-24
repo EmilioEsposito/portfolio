@@ -188,7 +188,7 @@ app.add_middleware(
     same_site="lax",  # Required for OAuth redirects
     # TODO: Set secure=True for production based on env var? Needs testing.
     # secure=os.getenv("VERCEL_ENV") == "production", # Enable for production HTTPS only
-    https_only=os.getenv("VERCEL") == 1,
+    https_only=os.getenv("VERCEL_ENV") == "production" or os.getenv("RAILWAY_ENVIRONMENT_NAME")=='production',
 )
 
 # Add CORS middleware

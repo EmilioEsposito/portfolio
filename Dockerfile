@@ -15,6 +15,7 @@ ARG CUSTOM_RAILWAY_BACKEND_URL
 
 RUN echo ">>> Building FRONTEND..."
 RUN echo "$(date)"
+RUN echo ">>> CUSTOM_RAILWAY_BACKEND_URL=${CUSTOM_RAILWAY_BACKEND_URL}"
 
 # Install pnpm
 RUN npm install -g pnpm
