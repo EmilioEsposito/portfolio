@@ -181,6 +181,8 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
 # Order matters: Middlewares process requests top-to-bottom, responses bottom-to-top.
 # Error handling should wrap everything, so it's usually added early (but after essential ones like CORS/Session).
 
+is_hosted = len(os.getenv("VERCEL_ENV","")) > 0 or len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
+
 # Add session middleware - MUST be added before CORS middleware
 app.add_middleware(
     SessionMiddleware,
@@ -188,7 +190,7 @@ app.add_middleware(
     same_site="lax",  # Required for OAuth redirects
     # TODO: Set secure=True for production based on env var? Needs testing.
     # secure=os.getenv("VERCEL_ENV") == "production", # Enable for production HTTPS only
-    https_only=os.getenv("VERCEL_ENV") == "production" or os.getenv("RAILWAY_ENVIRONMENT_NAME")=='production',
+    https_only=is_hosted,
 )
 
 # Add CORS middleware
