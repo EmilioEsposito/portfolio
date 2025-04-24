@@ -4,7 +4,7 @@
     "builder": "DOCKERFILE",
     "dockerfilePath":  "api/Dockerfile",
     "watchPatterns": [
-      "railway_backend.json",
+      "railway_fastapi.json",
       "api/**",
       "api_src/**",
       "requirements.txt"
