@@ -66,7 +66,7 @@ if missing_vars:
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 # Configure logging
-# TODO: Configure logging properly - TBD on best practice for Vercel Serverless Functions
+# TODO: Configure logging properly - This should be doable on Railway now (Vercel had issues)
 # logging.basicConfig(level=logging.INFO)
 # logger = logging.getlogging(__name__)
 
@@ -105,7 +105,7 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
             user_email="emilio@serniacapital.com",  # TODO: Move to env var?
             scopes=["https://mail.google.com"],
         )
-        message_text = f"A 500 error occurred on your application ({os.getenv('VERCEL_ENV', 'local')})."
+        message_text = f"A 500 error occurred on your application ({os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local')})."
         message_text += f"Error: {error_details['error']}"
         message_text += f"Path: {error_details['path']}"
         message_text += f"Method: {error_details['method']}"
@@ -114,7 +114,7 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
 
         send_email(
             to="espo412@gmail.com",  # TODO: Move to env var?
-            subject=f"ALERT: 500 Error on {os.getenv('VERCEL_ENV', 'unknown environment')}",
+            subject=f"ALERT: 500 Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment')}",
             message_text=message_text,
             credentials=credentials,
         )
@@ -171,7 +171,7 @@ app.add_middleware(
     secret_key=os.getenv("SESSION_SECRET_KEY"),  # Will raise error if not set
     same_site="lax",  # Required for OAuth redirects
     # TODO: Set secure=True for production based on env var? Needs testing.
-    # secure=os.getenv("VERCEL_ENV") == "production", # Enable for production HTTPS only
+    # secure=os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production", # Enable for production HTTPS only
     https_only=is_hosted,
 )
 
