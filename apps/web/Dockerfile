@@ -22,9 +22,23 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-# Copy dependency definition files
+# Copy workspace configuration
+COPY pnpm-workspace.yaml ./
+COPY package.json ./
+
+# Copy the web app package.json to its proper location
+COPY apps/web/package.json ./apps/web/
+
+# Copy lockfile
 COPY pnpm-lock.yaml ./
 COPY apps/web/package.json ./
+
+RUN echo ">>> ls -la /app"
+RUN ls -la /app
+RUN echo ">>> ls -la /app/apps/web"
+RUN ls -la /app/apps/web
+
+RUN echo ">>> Installing dependencies..."
 
 # Install dependencies
 RUN pnpm install --no-frozen-lockfile
