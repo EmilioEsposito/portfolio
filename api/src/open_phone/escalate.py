@@ -27,7 +27,7 @@ if not TWILIO_AUTH_TOKEN:
 # twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) # removed to reduce bundle size
 
 
-async def analyze_for_twilio_escalation(open_phone_event: dict):
+async def analyze_for_twilio_escalation(open_phone_event: dict, mock=False):
     """
     Analyzes an OpenPhone event and potentially triggers a Twilio Studio Flow execution.
     """
@@ -40,6 +40,8 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
     event_id = open_phone_event.get("event_id","")
 
     now_et = datetime.now(pytz.timezone('US/Eastern'))
+    
+    result_message = "No result message"
 
     # Default flow numbers, adjust as needed or make dynamic
     escalate_to_numbers = []
@@ -118,17 +120,22 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
                     'Parameters': json.dumps({"message_text": event_message_text}) # Parameters must be a JSON string
                 }
 
-                # Make the request using Basic Auth
-                response = requests.post(
-                    studio_api_url,
-                    auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
-                    data=payload
-                )
-                response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+                if mock:
+                    result_message = f"Mocking Twilio escalation for event {open_phone_event.get('event_id')} to {escalate_to_number} with message: {event_message_text}"
+                    logging.info(result_message)
+                else:
+                    # Make the request using Basic Auth
+                    response = requests.post(
+                        studio_api_url,
+                        auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
+                        data=payload
+                    )
+                    response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
 
-                execution_data = response.json()
-                execution_sid = execution_data.get('sid')
-                logging.info(f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}")
+                    execution_data = response.json()
+                    execution_sid = execution_data.get('sid')
+                    result_message = f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}"
+                    logging.info(result_message)
 
         except requests.exceptions.RequestException as e:
              # Log the error, including the response text if available
@@ -144,7 +151,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict):
     else:
          logging.debug(f"Event {open_phone_event.get('event_id')} (type: {open_phone_event.get('event_type')}) did not meet Twilio escalation criteria.")
 
-    return should_escalate
+    return result_message
 
 @pytest.mark.asyncio
 async def test_twilio_escalation_unit_test():
@@ -159,4 +166,5 @@ async def test_twilio_escalation_unit_test():
         "from_number": "+14123703505",
         "to_number": "+14129001989",
     }
-    await analyze_for_twilio_escalation(open_phone_event)
+    result_message = await analyze_for_twilio_escalation(open_phone_event, mock=True)
+    print(result_message)
