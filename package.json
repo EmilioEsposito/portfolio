@@ -39,7 +39,6 @@
     "@types/node": "20.2.4",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.0",
-    "@vercel/analytics": "^1.4.1",
     "@vercel/kv": "^2.0.0",
     "@vercel/og": "^0.6.5",
     "@vercel/postgres": "^0.10.0",

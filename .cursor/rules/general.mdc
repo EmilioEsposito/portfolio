@@ -7,11 +7,11 @@ alwaysApply: true
 This is a repo for me to put various projects and tools in. I like to keep things simple and clean. 
 
 ## Tech Stack:
-* Frontend: Next.js - 
+* Frontend: Next.js
     * UI: [Shadcn UI](mdc:https:/ui.shadcn.com/docs) & Tailwind CSS
-* Backend: [FastAPI](mdc:https:/fastapi.tiangolo.com) - contained under `/api/` directory & deployed as a Serverless Function on Vercel
+* Backend: [FastAPI](mdc:https:/fastapi.tiangolo.com) - contained under `/api/` directory 
     * Database: [Neon Postgres](mdc:https:/neon.tech)
-* Deployment: [Vercel](mdc:https:/vercel.com) 
+* Deployment: @Railway
 * Package Managers: pnpm and pip
 
 # General Rules:

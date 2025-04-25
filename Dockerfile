@@ -1,4 +1,4 @@
-# Base image for building the frontend
+# Base image for building the nextjs
 FROM node:20-alpine AS builder
 
 # Declare build-time arguments
