@@ -58,6 +58,11 @@ async def check_unreplied_emails(
     )
 
     try:
+        # Initialize default response values
+        response_message = "No unreplied emails found"
+        sent_message = False
+        unreplied_count = 0
+
         # SQL query to find unreplied emails within past week that were received >4 hours ago
         # Use the calculated absolute path to the SQL file
         with open("api/src/unreplied_emails.sql", "r") as f:
@@ -66,57 +71,60 @@ async def check_unreplied_emails(
         # Execute the query
         result = await session.execute(text(sql_query))
         unreplied_emails = result.fetchall()
+        unreplied_count = len(unreplied_emails) # Get count immediately
 
-        # If no unreplied emails, return early
-        if not unreplied_emails:
-            logging.info("No unreplied emails found")
-            return JSONResponse(status_code=200, content={"message": "No unreplied emails found"})
+        # Only proceed with formatting and sending if there are emails
+        if unreplied_emails:
+            logging.info(f"Found {unreplied_count} unreplied emails.") # Log count here
+            # Format the results for the message
+            formatted_results = []
+            for email in unreplied_emails:
+                received_date = email[0]
+                subject = email[1]
+                formatted_results.append(f"• {received_date}: {subject}")
 
-        # Format the results for the message
-        formatted_results = []
-        for email in unreplied_emails:
-            received_date = email[0]
-            subject = email[1]
-            formatted_results.append(f"• {received_date}: {subject}")
+            # Create the message
+            message = f"📬 Unreplied Zillow Emails 📬\n\nYou have {len(unreplied_emails)} unreplied Zillow emails:\n\n"
+            message += "\n".join(formatted_results)
+            message += "\n\nPlease check your email and reply to these messages."
 
-        # Create the message
-        message = f"📬 Unreplied Zillow Emails 📬\n\nYou have {len(unreplied_emails)} unreplied Zillow emails:\n\n"
-        message += "\n".join(formatted_results)
-        message += "\n\nPlease check your email and reply to these messages."
-
-        # Skip OpenPhone message in hosted development environment
-        if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") not in ["production", "local"]:
-            logging.info("Skipping OpenPhone message in hosted development environment")
-            return {
-                "message": f"Skipping OpenPhone message in hosted development environment",
-                "unreplied_count": len(unreplied_emails),
-                "target_phone_number": target_phone_number,
-            }
-        else:
-            # Send the message via OpenPhone
-            response = await send_message(
-                message=message,
-                to_phone_number=target_phone_number,
-                from_phone_number="+14129101500",
-            )
-
-            if response.status_code not in [200, 202]:
-                logging.error(f"Failed to send OpenPhone message: {response.text}")
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "message": f"Failed to send OpenPhone message: {response.text}"
-                    },
+            # Skip OpenPhone message in hosted development environment
+            if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") not in ["production", "local"]:
+                response_message = "Skipping OpenPhone message in hosted development environment"
+                logging.info(response_message)
+            else:
+                # Send the message via OpenPhone
+                response = await send_message(
+                    message=message,
+                    to_phone_number=target_phone_number,
+                    from_phone_number="+14129101500",
                 )
 
-            logging.info(
-                f"Successfully sent summary of {len(unreplied_emails)} unreplied emails to {target_phone_number}"
-            )
-            return {
-                "message": f"Successfully sent summary of {len(unreplied_emails)} unreplied emails",
-                "unreplied_count": len(unreplied_emails),
-                "target_phone_number": target_phone_number,
-            }
+                if response.status_code not in [200, 202]:
+                    # Keep early return for critical send failure
+                    logging.error(f"Failed to send OpenPhone message: {response.text}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "message": f"Failed to send OpenPhone message: {response.text}"
+                        },
+                    )
+
+                # Message sent successfully
+                sent_message = True
+                response_message = f"Successfully sent summary of {unreplied_count} unreplied emails"
+                logging.info(f"{response_message} to {target_phone_number}")
+        else:
+            # Log if no emails were found (uses default response_message)
+            logging.info(response_message)
+
+        # Construct and return the final response (handles both cases)
+        return {
+            "message": response_message,
+            "unreplied_count": unreplied_count,
+            "target_phone_number": target_phone_number,
+            "sent_message": sent_message,
+        }
 
     except Exception as e:
         logging.error(f"Error checking unreplied emails: {str(e)}", exc_info=True)
