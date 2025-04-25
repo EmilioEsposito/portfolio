@@ -27,7 +27,7 @@ COPY pnpm-lock.yaml ./
 COPY apps/web/package.json ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copy the rest of the application code for the web app
 COPY apps/web/. ./apps/web/
