@@ -1,9 +1,9 @@
 services:
-  backend:
+  fastapi:
     build:
       context: .
       dockerfile: api/Dockerfile
-    container_name: portfolio-backend
+    container_name: portfolio-fastapi
     ports:
       - "8000:8000"
     # these are available on run time, but not on build time
@@ -11,7 +11,7 @@ services:
       - .env.development.local
     networks:
       - portfolio-net
-  frontend:
+  nextjs:
     build:
       context: .
       dockerfile: Dockerfile
@@ -20,14 +20,14 @@ services:
         MY_TEST_SECRET: ${MY_TEST_SECRET}
         DATABASE_URL: ${DATABASE_URL}
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-    container_name: portfolio-frontend
+    container_name: portfolio-nextjs
     ports:
       - "3000:3000"
     # these are available on run time, but not on build time
     env_file:
       - .env.development.local
     depends_on:
-      - backend
+      - fastapi
     networks:
       - portfolio-net
 
