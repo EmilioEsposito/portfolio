@@ -59,6 +59,7 @@ async def check_unreplied_emails(
 
     try:
         # SQL query to find unreplied emails within past week that were received >4 hours ago
+        # Use the calculated absolute path to the SQL file
         with open("api/src/unreplied_emails.sql", "r") as f:
             sql_query = f.read()
 
@@ -83,7 +84,8 @@ async def check_unreplied_emails(
         message += "\n".join(formatted_results)
         message += "\n\nPlease check your email and reply to these messages."
 
-        if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
+        # Skip OpenPhone message in hosted development environment
+        if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") not in ["production", "local"]:
             logging.info("Skipping OpenPhone message in hosted development environment")
             return {
                 "message": f"Skipping OpenPhone message in hosted development environment",
