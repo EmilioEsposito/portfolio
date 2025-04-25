@@ -6,7 +6,6 @@ import { Navbar } from "@/components/navbar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "next-themes";
-import { Analytics } from "@vercel/analytics/react";
 import {
   ClerkProvider,
   SignInButton,
@@ -56,7 +55,6 @@ export default async function RootLayout({
               </SidebarInset>
             </SidebarProvider>
           </ThemeProvider>
-          <Analytics />
         </body>
       </html>
     </ClerkProvider>

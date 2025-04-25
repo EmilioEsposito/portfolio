@@ -8,7 +8,7 @@ This is my portfolio/sandbox website that I use to just play around with new tec
     * UI: [Shadcn UI](https://ui.shadcn.com/docs) & Tailwind CSS
 * Backend: [FastAPI](https://fastapi.tiangolo.com/)
     * Database: [Neon Postgres](https://neon.tech/)
-* Deployment: [Vercel](https://vercel.com/) (FastAPI is deployed as a Serverless Function)
+* Deployment: [Railway](https://railway.com/project/73eb837a-ba86-4899-992c-cefd0c22b91f?environmentId=455c3498-682b-4e4d-9e1f-4c13c3e9eb59)
 * Package Managers: pnpm and pip
 
 ## Setup
@@ -22,12 +22,7 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 6. `source venv/bin/activate` to activate the virtual environment.
 7. `pip install -r requirements.txt` to install the required Python dependencies.
 8. `pnpm dev` to launch the development server.
-9. Install and use Vercel CLI, which can help test Serverless functions.
-    ```bash
-    pnpm install vercel
-    pnpm vercel login
-    pnpm vercel dev
-    ```
+9. Install and use [Railway CLI](https://docs.railway.com/guides/cli)
 
 ## Docker Setup
 
@@ -77,67 +72,30 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
 
 * Localhost: 
     * NextJS: http://localhost:3000
-    * FastAPI: http://localhost:8000/api/docs (also at http://localhost:3000/api/docs)
+    * FastAPI (via NextJS proxy): http://localhost:3000/api/docs
+    * FastAPI (direct): http://localhost:8000/api/docs
 * Dev: 
     * NextJS: https://dev.eesposito.com
-    * FastAPI: https://dev.eesposito.com/api/docs
+    * FastAPI (via NextJS proxy): https://dev.eesposito.com/api/docs
+    * FastAPI (direct): https://dev-eesposito-fastapi.up.railway.app/api/docs
 * Production: 
     * NextJS: https://eesposito.com
-    * FastAPI: https://eesposito.com/api/docs
-
-[All Vercel Deployments](https://vercel.com/emilioespositos-projects/portfolio/deployments)
+    * FastAPI (via NextJS proxy): https://eesposito.com/api/docs
+    * FastAPI (direct): https://eesposito-fastapi.up.railway.app/api/docs
 
 
 ## Environment Variables Management
 
-This project uses Vercel for deployment and environment variable management.
+This project uses Railway for deployment and environment variable management.
 
 Locally, the file that takes all precedence is `.env.development.local`. 
 
-### Local Development Setup
+TODO: Document Railway CLI commands for env variables so AI can help
 
-```bash
-vercel env pull .env.development.local
-```
 
-### Other Vercel env management commands
-```bash
-vercel env pull .env.development.local    # Pulls Development environment vars
-```
+## 3rd Party Stuff
 
-```bash
-vercel env pull .env.production.local     # Pulls Production environment vars
-```
-
-```bash
-vercel env pull .env.preview.local        # Pulls Preview environment vars
-```
-
-# Add a new environment variable
-vercel env add MY_VAR                     # Interactive prompt will ask for value and environment
-
-# List all environment variables
-vercel env ls
-
-# Remove an environment variable
-vercel env rm MY_VAR
-
-# Add with specific environment target
-vercel env add MY_VAR production         # Specifically add to production
-vercel env add MY_VAR development        # Specifically add to development
-vercel env add MY_VAR preview            # Specifically add to preview
-```
-
-## 3rd Party Dev
-
-I use a `x-vercel-protection-bypass` param in external services like OpenPhone and Google PubSub in order to allow testing on preview deployments. 
-This allows those webhooks to to my preview routes, bypassing Vercel protection (which is fine since I verify the calls anyways). 
-
-[Vercel Deployment Protection](https://vercel.com/emilioespositos-projects/portfolio/settings/deployment-protection)
-
-OpenPhone has a prod and dev webhook, each with its own secret. 
-
-For now, on Google PubSub I'm using just using the dev endpoint since the product is not production ready yet. 
+OpenPhone and Google PubSub webhooks are pointing to the dev environment for now. Need to setup ngrok or something to test the webhooks locally. 
 
 
 # Deprecation Candidates
