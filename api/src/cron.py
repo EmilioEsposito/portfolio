@@ -70,7 +70,7 @@ async def check_unreplied_emails(
         # If no unreplied emails, return early
         if not unreplied_emails:
             logging.info("No unreplied emails found")
-            return JSONResponse(status_code=204, content=None)
+            return JSONResponse(status_code=200, content={"message": "No unreplied emails found"})
 
         # Format the results for the message
         formatted_results = []
