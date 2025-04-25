@@ -45,7 +45,14 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
 
    ```bash
    docker compose --env-file .env.development.local build nextjs --no-cache  | tee docker_build.log        
-   docker compose up -d nextjs | tee docker_up.log       
+   docker compose --env-file .env.development.local up -d nextjs | tee docker_up.log       
+   ```
+
+   Backend FastAPI only:
+
+   ```bash
+   docker compose --env-file .env.development.local build fastapi  | tee docker_build.log        
+   docker compose --env-file .env.development.local up -d fastapi | tee docker_up.log       
    ```
 
     Or all in one with cache:

@@ -8,6 +8,8 @@ WORKDIR /app/api
 # Copy the api directory contents into the working directory /app/api
 COPY api/ .
 
+ENV PYTHONPATH=/app
+
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
