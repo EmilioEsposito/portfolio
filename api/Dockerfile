@@ -1,4 +1,4 @@
-# Base image for the backend
+# Base image for the fastapi
 FROM python:3.11-slim
 
 RUN echo ">>> Building BACKEND..."

@@ -41,11 +41,11 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
    docker compose --env-file .env.development.local up -d | tee docker_up.log       
    ```
 
-   Frontend only:
+   Frontend NextJS only:
 
    ```bash
-   docker compose --env-file .env.development.local build frontend --no-cache  | tee docker_build.log        
-   docker compose up -d frontend | tee docker_up.log       
+   docker compose --env-file .env.development.local build nextjs --no-cache  | tee docker_build.log        
+   docker compose up -d nextjs | tee docker_up.log       
    ```
 
     Or all in one with cache:
@@ -53,11 +53,11 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
     docker compose --env-file .env.development.local up -d --build | tee docker_up_build.log       
     ```
 
-   This command builds the Docker images for the frontend and backend (if they don't exist or have changed) and starts the containers.
+   This command builds the Docker images for the nextjs and fastapi services (if they don't exist or have changed) and starts the containers.
 
 3. **Accessing the Application:**
-   - Frontend: [http://localhost:3000](http://localhost:3000)
-   - Backend API Docs: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
+   - Frontend NextJS: [http://localhost:3000](http://localhost:3000)
+   - Backend FastAPI: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
 
 4. **Stopping the Application:**
    Press `Ctrl+C` in the terminal where `docker compose up` is running.
