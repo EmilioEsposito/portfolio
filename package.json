@@ -1,0 +1,19 @@
+{
+  "name": "portfolio-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter ./apps/web dev",
+    "dev-with-fastapi": "pnpm --filter ./apps/web dev-with-fastapi",
+    "build": "pnpm --filter ./apps/web build",
+    "start": "pnpm --filter ./apps/web start",
+    "lint": "pnpm --filter ./apps/web lint"
+  },
+  "devDependencies": {
+    "typescript": "^5", 
+    "eslint": "^8", 
+    "@types/node": "^20", 
+    "@types/react": "^18", 
+    "@types/react-dom": "^18" 
+  }
+} 

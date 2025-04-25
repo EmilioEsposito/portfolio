@@ -14,7 +14,7 @@ services:
   nextjs:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/web/Dockerfile
       # these are available on build time, but not on run time
       args:
         MY_TEST_SECRET: ${MY_TEST_SECRET}
