@@ -16,20 +16,20 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 import traceback
 
-# Import from api_src
-from api_src.chat.routes import router as chat_router
-from api_src.open_phone import router as open_phone_router
-from api_src.cron import router as cron_router
-from api_src.google.common.routes import router as google_router
-from api_src.examples.routes import router as examples_router
-from api_src.google.gmail.service import send_email
-from api_src.google.common.service_account_auth import get_delegated_credentials
+# Import from api.src
+from api.src.chat.routes import router as chat_router
+from api.src.open_phone import router as open_phone_router
+from api.src.cron import router as cron_router
+from api.src.google.common.routes import router as google_router
+from api.src.examples.routes import router as examples_router
+from api.src.google.gmail.service import send_email
+from api.src.google.common.service_account_auth import get_delegated_credentials
 
 # Import all GraphQL schemas
-from api_src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
+from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
 
-# from api_src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
-# from api_src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
+# from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
+# from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
 
 # Verify critical environment variables

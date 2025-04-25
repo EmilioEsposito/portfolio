@@ -6,7 +6,6 @@
     "watchPatterns": [
       "railway_fastapi.json",
       "api/**",
-      "api_src/**",
       "requirements.txt"
     ]
   }

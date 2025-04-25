@@ -270,7 +270,7 @@ export default function TenantMassMessaging() {
           </li>
           <li>
             <a 
-              href="https://github.com/EmilioEsposito/portfolio/blob/main/api_src/open_phone.py#L258"
+              href="https://github.com/EmilioEsposito/portfolio/blob/main/api/src/open_phone.py#L258"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline flex items-center"

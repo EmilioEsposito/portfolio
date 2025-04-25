@@ -47,8 +47,8 @@ next-env.d.ts
 api/tests/requests/
 
 # Sensitive test files
-api_src/tests/sensitive/*
-api_src/tests/requests/*
+api/src/tests/sensitive/*
+api/src/tests/requests/*
 
 # playwright
 playwright-report/
