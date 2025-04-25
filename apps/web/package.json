@@ -40,7 +40,6 @@
     "@types/react-dom": "^19.0.0",
     "@vercel/kv": "^2.0.0",
     "@vercel/og": "^0.6.5",
-    "@vercel/postgres": "^0.10.0",
     "ai": "^4.0.2",
     "autoprefixer": "10.4.14",
     "class-variance-authority": "^0.7.1",
