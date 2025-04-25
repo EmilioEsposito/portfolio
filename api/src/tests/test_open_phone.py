@@ -89,6 +89,10 @@ def test_send_tenant_mass_message(mocked_client):
         "/api/open_phone/tenant_mass_message",
         json=data,
     )
+    print("\n\nRESPONSE TEXT:")
+    print(response.text)
+    print("\n\nRESPONSE DATA:")
+    pprint(response.json()) 
     assert response.status_code == 200
 
 
