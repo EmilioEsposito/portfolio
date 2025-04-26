@@ -22,29 +22,21 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-# Copy workspace configuration
+# Copy workspace configuration first
 COPY pnpm-workspace.yaml ./
 COPY package.json ./
-
-# Copy the web app package.json to its proper location
-COPY apps/web/package.json ./apps/web/
-
-# Copy lockfile
 COPY pnpm-lock.yaml ./
-COPY apps/web/package.json ./
 
-RUN echo ">>> ls -la /app"
-RUN ls -la /app
-RUN echo ">>> ls -la /app/apps/web"
-RUN ls -la /app/apps/web
-
-RUN echo ">>> Installing dependencies..."
-
-# Install dependencies
-RUN pnpm install --no-frozen-lockfile
-
-# Copy the rest of the application code for the web app
+# Copy the web app's source code and package.json
+# Create the directory structure first
+RUN mkdir -p apps/web
+COPY apps/web/package.json ./apps/web/
 COPY apps/web/. ./apps/web/
+
+
+# Install dependencies using workspace protocol
+RUN echo ">>> Installing dependencies..."
+RUN pnpm install --frozen-lockfile
 
 # Explicitly set the Docker Compose flag for the build environment.
 ENV DOCKER_ENV=true
@@ -55,15 +47,16 @@ RUN if [ -z "$DATABASE_URL" ]; then echo '>>> ERROR: DATABASE_URL is missing!'; 
 RUN if [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then echo '>>> ERROR: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is missing!'; exit 1; fi
 # We don't fail if CUSTOM_RAILWAY_BACKEND_URL is missing, as it's only present in Railway
 
-# Build the Next.js application
+
+# Build the Next.js application using workspace command
 RUN echo ">>> Attempting pnpm build..."
-
-RUN cd apps/web && pnpm build
-
+# Use pnpm filter to build the specific app
+RUN pnpm --filter my-nextjs-app build
 RUN echo ">>> pnpm build finished."
 
-# Prune development dependencies
-RUN cd apps/web && pnpm prune --prod
+# Prune development dependencies at the workspace root
+RUN echo ">>> Pruning dev dependencies..."
+RUN pnpm prune --prod
 
 # --- Runner Stage ---
 FROM node:20-alpine AS runner
@@ -74,15 +67,19 @@ RUN npm install -g pnpm
 # Set working directory for the runner
 WORKDIR /app
 
-# Copy necessary files from the builder stage
-COPY --from=builder /app/apps/web/.next ./.next
-COPY --from=builder /app/apps/web/package.json ./package.json
-COPY --from=builder /app/apps/web/node_modules ./node_modules
-COPY --from=builder /app/apps/web/public ./public
+# Copy necessary workspace files from the builder stage
+COPY --from=builder /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/pnpm-lock.yaml ./
+
+# Copy the pruned node_modules from the root of the builder stage
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy the entire pruned web app directory from the builder stage
+# This includes .next, package.json, public, etc.
+COPY --from=builder /app/apps/web ./apps/web
 
 # Expose the port the app runs on
 EXPOSE 3000
 
-# Command to run the application
-CMD ["pnpm", "start"] 
+# Set the default command to run the start script from within the web app directory
+CMD ["pnpm", "--filter", "my-nextjs-app", "start"]
