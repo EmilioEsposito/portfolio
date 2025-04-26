@@ -6,7 +6,7 @@
 [ ] indicate the epics/tasks that are not started yet
 
 # Epics Table of Contents
-- [⏸️][ Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
+- [⏸️] [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
 - [🚧] [Incorporate React Native](roadmap.md#incorporate-react-native)
 
 
