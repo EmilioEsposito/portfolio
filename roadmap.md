@@ -21,7 +21,7 @@
 
 ## Incorporate React Native
 
-### Context
+### AI Chat Context
 [Emilio]: I want to incorporate React Native into the application as well. I want to keep NextJS, which I'll need for things like SSR SEO pages. However, my ideal state is that I can have some pages written in ReactNative that are rendered on both native apps, but can also be accessed in ReactNativeWeb as well (which I *think* can be hosted inside of NextJS pages?). I don't want to do anything hacky, so let me know best practices here. Also, I heard good things about Expo? Help me think through how to go about this and how to struture it. 
 
 [AI]: Okay, let's break down how to integrate React Native into your existing setup while keeping Next.js and leveraging React Native for Web (RNW). This is a common goal, and there are established patterns to achieve it cleanly.
