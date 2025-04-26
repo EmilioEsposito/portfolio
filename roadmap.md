@@ -32,7 +32,7 @@ Your React Native components written for the Expo app can then be imported and r
 The standard and cleanest way to manage this kind of shared codebase is using a monorepo structure, likely with pnpm workspaces (which you're already using).
 
 ```text 
-/portfolio
+/portfolio (repo root)
 ├── api/          # Your existing FastAPI app (can stay here for now since it won't share code with the other apps, and makes it easier given existing structure)
 │   ├── requirements.txt
 │   ├── railway_fastapi.json
