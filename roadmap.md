@@ -1,5 +1,17 @@
 
-# Migrate from Vercel to Railway
+# Legend
+🚧 indicate the current in progress epics/tasks
+⏸️ indicate the paused epics/tasks
+✅ indicate the completed epics/tasks
+[ ] indicate the epics/tasks that are not started yet
+
+# Epics Table of Contents
+- [⏸️][ Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
+- [🚧] [Incorporate React Native](roadmap.md#incorporate-react-native)
+
+
+# Epics
+## Migrate from Vercel to Railway
 
 - [✅] Dockerize the FastAPI and NextJS apps
 - [✅] Get it running on Railway
@@ -7,9 +19,9 @@
 - [✅] Changed domains to be Cloudflare managed and added Railway settings
 - [] Finalize domain transfer to Cloudflare billing - Not Urgent. Due Date [2025-05-01]
 
-# Incorporate React Native
+## Incorporate React Native
 
-## Context
+### Context
 [Emilio]: I want to incorporate React Native into the application as well. I want to keep NextJS, which I'll need for things like SSR SEO pages. However, my ideal state is that I can have some pages written in ReactNative that are rendered on both native apps, but can also be accessed in ReactNativeWeb as well (which I *think* can be hosted inside of NextJS pages?). I don't want to do anything hacky, so let me know best practices here. Also, I heard good things about Expo? Help me think through how to go about this and how to struture it. 
 
 [AI]: Okay, let's break down how to integrate React Native into your existing setup while keeping Next.js and leveraging React Native for Web (RNW). This is a common goal, and there are established patterns to achieve it cleanly.
@@ -64,11 +76,11 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 
 [Emilio]: Ok, this sounds good. Let's break this up into stages so that we can test for breakages and fix them after each stage, which is easier than trying to do every single change then fixing things after. E.g. maybe let's first just try some of the restructuring before even introducing any RN/expo code?
 
-## Tasks
+### Tasks
 - [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
 - [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
 
-## Draft Tasks
+### Draft Tasks
 - [ ] Setup Expo? 
 - [ ] Setup some base RN code in /apps/native?
 - [ ] <tbd>...
