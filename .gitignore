@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+# Additions for monorepo structure
+/apps/web/node_modules
 /.pnp
 .pnp.js
 
@@ -12,6 +14,9 @@
 # next.js
 /.next/
 /out/
+# Additions for monorepo structure
+/apps/web/.next/
+/apps/web/out/
 
 # python
 venv/
@@ -36,6 +41,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Additions for monorepo structure
+/apps/web/next-env.d.ts
 *.swp
 
 

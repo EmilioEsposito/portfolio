@@ -12,13 +12,13 @@ const nextConfig = {
     let backendDestination;
 
     if (railwayEnvVarExists) {
-      // Railway hosted
+      // Railway hosted (Production & Development)
       backendDestination = `${process.env.CUSTOM_RAILWAY_BACKEND_URL}/api/:path*`;
     } else if (dockerEnvVarExists) {
-      // Docker local
+      // Docker local 
       // Assume if the variable exists, we are in Docker Compose
       backendDestination = "http://fastapi:8000/api/:path*";
-    } else if (process.env.NODE_ENV === "development") {
+    } else if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "production") {
       // Non-Docker local
       // Local development outside Docker
       backendDestination = "http://127.0.0.1:8000/api/:path*";

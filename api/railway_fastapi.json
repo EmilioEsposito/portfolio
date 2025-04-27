@@ -6,7 +6,7 @@
     "watchPatterns": [
       "railway_fastapi.json",
       "api/**",
-      "requirements.txt"
+      "alembic.ini"
     ]
   }
 }

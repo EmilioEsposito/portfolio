@@ -4,7 +4,7 @@ globs:
 alwaysApply: true
 ---
 
-This is a repo for me to put various projects and tools in. I like to keep things simple and clean. 
+This is a repo for me to put various projects and tools in. Some bits I build for purely learning, but I also then use those bits to build useful production apps for my rental business, Sernia Capital, and at some point I decide to scale out some of the apps I've dogfooded to be a publicly marketable SaaS product(s). I like to keep things simple and clean. 
 
 ## Tech Stack:
 * Frontend: Next.js
@@ -13,10 +13,11 @@ This is a repo for me to put various projects and tools in. I like to keep thing
     * Database: [Neon Postgres](mdc:https:/neon.tech)
 * Deployment: @Railway
 * Package Managers: pnpm and pip
+* Roadmap: Refer to the [roadmap.md](mdc:roadmap.md) file to understand the context of what was recently done, what is in progress, and what the future entails. 
 
 # General Rules:
 - Feel free to make suggestions on stylistic improvements if current patterns could be significantly improved/simplified; otherwise stick to the current patterns.
-- Do not remove my comments. They are there for my benefit. You can suggest edits to them if they are wrong. 
+- Do not remove my comments or even commented out code. They are there for my benefit. You can suggest edits to them if they are wrong. 
 - I hate CSS. I have no desire to learn it. Keep styling simple and clean. 
 - Keep credentialing simple. I am a solo developer and don't need separate credentials for each microservice. 
 - Do NOT remove functionality (e.g. remove an API route import) without asking me first. 

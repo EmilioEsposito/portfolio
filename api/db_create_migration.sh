@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # ask user for migration name
 read -p "Enter migration name: " migration_name
