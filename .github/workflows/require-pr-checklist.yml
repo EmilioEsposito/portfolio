@@ -1,0 +1,21 @@
+name: Require PR Checklist
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check:
+    name: Check PR Checklist Completion
+    runs-on: ubuntu-latest
+    steps:
+      # Although this action doesn't strictly need the code, 
+      # it's good practice to checkout if other steps were added later.
+      - name: Checkout code
+        uses: actions/checkout@v4 
+
+      - name: Require Checklist Completion
+        uses: mheap/require-checklist-action@v2
+        with:
+          # Fail if no checklist is found or if any item is unchecked.
+          requireChecklist: true 
