@@ -4,8 +4,11 @@
     "builder": "DOCKERFILE",
     "dockerfilePath":  "apps/web/Dockerfile",
     "watchPatterns": [
-      "**/**",
-      "!api/**"
+      "apps/web/**",
+      "packages/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml"
     ]
   }
 }
