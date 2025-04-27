@@ -29,32 +29,40 @@ interface SystemInstruction {
 export default function AIEmailResponder() {
   const [emails, setEmails] = useState<ZillowEmail[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<ZillowEmail | null>(null);
-  const [systemInstructions, setSystemInstructions] = useState<SystemInstruction[]>(() => {
+  const [systemInstructions, setSystemInstructions] = useState<
+    SystemInstruction[]
+  >(() => {
     // Try to load saved instructions from localStorage
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('systemInstructions');
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("systemInstructions");
       if (saved) {
         try {
           return JSON.parse(saved);
         } catch (e) {
-          console.error('Failed to parse saved instructions:', e);
+          console.error("Failed to parse saved instructions:", e);
         }
       }
     }
     // Default instruction if nothing in localStorage
-    return [{
-      id: "default",
-      text: "You are a property manager. Be professional but friendly. Keep the response concise. Address their questions directly. Sign off as 'Property Management Team'."
-    }];
+    return [
+      {
+        id: "default",
+        text: "You are a property manager. Be professional but friendly. Keep the response concise. Address their questions directly. Sign off as 'Property Management Team'.",
+      },
+    ];
   });
-  
+
   // Save instructions to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem('systemInstructions', JSON.stringify(systemInstructions));
+    localStorage.setItem(
+      "systemInstructions",
+      JSON.stringify(systemInstructions)
+    );
   }, [systemInstructions]);
 
   const [newInstruction, setNewInstruction] = useState("");
-  const [selectedInstruction, setSelectedInstruction] = useState<string>("default");
+  const [selectedInstruction, setSelectedInstruction] =
+    useState<string>("default");
   const [generatedResponse, setGeneratedResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingEmails, setIsFetchingEmails] = useState(false);
@@ -80,12 +88,12 @@ export default function AIEmailResponder() {
 
   function addSystemInstruction() {
     if (!newInstruction.trim() || systemInstructions.length >= 10) return;
-    
+
     const instruction: SystemInstruction = {
       id: crypto.randomUUID(),
       text: newInstruction.trim(),
     };
-    
+
     setSystemInstructions([...systemInstructions, instruction]);
     setSelectedInstruction(instruction.id);
     setNewInstruction("");
@@ -93,9 +101,9 @@ export default function AIEmailResponder() {
 
   function updateCurrentInstruction() {
     if (!newInstruction.trim() || !selectedInstruction) return;
-    
-    setSystemInstructions(prevInstructions => 
-      prevInstructions.map(instruction => 
+
+    setSystemInstructions((prevInstructions) =>
+      prevInstructions.map((instruction) =>
         instruction.id === selectedInstruction
           ? { ...instruction, text: newInstruction.trim() }
           : instruction
@@ -104,17 +112,21 @@ export default function AIEmailResponder() {
   }
 
   // Helper function to format instruction name
-  function formatInstructionName(instruction: SystemInstruction, index: number): string {
+  function formatInstructionName(
+    instruction: SystemInstruction,
+    index: number
+  ): string {
     const previewLength = 20;
-    const preview = instruction.text.length > previewLength 
-      ? instruction.text.substring(0, previewLength) + "..."
-      : instruction.text;
+    const preview =
+      instruction.text.length > previewLength
+        ? instruction.text.substring(0, previewLength) + "..."
+        : instruction.text;
     return `#${index + 1} - ${preview}`;
   }
 
   async function generateResponse() {
     if (!selectedEmail || !selectedInstruction) return;
-    
+
     setIsLoading(true);
     try {
       const selectedInstructionText = systemInstructions.find(
@@ -131,16 +143,19 @@ From: ${selectedEmail.sender}
 Message:
 ${selectedEmail.body_html}`;
 
-      const response = await fetch("/api/google/gmail/generate_email_response", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email_content: emailContent,
-          system_instruction: selectedInstructionText,
-        }),
-      });
+      const response = await fetch(
+        "/api/google/gmail/generate_email_response",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email_content: emailContent,
+            system_instruction: selectedInstructionText,
+          }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to generate response: ${response.statusText}`);
@@ -160,66 +175,80 @@ ${selectedEmail.body_html}`;
     <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
       <div className="space-y-4">
         <div className="flex items-baseline justify-between">
-          <h1 className="text-3xl font-bold">AI Email Responder Preview Tool</h1>
-          <Link 
+          <h1 className="text-3xl font-bold">
+            AI Email Responder Preview Tool
+          </h1>
+          <Link
             href="/ai-email-responder/architecture"
             className="text-sm text-muted-foreground hover:text-blue-500 flex items-center gap-2 group"
           >
             View System Architecture
-            <span className="group-hover:translate-x-0.5 transition-transform">→</span>
+            <span className="group-hover:translate-x-0.5 transition-transform">
+              →
+            </span>
           </Link>
         </div>
         <div className="prose dark:prose-invert max-w-none">
           <p className="text-muted-foreground">
-            This tool helps test and refine AI agent instructions for automated Zillow rental inquiry responses. The workflow is simple:
+            This tool helps test and refine AI agent instructions for automated
+            Zillow rental inquiry responses. The workflow is simple:
           </p>
           <ol className="text-muted-foreground list-decimal list-inside space-y-1">
             <li>Select a sample email from real Zillow inquiries</li>
-            <li>Create or modify AI agent instructions to define the response style</li>
+            <li>
+              Create or modify AI agent instructions to define the response
+              style
+            </li>
             <li>Click Generate to preview how the AI would respond</li>
           </ol>
           <p className="text-muted-foreground mt-4">
-            Once the optimal instructions are determined, they'll be used in production where Google PubSub 
-            notifications will call the{" "}
-            <Link 
+            Once the optimal instructions are determined, they'll be used in
+            production where Google PubSub notifications will call the{" "}
+            <Link
               href="api/docs#/google/handle_gmail_notifications_api_google_pubsub_gmail_notifications_post"
               className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
             >
               FastAPI /api/google/pubsub/gmail/notifications endpoint
-            </Link>
-            {" "}to automatically respond to incoming Zillow inquiries in real-time.
+            </Link>{" "}
+            to automatically respond to incoming Zillow inquiries in real-time.
           </p>
           <div className="text-muted-foreground mt-4">
             For more information on the final production implementation, see the{" "}
-            <Link 
-              href="/ai-email-responder/architecture" 
+            <Link
+              href="/ai-email-responder/architecture"
               className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
             >
               System Architecture
-            </Link>
-            {" "}page.
+            </Link>{" "}
+            page.
           </div>
         </div>
       </div>
-      
+
       {/* Main Grid Layout */}
       <div className="grid lg:grid-cols-[1fr,1fr] gap-8">
         {/* Email Selection Container */}
         <div className="space-y-2">
-          <h2 className="text-xl font-semibold px-1">Incoming Zillow Inquiries</h2>
+          <h2 className="text-xl font-semibold px-1">
+            Incoming Zillow Inquiries
+          </h2>
           <div className="border rounded-lg grid grid-cols-[auto,1fr]">
             {/* Email Tabs */}
             <div className="border-r bg-muted/50">
               <div className="sticky top-0 p-2 border-b bg-muted flex items-center justify-between">
                 <h2 className="text-sm font-medium">Sample Emails</h2>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="sm"
                   onClick={fetchEmails}
                   disabled={isFetchingEmails}
                   className="h-8 w-8 p-0"
                 >
-                  <ReloadIcon className={`h-4 w-4 ${isFetchingEmails ? 'animate-spin' : ''}`} />
+                  <ReloadIcon
+                    className={`h-4 w-4 ${
+                      isFetchingEmails ? "animate-spin" : ""
+                    }`}
+                  />
                 </Button>
               </div>
               <div className="w-[200px]">
@@ -234,7 +263,7 @@ ${selectedEmail.body_html}`;
                         key={email.id}
                         onClick={() => setSelectedEmail(email)}
                         className={`w-full text-left px-4 py-3 text-sm transition-colors hover:bg-muted
-                          ${selectedEmail?.id === email.id ? 'bg-muted' : ''}`}
+                          ${selectedEmail?.id === email.id ? "bg-muted" : ""}`}
                       >
                         Random Email #{index + 1}
                       </button>
@@ -251,9 +280,13 @@ ${selectedEmail.body_html}`;
                   {/* Email Metadata */}
                   <div className="p-4 border-b space-y-2 flex-shrink-0">
                     <div className="flex items-baseline justify-between">
-                      <h2 className="text-xl font-semibold">{selectedEmail.subject}</h2>
+                      <h2 className="text-xl font-semibold">
+                        {selectedEmail.subject}
+                      </h2>
                       <span className="text-sm text-muted-foreground">
-                        {new Date(selectedEmail.received_at).toLocaleDateString()}
+                        {new Date(
+                          selectedEmail.received_at
+                        ).toLocaleDateString()}
                       </span>
                     </div>
                     <div className="text-sm text-muted-foreground">
@@ -262,9 +295,11 @@ ${selectedEmail.body_html}`;
                   </div>
                   {/* Email Body */}
                   <div className="p-4 overflow-auto flex-grow">
-                    <div 
+                    <div
                       className="prose max-w-none dark:prose-invert"
-                      dangerouslySetInnerHTML={{ __html: selectedEmail.body_html || '' }} 
+                      dangerouslySetInnerHTML={{
+                        __html: selectedEmail.body_html || "",
+                      }}
                     />
                   </div>
                 </div>
@@ -284,7 +319,9 @@ ${selectedEmail.body_html}`;
             {/* Instructions Tabs */}
             <div className="border-r bg-muted/50">
               <div className="sticky top-0 p-2 border-b bg-muted">
-                <h2 className="text-sm font-medium">Saved Instructions ({systemInstructions.length}/10)</h2>
+                <h2 className="text-sm font-medium">
+                  Saved Instructions ({systemInstructions.length}/10)
+                </h2>
               </div>
               <div className="flex flex-col h-[40vh]">
                 <div className="flex-1 overflow-auto w-[200px]">
@@ -296,7 +333,11 @@ ${selectedEmail.body_html}`;
                         setNewInstruction(instruction.text);
                       }}
                       className={`w-full text-left px-4 py-3 text-sm transition-colors hover:bg-muted
-                        ${selectedInstruction === instruction.id ? 'bg-muted' : ''}`}
+                        ${
+                          selectedInstruction === instruction.id
+                            ? "bg-muted"
+                            : ""
+                        }`}
                     >
                       {formatInstructionName(instruction, index)}
                     </button>
@@ -318,7 +359,8 @@ ${selectedEmail.body_html}`;
               <div className="h-full flex flex-col p-4">
                 <div className="flex-shrink-0 space-y-4">
                   <div className="text-sm text-muted-foreground">
-                    Define how the AI agent should respond to the selected email. Edit the instruction and click Save to update it.
+                    Define how the AI agent should respond to the selected
+                    email. Edit the instruction and click Save to update it.
                   </div>
                 </div>
                 <div className="flex-grow flex flex-col gap-4 mt-4">
@@ -328,7 +370,7 @@ ${selectedEmail.body_html}`;
                     onChange={(e) => setNewInstruction(e.target.value)}
                     className="flex-grow min-h-0"
                   />
-                  <Button 
+                  <Button
                     onClick={updateCurrentInstruction}
                     disabled={!newInstruction.trim()}
                   >
@@ -374,8 +416,9 @@ ${selectedEmail.body_html}`;
 
       {/* Footnote */}
       <div className="text-sm text-muted-foreground italic text-center border-t pt-4">
-        This frontend UI was created entirely with Cursor AI (Claude 3.5 Sonnet Model)
+        This frontend UI was created entirely with Cursor AI (Claude 3.5 Sonnet
+        Model)
       </div>
     </div>
   );
-} 
+}

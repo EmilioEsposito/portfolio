@@ -7,7 +7,7 @@
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "next-dev"
+                "dev"
             ],
             "console": "integratedTerminal",
             "env": {
@@ -41,7 +41,7 @@
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "dev"
+                "dev-with-fastapi"
             ],
             "console": "integratedTerminal",
             "env": {
