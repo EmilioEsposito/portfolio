@@ -1,4 +1,3 @@
-
 # Legend
 🚧 indicate the current in progress epics/tasks
 ⏸️ indicate the paused epics/tasks
@@ -8,6 +7,8 @@
 # Epics Table of Contents
 - [⏸️] [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
 - [🚧] [Incorporate React Native](roadmap.md#incorporate-react-native)
+- [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
+- [ ] Augment FastAPI Chat with custom Tools Usage Functions (sending/receiving emails/texts)
 
 
 # Epics
@@ -78,9 +79,13 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 
 ### Tasks
 - [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
-- [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
+- [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
+- [🚧] Initialize Expo App in `/apps/native`.
+- [] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
 
 ### Draft Tasks
-- [ ] Setup Expo? 
-- [ ] Setup some base RN code in /apps/native?
-- [ ] <tbd>...
+- [ ] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
+- [ ] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
+- [ ] Create a basic "hello world" shared component in `packages/ui`.
+- [ ] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
+- [ ] Make frontend chat interface compatible with both NextJS and React Native.
