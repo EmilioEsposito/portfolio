@@ -1,4 +1,3 @@
-# API vs API_SRC Directory
+# FastAPI Service
 
-The `/api` directory hosts the FastAPI server.
-
+This is the FastAPI service that powers the portfolio website. 
