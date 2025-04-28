@@ -88,6 +88,8 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ### Draft Tasks
 - [✅] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
 - [✅] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
-- [🚧] Create a basic "hello world" shared component in `packages/ui`.
-- [ ] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
+- [✅] Create a basic "hello world" shared component in `packages/ui`.
+- [🚧] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
+    - [✅] Test in `apps/native`.
+    - [🚧] Test in `apps/web`.
 - [ ] Make frontend chat interface compatible with both NextJS and React Native.
