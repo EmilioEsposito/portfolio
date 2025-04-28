@@ -1,4 +1,4 @@
--- unreplied emails within past week that were received >2 hours ago
+-- unreplied emails within past week
 SELECT
     -- e.id,
     -- e.message_id,
@@ -28,7 +28,7 @@ WHERE
     AND 'INBOX' = ANY(e.label_ids) -- label: inbox
     AND e.subject NOT ilike 'Re%' -- not a reply
     AND e.received_date > CURRENT_DATE - INTERVAL '1 week'
-    AND e.received_date < CURRENT_TIMESTAMP - INTERVAL '2 hour'
+    -- AND e.received_date < CURRENT_TIMESTAMP - INTERVAL '2 hour' -- received >2 hours ago
     AND re.id IS NULL -- no reply found!
 ORDER BY
     e.received_date DESC
