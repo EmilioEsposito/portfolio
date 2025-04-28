@@ -80,8 +80,10 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ### Tasks
 - [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
 - [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
-- [🚧] Initialize Expo App in `/apps/native`.
-- [] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
+- [✅] Use `apps/native` to Expo SDK 53 Beta (to support React 19).
+- [✅] Initialize Expo App in `/apps/native`.
+- [✅] Test standalone Expo app (`apps/native`) functionality.
+- [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
 
 ### Draft Tasks
 - [ ] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
