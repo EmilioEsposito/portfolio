@@ -83,11 +83,11 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Use `apps/native` to Expo SDK 53 Beta (to support React 19).
 - [✅] Initialize Expo App in `/apps/native`.
 - [✅] Test standalone Expo app (`apps/native`) functionality.
-- [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
+- [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
 
 ### Draft Tasks
-- [ ] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
-- [ ] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
-- [ ] Create a basic "hello world" shared component in `packages/ui`.
+- [✅] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
+- [✅] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
+- [🚧] Create a basic "hello world" shared component in `packages/ui`.
 - [ ] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
 - [ ] Make frontend chat interface compatible with both NextJS and React Native.

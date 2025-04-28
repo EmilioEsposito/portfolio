@@ -1,5 +1,8 @@
+const { withExpo } = require('@expo/next-adapter');
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+let nextConfig = {
   rewrites: async () => {
     // Check for the *presence* of the environment variable
     const dockerEnvVarExists = !!process.env.DOCKER_ENV;
@@ -45,6 +48,18 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_GOOGLE_DRIVE_PICKER_API_KEY,
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
   },
+  transpilePackages: [
+    'react-native',
+    'react-native-web',
+    'expo',
+    // Add other Expo/RN packages you want to transpile here
+  ],
 };
 
-module.exports = nextConfig;
+// Configuration for Expo adapter
+const expoConfig = {
+  projectRoot: path.resolve(__dirname, '../..'), // Point to the monorepo root
+};
+
+// Wrap the Next.js config with the Expo adapter
+module.exports = withExpo(nextConfig, expoConfig);
