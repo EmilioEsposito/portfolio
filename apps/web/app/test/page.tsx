@@ -1,6 +1,6 @@
 "use client";
 
-import { DatePicker } from "@/components/ui/date-picker";
+// import { DatePicker } from "@/components/ui/date-picker";
 import { P, H1 } from "@/components/typography";
 
 export default function Page() {
@@ -12,7 +12,7 @@ export default function Page() {
         tempor incididunt ut labore et dolore magna aliqua.
       </P>
       <P>
-        <DatePicker />
+        {/* <DatePicker /> */}
       </P>
     </div>
   );

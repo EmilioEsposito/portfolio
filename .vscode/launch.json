@@ -41,7 +41,7 @@
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "dev-with-fastapi"
+                "fastapi-dev"
             ],
             "console": "integratedTerminal",
             "env": {
