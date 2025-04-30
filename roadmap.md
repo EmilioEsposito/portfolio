@@ -57,13 +57,12 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 │   │   ├── railway_nextjs.json
 │   │   ├── Dockerfile
 │   │   └── etc...
-│   ├── native/       # Your new Expo (React Native) app
+│   ├── my-expo-app/       # Your new Expo (React Native) app
 │   │   ├── <tbd>
 │   │   ├── <tbd>
 │   │   └── etc...
 ├── packages/
-│   ├── ui/           # Shared React components (using RN primitives)
-│   └── tsconfig/     # Shared TypeScript config (optional)
+│   └── etc...
 ├── venv/
 ├── docker-compose.yaml
 ├── package.json     # Root package.json configuring pnpm workspaces
@@ -79,12 +78,12 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 
 ### Tasks
 - [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
-- [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
-- [🚧] Initialize Expo App in `/apps/native`. Use SDK 53 so that it is compatible with React 19. 
-- [] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on. 
+- [✅]Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.. 
+- [✅] Initialize Expo App in `/apps/my-expo-app`. Use SDK 53 so that it is compatible with React 19. 
+- [🚧] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 ### Draft Tasks
-- [ ] Configure Monorepo (Update `pnpm-workspace.yaml`, create `packages/ui`).
+- [ ] Configure more Monorepo stuff for sharing code between NextJS and React Native (Update `pnpm-workspace.yaml`, create `packages/ui`). What about /apps/web/components folder? Do we move those to `packages/components/ui`?
 - [ ] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
 - [ ] Create a basic "hello world" shared component in `packages/ui`.
 - [ ] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
