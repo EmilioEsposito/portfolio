@@ -40,6 +40,15 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="shared"
+        options={{
+          title: 'Shared',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="square.stack.3d.up.fill" color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

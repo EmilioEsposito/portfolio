@@ -80,11 +80,11 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
 - [✅]Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.. 
 - [✅] Initialize Expo App in `/apps/my-expo-app`. Use SDK 53 so that it is compatible with React 19. 
-- [🚧] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
+- [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
+- [✅] Configure Monorepo for Shared UI: Set up packages/ui (Confirm `pnpm-workspace.yaml`, create `packages/ui` directory and `package.json`. Decision: Keep Expo default components in `apps/my-expo-app/components`).
+- [🚧] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`). 
 
 ### Draft Tasks
-- [ ] Configure more Monorepo stuff for sharing code between NextJS and React Native (Update `pnpm-workspace.yaml`, create `packages/ui`). What about /apps/web/components folder? Do we move those to `packages/components/ui`?
-- [ ] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`). 
 - [ ] Create a basic "hello world" shared screen in `packages`? And maybe use one of the components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
 - [ ] Test integration by rendering the shared screen in both `apps/my-expo-app` and `apps/web`.
 - [ ] Make frontend chat interface compatible with both NextJS and React Native.

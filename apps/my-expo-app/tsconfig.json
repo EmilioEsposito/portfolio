@@ -1,11 +1,14 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "baseUrl": ".",
     "strict": true,
     "paths": {
       "@/*": [
         "./*"
-      ]
+      ],
+      "@portfolio/features": ["../../packages/features"],
+      "@portfolio/ui": ["../../packages/ui"]
     }
   },
   "include": [

@@ -1,5 +1,10 @@
+const { withExpo } = require('@expo/next-adapter');
+// const { withPlugins } = require('next-compose-plugins'); // Removed
+// const withImages = require('next-images'); // Removed for now
+
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+const baseConfig = {
+  // Your existing config options remain here
   rewrites: async () => {
     // Check for the *presence* of the environment variable
     const dockerEnvVarExists = !!process.env.DOCKER_ENV;
@@ -15,7 +20,7 @@ const nextConfig = {
       // Railway hosted (Production & Development)
       backendDestination = `${process.env.CUSTOM_RAILWAY_BACKEND_URL}/api/:path*`;
     } else if (dockerEnvVarExists) {
-      // Docker local 
+      // Docker local
       // Assume if the variable exists, we are in Docker Compose
       backendDestination = "http://fastapi:8000/api/:path*";
     } else if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "production") {
@@ -45,6 +50,36 @@ const nextConfig = {
       process.env.NEXT_PUBLIC_GOOGLE_DRIVE_PICKER_API_KEY,
     NEXT_PUBLIC_GOOGLE_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
   },
+  // Add other base configurations here if needed
+  reactStrictMode: true,
 };
 
-module.exports = nextConfig;
+// Wrap the base config with Expo adapter and add necessary transpilation
+module.exports = withExpo({
+  ...baseConfig,
+  // Required for Expo packages and shared workspaces
+  transpilePackages: [
+    'react-native',
+    'expo',
+    // Add other Expo/RN packages here if needed
+    '@portfolio/features',
+    '@portfolio/ui',
+  ],
+  experimental: {
+    forceSwcTransforms: true, // Recommended for Expo/RN
+  },
+});
+
+
+// // Old configuration using next-compose-plugins
+// // Initialize Expo adapter
+// const withExpoAdapter = createExpoWebpackConfig(__dirname); // Incorrect usage
+//
+// // Combine plugins
+// module.exports = withPlugins(
+//   [
+//     [withImages, { projectRoot: __dirname }], // Process images
+//     withExpoAdapter, // Apply Expo configurations (Incorrect usage)
+//   ],
+//   nextConfig // Your existing Next.js config
+// );

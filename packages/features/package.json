@@ -1,0 +1,25 @@
+{
+  "name": "@portfolio/features",
+  "version": "0.0.0",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "license": "MIT",
+  "scripts": {
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@portfolio/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-native": "^0.73.0",
+    "eslint": "^8.57.0",
+    "react": "^19.0.0",
+    "react-native": "0.79.1",
+    "typescript": "^5.5.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-native": "*"
+  }
+}
