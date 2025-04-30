@@ -85,6 +85,6 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ### Draft Tasks
 - [ ] Configure more Monorepo stuff for sharing code between NextJS and React Native (Update `pnpm-workspace.yaml`, create `packages/ui`). What about /apps/web/components folder? Do we move those to `packages/components/ui`?
 - [ ] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`).
-- [ ] Create a basic "hello world" shared component in `packages/ui`.
-- [ ] Test integration by rendering the shared component in both `apps/native` and `apps/web`.
+- [ ] Create a basic "hello world" shared screen in `packages`?
+- [ ] Test integration by rendering the shared screen in both `apps/native` and `apps/web`.
 - [ ] Make frontend chat interface compatible with both NextJS and React Native.
