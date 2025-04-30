@@ -18,7 +18,7 @@ This is a repo for me to put various projects and tools in. Some bits I build fo
 # General Rules:
 - Feel free to make suggestions on stylistic improvements if current patterns could be significantly improved/simplified; otherwise stick to the current patterns.
 - Do not remove my comments or even commented out code. They are there for my benefit. You can suggest edits to them if they are wrong. 
-- I hate CSS. I have no desire to learn it. Keep styling simple and clean. 
+- I hate CSS. I have no desire to tweak it manually. Keep styling simple and clean. I only want to use frameworks that don't compel me to edit CSS manually (i.e. Tailwind is ok)
 - Keep credentialing simple. I am a solo developer and don't need separate credentials for each microservice. 
 - Do NOT remove functionality (e.g. remove an API route import) without asking me first. 
 - Only suggest code that is safe to deploy to main branch and production. Nothing that would require code to change on diff environments.

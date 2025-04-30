@@ -4,8 +4,14 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 
 
 ## Tech Stack:
-* Frontend: Next.js
-    * UI: [Shadcn UI](https://ui.shadcn.com/docs) & Tailwind CSS
+* Frontend: 
+    * Web: 
+        * Framework: Next.js
+        * UI: [Shadcn UI](https://ui.shadcn.com/docs)
+        * Styling: Tailwind CSS
+    * Mobile: 
+        * Framework: Expo
+        * UI: TBD - [Expo UI (Beta)](https://docs.expo.dev/versions/v53.0.0/sdk/ui/)? [React Native Reusables](https://rnr-docs.vercel.app/getting-started/introduction/)? Want something that can render on ios, android, and web.
 * Backend: [FastAPI](https://fastapi.tiangolo.com/)
     * Database: [Neon Postgres](https://neon.tech/)
 * Deployment: [Railway](https://railway.com/project/73eb837a-ba86-4899-992c-cefd0c22b91f?environmentId=455c3498-682b-4e4d-9e1f-4c13c3e9eb59)
