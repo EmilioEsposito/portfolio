@@ -8,7 +8,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@portfolio/ui": "workspace:*"
+    "@portfolio/ui": "workspace:*",
+    "@tanstack/react-table": "^8.21.2",
+    "expo-checkbox": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

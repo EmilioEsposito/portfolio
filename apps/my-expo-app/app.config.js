@@ -1,4 +1,6 @@
-{
+require('dotenv').config({ path: '../../.env.development.local' }); // Load .env from root
+
+module.exports = {
   "expo": {
     "name": "my-expo-app",
     "slug": "my-expo-app",
@@ -37,6 +39,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "clerkPublishableKey": process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
     }
   }
 }

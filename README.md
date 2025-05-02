@@ -56,6 +56,13 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
    docker compose --env-file .env.development.local up -d fastapi | tee docker_up.log       
    ```
 
+   Expo App only:
+
+   ```bash
+   docker compose --env-file .env.development.local build my-expo-app  | tee docker_build.log        
+   docker compose --env-file .env.development.local up -d my-expo-app | tee docker_up.log       
+   ```
+
     Or all in one with cache:
     ```bash
     docker compose --env-file .env.development.local up -d --build | tee docker_up_build.log       

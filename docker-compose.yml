@@ -38,8 +38,8 @@ services:
     ports:
       - "8081:8081"
     # Add env_file if Expo app needs runtime env vars from .env.development.local
-    # env_file:
-    #   - .env.development.local 
+    env_file:
+      - .env.development.local 
     networks:
       - portfolio-net
 

@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
 
@@ -7,11 +7,18 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-
+import { useAuth } from '@clerk/clerk-expo';
+import { Stack } from 'expo-router';
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { isSignedIn } = useAuth()
+
+  if (!isSignedIn) {
+    return <Stack screenOptions={{ headerShown: true }} />
+  }
 
   return (
+    
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
