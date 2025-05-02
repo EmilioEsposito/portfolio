@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/ThemedView'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { Colors } from '@/constants/Colors'
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 
 // Ensure that the dismissAuthSession function is called when the component mounts
 // This is necessary for the OAuth flow to work correctly on web platforms.
@@ -56,11 +57,10 @@ export default function Page() {
     setErrorState(null); // Clear previous errors
 
     try {
-      // The redirectUrl needs to be the same as the one configured in your Clerk dashboard.
-      // For Expo development, it's often recommended to use a deep link scheme.
-      // Let's start with a basic redirect back to the app root for now.
-      // You might need to adjust this based on your Clerk OAuth Callback URL settings and Expo linking config.
-      const redirectUrl = '/'; // Or your specific callback route if you have one
+      // Use Linking.createURL with the explicit callback path
+      const redirectUrl = Linking.createURL('/sso-callback');
+
+      console.log("Starting SSO with redirectUrl:", redirectUrl); // Log the URL
 
       const result = await startSSOFlow({
         strategy: 'oauth_google',

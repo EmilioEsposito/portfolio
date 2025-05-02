@@ -7,6 +7,7 @@ import { ThemedView } from '@/components/ThemedView'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { Colors } from '@/constants/Colors'
 import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -65,7 +66,9 @@ export default function SignUpScreen() {
     setErrorState(null)
 
     try {
-      const redirectUrl = '/';
+      const redirectUrl = Linking.createURL('/sso-callback')
+
+      console.log("Starting SSO (Sign Up) with redirectUrl:", redirectUrl)
 
       const result = await startSSOFlow({
         strategy: 'oauth_google',

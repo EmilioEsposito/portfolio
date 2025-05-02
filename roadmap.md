@@ -90,8 +90,9 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Fix some UI things on login (text vs background color & error message, sign out button styling)
 - [✅] Add Clerk Google SSO to Expo app.
 - [✅] Understand Development Testing Options (Expo Go, Simulators/Emulators, Dev Builds)
-- [🚧] Test current app state on Expo Go, iOS Simulator, and Android Emulator.
-- [ ] Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
+- [✅] Test current app state on Expo Go. Inititate download of Xcode and Android Studio.
+- [🚧] Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
+- [ ] Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
 - [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 
