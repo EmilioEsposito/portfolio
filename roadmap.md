@@ -91,12 +91,17 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Add Clerk Google SSO to Expo app.
 - [✅] Understand Development Testing Options (Expo Go, Simulators/Emulators, Dev Builds)
 - [✅] Test current app state on Expo Go. Inititate download of Xcode and Android Studio.
-- [🚧] Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
-- [ ] Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
+- [✅] Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
+- [🚧] Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
+- [ ] Get "hello world" level push notifications working on Expo app.
+- [ ] Get iOS TestFlight version of Expo app working.
+- [ ] Get Android APK version of Expo app working.
 - [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 
 ### Draft Tasks (not necessarily in this order)
-- [ ] Get "hello world" level push notifications working on Expo app.
 - [ ] MAYBE: Recreate apps/web/app/message-tenants/page.tsx in React Native, then have it render in both `apps/my-expo-app` and `apps/web`. If necessary, maybe use some of components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
-- [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native.
+- [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native. Maybe easier to just build frontends separately.
+- [ ] Task management AI. Chat experience with Trello Tools Use. Intelligent reminders, shifting due dates, etc.
+- [ ] AI Email auto-responder.
+- [ ] AI basded SMS Text escalation.
