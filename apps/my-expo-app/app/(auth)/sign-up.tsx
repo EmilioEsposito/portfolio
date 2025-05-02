@@ -161,7 +161,7 @@ export default function SignUpScreen() {
       </View>
 
       <TouchableOpacity onPress={handleGoogleSignUp} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
-        <Image source={require('@/assets/images/google_g_logo.svg')} style={styles.googleLogo} />
+        <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
         <ThemedText style={[styles.buttonText, styles.googleButtonText]}>Sign up with Google</ThemedText>
       </TouchableOpacity>
 

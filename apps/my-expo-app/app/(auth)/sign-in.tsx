@@ -135,7 +135,7 @@ export default function Page() {
 
       {/* Add Google Sign In Button */}
       <TouchableOpacity onPress={handleGoogleSignIn} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
-        <Image source={require('@/assets/images/google_g_logo.svg')} style={styles.googleLogo} />
+        <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
         <ThemedText style={[styles.buttonText, styles.googleButtonText]}>Sign in with Google</ThemedText>
       </TouchableOpacity>
       
