@@ -4,66 +4,55 @@ import { useSignUp } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
 import { ThemedText } from '@/components/ThemedText'
 import { ThemedView } from '@/components/ThemedView'
+import { useColorScheme } from '@/hooks/useColorScheme'
+import { Colors } from '@/constants/Colors'
 
 export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp()
   const router = useRouter()
+  const colorScheme = useColorScheme()
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [pendingVerification, setPendingVerification] = React.useState(false)
   const [code, setCode] = React.useState('')
+  const [errorState, setErrorState] = React.useState<string | null>(null)
 
-  // Handle submission of sign-up form
   const onSignUpPress = async () => {
     if (!isLoaded) return
-
-    console.log(emailAddress, password)
-
-    // Start sign-up process using email and password provided
+    setErrorState(null)
     try {
       await signUp.create({
         emailAddress,
         password,
       })
-
-      // Send user an email with verification code
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
-
-      // Set 'pendingVerification' to true to display second form
-      // and capture OTP code
       setPendingVerification(true)
-    } catch (err) {
-      // See https://clerk.com/docs/custom-flows/error-handling
-      // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+    } catch (err: any) {
+      console.error("Sign Up Error:", JSON.stringify(err, null, 2))
+      const firstError = err?.errors?.[0]
+      setErrorState(firstError?.longMessage || firstError?.message || 'An unknown sign-up error occurred.')
     }
   }
 
-  // Handle submission of verification form
   const onVerifyPress = async () => {
     if (!isLoaded) return
-
+    setErrorState(null)
     try {
-      // Use the code the user provided to attempt verification
       const signUpAttempt = await signUp.attemptEmailAddressVerification({
         code,
       })
-
-      // If verification was completed, set the session to active
-      // and redirect the user
       if (signUpAttempt.status === 'complete') {
         await setActive({ session: signUpAttempt.createdSessionId })
         router.replace('/')
       } else {
-        // If the status is not complete, check why. User may need to
-        // complete further steps.
         console.error(JSON.stringify(signUpAttempt, null, 2))
+        setErrorState('Verification failed. Please check the code and try again.')
       }
-    } catch (err) {
-      // See https://clerk.com/docs/custom-flows/error-handling
-      // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+    } catch (err: any) {
+      console.error("Verification Error:", JSON.stringify(err, null, 2))
+      const firstError = err?.errors?.[0]
+      setErrorState(firstError?.longMessage || firstError?.message || 'An unknown verification error occurred.')
     }
   }
 
@@ -71,14 +60,23 @@ export default function SignUpScreen() {
     return (
       <ThemedView style={styles.container}>
         <ThemedText type="title" style={styles.title}>Verify your email</ThemedText>
+        {errorState && (
+          <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+        )}
         <TextInput
           value={code}
           placeholder="Enter your verification code"
-          onChangeText={(code) => setCode(code)}
-          style={[styles.input, styles.themedInput]}
-          placeholderTextColor="#888"
+          onChangeText={(code) => { setCode(code); setErrorState(null) }}
+          style={[
+            styles.input,
+            {
+              borderColor: Colors[colorScheme ?? 'light'].icon,
+              color: Colors[colorScheme ?? 'light'].text
+            }
+          ]}
+          placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
         />
-        <TouchableOpacity onPress={onVerifyPress} style={styles.button}>
+        <TouchableOpacity onPress={onVerifyPress} style={styles.button} disabled={!isLoaded}>
           <ThemedText style={styles.buttonText}>Verify</ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -88,29 +86,40 @@ export default function SignUpScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="title" style={styles.title}>Sign up</ThemedText>
-      
+      {errorState && (
+        <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+      )}
       <TextInput
         autoCapitalize="none"
         value={emailAddress}
         placeholder="Enter email"
-        onChangeText={(email) => setEmailAddress(email)}
-        style={[styles.input, styles.themedInput]}
-        placeholderTextColor="#888"
+        onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
+        style={[
+          styles.input,
+          {
+            borderColor: Colors[colorScheme ?? 'light'].icon,
+            color: Colors[colorScheme ?? 'light'].text
+          }
+        ]}
+        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
       />
-      
       <TextInput
         value={password}
         placeholder="Enter password"
         secureTextEntry={true}
-        onChangeText={(password) => setPassword(password)}
-        style={[styles.input, styles.themedInput]}
-        placeholderTextColor="#888"
+        onChangeText={(password) => { setPassword(password); setErrorState(null) }}
+        style={[
+          styles.input,
+          {
+            borderColor: Colors[colorScheme ?? 'light'].icon,
+            color: Colors[colorScheme ?? 'light'].text
+          }
+        ]}
+        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
       />
-      
-      <TouchableOpacity onPress={onSignUpPress} style={styles.button}>
+      <TouchableOpacity onPress={onSignUpPress} style={styles.button} disabled={!isLoaded}>
         <ThemedText style={styles.buttonText}>Continue</ThemedText>
       </TouchableOpacity>
-      
       <View style={styles.linkContainer}>
         <ThemedText>Already have an account? </ThemedText>
         <Link href={{ pathname: '/sign-in' }} asChild>
@@ -130,8 +139,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    marginBottom: 30,
+    marginBottom: 20,
     textAlign: 'center',
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    marginBottom: 15,
+    fontSize: 14,
   },
   input: {
     height: 50,
@@ -141,12 +156,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
   },
-  themedInput: {
-    borderColor: '#ccc',
-    color: '#333'
-  },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: Colors.light.tint,
     paddingVertical: 15,
     borderRadius: 8,
     alignItems: 'center',

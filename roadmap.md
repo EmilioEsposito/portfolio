@@ -87,8 +87,9 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Create a basic "hello world" shared screen in `packages`? 
 - [✅] Test integration by rendering the shared screen in both `apps/my-expo-app` and `apps/web`.
 - [✅] Get Clerk basic auth working in Expo app.
-- [ ] Test Expo app in iOS/Android somehow. Are there emulators/simulators? And then what about physical devices?
+- [🚧] Fix some UI things on login (text vs background color & error message)
 - [ ] Add Clerk Google SSO to Expo app.
+- [ ] Test Expo app in iOS/Android somehow. Are there emulators/simulators? And then what about physical devices?
 - [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 

@@ -4,19 +4,22 @@ import { TextInput, TouchableOpacity, View, StyleSheet } from 'react-native'
 import React from 'react'
 import { ThemedText } from '@/components/ThemedText'
 import { ThemedView } from '@/components/ThemedView'
+import { useColorScheme } from '@/hooks/useColorScheme'
+import { Colors } from '@/constants/Colors'
 
 export default function Page() {
   const { signIn, setActive, isLoaded } = useSignIn()
   const router = useRouter()
+  const colorScheme = useColorScheme()
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
+  const [errorState, setErrorState] = React.useState<string | null>(null)
 
   // Handle the submission of the sign-in form
   const onSignInPress = async () => {
     if (!isLoaded) return
-
-    // Start the sign-in process using the email and password provided
+    setErrorState(null)
     try {
       const signInAttempt = await signIn.create({
         identifier: emailAddress,
@@ -33,10 +36,11 @@ export default function Page() {
         // complete further steps.
         console.error(JSON.stringify(signInAttempt, null, 2))
       }
-    } catch (err) {
-      // See https://clerk.com/docs/custom-flows/error-handling
-      // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+    } catch (err: any) {
+      console.error("Sign In Error:", JSON.stringify(err, null, 2))
+      // Extract user-friendly error message from Clerk
+      const firstError = err?.errors?.[0]
+      setErrorState(firstError?.longMessage || firstError?.message || 'An unknown sign-in error occurred.')
     }
   }
 
@@ -44,25 +48,41 @@ export default function Page() {
     <ThemedView style={styles.container}>
       <ThemedText type="title" style={styles.title}>Sign in</ThemedText>
       
+      {errorState && (
+        <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+      )}
+
       <TextInput
         autoCapitalize="none"
         value={emailAddress}
         placeholder="Enter email"
-        onChangeText={(emailAddress) => setEmailAddress(emailAddress)}
-        style={[styles.input, styles.themedInput]}
-        placeholderTextColor="#888"
+        onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
+        style={[
+          styles.input,
+          { 
+            borderColor: Colors[colorScheme ?? 'light'].icon, 
+            color: Colors[colorScheme ?? 'light'].text 
+          }
+        ]}
+        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
       />
       
       <TextInput
         value={password}
         placeholder="Enter password"
         secureTextEntry={true}
-        onChangeText={(password) => setPassword(password)}
-        style={[styles.input, styles.themedInput]}
-        placeholderTextColor="#888"
+        onChangeText={(pass) => { setPassword(pass); setErrorState(null) }}
+        style={[
+          styles.input, 
+          { 
+            borderColor: Colors[colorScheme ?? 'light'].icon, 
+            color: Colors[colorScheme ?? 'light'].text 
+          }
+        ]}
+        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
       />
       
-      <TouchableOpacity onPress={onSignInPress} style={styles.button}>
+      <TouchableOpacity onPress={onSignInPress} style={styles.button} disabled={!isLoaded}>
         <ThemedText style={styles.buttonText}>Continue</ThemedText>
       </TouchableOpacity>
       
@@ -85,8 +105,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    marginBottom: 30,
+    marginBottom: 20,
     textAlign: 'center',
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    marginBottom: 15,
+    fontSize: 14,
   },
   input: {
     height: 50,
@@ -96,12 +122,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
   },
-  themedInput: {
-    borderColor: '#ccc',
-    color: '#333'
-  },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: Colors.light.tint,
     paddingVertical: 15,
     borderRadius: 8,
     alignItems: 'center',
