@@ -1,24 +1,24 @@
 # Legend
-🚧 indicate the current in progress epics/tasks
-⏸️ indicate the paused epics/tasks
-✅ indicate the completed epics/tasks
-[ ] indicate the epics/tasks that are not started yet
+* 🚧 indicate the current in progress epics/tasks
+* ⏸️ indicate the paused epics/tasks
+* ✅ indicate the completed epics/tasks
+* [ ] indicate the epics/tasks that are not started yet
 
 # Epics Table of Contents
-- [⏸️] [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
-- [🚧] [Incorporate React Native](roadmap.md#incorporate-react-native)
-- [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
-- [ ] Augment FastAPI Chat with custom Tools Usage Functions (sending/receiving emails/texts)
+* ⏸️ [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
+* 🚧 [Incorporate React Native](roadmap.md#incorporate-react-native)
+* [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
+* [ ] Augment FastAPI Chat with custom Tools Usage Functions (sending/receiving emails/texts)
 
 
 # Epics
 ## Migrate from Vercel to Railway
 
-- [✅] Dockerize the FastAPI and NextJS apps
-- [✅] Get it running on Railway
-- [✅] Remove Vercel specific code
-- [✅] Changed domains to be Cloudflare managed and added Railway settings
-- [] Finalize domain transfer to Cloudflare billing - Not Urgent. Due Date [2025-05-01]
+* ✅ Dockerize the FastAPI and NextJS apps
+* ✅ Get it running on Railway
+* ✅ Remove Vercel specific code
+* ✅ Changed domains to be Cloudflare managed and added Railway settings
+* [ ] Finalize domain transfer to Cloudflare billing. Not Urgent. Due Date [2025-05-01]
 
 ## Incorporate React Native
 
@@ -77,31 +77,31 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 [Emilio]: Ok, this sounds good. Let's break this up into stages so that we can test for breakages and fix them after each stage, which is easier than trying to do every single change then fixing things after. E.g. maybe let's first just try some of the restructuring before even introducing any RN/expo code?
 
 ### Tasks
-- [✅] Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
-- [✅]Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.. 
-- [✅] Initialize Expo App in `/apps/my-expo-app`. Use SDK 53 so that it is compatible with React 19. 
-- [✅] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
-- [✅] Configure Monorepo for Shared UI: Set up packages/ui (Confirm `pnpm-workspace.yaml`, create `packages/ui` directory and `package.json`. Decision: Keep Expo default components in `apps/my-expo-app/components`).
-- [✅] Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`). 
+* ✅ Move NextJS app under /apps/web to enable a sort of monorepo structure since NextJS and React Native can share code.  
+* ✅ Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.. 
+* ✅ Initialize Expo App in `/apps/my-expo-app`. Use SDK 53 so that it is compatible with React 19. 
+* ✅ Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
+* ✅ Configure Monorepo for Shared UI: Set up packages/ui (Confirm `pnpm-workspace.yaml`, create `packages/ui` directory and `package.json`. Decision: Keep Expo default components in `apps/my-expo-app/components`).
+* ✅ Integrate Expo with Next.js (Install and configure `@expo/next-adapter` in `apps/web`). 
 
-- [✅] Create a basic "hello world" shared screen in `packages`? 
-- [✅] Test integration by rendering the shared screen in both `apps/my-expo-app` and `apps/web`.
-- [✅] Get Clerk basic auth working in Expo app.
-- [✅] Fix some UI things on login (text vs background color & error message, sign out button styling)
-- [✅] Add Clerk Google SSO to Expo app.
-- [✅] Understand Development Testing Options (Expo Go, Simulators/Emulators, Dev Builds)
-- [✅] Test current app state on Expo Go. Inititate download of Xcode and Android Studio.
-- [✅] Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
-- [🚧] Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
-- [ ] Get "hello world" level push notifications working on Expo app.
-- [ ] Get iOS TestFlight version of Expo app working.
-- [ ] Get Android APK version of Expo app working.
-- [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
+* ✅ Create a basic "hello world" shared screen in `packages`? 
+* ✅ Test integration by rendering the shared screen in both `apps/my-expo-app` and `apps/web`.
+* ✅ Get Clerk basic auth working in Expo app.
+* ✅ Fix some UI things on login (text vs background color & error message, sign out button styling)
+* ✅ Add Clerk Google SSO to Expo app.
+* ✅ Understand Development Testing Options (Expo Go, Simulators/Emulators, Dev Builds)
+* ✅ Test current app state on Expo Go. Inititate download of Xcode and Android Studio.
+* ✅ Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
+* 🚧 Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
+* [ ] Get "hello world" level push notifications working on Expo app.
+* [ ] Get iOS TestFlight version of Expo app working.
+* [ ] Get Android APK version of Expo app working.
+* [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 
 ### Draft Tasks (not necessarily in this order)
-- [ ] MAYBE: Recreate apps/web/app/message-tenants/page.tsx in React Native, then have it render in both `apps/my-expo-app` and `apps/web`. If necessary, maybe use some of components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
-- [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native. Maybe easier to just build frontends separately.
-- [ ] Task management AI. Chat experience with Trello Tools Use. Intelligent reminders, shifting due dates, etc.
-- [ ] AI Email auto-responder.
-- [ ] AI basded SMS Text escalation.
+* [ ] MAYBE: Recreate apps/web/app/message-tenants/page.tsx in React Native, then have it render in both `apps/my-expo-app` and `apps/web`. If necessary, maybe use some of components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
+* [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native. Maybe easier to just build frontends separately.
+* [ ] Task management AI. Chat experience with Trello Tools Use. Intelligent reminders, shifting due dates, etc.
+* [ ] AI Email auto-responder.
+* [ ] AI basded SMS Text escalation.
