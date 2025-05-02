@@ -1,14 +1,18 @@
 import * as React from 'react'
-import { TextInput, TouchableOpacity, View, StyleSheet } from 'react-native'
-import { useSignUp } from '@clerk/clerk-expo'
+import { TextInput, TouchableOpacity, View, StyleSheet, Image } from 'react-native'
+import { useSignUp, useSSO } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
 import { ThemedText } from '@/components/ThemedText'
 import { ThemedView } from '@/components/ThemedView'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { Colors } from '@/constants/Colors'
+import * as WebBrowser from 'expo-web-browser'
+
+WebBrowser.maybeCompleteAuthSession()
 
 export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp()
+  const { startSSOFlow } = useSSO()
   const router = useRouter()
   const colorScheme = useColorScheme()
 
@@ -55,6 +59,31 @@ export default function SignUpScreen() {
       setErrorState(firstError?.longMessage || firstError?.message || 'An unknown verification error occurred.')
     }
   }
+
+  const handleGoogleSignUp = React.useCallback(async () => {
+    if (!isLoaded) return
+    setErrorState(null)
+
+    try {
+      const redirectUrl = '/';
+
+      const result = await startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl,
+      })
+
+      if (result.createdSessionId) {
+        setActive({ session: result.createdSessionId })
+        router.replace('/')
+      } else {
+        console.log('Google SSO flow did not create a session during sign-up:', result)
+      }
+    } catch (err: any) {
+      console.error("Google SSO Error (Sign Up):", JSON.stringify(err, null, 2))
+      const firstError = err?.errors?.[0]
+      setErrorState(firstError?.longMessage || firstError?.message || 'An unknown Google Sign-Up error occurred.')
+    }
+  }, [isLoaded, startSSOFlow, setActive, router])
 
   if (pendingVerification) {
     return (
@@ -118,8 +147,21 @@ export default function SignUpScreen() {
         placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
       />
       <TouchableOpacity onPress={onSignUpPress} style={styles.button} disabled={!isLoaded}>
-        <ThemedText style={styles.buttonText}>Continue</ThemedText>
+        <ThemedText style={styles.buttonText}>Sign up with Email</ThemedText>
       </TouchableOpacity>
+
+      {/*horizontal line with "OR" text in the middle*/}
+      <View style={styles.orLineContainer}>
+        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
+        <ThemedText style={styles.orText}>or</ThemedText>
+        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
+      </View>
+
+      <TouchableOpacity onPress={handleGoogleSignUp} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
+        <Image source={require('@/assets/images/google_g_logo.svg')} style={styles.googleLogo} />
+        <ThemedText style={[styles.buttonText, styles.googleButtonText]}>Sign up with Google</ThemedText>
+      </TouchableOpacity>
+
       <View style={styles.linkContainer}>
         <ThemedText>Already have an account? </ThemedText>
         <Link href={{ pathname: '/sign-in' }} asChild>
@@ -161,7 +203,16 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 8,
     alignItems: 'center',
+    marginBottom: 15,
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#DADCE0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonText: {
     color: '#fff',
@@ -173,5 +224,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10,
+  },
+  googleLogo: {
+    width: 18,
+    height: 18,
+    marginRight: 10,
+  },
+  googleButtonText: {
+    color: '#3C4043',
+    fontWeight: '500',
+  },
+  // Styles for the 'or' divider
+  orLineContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 15, // Added vertical margin
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    // backgroundColor will be set dynamically based on colorScheme
+  },
+  orText: {
+    marginHorizontal: 10,
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.light.icon, // Use a subtle color, adjust if needed for dark mode
   },
 });

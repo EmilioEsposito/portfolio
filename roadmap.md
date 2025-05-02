@@ -88,12 +88,14 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 - [✅] Test integration by rendering the shared screen in both `apps/my-expo-app` and `apps/web`.
 - [✅] Get Clerk basic auth working in Expo app.
 - [✅] Fix some UI things on login (text vs background color & error message)
-- [🚧] Add Clerk Google SSO to Expo app.
+- [✅] Add Clerk Google SSO to Expo app.
+
 - [ ] Test Expo app in iOS/Android somehow. Are there emulators/simulators? And then what about physical devices?
 - [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
 
 ### Draft Tasks (not necessarily in this order)
+- [ ] Fix Google SSO popup login quirk
 - [ ] Get "hello world" level push notifications working on Expo app.
 - [ ] MAYBE: Recreate apps/web/app/message-tenants/page.tsx in React Native, then have it render in both `apps/my-expo-app` and `apps/web`. If necessary, maybe use some of components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
 - [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native.
