@@ -23,7 +23,11 @@ module.exports = {
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.eesposito.portfolio",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -58,6 +62,12 @@ module.exports = {
       "eas": {
         "projectId": "27de649a-d093-4196-a459-e6f1d94ed905"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/27de649a-d093-4196-a459-e6f1d94ed905"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
