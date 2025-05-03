@@ -105,6 +105,16 @@ Locally, the file that takes all precedence is `.env.development.local`.
 
 TODO: Document Railway CLI commands for env variables so AI can help
 
+Expo-go will need the local IP address of the machine running the backend. Run this to update the environment variable in .env.development.local:
+```bash
+# Update the CUSTOM_RAILWAY_BACKEND_URL environment variable in .env.development.local
+# This command checks if the variable exists, and if so, updates it with the current IP address
+# Otherwise, it adds the variable to the file
+grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env.development.local \
+  && sed -i '' "s|^CUSTOM_RAILWAY_BACKEND_URL=.*|CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000|" .env.development.local \
+  || echo "CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000" >> .env.development.local
+```
+
 
 ## 3rd Party Stuff
 

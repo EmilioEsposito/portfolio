@@ -93,8 +93,9 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Test current app state on Expo Go. Inititate download of Xcode and Android Studio.
 * ✅ Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
 * ✅ Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
-* 🚧 Get "hello world" level push notifications working on Expo app.
-* [ ] Get iOS TestFlight version of Expo app working.
+* ✅ Get "hello world" level push notifications working on Expo app.
+* 🚧 Get iOS TestFlight version of Expo app working.
+* [ ] Create user model/service in FastAPI app that logs all Clerk users. Clerk credit/update/delete webhooks call the service's routes and creates/update/delete the user in my user table.
 * [ ] Get Android APK version of Expo app working.
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
