@@ -10,7 +10,10 @@
     "start": "pnpm --filter ./apps/web start",
     "lint": "pnpm --filter ./apps/web lint",
     "fastapi-dev": "pip3 install -r api/requirements.txt && python3 -m hypercorn api.index:app --reload -b 0.0.0.0:8000",
-    "expo": "pnpm --filter ./apps/my-expo-app web"
+    "expo": "pnpm --filter ./apps/my-expo-app web",
+    "eas-build-local": "cd apps/my-expo-app && eas build --profile local --local --platform ios",
+    "eas-build-dev": "cd apps/my-expo-app && eas build --profile development --platform ios",
+    "eas-build-prod": "cd apps/my-expo-app && eas build --profile production --platform ios"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
