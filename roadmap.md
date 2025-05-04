@@ -94,9 +94,9 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Fix Google SSO popup login quirk. Think it happens on web+mobile. On mobile it just hangs, on web it just continues in new window.
 * ✅ Test current app state on iOS Simulator (Xcode), and Android Emulator (Android Studio).
 * ✅ Get "hello world" level push notifications working on Expo app.
-* ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval)
 * ✅ Do EAS build locally (and make sure we can change env variables for dev/prod keys, like for Clerk and CUSTOM_RAILWAY_BACKEND_URL).
 * 🚧 Create user model/service in FastAPI app that logs all Clerk users. Clerk credit/update/delete webhooks call the service's routes and creates/update/delete the user in my user table.
+* ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
 * [ ] Get Android APK version of Expo app working.
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
