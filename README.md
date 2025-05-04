@@ -15,7 +15,7 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 * Backend: [FastAPI](https://fastapi.tiangolo.com/)
     * Database: [Neon Postgres](https://neon.tech/)
 * Deployment: [Railway](https://railway.com/project/73eb837a-ba86-4899-992c-cefd0c22b91f?environmentId=455c3498-682b-4e4d-9e1f-4c13c3e9eb59)
-* Package Managers: pnpm and pip
+* Package Managers: pnpm and uv
 
 ## Setup
 
@@ -23,12 +23,15 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 1. Sign up for accounts with the AI providers you want to use (e.g., OpenAI, Anthropic).
 2. Obtain API keys for each provider.
 3. Set the required environment variables as shown in the `.env.example` file, but in a new file called `.env`.
-4. `pnpm install` to install the required Node dependencies.
-5. `virtualenv venv` to create a virtual environment.
-6. `source venv/bin/activate` to activate the virtual environment.
-7. `pip install -r requirements.txt` to install the required Python dependencies.
-8. `pnpm dev` to launch the development server.
-9. Install and use [Railway CLI](https://docs.railway.com/guides/cli)
+4. Install [pnpm](https://pnpm.io/installation) if you don't have it.
+5. Install [uv](https://github.com/astral-sh/uv#installation) if you don't have it.
+6. `pnpm install` to install the required Node dependencies.
+7. `uv venv` to create a virtual environment named `.venv`.
+8. `source .venv/bin/activate` (or `\.venv\Scripts\activate` on Windows) to activate the virtual environment.
+9. `uv sync -p python3.11` to install Python dependencies from `pyproject.toml` (using Python 3.11).
+10. `uv sync --dev -p python3.11` to install optional dev dependencies.
+11. `pnpm dev` to launch the development server (or see other scripts in `package.json`).
+12. Install and use [Railway CLI](https://docs.railway.com/guides/cli)
 
 ## Docker Setup
 
@@ -52,7 +55,7 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
    Backend FastAPI only:
 
    ```bash
-   docker compose --env-file .env.development.local build fastapi  | tee docker_build.log        
+   docker compose --env-file .env.development.local build fastapi --no-cache | tee docker_build.log        
    docker compose --env-file .env.development.local up -d fastapi | tee docker_up.log       
    ```
 

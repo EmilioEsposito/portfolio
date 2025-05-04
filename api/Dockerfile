@@ -3,18 +3,33 @@ FROM python:3.11-slim
 
 RUN echo ">>> Building BACKEND..."
 
+# https://docs.astral.sh/uv/guides/integration/docker/
+# Install uv by copying the binary
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 WORKDIR /app
 
-# Copy the api directory contents into the /app/api directory
+# Define path for the virtual environment relative to WORKDIR & create it
+# uv sync seems to prefer/default to `.venv` in the project root
+ENV VENV_PATH=.venv 
+RUN uv venv $VENV_PATH
+
+# Set VIRTUAL_ENV so uv targets it automatically
+ENV VIRTUAL_ENV=$VENV_PATH 
+# Add the venv's bin directory to the PATH 
+ENV PATH="$VENV_PATH/bin:$PATH"
+
+# Copy project files
+COPY pyproject.toml uv.lock* ./
 COPY api/ ./api/
 
 ENV PYTHONPATH=/app
 
-# Install dependencies
-RUN pip install --no-cache-dir -r ./api/requirements.txt
+# Install dependencies into the virtual environment using uv sync
+# VIRTUAL_ENV is set to .venv, uv sync should install here
+RUN uv sync
 
-# Expose the port the API runs on (default 8000)
-# Note: Railway might assign a different port via the PORT env var.
+# Expose the port (the PORT on Railway app is hardcoded to 8000)
 EXPOSE 8000
 
 # Command to run the Hypercorn server
