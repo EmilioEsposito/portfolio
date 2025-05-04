@@ -23,6 +23,7 @@ from api.src.cron import router as cron_router
 from api.src.google.common.routes import router as google_router
 from api.src.examples.routes import router as examples_router
 from api.src.push.routes import router as push_router
+from api.src.user.routes import router as user_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
@@ -210,6 +211,7 @@ app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")
 app.include_router(examples_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
+app.include_router(user_router, prefix="/api")
 
 
 @app.get("/api/hello")

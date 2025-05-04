@@ -12,7 +12,7 @@ This is a repo for me to put various projects and tools in. Some bits I build fo
 * Backend: [FastAPI](mdc:https:/fastapi.tiangolo.com) - contained under `/api/` directory 
     * Database: [Neon Postgres](mdc:https:/neon.tech)
 * Deployment: @Railway
-* Package Managers: pnpm and pip
+* Package Managers: pnpm and uv
 * Roadmap: Refer to the [roadmap.md](mdc:roadmap.md) file to understand the context of what was recently done, what is in progress, and what the future entails. 
 
 # General Rules:
