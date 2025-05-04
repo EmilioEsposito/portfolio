@@ -31,6 +31,12 @@ const examples = [
     description: "A reusable multi-select component built with Shadcn UI and Radix UI. Features search, keyboard navigation, and custom styling.",
     href: "/examples/multi-select",
     tags: ["React", "Shadcn UI", "Radix UI", "TypeScript"]
+  },
+  {
+    title: "Shared React Native Component (Expo + Next.js)",
+    description: "Demonstrates rendering a basic component defined in a shared package (`@portfolio/features`) within both an Expo app and a Next.js web page.",
+    href: "/examples/react-native-shared",
+    tags: ["React Native", "Expo", "Next.js", "Monorepo", "Shared Code"]
   }
 ]
 

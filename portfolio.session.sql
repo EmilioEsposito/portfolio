@@ -97,3 +97,5 @@ WHERE
     array_length(label_ids, 1) > 1;
 ;
 
+
+SELECT * FROM push_tokens;

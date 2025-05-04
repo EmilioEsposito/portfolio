@@ -36,12 +36,27 @@
             "justMyCode": false
         },
         {
-            "name": "Full Stack",
+            "name": "Expo App",
             "type": "node",
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "dev-with-fastapi"
+                "expo"
+            ],
+            "console": "integratedTerminal",
+            "serverReadyAction": {
+                "pattern": "Web:.+(https?://.+)",
+                "uriFormat": "%s",
+                "action": "debugWithChrome"
+            }
+        },
+        {
+            "name": "Full Stack (FastAPI + Next.js via Script)",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": [
+                "fastapi-dev"
             ],
             "console": "integratedTerminal",
             "env": {
@@ -49,9 +64,7 @@
                 "NEXT_TURBO": "1"
             },
             "serverReadyAction": {
-                "pattern": "- Local:.+(https?://.+)",
-                "uriFormat": "%s",
-                "action": "debugWithChrome"
+                "action": "openExternally"
             }
         },
         {
@@ -65,12 +78,16 @@
     ],
     "compounds": [
         {
-            "name": "Full Stack (Compound)",
-            "configurations": ["FastAPI Backend", "Next.js Frontend"],
+            "name": "Full Stack + Expo (Compound)",
+            "configurations": [
+                "FastAPI Backend",
+                "Next.js Frontend",
+                "Expo App"
+            ],
             "presentation": {
                 "hidden": false,
                 "group": "fullstack",
-                "order": 2
+                "order": 1
             },
             "stopAll": true
         }

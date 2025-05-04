@@ -4,8 +4,14 @@ This is my portfolio/sandbox website that I use to just play around with new tec
 
 
 ## Tech Stack:
-* Frontend: Next.js
-    * UI: [Shadcn UI](https://ui.shadcn.com/docs) & Tailwind CSS
+* Frontend: 
+    * Web: 
+        * Framework: Next.js
+        * UI: [Shadcn UI](https://ui.shadcn.com/docs)
+        * Styling: Tailwind CSS
+    * Mobile: 
+        * Framework: Expo
+        * UI: TBD - [Expo UI (Beta)](https://docs.expo.dev/versions/v53.0.0/sdk/ui/)? [React Native Reusables](https://rnr-docs.vercel.app/getting-started/introduction/)? Want something that can render on ios, android, and web.
 * Backend: [FastAPI](https://fastapi.tiangolo.com/)
     * Database: [Neon Postgres](https://neon.tech/)
 * Deployment: [Railway](https://railway.com/project/73eb837a-ba86-4899-992c-cefd0c22b91f?environmentId=455c3498-682b-4e4d-9e1f-4c13c3e9eb59)
@@ -50,6 +56,13 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
    docker compose --env-file .env.development.local up -d fastapi | tee docker_up.log       
    ```
 
+   Expo App only:
+
+   ```bash
+   docker compose --env-file .env.development.local build my-expo-app  | tee docker_build.log        
+   docker compose --env-file .env.development.local up -d my-expo-app | tee docker_up.log       
+   ```
+
     Or all in one with cache:
     ```bash
     docker compose --env-file .env.development.local up -d --build | tee docker_up_build.log       
@@ -91,6 +104,16 @@ This project uses Railway for deployment and environment variable management.
 Locally, the file that takes all precedence is `.env.development.local`. 
 
 TODO: Document Railway CLI commands for env variables so AI can help
+
+Expo-go will need the local IP address of the machine running the backend. Run this to update the environment variable in .env.development.local:
+```bash
+# Update the CUSTOM_RAILWAY_BACKEND_URL environment variable in .env.development.local
+# This command checks if the variable exists, and if so, updates it with the current IP address
+# Otherwise, it adds the variable to the file
+grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env.development.local \
+  && sed -i '' "s|^CUSTOM_RAILWAY_BACKEND_URL=.*|CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000|" .env.development.local \
+  || echo "CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000" >> .env.development.local
+```
 
 
 ## 3rd Party Stuff

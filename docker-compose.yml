@@ -30,6 +30,18 @@ services:
       - fastapi
     networks:
       - portfolio-net
+  my-expo-app:
+    build:
+      context: .
+      dockerfile: apps/my-expo-app/Dockerfile
+    container_name: portfolio-expo
+    ports:
+      - "8081:8081"
+    # Add env_file if Expo app needs runtime env vars from .env.development.local
+    env_file:
+      - .env.development.local 
+    networks:
+      - portfolio-net
 
 networks:
   portfolio-net:

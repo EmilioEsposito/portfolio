@@ -3,17 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "reinstall": "rm -rf node_modules && rm -rf pnpm-lock.yaml && rm -rf apps/web/node_modules && rm -rf apps/my-expo-app/node_modules && pnpm install",
     "dev": "pnpm --filter ./apps/web dev",
-    "dev-with-fastapi": "pnpm --filter ./apps/web dev-with-fastapi",
+    "dev-with-fastapi": "concurrently \"next dev\" \"pip3 install -r api/requirements.txt && python3 -m hypercorn api.index:app --reload -b 0.0.0.0:8000\"",
     "build": "pnpm --filter ./apps/web build",
     "start": "pnpm --filter ./apps/web start",
-    "lint": "pnpm --filter ./apps/web lint"
+    "lint": "pnpm --filter ./apps/web lint",
+    "fastapi-dev": "pip3 install -r api/requirements.txt && python3 -m hypercorn api.index:app --reload -b 0.0.0.0:8000",
+    "expo": "pnpm --filter ./apps/my-expo-app web",
+    "eas-build-local": "cd apps/my-expo-app && eas build --profile local --local --platform ios",
+    "eas-build-dev": "cd apps/my-expo-app && eas build --profile development --platform ios",
+    "eas-build-prod": "cd apps/my-expo-app && eas build --profile production --platform ios"
   },
   "devDependencies": {
-    "typescript": "^5", 
-    "eslint": "^8", 
-    "@types/node": "^20", 
-    "@types/react": "^19", 
-    "@types/react-dom": "^19" 
+    "@types/node": "^22.15.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3"
   }
-} 
+}

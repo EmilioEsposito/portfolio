@@ -14,6 +14,7 @@ from api.src.examples.models import *  # noqa
 from api.src.google.gmail.models import *  # noqa
 from api.src.oauth.models import *  # noqa
 from api.src.open_phone.models import *  # noqa
+from api.src.push.models import *  # noqa
 from api.src.database.database import DATABASE_URL, engine, Base
 
 
