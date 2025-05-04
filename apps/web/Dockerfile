@@ -27,6 +27,14 @@ COPY pnpm-workspace.yaml ./
 COPY package.json ./
 COPY pnpm-lock.yaml ./
 
+# Copy the shared packages required by the web app
+RUN mkdir -p packages/ui
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/ui/. ./packages/ui/
+RUN mkdir -p packages/features
+COPY packages/features/package.json ./packages/features/
+COPY packages/features/. ./packages/features/
+
 # Copy the web app's source code and package.json
 # Create the directory structure first
 RUN mkdir -p apps/web

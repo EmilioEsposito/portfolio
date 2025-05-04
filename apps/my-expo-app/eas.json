@@ -1,0 +1,59 @@
+{
+  "cli": {
+    "version": ">= 9.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "local": {
+      "developmentClient": true, 
+      "distribution": "internal", 
+      "channel": "local",         
+      "env": {
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "DUMMY_USES_ENV_FILE_VIA_APP_CONFIG_JS_INSTEAD", 
+        "CUSTOM_RAILWAY_BACKEND_URL": "DUMMY_USES_ENV_FILE_VIA_APP_CONFIG_JS_INSTEAD"
+      },
+      "ios": {
+        "simulator": true 
+      },
+      "android": {
+        
+      }
+    },
+    "development": {
+      "developmentClient": false, 
+      "distribution": "internal", 
+      "channel": "development",   
+      "env": {
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "${secrets.DEV_EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}", 
+        "CUSTOM_RAILWAY_BACKEND_URL": "${secrets.DEV_CUSTOM_RAILWAY_BACKEND_URL}"      
+      },
+      "ios": {
+        
+      },
+      "android": {
+        
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "developmentClient": false,
+      "distribution": "store",     
+      "channel": "production",     
+      "env": {
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "${secrets.PROD_EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}", 
+        "CUSTOM_RAILWAY_BACKEND_URL": "${secrets.PROD_CUSTOM_RAILWAY_BACKEND_URL}"      
+      },
+      "ios": {
+        
+      },
+      "android": {
+        "buildType": "app-bundle" 
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      
+    }
+  }
+} 
