@@ -1,14 +1,17 @@
 #!/bin/sh
 echo "DB_MIGRATION: STARTING..."
 
-# Install dependencies
-echo "DB_MIGRATION: INSTALLING DEPENDENCIES..."
-pip3 install -r requirements.txt --quiet --disable-pip-version-check --root-user-action=ignore
+# Define the virtual environment path (must match Dockerfile)
+VENV_PATH=/opt/venv
 
-# Set PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+# Install dependencies using uv (if needed in this context - often dependencies are already in the image)
+# echo "DB_MIGRATION: INSTALLING DEPENDENCIES..."
+# uv sync --quiet # Assuming uv is available and pyproject.toml/uv.lock are present
 
-# Run migrations
+# Set PYTHONPATH (adjust if needed)
+# export PYTHONPATH=$PYTHONPATH:$(pwd)
+
+# Run migrations using the virtual environment's Python
 echo "DB_MIGRATION: RUNNING MIGRATIONS..."
-python3 -m alembic upgrade head
+$VENV_PATH/bin/python3 -m alembic upgrade head
 echo "DB_MIGRATION: COMPLETED"

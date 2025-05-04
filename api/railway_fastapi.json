@@ -6,7 +6,9 @@
     "watchPatterns": [
       "railway_fastapi.json",
       "api/**",
-      "alembic.ini"
+      "alembic.ini",
+      "pyproject.toml",
+      "uv.lock"
     ]
   }
 }

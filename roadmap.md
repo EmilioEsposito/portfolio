@@ -96,7 +96,7 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Get "hello world" level push notifications working on Expo app.
 * ✅ Do EAS build locally (and make sure we can change env variables for dev/prod keys, like for Clerk and CUSTOM_RAILWAY_BACKEND_URL).
 * ✅ Create user model/service in FastAPI app that logs all Clerk users. Clerk credit/update/delete webhooks call the service's routes and creates/update/delete the user in my user table.
-* 🚧 migrate to uv for python package management.
+* ✅ migrate to uv for python package management.
 * ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
 * [ ] Get Android APK version of Expo app working.
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
