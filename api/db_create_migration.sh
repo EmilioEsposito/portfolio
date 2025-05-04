@@ -15,5 +15,5 @@ if [ "$commit_migration" = "y" ]; then
     alembic upgrade head
     echo "Migration committed"
 else
-    echo "Migration not committed. Run 'bash db_run_migration.sh' to commit the migration"
+    echo "Migration not committed. Run 'sh api/db_run_migration.sh' to commit the migration"
 fi

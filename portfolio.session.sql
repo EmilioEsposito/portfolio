@@ -98,4 +98,20 @@ WHERE
 ;
 
 
-SELECT * FROM push_tokens;
+SELECT
+    received_date,
+    created_at,
+    created_at - received_date AS time_to_receive,
+    e.subject
+
+FROM
+    email_messages AS e
+WHERE
+    'Label_5289438082921996324' = ANY(e.label_ids) -- label: zillowlisting
+    AND 'INBOX' = ANY(e.label_ids) -- label: inbox
+    AND e.subject NOT ilike 'Re%' -- not a reply
+    AND e.received_date > CURRENT_DATE - INTERVAL '1 week'
+ORDER BY
+    created_at DESC
+LIMIT
+    10;
