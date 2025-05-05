@@ -98,8 +98,9 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Create user model/service in FastAPI app that logs all Clerk users. Clerk credit/update/delete webhooks call the service's routes and creates/update/delete the user in my user table.
 * ✅ migrate to uv for python package management.
 * ✅ Update user module README.md 
-- [🚧] fix bug on expo web token registration.
-- [ ] Install FastMCP
+* ✅ fix bug on expo web token registration (Added Platform check).
+* ✅ Fix Expo web crash when rendering shared components from packages (`useContext` error).
+* [🚧] Install FastMCP
 * ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
 * [ ] Get Android APK version of Expo app working.
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.

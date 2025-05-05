@@ -18,6 +18,12 @@ Notifications.setNotificationHandler({
 
 // Function to register for push notifications and get the token
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
+  // Explicitly return null for web platform as Expo push tokens aren't applicable/retrievable here
+  if (Platform.OS === 'web') {
+    console.log('Skipping push notification registration on web platform.');
+    return null;
+  }
+
   let token: string | null = null;
 
   if (Platform.OS === 'android') {
