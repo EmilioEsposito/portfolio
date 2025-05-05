@@ -4,7 +4,7 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 from pydantic import BaseModel
 import base64
 from typing import List, Optional, Any
-from .attachment import ClientAttachment
+from api.src.chat.attachment import ClientAttachment
 
 class ToolInvocationState(str, Enum):
     CALL = 'call'

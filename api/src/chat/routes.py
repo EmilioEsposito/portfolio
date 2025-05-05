@@ -7,8 +7,8 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
-from api.src.utils.prompt import ClientMessage, convert_to_openai_messages
-from api.src.utils.tools import get_current_weather
+from api.src.chat.prompt import ClientMessage, convert_to_openai_messages
+from api.src.chat.tools import get_current_weather
 import os
 import logging
 
