@@ -1,6 +1,6 @@
 # Portfolio
 
-A monorepo for personal learning projects and production services for my rental real estate business, Sernia Capital LLC. 
+A monorepo for personal learning projects and production AI-based services for my rental real estate business, Sernia Capital LLC. 
 
 
 ## Tech Stack:
