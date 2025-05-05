@@ -5,11 +5,9 @@
 * [ ] indicate the epics/tasks that are not started yet
 
 # Epics Table of Contents
-* ⏸️ [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
-* 🚧 [Incorporate React Native](roadmap.md#incorporate-react-native)
-* [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
-* [ ] Augment FastAPI Chat with custom Tools Usage Functions (sending/receiving emails/texts)
-
+* ✅ [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
+* ⏸️ [Incorporate React Native](roadmap.md#incorporate-react-native)
+* 🚧 AI Assistant - Chat with FastMCP Tools(Email/SMS/Trello/AP Scheduler) + Push Notifications Reminders.
 
 # Epics
 ## Migrate from Vercel to Railway
@@ -47,7 +45,6 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ```text 
 /portfolio (repo root)
 ├── api/          # Your existing FastAPI app (can stay here for now since it won't share code with the other apps, and makes it easier given existing structure)
-│   ├── requirements.txt
 │   ├── railway_fastapi.json
 │   ├── Dockerfile
 │   └── etc...
@@ -58,12 +55,19 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 │   │   ├── Dockerfile
 │   │   └── etc...
 │   ├── my-expo-app/       # Your new Expo (React Native) app
-│   │   ├── <tbd>
-│   │   ├── <tbd>
+│   │   ├── package.json
+│   │   ├── app.config.js
+│   │   ├── metro.config.js
+│   │   ├── Dockerfile
 │   │   └── etc...
 ├── packages/
-│   └── etc...
-├── venv/
+│   ├── features/
+│   │   ├── package.json
+│   │   └── etc...
+│   └── ui/
+│       ├── package.json
+│       └── etc...
+├── .venv/  # Python virtual environment
 ├── docker-compose.yaml
 ├── package.json     # Root package.json configuring pnpm workspaces
 ├── pnpm-workspace.yaml # Defines workspace locations
@@ -71,6 +75,8 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ├── .env.development.local
 ├── README.md
 ├── roadmap.md
+├── pyproject.toml
+├── uv.lock
 └── ...
 ```
 
@@ -100,15 +106,39 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Update user module README.md 
 * ✅ fix bug on expo web token registration (Added Platform check).
 * ✅ Fix Expo web crash when rendering shared components from packages (`useContext` error).
-* [🚧] Install FastMCP
 * ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
-* [ ] Get Android APK version of Expo app working.
+* ⏸️ Get Android APK version of Expo app working.
+
+
+## AI Assistant
+
+### Description:
+A true AI assistant that has access to various Sernia Capital Tools. Chat with FastMCP Tools(Email/OpenPhone SMS/Trello/AP Scheduler) + Push Notifications Reminders.
+
+### Services to build:
+* FastMCP
+* AP Scheduler
+
+### Existing Services:
+* Email
+* OpenPhone SMS
+* Trello
+* Push Notifications
+
+### Tools:
+* Email read/send/schedule
+* OpenPhone SMS read/send/schedule
+* Trello read/send
+* Push send/schedule
+
+### Tasks
+
+* [🚧] Install FastMCP
+* [ ] Create mobile chat interface
+* [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
 
-
 ### Draft Tasks (not necessarily in this order)
-* [ ] MAYBE: Recreate apps/web/app/message-tenants/page.tsx in React Native, then have it render in both `apps/my-expo-app` and `apps/web`. If necessary, maybe use some of components from the new [Expo UI](https://docs.expo.dev/versions/v53.0.0/sdk/ui/) library in the example app just to test? 
-* [ ] MAYBE: Make frontend chat interface compatible with both NextJS and React Native. Maybe easier to just build frontends separately.
 * [ ] Task management AI. Chat experience with Trello Tools Use. Intelligent reminders, shifting due dates, etc.
-* [ ] AI Email auto-responder.
 * [ ] AI basded SMS Text escalation.
+* [ ] AI Email escalation and auto-responder. Send push notitification is a Zillow email thread requires a follow up. 
