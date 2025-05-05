@@ -1,6 +1,6 @@
 # Portfolio
 
-This is my portfolio/sandbox website that I use to just play around with new technologies. 
+A monorepo for personal learning projects and production services for my rental real estate business, Sernia Capital LLC. 
 
 
 ## Tech Stack:
