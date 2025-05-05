@@ -11,6 +11,7 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@ai-sdk/react": "^1.2.11",
     "@ai-sdk/ui-utils": "^0.0.20",
     "@clerk/nextjs": "^6.11.3",
     "@expo/next-adapter": "^6.0.0",
