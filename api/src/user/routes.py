@@ -98,10 +98,9 @@ async def handle_clerk_webhook(
     # Process the event
     event_type = event.get("type")
     event_data = event.get("data")
-    clerk_instance_id = event_data.get("id") if event_data else None
 
-    if not event_data or not clerk_instance_id:
-        logger.error("Webhook payload missing 'data' or 'instance_id'")
+    if not event_data:
+        logger.error("Webhook payload missing 'data'")
         raise HTTPException(status_code=400, detail="Invalid webhook payload structure")
 
     message = "Event received but not processed." # Default message
