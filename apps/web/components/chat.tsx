@@ -18,7 +18,7 @@ export function Chat() {
     input,
     setInput,
     append,
-    isLoading,
+    status,
     stop,
   } = useChat({
     maxSteps: 4,
@@ -47,11 +47,10 @@ export function Chat() {
             key={message.id}
             chatId={chatId}
             message={message}
-            isLoading={isLoading && messages.length - 1 === index}
           />
         ))}
 
-        {isLoading &&
+        {(status === 'submitted' || status === 'streaming') &&
           messages.length > 0 &&
           messages[messages.length - 1].role === "user" && <ThinkingMessage />}
 
@@ -67,7 +66,7 @@ export function Chat() {
           input={input}
           setInput={setInput}
           handleSubmit={handleSubmit}
-          isLoading={isLoading}
+          status={status}
           stop={stop}
           messages={messages}
           setMessages={setMessages}

@@ -14,7 +14,6 @@ export const PreviewMessage = ({
 }: {
   chatId: string;
   message: Message;
-  isLoading: boolean;
 }) => {
   return (
     <motion.div
