@@ -38,20 +38,12 @@ This is the React Native application built with [Expo](https://expo.dev) SDK 53,
     *   For cloud builds (`eas build`), it reads environment variables set by the corresponding profile in `eas.json`.
 *   **`eas.json`:** Configures EAS Build profiles (`local`, `development`, `production`). Defines environment variables for cloud builds, often referencing **EAS Secrets** for sensitive values.
 *   **Environment Variables & Secrets:**
+
     *   `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`: Public key for Clerk frontend.
     *   `CUSTOM_RAILWAY_BACKEND_URL`: Base URL for the FastAPI backend.
-    *   Use `eas secret create ...` to store sensitive production/development keys/URLs. Reference them in `eas.json` using `${secrets.SECRET_NAME}`.
-        *   Example commands (run from workspace root or `apps/my-expo-app`):
-          ```bash
-          # Development Secrets
-          eas secret create --scope project --name DEV_EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY --value <PASTE_DEV_CLERK_KEY> --type string
-          eas secret create --scope project --name DEV_CUSTOM_RAILWAY_BACKEND_URL --value <PASTE_DEV_BACKEND_URL> --type string
-          
-          # Production Secrets
-          eas secret create --scope project --name PROD_EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY --value <PASTE_PROD_CLERK_KEY> --type string
-          eas secret create --scope project --name PROD_CUSTOM_RAILWAY_BACKEND_URL --value <PASTE_PROD_BACKEND_URL> --type string
-          ```
-    *   The `local` profile in `eas.json` uses dummy values for env vars, as the actual values for local builds (`eas build --local --local`) are loaded dynamically via `app.config.js` from the root `.env.development.local` file.
+
+    *   The `local` profile are loaded dynamically via `app.config.js` from the root `.env.development.local` file.
+    *   The `development` and `production` profiles are loaded from [EAS Secrets in the EAS portal](https://expo.dev/accounts/espo412/projects/my-expo-app/environment-variables)
 
 ## Building the App (EAS Build)
 
