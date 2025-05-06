@@ -41,7 +41,7 @@
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "expo"
+                "my-expo-app"
             ],
             "console": "integratedTerminal",
             "serverReadyAction": {

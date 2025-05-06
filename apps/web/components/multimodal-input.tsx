@@ -36,7 +36,7 @@ export function MultimodalInput({
   chatId,
   input,
   setInput,
-  isLoading,
+  status,
   stop,
   messages,
   setMessages,
@@ -47,7 +47,7 @@ export function MultimodalInput({
   chatId: string;
   input: string;
   setInput: (value: string) => void;
-  isLoading: boolean;
+  status: "submitted" | "streaming" | "ready" | "error";
   stop: () => void;
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
@@ -162,7 +162,7 @@ export function MultimodalInput({
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
 
-            if (isLoading) {
+            if (status === 'submitted' || status === 'streaming') {
               toast.error("Please wait for the model to finish its response!");
             } else {
               submitForm();
@@ -171,7 +171,7 @@ export function MultimodalInput({
         }}
       />
 
-      {isLoading ? (
+      {status === 'submitted' || status === 'streaming' ? (
         <Button
           className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
           onClick={(event) => {

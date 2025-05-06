@@ -7,10 +7,29 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
-from api.src.utils.prompt import ClientMessage, convert_to_openai_messages
-from api.src.utils.tools import get_current_weather
+from api.src.chat.prompt_models import ClientMessage, convert_to_openai_messages
 import os
 import logging
+import requests
+
+def get_current_weather(latitude, longitude):
+    # Format the URL with proper parameter substitution
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m&hourly=temperature_2m&daily=sunrise,sunset&timezone=auto"
+
+    try:
+        # Make the API call
+        response = requests.get(url)
+
+        # Raise an exception for bad status codes
+        response.raise_for_status()
+
+        # Return the JSON response
+        return response.json()
+
+    except requests.RequestException as e:
+        # Handle any errors that occur during the request
+        print(f"Error fetching weather data: {e}")
+        return None
 
 
 router = APIRouter()

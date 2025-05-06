@@ -5,7 +5,7 @@ import { MultimodalInput } from "@/components/multimodal-input";
 import { Overview } from "@/components/overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { ToolInvocation } from "ai";
-import { useChat } from "ai/react";
+import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
 
 export function Chat() {
@@ -18,7 +18,7 @@ export function Chat() {
     input,
     setInput,
     append,
-    isLoading,
+    status,
     stop,
   } = useChat({
     maxSteps: 4,
@@ -47,11 +47,10 @@ export function Chat() {
             key={message.id}
             chatId={chatId}
             message={message}
-            isLoading={isLoading && messages.length - 1 === index}
           />
         ))}
 
-        {isLoading &&
+        {(status === 'submitted' || status === 'streaming') &&
           messages.length > 0 &&
           messages[messages.length - 1].role === "user" && <ThinkingMessage />}
 
@@ -67,7 +66,7 @@ export function Chat() {
           input={input}
           setInput={setInput}
           handleSubmit={handleSubmit}
-          isLoading={isLoading}
+          status={status}
           stop={stop}
           messages={messages}
           setMessages={setMessages}
