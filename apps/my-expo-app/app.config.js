@@ -14,7 +14,7 @@ if (!customRailwayBackendUrl) {
 
 module.exports = {
   "expo": {
-    "name": "my-expo-app",
+    "name": "Sernia Capital",
     "slug": "my-expo-app",
     "version": "1.0.0",
     "orientation": "portrait",
