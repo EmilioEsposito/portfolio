@@ -43,6 +43,7 @@ module.exports = {
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {
