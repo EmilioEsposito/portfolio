@@ -7,7 +7,7 @@
 # Epics Table of Contents
 * ✅ [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
 * ⏸️ [Incorporate React Native](roadmap.md#incorporate-react-native)
-* 🚧 AI Assistant - Chat with FastMCP Tools(Email/SMS/Trello/AP Scheduler) + Push Notifications Reminders.
+* 🚧 AI Assistant - Chat with Tools(Email/SMS/Trello/AP Scheduler) + Push Notifications Reminders.
 
 # Epics
 ## Migrate from Vercel to Railway
@@ -106,7 +106,7 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 * ✅ Update user module README.md 
 * ✅ fix bug on expo web token registration (Added Platform check).
 * ✅ Fix Expo web crash when rendering shared components from packages (`useContext` error).
-* ⏸️ Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
+* 🚧 Get iOS TestFlight version of Expo app working (waiting on Apple developer account approval). `pnpm eas-build-dev`
 * ⏸️ Get Android APK version of Expo app working.
 
 
@@ -133,7 +133,7 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 
 ### Tasks
 
-* [🚧] Install FastMCP
+* [ ] Create AI agent backend. Think about the design of this. Do 
 * [ ] Create mobile chat interface
 * [ ] Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables)
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.
