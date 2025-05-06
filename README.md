@@ -18,6 +18,7 @@ A monorepo for personal learning projects and production AI-based services for m
     * Package Manager: uv
 * Deployment: [Railway](https://railway.com/project/73eb837a-ba86-4899-992c-cefd0c22b91f?environmentId=455c3498-682b-4e4d-9e1f-4c13c3e9eb59)
 
+
 ## Setup
 
 0. Clone the repository `git clone https://github.com/EmilioEsposito/portfolio.git`
