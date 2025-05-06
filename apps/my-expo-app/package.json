@@ -11,6 +11,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@babel/runtime": "^7.27.1",
     "@clerk/clerk-expo": "^2.10.3",
     "@expo/metro-runtime": "^5.0.4",
     "@expo/vector-icons": "^14.1.0",
