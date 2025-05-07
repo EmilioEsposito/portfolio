@@ -61,9 +61,51 @@ export default function Home() {
             Below are some of the production apps I've built and maintain for
             Sernia Capital.
           </P>
+          {/* Legend Section */}
+          <div className="my-4 text-muted-foreground"> {/* Vertical margin and muted text for the legend block */}
+            <P className="mb-1">Legend:</P> {/* "Legend:" text using P component style */}
+            <table className="w-full"> {/* Table takes full available width */}
+              <tbody className="align-top text-sm"> {/* Align cell content to top, smaller text for legend items */}
+                <tr>
+                  <td className="pr-2 py-0.5 w-6">✅</td> {/* Icon cell with padding and fixed width */}
+                  <td className="py-0.5"> {/* Description cell with vertical padding */}
+                    indicates the app is fully running in production.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="pr-2 py-0.5 w-6">🚧</td> {/* Icon cell */}
+                  <td className="py-0.5"> {/* Description cell */}
+                    indicates the app is in development and has some features working,
+                    but is not fully in production yet.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-
-        <H3>Contact Syncing</H3>
+        <H3>
+          {/* <Link href="/tenant-mass-message"> */}
+          ✅ SMS Emergency Routing via Agentic AI
+          {/* </Link> */}
+        </H3>
+        <P>
+        Implemented in FastAPI here:{" "}
+          <Link
+            href="https://github.com/EmilioEsposito/portfolio/blob/main/api/src/open_phone/escalate.py"
+            className="text-blue-500 hover:text-blue-600 hover:underline"
+          >
+            escalate.py
+          </Link>
+          <br />
+          This monitors every incoming SMS text message sent to our business phone number 
+          recieves, and escalates to property managers and owners as needed for 
+          things that require URGENT action (e.g. water leaks, fire, police activity, etc.). 
+          We use OpenPhone to host our business phone number, and they send a Webhook for every incoming message.
+          Then, our AI instantly analyzes if the message is urgent, and if so, uses Twilio to kickoff a series of 
+          calls/texts to the property managers and owners using a dedicated emergency number that 
+          can bypass Do Not Disturb settings during off hours.
+        </P>
+        <H3>✅ Contact Syncing</H3>
         <P>
           A serverless cron job that syncs contact information from our source
           of truth Google Sheet to a Neon Postgres database and to our OpenPhone
@@ -71,7 +113,7 @@ export default function Home() {
         </P>
 
         <H3>
-          <Link href="/tenant-mass-messaging">Tenant Mass Messaging</Link>
+          <Link href="/tenant-mass-messaging">✅ Tenant Mass Messaging</Link>
         </H3>
         <P>
           Preview app here:{" "}
@@ -87,10 +129,10 @@ export default function Home() {
           API to achieve this. Messages are sent securely with password
           protection.
         </P>
-
+        
         <H3>
           <Link href="/ai-email-responder">
-            Rental Listing Email Auto-Replies via Agentic AI
+          🚧 Rental Listing Email Auto-Replies via Agentic AI (Preview)
           </Link>
         </H3>
         <P>
@@ -111,20 +153,17 @@ export default function Home() {
           potential issues (e.g. if they have dogs but our listing is dog-free),
           and propose meeting times.
         </P>
-
         <H3>
-          {/* <Link href="/tenant-mass-message"> */}
-          SMS Emergency Routing via Agentic AI (coming soon)
-          {/* </Link> */}
+          🚧 Fully Agentic Chatbot for Sernia Capital
         </H3>
         <P>
-          This will monitor all incoming SMS mesages to Sernia Capital's phone
-          number, and will escalate them as needed if it detects the issue is
-          urgent (e.g. water leaks, fire, police activity, etc.). It will kick
-          off a call to a dedicated emergency number that calls and texts all
-          owners/property managers and can bypass Do Not Disturb settings during
-          off hours.
+          The plan is to build a fully agentic chatbot for Sernia Capital that will have ability to 
+          manage our tasks on Trello, read and send emails/push/sms, and more. On the backend, it will use tool/function
+          calling to execute any of our internal services on the FastAPI server. It will even have access to 
+          APScheduler, which will allow the chatbot to schedule of our internal services and initiate chats 
+          with any property managers or owners (e.g. it can ping them to make sure a remodeling project is on track).
         </P>
+
       </div>
 
       {/* Navigation Links */}

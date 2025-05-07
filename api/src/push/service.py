@@ -105,7 +105,7 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
         
     return is_success # Return True if sending was likely successful
 
-async def send_notification_to_user(email: str, title: str, body: str, data: dict | None = None, db: AsyncSession | None = None):
+async def send_push_to_user(email: str, title: str, body: str, data: dict | None = None, db: AsyncSession | None = None):
     """Sends a push notification to all tokens associated with an email.
     If db is None, a new session will be created and managed internally.
     """
@@ -141,11 +141,11 @@ async def send_notification_to_user(email: str, title: str, body: str, data: dic
                 # Since _get_tokens_and_send only reads, explicit commit is not strictly needed here
                 # but if it did writes, await session.commit() would go here.
         except Exception as e:
-            logging.error(f"Error in send_notification_to_user with internal session for {email}: {e}", exc_info=True)
+            logging.error(f"Error in send_push_to_user with internal session for {email}: {e}", exc_info=True)
             # Optionally re-raise or handle
 
-# The send_notification_to_user_internally function can now be removed if this pattern is preferred.
-# async def send_notification_to_user_internally(email: str, title: str, body: str, data: dict | None = None):
+# The send_push_to_user_internally function can now be removed if this pattern is preferred.
+# async def send_push_to_user_internally(email: str, title: str, body: str, data: dict | None = None):
 #     ...
 
 # --- Pytest Example --- 
@@ -155,7 +155,7 @@ import pytest
 from api.src.database.database import AsyncSessionFactory, session_context # Assuming this provides session
 
 @pytest.mark.asyncio
-async def test_send_notification_to_user():
+async def test_send_push_to_user():
     """Basic integration test for sending a notification to an email."""
     # Optionally register a known token first for reliability
     # test_token = "ExponentPushToken[...your_token...]";
@@ -166,7 +166,7 @@ async def test_send_notification_to_user():
     ## naive approach
     for test_email in test_emails:
         logging.info(f"[TEST] Attempting to send notification to email {test_email}")
-        await send_notification_to_user(
+        await send_push_to_user(
             email=test_email,
             title="Pytest Hello World!",
             body="This is a test notification from pytest.",
@@ -178,7 +178,7 @@ async def test_send_notification_to_user():
     #     for test_email in test_emails:
     #         logging.info(f"[TEST] Attempting to send notification to email {test_email}")
     #         try:
-    #             await send_notification_to_user(
+    #             await send_push_to_user(
     #                 email=test_email,
     #                 title="Pytest Hello World!",
     #                 body="This is a test notification from pytest.",
@@ -188,4 +188,4 @@ async def test_send_notification_to_user():
     #             # Basic assertion: Check if the function ran without throwing exceptions
     #             assert True 
     #         except Exception as e:
-    #             pytest.fail(f"send_notification_to_user failed: {e}")
+    #             pytest.fail(f"send_push_to_user failed: {e}")

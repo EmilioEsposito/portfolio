@@ -20,8 +20,11 @@ export const Overview = () => {
           <span>+</span>
           <MessageIcon size={32} />
         </p>
+        <p>Right now, this is just a generic chatbot using OpenAI's model. 
+          I am also working on a more complex chatbot for Sernia Capital that will have full agentic ability to 
+          manage our tasks on Trello, schedule emails/push/sms, and more.</p>
         <p>
-          This is an{" "}
+          Technical details: This chat interface is using an{" "}
           <Link
             className="font-medium underline underline-offset-4"
             href="https://github.com/vercel-labs/ai-sdk-preview-python-streaming"

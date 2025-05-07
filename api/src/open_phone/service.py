@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 from fastapi import HTTPException
 import logging
 from api.src.google.sheets import get_sheet_as_json
-
+import pytest
 
 
 async def send_message(
@@ -31,6 +31,16 @@ async def send_message(
         "https://api.openphone.com/v1/messages", headers=headers, json=data
     )
     return response
+
+@pytest.mark.asyncio
+async def test_send_message():
+    response = await send_message(
+        message="Hello, this is a test message",
+        to_phone_number="+14123703550",
+        from_phone_number="+14129101500",
+    )
+    print(response.json())
+    assert response.status_code == 202
 
 async def get_contacts_by_external_ids(
     external_ids: List[str],

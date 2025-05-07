@@ -6,7 +6,7 @@ from api.src.utils.dependencies import verify_cron_or_admin
 from sqlalchemy import text
 from api.src.database.database import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
-from api.src.open_phone.client import send_message
+from api.src.open_phone.service import send_message
 from fastapi.responses import JSONResponse
 
 
