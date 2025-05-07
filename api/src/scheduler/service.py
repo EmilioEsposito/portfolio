@@ -42,7 +42,7 @@ aps_logger.setLevel(logging.INFO) # Or WARNING/ERROR, depending on desired verbo
 #         "data": {"test": True}
 #     },
 #     trigger="interval",
-#     seconds=30,
+#     seconds=300,
 #     replace_existing=True
 # )
 
@@ -64,9 +64,9 @@ aps_logger.setLevel(logging.INFO) # Or WARNING/ERROR, depending on desired verbo
 
 # TESTING
 
-async def run_hello_world():
-    print(f"print: Hello World from test_job executed at {datetime.now()}")
-    logger.info(f"logger: Hello World from test_job executed at {datetime.now()}")
+async def run_hello_world(name: str):
+    print(f"print: Hello {name} from test_job executed at {datetime.now()}")
+    logger.info(f"logger: Hello {name} from test_job executed at {datetime.now()}")
 
 
 def test_job():
@@ -87,16 +87,32 @@ def test_job():
         logger.info(f"Adding job '{job_id}' to run at {run_date}")
 
         scheduler.add_job(
-            run_hello_world,
-            "date",
+            func=run_hello_world,
+            trigger="date",
+            kwargs={"name": "Emilio"},
             id=job_id, # Use id instead of job_id for add_job method
             run_date=run_date, # Pass run_date directly for date trigger
             replace_existing=True
         )
 
+
+        job = scheduler.get_job(job_id=job_id)
+        logger.info(f"Job added: {job}")
+
+        jobs = scheduler.get_jobs()
+        logger.info(f"Jobs: {jobs}")
+
         # Wait for the job to run
         # Giving a bit more time than the scheduled time
         await asyncio.sleep(10)
+
+        # get job again (should be None now)
+        job = scheduler.get_job(job_id=job_id) # Manually check if the job was removed  
+
+        # Manually remove the job if for some reason it still exists (it should self deleteif it was trigger="date")
+        if job:
+            scheduler.remove_job(job_id=job_id)
+            raise Exception("Job was not removed automatically")
 
         # Shutdown the scheduler if it was started by this test logic
         # In a real app, lifespan events handle this.
