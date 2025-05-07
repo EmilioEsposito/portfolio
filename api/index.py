@@ -6,6 +6,7 @@ load_dotenv(find_dotenv(".env.development.local"), override=True)
 
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from contextlib import asynccontextmanager
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
@@ -26,6 +27,8 @@ from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
+
+from api.src.scheduler.service import scheduler
 
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
@@ -65,7 +68,33 @@ if missing_vars:
         + "\n".join(missing_vars)
     )
 
-app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
+# --- Lifespan Event Handler ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    logger = logging.getLogger(__name__) # Get a logger instance
+    logger.info("Application startup: Initializing and starting scheduler...")
+    try:
+        scheduler.start()
+        logger.info("Scheduler initialized and started successfully.")
+        # Example: Add a test job on startup if needed
+        # from datetime import datetime, timedelta
+        # def startup_test_job():
+        #     logger.info(f"Scheduler startup_test_job executed at {datetime.now()}")
+        # add_job(startup_test_job, 'date', job_id='startup_test_job', trigger_args={'run_date': datetime.now() + timedelta(seconds=15)})
+    except Exception as e:
+        logger.error(f"Error during scheduler startup: {e}", exc_info=True)
+    
+    yield # Application runs here
+    
+    # Shutdown logic
+    logger.info("Application shutdown: Shutting down scheduler...")
+    try:
+        scheduler.shutdown()
+    except Exception as e:
+        logger.error(f"Error during scheduler shutdown: {e}", exc_info=True)
+
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 # Configure logging
 # TODO: Configure logging properly - This should be doable on Railway now (Vercel had issues)

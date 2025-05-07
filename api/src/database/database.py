@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
+from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 
 
 # Enable SQLAlchemy logging for debugging
@@ -86,6 +87,38 @@ AsyncSessionFactory = async_sessionmaker(
 # Base class for models
 class Base(DeclarativeBase):
     metadata = metadata
+
+# --- Synchronous Engine for tools like APScheduler or Alembic migrations ---
+sync_engine = None
+RAW_SYNC_DB_URL = os.environ.get("DATABASE_URL_UNPOOLED")
+
+if RAW_SYNC_DB_URL:
+    sync_db_url = RAW_SYNC_DB_URL
+    if sync_db_url.startswith("postgresql+asyncpg://"):
+        sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
+    elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
+        sync_db_url = sync_db_url.replace("postgres://", "postgresql://")
+    # else, assume it's already a suitable synchronous URL like "postgresql://..."
+
+    # Mask credentials for logging
+    sync_url_for_logging = sync_db_url
+    if "@" in sync_url_for_logging and "//" in sync_url_for_logging:
+        parts = sync_url_for_logging.split("//")
+        if len(parts) > 1 and "@" in parts[1]:
+            credentials_part = parts[1].split("@")[0]
+            sync_url_for_logging = sync_url_for_logging.replace(credentials_part, "<credentials>")
+
+    logging.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
+    try:
+        # For a background service like APScheduler, default pooling (QueuePool) is usually fine.
+        # echo=False is common for sync engines unless specific SQL debugging is needed.
+        sync_engine = create_sync_engine(sync_db_url, echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true")
+        logging.info("Synchronous SQLAlchemy engine created successfully.")
+    except Exception as e:
+        logging.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
+        sync_engine = None # Ensure it's None if creation failed
+elif not RAW_SYNC_DB_URL:
+    logging.warning("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
 
 @asynccontextmanager
 async def session_context() -> AsyncGenerator[AsyncSession, None]:

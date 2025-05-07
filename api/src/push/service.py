@@ -6,6 +6,7 @@ from sqlalchemy import select, insert, update, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .models import PushToken
+from api.src.database.database import AsyncSessionFactory # Ensure this is imported
 
 # The endpoint for Expo's Push API
 EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send"
@@ -68,7 +69,7 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
         "Content-Type": "application/json",
     }
 
-    success = False
+    is_success = False
     try:
         response = requests.post(EXPO_PUSH_ENDPOINT, headers=headers, data=json.dumps(message), timeout=10)
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
@@ -80,7 +81,7 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
 
             if isinstance(push_response_data, dict) and push_response_data.get("status") == "ok":
                 logging.info(f"Push notification ticket generated successfully for {token[:15]}... ID: {push_response_data.get('id')}")
-                success = True
+                is_success = True
             elif isinstance(push_response_data, list) and len(push_response_data) > 0:
                 if push_response_data[0].get("status") == "error":
                     error_details = push_response_data[0].get("details", {})
@@ -91,7 +92,7 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
                         # TODO: Optionally remove this token from DB here
                 elif push_response_data[0].get("status") == "ok":
                      logging.info(f"Push notification ticket generated successfully for {token[:15]}... (from list)")
-                     success = True
+                     is_success = True
                 else:
                      logging.warning(f"Could not determine push status for {token[:15]}... from list response.")
             else:
@@ -102,53 +103,89 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending request to Expo Push API for {token[:15]}...: {e}")
         
-    return success # Return True if sending was likely successful
+    return is_success # Return True if sending was likely successful
 
-async def send_notification_to_user(email: str, title: str, body: str, data: dict | None, db: AsyncSession):
-    """Sends a push notification to all tokens associated with an email."""
-    logging.info(f"Attempting to send notification to email: {email}")
-    stmt = select(PushToken.token).where(PushToken.email == email)
-    result = await db.execute(stmt)
-    tokens = result.scalars().all()
-    
-    if not tokens:
-        logging.warning(f"No push tokens found for email: {email}")
-        return
+async def send_notification_to_user(email: str, title: str, body: str, data: dict | None = None, db: AsyncSession | None = None):
+    """Sends a push notification to all tokens associated with an email.
+    If db is None, a new session will be created and managed internally.
+    """
+    logging.info(f"Attempting to send notification to email: {email}, Title: {title}")
 
-    logging.info(f"Found {len(tokens)} token(s) for {email}. Sending notifications...")
-    sent_count = 0
-    for token in tokens:
-        if send_push_message(token=token, title=title, body=body, data=data):
-            sent_count += 1
-            
-    logging.info(f"Finished sending notifications to {email}. Successfully sent: {sent_count}/{len(tokens)}")
+    async def _get_tokens_and_send(session: AsyncSession):
+        stmt = select(PushToken.token).where(PushToken.email == email)
+        result = await session.execute(stmt)
+        tokens = result.scalars().all()
+        
+        if not tokens:
+            logging.warning(f"No push tokens found for email: {email}")
+            return
+
+        logging.info(f"Found {len(tokens)} token(s) for {email}. Sending notifications...")
+        sent_count = 0
+        for token_value in tokens:
+            is_success = send_push_message(token=token_value, title=title, body=body, data=data)
+            if is_success:
+                sent_count += 1
+        logging.info(f"Finished sending notifications to {email}. Successfully sent: {sent_count}/{len(tokens)}")
+
+    if db:
+        # Use the provided session
+        logging.debug(f"Using provided DB session for {email}")
+        await _get_tokens_and_send(db)
+    else:
+        # Create and manage a new session
+        logging.debug(f"Creating new DB session for {email}")
+        try:
+            async with AsyncSessionFactory() as session:
+                await _get_tokens_and_send(session)
+                # Since _get_tokens_and_send only reads, explicit commit is not strictly needed here
+                # but if it did writes, await session.commit() would go here.
+        except Exception as e:
+            logging.error(f"Error in send_notification_to_user with internal session for {email}: {e}", exc_info=True)
+            # Optionally re-raise or handle
+
+# The send_notification_to_user_internally function can now be removed if this pattern is preferred.
+# async def send_notification_to_user_internally(email: str, title: str, body: str, data: dict | None = None):
+#     ...
 
 # --- Pytest Example --- 
 # Note: This requires a live database and a valid token for the specified user.
 # You might want to mock the database session and send_push_message in more complex tests.
 import pytest
-from api.src.database.database import AsyncSessionFactory # Assuming this provides session
+from api.src.database.database import AsyncSessionFactory, session_context # Assuming this provides session
 
 @pytest.mark.asyncio
 async def test_send_notification_to_user():
     """Basic integration test for sending a notification to an email."""
-    test_email = "espo412@gmail.com"
     # Optionally register a known token first for reliability
     # test_token = "ExponentPushToken[...your_token...]";
     # async with AsyncSessionFactory() as session:
     #     await register_token(test_email, test_token, session)
-        
-    async with AsyncSessionFactory() as session:
+    test_emails = ["espo412@gmail.com", "emilio@serniacapital.com"]
+
+    ## naive approach
+    for test_email in test_emails:
         logging.info(f"[TEST] Attempting to send notification to email {test_email}")
-        try:
-            await send_notification_to_user(
-                email=test_email,
-                title="Pytest Hello World!",
-                body="This is a test notification from pytest.",
-                data={"test": True},
-                db=session
-            )
-            # Basic assertion: Check if the function ran without throwing exceptions
-            assert True 
-        except Exception as e:
-            pytest.fail(f"send_notification_to_user failed: {e}")
+        await send_notification_to_user(
+            email=test_email,
+            title="Pytest Hello World!",
+            body="This is a test notification from pytest.",
+            data={"test": True},
+        )
+    
+    ## with a custom session
+    # async with AsyncSessionFactory() as session:
+    #     for test_email in test_emails:
+    #         logging.info(f"[TEST] Attempting to send notification to email {test_email}")
+    #         try:
+    #             await send_notification_to_user(
+    #                 email=test_email,
+    #                 title="Pytest Hello World!",
+    #                 body="This is a test notification from pytest.",
+    #                 data={"test": True},
+    #                 db=session
+    #         )
+    #             # Basic assertion: Check if the function ran without throwing exceptions
+    #             assert True 
+    #         except Exception as e:
+    #             pytest.fail(f"send_notification_to_user failed: {e}")
