@@ -59,13 +59,29 @@ export default function Home() {
           <H2>Property Management Tools</H2>
           <P>
             Below are some of the production apps I've built and maintain for
-            Sernia Capital. 
-            
-            Legend: 
-            ✅ indicates the app is fully running in production.
-            ⏸️ indicates the app is in development and not yet ready for production.
-            🚧 indicates the app is in development and has some features working, but is not fully in production yet.
+            Sernia Capital.
           </P>
+          {/* Legend Section */}
+          <div className="my-4 text-muted-foreground"> {/* Vertical margin and muted text for the legend block */}
+            <P className="mb-1">Legend:</P> {/* "Legend:" text using P component style */}
+            <table className="w-full"> {/* Table takes full available width */}
+              <tbody className="align-top text-sm"> {/* Align cell content to top, smaller text for legend items */}
+                <tr>
+                  <td className="pr-2 py-0.5 w-6">✅</td> {/* Icon cell with padding and fixed width */}
+                  <td className="py-0.5"> {/* Description cell with vertical padding */}
+                    indicates the app is fully running in production.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="pr-2 py-0.5 w-6">🚧</td> {/* Icon cell */}
+                  <td className="py-0.5"> {/* Description cell */}
+                    indicates the app is in development and has some features working,
+                    but is not fully in production yet.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         <H3>
           {/* <Link href="/tenant-mass-message"> */}
