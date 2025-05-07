@@ -6,6 +6,7 @@
 
 # Epics Table of Contents
 * ✅ [Migrate from Vercel to Railway](roadmap.md#migrate-from-vercel-to-railway)
+* ✅ AI-based SMS Escalation
 * ⏸️ [Incorporate React Native](roadmap.md#incorporate-react-native)
 * 🚧 AI Assistant - Chat with Tools(Email/SMS/Trello/AP Scheduler) + Push Notifications Reminders.
 

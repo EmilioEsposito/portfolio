@@ -33,7 +33,7 @@ dependencies = [
     "markdown-it-py==3.0.0",
     "markupsafe==2.1.5",
     "mdurl==0.1.2",
-    "openai==1.63.2",
+    "openai==1.77.0",
     "psycopg2-binary==2.9.10",
     "pydantic==2.10.6",
     "pydantic-core==2.27.2",
