@@ -1,11 +1,8 @@
 import * as React from 'react'
-import { TextInput, TouchableOpacity, View, StyleSheet, Image } from 'react-native'
+import { TextInput, TouchableOpacity, View, StyleSheet, Image, KeyboardAvoidingView, Platform, useColorScheme as useReactNativeColorScheme } from 'react-native'
 import { useSignUp, useSSO } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
-import { ThemedText } from '@/components/ThemedText'
-import { ThemedView } from '@/components/ThemedView'
-import { useColorScheme } from '@/hooks/useColorScheme'
-import { Colors } from '@/constants/Colors'
+import { ThemedText, ThemedView, Colors, useColorScheme } from '@portfolio/ui'
 import * as WebBrowser from 'expo-web-browser'
 import * as Linking from 'expo-linking'
 
@@ -15,7 +12,8 @@ export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp()
   const { startSSOFlow } = useSSO()
   const router = useRouter()
-  const colorScheme = useColorScheme()
+  const colorScheme = useColorScheme() ?? 'light'
+  const rnColorScheme = useReactNativeColorScheme() ?? 'light'
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
@@ -101,12 +99,8 @@ export default function SignUpScreen() {
           onChangeText={(code) => { setCode(code); setErrorState(null) }}
           style={[
             styles.input,
-            {
-              borderColor: Colors[colorScheme ?? 'light'].icon,
-              color: Colors[colorScheme ?? 'light'].text
-            }
           ]}
-          placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
+          placeholderTextColor={Colors[colorScheme].icon}
         />
         <TouchableOpacity onPress={onVerifyPress} style={styles.button} disabled={!isLoaded}>
           <ThemedText style={styles.buttonText}>Verify</ThemedText>
@@ -128,12 +122,8 @@ export default function SignUpScreen() {
         onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
         style={[
           styles.input,
-          {
-            borderColor: Colors[colorScheme ?? 'light'].icon,
-            color: Colors[colorScheme ?? 'light'].text
-          }
         ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
+        placeholderTextColor={Colors[colorScheme].icon}
       />
       <TextInput
         value={password}
@@ -142,12 +132,8 @@ export default function SignUpScreen() {
         onChangeText={(password) => { setPassword(password); setErrorState(null) }}
         style={[
           styles.input,
-          {
-            borderColor: Colors[colorScheme ?? 'light'].icon,
-            color: Colors[colorScheme ?? 'light'].text
-          }
         ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
+        placeholderTextColor={Colors[colorScheme].icon}
       />
       <TouchableOpacity onPress={onSignUpPress} style={styles.button} disabled={!isLoaded}>
         <ThemedText style={styles.buttonText}>Sign up with Email</ThemedText>
@@ -155,9 +141,9 @@ export default function SignUpScreen() {
 
       {/*horizontal line with "OR" text in the middle*/}
       <View style={styles.orLineContainer}>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
+        <View style={[styles.orLine]} />
         <ThemedText style={styles.orText}>or</ThemedText>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
+        <View style={[styles.orLine]} />
       </View>
 
       <TouchableOpacity onPress={handleGoogleSignUp} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
@@ -202,7 +188,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   button: {
-    backgroundColor: Colors.light.tint,
     paddingVertical: 15,
     borderRadius: 8,
     alignItems: 'center',
@@ -246,12 +231,10 @@ const styles = StyleSheet.create({
   orLine: {
     flex: 1,
     height: 1,
-    // backgroundColor will be set dynamically based on colorScheme
   },
   orText: {
     marginHorizontal: 10,
     fontSize: 14,
     fontWeight: '500',
-    color: Colors.light.icon, // Use a subtle color, adjust if needed for dark mode
   },
 });

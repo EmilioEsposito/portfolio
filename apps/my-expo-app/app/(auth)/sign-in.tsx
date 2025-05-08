@@ -1,11 +1,8 @@
 import { useSignIn, useSSO } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
-import { TextInput, TouchableOpacity, View, StyleSheet, Image } from 'react-native'
+import { TextInput, TouchableOpacity, View, StyleSheet, Image, useColorScheme as useReactNativeColorScheme } from 'react-native'
 import React from 'react'
-import { ThemedText } from '@/components/ThemedText'
-import { ThemedView } from '@/components/ThemedView'
-import { useColorScheme } from '@/hooks/useColorScheme'
-import { Colors } from '@/constants/Colors'
+import { ThemedText, ThemedView, Colors, useColorScheme } from '@portfolio/ui'
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
@@ -17,7 +14,8 @@ export default function Page() {
   const { signIn, setActive, isLoaded } = useSignIn()
   const { startSSOFlow } = useSSO()
   const router = useRouter()
-  const colorScheme = useColorScheme()
+  const colorScheme = useColorScheme() ?? 'light'
+  // const rnColorScheme = useReactNativeColorScheme() ?? 'light'; // If needed for specific RN features not covered by @portfolio/ui theming
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
@@ -100,11 +98,11 @@ export default function Page() {
         style={[
           styles.input,
           { 
-            borderColor: Colors[colorScheme ?? 'light'].icon, 
-            color: Colors[colorScheme ?? 'light'].text 
+            borderColor: Colors[colorScheme].icon, 
+            color: Colors[colorScheme].text 
           }
         ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
+        placeholderTextColor={Colors[colorScheme].icon}
       />
       
       <TextInput
@@ -115,22 +113,22 @@ export default function Page() {
         style={[
           styles.input, 
           { 
-            borderColor: Colors[colorScheme ?? 'light'].icon, 
-            color: Colors[colorScheme ?? 'light'].text 
+            borderColor: Colors[colorScheme].icon, 
+            color: Colors[colorScheme].text 
           }
         ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
+        placeholderTextColor={Colors[colorScheme].icon}
       />
       
-      <TouchableOpacity onPress={onSignInPress} style={styles.button} disabled={!isLoaded}>
+      <TouchableOpacity onPress={onSignInPress} style={[styles.button, {backgroundColor: Colors[colorScheme].tint}]} disabled={!isLoaded}>
         <ThemedText style={styles.buttonText}>Sign in</ThemedText>
       </TouchableOpacity>
 
       {/*horizontal line with "OR" text in the middle*/}
       <View style={styles.orLineContainer}>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
-        <ThemedText style={styles.orText}>or</ThemedText>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
+        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
+        <ThemedText style={styles.orText} lightColor={Colors.light.icon} darkColor={Colors.dark.icon}>or</ThemedText>
+        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
       </View>
 
       {/* Add Google Sign In Button */}
@@ -174,19 +172,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     marginBottom: 15,
     fontSize: 16,
+    // borderColor and color are dynamic
   },
   button: {
-    backgroundColor: Colors.light.tint,
+    // backgroundColor is dynamic
     paddingVertical: 15,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 15,
   },
   googleButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF', // Static
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#DADCE0',
+    borderColor: '#DADCE0', // Static
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -216,8 +215,8 @@ const styles = StyleSheet.create({
   orText: {
     marginHorizontal: 10,
     fontSize: 14,
-    fontWeight: '500', // Adjusted weight
-    color: Colors.light.icon, // Use a subtle color, adjust if needed for dark mode
+    fontWeight: '500',
+    // color is dynamic via ThemedText props
   },
   // Style for Google logo
   googleLogo: {

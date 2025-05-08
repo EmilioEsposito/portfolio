@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, Button, FlatList, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { Button, FlatList, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { ThemedView, ThemedText } from '@portfolio/ui';
 
 interface SchedulerJob {
   id: string;
@@ -89,56 +90,56 @@ const Scheduler: React.FC<SchedulerProps> = ({ apiBaseUrl, authToken }) => {
 
   if (loading && jobs.length === 0) {
     return (
-      <View style={styles.centered}>
+      <ThemedView style={styles.centered}>
         <ActivityIndicator size="large" />
-        <Text>Loading jobs...</Text>
-      </View>
+        <ThemedText>Loading jobs...</ThemedText>
+      </ThemedView>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Error: {error}</Text>
+      <ThemedView style={styles.centered}>
+        <ThemedText style={styles.errorText}>Error: {error}</ThemedText>
         <Button title="Retry" onPress={fetchJobs} />
-      </View>
+      </ThemedView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Scheduled Jobs</Text>
+    <ThemedView style={styles.container}>
+      <ThemedText style={styles.title}>Scheduled Jobs</ThemedText>
       <Button title="Refresh Jobs" onPress={fetchJobs} disabled={loading} />
       {jobs.length === 0 && !loading && (
-        <Text style={styles.centeredText}>No jobs scheduled.</Text>
+        <ThemedText style={styles.centeredText}>No jobs scheduled.</ThemedText>
       )}
       <FlatList
         data={jobs}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.jobItem}>
-            <Text style={styles.jobName}>{item.name || item.id}</Text>
-            <Text>ID: {item.id}</Text>
-            <Text>Next Run: {item.next_run_time ? new Date(item.next_run_time).toLocaleString() : 'N/A'}</Text>
-            <Text>Trigger: {item.trigger}</Text>
-            <Text>Function: {item.func_ref}</Text>
-            <Text>Args: {JSON.stringify(item.args)}</Text>
-            <Text>Kwargs: {JSON.stringify(item.kwargs)}</Text>
-            <Text>Coalesce: {item.coalesce.toString()}</Text>
-            <Text>Executor: {item.executor}</Text>
-            <Text>Max Instances: {item.max_instances}</Text>
-            <Text>Misfire Grace Time: {item.misfire_grace_time}s</Text>
-            <Text>Pending: {item.pending.toString()}</Text>
+          <ThemedView style={styles.jobItem}>
+            <ThemedText style={styles.jobName}>{item.name || item.id}</ThemedText>
+            <ThemedText>ID: {item.id}</ThemedText>
+            <ThemedText>Next Run: {item.next_run_time ? new Date(item.next_run_time).toLocaleString() : 'N/A'}</ThemedText>
+            <ThemedText>Trigger: {item.trigger}</ThemedText>
+            <ThemedText>Function: {item.func_ref}</ThemedText>
+            <ThemedText>Args: {JSON.stringify(item.args)}</ThemedText>
+            <ThemedText>Kwargs: {JSON.stringify(item.kwargs)}</ThemedText>
+            <ThemedText>Coalesce: {item.coalesce.toString()}</ThemedText>
+            <ThemedText>Executor: {item.executor}</ThemedText>
+            <ThemedText>Max Instances: {item.max_instances}</ThemedText>
+            <ThemedText>Misfire Grace Time: {item.misfire_grace_time}s</ThemedText>
+            <ThemedText>Pending: {item.pending.toString()}</ThemedText>
             <Button 
               title={runningJob === item.id ? "Running..." : "Run Now"} 
               onPress={() => handleRunJobNow(item.id)} 
               disabled={runningJob === item.id || loading}
             />
-          </View>
+          </ThemedView>
         )}
         ListFooterComponent={loading ? <ActivityIndicator style={{ marginVertical: 20 }} /> : null}
       />
-    </View>
+    </ThemedView>
   );
 };
 

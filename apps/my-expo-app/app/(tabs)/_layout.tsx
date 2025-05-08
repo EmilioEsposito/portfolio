@@ -1,12 +1,12 @@
 import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors, useColorScheme } from '@portfolio/ui';
 import { useAuth } from '@clerk/clerk-expo';
 import { Stack } from 'expo-router';
 export default function TabLayout() {
@@ -53,6 +53,15 @@ export default function TabLayout() {
           title: 'Shared',
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="paperplane.fill" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="scheduler-admin"
+        options={{
+          title: 'Scheduler Admin',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons size={28} name="schedule" color={color} />
           ),
         }}
       />

@@ -8,8 +8,11 @@ import 'react-native-reanimated';
 import { tokenCache } from '@clerk/clerk-expo/token-cache';
 import { SignedIn, SignedOut, useUser } from '@clerk/clerk-expo';
 import React, { useEffect } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import * as SecureStore from "expo-secure-store";
+import { useColorScheme } from '@portfolio/ui';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
 import { registerForPushNotificationsAsync, sendTokenToBackend } from '@/utils/notifications';
 
 // Get Clerk Publishable Key from expo constants

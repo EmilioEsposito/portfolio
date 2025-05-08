@@ -1,8 +1,7 @@
 import { useClerk } from '@clerk/clerk-expo'
 import * as Linking from 'expo-linking'
 import { TouchableOpacity, StyleSheet } from 'react-native'
-import { ThemedText } from '@/components/ThemedText'
-import { Colors } from '@/constants/Colors'
+import { ThemedText, Colors } from '@portfolio/ui'
 
 export const SignOutButton = () => {
   // Use `useClerk()` to access the `signOut()` function
