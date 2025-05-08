@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 
+logger = logging.getLogger(__name__)
 
 # Enable SQLAlchemy logging for debugging
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
@@ -41,7 +42,7 @@ db_url_for_logging = DATABASE_URL.replace(
     "//" + DATABASE_URL.split("@")[0].split("//")[1],
     "//<credentials>"
 )
-logging.info(f"Database URL format: {db_url_for_logging}")
+logger.info(f"Database URL format: {db_url_for_logging}")
 
 # Always convert to asyncpg format
 if DATABASE_URL.startswith("postgres://"):
@@ -54,9 +55,9 @@ final_url_for_logging = DATABASE_URL.replace(
     "//" + DATABASE_URL.split("@")[0].split("//")[1],
     "//<credentials>"
 )
-logging.info(f"Final database URL format: {final_url_for_logging}")
+logger.info(f"Final database URL format: {final_url_for_logging}")
 
-logging.info("Creating database engine...")
+logger.info("Creating database engine...")
 
 # Create engine with NullPool - no connection pooling for serverless
 engine = create_async_engine(
@@ -74,7 +75,7 @@ engine = create_async_engine(
     }
 )
 
-logging.info("Creating session factory...")
+logger.info("Creating session factory...")
 
 # Session factory with appropriate settings for serverless
 AsyncSessionFactory = async_sessionmaker(
@@ -108,17 +109,22 @@ if RAW_SYNC_DB_URL:
             credentials_part = parts[1].split("@")[0]
             sync_url_for_logging = sync_url_for_logging.replace(credentials_part, "<credentials>")
 
-    logging.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
+    logger.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
     try:
-        # For a background service like APScheduler, default pooling (QueuePool) is usually fine.
+        # For a background service like APScheduler, use NullPool for serverless compatibility.
         # echo=False is common for sync engines unless specific SQL debugging is needed.
-        sync_engine = create_sync_engine(sync_db_url, echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true")
-        logging.info("Synchronous SQLAlchemy engine created successfully.")
+        sync_engine = create_sync_engine(
+            sync_db_url,
+            echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
+            poolclass=NullPool,  # Use NullPool for serverless
+            connect_args={"sslmode": "require"}  # Ensure SSL is used
+        )
+        logger.info("Synchronous SQLAlchemy engine created successfully with NullPool and SSL.")
     except Exception as e:
-        logging.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
+        logger.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
         sync_engine = None # Ensure it's None if creation failed
 elif not RAW_SYNC_DB_URL:
-    logging.warning("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
+    logger.warning("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
 
 @asynccontextmanager
 async def session_context() -> AsyncGenerator[AsyncSession, None]:
@@ -131,7 +137,7 @@ async def session_context() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logging.error(f"Database session error: {str(e)}", exc_info=True)
+            logger.error(f"Database session error: {str(e)}", exc_info=True)
             raise
 
 # Session dependency for FastAPI
@@ -145,5 +151,5 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logging.error(f"Database session error: {str(e)}", exc_info=True)
+            logger.error(f"Database session error: {str(e)}", exc_info=True)
             raise 

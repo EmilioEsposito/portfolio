@@ -147,7 +147,7 @@ export function AppSidebar() {
       ],
     },
     {
-      label: "Technical Docs",
+      label: "Pure Technical",
       items: [
         {
           type: "navigation",
@@ -163,6 +163,13 @@ export function AppSidebar() {
           icon: Blocks,
           onClick: toggleSidebarIfMobile,
         },
+        ...(isSerniaCapitalUser ? [{
+          type: "navigation" as const,
+          title: "Scheduler Admin",
+          url: "/scheduler",
+          icon: Calendar,
+          onClick: toggleSidebarIfMobile,
+        }] : []),
       ],
     },
     {
