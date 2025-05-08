@@ -42,8 +42,9 @@ class User(Base):
     # Ensure combination of clerk_user_id and environment is unique
     __table_args__ = (
         Index(
-            "clerk_user_id",
-            "environment",
+            "uq_user_clerk_id_env",  # New, descriptive index name
+            "clerk_user_id",         # First column in the composite index
+            "environment",           # Second column in the composite index
             unique=True
         ),
     )
