@@ -135,6 +135,7 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 ### Tasks
 
 * ✅ Create AP Scheduler Service inside of FastAPI app (w/ jobs and job-runs saved to Postgres tables). Might need custom thing to record job-runs in a table (jobs table should come for free with APScheduler).
+* [ ] Make APCheduler UI admin less ugly. Get it working on Expo. Then make sure it respects light/dark mode of both Expo and NextJS apps (might need mode as a prop).
 * [ ] Create AI agent backend. Think about the design of this e2e. There should be some backend-only self-scheduling logic, but maybe the same agent is also used for interactive chat in the app? For interactive chat solution this potential solution for integrating PydanticAI with Vercel's AI SDK: https://pastebin.com/zGXT2Wp2 (also saved in scratch/aisdk_and_pydanticai.md)
 * [ ] Create mobile chat interface
 * [ ] Revisit the overall plan and update/reorder draft tasks on this roadmap as needed, then pick the next task to work on and move it up here.

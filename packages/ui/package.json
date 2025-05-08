@@ -15,6 +15,9 @@
     "typescript": "^5.5.3"
   },
   "peerDependencies": {
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "react-native": "*",
+    "@expo/vector-icons": "*",
+    "expo-symbols": "*"
   }
 } 

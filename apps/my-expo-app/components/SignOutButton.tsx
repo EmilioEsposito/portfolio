@@ -1,8 +1,6 @@
 import { useClerk } from '@clerk/clerk-expo'
 import * as Linking from 'expo-linking'
-import { TouchableOpacity, StyleSheet } from 'react-native'
-import { ThemedText } from '@/components/ThemedText'
-import { Colors } from '@/constants/Colors'
+import { ThemedButton } from '@portfolio/ui'
 
 export const SignOutButton = () => {
   // Use `useClerk()` to access the `signOut()` function
@@ -16,30 +14,15 @@ export const SignOutButton = () => {
     } catch (err) {
       // See https://clerk.com/docs/custom-flows/error-handling
       // for more info on error handling
-      console.error(JSON.stringify(err, null, 2))
+      console.error("Sign Out Error:", JSON.stringify(err, null, 2))
     }
   }
 
   return (
-    <TouchableOpacity onPress={handleSignOut} style={styles.button}>
-      <ThemedText style={styles.buttonText}>Sign out</ThemedText>
-    </TouchableOpacity>
+    <ThemedButton 
+      title="Sign out" 
+      onPress={handleSignOut} 
+      type="primary"
+    />
   )
 }
-
-const styles = StyleSheet.create({
-  button: {
-    backgroundColor: Colors.light.tint,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 10,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});

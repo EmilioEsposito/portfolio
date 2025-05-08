@@ -63,6 +63,26 @@ const baseConfig = {
   },
   // Add other base configurations here if needed
   reactStrictMode: true,
+  // Adding custom webpack configuration
+  webpack: (config, { isServer }) => {
+    // Add a rule to handle .ttf files
+    config.module.rules.push({
+      test: /\.ttf$/,
+      use: [
+        {
+          loader: 'file-loader',
+          options: {
+            name: '[name].[ext]',
+            outputPath: 'static/fonts/', // Output path for fonts
+            publicPath: '/_next/static/fonts/', // Public path for fonts
+          },
+        },
+      ],
+    });
+
+    // Important: return the modified config
+    return config;
+  },
 };
 
 // Wrap the base config with Expo adapter and add necessary transpilation
@@ -72,6 +92,8 @@ module.exports = withExpo({
   transpilePackages: [
     'react-native',
     'expo',
+    '@expo/vector-icons',
+    'expo-modules-core',
     // Add other Expo/RN packages here if needed
     '@portfolio/features',
     '@portfolio/ui',

@@ -1,3 +1,4 @@
+import React from 'react';
 // Fallback for using MaterialIcons on Android and web.
 
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -18,6 +19,8 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  // Add other mappings as needed, for example:
+  // 'calendar.badge.clock': 'schedule', // if you were to use this one
 } as IconMapping;
 
 /**
@@ -35,7 +38,9 @@ export function IconSymbol({
   size?: number;
   color: string | OpaqueColorValue;
   style?: StyleProp<TextStyle>;
-  weight?: SymbolWeight;
+  weight?: SymbolWeight; // Weight is used by expo-symbols, not directly by MaterialIcons here
 }) {
+  // Conditional rendering for actual expo-symbols on iOS could be added here if desired.
+  // For now, this uses MaterialIcons for all platforms as per the original component logic.
   return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
-}
+} 

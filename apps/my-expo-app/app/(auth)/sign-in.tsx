@@ -1,11 +1,8 @@
 import { useSignIn, useSSO } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
-import { TextInput, TouchableOpacity, View, StyleSheet, Image } from 'react-native'
+import { TextInput, TouchableOpacity, View, StyleSheet, Image, useColorScheme as useReactNativeColorScheme, KeyboardAvoidingView, ScrollView, Platform } from 'react-native'
 import React from 'react'
-import { ThemedText } from '@/components/ThemedText'
-import { ThemedView } from '@/components/ThemedView'
-import { useColorScheme } from '@/hooks/useColorScheme'
-import { Colors } from '@/constants/Colors'
+import { ThemedView, Colors, useColorScheme, ThemedButton, ThemedText } from '@portfolio/ui'
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 
@@ -17,7 +14,8 @@ export default function Page() {
   const { signIn, setActive, isLoaded } = useSignIn()
   const { startSSOFlow } = useSSO()
   const router = useRouter()
-  const colorScheme = useColorScheme()
+  const colorScheme = useColorScheme() ?? 'light'
+  // const rnColorScheme = useReactNativeColorScheme() ?? 'light'; // If needed for specific RN features not covered by @portfolio/ui theming
 
   const [emailAddress, setEmailAddress] = React.useState('')
   const [password, setPassword] = React.useState('')
@@ -85,75 +83,99 @@ export default function Page() {
   }, [isLoaded, startSSOFlow, setActive, router]);
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>Sign in</ThemedText>
-      
-      {errorState && (
-        <ThemedText style={styles.errorText}>{errorState}</ThemedText>
-      )}
+    <ThemedView style={styles.outerContainer}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        style={styles.keyboardAvoidingContainer}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContentContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <ThemedText type="title" style={styles.title}>Sign in</ThemedText>
+          
+          {errorState && (
+            <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+          )}
 
-      <TextInput
-        autoCapitalize="none"
-        value={emailAddress}
-        placeholder="Enter email"
-        onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
-        style={[
-          styles.input,
-          { 
-            borderColor: Colors[colorScheme ?? 'light'].icon, 
-            color: Colors[colorScheme ?? 'light'].text 
-          }
-        ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
-      />
-      
-      <TextInput
-        value={password}
-        placeholder="Enter password"
-        secureTextEntry={true}
-        onChangeText={(pass) => { setPassword(pass); setErrorState(null) }}
-        style={[
-          styles.input, 
-          { 
-            borderColor: Colors[colorScheme ?? 'light'].icon, 
-            color: Colors[colorScheme ?? 'light'].text 
-          }
-        ]}
-        placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
-      />
-      
-      <TouchableOpacity onPress={onSignInPress} style={styles.button} disabled={!isLoaded}>
-        <ThemedText style={styles.buttonText}>Sign in</ThemedText>
-      </TouchableOpacity>
+          <TextInput
+            autoCapitalize="none"
+            value={emailAddress}
+            placeholder="Enter email"
+            onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
+            style={[
+              styles.input,
+              { 
+                borderColor: Colors[colorScheme].icon, 
+                color: Colors[colorScheme].text 
+              }
+            ]}
+            placeholderTextColor={Colors[colorScheme].icon}
+          />
+          
+          <TextInput
+            value={password}
+            placeholder="Enter password"
+            secureTextEntry={true}
+            onChangeText={(pass) => { setPassword(pass); setErrorState(null) }}
+            style={[
+              styles.input, 
+              { 
+                borderColor: Colors[colorScheme].icon, 
+                color: Colors[colorScheme].text 
+              }
+            ]}
+            placeholderTextColor={Colors[colorScheme].icon}
+          />
+          
+          <ThemedButton
+            title="Sign in"
+            onPress={onSignInPress}
+            disabled={!isLoaded}
+            type="primary"
+          />
 
-      {/*horizontal line with "OR" text in the middle*/}
-      <View style={styles.orLineContainer}>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
-        <ThemedText style={styles.orText}>or</ThemedText>
-        <View style={[styles.orLine, { backgroundColor: Colors[colorScheme ?? 'light'].icon }]} />
-      </View>
+          {/*horizontal line with "OR" text in the middle*/}
+          <View style={styles.orLineContainer}>
+            <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
+            <ThemedText style={styles.orText} lightColor={Colors.light.icon} darkColor={Colors.dark.icon}>or</ThemedText>
+            <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
+          </View>
 
-      {/* Add Google Sign In Button */}
-      <TouchableOpacity onPress={handleGoogleSignIn} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
-        <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
-        <ThemedText style={[styles.buttonText, styles.googleButtonText]}>Sign in with Google</ThemedText>
-      </TouchableOpacity>
-      
-      <View style={styles.linkContainer}>
-        <ThemedText>Don't have an account? </ThemedText>
-        <Link href={{ pathname: '/sign-up' }} asChild> 
-          <TouchableOpacity>
-            <ThemedText type="link">Sign up</ThemedText>
-          </TouchableOpacity>
-        </Link>
-      </View>
+          {/* Add Google Sign In Button */}
+          <ThemedButton
+            title="Sign in with Google"
+            onPress={handleGoogleSignIn}
+            disabled={!isLoaded}
+            type="google"
+            style={styles.googleButtonCustom}
+          >
+            <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
+          </ThemedButton>
+          
+          <View style={styles.linkContainer}>
+            <ThemedText>Don't have an account? </ThemedText>
+            <Link href={{ pathname: '/sign-up' }} asChild> 
+              <TouchableOpacity>
+                <ThemedText type="link">Sign up</ThemedText>
+              </TouchableOpacity>
+            </Link>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </ThemedView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
+  outerContainer: {
     flex: 1,
+  },
+  keyboardAvoidingContainer: {
+    flex: 1,
+  },
+  scrollContentContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
   },
@@ -174,28 +196,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     marginBottom: 15,
     fontSize: 16,
+    // borderColor and color are dynamic
   },
-  button: {
-    backgroundColor: Colors.light.tint,
-    paddingVertical: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  googleButton: {
-    backgroundColor: '#FFFFFF',
+  // button & buttonText are removed as ThemedButton handles this
+  googleButtonCustom: { // Renamed from googleButton to avoid conflict if we only need margin
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#DADCE0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    // Other styles like backgroundColor, borderColor, flexDirection are handled by ThemedButton type='google'
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  // googleButtonText is removed
   linkContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -216,18 +224,14 @@ const styles = StyleSheet.create({
   orText: {
     marginHorizontal: 10,
     fontSize: 14,
-    fontWeight: '500', // Adjusted weight
-    color: Colors.light.icon, // Use a subtle color, adjust if needed for dark mode
+    fontWeight: '500',
+    // color is dynamic via ThemedText props
   },
-  // Style for Google logo
+  // Style for Google logo - keep this as it's passed as a child
   googleLogo: {
     width: 18,
     height: 18,
     marginRight: 10,
   },
-  // Style for Google button text
-  googleButtonText: {
-    color: '#3C4043',
-    fontWeight: '500',
-  },
+  // googleButtonText is handled by ThemedButton type='google'
 })
