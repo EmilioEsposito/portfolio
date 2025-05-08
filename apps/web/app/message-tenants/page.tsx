@@ -297,7 +297,7 @@ export default function MessageTenantsPage() {
   };
 
   return (
-    <div className="container mx-auto py-10">
+    <div className="container mx-auto px-8 py-8">
       <h1 className="text-3xl font-bold mb-6">Message Tenants</h1>
 
       {/* Loading State */}
