@@ -76,6 +76,7 @@
     "@playwright/test": "^1.50.1",
     "@types/node-fetch": "^2.6.12",
     "@typescript-eslint/parser": "^8.24.1",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "file-loader": "^6.2.0"
   }
 }

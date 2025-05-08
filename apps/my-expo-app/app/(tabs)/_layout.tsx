@@ -4,9 +4,8 @@ import { Platform } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 import { HapticTab } from '@/components/HapticTab';
-import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
-import { Colors, useColorScheme } from '@portfolio/ui';
+import { Colors, useColorScheme, IconSymbol } from '@portfolio/ui';
 import { useAuth } from '@clerk/clerk-expo';
 import { Stack } from 'expo-router';
 export default function TabLayout() {
