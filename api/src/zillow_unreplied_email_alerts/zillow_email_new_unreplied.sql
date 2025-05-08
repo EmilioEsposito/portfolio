@@ -34,3 +34,4 @@ ORDER BY
     e.received_date DESC
 LIMIT
     10;
+
