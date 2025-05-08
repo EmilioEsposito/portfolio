@@ -2,6 +2,20 @@ import logging
 import sys # Added for sys.stdout
 from dotenv import load_dotenv, find_dotenv
 
+# --- Forceful Logging Reconfiguration ---
+# Remove all handlers associated with the root logger object.
+# This ensures that our basicConfig call is the one that sets up the primary console handler.
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+    handler.close() # Important to close handlers
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout  # Explicitly set the stream
+)
+# --- End of Logging Reconfiguration ---
+
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
@@ -39,20 +53,6 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
-
-# --- Forceful Logging Reconfiguration ---
-# Remove all handlers associated with the root logger object.
-# This ensures that our basicConfig call is the one that sets up the primary console handler.
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-    handler.close() # Important to close handlers
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    stream=sys.stdout  # Explicitly set the stream
-)
-# --- End of Logging Reconfiguration ---
 
 # Define a logger for this module
 logger = logging.getLogger(__name__)

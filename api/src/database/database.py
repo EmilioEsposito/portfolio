@@ -110,10 +110,15 @@ if RAW_SYNC_DB_URL:
 
     logging.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
     try:
-        # For a background service like APScheduler, default pooling (QueuePool) is usually fine.
+        # For a background service like APScheduler, use NullPool for serverless compatibility.
         # echo=False is common for sync engines unless specific SQL debugging is needed.
-        sync_engine = create_sync_engine(sync_db_url, echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true")
-        logging.info("Synchronous SQLAlchemy engine created successfully.")
+        sync_engine = create_sync_engine(
+            sync_db_url,
+            echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
+            poolclass=NullPool,  # Use NullPool for serverless
+            connect_args={"sslmode": "require"}  # Ensure SSL is used
+        )
+        logging.info("Synchronous SQLAlchemy engine created successfully with NullPool and SSL.")
     except Exception as e:
         logging.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
         sync_engine = None # Ensure it's None if creation failed

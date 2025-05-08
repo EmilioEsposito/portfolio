@@ -10,6 +10,8 @@ import pytest
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
 
+logger.info("Zillow unreplied email alerts service loaded")
+
 async def check_unreplied_emails(sql: str, target_phone_numbers: list[str], mock=False):
     """
     Check for unreplied Zillow emails and send a summary via OpenPhone.
