@@ -1,8 +1,8 @@
 import * as React from 'react'
-import { TextInput, TouchableOpacity, View, StyleSheet, Image, KeyboardAvoidingView, Platform, useColorScheme as useReactNativeColorScheme } from 'react-native'
+import { TextInput, TouchableOpacity, View, StyleSheet, Image, KeyboardAvoidingView, Platform, useColorScheme as useReactNativeColorScheme, ScrollView } from 'react-native'
 import { useSignUp, useSSO } from '@clerk/clerk-expo'
 import { Link, useRouter } from 'expo-router'
-import { ThemedText, ThemedView, Colors, useColorScheme } from '@portfolio/ui'
+import { ThemedView, Colors, useColorScheme, ThemedButton, ThemedText } from '@portfolio/ui'
 import * as WebBrowser from 'expo-web-browser'
 import * as Linking from 'expo-linking'
 
@@ -88,84 +88,132 @@ export default function SignUpScreen() {
 
   if (pendingVerification) {
     return (
-      <ThemedView style={styles.container}>
-        <ThemedText type="title" style={styles.title}>Verify your email</ThemedText>
-        {errorState && (
-          <ThemedText style={styles.errorText}>{errorState}</ThemedText>
-        )}
-        <TextInput
-          value={code}
-          placeholder="Enter your verification code"
-          onChangeText={(code) => { setCode(code); setErrorState(null) }}
-          style={[
-            styles.input,
-          ]}
-          placeholderTextColor={Colors[colorScheme].icon}
-        />
-        <TouchableOpacity onPress={onVerifyPress} style={styles.button} disabled={!isLoaded}>
-          <ThemedText style={styles.buttonText}>Verify</ThemedText>
-        </TouchableOpacity>
+      <ThemedView style={styles.outerContainer}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          style={styles.keyboardAvoidingContainer}
+        >
+          <ScrollView 
+            contentContainerStyle={styles.scrollContentContainer}
+            keyboardShouldPersistTaps="handled"
+          >
+            <ThemedText type="title" style={styles.title}>Verify your email</ThemedText>
+            {errorState && (
+              <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+            )}
+            <TextInput
+              value={code}
+              placeholder="Enter your verification code"
+              onChangeText={(code) => { setCode(code); setErrorState(null) }}
+              style={[
+                styles.input,
+                {
+                  borderColor: Colors[colorScheme].icon,
+                  color: Colors[colorScheme].text
+                }
+              ]}
+              placeholderTextColor={Colors[colorScheme].icon}
+            />
+            <ThemedButton
+              title="Verify"
+              onPress={onVerifyPress}
+              disabled={!isLoaded}
+              type="primary"
+            />
+          </ScrollView>
+        </KeyboardAvoidingView>
       </ThemedView>
     )
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>Sign up</ThemedText>
-      {errorState && (
-        <ThemedText style={styles.errorText}>{errorState}</ThemedText>
-      )}
-      <TextInput
-        autoCapitalize="none"
-        value={emailAddress}
-        placeholder="Enter email"
-        onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
-        style={[
-          styles.input,
-        ]}
-        placeholderTextColor={Colors[colorScheme].icon}
-      />
-      <TextInput
-        value={password}
-        placeholder="Enter password"
-        secureTextEntry={true}
-        onChangeText={(password) => { setPassword(password); setErrorState(null) }}
-        style={[
-          styles.input,
-        ]}
-        placeholderTextColor={Colors[colorScheme].icon}
-      />
-      <TouchableOpacity onPress={onSignUpPress} style={styles.button} disabled={!isLoaded}>
-        <ThemedText style={styles.buttonText}>Sign up with Email</ThemedText>
-      </TouchableOpacity>
+    <ThemedView style={styles.outerContainer}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        style={styles.keyboardAvoidingContainer}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContentContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <ThemedText type="title" style={styles.title}>Sign up</ThemedText>
+          {errorState && (
+            <ThemedText style={styles.errorText}>{errorState}</ThemedText>
+          )}
+          <TextInput
+            autoCapitalize="none"
+            value={emailAddress}
+            placeholder="Enter email"
+            onChangeText={(email) => { setEmailAddress(email); setErrorState(null) }}
+            style={[
+              styles.input,
+              {
+                borderColor: Colors[colorScheme].icon,
+                color: Colors[colorScheme].text
+              }
+            ]}
+            placeholderTextColor={Colors[colorScheme].icon}
+          />
+          <TextInput
+            value={password}
+            placeholder="Enter password"
+            secureTextEntry={true}
+            onChangeText={(password) => { setPassword(password); setErrorState(null) }}
+            style={[
+              styles.input,
+              {
+                borderColor: Colors[colorScheme].icon,
+                color: Colors[colorScheme].text
+              }
+            ]}
+            placeholderTextColor={Colors[colorScheme].icon}
+          />
+          <ThemedButton
+            title="Sign up with Email"
+            onPress={onSignUpPress}
+            disabled={!isLoaded}
+            type="primary"
+          />
 
-      {/*horizontal line with "OR" text in the middle*/}
-      <View style={styles.orLineContainer}>
-        <View style={[styles.orLine]} />
-        <ThemedText style={styles.orText}>or</ThemedText>
-        <View style={[styles.orLine]} />
-      </View>
+          <View style={styles.orLineContainer}>
+            <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
+            <ThemedText style={styles.orText} lightColor={Colors.light.icon} darkColor={Colors.dark.icon}>or</ThemedText>
+            <View style={[styles.orLine, { backgroundColor: Colors[colorScheme].icon }]} />
+          </View>
 
-      <TouchableOpacity onPress={handleGoogleSignUp} style={[styles.button, styles.googleButton]} disabled={!isLoaded}>
-        <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
-        <ThemedText style={[styles.buttonText, styles.googleButtonText]}>Sign up with Google</ThemedText>
-      </TouchableOpacity>
+          <ThemedButton
+            title="Sign up with Google"
+            onPress={handleGoogleSignUp}
+            disabled={!isLoaded}
+            type="google"
+            style={styles.googleButtonCustom}
+          >
+            <Image source={require('@/assets/images/google_g_logo.png')} style={styles.googleLogo} />
+          </ThemedButton>
 
-      <View style={styles.linkContainer}>
-        <ThemedText>Already have an account? </ThemedText>
-        <Link href={{ pathname: '/sign-in' }} asChild>
-          <TouchableOpacity>
-            <ThemedText type="link">Sign in</ThemedText>
-          </TouchableOpacity>
-        </Link>
-      </View>
+          <View style={styles.linkContainer}>
+            <ThemedText>Already have an account? </ThemedText>
+            <Link href={{ pathname: '/sign-in' }} asChild>
+              <TouchableOpacity>
+                <ThemedText type="link">Sign in</ThemedText>
+              </TouchableOpacity>
+            </Link>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </ThemedView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
+  outerContainer: {
     flex: 1,
+  },
+  keyboardAvoidingContainer: {
+    flex: 1,
+  },
+  scrollContentContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
   },
@@ -187,25 +235,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
   },
-  button: {
-    paddingVertical: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  googleButton: {
-    backgroundColor: '#FFFFFF',
+  googleButtonCustom: {
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#DADCE0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   linkContainer: {
     flexDirection: 'row',
@@ -218,15 +249,10 @@ const styles = StyleSheet.create({
     height: 18,
     marginRight: 10,
   },
-  googleButtonText: {
-    color: '#3C4043',
-    fontWeight: '500',
-  },
-  // Styles for the 'or' divider
   orLineContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 15, // Added vertical margin
+    marginVertical: 15,
   },
   orLine: {
     flex: 1,

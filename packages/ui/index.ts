@@ -4,4 +4,5 @@ export * from './hooks/useThemeColor';
 export * from './components/ThemedText';
 export * from './components/ThemedView';
 export * from './components/IconSymbol';
-export * from './components/Collapsible'; 
+export * from './components/Collapsible';
+export * from './components/ThemedButton'; 

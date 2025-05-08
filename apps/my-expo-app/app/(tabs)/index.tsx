@@ -1,14 +1,15 @@
 import { Image, StyleSheet, Platform, View, Text, TouchableOpacity } from 'react-native';
 import { SignedIn, SignedOut, useUser } from '@clerk/clerk-expo';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 
 import { HelloWave } from '@/components/HelloWave';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText, ThemedView } from '@portfolio/ui';
+import { ThemedText, ThemedView, ThemedButton } from '@portfolio/ui';
 import { SignOutButton } from '@/components/SignOutButton';
 
 export default function HomeScreen() {
   const { user } = useUser();
+  const router = useRouter();
 
   return (
     <View style={{ flex: 1 }}>
@@ -64,14 +65,10 @@ export default function HomeScreen() {
           <ThemedText type="title">Welcome!</ThemedText>
           <ThemedText style={{ marginBottom: 20 }}>Please sign in or sign up to continue.</ThemedText>
           <Link href="/(auth)/sign-in" asChild>
-            <TouchableOpacity style={styles.authButton}>
-              <Text style={styles.authButtonText}>Sign in</Text>
-            </TouchableOpacity>
+            <ThemedButton title="Sign in" type="primary" />
           </Link>
           <Link href="/(auth)/sign-up" asChild>
-            <TouchableOpacity style={styles.authButton}>
-              <Text style={styles.authButtonText}>Sign up</Text>
-            </TouchableOpacity>
+            <ThemedButton title="Sign up" type="primary" />
           </Link>
         </View>
       </SignedOut>
@@ -105,17 +102,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-  },
-  authButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 5,
-    marginBottom: 10,
-  },
-  authButtonText: {
-    color: 'white',
-    fontSize: 16,
-    textAlign: 'center',
+    backgroundColor: 'black',
   },
 });
