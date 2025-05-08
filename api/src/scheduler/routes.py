@@ -40,20 +40,22 @@ async def get_jobs():
     """
     Retrieve all scheduled jobs.
     """
-    if not scheduler.running:
-        logging.info("Starting scheduler for test_job...")
-        scheduler.start()
-    else:
-        logging.info("Scheduler already running for test_job.")
+
     jobs = scheduler.get_jobs()
-    scheduler.shutdown()
     return [job_to_dict(job) for job in jobs]
 
 
 @pytest.mark.asyncio
 async def test_get_jobs():
+
+    if not scheduler.running:
+        logging.info("Starting scheduler for test_job...")
+        scheduler.start()
+    else:
+        logging.info("Scheduler already running for test_job.")
     jobs = await get_jobs()
     pprint(jobs)
+    scheduler.shutdown()
     assert len(jobs) > 0
 
 @router.get("/run_job_now/{job_id}", response_model=dict)

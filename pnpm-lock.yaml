@@ -264,6 +264,9 @@ importers:
       date-fns:
         specifier: ^2.30.0
         version: 2.30.0
+      dotenv:
+        specifier: ^16.5.0
+        version: 16.5.0
       eslint:
         specifier: 9.20.1
         version: 9.20.1(jiti@1.21.7)

@@ -1,3 +1,14 @@
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env.development.local') });
+// Also try to load a general .env.local or .env if specific development one isn't found or for other vars
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local'), override: false });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), override: false });
+
+// Log a few key variables to check if they are loaded
+console.log(">>> [Config Start] Attempting to load .env from root.");
+console.log(">>> [Config Start] NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY from process.env:", process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+console.log(">>> [Config Start] CUSTOM_RAILWAY_BACKEND_URL from process.env:", process.env.CUSTOM_RAILWAY_BACKEND_URL);
+
 const { withExpo } = require('@expo/next-adapter');
 // const { withPlugins } = require('next-compose-plugins'); // Removed
 // const withImages = require('next-images'); // Removed for now
