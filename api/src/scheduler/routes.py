@@ -1,4 +1,3 @@
-from asyncio.log import logger
 from fastapi import APIRouter, Depends, HTTPException
 from apscheduler.job import Job
 from typing import List
@@ -18,6 +17,8 @@ router = APIRouter(
     tags=["scheduler"],
     dependencies=[Depends(verify_serniacapital_user)]
 )
+
+logger = logging.getLogger(__name__)
 
 # Helper to convert APScheduler Job to a more FastAPI-friendly dict
 def job_to_dict(job: Job) -> dict:
@@ -49,10 +50,10 @@ async def get_jobs():
 async def test_get_jobs():
 
     if not scheduler.running:
-        logging.info("Starting scheduler for test_job...")
+        logger.info("Starting scheduler for test_job...")
         scheduler.start()
     else:
-        logging.info("Scheduler already running for test_job.")
+        logger.info("Scheduler already running for test_job.")
     jobs = await get_jobs()
     pprint(jobs)
     scheduler.shutdown()
@@ -83,10 +84,10 @@ async def run_job_now(job_id: str):
 @pytest.mark.asyncio
 async def test_run_job_now():
     if not scheduler.running:
-        logging.info("Starting scheduler for test_job...")
+        logger.info("Starting scheduler for test_job...")
         scheduler.start()
     else:
-        logging.info("Scheduler already running for test_job.")
+        logger.info("Scheduler already running for test_job.")
     job_id = "zillow_test_job"
     await run_job_now(job_id)
     await asyncio.sleep(10)
