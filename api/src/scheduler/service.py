@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from typing import Literal
 import pytest
 import pytz
+from api.src.contact.service import get_contact_by_slug
 
 # Import the synchronous engine from database.py
 from api.src.database.database import sync_engine
@@ -73,7 +74,7 @@ async def schedule_sms(
         "JACKIE": "+14123703505",
         "PEPPINO": "+14126800593",
         "ANNA": "+14124172322",
-        "SERNIA": "+14129101989",
+        "SERNIA": await get_contact_by_slug("sernia").phone_number,
     }
 
     to_phone_number = phone_numbers[recipient]

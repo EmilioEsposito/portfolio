@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     try:
         scheduler.start()
         logger.info("Scheduler initialized and started successfully.")
-        zillow_unreplied_email_alerts_service.start_service()
+        await zillow_unreplied_email_alerts_service.start_service()
         # Example: Add a test job on startup if needed
         # from datetime import datetime, timedelta
         # def startup_test_job():

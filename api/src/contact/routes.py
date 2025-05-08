@@ -57,13 +57,12 @@ async def read_contact_by_id(
 
 @router.get("/slug/{slug}", response_model=ContactResponse)
 async def read_contact_by_slug(
-    slug: str,
-    db: Session = Depends(get_session)
+    slug: str
 ):
     """
     Get a specific contact by its unique slug.
     """
-    db_contact = await contact_service.get_contact_by_slug(db, slug=slug)
+    db_contact = await contact_service.get_contact_by_slug(slug=slug)
     if db_contact is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact with slug '{slug}' not found")
     return db_contact

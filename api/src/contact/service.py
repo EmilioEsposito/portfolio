@@ -17,12 +17,19 @@ import re
 
 # Pydantic Schemas for Contact
 class ContactBase(BaseModel):
-    slug: str = Field(..., min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact.")
+    slug: str = Field(..., min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact. Will be stored in lowercase.")
     name: str = Field(..., min_length=1, max_length=100)
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = Field(default=None, description="Phone number, will be normalized to +1XXXXXXXXXX format for US numbers.")
     notes: Optional[str] = None
     user_id: Optional[uuid.UUID] = None
+
+    @field_validator('slug', mode='before')
+    @classmethod
+    def lowercase_slug(cls, v):
+        if isinstance(v, str):
+            return v.lower()
+        return v # Should not happen if Pydantic validates type first, but good practice
 
     @field_validator('phone_number', mode='before')
     @classmethod
@@ -99,10 +106,15 @@ async def get_contact_by_id(db: AsyncSession, contact_id: uuid.UUID) -> Optional
     result = await db.execute(query)
     return result.scalars().first()
 
-async def get_contact_by_slug(db: AsyncSession, slug: str) -> Optional[Contact]:
-    query = select(Contact).where(Contact.slug == slug)
-    result = await db.execute(query)
-    return result.scalars().first()
+async def get_contact_by_slug(slug: str) -> Optional[Contact]:
+    """
+    Get a contact by slug.
+    """
+    async with AsyncSessionFactory() as session:
+        lowercase_slug = slug.lower() # Convert incoming slug to lowercase for query
+        query = select(Contact).where(Contact.slug == lowercase_slug)
+        result = await session.execute(query)
+        return result.scalars().first()
 
 async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Contact]:
     query = select(Contact).offset(skip).limit(limit)
@@ -227,14 +239,13 @@ async def test_basic_update_contact():
 
 @pytest.mark.asyncio
 async def test_get_contact_by_slug():
-    async with AsyncSessionFactory() as session:
-        contact = await get_contact_by_slug(session, "test-contact")
-        assert contact is not None
-        assert hasattr(contact, "id")
-        assert hasattr(contact, "slug")
-        assert hasattr(contact, "name")
-        assert hasattr(contact, "email")
-        assert hasattr(contact, "phone_number")
-        assert hasattr(contact, "notes")
-        assert hasattr(contact, "user_id")
-        assert contact.slug == "test-contact"
+    contact = await get_contact_by_slug("test-contact")
+    assert contact is not None
+    assert hasattr(contact, "id")
+    assert hasattr(contact, "slug")
+    assert hasattr(contact, "name")
+    assert hasattr(contact, "email")
+    assert hasattr(contact, "phone_number")
+    assert hasattr(contact, "notes")
+    assert hasattr(contact, "user_id")
+    assert contact.slug == "test-contact"
