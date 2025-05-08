@@ -72,7 +72,7 @@ async def run_job_now(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job with id {job_id} not found")
     
     try:
-        job.modify(next_run_time=datetime.now())
+        job.modify(next_run_time=datetime.now(), misfire_grace_time=300)
         # scheduler.modify_job(job_id, next_run_time=datetime.now()+timedelta(seconds=2))
         updated_job = scheduler.get_job(job_id) # This will be the modified job
         return {"message": f"Job {job_id} has been triggered to run now.", "job_details": job_to_dict(updated_job) if updated_job else None}

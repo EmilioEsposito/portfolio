@@ -159,6 +159,7 @@ def start_service():
         coalesce=True,
         max_instances=1,
         replace_existing=True,
+        misfire_grace_time=300
     )
 
     # temp test job
@@ -173,4 +174,5 @@ def start_service():
         coalesce=True,
         max_instances=1,
         replace_existing=True,
+        misfire_grace_time=300
     )

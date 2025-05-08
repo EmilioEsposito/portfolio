@@ -8,6 +8,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.job import Job
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
 import asyncio
@@ -23,6 +24,18 @@ import pytz
 from api.src.database.database import sync_engine
 
 logger = logging.getLogger(__name__)
+
+# --- Monkey-patch APScheduler Job.__str__ to include job_id --- START
+# Store the original __str__ method in case it's ever needed for reversion or comparison
+_original_apscheduler_job_str = Job.__str__
+
+def custom_apscheduler_job_str(self):
+    # self is an apscheduler.job.Job instance
+    return f"{self.name} (job_id: {self.id})"
+
+Job.__str__ = custom_apscheduler_job_str
+logger.info("APScheduler Job.__str__ has been monkey-patched to include job_id.")
+# --- Monkey-patch APScheduler Job.__str__ to include job_id --- END
 
 # Configure the job store
 if sync_engine:
