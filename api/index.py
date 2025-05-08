@@ -1,4 +1,5 @@
 import logging
+import sys # Added for sys.stdout
 from dotenv import load_dotenv, find_dotenv
 
 # Load local development variables (does not impact preview/production)
@@ -25,6 +26,7 @@ from api.src.google.common.routes import router as google_router
 from api.src.examples.routes import router as examples_router
 from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
+from api.src.scheduler.routes import router as scheduler_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
@@ -37,6 +39,26 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
+
+# --- Forceful Logging Reconfiguration ---
+# Remove all handlers associated with the root logger object.
+# This ensures that our basicConfig call is the one that sets up the primary console handler.
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+    handler.close() # Important to close handlers
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout  # Explicitly set the stream
+)
+# --- End of Logging Reconfiguration ---
+
+# Define a logger for this module
+logger = logging.getLogger(__name__)
+
+# Test log message immediately after reconfiguration
+logger.info("EMILIO: FastAPI index.py loaded")
 
 # Verify critical environment variables
 required_env_vars = {
@@ -73,8 +95,7 @@ if missing_vars:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    logger = logging.getLogger(__name__) # Get a logger instance
-    logger.info("Application startup: Initializing and starting scheduler...")
+    logger.info("LIFESPAN: FastAPI index.py startup...")
     try:
         scheduler.start()
         logger.info("Scheduler initialized and started successfully.")
@@ -98,12 +119,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
-# Configure logging
-# TODO: Configure logging properly - This should be doable on Railway now (Vercel had issues)
-# logging.basicConfig(level=logging.INFO)
-# logger = logging.getlogging(__name__)
 
-
+# --- Error Notification ---
 async def send_error_notification(request: Request, exc: Exception) -> None:
     """
     Sends an email notification for 500 errors with detailed information.
@@ -243,11 +260,12 @@ app.include_router(google_router, prefix="/api")
 app.include_router(examples_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
+app.include_router(scheduler_router, prefix="/api")
 
 
 @app.get("/api/hello")
 async def hello_fast_api():
-    logging.info("Hello from FastAPI")
+    logger.info("Hello from FastAPI")
     return {"message": "Hello from FastAPI"}
 
 

@@ -9,9 +9,10 @@ from api.src.google.gmail import get_gmail_service
 from pprint import pprint
 import pytz
 from datetime import datetime
-
+import logging
 
 router = APIRouter(prefix="/examples", tags=["examples"])
+logger = logging.getLogger(__name__)
 
 # @router.get("/protected")
 # async def protected_route(
@@ -138,3 +139,10 @@ async def protected_route_google(
         "message": "Successfully accessed Google API!",
         "first_result_content": first_result_content
     }
+
+
+@router.get("/test")
+async def hello_fast_api():
+    logging.info("/api/examples/test")
+    logger.info("/api/examples/test")
+    return {"message": "Hello from /api/examples/test"}
