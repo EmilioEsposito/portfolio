@@ -323,7 +323,7 @@ async def start_service():
     scheduler.add_job(
         id="zillow_email_threads_ai",
         func=check_email_threads,
-        trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
+        trigger=CronTrigger(hour="8,17", minute="0", timezone="US/Eastern"),
         coalesce=True,
         max_instances=1,
         replace_existing=True,
