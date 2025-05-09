@@ -12,7 +12,6 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
 import openai
-from api.src.open_phone.service import send_message
 
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
