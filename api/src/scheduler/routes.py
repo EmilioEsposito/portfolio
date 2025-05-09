@@ -43,6 +43,8 @@ async def get_jobs():
     """
 
     jobs = scheduler.get_jobs()
+    # sort by job_id
+    jobs.sort(key=lambda x: x.id)
     return [job_to_dict(job) for job in jobs]
 
 
