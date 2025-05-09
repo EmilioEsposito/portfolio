@@ -8,7 +8,7 @@ WITH zillow_threads_with_replies AS (
         WHERE
             TRUE
             AND 'INBOX' = ANY(e.label_ids) -- label: inbox
-            AND e.subject ILIKE 'Re%' -- is a reply email (this filers out theads with no replies)
+            AND e.subject ILIKE 'Re%' -- is a reply email (this filters out threads with no replies)
             AND 'Label_5289438082921996324' = ANY(e.label_ids) -- label: zillowlisting
             AND e.received_date > CURRENT_DATE - INTERVAL '1 week'
 )
