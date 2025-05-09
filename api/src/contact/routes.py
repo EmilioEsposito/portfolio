@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 from api.src.database.database import get_session
 from api.src.contact import service as contact_service
 from api.src.contact.service import ContactCreate, ContactResponse, ContactUpdate
+from api.src.utils.dependencies import verify_serniacapital_user
 
 router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
+    dependencies=[Depends(verify_serniacapital_user)]
 )
 
 @router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
