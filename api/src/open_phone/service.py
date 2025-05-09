@@ -6,17 +6,22 @@ from typing import List, Optional, Union
 from fastapi import HTTPException
 import logging
 from api.src.google.sheets import get_sheet_as_json
+from api.src.contact.service import get_contact_by_slug
 import pytest
 
 
 async def send_message(
     message: str,
     to_phone_number: str,
-    from_phone_number: str = "+14129101989",
+    from_phone_number: Union[str, None] = None
 ):
     """
     Send a message to a phone number using the OpenPhone API.
     """
+    if from_phone_number is None:
+        sernia_contact = await get_contact_by_slug("sernia")
+        from_phone_number = sernia_contact.phone_number
+
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     headers = {
         "Authorization": api_key,

@@ -1,4 +1,5 @@
 import logging
+from aiohttp_retry import Union
 from fastapi import APIRouter, Request, HTTPException, Depends
 from datetime import datetime
 import os
@@ -8,6 +9,7 @@ from api.src.database.database import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.open_phone.service import send_message
 from fastapi.responses import JSONResponse
+from api.src.contact.service import get_contact_by_slug
 
 
 router = APIRouter(
@@ -43,7 +45,7 @@ async def cron_job_example_private(payload: dict):
     dependencies=[Depends(verify_cron_or_admin)],
 )
 async def check_unreplied_emails(
-    target_phone_number: str = "+14129101989",
+    target_phone_number: Union[str, None] = None,
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -56,6 +58,10 @@ async def check_unreplied_emails(
     logging.info(
         f"Running check for unreplied emails, target phone: {target_phone_number}"
     )
+
+    if not target_phone_number:
+        sernia_contact = await get_contact_by_slug("sernia")
+        target_phone_number = sernia_contact.phone_number
 
     try:
         # Initialize default response values

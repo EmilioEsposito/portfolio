@@ -12,10 +12,12 @@ There should be some backend-only self-scheduling logic, but maybe the same agen
 * api.src.open_phone.service.send_message
 * api.src.google.gmail.service.send_email
 * api.src.push.service.send_push_to_user
-* api.src.scheduler.service.scheduler.add_job
-* api.src.scheduler.service.scheduler.get_jobs
-* api.src.scheduler.service.scheduler.get_job
-* api.src.scheduler.service.scheduler.remove_job
+* api.src.scheduler.service.schedule_sms
+* api.src.scheduler.service.schedule_email
+* api.src.scheduler.service.schedule_push
+
+To be created:
+* api.src.google.calendar.service.create_event
 
 
 

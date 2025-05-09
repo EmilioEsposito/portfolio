@@ -36,4 +36,4 @@ EXPOSE 8000
 # It will find api.index:app starting from the PYTHONPATH (/app)
 # Uses the PORT environment variable if set by the platform (e.g., Railway), otherwise defaults to 8000.
 # Binds to IPv6 ([::]) as required for Railway Private Networking.
-CMD ["sh", "-c", "hypercorn api.index:app --bind [::]:${PORT:-8000}"] 
+CMD ["sh", "-c", "hypercorn api.index:app --bind [::]:${PORT:-8000} --keep-alive 120"] 

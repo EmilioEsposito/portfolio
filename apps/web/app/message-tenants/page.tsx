@@ -48,56 +48,70 @@ interface Tenant {
 export default function MessageTenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [columns, setColumns] = useState<ColumnDef<Tenant>[]>([]); // State for dynamic columns
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // This will now cover both tenant and Sernia phone fetching
   const [isSending, setIsSending] = useState(false); // Loading state for sending
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error' | 'loading', message: string } | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({}); // State for selected rows
   const [message, setMessage] = useState(''); // State for message input
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [serniaPhoneNumber, setSerniaPhoneNumber] = useState<string | null>(null); // State for Sernia's phone number
 
   useEffect(() => {
-    const fetchTenants = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       setError(null);
-      setStatus(null); // Clear status on new fetch
-      setColumns([]); // Clear columns on new fetch
-      setTenants([]); // Clear tenants initially
+      setStatus(null);
+      setColumns([]);
+      setTenants([]);
+      setSerniaPhoneNumber(null); // Reset on new fetch
 
       try {
-        // --- Fetch Data --- 
-        const response = await fetch('/api/open_phone/tenants');
+        // --- Fetch Sernia Contact Info --- 
+        const serniaContactResponse = await fetch('/api/contacts/slug/sernia');
+        if (!serniaContactResponse.ok) {
+          // Handle error fetching Sernia contact, but don't necessarily block tenant fetching
+          console.error('Failed to fetch Sernia contact info', serniaContactResponse.status);
+          // Optionally set a specific error or allow proceeding without it
+        } else {
+          const serniaContactData = await serniaContactResponse.json();
+          if (serniaContactData && serniaContactData.phone_number) {
+            setSerniaPhoneNumber(serniaContactData.phone_number);
+          } else {
+            console.error('Sernia contact info fetched but no phone number found.');
+          }
+        }
+
+        // --- Fetch Tenants Data --- 
+        const tenantsResponse = await fetch('/api/open_phone/tenants');
         
-        if (response.status === 401 || response.status === 403) {
+        if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
           throw new Error('Unauthorized: You do not have permission to view this page.');
         }
-        if (!response.ok) {
-          let errorDetail = `HTTP error! ${response.status}`;
+        if (!tenantsResponse.ok) {
+          let errorDetail = `HTTP error! ${tenantsResponse.status}`;
           try {
-            const errorData = await response.json().catch(() => ({}));
+            const errorData = await tenantsResponse.json().catch(() => ({}));
             errorDetail = errorData.detail || errorDetail;
           } catch (jsonError) { /* Ignore */ }
           throw new Error(errorDetail);
         }
         
-        const data: Tenant[] = await response.json();
+        const tenantData: Tenant[] = await tenantsResponse.json();
         
-        if (!Array.isArray(data) || data.length === 0) {
-          setTenants([]); // Set empty tenants if data is invalid or empty
+        if (!Array.isArray(tenantData) || tenantData.length === 0) {
+          setTenants([]);
           console.log("No tenant data received or data is not an array.");
-          // No need to generate columns or unique values
-          return; // Exit early
+          return;
         }
         
-        // --- Process Data --- 
-        const processedData = data.map(tenant => ({
+        const processedData = tenantData.map(tenant => ({
           ...tenant,
           'Phone Number': tenant['Phone Number']?.replace(/[^+\d]/g, '') 
         }));
         
         setTenants(processedData);
 
-        // --- Generate Columns Dynamically --- 
         const keysFromData = Object.keys(processedData[0]);
         const generatedColumns: ColumnDef<Tenant>[] = [
           // Selection Column (always first)
@@ -189,17 +203,20 @@ export default function MessageTenantsPage() {
       ];
       setColumns(generatedColumns);
 
-      } catch (computeError) {
-        console.error("Error computing unique values or generating columns:", computeError);
-        setError("Failed to prepare table columns after fetching data.");
-        setColumns([]); // Ensure columns are cleared on error
+      } catch (computeError: any) { // Added : any for computeError type
+        console.error("Error during data fetching or processing:", computeError);
+        // Set a general error if specific error for tenants wasn't thrown before
+        if (!error) {
+            setError(computeError.message || "Failed to fetch or process data.");
+        }
+        setColumns([]);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchTenants();
-  }, []); // Keep useEffect dependency array empty
+    fetchData(); // Renamed from fetchTenants to fetchData
+  }, []);
 
   // Memoize selected tenants to avoid recalculation on every render
   const selectedTenants = useMemo(() => {
@@ -208,12 +225,23 @@ export default function MessageTenantsPage() {
   }, [rowSelection, tenants]);
 
   const handleSendClick = () => {
-    if (selectedTenants.length === 0 || !message.trim()) return;
-    setStatus(null); // Clear previous status
+    if (selectedTenants.length === 0 || !message.trim() || !serniaPhoneNumber) { // Check for serniaPhoneNumber
+        if (!serniaPhoneNumber) {
+            setStatus({ type: 'error', message: 'From phone number (Sernia contact) is not loaded. Cannot send messages.' });
+        }
+        return;
+    }
+    setStatus(null);
     setShowConfirmation(true);
   }
 
   const handleConfirmedSubmit = async () => {
+    if (!serniaPhoneNumber) { // Guard clause if Sernia phone number isn't loaded
+        setStatus({ type: 'error', message: 'Sernia phone number is not available. Cannot send messages.' });
+        setIsSending(false);
+        setShowConfirmation(false);
+        return;
+    }
     setShowConfirmation(false);
     setIsSending(true);
     setStatus({ type: 'loading', message: `Sending messages to ${selectedTenants.length} tenant(s)...` });
@@ -228,7 +256,6 @@ export default function MessageTenantsPage() {
         const firstName = tenant['First Name'] || '';
         const lastName = tenant['Last Name'] || '';
         const name = `${firstName} ${lastName}`.trim();
-        const from_phone_number = '+14129101989';
 
         if (phoneNumber && !phoneNumber.startsWith('+1')) {
             phoneNumber = '+1' + phoneNumber;
@@ -246,7 +273,7 @@ export default function MessageTenantsPage() {
           body: JSON.stringify({
             to_phone_number: phoneNumber,
             message: message,       
-            from_phone_number: from_phone_number,
+            from_phone_number: serniaPhoneNumber, // Use serniaPhoneNumber from state
           }),
         });
 
@@ -344,13 +371,16 @@ export default function MessageTenantsPage() {
                   placeholder="Type your message here..."
                   className="resize-none"
                   rows={4}
-                  disabled={isSending}
+                  disabled={isSending || !serniaPhoneNumber} // Disable if Sernia phone is not loaded
                 />
+                {!serniaPhoneNumber && !isLoading && (
+                  <p className="text-xs text-destructive mt-1">From phone number could not be loaded. Sending disabled.</p>
+                )}
               </div>
               
               <Button 
                 onClick={handleSendClick}
-                disabled={selectedTenants.length === 0 || !message.trim() || isSending}
+                disabled={selectedTenants.length === 0 || !message.trim() || isSending || !serniaPhoneNumber}
                 className="w-full sm:w-auto"
               >
                 {isSending ? 'Sending...' : `Send Message to ${selectedTenants.length} Selected`}
@@ -408,7 +438,7 @@ export default function MessageTenantsPage() {
               </Button>
               <Button
                 onClick={handleConfirmedSubmit}
-                disabled={isSending}
+                disabled={isSending || !serniaPhoneNumber} // Disable if Sernia phone is not loaded
               >
                 {isSending ? 'Sending...' : 'Confirm & Send'}
               </Button>

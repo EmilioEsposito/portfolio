@@ -6,6 +6,7 @@ from api.src.scheduler.service import scheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text
 import pytest
+from api.src.contact.service import get_contact_by_slug
 
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
@@ -146,14 +147,15 @@ async def test_has_no_unreplied_emails():
     assert sent_message_count == 0
 
 
-def start_service():
+async def start_service():
     # Schedule the job to run
+    sernia_contact = await get_contact_by_slug("sernia")
     scheduler.add_job(
         id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_unreplied_email_alerts/zillow_email_new_unreplied.sql",
-            "target_phone_numbers": ["+14129101989"],
+            "target_phone_numbers": [sernia_contact.phone_number],
         },
         trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
         coalesce=True,

@@ -40,6 +40,7 @@ from api.src.google.common.routes import router as google_router
 from api.src.examples.routes import router as examples_router
 from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
+from api.src.contact.routes import router as contact_router
 from api.src.scheduler.routes import router as scheduler_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
@@ -99,7 +100,7 @@ async def lifespan(app: FastAPI):
     try:
         scheduler.start()
         logger.info("Scheduler initialized and started successfully.")
-        zillow_unreplied_email_alerts_service.start_service()
+        await zillow_unreplied_email_alerts_service.start_service()
         # Example: Add a test job on startup if needed
         # from datetime import datetime, timedelta
         # def startup_test_job():
@@ -260,6 +261,7 @@ app.include_router(google_router, prefix="/api")
 app.include_router(examples_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
+app.include_router(contact_router, prefix="/api")
 app.include_router(scheduler_router, prefix="/api")
 
 
