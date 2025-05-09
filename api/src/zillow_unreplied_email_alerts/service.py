@@ -203,7 +203,7 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     client = openai.OpenAI()
     response = client.responses.parse(
-        model="gpt-4o-2024-08-06",
+        model="gpt-4o-mini",
         input=[
             {"role": "system", "content": ai_instructions},
             {
@@ -223,7 +223,16 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 async def check_email_threads():
     
     async with AsyncSessionFactory() as session:
-        sernia_contact = await get_contact_by_slug("sernia")
+
+        if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production":
+            target_contact = await get_contact_by_slug("sernia")
+            non_prod_env = None
+        else:
+            target_contact = await get_contact_by_slug("emilio")
+            non_prod_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
+
+
+        target_phone_number = target_contact.phone_number
 
         should_sernia_reply = False
         with open("api/src/zillow_unreplied_email_alerts/zillow_email_threads.sql", "r") as f:
@@ -266,10 +275,14 @@ async def check_email_threads():
                     alert_message = f'📬 Sernia-AI detected unreplied Zillow email 📬'
                     alert_message += f'\n\nSubject: {messages[0]["subject"]}'
                     alert_message += f'\n\nReason: {reason}'
+
+                    if non_prod_env:
+                        alert_message = f'ENV: {non_prod_env}\n\n{alert_message}'
+
                     logger.info(alert_message)
                     await send_message(
                         message=alert_message,
-                        to_phone_number=sernia_contact.phone_number,
+                        to_phone_number=target_phone_number,
                         from_phone_number="+14129101500"
                     )
 
@@ -310,7 +323,7 @@ async def start_service():
     scheduler.add_job(
         id="zillow_email_threads_ai",
         func=check_email_threads,
-        trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
+        trigger=CronTrigger(hour="8,17", minute="0", timezone="US/Eastern"),
         coalesce=True,
         max_instances=1,
         replace_existing=True,
