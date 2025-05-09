@@ -208,7 +208,7 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
         text_format=ShouldReply,
     )
 
-    pprint(response.output_parsed)
+    logger.debug(f"Parsed AI response: {response.output_parsed}")
 
     should_sernia_reply = response.output_parsed.should_reply
     reason = response.output_parsed.reason
