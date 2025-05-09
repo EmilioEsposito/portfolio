@@ -101,7 +101,7 @@ async def ai_assess_for_escalation(open_phone_event: dict):
         timestamp_et = timestamp
 
     response = client.responses.parse(
-        model="gpt-4o-2024-08-06",
+        model="gpt-4o-mini",
         input=[
             {"role": "system", "content": ai_instructions},
             {
