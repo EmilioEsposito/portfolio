@@ -218,6 +218,7 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 async def check_email_threads():
     
     async with AsyncSessionFactory() as session:
+        sernia_contact = await get_contact_by_slug("sernia")
 
         should_sernia_reply = False
         with open("api/src/zillow_unreplied_email_alerts/zillow_email_threads.sql", "r") as f:
@@ -263,7 +264,7 @@ async def check_email_threads():
                     logger.info(alert_message)
                     await send_message(
                         message=alert_message,
-                        to_phone_number="+14123703550",
+                        to_phone_number=sernia_contact.phone_number,
                         from_phone_number="+14129101500"
                     )
 
