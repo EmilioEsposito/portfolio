@@ -178,8 +178,9 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     No need to reply if an appointment is acknowledged by both parties and phone number is collected.
     No need to replay if it is confirmed that the lead is not qualified (e.g. irreconcilable mismatch of move-in date vs availability, etc.)
 
-    If Zillow profile says credit score is below 600, never a need to reply.
-    If there is a potential mismatch on move-in date vs availability, it is sometimes worth clarifying if they have flexibility.
+    Credit: If Zillow profile says credit score is below 600, never a need to reply. Over 670 is good. Scores in between are case by case. No score is fine. 
+    Pets: We do not allow dogs. We allow cats.Other pets are case-by-case. If their Zillow profile says they have pets, we should reply asking for clarification to see if they are qualified.
+    Availability: If there is material potential mismatch on move-in date vs availability, it is sometimes worth clarifying if they have flexibility.
 
     Even if Sernia was the last one to reply, if the thread required a follow-up from Sernia, Sernia should reply.
     Even if Sernia was the last one to reply, if the applicant seemed otherwise qualified, Sernia should reply. Your reasoning should be "Maybe we should reply". 
