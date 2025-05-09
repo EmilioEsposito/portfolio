@@ -60,7 +60,8 @@ async def check_unreplied_emails(
     )
 
     if not target_phone_number:
-        target_phone_number = await get_contact_by_slug("sernia").phone_number
+        sernia_contact = await get_contact_by_slug("sernia")
+        target_phone_number = sernia_contact.phone_number
 
     try:
         # Initialize default response values

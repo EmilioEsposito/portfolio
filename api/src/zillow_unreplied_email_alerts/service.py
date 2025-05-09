@@ -149,12 +149,13 @@ async def test_has_no_unreplied_emails():
 
 async def start_service():
     # Schedule the job to run
+    sernia_contact = await get_contact_by_slug("sernia")
     scheduler.add_job(
         id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_unreplied_email_alerts/zillow_email_new_unreplied.sql",
-            "target_phone_numbers": [await get_contact_by_slug("sernia").phone_number],
+            "target_phone_numbers": [sernia_contact.phone_number],
         },
         trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
         coalesce=True,

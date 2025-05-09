@@ -69,12 +69,13 @@ async def schedule_sms(
     recipient: Literal["EMILIO", "JACKIE", "PEPPINO", "ANNA", "SERNIA"],
     run_date: datetime,
 ):
+    sernia_contact = await get_contact_by_slug("sernia")
     phone_numbers = {
         "EMILIO": "+14123703550",
         "JACKIE": "+14123703505",
         "PEPPINO": "+14126800593",
         "ANNA": "+14124172322",
-        "SERNIA": await get_contact_by_slug("sernia").phone_number,
+        "SERNIA": sernia_contact.phone_number,
     }
 
     to_phone_number = phone_numbers[recipient]

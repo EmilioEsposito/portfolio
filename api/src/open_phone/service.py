@@ -19,7 +19,8 @@ async def send_message(
     Send a message to a phone number using the OpenPhone API.
     """
     if from_phone_number is None:
-        from_phone_number = await get_contact_by_slug("sernia").phone_number
+        sernia_contact = await get_contact_by_slug("sernia")
+        from_phone_number = sernia_contact.phone_number
 
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     headers = {
