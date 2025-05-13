@@ -170,8 +170,13 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     ai_instructions = """
     # Context
-    You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com).
-    You are tasked with assessing whether Sernia Capital Property Management should reply or follow up to 
+    You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
+    
+    Note: Any email from all@serniacapital.com is considered a response from "Sernia". all@serniacapital.com 
+     is a shared email account. Jackie responds on behalf of Sernia the most, but other team members may respond as well. 
+
+    # Task
+    You are tasked with assessing whether Sernia should reply or follow up to 
      a given Zillow email thread. These are threads where potential tenants are interested in renting 
      one of our properties. The goal of each email thread is to vet that applicants are qualified leads, 
      and if they are qualified, to schedule an appointment to view the property (and collect their 
@@ -186,10 +191,11 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
        they have pets, we should reply asking for clarification to see if they are qualified.
     * Availability: If there is material potential mismatch on move-in date vs availability, it is 
        sometimes worth clarifying if they have flexibility.
-    * Even if Sernia was the last one to reply, if the thread required a follow-up from Sernia, Sernia 
-       should reply.
-    * Even if Sernia was the last one to reply, if the applicant seemed otherwise qualified, Sernia should 
-       reply. Your reasoning tone should be softer in this scenario. 
+    * If Sernia already replied, and the applicant never responds, Sernia does not need to reply again.
+    * However, if Sernia was the last one to reply, if the thread required a follow-up from Sernia, 
+      Sernia should reply (e.g. ""we'll get back to you on that question...")
+    * Even if Sernia was the last one to reply, if the applicant seemed otherwise qualified and was originally 
+      responding to Sernia's initial message, Sernia should should reply. Your reasoning tone should be softer in this scenario. 
     * When giving your reasoning, speak in the "we" voice, since you work for Sernia as well. 
 
     # Response Format. Return your response in the following JSON format:
