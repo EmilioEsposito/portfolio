@@ -1,9 +1,10 @@
 import logging
 import os
 from pprint import pprint
-from api.src.open_phone.service import send_message
+from api.src.open_phone.service import send_message, create_openphone_contact
 from api.src.database.database import AsyncSessionFactory
 from api.src.scheduler.service import scheduler
+from api.src.contact.service import ContactCreate
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text
 import pytest
@@ -12,7 +13,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
 import openai
-
+import pytz
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
 
@@ -165,20 +166,22 @@ class EmailMessageDetail(BaseModel):
 class ShouldReply(BaseModel):
     should_reply: bool
     reason: str
+    appointment_scheduled: bool
 
-async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
+async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     ai_instructions = """
     # Context
     You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
     
     Note: Any email from all@serniacapital.com is considered a response from "Sernia". all@serniacapital.com 
-     is a shared email account. Jackie responds on behalf of Sernia the most, but other team members may respond as well. 
+     is a shared email account. Jackie responds on behalf of Sernia the most, but other team members may respond as well.
+     The first email in the thread is always from the lead.
 
     # Task
     You are tasked with assessing whether Sernia should reply or follow up to 
-     a given Zillow email thread. These are threads where potential tenants are interested in renting 
-     one of our properties. The goal of each email thread is to vet that applicants are qualified leads, 
+     a given Zillow email thread. These are threads where potential tenants (leads) are interested in renting 
+     one of our properties. The goal of each email thread is to vet if the lead is "qualified", 
      and if they are qualified, to schedule an appointment to view the property (and collect their 
      phone number).
 
@@ -192,16 +195,23 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     * Availability: If there is material potential mismatch on move-in date vs availability, it is 
        sometimes worth clarifying if they have flexibility.
     * If Sernia already replied, and the applicant never responds, Sernia does not need to reply again.
-    * However, if Sernia was the last one to reply, if the thread required a follow-up from Sernia, 
-      Sernia should reply (e.g. ""we'll get back to you on that question...")
+    * However, even if Sernia was the last one to reply, if the thread required a follow-up from Sernia, 
+      Sernia should reply again (e.g. if last message from Sernia was ""we'll get back to you on that question..."")
     * Even if Sernia was the last one to reply, if the applicant seemed otherwise qualified and was originally 
       responding to Sernia's initial message, Sernia should should reply. Your reasoning tone should be softer in this scenario. 
     * When giving your reasoning, speak in the "we" voice, since you work for Sernia as well. 
 
-    # Response Format. Return your response in the following JSON format:
+    # Response Format. Return your response in JSON. 
+    # Examples:
+    {
+        "should_reply": false,
+        "reason": "Reasoning for your response",
+        "appointment_scheduled": true
+    }
     {
         "should_reply": true,
-        "reason": "Reasoning for your response"
+        "reason": "Reasoning for your response",
+        "appointment_scheduled": false
     }
     """
 
@@ -224,7 +234,82 @@ async def as_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     should_sernia_reply = response.output_parsed.should_reply
     reason = response.output_parsed.reason
-    return should_sernia_reply, reason
+    appointment_scheduled = response.output_parsed.appointment_scheduled
+    return should_sernia_reply, reason, appointment_scheduled
+
+
+class CollectedThreadInfo(BaseModel):
+    building_number: Optional[int] = None
+    unit_number: Optional[int] = None
+    lead_first_name: Optional[str] = None
+    lead_last_name: Optional[str] = None
+    lead_phone_number: Optional[str] = None
+    appointment_date: Optional[str] = None
+    appointment_time: Optional[str] = None
+
+
+async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDetail]):
+
+    today_datetime_et = datetime.now(pytz.timezone('US/Eastern'))
+    today_datetime_et_str = today_datetime_et.strftime('%Y-%m-%d %H:%M:%S')
+    day_of_week_et_str = today_datetime_et.strftime('%A')
+
+    ai_instructions = f"""# Context
+    You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
+    
+    Note: Any email from all@serniacapital.com is considered a response from "Sernia". all@serniacapital.com 
+     is a shared email account. Jackie responds on behalf of Sernia the most, but other team members may respond as well. 
+     The first email in the thread is always from the lead.
+
+    # Task
+    You are tasked with collecting the lead's information, property information, and final confirmed appointment date and time 
+     from a Zillow email thread.
+
+    # Guidelines:
+    * The first email in the thread is always from the lead.
+    * The property information is always in the subject line. 
+        * The building_number is just the 3 or 4 digit number preceding the street name.
+        * The unit_number is the number after the street name and before the city. 
+            * It might be diplayed in these sorts of varying formats: #1, Apt 1, Unit 01, etc. Return just the number, in this case "1".
+    * The lead's first and last name are in the body of the first email, and possibly also in the "from" field of the first email.
+    * Do not confuse appointment time *options* with the final confirmed appointment date and time. 
+    * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date. 
+      The current date and time in Eastern Time is {today_datetime_et_str}, and the day of the week is {day_of_week_et_str}. 
+    * Appointment Time: Assume everything is in ET timezone, and do not do any timezone conversion. Return the time in ET timezone.
+
+    # Response Format. Return your response in JSON. 
+    # Examples:
+    {{
+        "building_number": 332,
+        "unit_number": 1,
+        "lead_first_name": "John",
+        "lead_last_name": "Doe",
+        "lead_phone_number": "+14125551212",
+        "appointment_date": "2024-01-01",
+        "appointment_time": "10:00 AM"
+    }}
+    """
+
+    logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
+
+    client = openai.OpenAI()
+    response = client.responses.parse(
+        model="gpt-4o-mini",
+        input=[
+            {"role": "system", "content": ai_instructions},
+            {
+                "role": "user",
+                "content": f"EMAIL THREAD: {messages}",
+            },
+        ],
+        text_format=CollectedThreadInfo,
+    )
+
+    logger.debug(f"Parsed AI response: {response.output_parsed}")
+
+    thread_info = response.output_parsed
+
+    return thread_info
 
 async def check_email_threads():
     
@@ -275,7 +360,7 @@ async def check_email_threads():
 
             # for each thread, check if it has a reply
             for thread_id, messages in email_threads.items():
-                should_sernia_reply, reason = await as_assess_thread(thread_id, messages)
+                should_sernia_reply, reason, appointment_scheduled = await ai_assess_thread(thread_id, messages)
 
                 if should_sernia_reply:
                     alert_message = f'📬 Sernia-AI detected unreplied Zillow email 📬'
@@ -291,6 +376,39 @@ async def check_email_threads():
                         to_phone_number=target_phone_number,
                         from_phone_number="+14129101500"
                     )
+
+                if appointment_scheduled:
+                    logger.info(f"Appointment scheduled: {appointment_scheduled}")
+
+                    thread_info = await ai_collect_thread_info(thread_id, messages)
+
+                    # pad unit_number with leading zeros
+                    unit_number_padded = str(thread_info.unit_number).zfill(2)
+
+                    first_name_aux = 'Lead ' + str(thread_info.building_number) + "-" + unit_number_padded + " " + thread_info.lead_first_name
+
+                    try:
+                        if thread_info.lead_phone_number:
+                            contact_create = ContactCreate(
+                                phone_number=thread_info.lead_phone_number,
+                                first_name=first_name_aux,
+                                last_name=thread_info.lead_last_name,
+                                company=str(thread_info.building_number),
+                                role="Lead",
+                            )
+
+                            # now create a new contact in OpenPhone
+                            openphone_contact = await create_openphone_contact(contact_create)
+                            logger.info(f"Created new OpenPhone contact: {openphone_contact}")
+                        else:
+                            logger.error(f"No phone number found for lead: {first_name_aux}")
+                    except Exception as e:
+                        logger.error(f"Error creating OpenPhone contact: {e}")
+                        logger.error(f"Contact create: {contact_create}")
+
+
+                    # TODO: now create a new appointment in Google Calendar
+                 
 
 
 async def start_service():

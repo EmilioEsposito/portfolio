@@ -66,6 +66,8 @@ def main():
     '67a6a26d4837c897bb929de3',
     '67a6a2cc32d3048139dae2ee',
     '67a6a25c4837c897bb929d9b',
+    '6823e6f2e7bc891303a85595',
+    '6823e5ddd52f37a873ef6d1c',
     ]
     contact_id = contact_ids[0]
     # delete contacts

@@ -97,6 +97,7 @@ WHERE
     array_length(label_ids, 1) > 1;
 ;
 
+select * from contacts;
 
 SELECT
     received_date,
