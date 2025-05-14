@@ -19,12 +19,14 @@ export default function Home() {
         setAuthToken(null);
       } finally {
         setTokenLoading(false);
-        console.log("Token loaded:", authToken);
       }
     };
     fetchToken();
   }, [getToken]);
 
+  useEffect(() => {
+    console.log("Token updated:", authToken);
+  }, [authToken]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">

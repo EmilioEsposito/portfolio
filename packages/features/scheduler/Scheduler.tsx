@@ -49,6 +49,11 @@ const Scheduler: React.FC<SchedulerProps> = ({ apiBaseUrl, authToken }) => {
   const iconColor = useThemeColor({}, "icon"); // For collapsible icon
 
   const fetchJobs = useCallback(async () => {
+    if (!authToken) {
+      setError("No auth token available!");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

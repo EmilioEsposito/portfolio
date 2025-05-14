@@ -17,11 +17,13 @@ import re
 
 # Pydantic Schemas for Contact
 class ContactBase(BaseModel):
-    slug: str = Field(..., min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact. Will be stored in lowercase.")
-    name: str = Field(..., min_length=1, max_length=100)
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    slug: Optional[str] = Field(default=None, min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact. Will be stored in lowercase.")
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = Field(default=None, description="Phone number, will be normalized to +1XXXXXXXXXX format for US numbers.")
     notes: Optional[str] = None
+    openphone_contact_id: Optional[str] = None
     user_id: Optional[uuid.UUID] = None
 
     @field_validator('slug', mode='before')
@@ -52,7 +54,8 @@ class ContactCreate(ContactBase):
     pass
 
 class ContactUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     email: Optional[EmailStr] = None
     phone_number: Optional[str] = Field(default=None, max_length=20)
     notes: Optional[str] = None
@@ -64,12 +67,13 @@ class ContactResponse(ContactBase):
 
 async def create_contact(db: AsyncSession, contact_create: ContactCreate) -> Contact:
     # Check if slug already exists
-    existing_contact_by_slug = await get_contact_by_slug(db, contact_create.slug)
-    if existing_contact_by_slug:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Contact with slug '{contact_create.slug}' already exists."
-        )
+    if contact_create.slug:
+        existing_contact_by_slug = await get_contact_by_slug(contact_create.slug)
+        if existing_contact_by_slug:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Contact with slug '{contact_create.slug}' already exists."
+            )
 
     final_user_id = contact_create.user_id
 
@@ -196,13 +200,14 @@ async def test_basic_create_contact(): # Removed db_session parameter
             await session.delete(contact_to_delete)
             await session.commit()
 
-        contact_create_data = ContactCreate(slug="test-contact", name="Test Contact", email="basic@example.com", phone_number="0 00-31 23 45(67) 890")
+        contact_create_data = ContactCreate(slug="test-contact", first_name="Test", last_name="Contact", email="basic@example.com", phone_number="0 00-31 23 45(67) 890")
         created_contact = await create_contact(session, contact_create_data)
         await session.refresh(created_contact)
 
         assert created_contact is not None
         assert created_contact.slug == "test-contact"
-        assert created_contact.name == "Test Contact"
+        assert created_contact.first_name == "Test"
+        assert created_contact.last_name == "Contact"
         assert created_contact.email == "basic@example.com"
         
         user_check_query = select(User).where(User.email == "basic@example.com")
@@ -221,18 +226,19 @@ async def test_basic_update_contact():
         existing_contact_result = await session.execute(existing_contact_query)
         existing_contact = existing_contact_result.scalars().first()
         if not existing_contact:
-            contact_create_data = ContactCreate(slug="test-contact", name="Test Contact", email="basic@example.com")
+            contact_create_data = ContactCreate(slug="test-contact", first_name="Test", last_name="Contact", email="basic@example.com")
             created_contact = await create_contact(session, contact_create_data)
             await session.refresh(created_contact)
             existing_contact = created_contact
 
         # Update the contact
-        update_data = ContactUpdate(name="Updated Contact", email="updated@example.com")
+        update_data = ContactUpdate(first_name="Updated", last_name="Contact", email="updated@example.com")
         updated_contact = await update_contact(session, existing_contact.id, update_data)
         await session.refresh(updated_contact)
 
         assert updated_contact is not None
-        assert updated_contact.name == "Updated Contact"
+        assert updated_contact.first_name == "Updated"
+        assert updated_contact.last_name == "Contact"
         assert updated_contact.email == "updated@example.com"
         assert updated_contact.user_id == existing_contact.user_id
 
@@ -243,7 +249,8 @@ async def test_get_contact_by_slug():
     assert contact is not None
     assert hasattr(contact, "id")
     assert hasattr(contact, "slug")
-    assert hasattr(contact, "name")
+    assert hasattr(contact, "first_name")
+    assert hasattr(contact, "last_name")
     assert hasattr(contact, "email")
     assert hasattr(contact, "phone_number")
     assert hasattr(contact, "notes")

@@ -3,18 +3,26 @@ from sqlalchemy import Column, String, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from api.src.database.database import Base # Assuming your Base is here
+from sqlalchemy.dialects.postgresql import JSONB
 
 class Contact(Base):
     __tablename__ = "contacts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    slug = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    slug = Column(String, unique=True, index=True, nullable=True)
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
     email = Column(String, nullable=True, index=True)
     phone_number = Column(String, nullable=True)
     
     # Optional notes or description for the contact
     notes = Column(Text, nullable=True) 
+
+    company = Column(String, nullable=True)
+    role = Column(String, nullable=True)
+
+    openphone_contact_id = Column(String, nullable=True)
+    openphone_json = Column(JSONB, nullable=True)
 
     # Foreign key to User table
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
