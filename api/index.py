@@ -46,7 +46,7 @@ from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
 from api.src.scheduler.service import scheduler
-from api.src.zillow_unreplied_email_alerts import service as zillow_unreplied_email_alerts_service
+from api.src.zillow_email import service as zillow_email_service
 
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     try:
         scheduler.start()
         logger.info("Scheduler initialized and started successfully.")
-        await zillow_unreplied_email_alerts_service.start_service()
+        await zillow_email_service.start_service()
         # Example: Add a test job on startup if needed
         # from datetime import datetime, timedelta
         # def startup_test_job():

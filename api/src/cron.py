@@ -71,7 +71,7 @@ async def check_unreplied_emails(
 
         # SQL query to find unreplied emails within past week that were received >4 hours ago
         # Use the calculated absolute path to the SQL file
-        with open("api/src/zillow_unreplied_email_alerts/zillow_email_new_unreplied.sql", "r") as f:
+        with open("api/src/zillow_email/zillow_email_new_unreplied.sql", "r") as f:
             sql_query = f.read()
 
         # Execute the query
