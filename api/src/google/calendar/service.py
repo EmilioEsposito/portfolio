@@ -138,7 +138,7 @@ async def test_query_calendar_events():
 async def test_create_calendar_event():
     service = await get_calendar_service(user_email="emilio@serniacapital.com")
     et_tz = pytz.timezone("US/Eastern")
-    start_time = datetime.datetime(year=2025, month=5, day=30, hour=12).astimezone(
+    start_time = datetime.datetime(year=2026, month=5, day=30, hour=12).astimezone(
         et_tz
     )
     end_time = start_time + datetime.timedelta(hours=1)
@@ -146,14 +146,14 @@ async def test_create_calendar_event():
     end_time_str = end_time.isoformat()
 
     event = {
-        "summary": "Test Event3",
+        "summary": "Test Event Future",
         "description": "This is a test event",
         "organizer": {
             "email": "emilio@serniacapital.com",
         },
         "attendees": [
             {
-                "email": "espo412@gmail.com", 
+                "email": "emilio+listings@serniacapital.com", 
             },
         ],
         "start": {

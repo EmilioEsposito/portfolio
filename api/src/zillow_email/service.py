@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import openai
 import pytz
 from api.src.google.calendar.service import create_calendar_event, get_calendar_service
+from bs4 import BeautifulSoup
 
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
@@ -169,7 +170,9 @@ async def test_has_no_unreplied_emails():
 class EmailMessageDetail(BaseModel):
     subject: str
     email_timestamp_et: datetime # Assuming it's a datetime object after DB conversion
+    email_day_of_week_et_str: str
     body_html: str
+    body_text: str = None
     from_address: EmailStr # Or str if not strictly email
     # Assuming to_address from your SQL might be a single string or needs parsing to a list.
     # For simplicity, keeping as string for now. Adjust if it's an array/list in DB.
@@ -263,10 +266,6 @@ class CollectedThreadInfo(BaseModel):
 
 async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDetail]):
 
-    today_datetime_et = datetime.now(pytz.timezone('US/Eastern'))
-    today_datetime_et_str = today_datetime_et.strftime('%Y-%m-%d %H:%M:%S')
-    day_of_week_et_str = today_datetime_et.strftime('%A')
-
     ai_instructions = f"""# Context
     You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
     
@@ -286,8 +285,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
             * It might be diplayed in these sorts of varying formats: #1, Apt 1, Unit 01, etc. Return just the number, in this case "1".
     * The lead's first and last name are in the body of the first email, and possibly also in the "from" field of the first email.
     * Do not confuse appointment time *options* with the final confirmed appointment date and time. 
-    * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date. 
-      The current date and time in Eastern Time is {today_datetime_et_str}, and the day of the week is {day_of_week_et_str}. 
+    * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date vs the date of the email message.
     * Appointment Time: Assume everything is in ET timezone, and do not do any timezone conversion. Return the time in ET timezone.
 
     # Response Format. Return your response in JSON. 
@@ -303,7 +301,28 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     }}
     """
 
+    class Ab:
+        x=1
+
     logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
+
+    # Cleanup
+    for message in messages:
+        # remove redundant replies in each message
+        message.body_text = message.body_html.split(">On")[0]+">"
+        # remove html tags from body_html
+        message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
+
+    thread_str = ""
+    for message in messages:
+        thread_str += f"FROM: {message.from_address}\n"
+        thread_str += f"TO: {message.to_address}\n"
+        thread_str += f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        thread_str += f"DAY OF WEEK: {message.email_day_of_week_et_str}\n"
+        thread_str += f"SUBJECT: {message.subject}\n"
+        thread_str += f"BODY: {message.body_text}\n"
+        thread_str += "----------------------------------------\n"
+
 
     client = openai.OpenAI()
     response = client.responses.parse(
@@ -312,7 +331,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
-                "content": f"EMAIL THREAD: {messages}",
+                "content": f"EMAIL THREAD:\n{thread_str}",
             },
         ],
         text_format=CollectedThreadInfo,
@@ -322,7 +341,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     thread_info = response.output_parsed
 
-    return thread_info
+    return thread_info, thread_str
 
 async def check_email_threads():
 
@@ -355,9 +374,12 @@ async def check_email_threads():
                 for email in email_dicts:
                     thread_id = email['thread_id']
 
+                    email_day_of_week_et_str = email['email_timestamp_et'].strftime('%A')
+
                     message_detail = {
                         "subject": email['subject'],
                         "email_timestamp_et": email['email_timestamp_et'],
+                        "email_day_of_week_et_str": email_day_of_week_et_str,
                         "body_html": email['body_html'],
                         "from_address": email['from_address'],
                         "to_address": email['to_address']
@@ -365,6 +387,8 @@ async def check_email_threads():
 
                     if thread_id not in email_threads:
                         email_threads[thread_id] = []
+
+                    message_detail = EmailMessageDetail(**message_detail)
 
                     email_threads[thread_id].append(message_detail)
 
@@ -377,7 +401,7 @@ async def check_email_threads():
 
                 if should_sernia_reply:
                     alert_message = f'📬 Sernia-AI detected unreplied Zillow email 📬'
-                    alert_message += f'\n\nSubject: {messages[0]["subject"]}'
+                    alert_message += f'\n\nSubject: {messages[0].subject}'
                     alert_message += f'\n\nReason: {reason}'
 
                     if non_prod_env:
@@ -393,7 +417,7 @@ async def check_email_threads():
                 if appointment_scheduled:
                     logger.info(f"Appointment scheduled: {appointment_scheduled}")
 
-                    thread_info = await ai_collect_thread_info(thread_id, messages)
+                    thread_info, thread_str = await ai_collect_thread_info(thread_id, messages)
 
                     # pad unit_number with leading zeros
                     unit_number_padded = str(thread_info.unit_number).zfill(2)
@@ -450,6 +474,7 @@ async def check_email_threads():
                             event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
                             event_description += f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
                             event_description += f"\nSource: Zillow Email."
+                            event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
 
                             calendar_service = await get_calendar_service(user_email="emilio@serniacapital.com") # TODO: make user_email dynamic or from config
 
@@ -459,7 +484,7 @@ async def check_email_threads():
                                 "start": {"dateTime": start_time_iso, "timeZone": "America/New_York"},
                                 "end": {"dateTime": end_time_iso, "timeZone": "America/New_York"},
                                 "attendees": [
-                                    {"email": "espo412@gmail.com"} 
+                                    {"email": "emilio+listings@serniacapital.com"} 
                                     # Potentially add lead's email if available and desired?
                                 ],
                                 "reminders": {
@@ -478,6 +503,11 @@ async def check_email_threads():
                     except Exception as e:
                         logger.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
                         logger.error(f"Thread Info for calendar event creation: {thread_info}")
+
+
+@pytest.mark.asyncio
+async def test_check_email_threads():
+    await check_email_threads()
 
 
 async def start_service():

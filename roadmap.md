@@ -139,7 +139,7 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 * ✅ Create contacts table to store various contact info on both users and other contacts so that we can remove phone numbers and emails from the codebase. The idea would be to use a slug in the code (e.g. `emilio` or `sernia`) and then have a table that maps slugs to emails, phone numbers, etc. Is this a good idea? We alreday have a user table, but there are other contacts that we need to store info for (e.g. zillow, openphone, etc.). Could maybe have a foreign key in the contacts table to the user table if the relationship exists? A contact record would be a unique set of email, phone number, etc. No support for multiple emails, phone numbers, etc. yet.
 * ✅ Create OpenPhone contact via AI from zillow_email_threads_ai job
 * ✅ Google Calendar service
-* [ ] Create Google Calendar event from zillow_email_threads_ai (see TODO in service.py)
+* ✅ Create Google Calendar event from zillow_email_threads_ai (see TODO in service.py)
 * [ ] Create AI agent backend. Think about the design of this e2e. There should be some backend-only self-scheduling logic, but maybe the same agent is also used for interactive chat in the app? For interactive chat solution this potential solution for integrating PydanticAI with Vercel's AI SDK: https://pastebin.com/zGXT2Wp2 (also saved in scratch/aisdk_and_pydanticai.md)
 * [ ] Zillow email thread unreplied to.
 * [ ] Create mobile chat interface
