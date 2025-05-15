@@ -83,7 +83,7 @@ async def create_calendar_event(service, event: dict, overwrite: bool = False):
         else:
             logger.info(f"Event does not exist, creating event: {event['summary']}")
 
-        event = service.events().insert(calendarId="primary", body=event).execute()
+        event = service.events().insert(calendarId="primary", body=event, sendUpdates='all').execute()
         return event
 
     except Exception as e:
@@ -138,7 +138,7 @@ async def test_query_calendar_events():
 async def test_create_calendar_event():
     service = await get_calendar_service(user_email="emilio@serniacapital.com")
     et_tz = pytz.timezone("US/Eastern")
-    start_time = datetime.datetime(year=2025, month=5, day=14, hour=12).astimezone(
+    start_time = datetime.datetime(year=2026, month=5, day=30, hour=12).astimezone(
         et_tz
     )
     end_time = start_time + datetime.timedelta(hours=1)
@@ -146,14 +146,14 @@ async def test_create_calendar_event():
     end_time_str = end_time.isoformat()
 
     event = {
-        "summary": "Test Event",
+        "summary": "Test Event Future",
         "description": "This is a test event",
         "organizer": {
             "email": "emilio@serniacapital.com",
         },
         "attendees": [
             {
-                "email": "emilio@serniacapital.com",  # does not have to be organizer
+                "email": "emilio+listings@serniacapital.com", 
             },
         ],
         "start": {
@@ -162,6 +162,13 @@ async def test_create_calendar_event():
         "end": {
             "dateTime": end_time_str,
         },
+        "reminders": {
+            "useDefault": False,
+            "overrides": [
+                {"method": "email", "minutes": 24 * 60},  # 1 day before
+                {"method": "popup", "minutes": 120},  # 2 hours before
+            ],
+        }
     }
     new_event = await create_calendar_event(service, event, overwrite=True)
     pprint(new_event)

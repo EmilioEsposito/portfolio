@@ -69,7 +69,7 @@ export default function Home() {
         </div>
         <H3>
           {/* <Link href="/tenant-mass-message"> */}
-          ✅ SMS Emergency Routing via Agentic AI
+          ✅ Agentic AI Based SMS Emergency Routing
           {/* </Link> */}
         </H3>
         <P>
@@ -89,11 +89,23 @@ export default function Home() {
           calls/texts to the property managers and owners using a dedicated emergency number that 
           can bypass Do Not Disturb settings during off hours.
         </P>
-        <H3>✅ Contact Syncing</H3>
+        <H3>✅ Agentic AI Based Calendar Event Creation, Contact Syncing, and Follow-Up Reminder</H3>
         <P>
-          A serverless cron job that syncs contact information from our source
-          of truth Google Sheet to a Neon Postgres database and to our OpenPhone
-          Voice/SMS Platform..
+          Implemented in FastAPI here:{" "}
+          <Link
+            href="https://github.com/EmilioEsposito/portfolio/tree/ba25663cbb7d550370f79c97f1cb275eba1a55e8/api/src/zillow_email"
+            className="text-blue-500 hover:text-blue-600 hover:underline"
+          >
+            zillow_email/service.py
+          </Link>
+          <br />
+          AI monitors Zillow email threads for emails that contain either 
+          contact information or a confirmed appointment. If it finds either, it 
+          will create a Google Calendar event for the appointment, and create a 
+          contact in our OpenPhone (our SMS/Voice platform).
+
+          It will also detect if an email thread should be followed up on, and 
+          will send an SMS reminder to the leasing agent to follow up.
         </P>
 
         <H3>

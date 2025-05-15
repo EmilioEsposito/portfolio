@@ -11,24 +11,38 @@ import pytest
 from api.src.contact.service import get_contact_by_slug
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import openai
 import pytz
+from api.src.google.calendar.service import create_calendar_event, get_calendar_service
+from bs4 import BeautifulSoup
+
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
 
 logger.info("Zillow unreplied email alerts service loaded")
 
-async def check_unreplied_emails(sql: str, target_phone_numbers: list[str], mock=False):
+async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None, target_slugs: list[str]=None, mock=False):
     """
     Check for unreplied Zillow emails and send a summary via OpenPhone.
 
     Args:
         sql: str - The path to the SQL file to use for the query (ends with .sql) OR the SQL query itself.
+        target_phone_numbers: list[str] - The phone numbers to send the message to.
+        target_slugs: list[str] - The slugs of the contacts to send the message to.
         mock: bool - Whether to mock the sending of the message.
-        target_phone_number: str - The phone number to send the message to.
     """
-    logger.info(f"check_unreplied_emails invoked. Received sql='{sql}', target_phone_numbers='{target_phone_numbers}', mock='{mock}'")
+    logger.info(f"check_unreplied_emails invoked. Received sql='{sql}'")
+    assert target_phone_numbers or target_slugs, "Either target_phone_numbers or target_slugs must be provided"
+    logger.info(f"target_phone_numbers='{target_phone_numbers}'")
+    logger.info(f"target_slugs='{target_slugs}'")
+    logger.info(f"mock='{mock}'")
+
+    if target_slugs:
+        target_phone_numbers = []
+        for target_slug in target_slugs:
+            target_contact = await get_contact_by_slug(target_slug)
+            target_phone_numbers.append(target_contact.phone_number)
 
     # Configuration for phone numbers
     from_phone_number = "+14129101500"  # Alert Robot
@@ -133,7 +147,7 @@ async def test_has_unreplied_emails():
         'Mon DD, HH12:MIpm'
     ) AS received_date_str;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_phone_numbers=["+14123703550"]
+        sql=sql_query, target_slugs=["sernia"]
     )
     assert sent_message_count == 1
 
@@ -148,7 +162,7 @@ async def test_has_no_unreplied_emails():
     ) AS received_date_str
     WHERE 1=0;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_phone_numbers=["+14123703550"]
+        sql=sql_query, target_slugs=["emilio"]
     )
     assert sent_message_count == 0
 
@@ -156,7 +170,9 @@ async def test_has_no_unreplied_emails():
 class EmailMessageDetail(BaseModel):
     subject: str
     email_timestamp_et: datetime # Assuming it's a datetime object after DB conversion
+    email_day_of_week_et_str: str
     body_html: str
+    body_text: str = None
     from_address: EmailStr # Or str if not strictly email
     # Assuming to_address from your SQL might be a single string or needs parsing to a list.
     # For simplicity, keeping as string for now. Adjust if it's an array/list in DB.
@@ -167,6 +183,29 @@ class ShouldReply(BaseModel):
     should_reply: bool
     reason: str
     appointment_scheduled: bool
+
+def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
+
+    # Cleanup
+    for message in messages:
+        # remove redundant replies in each message
+        message.body_text = message.body_html.split(">On")[0]+">"
+        # remove the redundant text after "New messageHurrah!" in zillow emails
+        message.body_text = message.body_text.split("New messageHurrah!")[0]
+        # remove html tags from body_html
+        message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
+
+    thread_str = ""
+    for message in messages:
+        thread_str += f"FROM: {message.from_address}\n"
+        thread_str += f"TO: {message.to_address}\n"
+        thread_str += f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        thread_str += f"DAY OF WEEK: {message.email_day_of_week_et_str}\n"
+        thread_str += f"SUBJECT: {message.subject}\n"
+        thread_str += f"BODY: {message.body_text}\n"
+        thread_str += "----------------------------------------\n"
+
+    return thread_str
 
 async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
@@ -217,6 +256,8 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     logger.info(f"AI assessing Zillow email thread: {thread_id}")
 
+    thread_str = get_clean_zillow_thread_str(messages)
+
     client = openai.OpenAI()
     response = client.responses.parse(
         model="gpt-4o-mini",
@@ -224,7 +265,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
-                "content": f"EMAIL THREAD: {messages}",
+                "content": f"EMAIL THREAD: {thread_str}",
             },
         ],
         text_format=ShouldReply,
@@ -250,10 +291,6 @@ class CollectedThreadInfo(BaseModel):
 
 async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDetail]):
 
-    today_datetime_et = datetime.now(pytz.timezone('US/Eastern'))
-    today_datetime_et_str = today_datetime_et.strftime('%Y-%m-%d %H:%M:%S')
-    day_of_week_et_str = today_datetime_et.strftime('%A')
-
     ai_instructions = f"""# Context
     You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
     
@@ -273,8 +310,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
             * It might be diplayed in these sorts of varying formats: #1, Apt 1, Unit 01, etc. Return just the number, in this case "1".
     * The lead's first and last name are in the body of the first email, and possibly also in the "from" field of the first email.
     * Do not confuse appointment time *options* with the final confirmed appointment date and time. 
-    * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date. 
-      The current date and time in Eastern Time is {today_datetime_et_str}, and the day of the week is {day_of_week_et_str}. 
+    * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date vs the date of the email message.
     * Appointment Time: Assume everything is in ET timezone, and do not do any timezone conversion. Return the time in ET timezone.
 
     # Response Format. Return your response in JSON. 
@@ -292,6 +328,11 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
 
+
+
+    
+    thread_str = get_clean_zillow_thread_str(messages)
+
     client = openai.OpenAI()
     response = client.responses.parse(
         model="gpt-4o-mini",
@@ -299,7 +340,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
-                "content": f"EMAIL THREAD: {messages}",
+                "content": f"EMAIL THREAD:\n{thread_str}",
             },
         ],
         text_format=CollectedThreadInfo,
@@ -309,10 +350,10 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     thread_info = response.output_parsed
 
-    return thread_info
+    return thread_info, thread_str
 
-async def check_email_threads():
-    
+async def check_email_threads(overwrite_calendar_events=False):
+
     async with AsyncSessionFactory() as session:
 
         if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production":
@@ -332,7 +373,7 @@ async def check_email_threads():
             result = await session.execute(text(sql_query))
             email_rows = result.fetchall()
             email_dicts = [dict(row._mapping) for row in email_rows if email_rows]
-            
+
             # group emails by thread_id
             email_threads = {}
 
@@ -341,10 +382,13 @@ async def check_email_threads():
 
                 for email in email_dicts:
                     thread_id = email['thread_id']
-                    
+
+                    email_day_of_week_et_str = email['email_timestamp_et'].strftime('%A')
+
                     message_detail = {
                         "subject": email['subject'],
                         "email_timestamp_et": email['email_timestamp_et'],
+                        "email_day_of_week_et_str": email_day_of_week_et_str,
                         "body_html": email['body_html'],
                         "from_address": email['from_address'],
                         "to_address": email['to_address']
@@ -353,8 +397,10 @@ async def check_email_threads():
                     if thread_id not in email_threads:
                         email_threads[thread_id] = []
 
+                    message_detail = EmailMessageDetail(**message_detail)
+
                     email_threads[thread_id].append(message_detail)
-                    
+
             else:
                 logger.info("No email threads found.")
 
@@ -364,7 +410,7 @@ async def check_email_threads():
 
                 if should_sernia_reply:
                     alert_message = f'📬 Sernia-AI detected unreplied Zillow email 📬'
-                    alert_message += f'\n\nSubject: {messages[0]["subject"]}'
+                    alert_message += f'\n\nSubject: {messages[0].subject}'
                     alert_message += f'\n\nReason: {reason}'
 
                     if non_prod_env:
@@ -380,7 +426,7 @@ async def check_email_threads():
                 if appointment_scheduled:
                     logger.info(f"Appointment scheduled: {appointment_scheduled}")
 
-                    thread_info = await ai_collect_thread_info(thread_id, messages)
+                    thread_info, thread_str = await ai_collect_thread_info(thread_id, messages)
 
                     # pad unit_number with leading zeros
                     unit_number_padded = str(thread_info.unit_number).zfill(2)
@@ -406,9 +452,71 @@ async def check_email_threads():
                         logger.error(f"Error creating OpenPhone contact: {e}")
                         logger.error(f"Contact create: {contact_create}")
 
+                    try:
+                        if thread_info.appointment_date and thread_info.appointment_time:
+                            # Combine date and time strings and parse them
+                            appointment_datetime_str = f"{thread_info.appointment_date} {thread_info.appointment_time}"
+                            # Assuming appointment_time is like "10:00 AM" or "2:00 PM"
+                            # Convert to 24-hour format for parsing if necessary, or ensure consistent format
+                            # For simplicity, assuming it's parsable directly or already in a good format from AI
 
-                    # TODO: now create a new appointment in Google Calendar
-                 
+                            # Define the timezone
+                            eastern_tz = pytz.timezone("US/Eastern")
+
+                            # Parse the combined string. This might need adjustment based on the exact format of appointment_time
+                            # Example: if time is "10:00 AM", datetime.strptime can handle it with "%Y-%m-%d %I:%M %p"
+                            # If AI guarantees "YYYY-MM-DD" for date and "HH:MM" (24hr) for time, it's simpler.
+                            # Let's assume AI provides date as "YYYY-MM-DD" and time as "HH:MM AM/PM"
+
+                            parsed_datetime = datetime.strptime(appointment_datetime_str, "%Y-%m-%d %I:%M %p")
+
+                            # Localize the naive datetime to Eastern Time
+                            start_datetime_aware = eastern_tz.localize(parsed_datetime)
+                            end_datetime_aware = start_datetime_aware + timedelta(minutes=30) # Assuming 30-minute appointments
+
+                            start_time_iso = start_datetime_aware.isoformat()
+                            end_time_iso = end_datetime_aware.isoformat()
+
+                            event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            event_description = f"Building: {thread_info.building_number}"
+                            event_description += f"\nUnit: {unit_number_padded}"
+                            event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            event_description += f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
+                            event_description += f"\nSource: Zillow Email."
+                            event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
+
+                            calendar_service = await get_calendar_service(user_email="emilio@serniacapital.com") # TODO: make user_email dynamic or from config
+
+                            event_body = {
+                                "summary": event_summary,
+                                "description": event_description,
+                                "start": {"dateTime": start_time_iso, "timeZone": "America/New_York"},
+                                "end": {"dateTime": end_time_iso, "timeZone": "America/New_York"},
+                                "attendees": [
+                                    {"email": "emilio+listings@serniacapital.com"} 
+                                    # Potentially add lead's email if available and desired?
+                                ],
+                                "reminders": {
+                                    "useDefault": False,
+                                    "overrides": [
+                                        {"method": "email", "minutes": 24 * 60}, # 1 day before
+                                        {"method": "popup", "minutes": 120}, # 2 hours before
+                                    ],
+                                }
+                            }
+
+                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
+                            logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                        else:
+                            logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
+                    except Exception as e:
+                        logger.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
+                        logger.error(f"Thread Info for calendar event creation: {thread_info}")
+
+
+@pytest.mark.asyncio
+async def test_check_email_threads():
+    await check_email_threads(overwrite_calendar_events=True)
 
 
 async def start_service():
@@ -418,7 +526,7 @@ async def start_service():
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_email/test.sql",
-            "target_phone_numbers": ["+14123703550"],
+            "target_slugs": ["emilio"],
         },
         trigger=CronTrigger(hour="10", minute="1", day="1", month="1", timezone="US/Eastern"),
         coalesce=True,
@@ -428,13 +536,12 @@ async def start_service():
     )
 
     # Schedule the job to run
-    sernia_contact = await get_contact_by_slug("sernia")
     scheduler.add_job(
         id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_email/zillow_email_new_unreplied.sql",
-            "target_phone_numbers": [sernia_contact.phone_number],
+            "target_slugs": ["sernia"],
         },
         trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
         coalesce=True,
