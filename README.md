@@ -141,7 +141,7 @@ docker build -t cursor-agent-test -f .cursor/Dockerfile .cursor
 ```
 
 ```bash
-docker run --name cursor-agent-interactive-test --rm -it -v "/Users/eesposito/portfolio:/app" cursor-agent-test:latest /bin/bash
+docker run --name cursor-agent-interactive-test --rm -it -v "$(pwd):/app" cursor-agent-test:latest /bin/bash
 ```
 
 
