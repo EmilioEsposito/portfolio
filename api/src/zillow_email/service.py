@@ -11,24 +11,37 @@ import pytest
 from api.src.contact.service import get_contact_by_slug
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import openai
 import pytz
+from api.src.google.calendar.service import create_calendar_event, get_calendar_service
+
 # Create a logger specific to this module
 logger = logging.getLogger(__name__)
 
 logger.info("Zillow unreplied email alerts service loaded")
 
-async def check_unreplied_emails(sql: str, target_phone_numbers: list[str], mock=False):
+async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None, target_slugs: list[str]=None, mock=False):
     """
     Check for unreplied Zillow emails and send a summary via OpenPhone.
 
     Args:
         sql: str - The path to the SQL file to use for the query (ends with .sql) OR the SQL query itself.
+        target_phone_numbers: list[str] - The phone numbers to send the message to.
+        target_slugs: list[str] - The slugs of the contacts to send the message to.
         mock: bool - Whether to mock the sending of the message.
-        target_phone_number: str - The phone number to send the message to.
     """
-    logger.info(f"check_unreplied_emails invoked. Received sql='{sql}', target_phone_numbers='{target_phone_numbers}', mock='{mock}'")
+    logger.info(f"check_unreplied_emails invoked. Received sql='{sql}'")
+    assert target_phone_numbers or target_slugs, "Either target_phone_numbers or target_slugs must be provided"
+    logger.info(f"target_phone_numbers='{target_phone_numbers}'")
+    logger.info(f"target_slugs='{target_slugs}'")
+    logger.info(f"mock='{mock}'")
+
+    if target_slugs:
+        target_phone_numbers = []
+        for target_slug in target_slugs:
+            target_contact = await get_contact_by_slug(target_slug)
+            target_phone_numbers.append(target_contact.phone_number)
 
     # Configuration for phone numbers
     from_phone_number = "+14129101500"  # Alert Robot
@@ -133,7 +146,7 @@ async def test_has_unreplied_emails():
         'Mon DD, HH12:MIpm'
     ) AS received_date_str;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_phone_numbers=["+14123703550"]
+        sql=sql_query, target_slugs=["sernia"]
     )
     assert sent_message_count == 1
 
@@ -148,7 +161,7 @@ async def test_has_no_unreplied_emails():
     ) AS received_date_str
     WHERE 1=0;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_phone_numbers=["+14123703550"]
+        sql=sql_query, target_slugs=["emilio"]
     )
     assert sent_message_count == 0
 
@@ -312,7 +325,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     return thread_info
 
 async def check_email_threads():
-    
+
     async with AsyncSessionFactory() as session:
 
         if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production":
@@ -332,7 +345,7 @@ async def check_email_threads():
             result = await session.execute(text(sql_query))
             email_rows = result.fetchall()
             email_dicts = [dict(row._mapping) for row in email_rows if email_rows]
-            
+
             # group emails by thread_id
             email_threads = {}
 
@@ -341,7 +354,7 @@ async def check_email_threads():
 
                 for email in email_dicts:
                     thread_id = email['thread_id']
-                    
+
                     message_detail = {
                         "subject": email['subject'],
                         "email_timestamp_et": email['email_timestamp_et'],
@@ -354,7 +367,7 @@ async def check_email_threads():
                         email_threads[thread_id] = []
 
                     email_threads[thread_id].append(message_detail)
-                    
+
             else:
                 logger.info("No email threads found.")
 
@@ -406,9 +419,65 @@ async def check_email_threads():
                         logger.error(f"Error creating OpenPhone contact: {e}")
                         logger.error(f"Contact create: {contact_create}")
 
+                    try:
+                        if thread_info.appointment_date and thread_info.appointment_time:
+                            # Combine date and time strings and parse them
+                            appointment_datetime_str = f"{thread_info.appointment_date} {thread_info.appointment_time}"
+                            # Assuming appointment_time is like "10:00 AM" or "2:00 PM"
+                            # Convert to 24-hour format for parsing if necessary, or ensure consistent format
+                            # For simplicity, assuming it's parsable directly or already in a good format from AI
 
-                    # TODO: now create a new appointment in Google Calendar
-                 
+                            # Define the timezone
+                            eastern_tz = pytz.timezone("US/Eastern")
+
+                            # Parse the combined string. This might need adjustment based on the exact format of appointment_time
+                            # Example: if time is "10:00 AM", datetime.strptime can handle it with "%Y-%m-%d %I:%M %p"
+                            # If AI guarantees "YYYY-MM-DD" for date and "HH:MM" (24hr) for time, it's simpler.
+                            # Let's assume AI provides date as "YYYY-MM-DD" and time as "HH:MM AM/PM"
+
+                            parsed_datetime = datetime.strptime(appointment_datetime_str, "%Y-%m-%d %I:%M %p")
+
+                            # Localize the naive datetime to Eastern Time
+                            start_datetime_aware = eastern_tz.localize(parsed_datetime)
+                            end_datetime_aware = start_datetime_aware + timedelta(minutes=30) # Assuming 30-minute appointments
+
+                            start_time_iso = start_datetime_aware.isoformat()
+                            end_time_iso = end_datetime_aware.isoformat()
+
+                            event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            event_description = f"Building: {thread_info.building_number}"
+                            event_description += f"\nUnit: {unit_number_padded}"
+                            event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            event_description += f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
+                            event_description += f"\nSource: Zillow Email."
+
+                            calendar_service = await get_calendar_service(user_email="emilio@serniacapital.com") # TODO: make user_email dynamic or from config
+
+                            event_body = {
+                                "summary": event_summary,
+                                "description": event_description,
+                                "start": {"dateTime": start_time_iso, "timeZone": "America/New_York"},
+                                "end": {"dateTime": end_time_iso, "timeZone": "America/New_York"},
+                                "attendees": [
+                                    {"email": "espo412@gmail.com"} 
+                                    # Potentially add lead's email if available and desired?
+                                ],
+                                "reminders": {
+                                    "useDefault": False,
+                                    "overrides": [
+                                        {"method": "email", "minutes": 24 * 60}, # 1 day before
+                                        {"method": "popup", "minutes": 120}, # 2 hours before
+                                    ],
+                                }
+                            }
+
+                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=True) # Assuming overwrite=True is desired
+                            logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                        else:
+                            logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
+                    except Exception as e:
+                        logger.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
+                        logger.error(f"Thread Info for calendar event creation: {thread_info}")
 
 
 async def start_service():
@@ -418,7 +487,7 @@ async def start_service():
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_email/test.sql",
-            "target_phone_numbers": ["+14123703550"],
+            "target_slugs": ["emilio"],
         },
         trigger=CronTrigger(hour="10", minute="1", day="1", month="1", timezone="US/Eastern"),
         coalesce=True,
@@ -428,13 +497,12 @@ async def start_service():
     )
 
     # Schedule the job to run
-    sernia_contact = await get_contact_by_slug("sernia")
     scheduler.add_job(
         id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
         kwargs={
             "sql": "api/src/zillow_email/zillow_email_new_unreplied.sql",
-            "target_phone_numbers": [sernia_contact.phone_number],
+            "target_slugs": ["sernia"],
         },
         trigger=CronTrigger(hour="8,12,17", minute="0", timezone="US/Eastern"),
         coalesce=True,
