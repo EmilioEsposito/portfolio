@@ -505,7 +505,7 @@ async def check_email_threads():
                                 }
                             }
 
-                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=True) # Assuming overwrite=True is desired
+                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=False)
                             logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
                         else:
                             logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
