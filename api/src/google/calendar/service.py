@@ -98,13 +98,11 @@ async def delete_calendar_event(service, event_id: str):
         service: The authorized Calendar API service instance.
         event_id: The ID of the event to delete.
     Returns:
-        The deleted event.
+        A boolean indicating whether the deletion was successful.
     """
     try:
-        event = (
-            service.events().delete(calendarId="primary", eventId=event_id).execute()
-        )
-        return event
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        return True
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
