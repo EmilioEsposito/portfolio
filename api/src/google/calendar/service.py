@@ -23,7 +23,7 @@ async def get_calendar_service(
     """
     Creates and returns an authorized Calendar API service instance.
     Args:
-        credentials: The credentials to use for authentication.
+        user_email: The email address of the user for whom the service is being authorized.
     Returns:
         A Calendar API service instance.
     """
