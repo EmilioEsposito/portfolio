@@ -352,7 +352,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     return thread_info, thread_str
 
-async def check_email_threads():
+async def check_email_threads(overwrite_calendar_events=False):
 
     async with AsyncSessionFactory() as session:
 
@@ -505,7 +505,7 @@ async def check_email_threads():
                                 }
                             }
 
-                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=False)
+                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
                             logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
                         else:
                             logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
@@ -516,7 +516,7 @@ async def check_email_threads():
 
 @pytest.mark.asyncio
 async def test_check_email_threads():
-    await check_email_threads()
+    await check_email_threads(overwrite_calendar_events=True)
 
 
 async def start_service():
