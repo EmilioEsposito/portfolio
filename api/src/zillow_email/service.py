@@ -184,6 +184,29 @@ class ShouldReply(BaseModel):
     reason: str
     appointment_scheduled: bool
 
+def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
+
+    # Cleanup
+    for message in messages:
+        # remove redundant replies in each message
+        message.body_text = message.body_html.split(">On")[0]+">"
+        # remove the redundant text after "New messageHurrah!" in zillow emails
+        message.body_text = message.body_text.split("New messageHurrah!")[0]
+        # remove html tags from body_html
+        message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
+
+    thread_str = ""
+    for message in messages:
+        thread_str += f"FROM: {message.from_address}\n"
+        thread_str += f"TO: {message.to_address}\n"
+        thread_str += f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        thread_str += f"DAY OF WEEK: {message.email_day_of_week_et_str}\n"
+        thread_str += f"SUBJECT: {message.subject}\n"
+        thread_str += f"BODY: {message.body_text}\n"
+        thread_str += "----------------------------------------\n"
+
+    return thread_str
+
 async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     ai_instructions = """
@@ -233,6 +256,8 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
     logger.info(f"AI assessing Zillow email thread: {thread_id}")
 
+    thread_str = get_clean_zillow_thread_str(messages)
+
     client = openai.OpenAI()
     response = client.responses.parse(
         model="gpt-4o-mini",
@@ -240,7 +265,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
-                "content": f"EMAIL THREAD: {messages}",
+                "content": f"EMAIL THREAD: {thread_str}",
             },
         ],
         text_format=ShouldReply,
@@ -301,28 +326,12 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     }}
     """
 
-    class Ab:
-        x=1
-
     logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
 
-    # Cleanup
-    for message in messages:
-        # remove redundant replies in each message
-        message.body_text = message.body_html.split(">On")[0]+">"
-        # remove html tags from body_html
-        message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
 
-    thread_str = ""
-    for message in messages:
-        thread_str += f"FROM: {message.from_address}\n"
-        thread_str += f"TO: {message.to_address}\n"
-        thread_str += f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        thread_str += f"DAY OF WEEK: {message.email_day_of_week_et_str}\n"
-        thread_str += f"SUBJECT: {message.subject}\n"
-        thread_str += f"BODY: {message.body_text}\n"
-        thread_str += "----------------------------------------\n"
 
+    
+    thread_str = get_clean_zillow_thread_str(messages)
 
     client = openai.OpenAI()
     response = client.responses.parse(
