@@ -1,6 +1,6 @@
 ---
 description: 
-globs: 
+globs: *.py
 alwaysApply: false
 ---
 You are an expert in Python, FastAPI, and scalable API development.

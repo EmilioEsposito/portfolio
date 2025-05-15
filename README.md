@@ -134,3 +134,15 @@ OpenPhone and Google PubSub webhooks are pointing to the dev environment for now
     * app/auth
 
 
+# Cursor Background Agent 
+
+```bash
+docker build -t cursor-agent-test -f .cursor/Dockerfile .cursor
+```
+
+```bash
+docker run --name cursor-agent-interactive-test --rm -it -v "$(pwd):/app" cursor-agent-test:latest /bin/bash
+```
+
+
+
