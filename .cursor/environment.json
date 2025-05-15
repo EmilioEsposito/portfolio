@@ -8,17 +8,17 @@
   "start": "",
   "terminals": [
     {
-      "name": "Next.js Frontend",
+      "name": "NextJS",
       "command": "pnpm --filter ./apps/web dev",
       "description": "Starts the Next.js development server."
     },
     {
-      "name": "FastAPI Backend",
+      "name": "FastAPI",
       "command": "pnpm fastapi-dev",
       "description": "Starts the FastAPI backend server with auto-reload."
     },
     {
-      "name": "Expo App (Web)",
+      "name": "ExpoWeb",
       "command": "pnpm my-expo-app start --web",
       "description": "Starts the Expo development server for the web."
     }
