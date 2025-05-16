@@ -28,6 +28,8 @@ router = APIRouter(
     tags=["open_phone"],
 )
 
+logger = logging.getLogger(__name__)
+
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
     signing_key = os.getenv("OPEN_PHONE_WEBHOOK_SECRET")
@@ -54,10 +56,10 @@ async def verify_open_phone_signature(request: Request):
 
     # Make sure the computed digest matches the digest in the openphone header.
     if provided_digest == computed_digest:
-        logging.info("signature verification succeeded")
+        logger.info("signature verification succeeded")
         return True
     else:
-        logging.error("signature verification failed")
+        logger.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
 
 def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
@@ -126,7 +128,7 @@ async def webhook(
             select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
         )
         if existing_event:
-            logging.info(f"Event {event_data['event_id']} already processed, skipping")
+            logger.info(f"Event {event_data['event_id']} already processed, skipping")
             return {"message": "Event already processed"}
         else:
             # Create database record
@@ -134,17 +136,17 @@ async def webhook(
             session.add(open_phone_event)
             await session.commit()
             await session.refresh(open_phone_event)
-            logging.info(f"Successfully recorded OpenPhone event: {payload.type}")
+            logger.info(f"Successfully recorded OpenPhone event: {payload.type}")
             return {"message": "Event recorded successfully"}
         
     except IntegrityError as e:
         # If the event already exists, that's fine - just return success
         if "uq_open_phone_events_event_id" in str(e):
-            logging.info(f"Event {payload.id} already processed, skipping")
+            logger.info(f"Event {payload.id} already processed, skipping")
             return {"message": "Event already processed"}
         raise HTTPException(500, f"Database error: {str(e)}")
     except Exception as e:
-        logging.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
+        logger.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
         await session.rollback()
         raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
@@ -186,20 +188,20 @@ async def send_tenant_mass_message(
     body: TenantMassMessageRequest,
 ):
     """Send a message to all tenants in the specified properties."""
-    logging.info(
+    logger.info(
         f"Starting tenant mass message request for properties: {body.property_names}"
     )
 
     try:
         # Get contacts from Google Sheet
         try:
-            logging.info("Fetching contacts from Google Sheet")
+            logger.info("Fetching contacts from Google Sheet")
             all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logging.info(
+            logger.info(
                 f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
             )
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True
             )
             raise HTTPException(
@@ -220,17 +222,17 @@ async def send_tenant_mass_message(
             if "Lease End Date" in contact:
                 if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
                     contacts.remove(contact)
-                    logging.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
+                    logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
             else:
                 contacts.remove(contact)
-                logging.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
+                logger.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
 
-        logging.info(
+        logger.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
         )
 
         if not contacts:
-            logging.warning(f"No contacts found for properties: {body.property_names}")
+            logger.warning(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
                 detail=f"No contacts found for properties: {body.property_names}",
@@ -248,7 +250,7 @@ async def send_tenant_mass_message(
                 phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
                     " ", ""
                 ).replace("(", "").replace(")", "")
-                logging.info(
+                logger.info(
                     f"Preparing message to {contact['First Name']} at {phone_number}"
                 )
 
@@ -272,7 +274,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logging.error(
+                logger.error(
                     f"Failed to prepare message for {contact['First Name']}: {error_message}"
                 )
 
@@ -302,7 +304,7 @@ async def send_tenant_mass_message(
                 response_data = response.json()
                 if response_data.get("data", {}).get("status") == "sent":
                     successes += 1
-                    logging.info(f"Successfully sent message to {contact['First Name']}")
+                    logger.info(f"Successfully sent message to {contact['First Name']}")
                 else:
                     raise Exception(
                         f"Message not confirmed as sent: {json.dumps(response_data)}"
@@ -320,7 +322,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logging.error(
+                logger.error(
                     f"Failed to send message to {contact['First Name']}: {error_message}"
                 )
 
@@ -335,7 +337,7 @@ async def send_tenant_mass_message(
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
                 f"Failed contacts:\n" + "\n".join(failed_details)
             )
-            logging.warning(message)
+            logger.warning(message)
 
             return JSONResponse(
                 status_code=207 if successes > 0 else 500,
@@ -349,7 +351,7 @@ async def send_tenant_mass_message(
             )
         property_names_str = ", ".join(body.property_names)
         success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
-        logging.info(success_message)
+        logger.info(success_message)
         return JSONResponse(
             status_code=200,
             content={
@@ -362,7 +364,7 @@ async def send_tenant_mass_message(
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(
+        logger.error(
             f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True
         )
         return JSONResponse(
@@ -494,9 +496,9 @@ async def get_tenant_data():
     Requires the user to be authenticated with a @serniacapital.com email.
     """
     try:
-        logging.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
+        logger.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
         tenant_data = get_contacts_sheet_as_json()
-        logging.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
+        logger.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
         
         # Add 'Active Lease' field
         today = date.today()
@@ -517,13 +519,13 @@ async def get_tenant_data():
                 tenant['Active Lease'] = is_active
                 processed_data.append(tenant)
             except (ValueError, TypeError) as date_err:
-                logging.warning(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
+                logger.warning(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
                 tenant['Active Lease'] = False # Default to False if dates are invalid
                 processed_data.append(tenant)
 
         return processed_data
     except Exception as e:
-        logging.error(
+        logger.error(
             f"Failed to fetch or process tenant contacts: {str(e)}", exc_info=True
         )
         raise HTTPException(

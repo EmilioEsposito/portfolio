@@ -16,6 +16,8 @@ router = APIRouter(prefix="/push", tags=["push"])
 # async def get_current_user_id() -> str:
 #     ...
 
+logger = logging.getLogger(__name__)
+
 @router.post("/register", status_code=201)
 async def register_push_token(
     token_body: Annotated[dict, Body(embed=True, example={"token": "ExponentPushToken[...token..."})],
@@ -40,7 +42,7 @@ async def register_push_token(
         # Fallback to the first email if none are verified (adjust as needed)
         if not primary_email:
              primary_email = user.email_addresses[0].email_address
-             logging.warning(f"No verified email found for user {user.id}, using first email: {primary_email}")
+             logger.warning(f"No verified email found for user {user.id}, using first email: {primary_email}")
 
     if not primary_email:
          raise HTTPException(status_code=400, detail="Could not determine user email.")
@@ -51,6 +53,6 @@ async def register_push_token(
         return {"message": "Token registered successfully"}
     except Exception as e:
         # Catch potential errors during registration (e.g., database issues)
-        # Logging happens in the service layer
+        # logger happens in the service layer
         raise HTTPException(status_code=500, detail=f"Failed to register token: {str(e)}")
 
