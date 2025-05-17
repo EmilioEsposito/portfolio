@@ -124,7 +124,7 @@ async def webhook(
 
         if not sernia_contact:
             logger.error(f"Sernia contact not found for slug 'sernia'")
-            return HTTPException(500, "Sernia contact not found")
+            raise HTTPException(500, "Sernia contact not found")
 
         # Analyze messages to Sernia for potential Twilio escalation before saving to DB
         if (
