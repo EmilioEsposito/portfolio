@@ -128,7 +128,7 @@ contacts = get_sheet_as_json(spreadsheet_id=os.getenv('GOOGLE_SHEETS_SPREADSHEET
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
 # For sending from service account
-send_email(
+await send_email(
         to="espo412@gmail.com",
         subject="Test email",
         message_text="This is a test email",

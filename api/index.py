@@ -163,7 +163,7 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
         message_text += f"Client IP: {error_details['client_host']}"
         message_text += f"Traceback:\n{error_details['traceback']}"
 
-        send_email(
+        await send_email(
             to="espo412@gmail.com",  # TODO: Move to env var?
             subject=f"ALERT: 500 Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment')}",
             message_text=message_text,
