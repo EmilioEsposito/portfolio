@@ -9,6 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.job import Job
+from apscheduler.events import EVENT_JOB_ERROR
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
 import asyncio
@@ -50,11 +51,75 @@ else:
     )
 
 # index.py will handle the start/shutdown of this scheduler instance
-scheduler = AsyncIOScheduler(jobstores=jobstores)
+scheduler = AsyncIOScheduler(
+    jobstores=jobstores,
+    job_defaults={
+        'grace_time': 60  # Set default grace_time to 60 seconds
+    }
+)
 
 # Ensure APScheduler's own logging is not too verbose if not desired
 aps_logger = logging.getLogger("apscheduler")
 aps_logger.setLevel(logging.INFO)  # Or WARNING/ERROR, depending on desired verbosity
+
+
+# --- Centralized Job Error Handling --- START
+async def handle_job_error(event):
+    logger.info(f"--- handle_job_error START for job {event.job_id} ---")
+    job_id = event.job_id
+    exception = event.exception
+    traceback_str = event.traceback
+
+    logger.error(f"Job {job_id} raised an exception: {exception}")
+    logger.error(f"Traceback: {traceback_str}")
+
+    credentials = None
+    logger.info(f"Attempting to get delegated credentials for job {job_id} error email.")
+    try:
+        # Assuming get_delegated_credentials might be synchronous and I/O bound.
+        # If it's already async, this to_thread call is okay but not strictly necessary.
+        credentials = await asyncio.to_thread(
+            get_delegated_credentials,
+            user_email="emilio@serniacapital.com",  # TODO: Move to env var?
+            scopes=["https://mail.google.com"],
+        )
+        logger.info(f"Successfully got credentials for job {job_id} error email.")
+    except Exception as e:
+        logger.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
+        logger.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
+        return # Stop if we can't get credentials
+
+    message_text = f"APScheduler Job Error: {job_id} raised an exception: {exception}\nTraceback: {traceback_str}"
+
+    logger.info(f"Attempting to send error email for job {job_id}.")
+    try:
+        # Call the now asynchronous send_email function directly
+        await send_email(
+            to="espo412@gmail.com",  # TODO: Move to env var?
+            subject=f"ALERT: APScheduler Job Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment')}",
+            message_text=message_text,
+            credentials=credentials,
+        )
+        logger.info(f"Successfully sent error notification email for job {job_id}.")
+        
+        # Add a small delay here to allow underlying I/O of send_email to complete before the test process potentially exits
+        logger.info(f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}.")
+        await asyncio.sleep(3) 
+        logger.info(f"Short delay completed in handle_job_error for job {job_id}.")
+
+    except Exception as e:
+        logger.error(f"Failed to send error notification email for job {job_id}: {e}")
+    logger.info(f"--- handle_job_error END for job {job_id} ---")
+
+# Synchronous wrapper for the async error handler
+def sync_error_listener_wrapper(event):
+    logger.info(f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---")
+    asyncio.create_task(handle_job_error(event))
+
+# Register the error handler
+scheduler.add_listener(sync_error_listener_wrapper, EVENT_JOB_ERROR) # Use the wrapper
+logger.info("Registered central job error handler wrapper.")
+# --- Centralized Job Error Handling --- END
 
 
 # functions_available_to_scheduler = {
@@ -129,7 +194,7 @@ async def schedule_email(
         "SERNIA": "all@serniacapital.com",
     }
 
-    # send_email(
+    # await send_email(
     #     to="espo412@gmail.com",
     #     subject="Test email",
     #     message_text="This is a test email",
@@ -276,7 +341,7 @@ async def run_hello_world(name: str):
     logger.info(f"logger: Hello {name} from test_job executed at {datetime.now()}")
 
 
-def test_job():
+def test_run_hello_world():
     # This function demonstrates adding a job and running the scheduler directly.
     # In the main app, scheduler.start() and scheduler.shutdown() are called by lifespan events.
     print("test_job")
@@ -324,8 +389,64 @@ def test_job():
         # In a real app, lifespan events handle this.
         # For a standalone test, it depends on whether you want to test shutdown too.
         logger.info("Shutting down scheduler after test_job...")
-        scheduler.shutdown()
+        scheduler.shutdown(wait=True)
 
     import asyncio
 
     asyncio.run(main_test_logic())
+
+async def job_that_will_fail():
+    x=5
+    logger.info(f"job_that_will_fail: Executing, x = {x}")
+    print(f"job_that_will_fail: print x = {x}") # For quick visual check in console
+    logger.info("job_that_will_fail: About to raise ValueError for testing error handler.")
+    raise ValueError("This job is designed to fail for testing the error handler.")
+
+
+@pytest.mark.asyncio
+async def test_job_that_will_fail():
+    logger.info("--- test_job_that_will_fail START ---")
+    # Ensure scheduler is started for this test
+    if not scheduler.running:
+        logger.info("Starting scheduler for test_job_that_will_fail...")
+        scheduler.start()
+    else:
+        logger.warning("Scheduler was already running at the start of test_job_that_will_fail.")
+
+    failing_job_id = "failing_test_job_for_handler"
+    
+    # Use job's target timezone for creating run_date and schedule a bit further out
+    ny_tz = pytz.timezone("America/New_York")
+    run_date_ny = datetime.now(ny_tz) + timedelta(seconds=4) # Increased to 4 seconds
+
+    logger.info(f"Adding failing job '{failing_job_id}' to run at {run_date_ny.isoformat()} (TZ: America/New_York) for error handler test.")
+
+    scheduler.add_job(
+        func=job_that_will_fail,
+        trigger="date",
+        id=failing_job_id,
+        run_date=run_date_ny, # Use the NY-aware datetime
+        replace_existing=True,
+        timezone=ny_tz, # Explicitly set, matches run_date's tz
+    )
+
+    failing_job = scheduler.get_job(job_id=failing_job_id)
+    assert failing_job is not None, f"Failing job {failing_job_id} was not added successfully."
+    logger.info(f"Failing job added: {failing_job} (Next run: {failing_job.next_run_time.isoformat() if failing_job.next_run_time else 'N/A'})")
+
+    # Wait long enough for the job to execute and the error handler (including email) to fire
+    # Increased sleep duration to give more time for all async operations.
+    logger.info("Waiting for job to run and error handler to complete (approx 12s)...")
+    await asyncio.sleep(12) # Increased from 10 to 12
+
+    # The job should have run, failed, and been caught by the error handler.
+    # Date-triggered jobs are typically removed after execution (or attempted execution).
+    failing_job_after_run = scheduler.get_job(job_id=failing_job_id)
+    assert failing_job_after_run is None, f"Failing job {failing_job_id} should have been removed after attempting to run."
+    logger.info(f"Failing job {failing_job_id} was correctly removed after execution attempt (expected for date trigger).")
+
+    # Ensure scheduler is shutdown after this test
+    if scheduler.running:
+        logger.info("Shutting down scheduler after test_job_that_will_fail...")
+        scheduler.shutdown(wait=True)
+    logger.info("--- test_job_that_will_fail END ---")
