@@ -22,6 +22,7 @@ from pprint import pprint
 import time
 import requests
 from api.src.utils.dependencies import verify_serniacapital_user, verify_admin_or_serniacapital
+from api.src.contact.service import get_contact_by_slug
 
 router = APIRouter(
     prefix="/open_phone",
@@ -118,11 +119,20 @@ async def webhook(
     try:
         # Extract event data
         event_data = extract_event_data(payload)
-        
-        # Analyze messages for potential Twilio escalation before saving to DB
-        if payload.type=="message.received":
+
+        sernia_contact = await get_contact_by_slug("sernia")
+
+        if not sernia_contact:
+            logger.error(f"Sernia contact not found for slug 'sernia'")
+            return HTTPException(500, "Sernia contact not found")
+
+        # Analyze messages to Sernia for potential Twilio escalation before saving to DB
+        if (
+            payload.type == "message.received"
+            and event_data["to_number"] == sernia_contact.phone_number
+        ):
             await analyze_for_twilio_escalation(event_data)
-        
+
         # check if event_id is already in the database
         existing_event = await session.execute(
             select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
@@ -138,7 +148,7 @@ async def webhook(
             await session.refresh(open_phone_event)
             logger.info(f"Successfully recorded OpenPhone event: {payload.type}")
             return {"message": "Event recorded successfully"}
-        
+
     except IntegrityError as e:
         # If the event already exists, that's fine - just return success
         if "uq_open_phone_events_event_id" in str(e):
@@ -531,4 +541,3 @@ async def get_tenant_data():
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch or process tenant contacts: {str(e)}"
         )
-
