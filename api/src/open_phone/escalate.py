@@ -16,6 +16,8 @@ from openai import OpenAI
 from pydantic import BaseModel
 from pprint import pprint
 
+logger = logging.getLogger(__name__)
+
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
@@ -82,7 +84,6 @@ Please respond with a JSON object with the following fields:
 * reason: str
 
 """
-
 
 
 async def ai_assess_for_escalation(open_phone_event: dict):
@@ -155,7 +156,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
     try:
         should_escalate = await ai_assess_for_escalation(open_phone_event)
     except Exception as e:
-        logging.error(f"AI Error assessing for escalation: {e}")
+        logger.error(f"AI Error assessing for escalation: {e}")
 
     # Check for explicit keywords in the message text, just in case the AI doesn't catch it
     if any(keyword in event_message_text.lower() for keyword in explicit_keywords):
@@ -171,7 +172,9 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
         event_message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
 
     if should_escalate:
-        logging.info(f"Escalating event {open_phone_event.get('event_id')} to Twilio Flow {TWILIO_FLOW_ID} for numbers {escalate_to_numbers}")
+        logger.info(
+            f"Escalation triggered. INCIDENT_ID: {incident_id} for EVENT_ID {open_phone_event.get('event_id')} to numbers {escalate_to_numbers}"
+        )
         try:
             # Construct the API URL
             studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
@@ -187,7 +190,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
 
                 if mock:
                     result_message = f"Mocking Twilio escalation for event {open_phone_event.get('event_id')} to {escalate_to_number} with message: {event_message_text}"
-                    logging.info(result_message)
+                    logger.info(result_message)
                     successful_escalations += 1
                 else:
                     # Make the request using Basic Auth
@@ -200,8 +203,8 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
 
                     execution_data = response.json()
                     execution_sid = execution_data.get('sid')
-                    result_message = f"Successfully created Twilio execution: {execution_sid} for event {open_phone_event.get('event_id')}"
-                    logging.info(result_message)
+                    result_message = f"Successfully created Twilio execution: {execution_sid} for INCIDENT_ID {incident_id} and EVENT_ID {open_phone_event.get('event_id')}"
+                    logger.info(result_message)
                     successful_escalations += 1
         except requests.exceptions.RequestException as e:
             # Log the error, including the response text if available
@@ -209,13 +212,13 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
             if e.response is not None:
                 error_message += f"\nResponse status: {e.response.status_code}"
                 error_message += f"\nResponse text: {e.response.text}"
-            logging.error(error_message, exc_info=True) # exc_info=True adds traceback
+            logger.error(error_message, exc_info=True) # exc_info=True adds traceback
         except Exception as e:
             # Catch any other unexpected errors during the process
-            logging.error(f"An unexpected error occurred during Twilio escalation for event {open_phone_event.get('event_id')}: {str(e)}", exc_info=True)
+            logger.error(f"An unexpected error occurred during Twilio escalation for event {open_phone_event.get('event_id')}: {str(e)}", exc_info=True)
 
     else:
-        logging.debug(f"Event {open_phone_event.get('event_id')} (type: {open_phone_event.get('event_type')}) did not meet Twilio escalation criteria.")
+        logger.debug(f"Event {open_phone_event.get('event_id')} (type: {open_phone_event.get('event_type')}) did not meet Twilio escalation criteria.")
 
     return successful_escalations
 
