@@ -8,7 +8,7 @@ import logging
 from api.src.database.database import get_session
 from api.src.contact import service as contact_service
 from api.src.contact.service import ContactCreate, ContactResponse, ContactUpdate
-from api.src.utils.dependencies import verify_serniacapital_user
+from api.src.utils.dependencies import verify_admin_or_serniacapital
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
-    dependencies=[Depends(verify_serniacapital_user)]
+    dependencies=[Depends(verify_admin_or_serniacapital)] # TODO: figure out why passing password in body is not working from swagger
 )
 
 @router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
