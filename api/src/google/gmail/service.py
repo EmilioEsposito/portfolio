@@ -25,6 +25,9 @@ from api.src.google.common.service_account_auth import (
 from api.src.oauth.service import get_oauth_credentials
 
 
+logger = logging.getLogger(__name__)
+
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://mail.google.com",  # gmail.send is not enough scope for sending. source: https://stackoverflow.com/questions/19102557/google-oauth-scope-for-sending-mail
@@ -160,7 +163,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
     max_retries = 4
     wait_time = 20  # Start with 10 seconds
 
-    logging.info(f"Fetching email changes for history ID: {history_id}")
+    logger.info(f"Fetching email changes for history ID: {history_id}")
 
     for attempt in range(max_retries):
         try:
@@ -203,7 +206,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                     }
             else:
                 # If no history found, wait and retry
-                logging.info(
+                logger.info(
                     f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}"
                 )
                 if attempt < max_retries - 1:  # Don't sleep on last attempt
@@ -213,7 +216,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
 
         except Exception as e:
             if "Invalid history ID" in str(e):
-                logging.info(
+                logger.info(
                     f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}"
                 )
                 if attempt < max_retries - 1:  # Don't sleep on last attempt
@@ -221,14 +224,14 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                     wait_time *= 2  # Exponential backoff
                 continue
             else:
-                logging.error(f"Failed to fetch history: {str(e)}")
+                logger.error(f"Failed to fetch history: {str(e)}")
                 return {
                     "status": "retry_needed",
                     "email_message_ids": [],
                     "reason": f"Exception fetching history: {str(e)}",
                 }
 
-    logging.warning(f"Failed to retrieve history after {max_retries} retries")
+    logger.warning(f"Failed to retrieve history after {max_retries} retries")
     return {
         "status": "retry_needed",
         "email_message_ids": [],
@@ -263,7 +266,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
     except googleapiclient.errors.HttpError as error:
         if error.resp.status == 404:
             # Message not found - this can happen if it was deleted
-            logging.warning(f"Message {message_id} not found (may have been deleted)")
+            logger.warning(f"Message {message_id} not found (may have been deleted)")
             return None
         # Re-raise other errors
         raise
@@ -290,7 +293,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
             padded = data + "=" * (4 - len(data) % 4)
             return base64.urlsafe_b64decode(padded).decode("utf-8")
         except Exception as e:
-            logging.error(f"Failed to decode body: {str(e)}")
+            logger.error(f"Failed to decode body: {str(e)}")
             return ""
 
     def extract_parts(payload: Dict[str, Any]) -> Dict[str, str]:
@@ -344,13 +347,13 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         # Parse the date using email.utils since Gmail uses RFC 2822 format
         date_str = headers.get("date")
         if not date_str:
-            logging.error("No date header found in message")
+            logger.error("No date header found in message")
             raise ValueError("No date header found in message")
 
         try:
             parsed_date = parsedate_to_datetime(date_str)
         except Exception as e:
-            logging.error(f"Failed to parse date '{date_str}': {e}")
+            logger.error(f"Failed to parse date '{date_str}': {e}")
             raise ValueError(f"Could not parse date '{date_str}'") from e
 
         # Create a processed message object
@@ -370,7 +373,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        logging.error(f"Failed to process message: {str(e)}")
+        logger.error(f"Failed to process message: {str(e)}")
         raise
 
 
@@ -385,10 +388,10 @@ def stop_gmail_watch(user_id: str = "me"):
         )
         service = get_gmail_service(credentials)
         service.users().stop(userId=user_id).execute()
-        logging.info("✓ Stopped existing Gmail watch")
+        logger.info("✓ Stopped existing Gmail watch")
         return True
     except Exception as e:
-        logging.error(f"❌ Failed to stop Gmail watch: {str(e)}")
+        logger.error(f"❌ Failed to stop Gmail watch: {str(e)}")
         return False
 
 
@@ -418,13 +421,13 @@ def setup_gmail_watch(
                 "https://www.googleapis.com/auth/pubsub",
             ],
         )
-        logging.info(
+        logger.info(
             f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com"
         )
 
         # Create Gmail service
         service = get_gmail_service(credentials)
-        logging.info("✓ Created Gmail service")
+        logger.info("✓ Created Gmail service")
 
         # Set up the watch request
         request = {
@@ -438,7 +441,7 @@ def setup_gmail_watch(
         return response
 
     except Exception as e:
-        logging.error(f"\n❌ Watch setup failed: {str(e)}")
+        logger.error(f"\n❌ Watch setup failed: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to set up Gmail watch: {str(e)}"
         )
