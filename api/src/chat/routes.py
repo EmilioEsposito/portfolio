@@ -12,6 +12,8 @@ import os
 import logging
 import requests
 
+logger = logging.getLogger(__name__)
+
 def get_current_weather(latitude, longitude):
     # Format the URL with proper parameter substitution
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m&hourly=temperature_2m&daily=sunrise,sunset&timezone=auto"
@@ -184,7 +186,7 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
 
 @router.post("/chat")
 async def handle_chat_data(request: ChatRequest, protocol: str = Query("data")):
-    logging.info(f"Received chat request: {request}")
+    logger.info(f"Received chat request: {request}")
     messages = request.messages
     openai_messages = convert_to_openai_messages(messages)
     response = StreamingResponse(stream_text(openai_messages, protocol))

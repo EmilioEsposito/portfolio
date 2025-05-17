@@ -5,6 +5,8 @@ from api.src.utils.password import verify_admin_auth
 from api.src.utils.clerk import get_auth_user
 import logging
 
+logger = logging.getLogger(__name__)
+
 async def verify_cron_secret(request: Request):
     """
     Dependency to verify the cron job secret token.
@@ -49,10 +51,10 @@ async def verify_serniacapital_user(
             break # Found a valid email, no need to check further
     
     if not is_authorized:
-        logging.warning(f"SerniaCapital check failed for user {user.id}. No verified @serniacapital.com email found.")
+        logger.warning(f"SerniaCapital check failed for user {user.id}. No verified @serniacapital.com email found.")
         raise HTTPException(status_code=401, detail="Unauthorized: User requires a verified @serniacapital.com email.")
     else:
-        logging.info(f"SerniaCapital user check successful for user {user.id} via email {verified_sernia_email}")
+        logger.info(f"SerniaCapital user check successful for user {user.id} via email {verified_sernia_email}")
         return True
 
 # Combined dependency for OR logic
@@ -67,14 +69,14 @@ async def verify_admin_or_serniacapital(
     try:
         # Try admin password auth first
         await verify_admin_auth(request)
-        logging.info("Authorization successful via admin password.")
+        logger.info("Authorization successful via admin password.")
         return True # Admin auth successful
     except HTTPException as admin_auth_exception:
         if admin_auth_exception.status_code not in [401, 403]:
-             logging.error(f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}")
+             logger.error(f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}")
              raise admin_auth_exception
 
-        logging.info("Admin password auth failed. Trying SerniaCapital user check.")
+        logger.info("Admin password auth failed. Trying SerniaCapital user check.")
         try:
             # Check for any verified @serniacapital.com email
             is_sernia_user = False
@@ -86,17 +88,17 @@ async def verify_admin_or_serniacapital(
                     break
 
             if is_sernia_user:
-                logging.info(f"Authorization successful via SerniaCapital user {user.id} ({verified_email_for_log})")
+                logger.info(f"Authorization successful via SerniaCapital user {user.id} ({verified_email_for_log})")
                 return True # SerniaCapital user is authorized
             else:
-                logging.warning(f"SerniaCapital check failed for user {user.id}. No verified @serniacapital.com email found.")
+                logger.warning(f"SerniaCapital check failed for user {user.id}. No verified @serniacapital.com email found.")
                 raise HTTPException(status_code=401, detail="Unauthorized: Requires admin password or a verified @serniacapital.com user login.")
 
         except HTTPException as user_auth_exception:
-            logging.warning(f"SerniaCapital auth failed for user {user.id}: {user_auth_exception.detail}")
+            logger.warning(f"SerniaCapital auth failed for user {user.id}: {user_auth_exception.detail}")
             raise HTTPException(status_code=401, detail="Unauthorized: Requires admin password or a verified @serniacapital.com user login.") from user_auth_exception
         except Exception as e:
-             logging.error(f"Unexpected error during SerniaCapital check for user {user.id}: {e}", exc_info=True)
+             logger.error(f"Unexpected error during SerniaCapital check for user {user.id}: {e}", exc_info=True)
              raise HTTPException(status_code=500, detail="Internal server error during authorization check.")
 
 # Removed the old placeholder verify_admin_or_serniacapital_user 
