@@ -112,7 +112,6 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
     dependencies=[Depends(verify_open_phone_signature)],
 )
 async def webhook(
-    request: Request,
     payload: OpenPhoneWebhookPayload,
     session: AsyncSession = Depends(get_session)
 ):
@@ -153,12 +152,12 @@ async def webhook(
     except IntegrityError as e:        
         # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
         event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
-        log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Database Error: {e}"
+        log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Full payload: {payload}. Database Error: {e}"
         logger.error(log_message, exc_info=True) # exc_info=True includes the stack trace
         
         raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
-        logger.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
+        logger.error(f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}", exc_info=True)
         await session.rollback()
         raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
