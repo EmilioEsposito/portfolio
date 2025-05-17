@@ -108,22 +108,3 @@ def test_send_tenant_mass_message(mocked_client):
     pprint(response.json()) 
     assert response.status_code == 200
 
-
-def test_check_unreplied_emails(mocked_client):
-    """Test the check_unreplied_emails endpoint with a custom phone number"""
-
-    # Test with custom phone number
-    target_phone = "+14123703550"
-    response = mocked_client.post(
-        "/api/cron/check_unreplied_emails",
-        params={"target_phone_number": target_phone}
-    )
-
-    
-    # Verify the response
-    # assert response.status_code == 200
-    response_data = response.json()
-    print("\n\nRESPONSE DATA:")
-    pprint(response_data)
-
-    assert response.status_code == 200

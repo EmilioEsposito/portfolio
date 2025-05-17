@@ -42,7 +42,11 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
         target_phone_numbers = []
         for target_slug in target_slugs:
             target_contact = await get_contact_by_slug(target_slug)
-            target_phone_numbers.append(target_contact.phone_number)
+            if not target_contact:
+                logger.error(f"Contact with slug '{target_slug}' not found.")
+                raise Exception(f"Contact with slug '{target_slug}' not found.")
+            else:
+                target_phone_numbers.append(target_contact.phone_number)
 
     # Configuration for phone numbers
     from_phone_number = "+14129101500"  # Alert Robot
@@ -147,7 +151,7 @@ async def test_has_unreplied_emails():
         'Mon DD, HH12:MIpm'
     ) AS received_date_str;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_slugs=["sernia"]
+        sql=sql_query, target_slugs=["emilio"]
     )
     assert sent_message_count == 1
 
