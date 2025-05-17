@@ -17,6 +17,8 @@ router = APIRouter(
     tags=["cron"]    # Optional: groups endpoints in the docs
 )
 
+logger = logging.getLogger(__name__)
+
 
 # Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
 @router.get("/cron_job_example")
@@ -55,7 +57,7 @@ async def check_unreplied_emails(
     Args:
         target_phone_number: Optional phone number to send the alert to. Defaults to +14122703505.
     """
-    logging.info(
+    logger.info(
         f"Running check for unreplied emails, target phone: {target_phone_number}"
     )
 
@@ -81,7 +83,7 @@ async def check_unreplied_emails(
 
         # Only proceed with formatting and sending if there are emails
         if unreplied_emails:
-            logging.info(f"Found {unreplied_count} unreplied emails.") # Log count here
+            logger.info(f"Found {unreplied_count} unreplied emails.") # Log count here
             # Format the results for the message
             formatted_results = []
             for email in unreplied_emails:
@@ -97,7 +99,7 @@ async def check_unreplied_emails(
             # Skip OpenPhone message in hosted development environment
             if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") not in ["production", "local"]:
                 response_message = "Skipping OpenPhone message in hosted development environment"
-                logging.info(response_message)
+                logger.info(response_message)
             else:
                 # Send the message via OpenPhone
                 response = await send_message(
@@ -108,7 +110,7 @@ async def check_unreplied_emails(
 
                 if response.status_code not in [200, 202]:
                     # Keep early return for critical send failure
-                    logging.error(f"Failed to send OpenPhone message: {response.text}")
+                    logger.error(f"Failed to send OpenPhone message: {response.text}")
                     return JSONResponse(
                         status_code=500,
                         content={
@@ -119,10 +121,10 @@ async def check_unreplied_emails(
                 # Message sent successfully
                 sent_message = True
                 response_message = f"Successfully sent summary of {unreplied_count} unreplied emails"
-                logging.info(f"{response_message} to {target_phone_number}")
+                logger.info(f"{response_message} to {target_phone_number}")
         else:
             # Log if no emails were found (uses default response_message)
-            logging.info(response_message)
+            logger.info(response_message)
 
         # Construct and return the final response (handles both cases)
         return {
@@ -133,7 +135,7 @@ async def check_unreplied_emails(
         }
 
     except Exception as e:
-        logging.error(f"Error checking unreplied emails: {str(e)}", exc_info=True)
+        logger.error(f"Error checking unreplied emails: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={"message": f"Error checking unreplied emails: {str(e)}"},

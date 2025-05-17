@@ -64,6 +64,19 @@ def test_open_phone_webhook(mocked_client):
     assert response.status_code == 200
 
 
+def test_open_phone_webhook(mocked_client):
+    """Test the OpenPhone webhook message received endpoint"""
+    with open("api/src/tests/requests/open_phone_contact_updated.json", "r") as f:
+        body = json.load(f)['object']
+
+    try:
+        OpenPhoneWebhookPayload.model_validate(body)
+    except Exception as e:
+        print("\n\nEXCEPTION:")
+        pprint(e)
+        raise e
+
+
 def test_get_contacts_success(mocked_client):
     """Test successful contact retrieval"""
 

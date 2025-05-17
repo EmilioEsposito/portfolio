@@ -29,6 +29,20 @@
 				"name": "portfolio",
 				"username": "neondb_owner",
 				"database": "neondb"
+			},
+			{
+				"pgOptions": {
+					"ssl": {
+						"rejectUnauthorized": false
+					}
+				},
+				"previewLimit": 50,
+				"server": "tramway.proxy.rlwy.net",
+				"port": 34670,
+				"driver": "PostgreSQL",
+				"name": "railway-portfolio",
+				"database": "railway",
+				"username": "postgres"
 			}
 		],
 		"javascript.updateImportsOnFileMove.enabled": "always",

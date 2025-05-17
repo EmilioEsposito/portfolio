@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 
+
 class BaseOpenPhoneObject(BaseModel):
     id: str
     object: str
@@ -36,7 +37,7 @@ class ContactObject(BaseOpenPhoneObject):
     company: Optional[str] = ""
     role: Optional[str] = ""
     pictureUrl: Optional[str] = ""
-    fields: Optional[List[Dict[str, Any]]] = []
+    fields: Optional[Dict[str, Any]] = []
     notes: List[Any] = []
     sharedWith: List[str]
     clientId: Optional[str] = ""

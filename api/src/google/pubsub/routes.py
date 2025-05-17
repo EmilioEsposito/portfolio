@@ -19,6 +19,8 @@ import pytest
 
 router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 
+logger = logging.getLogger(__name__)
+
 # https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200
 @router.post("/gmail/notifications")
 async def handle_gmail_notifications(
@@ -30,32 +32,32 @@ async def handle_gmail_notifications(
     """
     try:
         # Log request details
-        logging.info("=== New Gmail Notification ===")
-        logging.info(f"Headers: {dict(request.headers)}")
+        logger.info("=== New Gmail Notification ===")
+        logger.info(f"Headers: {dict(request.headers)}")
         
         # Verify the request is from Google Pub/Sub
-        logging.info("Verifying Pub/Sub token...")
+        logger.info("Verifying Pub/Sub token...")
         expected_audience = f"https://{request.headers.get('host', '')}/api/google/pubsub/gmail/notifications"
         await verify_pubsub_token(request.headers.get("authorization", ""), expected_audience)
-        logging.info("✓ Token verified")
+        logger.info("✓ Token verified")
         
         # Get the raw request body
         pubsub_body = await request.body()
         pubsub_body_str = pubsub_body.decode()
-        logging.info(f"Raw request body: {pubsub_body_str}")
+        logger.info(f"Raw request body: {pubsub_body_str}")
         
         # Parse the message data
         pubsub_data = await request.json()
-        logging.info(f"Parsed JSON data: {json.dumps(pubsub_data, indent=2)}")
+        logger.info(f"Parsed JSON data: {json.dumps(pubsub_data, indent=2)}")
         
         if 'message' not in pubsub_data:
-            logging.error("No 'message' field in request data")
+            logger.error("No 'message' field in request data")
             return Response(status_code=503, content="Missing message field")
             
         # Extract and decode the message data
         pubsub_message_data = pubsub_data['message'].get('data', '')
         if not pubsub_message_data:
-            logging.error("No 'data' field in message")
+            logger.error("No 'data' field in message")
             return Response(status_code=503, content="Missing message data")
             
         try:
@@ -68,17 +70,17 @@ async def handle_gmail_notifications(
             # Handle response based on processing result
             if processing_result["status"] == "success":
                 for email_msg in processing_result["messages"]:
-                    logging.info(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
-                logging.info(f"✓ Successfully processed {len(processing_result['messages'])} messages")
+                    logger.info(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
+                logger.info(f"✓ Successfully processed {len(processing_result['messages'])} messages")
                 return Response(status_code=204)
             elif processing_result["status"] == "no_messages":
-                logging.info(f"No messages to process: {processing_result['reason']}")
+                logger.info(f"No messages to process: {processing_result['reason']}")
                 return Response(status_code=204)
             elif processing_result["status"] == "partial_success_failure":
-                logging.info(f"Partial success: {processing_result['reason']}")
+                logger.info(f"Partial success: {processing_result['reason']}")
                 return Response(status_code=500, content=processing_result["reason"])
             else:  # "retry_needed"
-                logging.warning(f"Retry needed: {processing_result['reason']}")
+                logger.warning(f"Retry needed: {processing_result['reason']}")
                 return Response(
                     status_code=429,
                     content=processing_result["reason"],
@@ -89,16 +91,16 @@ async def handle_gmail_notifications(
                 )
             
         except Exception as e:
-            logging.error(f"Failed to process notification: {str(e)}")
-            logging.error(f"Full traceback:\n{traceback.format_exc()}")
+            logger.error(f"Failed to process notification: {str(e)}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return Response(
                 status_code=500,
                 content=f"Failed to process notification (unhandled error1): {str(e)}"
             )
         
     except Exception as e:
-        logging.error(f"Unhandled error in Gmail notification handler: {str(e)}")
-        logging.error(f"Full traceback:\n{traceback.format_exc()}")
+        logger.error(f"Unhandled error in Gmail notification handler: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         return Response(
             status_code=500,
             content=f"Failed to process Gmail notification (unhandled error2): {str(e)}"
@@ -120,7 +122,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
         Dictionary with:
         - status: "success", "no_messages", or "retry_needed"
         - messages: List of processed messages (if any)
-        - reason: Explanation string for logging/debugging
+        - reason: Explanation string for logger/debugging
     """
     try:
         # Extract relevant information
@@ -134,7 +136,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 "reason": "Missing required fields in pubsub notification"
             }
         
-        logging.info(f"Processing notification for {email_address} with history ID: {history_id}")
+        logger.info(f"Processing notification for {email_address} with history ID: {history_id}")
         
         # Get Gmail service with delegated credentials
         credentials = get_delegated_credentials(
@@ -148,7 +150,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
         
         # If we got a non-success status, pass it through directly
         if email_changes_result["status"] != "success":
-            logging.info(f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}")
+            logger.info(f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}")
             return {
                 "status": email_changes_result["status"],
                 "messages": [],
@@ -157,7 +159,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
             
         # We have email messages to process
         email_message_ids = email_changes_result["email_message_ids"]
-        logging.info(f"Found {len(email_message_ids)} new messages to process")
+        logger.info(f"Found {len(email_message_ids)} new messages to process")
         
         processed_email_messages = []
         failed_email_ids = []
@@ -171,7 +173,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 
                 # Skip if message not found (404) - this is expected in some cases
                 if email_message is None:
-                    logging.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
+                    logger.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
                     legitimately_skipped_message_ids.append(email_message_id)
                     continue
                 
@@ -181,17 +183,17 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 saved_msg = await save_email_message(session, processed_email_message, history_id)
                 if saved_msg:
                     processed_email_messages.append(processed_email_message)
-                    logging.info(
+                    logger.info(
                         f"Successfully processed and saved message: "
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
                 else:
                     failed_email_ids.append(email_message_id)
-                    logging.error(f"Failed to save message {email_message_id}")
+                    logger.error(f"Failed to save message {email_message_id}")
                 
             except Exception as msg_error:
                 failed_email_ids.append(email_message_id)
-                logging.error(
+                logger.error(
                     f"Failed to process message {email_message_id}: {str(msg_error)}",
                     exc_info=True
                 )
@@ -232,7 +234,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
             }
         
     except Exception as e:
-        logging.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
+        logger.error(f"Failed to process Gmail notification: {str(e)}", exc_info=True)
         return {
             "status": "retry_needed",
             "messages": [],

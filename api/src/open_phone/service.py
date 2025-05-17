@@ -12,6 +12,7 @@ from api.src.contact.models import Contact
 import pytest
 from sqlalchemy import select
 
+logger = logging.getLogger(__name__)
 
 async def send_message(
     message: str,
@@ -99,7 +100,7 @@ async def create_openphone_contact(contact_create: ContactCreate):
             lookup_results = lookup_response.json()['data']
             num_results = len(lookup_results)
             if num_results>1:
-                logging.warning(f"Multiple contacts found for the same externalId: {data['externalId']}")
+                logger.warning(f"Multiple contacts found for the same externalId: {data['externalId']}")
             contact.openphone_contact_id = lookup_results[0]['id']
 
             # patch the contact
@@ -110,7 +111,7 @@ async def create_openphone_contact(contact_create: ContactCreate):
             if patch_response.status_code == 200:
                 final_response = patch_response
             else:
-                logging.error(f"Failed to patch contact: {patch_response.json()}")
+                logger.error(f"Failed to patch contact: {patch_response.json()}")
             
         # Use merge instead of upsert
         merged_contact = await db.merge(contact)
@@ -176,7 +177,7 @@ async def get_contacts_by_external_ids(
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching contacts: {str(e)}")
+        logger.error(f"Error fetching contacts: {str(e)}")
         raise
 
 
