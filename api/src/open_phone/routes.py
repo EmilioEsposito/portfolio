@@ -134,11 +134,12 @@ async def webhook(
             await analyze_for_twilio_escalation(event_data)
 
         # check if event_id is already in the database
-        existing_event = await session.execute(
+        result = await session.execute(
             select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
         )
-        if existing_event:
-            logger.info(f"Event {event_data['event_id']} already processed, skipping")
+        existing_event_record = result.scalar_one_or_none()
+        if existing_event_record:
+            logger.info(f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping")
             return {"message": "Event already processed"}
         else:
             # Create database record
@@ -149,12 +150,13 @@ async def webhook(
             logger.info(f"Successfully recorded OpenPhone event: {payload.type}")
             return {"message": "Event recorded successfully"}
 
-    except IntegrityError as e:
-        # If the event already exists, that's fine - just return success
-        if "uq_open_phone_events_event_id" in str(e):
-            logger.info(f"Event {payload.id} already processed, skipping")
-            return {"message": "Event already processed"}
-        raise HTTPException(500, f"Database error: {str(e)}")
+    except IntegrityError as e:        
+        # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
+        event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
+        log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Database Error: {e}"
+        logger.error(log_message, exc_info=True) # exc_info=True includes the stack trace
+        
+        raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
         logger.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
         await session.rollback()

@@ -141,7 +141,8 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 * ✅ Google Calendar service
 * ✅ Create Google Calendar event from zillow_email_threads_ai (see TODO in service.py)
 * ✅ Ignore Alert Robot inbound message escalation for OpenPhone.
-* [ ] Figure out why openphone event_id EV100425cf69354b6eb2c9bde4cca4235c is not in table ""Event already processed"
+* [ ] Collect Leasing Agent availability and setup auto-responder for Zillow email threads.
+* ✅ Figure out why openphone event_id EV100425cf69354b6eb2c9bde4cca4235c is not in table ""Event already processed"
 * [ ] After hours auto-response to SMS: "AUTO-RESPONSE: If this is an urgent matter, reply with keyword "URGENT" along with description of the situation. Otherwise, we will get back to you tomorrow."
 * [ ] Fix event_timestamp in OpenPhone events table (null since april 2025)
 * [ ] Fix contact creation api (see TODO in routes.py)

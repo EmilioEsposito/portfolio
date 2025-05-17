@@ -116,3 +116,10 @@ ORDER BY
     created_at DESC
 LIMIT
     10;
+
+SELECT
+    max(created_at),
+    max(event_timestamp)
+FROM
+    open_phone_events AS o
+;
