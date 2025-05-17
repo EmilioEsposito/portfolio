@@ -16,7 +16,7 @@ import asyncio
 from email.utils import parsedate_to_datetime
 from googleapiclient.discovery_cache.base import Cache
 import googleapiclient.errors
-
+import pytest
 
 from api.src.google.common.service_account_auth import (
     get_service_credentials,
@@ -77,7 +77,7 @@ def create_message(sender: str, to: str, subject: str, message_text: str):
     return {"raw": encoded_message}
 
 
-def send_email(
+async def send_email(
     to: str,
     subject: str,
     message_text: str,
@@ -137,9 +137,9 @@ def send_email(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
-
-def test_send_email():
-    send_email(
+@pytest.mark.asyncio
+async def test_send_email():
+    await send_email(
         to="espo412@gmail.com",
         subject="Test email",
         message_text="This is a test email",
