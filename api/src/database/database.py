@@ -29,9 +29,12 @@ convention = {
 # Create metadata with naming convention
 metadata = MetaData(naming_convention=convention)
 
-# Get the DATABASE_URL from environment variables
-DATABASE_URL = os.environ.get("DATABASE_URL_UNPOOLED")
+# Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
+DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL_UNPOOLED = os.environ.get("DATABASE_URL_UNPOOLED")
 if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
+if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
 # Remove sslmode from URL if present and log the URL (with credentials removed)
@@ -59,11 +62,10 @@ logger.info(f"Final database URL format: {final_url_for_logging}")
 
 logger.info("Creating database engine...")
 
-# Create engine with NullPool - no connection pooling for serverless
+# Create async engine for FastAPI app (use Neon pooled connection, no NullPool)
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Disable verbose SQL logging by default
-    poolclass=NullPool,  # Disable connection pooling
     connect_args={
         "ssl": True,  # Enable SSL
         "server_settings": {
@@ -77,7 +79,7 @@ engine = create_async_engine(
 
 logger.info("Creating session factory...")
 
-# Session factory with appropriate settings for serverless
+# Session factory for FastAPI app
 AsyncSessionFactory = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -90,11 +92,11 @@ class Base(DeclarativeBase):
     metadata = metadata
 
 # --- Synchronous Engine for tools like APScheduler or Alembic migrations ---
+# Use unpooled connection for sync engine
 sync_engine = None
-RAW_SYNC_DB_URL = os.environ.get("DATABASE_URL_UNPOOLED")
 
-if RAW_SYNC_DB_URL:
-    sync_db_url = RAW_SYNC_DB_URL
+if DATABASE_URL_UNPOOLED:
+    sync_db_url = DATABASE_URL_UNPOOLED
     if sync_db_url.startswith("postgresql+asyncpg://"):
         sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
     elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
@@ -123,7 +125,7 @@ if RAW_SYNC_DB_URL:
     except Exception as e:
         logger.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
         sync_engine = None # Ensure it's None if creation failed
-elif not RAW_SYNC_DB_URL:
+elif not DATABASE_URL_UNPOOLED:
     logger.warning("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
 
 @asynccontextmanager
@@ -153,3 +155,4 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logger.error(f"Database session error: {str(e)}", exc_info=True)
             raise 
+
