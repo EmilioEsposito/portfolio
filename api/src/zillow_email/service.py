@@ -241,6 +241,8 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     * If Sernia already replied, and the applicant never responds, Sernia does not need to reply again.
     * However, even if Sernia was the last one to reply, if the thread implied there was a follow-up required from Sernia, 
       Sernia should reply again (e.g. if last message from Sernia was ""we'll get back to you on that question..."")
+    * No need to reply if it seems like the lead is simply using the thread to let Sernia know they are physically at the 
+       property for their appointment (at that point Sernia usuually just calls them to find them). 
     * When giving your reasoning, speak in the "we" voice, since you work for Sernia as well. 
 
     # Response Format. Return your response in JSON. 
