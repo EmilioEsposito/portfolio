@@ -143,8 +143,8 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 * ✅ Ignore Alert Robot inbound message escalation for OpenPhone.
 * ✅ Fix contact creation api (see TODO in routes.py)
 * ✅ Figure out why openphone event_id EV100425cf69354b6eb2c9bde4cca4235c is not in table ""Event already processed"
+* 🚧 Migrate Neon from Unpooled to Pooled connections. This task focuses on optimizing database connection management for better performance and reliability.
 * [ ] Collect Leasing Agent availability and setup auto-responder for Zillow email threads.
-* [ ] Migrate from Neon to Railway Postgres with separate DB for each environment? What about Pubsub and OpenPhone implications? 
 * [ ] After hours auto-response to SMS: "AUTO-RESPONSE: If this is an urgent matter, reply with keyword "URGENT" along with description of the situation. Otherwise, we will get back to you tomorrow."
 * [ ] Figure out why the error email is not being sent 100% of time on APScheduler service failures.
 * [ ] Create AI agent backend. Think about the design of this e2e. There should be some backend-only self-scheduling logic, but maybe the same agent is also used for interactive chat in the app? For interactive chat solution this potential solution for integrating PydanticAI with Vercel's AI SDK: https://pastebin.com/zGXT2Wp2 (also saved in scratch/aisdk_and_pydanticai.md)
@@ -156,3 +156,6 @@ A true AI assistant that has access to various Sernia Capital Tools. Chat with F
 * [ ] Task management AI. Chat experience with Trello Tools Use. Intelligent reminders, shifting due dates, etc.
 * [ ] AI basded SMS Text escalation.
 * [ ] AI Email escalation and auto-responder. Send push notitification is a Zillow email thread requires a follow up. 
+
+# Future Considerations:
+* [ ] Maybe migrate from Neon to Railway Postgres with separate DB for each environment? What about Pubsub and OpenPhone implications? 

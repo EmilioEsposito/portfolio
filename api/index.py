@@ -9,12 +9,27 @@ for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
     handler.close() # Important to close handlers
 
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'  # Controls the format of the timestamp in logs
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format=LOG_FORMAT,
+    datefmt=DATE_FORMAT,  # datefmt specifies the format of the %(asctime)s timestamp; previously, the default format was used
     stream=sys.stdout  # Explicitly set the stream
 )
-# --- End of Logging Reconfiguration ---
+
+# --- SQLAlchemy Logging Configuration ---
+sqlalchemy_logger = logging.getLogger("sqlalchemy")
+sqlalchemy_logger.setLevel(logging.WARNING)
+for handler in sqlalchemy_logger.handlers[:]:
+    sqlalchemy_logger.removeHandler(handler)
+    handler.close()
+if not sqlalchemy_logger.hasHandlers():
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT))
+    sqlalchemy_logger.addHandler(handler)
+# --- End SQLAlchemy Logging Configuration ---
 
 # Load local development variables (does not impact preview/production)
 load_dotenv(find_dotenv(".env.development.local"), override=True)
@@ -106,8 +121,11 @@ async def lifespan(app: FastAPI):
         # def startup_test_job():
         #     logger.info(f"Scheduler startup_test_job executed at {datetime.now()}")
         # add_job(startup_test_job, 'date', job_id='startup_test_job', trigger_args={'run_date': datetime.now() + timedelta(seconds=15)})
+        logger.info("Zillow email service initialized and started successfully.")
+        logger.info("FastAPI index.py startup completed successfully.")
     except Exception as e:
         logger.error(f"Error during scheduler startup: {e}", exc_info=True)
+        raise
     
     yield # Application runs here
     
