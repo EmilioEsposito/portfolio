@@ -1,7 +1,7 @@
 # .cursor/Dockerfile
 FROM ubuntu:22.04
 
-RUN echo ">>> Building Emilio's Cursor Agent Docker image..."
+RUN echo ">>> Building Cursor agent Docker image..."
 
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
