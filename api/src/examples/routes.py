@@ -43,7 +43,7 @@ async def protected_route_simple():
     Returns user information from Clerk.
     """
 
-    print("protected_route_simple")
+    logger.info("protected_route_simple")
 
     return "You are authenticated!"
 
