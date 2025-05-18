@@ -106,8 +106,11 @@ async def lifespan(app: FastAPI):
         # def startup_test_job():
         #     logger.info(f"Scheduler startup_test_job executed at {datetime.now()}")
         # add_job(startup_test_job, 'date', job_id='startup_test_job', trigger_args={'run_date': datetime.now() + timedelta(seconds=15)})
+        logger.info("Zillow email service initialized and started successfully.")
+        logger.info("FastAPI index.py startup completed successfully.")
     except Exception as e:
         logger.error(f"Error during scheduler startup: {e}", exc_info=True)
+        raise
     
     yield # Application runs here
     
