@@ -21,7 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
-from api.src.utils.dependencies import verify_serniacapital_user, verify_admin_or_serniacapital
+from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
 
 router = APIRouter(
@@ -182,7 +183,7 @@ async def send_message_endpoint(request: Request):
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-@router.get("/contacts", dependencies=[Depends(verify_admin_auth)])
+@router.get("/contacts", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def route_get_contacts_by_external_ids(
     external_ids: List[str] = Query(...),
     sources: Union[List[str], None] = Query(default=None),
@@ -410,7 +411,7 @@ async def send_tenant_mass_message(
 
 
 # Working!
-@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_auth)])
+@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {

@@ -1,4 +1,5 @@
 from dotenv import load_dotenv, find_dotenv
+import asyncio
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 from fastapi import Depends, HTTPException, Header, Request, status
@@ -9,6 +10,8 @@ import logging
 from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.service import get_oauth_credentials, save_oauth_credentials
 from pprint import pprint
+
+logger = logging.getLogger(__name__) # Add logger instance
 
 # Initialize Clerk client - in production, this would use os.environ
 
@@ -36,7 +39,7 @@ async def is_signed_in(request: Request) -> bool:
     """
     FastAPI dependency that checks if the user is signed in.
     """
-    auth_state = get_auth_state(request)
+    auth_state = await get_auth_state(request)
 
     if not auth_state.is_signed_in:
         raise HTTPException(
@@ -85,7 +88,35 @@ async def get_auth_user(request: Request):
 
     return user
 
+async def verify_domain(request: Request, domain: str) -> bool:
+    """
+    FastAPI dependency that verifies if the user has a verified email from a specific domain.
+    
+    Args:
+        request: FastAPI request object
+        domain: Domain to verify (e.g. "@serniacapital.com")
 
+    Returns:
+        True if authorized. Raises HTTPException with status 401 if not authorized.
+    """
+    user = await get_auth_user(request)
+    for email in user.email_addresses:
+        if email.email_address.endswith(domain) and email.verification and email.verification.status == "verified":
+            logger.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success
+            return True # Early exit: user is authorized
+
+    # If the loop completes, it means no verified email for the domain was found.
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=f"User is not authorized to access this resource. Please use a verified {domain} email.",
+    )
+
+async def verify_serniacapital_user(request: Request):
+    """
+    FastAPI dependency that verifies if the user has a verified email from @serniacapital.com.
+    """
+    return await verify_domain(request, "@serniacapital.com")
+    
 async def get_google_credentials(request: Request) -> Credentials:
     """
     FastAPI dependency that returns the Google credentials for the authenticated user.
