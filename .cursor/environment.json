@@ -1,9 +1,6 @@
 {
-  "build": {
-    "context": ".",
-    "dockerfile": "Dockerfile"
-  },
-  "user": "agentuser",
+  "snapshot": "snapshot-20250518-bc901609-b425-4587-864b-3881846014ce",
+  "user": "ubuntu",
   "install": "./.cursor/install.sh",
   "start": "",
   "terminals": [
