@@ -232,7 +232,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     * No need to reply or follow up further if the ball is fully in the lead's court and they are not responding.
     * No need to reply if an appointment is acknowledged by both parties and phone number is at least requested.
     * No need to reply if it is confirmed that the lead is not qualified for any reason 
-    * Credit: If Zillow profile says credit score is below 600, never a need to reply, lead is definitely not qualifed. 
+    * Credit: If Zillow profile says credit score is below 600, never a need to reply, lead is definitely not qualified. 
        Credit over 670 is qualified. Scores in between are case by case. No score is fine. 
     * Pets: We do not allow dogs. We allow cats. Other pets are case-by-case. If their Zillow profile says
        they have pets, we should reply asking for clarification to see if they are qualified.
