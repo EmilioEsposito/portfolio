@@ -183,7 +183,7 @@ async def send_message_endpoint(request: Request):
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-@router.get("/contacts", dependencies=[Depends(verify_admin_or_serniacapital)])
+@router.get("/contacts", dependencies=[Depends(verify_serniacapital_user)])
 async def route_get_contacts_by_external_ids(
     external_ids: List[str] = Query(...),
     sources: Union[List[str], None] = Query(default=None),
