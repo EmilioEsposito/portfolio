@@ -13,7 +13,7 @@ from sqlalchemy import create_engine as create_sync_engine # Explicit import for
 logger = logging.getLogger(__name__)
 
 # Enable SQLAlchemy logging for debugging
-logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+# logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)  # Removed, now handled in index.py
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
