@@ -6,7 +6,7 @@ import logging
 # Assuming the scheduler instance is globally available or accessible via a dependency
 # We'll need to import it from where it's defined, likely service.py
 from api.src.scheduler.service import scheduler # This might need adjustment
-from api.src.utils.dependencies import verify_serniacapital_user
+from api.src.utils.clerk import verify_serniacapital_user
 from datetime import datetime, timedelta
 import pytest
 from pprint import pprint

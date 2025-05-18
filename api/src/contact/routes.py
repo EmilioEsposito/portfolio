@@ -17,7 +17,7 @@ router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
-    dependencies=[Depends(verify_admin_or_serniacapital)] # TODO: figure out why passing password in body is not working from swagger
+    dependencies=[Depends(verify_admin_or_serniacapital)] 
 )
 
 @router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)

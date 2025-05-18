@@ -21,7 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
-from api.src.utils.dependencies import verify_serniacapital_user, verify_admin_or_serniacapital
+from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
 
 router = APIRouter(
@@ -112,7 +113,6 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
     dependencies=[Depends(verify_open_phone_signature)],
 )
 async def webhook(
-    request: Request,
     payload: OpenPhoneWebhookPayload,
     session: AsyncSession = Depends(get_session)
 ):
@@ -134,11 +134,12 @@ async def webhook(
             await analyze_for_twilio_escalation(event_data)
 
         # check if event_id is already in the database
-        existing_event = await session.execute(
+        result = await session.execute(
             select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
         )
-        if existing_event:
-            logger.info(f"Event {event_data['event_id']} already processed, skipping")
+        existing_event_record = result.scalar_one_or_none()
+        if existing_event_record:
+            logger.info(f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping")
             return {"message": "Event already processed"}
         else:
             # Create database record
@@ -149,14 +150,15 @@ async def webhook(
             logger.info(f"Successfully recorded OpenPhone event: {payload.type}")
             return {"message": "Event recorded successfully"}
 
-    except IntegrityError as e:
-        # If the event already exists, that's fine - just return success
-        if "uq_open_phone_events_event_id" in str(e):
-            logger.info(f"Event {payload.id} already processed, skipping")
-            return {"message": "Event already processed"}
-        raise HTTPException(500, f"Database error: {str(e)}")
+    except IntegrityError as e:        
+        # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
+        event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
+        log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Full payload: {payload}. Database Error: {e}"
+        logger.error(log_message, exc_info=True) # exc_info=True includes the stack trace
+        
+        raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
-        logger.error(f"Error processing OpenPhone webhook: {str(e)}", exc_info=True)
+        logger.error(f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}", exc_info=True)
         await session.rollback()
         raise HTTPException(500, f"Error processing webhook: {str(e)}")
 
@@ -181,7 +183,7 @@ async def send_message_endpoint(request: Request):
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
-@router.get("/contacts", dependencies=[Depends(verify_admin_auth)])
+@router.get("/contacts", dependencies=[Depends(verify_serniacapital_user)])
 async def route_get_contacts_by_external_ids(
     external_ids: List[str] = Query(...),
     sources: Union[List[str], None] = Query(default=None),
@@ -409,7 +411,7 @@ async def send_tenant_mass_message(
 
 
 # Working!
-@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_auth)])
+@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {

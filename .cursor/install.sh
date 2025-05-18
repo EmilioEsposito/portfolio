@@ -11,6 +11,7 @@ echo "pnpm version: $(pnpm --version)"
 echo "Python version: $(python3 --version)"
 echo "uv version: $(uv --version)"
 
+cd /workspace
 
 echo ">>> Installing Node.js dependencies with pnpm..."
 if [ -f "pnpm-lock.yaml" ]; then
@@ -20,13 +21,8 @@ else
     pnpm install
 fi
 
-echo ">>> Creating Python virtual environment with uv..."
-# The Dockerfile sets python3 to python3.11.
-# VIRTUAL_ENV=/app/.venv is set in Dockerfile, uv should pick this up or create .venv in current dir.
-# Explicitly create .venv in /app which is the WORKDIR
-uv venv /app/.venv --python python3.11
 
-echo ">>> Installing Python dependencies into /app/.venv with uv..."
+echo ">>> Installing Python dependencies into /workspace/.venv with uv..."
 if [ -f "uv.lock" ]; then
     # Use --strict if uv.lock is present and VIRTUAL_ENV is active
     uv sync --strict
@@ -35,7 +31,7 @@ else
     uv sync
 fi
 
-echo ">>> Installing Python dev dependencies into /app/.venv with uv..."
+echo ">>> Installing Python dev dependencies into /workspace/.venv with uv..."
 if [ -f "pyproject.toml" ]; then # Check if pyproject.toml exists for dev dependencies
     if [ -f "uv.lock" ]; then
         uv sync --dev --strict

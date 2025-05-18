@@ -10,6 +10,8 @@ from pprint import pprint
 import pytz
 from datetime import datetime
 import logging
+from api.src.utils.clerk import verify_serniacapital_user
+from api.src.utils.dependencies import verify_admin_or_serniacapital
 
 router = APIRouter(prefix="/examples", tags=["examples"])
 logger = logging.getLogger(__name__)
@@ -34,14 +36,14 @@ logger = logging.getLogger(__name__)
 
 
 
-@router.get("/protected_simple")
-async def protected_route_simple(
-    dependencies=[Depends(is_signed_in)]
-):
+@router.get("/protected_simple", dependencies=[Depends(is_signed_in)])
+async def protected_route_simple():
     """
     Example protected endpoint that requires authentication.
     Returns user information from Clerk.
     """
+
+    logger.info("protected_route_simple")
 
     return "You are authenticated!"
 
@@ -74,6 +76,15 @@ async def protected_route_get_user(
         "dummy_data": "dummy"
     }
     return data
+
+
+@router.get("/protected_serniacapital", dependencies=[Depends(verify_serniacapital_user)])
+async def protected_route_serniacapital():
+    return "You are authenticated!"
+
+@router.post("/protected_serniacapital_or_admin", dependencies=[Depends(verify_admin_or_serniacapital)])
+async def protected_route_serniacapital_get_user():
+    return "You are authenticated!"
 
 @router.get("/protected_google")
 async def protected_route_google(

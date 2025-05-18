@@ -229,19 +229,20 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
      phone number).
 
     # Guidelines:
-    * No need to reply if an appointment is acknowledged by both parties and phone number is collected.
+    * No need to reply or follow up further if the ball is fully in the lead's court and they are not responding.
+    * No need to reply if an appointment is acknowledged by both parties and phone number is at least requested.
     * No need to reply if it is confirmed that the lead is not qualified for any reason 
-    * Credit: If Zillow profile says credit score is below 600, never a need to reply, lead is not qualifed. 
+    * Credit: If Zillow profile says credit score is below 600, never a need to reply, lead is definitely not qualified. 
        Credit over 670 is qualified. Scores in between are case by case. No score is fine. 
     * Pets: We do not allow dogs. We allow cats. Other pets are case-by-case. If their Zillow profile says
        they have pets, we should reply asking for clarification to see if they are qualified.
     * Availability: If there is material potential mismatch on move-in date vs availability, it is 
        sometimes worth clarifying if they have flexibility.
     * If Sernia already replied, and the applicant never responds, Sernia does not need to reply again.
-    * However, even if Sernia was the last one to reply, if the thread required a follow-up from Sernia, 
+    * However, even if Sernia was the last one to reply, if the thread implied there was a follow-up required from Sernia, 
       Sernia should reply again (e.g. if last message from Sernia was ""we'll get back to you on that question..."")
-    * Even if Sernia was the last one to reply, if the applicant seemed otherwise qualified and was originally 
-      responding to Sernia's initial message, Sernia should should reply. Your reasoning tone should be softer in this scenario. 
+    * No need to reply if it seems like the lead is simply using the thread to let Sernia know they are physically at the 
+       property for their appointment (at that point Sernia usuually just calls them to find them). 
     * When giving your reasoning, speak in the "we" voice, since you work for Sernia as well. 
 
     # Response Format. Return your response in JSON. 

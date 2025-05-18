@@ -62,7 +62,7 @@ logger.info("Creating database engine...")
 # Create engine with NullPool - no connection pooling for serverless
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Enable SQL logging
+    echo=False,  # Disable verbose SQL logging by default
     poolclass=NullPool,  # Disable connection pooling
     connect_args={
         "ssl": True,  # Enable SSL

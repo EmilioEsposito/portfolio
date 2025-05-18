@@ -1,6 +1,8 @@
 # .cursor/Dockerfile
 FROM ubuntu:22.04
 
+RUN echo ">>> Building Cursor agent Docker image..."
+
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -33,25 +35,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # Ensure uv is executable
 RUN chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
-# Create a non-root user and group
-RUN groupadd -r agentgroup && useradd -r -g agentgroup -ms /bin/bash -d /home/agentuser agentuser
-# Allow agentuser to run sudo commands without a password (optional, but can be useful for dev env setup)
-RUN echo "agentuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
 # Set up the working directory
-WORKDIR /app
-# Change ownership of /app to agentuser *before* switching user, if needed for subsequent Dockerfile steps
-# For agent cloning repo into /app, permissions will be handled by agent runtime
-RUN sudo chown agentuser:agentgroup /app
+WORKDIR /workspace
 
-# Switch to the non-root user
-USER agentuser
+
 
 # Set VIRTUAL_ENV so uv targets it automatically when .venv is created by install.sh
 # This also helps if commands are run not from the root of the project within the agent.
-ENV VIRTUAL_ENV=/app/.venv
+ENV VIRTUAL_ENV=/workspace/.venv
 # Add the venv's bin directory to the PATH
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/workspace/.venv/bin:$PATH"
 
 # The CMD/ENTRYPOINT are not strictly necessary here as Cursor will run commands from environment.json
 # CMD ["/bin/bash"]
