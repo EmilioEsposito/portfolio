@@ -158,9 +158,10 @@ async def webhook(
         
         raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
-        logger.error(f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}", exc_info=True)
+        detailed_error_message = f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}"
+        logger.error(detailed_error_message, exc_info=True)
         await session.rollback()
-        raise HTTPException(500, f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=detailed_error_message)
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def send_message_endpoint(request: Request):

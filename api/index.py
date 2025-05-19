@@ -1,6 +1,7 @@
 import logging
 import sys # Added for sys.stdout
 from dotenv import load_dotenv, find_dotenv
+import json # Added import
 
 # --- Forceful Logging Reconfiguration ---
 # Remove all handlers associated with the root logger object.
@@ -197,31 +198,49 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
-            # Try processing the request
             response = await call_next(request)
 
-            # Check if the response is a 500 error (from HTTPException or manual return)
             if response.status_code == 500:
-                logging.warning(f"Caught handled 500 response for {request.url.path}")
-                # Create a generic exception to pass details to the notifier
-                handled_500_exception = Exception(f"Handled 500 Response for {request.url.path}")
-                await send_error_notification(request, handled_500_exception)
+                logging.warning(f"Caught handled 500 response for {request.url.path} with media type {getattr(response, 'media_type', 'unknown')}")
+                
+                error_message_detail = f"Handled 500 Response for {request.url.path}" # Default message
+                
+                # Attempt to extract detail from JSONResponse
+                if hasattr(response, 'media_type') and response.media_type == "application/json" and hasattr(response, 'body') and response.body:
+                    try:
+                        content = json.loads(response.body.decode('utf-8'))
+                        if isinstance(content, dict) and 'detail' in content:
+                            extracted_detail = content['detail']
+                            if isinstance(extracted_detail, dict): # e.g. Pydantic error structure
+                                error_message_detail = json.dumps(extracted_detail)
+                            elif isinstance(extracted_detail, str):
+                                error_message_detail = extracted_detail
+                            else: # If detail is some other type (list, number, etc.), stringify it
+                                error_message_detail = str(extracted_detail)
+                        # If content is not a dict or no 'detail' key, error_message_detail remains the default.
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        logging.warning(f"Could not parse JSON response body for error detail from {request.url.path}: {e}")
+                
+                # Create a synthetic exception to pass to the notifier.
+                # The message of this exception will be used in the email.
+                custom_exception_for_notification = Exception(error_message_detail)
+                # Ensure __traceback__ is None so that send_error_notification
+                # correctly identifies this as a "handled" error for traceback formatting.
+                custom_exception_for_notification.__traceback__ = None
+                
+                await send_error_notification(request, custom_exception_for_notification)
+            # The original response (which is a 500 error response) is returned.
 
-        except Exception as exc:
-            # Catch any uncaught exceptions from the application
+        except Exception as exc: # This catches unhandled exceptions from deeper in the stack
             logging.error(f"Caught unhandled exception for {request.url.path}", exc_info=True)
-            await send_error_notification(request, exc)
+            await send_error_notification(request, exc) # exc here will have a traceback
 
-            # Return a standard 500 response
-            # Note: We are generating the response here. If you wanted FastAPI's default
-            # exception handling to still run for specific exception types *after* notification,
-            # you might re-raise the exception here instead of returning a response.
-            # For general uncaught exceptions, returning a generic 500 is usually desired.
+            # For unhandled exceptions, we generate a generic 500 response.
             response = JSONResponse(
                 status_code=500,
                 content={
                     "error": "Internal Server Error",
-                    "detail": "An unexpected error occurred.", # Keep detail generic for security
+                    "detail": "An unexpected error occurred.", 
                     "status_code": 500,
                 },
             )
