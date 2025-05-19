@@ -44,6 +44,16 @@ class ContactObject(BaseOpenPhoneObject):
     updatedAt: datetime
 
 class CallSummaryObject(BaseModel):
+    """
+    Represents a summary of a call, including its status, key points, and next steps.
+    
+    Attributes:
+        object (str): The type of object, typically "call_summary".
+        callId (str): The unique identifier for the call.
+        status (str): The current status of the call (e.g., "completed", "in_progress").
+        summary (List[str]): A list of key points or highlights from the call.
+        nextSteps (List[str]): A list of recommended next steps following the call.
+    """
     object: str
     callId: str
     status: str
