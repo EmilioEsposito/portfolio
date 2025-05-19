@@ -62,10 +62,15 @@ logger.info(f"Final database URL format: {final_url_for_logging}")
 
 logger.info("Creating database engine...")
 
-# Create async engine for FastAPI app (use Neon pooled connection, no NullPool)
+# Create async engine for FastAPI app (use Neon pooled connection)
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Disable verbose SQL logging by default
+    pool_size=5,  # Limit concurrent connections
+    max_overflow=10,  # Allow up to 10 additional connections
+    pool_timeout=30,  # Wait up to 30 seconds for a connection
+    pool_recycle=300,  # Recycle connections every 5 minutes
+    pool_pre_ping=True,  # Verify connection is alive before using
     connect_args={
         "ssl": True,  # Enable SSL
         "server_settings": {
