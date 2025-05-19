@@ -1,6 +1,7 @@
 import logging
 import sys # Added for sys.stdout
 from dotenv import load_dotenv, find_dotenv
+import json # Added import
 
 # --- Forceful Logging Reconfiguration ---
 # Remove all handlers associated with the root logger object.
@@ -44,7 +45,8 @@ from strawberry.tools import merge_types
 import strawberry
 import os
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import StreamingResponse
 import traceback
 
 # Import from api.src
@@ -162,8 +164,8 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
     }
 
     # Log the error details regardless of email success
-    logging.error(
-        f"500 Error Detail: Path={error_details['path']}, Method={error_details['method']}, Error={error_details['error']}",
+    logger.error(
+        f"500 Error Detail:\nPath={error_details['path']}\nMethod={error_details['method']}\nError={error_details['error']}",
         exc_info=exc if exc.__traceback__ else None # Only add exc_info if there's a real traceback
     )
 
@@ -174,56 +176,119 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
             user_email="emilio@serniacapital.com",  # TODO: Move to env var?
             scopes=["https://mail.google.com"],
         )
-        message_text = f"A 500 error occurred on your application ({os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local')})."
-        message_text += f"Error: {error_details['error']}"
-        message_text += f"Path: {error_details['path']}"
-        message_text += f"Method: {error_details['method']}"
-        message_text += f"Client IP: {error_details['client_host']}"
+        message_text = f"A 500 error occurred on your application ({os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment (local?)')}).\n\n" 
+        message_text += f"Error: {error_details['error']}\n"
+        message_text += f"Path: {error_details['path']}\n"
+        message_text += f"Method: {error_details['method']}\n"
+        message_text += f"Client IP: {error_details['client_host']}\n\n"
         message_text += f"Traceback:\n{error_details['traceback']}"
 
         await send_email(
             to="espo412@gmail.com",  # TODO: Move to env var?
-            subject=f"ALERT: 500 Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment')}",
+            subject=f"ALERT: 500 Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment (local?)')}",
             message_text=message_text,
             credentials=credentials,
         )
-        logging.info(f"Error notification email sent for 500 on {error_details['path']}")
+        logger.info(f"Error notification email sent for 500 on {error_details['path']}")
     except Exception as email_error:
-        logging.error(f"Failed to send error notification email: {str(email_error)}", exc_info=True)
+        logger.error(f"Failed to send error notification email: {str(email_error)}", exc_info=True)
 
 
 # --- Middleware Definitions ---
 
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response: Response = None # Ensure response is defined
         try:
-            # Try processing the request
             response = await call_next(request)
 
-            # Check if the response is a 500 error (from HTTPException or manual return)
-            if response.status_code == 500:
-                logging.warning(f"Caught handled 500 response for {request.url.path}")
-                # Create a generic exception to pass details to the notifier
-                handled_500_exception = Exception(f"Handled 500 Response for {request.url.path}")
-                await send_error_notification(request, handled_500_exception)
+            if response is not None and response.status_code == 500:
+                logger.warning(f"MIDDLEWARE: Handling 500 response for: {request.url.path}")
+                logger.warning(f"MIDDLEWARE: Response object type: {type(response)}")
+                logger.warning(f"MIDDLEWARE: Response media type attribute: {getattr(response, 'media_type', 'N/A')}")
+                logger.warning(f"MIDDLEWARE: Response headers: {response.headers}")
 
-        except Exception as exc:
-            # Catch any uncaught exceptions from the application
-            logging.error(f"Caught unhandled exception for {request.url.path}", exc_info=True)
-            await send_error_notification(request, exc)
+                response_body_content = b""
+                
+                if hasattr(response, 'body_iterator'): # Check for body_iterator to identify streaming responses
+                    logger.warning("MIDDLEWARE: Response has body_iterator. Iterating to get body.")
+                    async for chunk in response.body_iterator:
+                        if isinstance(chunk, bytes):
+                            response_body_content += chunk
+                        else: 
+                            response_body_content += chunk.encode('utf-8')
+                    logger.warning(f"MIDDLEWARE: Read {len(response_body_content)} bytes from body_iterator.")
+                elif hasattr(response, 'body'): # For non-streaming, like JSONResponse directly
+                    try:
+                        # Accessing .body on some response types might trigger rendering if not already done.
+                        response_body_content = response.body 
+                        logger.warning(f"MIDDLEWARE: Accessed response.body (non-streaming), length: {len(response_body_content) if response_body_content else 0}")
+                        if not response_body_content:
+                             logger.warning("MIDDLEWARE: response.body (non-streaming) was empty after access.")
+                    except Exception as e_body:
+                        logger.error(f"MIDDLEWARE: Error accessing response.body (non-streaming): {e_body}", exc_info=True)
+                else:
+                    logger.warning("MIDDLEWARE: Response object does not have 'body_iterator' or 'body' attribute.")
+                
+                error_message_detail = f"Handled 500 Response for {request.url.path}" # Default
 
-            # Return a standard 500 response
-            # Note: We are generating the response here. If you wanted FastAPI's default
-            # exception handling to still run for specific exception types *after* notification,
-            # you might re-raise the exception here instead of returning a response.
-            # For general uncaught exceptions, returning a generic 500 is usually desired.
+                content_type_header = response.headers.get('content-type', '').lower()
+                is_json_media_type = 'application/json' in content_type_header
+
+                logger.warning(f"MIDDLEWARE: Content-Type header: '{content_type_header}', Is JSON media type: {is_json_media_type}")
+
+                if response_body_content and is_json_media_type:
+                    try:
+                        body_str = response_body_content.decode('utf-8')
+                        logger.warning(f"MIDDLEWARE: Attempting to parse JSON from response_body_content (decoded snippet): {body_str[:250]}")
+                        content = json.loads(body_str)
+                        if isinstance(content, dict) and 'detail' in content:
+                            extracted_detail = content['detail']
+                            if isinstance(extracted_detail, str): error_message_detail = extracted_detail
+                            else: error_message_detail = json.dumps(extracted_detail)
+                            logger.warning(f"MIDDLEWARE: Extracted detail for email: '{error_message_detail[:250]}'")
+                        else:
+                            logger.warning(f"MIDDLEWARE: 'detail' key not found or content not a dict. Parsed content snippet: {str(content)[:250]}")
+                    except Exception as e_json:
+                        logger.error(f"MIDDLEWARE: Failed to parse JSON from response body: {e_json}", exc_info=True)
+                else:
+                    logger.warning(f"MIDDLEWARE: Skipping JSON parsing. Body empty ({not response_body_content}) or media type not application/json (is_json_media_type: {is_json_media_type}).")
+
+                synthetic_exc = Exception(error_message_detail)
+                synthetic_exc.__traceback__ = None
+                await send_error_notification(request, synthetic_exc)
+                
+                # If we consumed a streaming response, we need to recreate it to avoid errors like
+                # "h11._util.LocalProtocolError: Too little data for declared Content-Length"
+                # because the original body_iterator is now exhausted.
+                if hasattr(response, 'body_iterator') and response_body_content:
+                    logger.warning("MIDDLEWARE: Reconstructing response because body_iterator was consumed.")
+                    # We have status_code, headers, and the body content
+                    # response.headers is a Starlette Headers object, which is fine for a new Response
+                    # response.status_code is also available directly
+                    response = Response(
+                        content=response_body_content, 
+                        status_code=response.status_code, 
+                        headers=dict(response.headers), # Convert to dict for constructor
+                        media_type=response.headers.get('content-type') # Get media_type from headers
+                    )
+                    logger.warning(f"MIDDLEWARE: New response created: type={type(response)}, headers={response.headers}")
+
+        except Exception as exc: 
+            logger.error(f"MIDDLEWARE: Caught UNHANDLED exception for {request.url.path}", exc_info=True)
+            await send_error_notification(request, exc) 
+            # For truly unhandled exceptions, create a generic 500 response
+            # Ensure response is a Response object before returning
             response = JSONResponse(
                 status_code=500,
-                content={
-                    "error": "Internal Server Error",
-                    "detail": "An unexpected error occurred.", # Keep detail generic for security
-                    "status_code": 500,
-                },
+                content={"error": "Internal Server Error", "detail": "An unexpected server error occurred during middleware processing."},
+            )
+        
+        if response is None: # Should ideally not happen if call_next always returns or exception is caught
+            logger.error("MIDDLEWARE: Response object was None at exit of dispatch, creating generic 500 response.")
+            response = JSONResponse(
+                status_code=500,
+                content={"error": "Internal Server Error", "detail": "Middleware processing error; response was None at exit."},
             )
         return response
 
@@ -292,3 +357,11 @@ async def hello_fast_api():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/error")
+async def error_500_check():
+    logger.error("Raising 500 error for testing")
+
+    # raise a 500 error
+    raise HTTPException(status_code=500, detail="Test error message")
+

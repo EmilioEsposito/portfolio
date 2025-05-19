@@ -13,6 +13,24 @@ from pprint import pprint
 from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.database.database import get_session
 import uuid
+from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.clerk import verify_serniacapital_user
+
+@pytest.fixture(autouse=True, scope="module")
+def mock_background_services_startup():
+    """
+    Mocks the startup of APScheduler etc to speed up tests in this module.
+    Prevents actual scheduler/service startup during testing.
+    """
+    with patch('api.index.scheduler.start', autospec=True) as mock_scheduler_start, \
+         patch('api.index.zillow_email_service.start_service', new_callable=AsyncMock) as mock_zillow_start:
+        
+        print(f"\n--- Mocking background services for tests in module ---")
+        print(f"Mocked api.index.scheduler.start: {mock_scheduler_start}")
+        print(f"Mocked api.index.zillow_email_service.start_service: {mock_zillow_start}")
+        print(f"-------------------------------------------------------\n")
+        yield mock_scheduler_start, mock_zillow_start
+    print("\n--- Background services unmocked for module ---\n")
 
 async def mock_verify(*args, **kwargs):
     return True
@@ -31,6 +49,8 @@ def mocked_client():
     with TestClient(app) as client:
         # Override the dependencies
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
+        app.dependency_overrides[verify_admin_or_serniacapital] = lambda: True
+        app.dependency_overrides[verify_serniacapital_user] = lambda: True
         app.dependency_overrides[verify_admin_auth] = lambda: True
         app.dependency_overrides[verify_cron_or_admin] = lambda: True
         # app.dependency_overrides[get_session] = lambda: mock_db_session
@@ -67,6 +87,32 @@ def test_open_phone_webhook(mocked_client):
 def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
     with open("api/src/tests/requests/open_phone_contact_updated.json", "r") as f:
+        body = json.load(f)['object']
+
+    try:
+        OpenPhoneWebhookPayload.model_validate(body)
+    except Exception as e:
+        print("\n\nEXCEPTION:")
+        pprint(e)
+        raise e
+
+
+def test_open_phone_webhook_call_summary_completed(mocked_client):
+    """Test the OpenPhone webhook message received endpoint"""
+    with open("api/src/tests/requests/open_phone_call_summary_completed.json", "r") as f:
+        body = json.load(f)['object']
+
+    try:
+        OpenPhoneWebhookPayload.model_validate(body)
+    except Exception as e:
+        print("\n\nEXCEPTION:")
+        pprint(e)
+        raise e
+
+
+def test_open_phone_webhook_call_transcript_completed(mocked_client):
+    """Test the OpenPhone webhook message received endpoint"""
+    with open("api/src/tests/requests/open_phone_call_transcript_completed.json", "r") as f:
         body = json.load(f)['object']
 
     try:

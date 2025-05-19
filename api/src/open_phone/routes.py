@@ -90,12 +90,12 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
         "event_timestamp": payload.createdAt,  # Changed from created_at to event_timestamp
     }
     
-    # Extract common fields
+    # Extract common fields (if they exist on the data_object)
     data_object = payload.data.object
     event_data.update({
-        "conversation_id": data_object.conversationId,
-        "user_id": data_object.userId,
-        "phone_number_id": data_object.phoneNumberId,
+        "conversation_id": getattr(data_object, 'conversationId', None),
+        "user_id": getattr(data_object, 'userId', None),
+        "phone_number_id": getattr(data_object, 'phoneNumberId', None),
     })
     
     # Extract type-specific fields
@@ -158,9 +158,10 @@ async def webhook(
         
         raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
-        logger.error(f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}", exc_info=True)
+        detailed_error_message = f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}"
+        logger.error(detailed_error_message, exc_info=True)
         await session.rollback()
-        raise HTTPException(500, f"Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=detailed_error_message)
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def send_message_endpoint(request: Request):
