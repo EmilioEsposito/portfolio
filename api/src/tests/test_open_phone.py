@@ -19,7 +19,7 @@ from api.src.utils.clerk import verify_serniacapital_user
 @pytest.fixture(autouse=True, scope="module")
 def mock_background_services_startup():
     """
-    Mocks the startup of APScheduler and Zillow Email Service for tests in this module.
+    Mocks the startup of APScheduler etc to speed up tests in this module.
     Prevents actual scheduler/service startup during testing.
     """
     with patch('api.index.scheduler.start', autospec=True) as mock_scheduler_start, \
