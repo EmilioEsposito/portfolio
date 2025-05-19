@@ -77,6 +77,32 @@ def test_open_phone_webhook(mocked_client):
         raise e
 
 
+def test_open_phone_webhook_call_summary_completed(mocked_client):
+    """Test the OpenPhone webhook message received endpoint"""
+    with open("api/src/tests/requests/open_phone_call_summary_completed.json", "r") as f:
+        body = json.load(f)['object']
+
+    try:
+        OpenPhoneWebhookPayload.model_validate(body)
+    except Exception as e:
+        print("\n\nEXCEPTION:")
+        pprint(e)
+        raise e
+
+
+def test_open_phone_webhook_call_transcript_completed(mocked_client):
+    """Test the OpenPhone webhook message received endpoint"""
+    with open("api/src/tests/requests/open_phone_call_transcript_completed.json", "r") as f:
+        body = json.load(f)['object']
+
+    try:
+        OpenPhoneWebhookPayload.model_validate(body)
+    except Exception as e:
+        print("\n\nEXCEPTION:")
+        pprint(e)
+        raise e
+
+
 def test_get_contacts_success(mocked_client):
     """Test successful contact retrieval"""
 

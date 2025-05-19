@@ -43,8 +43,30 @@ class ContactObject(BaseOpenPhoneObject):
     clientId: Optional[str] = ""
     updatedAt: datetime
 
+class CallSummaryObject(BaseModel):
+    object: str
+    callId: str
+    status: str
+    summary: List[str]
+    nextSteps: List[str]
+
+class DialogueEntry(BaseModel):
+    end: float
+    start: float
+    content: str
+    identifier: str
+    userId: Optional[str] = None
+
+class CallTranscriptObject(BaseModel):
+    object: str
+    callId: str
+    createdAt: datetime
+    dialogue: List[DialogueEntry]
+    duration: float
+    status: str
+
 class OpenPhoneEventData(BaseModel):
-    object: Union[MessageObject, CallObject, ContactObject]
+    object: Union[MessageObject, CallObject, ContactObject, CallSummaryObject, CallTranscriptObject]
 
 class OpenPhoneWebhookPayload(BaseModel):
     id: str
