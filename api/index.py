@@ -163,7 +163,7 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
     }
 
     # Log the error details regardless of email success
-    logging.error(
+    logger.error(
         f"500 Error Detail: Path={error_details['path']}, Method={error_details['method']}, Error={error_details['error']}",
         exc_info=exc if exc.__traceback__ else None # Only add exc_info if there's a real traceback
     )
@@ -188,9 +188,9 @@ async def send_error_notification(request: Request, exc: Exception) -> None:
             message_text=message_text,
             credentials=credentials,
         )
-        logging.info(f"Error notification email sent for 500 on {error_details['path']}")
+        logger.info(f"Error notification email sent for 500 on {error_details['path']}")
     except Exception as email_error:
-        logging.error(f"Failed to send error notification email: {str(email_error)}", exc_info=True)
+        logger.error(f"Failed to send error notification email: {str(email_error)}", exc_info=True)
 
 
 # --- Middleware Definitions ---
@@ -201,41 +201,60 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
 
             if response.status_code == 500:
-                logging.warning(f"Caught handled 500 response for {request.url.path} with media type {getattr(response, 'media_type', 'unknown')}")
+                logger.warning(f"MIDDLEWARE: Handling 500 response for: {request.url.path}")
+                logger.warning(f"MIDDLEWARE: Response media type: {getattr(response, 'media_type', 'unknown')}")
                 
+                response_body_bytes = None
+                if hasattr(response, 'body'):
+                    response_body_bytes = response.body
+                
+                if response_body_bytes:
+                    logger.warning(f"MIDDLEWARE: Response body length: {len(response_body_bytes)}")
+                    try:
+                        body_snippet = response_body_bytes.decode('utf-8')[:250] # Log first 250 chars
+                        logger.warning(f"MIDDLEWARE: Response body snippet: {body_snippet}")
+                    except Exception as dec_err:
+                        logger.warning(f"MIDDLEWARE: Error decoding response body: {type(dec_err).__name__} - {dec_err}")
+                else:
+                    logger.warning("MIDDLEWARE: Response body is None or empty.")
+
                 error_message_detail = f"Handled 500 Response for {request.url.path}" # Default message
                 
-                # Attempt to extract detail from JSONResponse
-                if hasattr(response, 'media_type') and response.media_type == "application/json" and hasattr(response, 'body') and response.body:
+                if hasattr(response, 'media_type') and response.media_type == "application/json" and response_body_bytes:
                     try:
-                        content = json.loads(response.body.decode('utf-8'))
-                        if isinstance(content, dict) and 'detail' in content:
-                            extracted_detail = content['detail']
-                            if isinstance(extracted_detail, dict): # e.g. Pydantic error structure
-                                error_message_detail = json.dumps(extracted_detail)
-                            elif isinstance(extracted_detail, str):
-                                error_message_detail = extracted_detail
-                            else: # If detail is some other type (list, number, etc.), stringify it
-                                error_message_detail = str(extracted_detail)
-                        # If content is not a dict or no 'detail' key, error_message_detail remains the default.
-                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                        logging.warning(f"Could not parse JSON response body for error detail from {request.url.path}: {e}")
+                        logger.warning("MIDDLEWARE: Attempting to parse JSON from response body.")
+                        content = json.loads(response_body_bytes.decode('utf-8'))
+                        logger.warning(f"MIDDLEWARE: Parsed JSON content type: {type(content)}")
+                        if isinstance(content, dict):
+                            logger.warning(f"MIDDLEWARE: Parsed JSON content keys: {list(content.keys())}")
+                            if 'detail' in content:
+                                extracted_detail = content['detail']
+                                logger.warning(f"MIDDLEWARE: Found 'detail' in JSON: {type(extracted_detail)} | Value snippet: {str(extracted_detail)[:250]}")
+                                if isinstance(extracted_detail, dict):
+                                    error_message_detail = json.dumps(extracted_detail)
+                                elif isinstance(extracted_detail, str):
+                                    error_message_detail = extracted_detail
+                                else: 
+                                    error_message_detail = str(extracted_detail)
+                                logger.warning(f"MIDDLEWARE: error_message_detail set to (snippet): {error_message_detail[:250]}")
+                            else:
+                                logger.warning("MIDDLEWARE: 'detail' key not found in parsed JSON.")
+                        else:
+                            logger.warning("MIDDLEWARE: Parsed JSON content is not a dictionary.")
+                    except Exception as e:
+                        logger.warning(f"MIDDLEWARE: Could not parse JSON response body for error detail from {request.url.path}: {type(e).__name__} - {e}")
+                else:
+                    logger.warning("MIDDLEWARE: Skipping JSON parsing due to media type or empty body not being as expected.")
                 
-                # Create a synthetic exception to pass to the notifier.
-                # The message of this exception will be used in the email.
                 custom_exception_for_notification = Exception(error_message_detail)
-                # Ensure __traceback__ is None so that send_error_notification
-                # correctly identifies this as a "handled" error for traceback formatting.
                 custom_exception_for_notification.__traceback__ = None
                 
                 await send_error_notification(request, custom_exception_for_notification)
-            # The original response (which is a 500 error response) is returned.
 
-        except Exception as exc: # This catches unhandled exceptions from deeper in the stack
-            logging.error(f"Caught unhandled exception for {request.url.path}", exc_info=True)
-            await send_error_notification(request, exc) # exc here will have a traceback
+        except Exception as exc: 
+            logger.error(f"MIDDLEWARE: Caught unhandled exception for {request.url.path}", exc_info=True)
+            await send_error_notification(request, exc) 
 
-            # For unhandled exceptions, we generate a generic 500 response.
             response = JSONResponse(
                 status_code=500,
                 content={

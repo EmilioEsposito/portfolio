@@ -90,12 +90,12 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
         "event_timestamp": payload.createdAt,  # Changed from created_at to event_timestamp
     }
     
-    # Extract common fields
+    # Extract common fields (if they exist on the data_object)
     data_object = payload.data.object
     event_data.update({
-        "conversation_id": data_object.conversationId,
-        "user_id": data_object.userId,
-        "phone_number_id": data_object.phoneNumberId,
+        "conversation_id": getattr(data_object, 'conversationId', None),
+        "user_id": getattr(data_object, 'userId', None),
+        "phone_number_id": getattr(data_object, 'phoneNumberId', None),
     })
     
     # Extract type-specific fields
