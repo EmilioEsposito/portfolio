@@ -1,7 +1,7 @@
 import logging
 import os
 from pprint import pprint
-from api.src.open_phone.service import send_message, create_openphone_contact
+from api.src.open_phone.service import send_message, upsert_openphone_contact
 from api.src.database.database import AsyncSessionFactory
 from api.src.scheduler.service import scheduler
 from api.src.contact.service import ContactCreate
@@ -449,9 +449,9 @@ async def check_email_threads(overwrite_calendar_events=False):
                             )
 
                             # now create a new contact in OpenPhone
-                            openphone_contact_response = await create_openphone_contact(contact_create)
+                            openphone_contact_response = await upsert_openphone_contact(contact_create)
                             openphone_contact = openphone_contact_response.json()
-                            logger.info(f"Created new OpenPhone contact: {openphone_contact}")
+                            logger.info(f"Created/updated OpenPhone contact: {openphone_contact}")
                         else:
                             logger.error(f"No phone number found for lead: {first_name_aux}")
                     except Exception as e:
