@@ -259,7 +259,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     }
     """
 
-    logger.info(f"AI assessing Zillow email thread: {thread_id}")
+    logger.info(f"ai_assess_thread: Assessing Zillow email thread: {thread_id}")
 
     thread_str = get_clean_zillow_thread_str(messages)
 
@@ -276,7 +276,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
         text_format=ShouldReply,
     )
 
-    logger.debug(f"Parsed AI response: {response.output_parsed}")
+    logger.info(f"ai_assess_thread: Parsed AI response: {response.output_parsed}")
 
     should_sernia_reply = response.output_parsed.should_reply
     reason = response.output_parsed.reason
@@ -331,7 +331,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     }}
     """
 
-    logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
+    logger.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
 
 
 
@@ -351,7 +351,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
         text_format=CollectedThreadInfo,
     )
 
-    logger.debug(f"Parsed AI response: {response.output_parsed}")
+    logger.info(f"ai_collect_thread_info: Parsed AI response: {response.output_parsed}")
 
     thread_info = response.output_parsed
 
@@ -449,7 +449,8 @@ async def check_email_threads(overwrite_calendar_events=False):
                             )
 
                             # now create a new contact in OpenPhone
-                            openphone_contact = await create_openphone_contact(contact_create)
+                            openphone_contact_response = await create_openphone_contact(contact_create)
+                            openphone_contact = openphone_contact_response.json()
                             logger.info(f"Created new OpenPhone contact: {openphone_contact}")
                         else:
                             logger.error(f"No phone number found for lead: {first_name_aux}")
