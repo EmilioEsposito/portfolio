@@ -484,6 +484,8 @@ async def check_email_threads(overwrite_calendar_events=False):
                             end_time_iso = end_datetime_aware.isoformat()
 
                             event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            if non_prod_env:
+                                event_summary = f"{non_prod_env} - {event_summary}"
                             event_description = f"Building: {thread_info.building_number}"
                             event_description += f"\nUnit: {unit_number_padded}"
                             event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
@@ -511,8 +513,11 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 }
                             }
 
-                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
-                            logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                            if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in ["production", "local"]:
+                                created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
+                                logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                            else:
+                                logger.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
                         else:
                             logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
                     except Exception as e:
