@@ -493,7 +493,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                             event_description += f"\nSource: Zillow Email."
                             event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
 
-                            calendar_service = await get_calendar_service(user_email="emilio@serniacapital.com") # TODO: make user_email dynamic or from config
+                            calendar_service = await get_calendar_service(user_email=target_contact.email) # TODO: make user_email dynamic or from config
 
                             event_body = {
                                 "summary": event_summary,
