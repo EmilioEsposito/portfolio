@@ -1,7 +1,7 @@
 import logging
 import os
 from pprint import pprint
-from api.src.open_phone.service import send_message, create_openphone_contact
+from api.src.open_phone.service import send_message, upsert_openphone_contact
 from api.src.database.database import AsyncSessionFactory
 from api.src.scheduler.service import scheduler
 from api.src.contact.service import ContactCreate
@@ -259,7 +259,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     }
     """
 
-    logger.info(f"AI assessing Zillow email thread: {thread_id}")
+    logger.info(f"ai_assess_thread: Assessing Zillow email thread: {thread_id}")
 
     thread_str = get_clean_zillow_thread_str(messages)
 
@@ -276,7 +276,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
         text_format=ShouldReply,
     )
 
-    logger.debug(f"Parsed AI response: {response.output_parsed}")
+    logger.info(f"ai_assess_thread: Parsed AI response: {response.output_parsed}")
 
     should_sernia_reply = response.output_parsed.should_reply
     reason = response.output_parsed.reason
@@ -331,7 +331,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     }}
     """
 
-    logger.info(f"AI collecting lead info from Zillow email thread: {thread_id}")
+    logger.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
 
 
 
@@ -351,7 +351,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
         text_format=CollectedThreadInfo,
     )
 
-    logger.debug(f"Parsed AI response: {response.output_parsed}")
+    logger.info(f"ai_collect_thread_info: Parsed AI response: {response.output_parsed}")
 
     thread_info = response.output_parsed
 
@@ -449,8 +449,9 @@ async def check_email_threads(overwrite_calendar_events=False):
                             )
 
                             # now create a new contact in OpenPhone
-                            openphone_contact = await create_openphone_contact(contact_create)
-                            logger.info(f"Created new OpenPhone contact: {openphone_contact}")
+                            openphone_contact_response = await upsert_openphone_contact(contact_create)
+                            openphone_contact = openphone_contact_response.json()
+                            logger.info(f"Created/updated OpenPhone contact: {openphone_contact}")
                         else:
                             logger.error(f"No phone number found for lead: {first_name_aux}")
                     except Exception as e:
@@ -483,6 +484,8 @@ async def check_email_threads(overwrite_calendar_events=False):
                             end_time_iso = end_datetime_aware.isoformat()
 
                             event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
+                            if non_prod_env:
+                                event_summary = f"{non_prod_env} - {event_summary}"
                             event_description = f"Building: {thread_info.building_number}"
                             event_description += f"\nUnit: {unit_number_padded}"
                             event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
@@ -490,7 +493,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                             event_description += f"\nSource: Zillow Email."
                             event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
 
-                            calendar_service = await get_calendar_service(user_email="emilio@serniacapital.com") # TODO: make user_email dynamic or from config
+                            calendar_service = await get_calendar_service(user_email=target_contact.email) # TODO: make user_email dynamic or from config
 
                             event_body = {
                                 "summary": event_summary,
@@ -510,8 +513,11 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 }
                             }
 
-                            created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
-                            logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                            if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in ["production", "local"]:
+                                created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
+                                logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                            else:
+                                logger.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
                         else:
                             logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
                     except Exception as e:

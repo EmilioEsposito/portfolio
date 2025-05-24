@@ -56,6 +56,10 @@ async def get_calendar_events(service, calendar_id: str = "primary"):
 async def create_calendar_event(service, event: dict, overwrite: bool = False):
     """
     Creates a new calendar event.
+    Args:
+        service: The authorized Calendar API service instance.
+        event: The event to create.
+        overwrite: Whether to overwrite the event if it already exists.
     """
     try:
         # first, check if the event already exists

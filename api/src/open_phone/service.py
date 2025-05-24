@@ -41,7 +41,20 @@ async def send_message(
     )
     return response
 
-async def create_openphone_contact(contact_create: ContactCreate):
+async def upsert_openphone_contact(contact_create: ContactCreate):
+    """
+    Create or update a contact in the OpenPhone system.
+
+    This function checks if a contact already exists in the database using the provided
+    contact information. If the contact exists, it updates the contact's details.
+    If the contact does not exist, it creates a new contact.
+
+    Args:
+        contact_create (ContactCreate): The contact information to create or update.
+
+    Returns:
+        dict: The response from the OpenPhone API after the upsert operation.
+    """
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     headers = {
         "Authorization": api_key,
@@ -121,7 +134,7 @@ async def create_openphone_contact(contact_create: ContactCreate):
     return final_response
 
 @pytest.mark.asyncio
-async def test_create_contact():
+async def test_upsert_openphone_contact():
     contact_create = ContactCreate(
         slug="test-lead-contact-random",
         phone_number="+19291231234",
@@ -133,7 +146,7 @@ async def test_create_contact():
         role="Test",
     )
 
-    response = await create_openphone_contact(contact_create)
+    response = await upsert_openphone_contact(contact_create)
     print(response.json())
     assert response.status_code == 201 or response.status_code == 200
 
