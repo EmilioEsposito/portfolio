@@ -194,10 +194,11 @@ def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
     for message in messages:
         # remove redundant replies in each message
         message.body_text = message.body_html.split(">On")[0]+">"
-        # remove the redundant text after "New messageHurrah!" in zillow emails
-        message.body_text = message.body_text.split("New messageHurrah!")[0]
         # remove html tags from body_html
         message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
+        # remove the redundant text after "New messageHurrah!" in zillow emails
+        message.body_text = message.body_text.split("Hurrah!")[0]
+        message.body_text = message.body_text.split("Send Application")[0]
 
     thread_str = ""
     for message in messages:
