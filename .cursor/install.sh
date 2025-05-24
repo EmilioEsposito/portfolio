@@ -24,8 +24,8 @@ fi
 
 echo ">>> Installing Python dependencies into /workspace/.venv with uv..."
 if [ -f "uv.lock" ]; then
-    # Use --strict if uv.lock is present and VIRTUAL_ENV is active
-    uv sync --strict
+    # Use --locked if uv.lock is present and VIRTUAL_ENV is active
+    uv sync --locked
 else
     echo "Warning: uv.lock not found. Running 'uv sync'. It is recommended to commit a lockfile."
     uv sync
@@ -34,7 +34,7 @@ fi
 echo ">>> Installing Python dev dependencies into /workspace/.venv with uv..."
 if [ -f "pyproject.toml" ]; then # Check if pyproject.toml exists for dev dependencies
     if [ -f "uv.lock" ]; then
-        uv sync --dev --strict
+        uv sync --dev --locked
     else
         uv sync --dev
     fi
