@@ -42,6 +42,19 @@ async def send_message(
     return response
 
 async def upsert_openphone_contact(contact_create: ContactCreate):
+    """
+    Create or update a contact in the OpenPhone system.
+
+    This function checks if a contact already exists in the database using the provided
+    contact information. If the contact exists, it updates the contact's details.
+    If the contact does not exist, it creates a new contact.
+
+    Args:
+        contact_create (ContactCreate): The contact information to create or update.
+
+    Returns:
+        dict: The response from the OpenPhone API after the upsert operation.
+    """
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     headers = {
         "Authorization": api_key,
