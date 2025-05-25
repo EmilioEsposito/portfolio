@@ -198,7 +198,7 @@ def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
         message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
         # remove the redundant text after "New messageHurrah!" in zillow emails
         message.body_text = message.body_text.split("Hurrah!")[0]
-        message.body_text = message.body_text.split("Send Application")[0]
+        # message.body_text = message.body_text.split("Send Application")[0] # commenting out for now. Credit score might be after this. 
 
     thread_str = "----------------------------------------\n"
     for message in messages:
