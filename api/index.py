@@ -59,12 +59,13 @@ from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
 from api.src.contact.routes import router as contact_router
 from api.src.scheduler.routes import router as scheduler_router
+from api.src.clickup.routes import router as clickup_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
 from api.src.scheduler.service import scheduler
 from api.src.zillow_email import service as zillow_email_service
-
+from api.src.clickup import service as clickup_service
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
 
@@ -118,6 +119,7 @@ async def lifespan(app: FastAPI):
         scheduler.start()
         logger.info("Scheduler initialized and started successfully.")
         await zillow_email_service.start_service()
+        await clickup_service.start_service()
         # Example: Add a test job on startup if needed
         # from datetime import datetime, timedelta
         # def startup_test_job():
@@ -346,7 +348,7 @@ app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(scheduler_router, prefix="/api")
-
+app.include_router(clickup_router, prefix="/api")
 
 @app.get("/api/hello")
 async def hello_fast_api():
