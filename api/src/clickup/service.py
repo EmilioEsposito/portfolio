@@ -52,7 +52,7 @@ async def get_peppino_view_tasks():
     # sort tasks by due date
     tasks_filtered.sort(key=lambda x: x['due_date_pretty'])
 
-    filtered_tasks_str = "Sernia Task Reminder:"
+    filtered_tasks_str = "Sernia Task Reminder - Reply with updates"
 
     for task in tasks_filtered:
         is_maintenance_task = task['list']['id'] == "901312027371"
