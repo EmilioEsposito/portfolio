@@ -301,7 +301,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
     
     Note: Any email from all@serniacapital.com is considered a response from "Sernia". all@serniacapital.com 
-     is a shared email account. Jackie responds on behalf of Sernia the most, but other team members may respond as well. 
+     is a shared email account. Jackie or Anna respond on behalf of Sernia the most, but other team members may respond as well. 
      The first email in the thread is always from the lead.
 
     # Task
@@ -315,7 +315,8 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
         * The unit_number is the number after the street name and before the city. 
             * It might be diplayed in these sorts of varying formats: #1, Apt 1, Unit 01, etc. Return just the number, in this case "1".
     * The lead's first and last name are in the body of the first email, and possibly also in the "from" field of the first email.
-    * Do not confuse appointment time *options* with the final confirmed appointment date and time. 
+    * Do not confuse appointment time *options* or *offers* with the final *confirmed/accepted* appointment date and time. 
+    * Do not confuse Sernia's phone number in signature of emails from all@serniacapital.com with the lead's phone number. 
     * Apointment Date: In cases where the confirmed appointment is given as a day of week, you will need to figure out the implied calendar date vs the date of the email message.
     * Appointment Time: Assume everything is in ET timezone, and do not do any timezone conversion. Return the time in ET timezone.
 
