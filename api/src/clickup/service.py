@@ -68,7 +68,7 @@ async def get_peppino_view_tasks():
         
         filtered_tasks_str += task_template
     
-    print(filtered_tasks_str)
+    logger.info(filtered_tasks_str)
 
     # send message to sernia
     env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
