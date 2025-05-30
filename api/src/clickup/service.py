@@ -73,10 +73,11 @@ async def get_peppino_view_tasks():
     # send message to sernia
     env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
     if env=="production":
-        to_phone_number = await get_contact_by_slug("peppino").phone_number
+        target_contact = await get_contact_by_slug("peppino")
     else:
-        to_phone_number = await get_contact_by_slug("emilio").phone_number
+        target_contact = await get_contact_by_slug("emilio")
         filtered_tasks_str = f"ENV: {env}\n{filtered_tasks_str}"
+    to_phone_number = target_contact.phone_number
 
     await send_message(
         message=filtered_tasks_str,
