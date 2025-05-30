@@ -39,7 +39,7 @@ async def get_peppino_view_tasks():
     #filter for tasks due today OR overdue
     today_et = datetime.now(pytz.timezone('US/Eastern'))
     tasks_filtered = []
-    task = tasks[0]
+    
     for task in tasks:
         task_due_date = datetime.fromtimestamp(int(task['due_date']) / 1000)
         task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
