@@ -44,7 +44,7 @@ async def get_peppino_view_tasks():
         task_due_date = datetime.fromtimestamp(int(task['due_date']) / 1000)
         task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
         print(task['name'], task['due_date_pretty'], task['status']['status'], task['list']['id'])
-        if task_due_date.date() >= today_et.date() or task_due_date.date() < today_et.date():
+        if task_due_date.date() <= today_et.date():
             # filter out completed tasks
             if task['status']['status'] != 'complete':
                 tasks_filtered.append(task)
