@@ -174,7 +174,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                 .list(
                     userId=user_id,
                     startHistoryId=history_id,
-                    labelId="INBOX",  # Only check INBOX history (this is all we watch anyway)
+                    # labelId="INBOX",  # Fetching broader history; specific label changes handled by downstream logic
                 )
                 .execute()
             )
@@ -431,7 +431,7 @@ def setup_gmail_watch(
 
         # Set up the watch request
         request = {
-            "labelIds": ["INBOX"],
+            "labelIds": ["INBOX", "Label_5289438082921996324"], # INBOX and Zillow listings
             "topicName": topic_name,
             "labelFilterAction": "include",
         }
