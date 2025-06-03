@@ -131,6 +131,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
     event_from_number = open_phone_event.get("from_number")
     event_message_text = open_phone_event.get("message_text")
     event_id = open_phone_event.get("event_id","")
+    logger.info(f"Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
 
     result_message = "No result message"
 
