@@ -1,4 +1,5 @@
 import os
+import re # Added for normalization function
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 import requests
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from pprint import pprint
 
 logger = logging.getLogger(__name__)
+
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -41,7 +43,6 @@ explicit_keywords = [
     "explosion",
     "explode",
     "exploding",
-    "explosion",
     "water",
     "flood",
     "leak",
@@ -53,6 +54,28 @@ explicit_keywords = [
     "officer",
     "ambulance",
 ]
+
+negation_prefixes = [
+    "notan",
+    "nota",
+    "not",
+    "non",
+]
+
+# sort keywords by length, longest first
+explicit_keywords.sort(key=len, reverse=True)
+negation_phases = [negation_prefix+explicit_keyword for negation_prefix in negation_prefixes for explicit_keyword in explicit_keywords]
+
+# --- Normalization function ---
+def normalize_text_for_keyword_search(text: str) -> str:
+    if not text:
+        return ""
+    # Lowercase and remove all non-alphanumeric characters
+    text = re.sub(r'[^a-z0-9]', '', text.lower())
+    # remove negation phrases
+    for negation_phrase in negation_phases:
+        text = text.replace(negation_phrase, "")
+    return text
 
 
 ai_instructions = f"""
@@ -160,7 +183,7 @@ async def analyze_for_twilio_escalation(open_phone_event: dict, escalate_to_numb
         logger.error(f"AI Error assessing for escalation: {e}")
 
     # Check for explicit keywords in the message text, just in case the AI doesn't catch it
-    if any(keyword in event_message_text.lower() for keyword in explicit_keywords):
+    if any(keyword in normalize_text_for_keyword_search(event_message_text) for keyword in explicit_keywords):
         should_escalate = True
 
     escalate_from_number = "+14129001989" # Specific sender for 320-09
@@ -246,7 +269,7 @@ async def test_explicit_keyword_escalation():
 
 
 @pytest.mark.asyncio
-async def test_ai_escalation():
+async def test_ai_escalation_positive():
     open_phone_event = {
         "event_id": "1234567890",
         "event_type": "message.incoming",
@@ -263,7 +286,7 @@ async def test_ai_escalation():
     assert should_escalate == 1
 
 @pytest.mark.asyncio
-async def test_ai_escalation():
+async def test_ai_escalation_negative():
     open_phone_event = {
         "event_id": "1234567890",
         "event_type": "message.incoming",
