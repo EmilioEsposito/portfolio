@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 import logging
 import json
@@ -114,11 +114,13 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
 )
 async def webhook(
     payload: OpenPhoneWebhookPayload,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session)
 ):
     try:
         # Extract event data
         event_data = extract_event_data(payload)
+        logger.info(f"OpenPhone webhook received. event_id: {event_data['event_id']}")
 
         sernia_contact = await get_contact_by_slug("sernia")
 
@@ -131,7 +133,8 @@ async def webhook(
             payload.type == "message.received"
             and event_data["to_number"] == sernia_contact.phone_number
         ):
-            await analyze_for_twilio_escalation(event_data)
+            # Run analysis in the background
+            background_tasks.add_task(analyze_for_twilio_escalation, event_data)
 
         # check if event_id is already in the database
         result = await session.execute(
