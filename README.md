@@ -123,7 +123,7 @@ grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env.development.local \
 
 ## 3rd Party Stuff
 
-OpenPhone and Google PubSub webhooks are pointing to the dev environment for now. Need to setup ngrok or something to test the webhooks locally. 
+OpenPhone and Google PubSub webhooks are pointing to the production environment. Use `ngrok http 8000` to test the webhooks locally. 
 
 
 # Deprecation Candidates
