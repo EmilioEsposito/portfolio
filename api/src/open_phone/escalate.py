@@ -43,9 +43,9 @@ explicit_keywords = [
     "explosion",
     "explode",
     "exploding",
-    "water",
     "flood",
-    "leak",
+    # "water",
+    # "leak",
     "violent",
     "burglar",
     "robbery",
@@ -86,7 +86,7 @@ Your job is to read incoming SMS messages from tenants, and decide if there is a
 
 
 Things we DO want to escalate:
-* Water leaks
+* Water leaking onto floor, from ceilings, gushing out of pipes, etc. Water actively going into walls is an emergency.
 * Active burglars
 * Fires
 * Explosions
@@ -98,6 +98,8 @@ Things we DO want to escalate:
 * Here are more example words/ideas that should be escalated: {explicit_keywords}
 
 Here are examples of things to NOT escalate:
+* A dripping faucet into the sink
+* Talking about a prior incident that has obviously already been mostly mitigated already
 * "I lost my keys and can't get in! Can someone bring me a spare ASAP??"
 * "My power is out, can you send someone to fix it right away?"
 * Low priority property damage that doesn't pose an immediate threat and won't worsen if neglected for a day or two
