@@ -54,37 +54,41 @@ async def get_peppino_view_tasks():
 
     filtered_tasks_str = "Sernia Task Reminder - Reply with updates"
 
-    for task in tasks_filtered:
-        is_maintenance_task = task['list']['id'] == "901312027371"
-        # format the tasks_filtered nicely for an AI to read
-        task_template = f"\n-------------"
-        task_template += f"\nTask: {task['name']}"
-        if is_maintenance_task:
-            task_template += f"(Maintenance Request)"
-        task_template += f"\nDue: {task['due_date_pretty']}"
+    if len(tasks_filtered) > 0:
 
-        if is_maintenance_task:
-            task_template += f"\nSee details: {task['url']}"
+        for task in tasks_filtered:
+            is_maintenance_task = task['list']['id'] == "901312027371"
+            # format the tasks_filtered nicely for an AI to read
+            task_template = f"\n-------------"
+            task_template += f"\nTask: {task['name']}"
+            if is_maintenance_task:
+                task_template += f"(Maintenance Request)"
+            task_template += f"\nDue: {task['due_date_pretty']}"
+
+            if is_maintenance_task:
+                task_template += f"\nSee details: {task['url']}"
+            
+            filtered_tasks_str += task_template
         
-        filtered_tasks_str += task_template
-    
-    logger.info(filtered_tasks_str)
+        logger.info(filtered_tasks_str)
 
-    # send message to sernia
-    env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
-    if env=="production":
-        target_contact = await get_contact_by_slug("peppino")
+        # send message to sernia
+        env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
+        if env=="production":
+            target_contact = await get_contact_by_slug("peppino")
+        else:
+            target_contact = await get_contact_by_slug("emilio")
+            filtered_tasks_str = f"ENV: {env}\n{filtered_tasks_str}"
+        to_phone_number = target_contact.phone_number
+
+        await send_message(
+            message=filtered_tasks_str,
+            to_phone_number=to_phone_number,
+            from_phone_number="+14129101500"
+        )
+        logger.info(f"Sent Task Reminder message to {to_phone_number}")
     else:
-        target_contact = await get_contact_by_slug("emilio")
-        filtered_tasks_str = f"ENV: {env}\n{filtered_tasks_str}"
-    to_phone_number = target_contact.phone_number
-
-    await send_message(
-        message=filtered_tasks_str,
-        to_phone_number=to_phone_number,
-        from_phone_number="+14129101500"
-    )
-    logger.info(f"Sent Task Reminder message to {to_phone_number}")
+        logger.info("No tasks due today")
 
     return filtered_tasks_str
 
