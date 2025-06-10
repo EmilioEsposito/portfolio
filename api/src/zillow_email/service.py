@@ -233,6 +233,8 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     * No need to reply or follow up further if the ball is fully in the lead's court and they are not responding.
     * No need to reply if an appointment is acknowledged by both parties and phone number is at least requested.
     * No need to reply if it is confirmed that the lead is not qualified for any reason 
+    * No need to follow up if Sernia directed them to text us for confirmation.
+    * No need to follow up if the lead is requesting a virtual tour. These tend to be lower quality leads.
     * Credit: If Zillow profile says credit score is below 600, never a need to reply, lead is definitely not qualified. 
        Credit over 670 is qualified. Scores in between are case by case. No score is fine. 
     * Pets: We do not allow dogs. We allow cats. Other pets are case-by-case. If their Zillow profile says
@@ -310,6 +312,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     # Guidelines:
     * The first email in the thread is always from the lead.
+    * Assume appointment is confirmed if Sernia instructed them to confirm the appointment by texting Sernia's phone number.
     * The property information is always in the subject line. 
         * The building_number is just the 3 or 4 digit number preceding the street name.
         * The unit_number is the number after the street name and before the city. 
