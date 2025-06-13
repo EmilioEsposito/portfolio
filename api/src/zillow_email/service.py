@@ -461,7 +461,6 @@ async def check_email_threads(overwrite_calendar_events=False):
                             logger.error(f"No phone number found for lead: {first_name_aux}")
                     except Exception as e:
                         logger.error(f"Error creating OpenPhone contact: {e}")
-                        logger.error(f"Contact create: {contact_create}")
 
                     try:
                         if thread_info.appointment_date and thread_info.appointment_time:
