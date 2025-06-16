@@ -73,6 +73,10 @@ negation_phases = [
 ]
 
 
+never_escalate_from_numbers = [
+    "+16266125747",
+]
+
 # --- Normalization function ---
 def normalize_text_for_keyword_search(text: str) -> str:
     if not text:
@@ -212,6 +216,11 @@ async def analyze_for_twilio_escalation(
         event_message_text += f"\nIncident ID: {incident_id}"
     else:
         event_message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
+
+    # override should_escalate if the from number is in the never_escalate_from_numbers list
+    if should_escalate and event_from_number in never_escalate_from_numbers:
+        should_escalate = False
+        logger.info(f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating")
 
     if should_escalate:
         logger.info(
