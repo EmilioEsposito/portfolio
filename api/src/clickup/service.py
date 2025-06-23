@@ -39,12 +39,14 @@ async def get_peppino_view_tasks():
     #filter for tasks due today OR overdue
     today_et = datetime.now(pytz.timezone('US/Eastern'))
     tasks_filtered = []
-    
+
+    # filter for tasks due today AND not completed
     for task in tasks:
         task_due_date = datetime.fromtimestamp(int(task['due_date']) / 1000)
         task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
         logger.debug(f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}")
-        if task_due_date.date() <= today_et.date():
+        # filter for tasks due today
+        if task_due_date.date() == today_et.date():
             # filter out completed tasks
             if task['status']['status'] != 'complete':
                 tasks_filtered.append(task)
