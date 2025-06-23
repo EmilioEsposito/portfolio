@@ -200,11 +200,12 @@ async def analyze_for_twilio_escalation(
         logger.error(f"AI Error assessing for escalation: {e}")
 
     # Check for explicit keywords in the message text, just in case the AI doesn't catch it
-    if any(
+    if not should_escalate and any(
         keyword in normalize_text_for_keyword_search(event_message_text)
         for keyword in explicit_keywords
     ):
         should_escalate = True
+        logger.info(f"Explicit keyword escalation triggered. \nevent_id={event_id}\nshould_escalate={should_escalate}\nmessage_text={event_message_text}")
 
     escalate_from_number = "+14129001989"  # Specific sender for 320-09
     event_message_text = (
