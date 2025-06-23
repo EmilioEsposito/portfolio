@@ -118,8 +118,12 @@ LIMIT
     10;
 
 SELECT
-    max(created_at),
-    max(event_timestamp)
+ *
 FROM
     open_phone_events AS o
+WHERE event_timestamp > CURRENT_DATE - INTERVAL '1 week'
+ORDER BY
+    event_timestamp DESC
+LIMIT
+    10;
 ;

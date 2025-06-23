@@ -24,6 +24,9 @@ import requests
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
+import re
+import pytest
+
 
 router = APIRouter(
     prefix="/open_phone",
@@ -31,6 +34,37 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
+
+
+emoji_pattern = re.compile(
+    r'['
+    r'\U0001F300-\U0001F5FF'  # Misc Symbols & Pictographs
+    r'\U0001F600-\U0001F64F'  # Emoticons
+    r'\U0001F680-\U0001F6FF'  # Transport & Map
+    r'\U0001F700-\U0001F77F'  # Alchemical Symbols
+    r'\U0001F780-\U0001F7FF'  # Geometric Symbols
+    r'\U0001F800-\U0001F8FF'  # Supplemental Arrows
+    r'\U0001F900-\U0001F9FF'  # Supplemental Symbols and Pictographs
+    r'\U0001FA00-\U0001FA6F'  # Chess, Xiangqi, etc.
+    r'\U0001FA70-\U0001FAFF'  # Symbols & Pictographs Extended-A
+    r'\U00002702-\U000027B0'  # Dingbats
+    r'\U000024C2-\U0001F251'  # Enclosed characters
+    r']+',
+    flags=re.UNICODE
+)
+
+async def contains_emoji(text):
+    return bool(emoji_pattern.search(text))
+
+@pytest.mark.asyncio
+async def test_contains_emoji():
+    assert await contains_emoji("👍")
+    assert await contains_emoji("👍🏻")
+    assert await contains_emoji("blah blah blah 👍")
+    assert await contains_emoji("👍🏻 blah blah blah")
+    assert await contains_emoji("👍👍👍👍👍")
+    assert not await contains_emoji("Hello")
+    assert not await contains_emoji("Hello José")
 
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
@@ -133,8 +167,12 @@ async def webhook(
             payload.type == "message.received"
             and event_data["to_number"] == sernia_contact.phone_number
         ):
-            # Run analysis in the background
-            background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+            # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
+            if await contains_emoji(event_data["message_text"][:3]):
+                logger.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
+            else:
+                # Run analysis in the background
+                background_tasks.add_task(analyze_for_twilio_escalation, event_data)
 
         # check if event_id is already in the database
         result = await session.execute(
