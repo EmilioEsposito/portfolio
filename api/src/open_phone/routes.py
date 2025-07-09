@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks, Security
+from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
 import logging
 import json
@@ -14,7 +15,7 @@ from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api.src.open_phone.escalate import analyze_for_twilio_escalation
-from api.src.utils.password import verify_admin_auth
+from api.src.utils.password import verify_admin_auth, verify_admin_password
 import asyncio
 from datetime import datetime, date
 from sqlalchemy.exc import IntegrityError
@@ -232,6 +233,24 @@ async def route_get_contacts_by_external_ids(
     page_token: Union[str, None] = None,
 ):
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
+
+
+@router.delete("/contact/{id}")
+async def route_delete_contact_by_id(id: str, admin_password: str = Security(APIKeyHeader(name="x-admin-password", auto_error=True))):
+
+    is_valid = await verify_admin_password(admin_password)
+    if not is_valid:
+        raise HTTPException(401, "Invalid password")
+
+    url = f"https://api.openphone.com/v1/contacts/{id}"
+    # User OpenPhone API to send a message
+    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    headers = {
+            "Authorization": api_key,
+            "Content-Type": "application/json",
+    }
+    response = requests.delete(url, headers=headers)
+    return response.status_code
 
 class TenantMassMessageRequest(BaseModel):
     property_names: List[str]
