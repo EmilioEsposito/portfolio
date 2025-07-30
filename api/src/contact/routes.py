@@ -8,7 +8,7 @@ import logging
 from api.src.database.database import get_session
 from api.src.contact import service as contact_service
 from api.src.contact.service import ContactCreate, ContactResponse, ContactUpdate
-from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.clerk import verify_serniacapital_user
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
-    dependencies=[Depends(verify_admin_or_serniacapital)] 
+    dependencies=[Depends(verify_serniacapital_user)] # can't use verify_admin_or_serniacapital here because it's not a dependency
 )
 
 @router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
@@ -89,6 +89,7 @@ async def read_contact_by_id(
     except Exception as e:
         logger.error(f"Unexpected error reading contact by ID {contact_id}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+
 
 @router.get("/slug/{slug}", response_model=ContactResponse)
 async def read_contact_by_slug(

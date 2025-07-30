@@ -57,7 +57,7 @@ async def verify_admin_or_serniacapital(
         # This indicates a server-side misconfiguration
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal Server Error: Endpoint dependency misconfigured."
+            detail="Internal Server Error: Endpoint dependency misconfigured for verify_admin_or_serniacapital"
         )
     else:
         try:

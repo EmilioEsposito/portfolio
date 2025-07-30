@@ -19,7 +19,7 @@ const baseConfig = {
   rewrites: async () => {
     // Check for the *presence* of the environment variable
     const dockerEnvVarExists = !!process.env.DOCKER_ENV;
-    const railwayEnvVarExists = !!process.env.CUSTOM_RAILWAY_BACKEND_URL;
+    const railwayEnvVarExists = !!process.env.RAILWAY_ENVIRONMENT_NAME;
 
     console.log(
       `>>> next.config.js rewrite check: NODE_ENV=${process.env.NODE_ENV}, DOCKER_ENV=${process.env.DOCKER_ENV}, dockerEnvVarExists=${dockerEnvVarExists}`
