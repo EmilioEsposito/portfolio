@@ -11,6 +11,7 @@ import logging
 from api.src.scheduler.service import scheduler
 from apscheduler.triggers.cron import CronTrigger
 from api.src.contact.service import get_contact_by_slug
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +41,33 @@ async def get_peppino_view_tasks():
     today_et = datetime.now(pytz.timezone('US/Eastern'))
     tasks_filtered = []
 
-    # filter for tasks due today AND not completed
+    logger.info(f"Found {len(tasks)} tasks")
+    logger.info(f"Today's date: {today_et.date()}")
+    logger.info(f"Today's weekday: {today_et.weekday()}")
+    
+
+    # filter for tasks (due today or overdue) AND not completed
     for task in tasks:
         task_due_date = datetime.fromtimestamp(int(task['due_date']) / 1000)
         task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
         logger.debug(f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}")
         # filter for tasks due today
-        if task_due_date.date() == today_et.date():
+        if task_due_date.date() <= today_et.date():
             # filter out completed tasks
             if task['status']['status'] != 'complete':
-                tasks_filtered.append(task)
+                pretty_task_str = json.dumps(task, indent=4)
+                logger.info(f"task payload: {pretty_task_str}")
+
+                # for low overdue priority tasks, only append if it's Friday
+                if task.get('priority') and task.get('priority', {}).get('priority','') == 'low':
+                    if today_et.weekday() == 4:
+                        tasks_filtered.append(task)
+                    continue
+                # otherwise, remind every time
+                else:
+                    tasks_filtered.append(task)
+
+
 
     # sort tasks by due date
     tasks_filtered.sort(key=lambda x: x['due_date_pretty'])
