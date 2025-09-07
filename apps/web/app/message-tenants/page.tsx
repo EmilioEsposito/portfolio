@@ -270,11 +270,27 @@ export default function MessageTenantsPage() {
     fetchData(); // Renamed from fetchTenants to fetchData
   }, [showAllColumns]); // Add showAllColumns as dependency
 
+  // Filter data based on showOnlyTenants
+  const filteredTenants = useMemo(() => {
+    if (!showOnlyTenants) return tenants;
+    return tenants.filter(tenant => tenant['Role'] === 'Tenant');
+  }, [tenants, showOnlyTenants]);
+
   // Memoize selected tenants to avoid recalculation on every render
   const selectedTenants = useMemo(() => {
      const selectedIndices = Object.keys(rowSelection).map(Number);
-     return selectedIndices.map(index => tenants[index]).filter(Boolean);
-  }, [rowSelection, tenants]);
+     return selectedIndices.map(index => filteredTenants[index]).filter(Boolean);
+  }, [rowSelection, filteredTenants]);
+
+  // Clear selections when filter changes to prevent stale indices
+  useEffect(() => {
+    setRowSelection({});
+  }, [showOnlyTenants]);
+
+  // Clear selections when column filters change
+  const handleFiltersChange = React.useCallback(() => {
+    setRowSelection({});
+  }, []);
 
   const handleSendClick = () => {
     if (selectedTenants.length === 0 || !message.trim() || !serniaPhoneNumber) { // Check for serniaPhoneNumber
@@ -375,12 +391,6 @@ export default function MessageTenantsPage() {
     }
   };
 
-  // Filter data based on showOnlyTenants
-  const filteredTenants = useMemo(() => {
-    if (!showOnlyTenants) return tenants;
-    return tenants.filter(tenant => tenant['Role'] === 'Tenant');
-  }, [tenants, showOnlyTenants]);
-
   return (
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
       <h1 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Message Tenants</h1>
@@ -453,6 +463,7 @@ export default function MessageTenantsPage() {
               data={filteredTenants} 
               rowSelection={rowSelection}
               onRowSelectionChange={setRowSelection}
+              onFiltersChange={handleFiltersChange}
             />
           ) : (
             <p>No tenant data found or could not generate columns.</p> 

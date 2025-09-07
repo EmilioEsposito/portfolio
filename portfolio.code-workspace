@@ -2,6 +2,10 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../ai-workflows",
+			"name": "ai-workflows"
 		}
 	],
 	"settings": {

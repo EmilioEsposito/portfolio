@@ -29,6 +29,7 @@ interface DataTableProps<TData, TValue> {
   data: TData[]
   rowSelection: RowSelectionState
   onRowSelectionChange: React.Dispatch<React.SetStateAction<RowSelectionState>>
+  onFiltersChange?: () => void
 }
 
 export function DataTable<TData, TValue>({ 
@@ -36,10 +37,17 @@ export function DataTable<TData, TValue>({
   data,
   rowSelection,
   onRowSelectionChange,
+  onFiltersChange,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+
+  // Wrapper to call onFiltersChange when column filters change
+  const handleColumnFiltersChange = React.useCallback((updaterOrValue: React.SetStateAction<ColumnFiltersState>) => {
+    setColumnFilters(updaterOrValue)
+    onFiltersChange?.()
+  }, [onFiltersChange])
 
   const table = useReactTable({
     data,
@@ -47,7 +55,7 @@ export function DataTable<TData, TValue>({
     getCoreRowModel: getCoreRowModel(),
     onSortingChange: setSorting,
     getSortedRowModel: getSortedRowModel(),
-    onColumnFiltersChange: setColumnFilters,
+    onColumnFiltersChange: handleColumnFiltersChange,
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: onRowSelectionChange,
