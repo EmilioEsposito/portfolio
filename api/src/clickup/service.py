@@ -120,7 +120,7 @@ async def start_service():
     scheduler.add_job(
         id="clickup_peppino_tasks",
         func=get_peppino_view_tasks,
-        trigger=CronTrigger(hour="8,17", minute="0", timezone="US/Eastern"),
+        trigger=CronTrigger(hour="8,17", minute="0", timezone="America/New_York"),
         coalesce=True,
         max_instances=1,
         replace_existing=True,
