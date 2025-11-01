@@ -18,7 +18,8 @@
                 "pattern": "- Local:.+(https?://.+)",
                 "uriFormat": "%s",
                 "action": "debugWithChrome"
-            }
+            },
+            "preLaunchTask": "Kill Port 3000"
         },
         {
             "name": "FastAPI Backend",
@@ -33,7 +34,8 @@
             ],
             "jinja": true,
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": false,
+            "preLaunchTask": "Kill Port 8000"
         },
         {
             "name": "Expo App",
