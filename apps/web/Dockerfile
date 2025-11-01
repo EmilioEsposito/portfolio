@@ -62,10 +62,11 @@ RUN echo ">>> Attempting pnpm build..."
 RUN pnpm --filter my-nextjs-app build
 RUN echo ">>> pnpm build finished."
 
-# Prune development dependencies at the workspace root
-RUN echo ">>> Pruning dev dependencies..."
-ENV CI=true
-RUN pnpm prune --prod
+# Skip pruning for now to avoid breaking workspace structure
+# TODO: Investigate proper pruning for monorepo setup
+# RUN echo ">>> Pruning dev dependencies..."
+# ENV CI=true
+# RUN pnpm prune --prod
 
 # --- Runner Stage ---
 FROM node:20-alpine AS runner
@@ -77,11 +78,15 @@ RUN npm install -g pnpm@10.20.0
 WORKDIR /app
 
 # Copy necessary workspace files from the builder stage
+COPY --from=builder /app/package.json ./
 COPY --from=builder /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/pnpm-lock.yaml ./
 
 # Copy the pruned node_modules from the root of the builder stage
 COPY --from=builder /app/node_modules ./node_modules
+
+# Copy workspace packages (needed for workspace dependencies)
+COPY --from=builder /app/packages ./packages
 
 # Copy the entire pruned web app directory from the builder stage
 # This includes .next, package.json, public, etc.
