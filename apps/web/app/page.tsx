@@ -11,7 +11,7 @@ export default function Home() {
           <div className="flex-1">
             <H1>Emilio Esposito</H1>
             <P className="text-lg text-muted-foreground">
-              Engineering & Data Science Leader | VP & Managing Partner at
+              Distinguished Engineer / Director, AI Enablement | VP & Managing Partner at
               Sernia Capital
             </P>
           </div>
@@ -27,9 +27,8 @@ export default function Home() {
         </div>
         <div className="mt-4 text-muted-foreground">
           <P>
-            Distinguished Engineer (Data/AI), with prior experience in various
-            Director/Manager/IC roles in Data Science & Analytics at LegalZoom
-            and Intuit.
+            Distinguished Engineer / Director, AI Enablement at LegalZoom, with prior Director/Manager/IC roles 
+            in Data Science & Analytics at LegalZoom and Intuit.
           </P>
           <P>
             I also have over 13 years of experience in rental real estate
