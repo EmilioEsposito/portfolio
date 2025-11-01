@@ -94,7 +94,7 @@ You work for a residential property management company.
 
 Your job is to read incoming SMS messages from tenants, and decide if there is an URGENT issue that should be escalated to relevant parties.
 
-
+Do not always trust the sender's claim of urgency. We want to escalate things that are actually urgent, and would worsen if not addressed ASAP.
 
 Things we DO want to escalate:
 * Water leaking onto floor, from ceilings, gushing out of pipes, etc. Water actively going into walls is an emergency.
@@ -106,9 +106,10 @@ Things we DO want to escalate:
 * Active ongoing property damage
 * Degenerates loitering or harassing tenants
 * Active drug use or drug dealing
-* Here are more example words/ideas that should be escalated: {explicit_keywords}
+* Here are more example words/ideas that should often be escalated, but the context matters: {explicit_keywords}
 
 Here are examples of things to NOT escalate:
+* The smoke alarm is chirping, I think the battery is low.
 * A dripping faucet into the sink
 * Talking about a prior incident that has obviously already been mostly mitigated already
 * "I lost my keys and can't get in! Can someone bring me a spare ASAP??"
@@ -137,24 +138,32 @@ async def ai_assess_for_escalation(open_phone_event: dict):
     else:
         timestamp_et = timestamp
 
-    response = client.responses.parse(
-        model="gpt-4o-mini",
-        input=[
-            {"role": "system", "content": ai_instructions},
-            {
-                "role": "user",
-                "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
-            },
-        ],
-        text_format=ShouldEscalate,
-    )
+    try:
+        response = client.responses.parse(
+            model="gpt-4o-mini",
+            input=[
+                {"role": "system", "content": ai_instructions},
+                {
+                    "role": "user",
+                    "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
+                },
+            ],
+            text_format=ShouldEscalate,
+        )
 
-    logger.info(
-        f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
-    )
+        logger.info(
+            f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
+        )
 
-    should_escalate = response.output_parsed.should_escalate
-    return should_escalate
+        should_escalate = response.output_parsed.should_escalate
+        reason = response.output_parsed.reason
+    except Exception as e:
+        logger.error(f"OpenAI API call failed: {e}", exc_info=True)
+        should_escalate = True
+        error_snippet = str(e)[:100]  # Keep first 100 chars for SMS
+        reason = f"OpenAI API call failure. Emilio to investigate. Error: {error_snippet}"
+    
+    return should_escalate, reason
 
 
 async def analyze_for_twilio_escalation(
@@ -195,19 +204,20 @@ async def analyze_for_twilio_escalation(
 
     # Allow an AI Agent to assess if this should be escalated
     try:
-        should_escalate = await ai_assess_for_escalation(open_phone_event)
+        should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
+        logger.info(f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}")
     except Exception as e:
         logger.error(f"AI Error assessing for escalation: {e}")
 
-    # Check for explicit keywords in the message text, just in case the AI doesn't catch it
-    if not should_escalate and any(
-        keyword in normalize_text_for_keyword_search(event_message_text)
-        for keyword in explicit_keywords
-    ):
-        should_escalate = True
-        logger.info(f"Explicit keyword escalation triggered. \nevent_id={event_id}\nshould_escalate={should_escalate}\nmessage_text={event_message_text}")
+    # # Check for explicit keywords in the message text, just in case the AI doesn't catch it
+    # if not should_escalate and any(
+    #     keyword in normalize_text_for_keyword_search(event_message_text)
+    #     for keyword in explicit_keywords
+    # ):
+    #     should_escalate = True
+    #     logger.info(f"Explicit keyword escalation triggered. \nevent_id={event_id}\nshould_escalate={should_escalate}\nmessage_text={event_message_text}")
 
-    escalate_from_number = "+14129001989"  # Specific sender for 320-09
+    escalate_from_number = "+14129001989" 
     event_message_text = (
         f"URGENT! {event_from_number} said: {event_message_text}"  # Prepend identifier
     )
