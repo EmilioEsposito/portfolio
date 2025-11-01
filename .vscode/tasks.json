@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Kill Port 8000",
+            "type": "shell",
+            "command": "lsof -ti:8000 | xargs kill -9",
+            "windows": {
+                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8000') do taskkill /F /PID %a"
+            },
+            "linux": {
+                "command": "fuser -k 8000/tcp || true"
+            },
+            "osx": {
+                "command": "lsof -ti:8000 | xargs kill -9 || true"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Kill Port 3000",
+            "type": "shell",
+            "command": "lsof -ti:3000 | xargs kill -9",
+            "windows": {
+                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a"
+            },
+            "linux": {
+                "command": "fuser -k 3000/tcp || true"
+            },
+            "osx": {
+                "command": "lsof -ti:3000 | xargs kill -9 || true"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            }
+        }
+    ]
+}
+

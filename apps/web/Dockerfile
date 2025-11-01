@@ -17,8 +17,8 @@ RUN echo ">>> Building FRONTEND..."
 RUN echo "$(date)"
 RUN echo ">>> CUSTOM_RAILWAY_BACKEND_URL=${CUSTOM_RAILWAY_BACKEND_URL}"
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm (pinned to prevent breaking changes)
+RUN npm install -g pnpm@10.20.0
 
 WORKDIR /app
 
@@ -64,13 +64,14 @@ RUN echo ">>> pnpm build finished."
 
 # Prune development dependencies at the workspace root
 RUN echo ">>> Pruning dev dependencies..."
+ENV CI=true
 RUN pnpm prune --prod
 
 # --- Runner Stage ---
 FROM node:20-alpine AS runner
 
-# Install pnpm globally in the runner stage as well
-RUN npm install -g pnpm
+# Install pnpm globally in the runner stage as well (pinned to prevent breaking changes)
+RUN npm install -g pnpm@10.20.0
 
 # Set working directory for the runner
 WORKDIR /app

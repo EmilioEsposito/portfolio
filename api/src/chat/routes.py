@@ -5,6 +5,7 @@ from typing import List
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
+from openai import RateLimitError, APIError
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from pydantic import BaseModel
 from api.src.chat.prompt_models import ClientMessage, convert_to_openai_messages
@@ -97,34 +98,53 @@ def stream_text(messages: List[ChatCompletionMessageParam], protocol: str = "dat
     draft_tool_calls = []
     draft_tool_calls_index = -1
 
-    stream = open_ai_client.chat.completions.create(
-        messages=messages,
-        model="gpt-4-turbo-preview",
-        stream=True,
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_current_weather",
-                    "description": "Get the current weather at a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "latitude": {
-                                "type": "number",
-                                "description": "The latitude of the location",
+    try:
+        stream = open_ai_client.chat.completions.create(
+            messages=messages,
+            model="gpt-4-turbo-preview",
+            stream=True,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_current_weather",
+                        "description": "Get the current weather at a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "latitude": {
+                                    "type": "number",
+                                    "description": "The latitude of the location",
+                                },
+                                "longitude": {
+                                    "type": "number",
+                                    "description": "The longitude of the location",
+                                },
                             },
-                            "longitude": {
-                                "type": "number",
-                                "description": "The longitude of the location",
-                            },
+                            "required": ["latitude", "longitude"],
                         },
-                        "required": ["latitude", "longitude"],
                     },
-                },
-            }
-        ],
-    )
+                }
+            ],
+        )
+    except RateLimitError as e:
+        logger.error(f"OpenAI rate limit error (429): {e}")
+        error_message = "I'm sorry, but I'm currently experiencing rate limiting from OpenAI. This likely means the API credits have been exhausted. Please try again later or check your OpenAI account."
+        yield f"0:{json.dumps(error_message)}\n"
+        yield 'e:{{"finishReason":"error","usage":{{"promptTokens":0,"completionTokens":0}},"isContinued":false}}\n'
+        return
+    except APIError as e:
+        logger.error(f"OpenAI API error: {e}")
+        error_message = f"I encountered an error communicating with OpenAI: {str(e)}"
+        yield f"0:{json.dumps(error_message)}\n"
+        yield 'e:{{"finishReason":"error","usage":{{"promptTokens":0,"completionTokens":0}},"isContinued":false}}\n'
+        return
+    except Exception as e:
+        logger.error(f"Unexpected error in stream_text: {e}", exc_info=True)
+        error_message = f"An unexpected error occurred: {str(e)}"
+        yield f"0:{json.dumps(error_message)}\n"
+        yield 'e:{{"finishReason":"error","usage":{{"promptTokens":0,"completionTokens":0}},"isContinued":false}}\n'
+        return
 
     for chunk in stream:
         for choice in chunk.choices:
