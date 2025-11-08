@@ -41,6 +41,28 @@ These instructions assume you have Docker and Docker Compose installed (e.g., vi
 
 1. The [docker-compose.yml](docker-compose.yml) is just meant for local builds. Ensure `.env.development.local` file exists for local development.  The file will use this file to populate the environment variables for the containers.
 
+### Local Postgres database
+
+Neon is not reachable from the Codespaces-style environment used for these tasks. You can run a local Postgres instance with Docker and point both FastAPI and Next.js at it instead:
+
+1. Copy `.env.example` to `.env.development.local` (or update your existing file) and uncomment the variables in the `Local Postgres (docker compose)` section. Set `DATABASE_REQUIRE_SSL=false` so the API disables SSL requirements when talking to the local database.
+2. (Optional) Adjust the `POSTGRES_*` values if you want a different database name, user, or password. Make sure the `DATABASE_URL` and `DATABASE_URL_UNPOOLED` strings match.
+3. Start the database container:
+
+   ```bash
+   docker compose --env-file .env.development.local up -d postgres
+   ```
+
+4. Apply the migrations so the schema exists locally:
+
+   ```bash
+   cd api
+   uv run alembic upgrade head
+   ```
+
+   (If `uv` is not installed you can also use the provided `db_run_migration.sh` script.)
+5. Launch the other services (FastAPI, Next.js, etc.) once the database is ready. Both apps will reuse the same environment variables.
+
 2. **Build and Run:**
    ```bash
    docker compose --env-file .env.development.local build --no-cache | tee docker_build.log       
