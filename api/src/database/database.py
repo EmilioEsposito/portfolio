@@ -9,6 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
+import re # Added for URL normalization
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,13 @@ if not DATABASE_URL:
 if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
-# Remove sslmode from URL if present when using SSL and log the URL (with credentials removed)
-if DATABASE_REQUIRE_SSL and "sslmode=" in DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.split("?")[0]
+# Remove sslmode from URL if present (asyncpg doesn't support sslmode as a URL parameter)
+# SSL is configured via connect_args["ssl"] instead
+if "sslmode=" in DATABASE_URL:
+    DATABASE_URL = re.sub(r'[?&]sslmode=[^&]*', '', DATABASE_URL, count=1) # Remove sslmode from URL
+    # Clean up any resulting edge cases (empty query string or leading &)
+    DATABASE_URL = re.sub(r'\?$', '', DATABASE_URL)  # Remove trailing ?
+    DATABASE_URL = re.sub(r'\?&', '?', DATABASE_URL)  # Fix ?& to ?
 
 
 def _mask_credentials(url: str) -> str:
@@ -78,10 +83,8 @@ async_connect_args = {
     "statement_cache_size": 0,  # Disable statement cache for serverless
 }
 
-if DATABASE_REQUIRE_SSL:
-    async_connect_args["ssl"] = True
-else:
-    async_connect_args["ssl"] = False
+# SSL defaults to True (safe for production); set to False only for local development
+async_connect_args["ssl"] = DATABASE_REQUIRE_SSL
 
 engine = create_async_engine(
     DATABASE_URL,
