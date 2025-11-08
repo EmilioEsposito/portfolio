@@ -80,11 +80,11 @@
     ],
     "compounds": [
         {
-            "name": "Full Stack + Expo (Compound)",
+            "name": "Full Stack (Compound)",
             "configurations": [
                 "FastAPI Backend",
                 "Next.js Frontend",
-                "Expo App"
+                // "Expo App"
             ],
             "presentation": {
                 "hidden": false,

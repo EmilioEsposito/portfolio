@@ -6,6 +6,9 @@
 		{
 			"path": "../ai-workflows",
 			"name": "ai-workflows"
+		},
+		{
+			"path": "../scratch"
 		}
 	],
 	"settings": {
