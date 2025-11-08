@@ -38,6 +38,25 @@
                 "reveal": "silent",
                 "panel": "dedicated"
             }
+        },
+        {
+            "label": "Ensure Postgres Running",
+            "type": "shell",
+            "command": "docker ps -q -f name=portfolio-postgres | grep -q . && echo 'Postgres already running' || (echo 'Starting Postgres...' && docker compose --env-file .env.development.local up -d postgres && sleep 3)",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "Prepare FastAPI Backend",
+            "dependsOn": [
+                "Ensure Postgres Running",
+                "Kill Port 8000"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
         }
     ]
 }
