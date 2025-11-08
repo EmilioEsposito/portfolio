@@ -60,7 +60,7 @@ Neon is not reachable from the Codespaces-style environment used for these tasks
    uv run alembic upgrade head
    ```
 
-   (If `uv` is not installed you can also use the provided `db_run_migration.sh` script.)
+   (If `uv` is not installed you can also run `sh api/db_run_migration.sh` from the root of the project.)
 5. Launch the other services (FastAPI, Next.js, etc.) once the database is ready. Both apps will reuse the same environment variables.
 
 2. **Build and Run:**

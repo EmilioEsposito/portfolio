@@ -35,7 +35,7 @@
             "jinja": true,
             "console": "integratedTerminal",
             "justMyCode": false,
-            "preLaunchTask": "Kill Port 8000"
+            "preLaunchTask": "Prepare FastAPI Backend"
         },
         {
             "name": "Expo App",
