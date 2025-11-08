@@ -33,8 +33,14 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_contacts_email'), 'contacts', ['email'], unique=False)
     op.create_index(op.f('ix_contacts_slug'), 'contacts', ['slug'], unique=True)
-    op.drop_index('ix_apscheduler_jobs_next_run_time', table_name='apscheduler_jobs')
-    op.drop_table('apscheduler_jobs')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if 'apscheduler_jobs' in inspector.get_table_names():
+        index_names = {index['name'] for index in inspector.get_indexes('apscheduler_jobs')}
+        if 'ix_apscheduler_jobs_next_run_time' in index_names:
+            op.drop_index('ix_apscheduler_jobs_next_run_time', table_name='apscheduler_jobs')
+        op.drop_table('apscheduler_jobs')
     op.create_index('uq_user_clerk_id_env', 'users', ['clerk_user_id', 'environment'], unique=True)
     # ### end Alembic commands ###
 
