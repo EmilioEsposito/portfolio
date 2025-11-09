@@ -1,14 +1,14 @@
 echo "Step 1: Installing pnpm dependencies"
 pnpm install
 
-echo "Step 2: Installing Playwright browsers"
-pnpm --filter web-nextjs exec playwright install-deps
-pnpm --filter web-nextjs exec playwright install
-
-echo "Step 3: Installing Playwright system dependencies"
+echo "Step 2: Installing Playwright system dependencies"
 echo "Installing browser runtime dependencies..."
-sudo pnpm --filter my-nextjs-app exec playwright install-deps
+sudo pnpm --filter web-nextjs exec playwright install-deps
 echo "✓ Playwright system dependencies installed"
+
+echo "Step 3: Installing Playwright browsers"
+pnpm --filter web-nextjs exec playwright install
+echo "✓ Playwright browsers installed"
 
 echo "Step 4: Setting up Python environment"
 uv venv
