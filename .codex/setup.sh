@@ -8,6 +8,7 @@ uv sync -p python3.11
 
 echo "Step 3: Creating .env file"
 touch .env.development.local
+# NOTE TO AGENTS: This .env.development.local file is not used by codex, it is only used for Emilio's local laptop development. 
 echo "✓ Created .env.development.local"
 
 echo "Step 4: Configuring PYTHONPATH"
@@ -15,11 +16,22 @@ echo 'export PYTHONPATH=/workspace/portfolio:$PYTHONPATH' >> ~/.bashrc
 export PYTHONPATH=/workspace/portfolio:$PYTHONPATH
 echo "✓ PYTHONPATH set to: $PYTHONPATH"
 
-echo "Step 5: Setting up PostgreSQL"
+echo "Step 5: Installing and starting PostgreSQL"
+echo "Installing PostgreSQL 16..."
+sudo apt-get update -qq
+sudo apt-get install -y -qq postgresql-16 postgresql-contrib-16
+echo "✓ PostgreSQL 16 installed"
+
+echo "Starting PostgreSQL service..."
+sudo service postgresql start
+sleep 2
+echo "✓ PostgreSQL service started"
+
 echo "Creating portfolio user..."
-psql -U postgres -h localhost -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>&1 && echo "✓ User created" || echo "⚠ User may already exist"
+sudo -u postgres psql -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>&1 && echo "✓ User created" || echo "⚠ User may already exist"
+
 echo "Creating portfolio database..."
-psql -U postgres -h localhost -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && echo "✓ Database created" || echo "⚠ Database may already exist"
+sudo -u postgres psql -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && echo "✓ Database created" || echo "⚠ Database may already exist"
 
 
 echo "Step 6: Running database migrations"
