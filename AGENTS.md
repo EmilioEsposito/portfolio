@@ -5,3 +5,5 @@ See README.md for more context.
 See .vscode/launch.json for how to run the different services (again, we can ignore the Expo app for now).
 
 See .codex/setup.sh for how your development environment was setup in case you suspect something is wrong with your environment.
+
+Note: This .env.development.local file is not used by Codex Cloud Agent, it is only used for Emilio's local laptop development. 
