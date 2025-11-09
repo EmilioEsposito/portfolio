@@ -59,7 +59,7 @@ RUN if [ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]; then echo '>>> ERROR: NEXT_P
 # Build the Next.js application using workspace command
 RUN echo ">>> Attempting pnpm build..."
 # Use pnpm filter to build the specific app
-RUN pnpm --filter my-nextjs-app build
+RUN pnpm --filter web-nextjs build
 RUN echo ">>> pnpm build finished."
 
 # Skip pruning for now to avoid breaking workspace structure
@@ -96,4 +96,4 @@ COPY --from=builder /app/apps/web ./apps/web
 EXPOSE 3000
 
 # Set the default command to run the start script from within the web app directory
-CMD ["pnpm", "--filter", "my-nextjs-app", "start"]
+CMD ["pnpm", "--filter", "web-nextjs", "start"]
