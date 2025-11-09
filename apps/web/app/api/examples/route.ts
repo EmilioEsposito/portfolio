@@ -1,17 +1,47 @@
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { Pool } from 'pg';
 
 // Log the DATABASE_URL (with credentials removed) for debugging
 const dbUrlForLogging = process.env.DATABASE_URL?.replace(/\/\/[^@]+@/, '//<credentials>@') || 'not set';
-console.log('[API] Database URL format:', dbUrlForLogging);
+console.log('[API] Database URL provided:', dbUrlForLogging);
 console.log('[DEBUG] DOCKER_ENV:', process.env.DOCKER_ENV);
+console.log('[DEBUG] DATABASE_REQUIRE_SSL:', process.env.DATABASE_REQUIRE_SSL);
+console.log('[DEBUG] RAILWAY_ENVIRONMENT_NAME:', process.env.RAILWAY_ENVIRONMENT_NAME);
 
 if (!process.env.DATABASE_URL) {
   console.error('[API] DATABASE_URL is not set');
   throw new Error('DATABASE_URL is required');
 }
 
-const sql = neon(process.env.DATABASE_URL);
+// Determine if we're using local PostgreSQL or Neon (production)
+// Local dev: DATABASE_REQUIRE_SSL=false
+// Railway/Production: DATABASE_REQUIRE_SSL not set or true
+const isLocalDev = process.env.DATABASE_REQUIRE_SSL?.toLowerCase() === 'false';
+
+console.log('[API] Environment detection:');
+console.log('[API]   isLocalDev:', isLocalDev);
+console.log('[API]   Will use:', isLocalDev ? 'pg (local PostgreSQL)' : '@neondatabase/serverless (Neon)');
+
+// Use standard pg for local development, @neondatabase/serverless for production
+let pgPool: Pool | null = null;
+let neonSql: ReturnType<typeof neon> | null = null;
+
+if (isLocalDev) {
+  // Local development: use standard PostgreSQL client
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: false,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  });
+  console.log('[API] Local PostgreSQL pool created');
+} else {
+  // Production: use Neon serverless
+  neonSql = neon(process.env.DATABASE_URL);
+  console.log('[API] Neon serverless client created');
+}
 
 export async function GET() {
   console.log('[API] GET /api/examples called');
@@ -19,25 +49,30 @@ export async function GET() {
   try {
     console.log('[API] Attempting to fetch examples...');
     
-    // Test database connection first
-    try {
-      const testResult = await sql`SELECT 1 as test`;
-      console.log('[API] Database connection test result:', testResult);
-    } catch (connError) {
-      console.error('[API] Database connection test failed:', connError);
-      return NextResponse.json({
-        error: 'Database connection failed',
-        details: connError instanceof Error ? connError.message : String(connError),
-        dbUrl: dbUrlForLogging
-      }, { status: 500 });
+    let rows: any[] = [];
+    
+    if (isLocalDev && pgPool) {
+      // Local development: use pg Pool
+      console.log('[API] Using local PostgreSQL...');
+      const result = await pgPool.query(`
+        SELECT id, title, content, created_at 
+        FROM example_neon1 
+        ORDER BY created_at DESC
+      `);
+      rows = result.rows;
+    } else if (neonSql) {
+      // Production: use Neon serverless
+      console.log('[API] Using Neon serverless...');
+      const neonResult = await neonSql`
+        SELECT id, title, content, created_at 
+        FROM example_neon1 
+        ORDER BY created_at DESC
+      `;
+      rows = Array.from(neonResult as any);
+    } else {
+      throw new Error('No database client available');
     }
     
-    console.log('[API] Executing main query...');
-    const rows = await sql`
-      SELECT id, title, content, created_at 
-      FROM example_neon1 
-      ORDER BY created_at DESC
-    `;
     console.log('[API] Successfully fetched examples:', rows);
     return NextResponse.json(rows);
   } catch (error) {
@@ -73,28 +108,31 @@ export async function POST(request: Request) {
     const { title, content } = await request.json();
     console.log('[API] Received data:', { title, content });
     
-    // Test database connection first
-    try {
-      const testResult = await sql`SELECT 1 as test`;
-      console.log('[API] Database connection test result:', testResult);
-    } catch (connError) {
-      console.error('[API] Database connection test failed:', connError);
-      return NextResponse.json({
-        error: 'Database connection failed',
-        details: connError instanceof Error ? connError.message : String(connError),
-        dbUrl: dbUrlForLogging
-      }, { status: 500 });
+    let newRow: any = null;
+    
+    if (isLocalDev && pgPool) {
+      // Local development: use pg Pool
+      console.log('[API] Using local PostgreSQL...');
+      const result = await pgPool.query(
+        'INSERT INTO example_neon1 (title, content) VALUES ($1, $2) RETURNING id, title, content, created_at',
+        [title, content]
+      );
+      newRow = result.rows[0];
+    } else if (neonSql) {
+      // Production: use Neon serverless
+      console.log('[API] Using Neon serverless...');
+      const neonResult = await neonSql`
+        INSERT INTO example_neon1 (title, content)
+        VALUES (${title}, ${content})
+        RETURNING id, title, content, created_at
+      `;
+      newRow = Array.from(neonResult as any)[0];
+    } else {
+      throw new Error('No database client available');
     }
     
-    console.log('[API] Executing insert query...');
-    const rows = await sql`
-      INSERT INTO example_neon1 (title, content)
-      VALUES (${title}, ${content})
-      RETURNING id, title, content, created_at
-    `;
-    
-    console.log('[API] Successfully created example:', rows[0]);
-    return NextResponse.json(rows[0]);
+    console.log('[API] Successfully created example:', newRow);
+    return NextResponse.json(newRow);
   } catch (error) {
     console.error('[API] Database Error:', error);
     // Log more details about the error

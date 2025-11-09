@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:15
+    container_name: portfolio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-portfolio}
+      POSTGRES_USER: ${POSTGRES_USER:-portfolio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portfolio}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - portfolio-net
+
   fastapi:
     build:
       context: .
@@ -11,6 +26,8 @@ services:
       - .env.development.local
     networks:
       - portfolio-net
+    depends_on:
+      - postgres
   nextjs:
     build:
       context: .
@@ -28,6 +45,7 @@ services:
       - .env.development.local
     depends_on:
       - fastapi
+      - postgres
     networks:
       - portfolio-net
   my-expo-app:
@@ -46,4 +64,7 @@ services:
 networks:
   portfolio-net:
     driver: bridge
+
+volumes:
+  postgres-data:
 

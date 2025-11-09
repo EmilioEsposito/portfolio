@@ -8,7 +8,7 @@ async def test_get_zillow_emails(client):
     """Test the /gmail/get_zillow_emails endpoint"""
     # Log environment information
     logging.info(f"Test environment - PYTEST_CURRENT_TEST: {os.environ.get('PYTEST_CURRENT_TEST')}")
-    logging.info(f"All environment variables: {dict(os.environ)}")
+    # logging.info(f"All environment variables: {dict(os.environ)}")
     
     # Make the request to the endpoint
     response = client.get("/api/google/gmail/get_zillow_emails")
@@ -20,4 +20,5 @@ async def test_get_zillow_emails(client):
     emails = response.json()
     
     # Verify the response structure
-    assert type(emails) == list and len(emails) > 0
+    assert type(emails) == list
+    # assert len(emails) > 0 # Needed to comment this out now that we are using a local database that can be empty.

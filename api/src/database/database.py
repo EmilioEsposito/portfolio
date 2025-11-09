@@ -9,6 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
+import re # Added for URL normalization
 
 logger = logging.getLogger(__name__)
 
@@ -32,19 +33,32 @@ metadata = MetaData(naming_convention=convention)
 # Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
 DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE_URL_UNPOOLED = os.environ.get("DATABASE_URL_UNPOOLED")
+DATABASE_REQUIRE_SSL = os.environ.get("DATABASE_REQUIRE_SSL", "true").lower() == "true"
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
-# Remove sslmode from URL if present and log the URL (with credentials removed)
+# Remove sslmode from URL if present (asyncpg doesn't support sslmode as a URL parameter)
+# SSL is configured via connect_args["ssl"] instead
 if "sslmode=" in DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.split("?")[0]
+    DATABASE_URL = re.sub(r'[?&]sslmode=[^&]*', '', DATABASE_URL, count=1) # Remove sslmode from URL
+    # Clean up any resulting edge cases (empty query string or leading &)
+    DATABASE_URL = re.sub(r'\?$', '', DATABASE_URL)  # Remove trailing ?
+    DATABASE_URL = re.sub(r'\?&', '?', DATABASE_URL)  # Fix ?& to ?
 
-db_url_for_logging = DATABASE_URL.replace(
-    "//" + DATABASE_URL.split("@")[0].split("//")[1],
-    "//<credentials>"
-)
+
+def _mask_credentials(url: str) -> str:
+    if "@" not in url or "//" not in url:
+        return url
+    prefix, rest = url.split("//", 1)
+    if "@" not in rest:
+        return url
+    credentials, remainder = rest.split("@", 1)
+    return f"{prefix}//<credentials>@{remainder}"
+
+
+db_url_for_logging = _mask_credentials(DATABASE_URL)
 logger.info(f"Database URL format: {db_url_for_logging}")
 
 # Always convert to asyncpg format
@@ -54,15 +68,24 @@ elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
 # Log the final URL format (with credentials removed)
-final_url_for_logging = DATABASE_URL.replace(
-    "//" + DATABASE_URL.split("@")[0].split("//")[1],
-    "//<credentials>"
-)
+final_url_for_logging = _mask_credentials(DATABASE_URL)
 logger.info(f"Final database URL format: {final_url_for_logging}")
 
 logger.info("Creating database engine...")
 
 # Create async engine for FastAPI app (use Neon pooled connection)
+async_connect_args = {
+    "server_settings": {
+        "quote_all_identifiers": "off",
+        "application_name": "fastapi_app",
+    },
+    "command_timeout": 10,  # 10 second timeout on commands
+    "statement_cache_size": 0,  # Disable statement cache for serverless
+}
+
+# SSL defaults to True (safe for production); set to False only for local development
+async_connect_args["ssl"] = DATABASE_REQUIRE_SSL
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Disable verbose SQL logging by default
@@ -71,15 +94,7 @@ engine = create_async_engine(
     pool_timeout=30,  # Wait up to 30 seconds for a connection
     pool_recycle=300,  # Recycle connections every 5 minutes
     pool_pre_ping=True,  # Verify connection is alive before using
-    connect_args={
-        "ssl": True,  # Enable SSL
-        "server_settings": {
-            "quote_all_identifiers": "off",
-            "application_name": "fastapi_app",
-        },
-        "command_timeout": 10,  # 10 second timeout on commands
-        "statement_cache_size": 0,  # Disable statement cache for serverless
-    }
+    connect_args=async_connect_args,
 )
 
 logger.info("Creating session factory...")
@@ -120,11 +135,12 @@ if DATABASE_URL_UNPOOLED:
     try:
         # For a background service like APScheduler, use NullPool for serverless compatibility.
         # echo=False is common for sync engines unless specific SQL debugging is needed.
+        sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {}
         sync_engine = create_sync_engine(
             sync_db_url,
             echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
             poolclass=NullPool,  # Use NullPool for serverless
-            connect_args={"sslmode": "require"}  # Ensure SSL is used
+            connect_args=sync_connect_args,
         )
         logger.info("Synchronous SQLAlchemy engine created successfully with NullPool and SSL.")
     except Exception as e:
