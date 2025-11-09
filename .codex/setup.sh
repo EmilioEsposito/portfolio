@@ -1,16 +1,28 @@
+echo "Step 1: Installing pnpm dependencies"
 pnpm install
+
+echo "Step 2: Setting up Python environment"
 uv venv
 source .venv/bin/activate
 uv sync -p python3.11
 
-# create .env.development.local file (even though it should not be used by codex)
+echo "Step 3: Creating .env file"
 touch .env.development.local
+echo "✓ Created .env.development.local"
 
-# create postgres user and local development database (creds not sensitive since this is sandboxed env, same as local laptop)
-sudo -u postgres createuser --superuser portfolio
-sudo -u postgres psql -c "ALTER USER portfolio WITH PASSWORD 'portfolio';"
-sudo -u postgres createdb -O portfolio portfolio
+echo "Step 4: Configuring PYTHONPATH"
+echo 'export PYTHONPATH=/workspace/portfolio:$PYTHONPATH' >> ~/.bashrc
+export PYTHONPATH=/workspace/portfolio:$PYTHONPATH
+echo "✓ PYTHONPATH set to: $PYTHONPATH"
 
-# apply migrations
+echo "Step 5: Setting up PostgreSQL"
+echo "Creating portfolio user..."
+psql -U postgres -h localhost -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>&1 && echo "✓ User created" || echo "⚠ User may already exist"
+echo "Creating portfolio database..."
+psql -U postgres -h localhost -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && echo "✓ Database created" || echo "⚠ Database may already exist"
+
+
+echo "Step 6: Running database migrations"
 uv run alembic upgrade head
 
+echo "✓ Setup complete!"
