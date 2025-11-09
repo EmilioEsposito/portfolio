@@ -15,7 +15,10 @@ echo "Python version: $(python3 --version)"
 echo "uv version: $(uv --version)"
 echo "PostgreSQL version: $(psql --version)"
 
-cd /workspace
+# Cursor clones your repo into the current directory
+# We're already in the right place, no need to cd
+echo ">>> Current directory contents:"
+ls -la
 
 # =====================================
 # Node.js Dependencies
@@ -31,16 +34,18 @@ fi
 # =====================================
 # Playwright Setup
 # =====================================
-# Playwright system dependencies are in the snapshot.
-# Just ensure project-specific Playwright browsers are installed/updated.
-echo ">>> Updating Playwright browsers to match project version..."
-pnpm --filter web-nextjs exec playwright install --with-deps
-echo "✓ Playwright browsers updated"
+# COMMENTED OUT: Can be slow/hang. Browsers already installed in Dockerfile.
+# If needed, run manually: pnpm --filter web-nextjs exec playwright install --with-deps
+# echo ">>> Updating Playwright browsers to match project version..."
+# pnpm --filter web-nextjs exec playwright install --with-deps
+# echo "✓ Playwright browsers updated"
+echo ">>> Skipping Playwright browser install (already in snapshot)"
 
 # =====================================
 # Python Dependencies
 # =====================================
-echo ">>> Installing Python project dependencies into /workspace/.venv with uv..."
+echo ">>> Installing Python project dependencies with uv..."
+# Note: uv will use the venv from the snapshot (/home/ubuntu/.venv)
 if [ -f "uv.lock" ]; then
     uv sync --locked
 else
@@ -62,38 +67,49 @@ fi
 # =====================================
 # PostgreSQL Setup
 # =====================================
-echo ">>> Setting up PostgreSQL..."
+# COMMENTED OUT: PostgreSQL setup can hang/fail in containerized environments.
+# Uncomment if you need database for your agent work.
+# To enable, run manually after agent starts:
+#   sudo service postgresql start
+#   sudo -u postgres psql -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;"
+#   sudo -u postgres psql -c "CREATE DATABASE portfolio OWNER portfolio;"
+#   uv run alembic upgrade head
 
-# PostgreSQL is already installed in the snapshot, just need to start it
-echo "Starting PostgreSQL service..."
-sudo service postgresql start || echo "⚠ PostgreSQL may already be running"
-sleep 2
-echo "✓ PostgreSQL service started"
-
-# Create user and database (idempotent)
-echo "Creating portfolio user and database..."
-sudo -u postgres psql -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>&1 && echo "✓ User created" || echo "⚠ User already exists"
-sudo -u postgres psql -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && echo "✓ Database created" || echo "⚠ Database already exists"
+# echo ">>> Setting up PostgreSQL..."
+# echo "Starting PostgreSQL service..."
+# sudo service postgresql start || echo "⚠ PostgreSQL may already be running"
+# sleep 2
+# echo "✓ PostgreSQL service started"
+# echo "Creating portfolio user and database..."
+# sudo -u postgres psql -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>&1 && echo "✓ User created" || echo "⚠ User already exists"
+# sudo -u postgres psql -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && echo "✓ Database created" || echo "⚠ Database already exists"
 
 # =====================================
 # Database Migrations
 # =====================================
-echo ">>> Running database migrations..."
-uv run alembic upgrade head
-echo "✓ Database migrations complete"
+# COMMENTED OUT: Requires PostgreSQL to be running. Run manually if needed.
+# echo ">>> Running database migrations..."
+# uv run alembic upgrade head
+# echo "✓ Database migrations complete"
+
+echo ">>> Skipping PostgreSQL setup and migrations (commented out for faster startup)"
 
 # =====================================
 # Environment Configuration
 # =====================================
 echo ">>> Configuring PYTHONPATH..."
-export PYTHONPATH=/workspace:$PYTHONPATH
+export PYTHONPATH=$(pwd):$PYTHONPATH
 echo "✓ PYTHONPATH set to: $PYTHONPATH"
 
 echo ""
 echo "✅ Cursor agent install script finished successfully!"
 echo ""
-echo "Available terminals:"
+echo "🚀 Available commands:"
 echo "  - NextJS: pnpm --filter web-nextjs dev"
 echo "  - FastAPI: pnpm fastapi-dev"
 echo "  - ExpoWeb: pnpm my-expo-app start --web"
+echo ""
+echo "📝 Optional setup (if needed):"
+echo "  - Start PostgreSQL: sudo service postgresql start"
+echo "  - Setup DB: See commented commands in .cursor/install.sh"
 echo "" 
