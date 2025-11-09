@@ -6,7 +6,7 @@
   "terminals": [
     {
       "name": "NextJS",
-      "command": "pnpm --filter ./apps/web dev",
+      "command": "pnpm --filter web-nextjs dev",
       "description": "Starts the Next.js development server."
     },
     {

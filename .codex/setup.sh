@@ -37,4 +37,7 @@ sudo -u postgres psql -c "CREATE DATABASE portfolio OWNER portfolio;" 2>&1 && ec
 echo "Step 6: Running database migrations"
 uv run alembic upgrade head
 
+echo "Step 7: Install Playwright Browser"
+pnpm exec playwright install chromium
+
 echo "✓ Setup complete!"
