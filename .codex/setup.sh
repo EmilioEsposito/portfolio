@@ -2,6 +2,7 @@ echo "Step 1: Installing pnpm dependencies"
 pnpm install
 
 echo "Step 2: Installing Playwright browsers"
+pnpm --filter web-nextjs exec playwright install-deps
 pnpm --filter web-nextjs exec playwright install
 
 echo "Step 3: Installing Playwright system dependencies"
