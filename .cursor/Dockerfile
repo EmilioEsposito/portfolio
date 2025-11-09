@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     sudo \
     gnupg \
     ca-certificates \
+    lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
 # =====================================
@@ -52,8 +53,10 @@ RUN chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 # =====================================
 # PostgreSQL 16
 # =====================================
-# Install PostgreSQL in the base image so it's available immediately
-RUN apt-get update && apt-get install -y \
+# Add PostgreSQL APT repository and install PostgreSQL 16
+RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y \
     postgresql-16 \
     postgresql-contrib-16 \
     && rm -rf /var/lib/apt/lists/*
@@ -85,6 +88,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # =====================================
+# User Setup (do this before workspace setup)
+# =====================================
+# Create ubuntu user with home directory
+RUN useradd -m -s /bin/bash ubuntu \
+    && usermod -aG sudo ubuntu \
+    && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/ubuntu
+
+# =====================================
 # Workspace Setup
 # =====================================
 WORKDIR /home/ubuntu
@@ -111,13 +122,8 @@ RUN npm install -g playwright@latest \
     && rm -rf /root/.cache
 
 # =====================================
-# User Setup
+# Switch to ubuntu user
 # =====================================
-# The 'ubuntu' user should already exist in ubuntu:22.04
-# Ensure it has sudo access without password for PostgreSQL management
-RUN usermod -aG sudo ubuntu \
-    && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/ubuntu
-
 USER ubuntu
 
 # Set Playwright browser path for the ubuntu user
