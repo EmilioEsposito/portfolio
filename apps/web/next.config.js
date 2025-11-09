@@ -4,10 +4,17 @@ require('dotenv').config({ path: path.resolve(__dirname, '../../.env.development
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local'), override: false });
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), override: false });
 
+// Helper to obfuscate sensitive values in logs
+const obfuscate = (value) => {
+  if (!value) return '<not set>';
+  if (value.length <= 8) return '***';
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+};
+
 // Log a few key variables to check if they are loaded
 console.log(">>> [Config Start] Attempting to load .env from root.");
-console.log(">>> [Config Start] NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY from process.env:", process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
-console.log(">>> [Config Start] CUSTOM_RAILWAY_BACKEND_URL from process.env:", process.env.CUSTOM_RAILWAY_BACKEND_URL);
+console.log(">>> [Config Start] NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY from process.env:", obfuscate(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY));
+console.log(">>> [Config Start] CUSTOM_RAILWAY_BACKEND_URL from process.env:", obfuscate(process.env.CUSTOM_RAILWAY_BACKEND_URL));
 
 const { withExpo } = require('@expo/next-adapter');
 // const { withPlugins } = require('next-compose-plugins'); // Removed
