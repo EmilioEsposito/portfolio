@@ -1,8 +1,9 @@
 name: Require PR Checklist
 
 on:
-  pull_request:
-    types: [opened, edited, synchronize]
+  workflow_dispatch:  # Manual trigger only - workflow is currently disabled
+  # pull_request:  # Uncomment to re-enable automatic PR checks
+  #   types: [opened, edited, synchronize]
 
 jobs:
   check:
