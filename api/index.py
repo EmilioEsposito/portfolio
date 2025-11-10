@@ -59,6 +59,7 @@ from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
 from api.src.contact.routes import router as contact_router
 from api.src.scheduler.routes import router as scheduler_router
+from api.src.pydantic_ai.routes import router as pydantic_ai_router
 # from api.src.clickup.routes import router as clickup_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
@@ -348,6 +349,8 @@ app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(scheduler_router, prefix="/api")
+# Pydantic AI prototype endpoints
+app.include_router(pydantic_ai_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 
 @app.get("/api/hello")

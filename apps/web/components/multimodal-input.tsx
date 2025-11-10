@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatRequestOptions, CreateMessage, Message } from "ai";
+import type { UIMessage } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -40,27 +40,19 @@ export function MultimodalInput({
   stop,
   messages,
   setMessages,
-  append,
-  handleSubmit,
+  sendMessage,
+  onSubmit,
   className,
 }: {
   chatId: string;
   input: string;
   setInput: (value: string) => void;
-  status: "submitted" | "streaming" | "ready" | "error";
+  status: "ready" | "submitting" | "streaming" | "error";
   stop: () => void;
-  messages: Array<Message>;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
-  handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
+  messages: Array<UIMessage>;
+  setMessages: Dispatch<SetStateAction<Array<UIMessage>>>;
+  sendMessage: (message: { text: string }) => Promise<void>;
+  onSubmit: () => Promise<void> | void;
   className?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -105,14 +97,14 @@ export function MultimodalInput({
     adjustHeight();
   };
 
-  const submitForm = useCallback(() => {
-    handleSubmit(undefined, {});
+  const submitForm = useCallback(async () => {
+    await onSubmit();
     setLocalStorageInput("");
 
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [handleSubmit, setLocalStorageInput, width]);
+  }, [onSubmit, setLocalStorageInput, width]);
 
   return (
     <div className="relative w-full flex flex-col gap-4">
@@ -130,10 +122,15 @@ export function MultimodalInput({
               <Button
                 variant="ghost"
                 onClick={async () => {
-                  append({
-                    role: "user",
-                    content: suggestedAction.action,
-                  });
+                  try {
+                    await sendMessage({ text: suggestedAction.action });
+                  } catch (error) {
+                    const message =
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to send the suggested action.";
+                    toast.error(message);
+                  }
                 }}
                 className="text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
               >
@@ -162,16 +159,22 @@ export function MultimodalInput({
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
 
-            if (status === 'submitted' || status === 'streaming') {
+            if (status === "submitting" || status === "streaming") {
               toast.error("Please wait for the model to finish its response!");
             } else {
-              submitForm();
+              submitForm().catch((error) => {
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "Something went wrong while sending your message.";
+                toast.error(message);
+              });
             }
           }
         }}
       />
 
-      {status === 'submitted' || status === 'streaming' ? (
+      {status === "submitting" || status === "streaming" ? (
         <Button
           className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
           onClick={(event) => {
@@ -187,7 +190,13 @@ export function MultimodalInput({
           className="rounded-full p-1.5 h-fit absolute bottom-2 right-2 m-0.5 border dark:border-zinc-600"
           onClick={(event) => {
             event.preventDefault();
-            submitForm();
+            submitForm().catch((error) => {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Something went wrong while sending your message.";
+              toast.error(message);
+            });
           }}
           disabled={input.length === 0}
         >

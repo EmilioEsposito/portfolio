@@ -1,20 +1,35 @@
 "use client";
 
-import type { Message } from "ai";
+import {
+  getToolOrDynamicToolName,
+  isToolOrDynamicToolUIPart,
+  type UIMessage,
+} from "ai";
 import { motion } from "framer-motion";
 
 import { SparklesIcon } from "./icons";
 import { Markdown } from "./markdown";
 import { PreviewAttachment } from "./preview-attachment";
 import { cn } from "@/lib/utils";
+import {
+  ExecutionWindowCard,
+  PortfolioBlueprintCard,
+} from "./portfolio-blueprint";
+import type {
+  ExecutionWindowResult,
+  OpportunityBlueprintResult,
+} from "@/types/pydantic-ai";
 import { Weather } from "./weather";
 
 export const PreviewMessage = ({
   message,
 }: {
   chatId: string;
-  message: Message;
+  message: UIMessage;
 }) => {
+  const textContent = getTextFromMessage(message);
+  const toolOutputs = getToolOutputs(message);
+
   return (
     <motion.div
       className="w-full mx-auto max-w-3xl px-4 group/message"
@@ -34,41 +49,19 @@ export const PreviewMessage = ({
         )}
 
         <div className="flex flex-col gap-2 w-full">
-          {message.content && (
+          {textContent && (
             <div className="flex flex-col gap-4">
-              <Markdown>{message.content as string}</Markdown>
+              <Markdown>{textContent}</Markdown>
             </div>
           )}
 
-          {message.toolInvocations && message.toolInvocations.length > 0 && (
+          {toolOutputs.length > 0 && (
             <div className="flex flex-col gap-4">
-              {message.toolInvocations.map((toolInvocation) => {
-                const { toolName, toolCallId, state } = toolInvocation;
-
-                if (state === "result") {
-                  const { result } = toolInvocation;
-
-                  return (
-                    <div key={toolCallId}>
-                      {toolName === "get_current_weather" ? (
-                        <Weather weatherAtLocation={result} />
-                      ) : (
-                        <pre>{JSON.stringify(result, null, 2)}</pre>
-                      )}
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={toolCallId}
-                    className={cn({
-                      skeleton: ["get_current_weather"].includes(toolName),
-                    })}
-                  >
-                    {toolName === "get_current_weather" ? <Weather /> : null}
-                  </div>
-                );
-              })}
+              {toolOutputs.map((tool) => (
+                <div key={tool.id} className="space-y-3">
+                  {renderToolResult(tool)}
+                </div>
+              ))}
             </div>
           )}
 
@@ -119,3 +112,77 @@ export const ThinkingMessage = () => {
     </motion.div>
   );
 };
+
+function getTextFromMessage(message: UIMessage): string {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+}
+
+type ToolResult = {
+  id: string;
+  name: string;
+  output: unknown;
+};
+
+function getToolOutputs(message: UIMessage): ToolResult[] {
+  if (message.role !== "assistant") return [];
+
+  return message.parts
+    .filter(
+      (part): part is Extract<UIMessage["parts"][number], { state: string }> =>
+        isToolOrDynamicToolUIPart(part) && part.state === "output-available",
+    )
+    .map((part) => ({
+      id: `${message.id}-${part.toolCallId ?? getToolOrDynamicToolName(part)}`,
+      name: getToolOrDynamicToolName(part),
+      output: part.output,
+    }));
+}
+
+function renderToolResult(tool: ToolResult) {
+  if (tool.name === "get_current_weather") {
+    return <Weather weatherAtLocation={tool.output} />;
+  }
+
+  if (tool.name === "sketch_blueprint" && isBlueprintResult(tool.output)) {
+    return <PortfolioBlueprintCard blueprint={tool.output} />;
+  }
+
+  if (tool.name === "estimate_delivery" && isExecutionResult(tool.output)) {
+    return <ExecutionWindowCard execution={tool.output} />;
+  }
+
+  return (
+    <pre className="text-xs bg-muted rounded-md p-3 overflow-x-auto">
+      {JSON.stringify(tool.output, null, 2)}
+    </pre>
+  );
+}
+
+function isBlueprintResult(value: unknown): value is OpportunityBlueprintResult {
+  if (!value || typeof value !== "object") return false;
+
+  const maybe = value as Record<string, unknown>;
+  return (
+    typeof maybe.working_title === "string" &&
+    typeof maybe.north_star === "string" &&
+    typeof maybe.elevator_pitch === "string" &&
+    Array.isArray(maybe.signature_experiences) &&
+    typeof maybe.execution_window === "object" &&
+    maybe.execution_window !== null
+  );
+}
+
+function isExecutionResult(value: unknown): value is ExecutionWindowResult {
+  if (!value || typeof value !== "object") return false;
+
+  const maybe = value as Record<string, unknown>;
+  return (
+    typeof maybe.sprint_weeks === "number" &&
+    typeof maybe.cadence === "string" &&
+    typeof maybe.estimated_cost === "number"
+  );
+}
