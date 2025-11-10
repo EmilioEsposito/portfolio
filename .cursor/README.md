@@ -20,7 +20,7 @@ Defines the **base environment** that gets built into the snapshot. It installs:
 4. PostgreSQL 16
 5. Playwright system dependencies (libnss3, libgbm1, etc.)
 6. Playwright browsers (Chromium, Firefox, WebKit)
-7. Creates the Python virtual environment at `/workspace/.venv`
+7. Creates the Python virtual environment at `/home/ubuntu/.venv`
 
 **When to rebuild:** The Dockerfile is used to create/update the snapshot. You typically don't need to rebuild unless you're updating base tools (e.g., upgrading Node, Python, Playwright, or adding new system packages).
 
@@ -56,8 +56,8 @@ The Cursor cloud agent environment has some differences from your local laptop:
 
 1. **No `.env.development.local` file**: Environment variables are injected directly by Cursor
 2. **PostgreSQL is local**: Uses local PostgreSQL instead of Neon (which isn't reachable from cloud agents)
-3. **Virtual environment**: Python venv at `/workspace/.venv` is automatically activated via `$VIRTUAL_ENV` and `$PATH`
-4. **PYTHONPATH**: Set to `/workspace` to ensure imports work correctly
+3. **Virtual environment**: Python venv at `/home/ubuntu/.venv` is automatically activated via `$VIRTUAL_ENV` and `$PATH`
+4. **PYTHONPATH**: Set to the repo directory (where Cursor clones your code) to ensure imports work correctly
 
 ## Usage
 
