@@ -4,32 +4,57 @@ import { PreviewMessage, ThinkingMessage } from "@/components/message";
 import { MultimodalInput } from "@/components/multimodal-input";
 import { Overview } from "@/components/overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { ToolInvocation } from "ai";
+import { DefaultChatTransport } from "ai";
 import { useChat } from "@ai-sdk/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export function Chat() {
   const chatId = "001";
 
-  const {
-    messages,
-    setMessages,
-    handleSubmit,
-    input,
-    setInput,
-    append,
-    status,
-    stop,
-  } = useChat({
-    maxSteps: 4,
-    onError: (error) => {
-      if (error.message.includes("Too many requests")) {
-        toast.error(
-          "You are sending too many messages. Please try again later.",
-        );
-      }
-    },
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: "/api/pydantic-ai/portfolio" }),
+    [],
+  );
+
+  const { messages, setMessages, sendMessage, stop, status, error } = useChat({
+    id: chatId,
+    transport,
+    experimental_throttle: 32,
   });
+
+  const [input, setInput] = useState("");
+
+  useEffect(() => {
+    if (!error) return;
+
+    if (error.message.includes("Too many requests")) {
+      toast.error(
+        "You are sending too many messages. Please try again later.",
+      );
+      return;
+    }
+
+    toast.error(error.message);
+  }, [error]);
+
+  const submitMessage = useCallback(async () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+
+    setInput("");
+
+    try {
+      await sendMessage({ text: trimmed });
+    } catch (sendError) {
+      setInput(trimmed);
+      const message =
+        sendError instanceof Error
+          ? sendError.message
+          : "Something went wrong while sending your message.";
+      toast.error(message);
+    }
+  }, [input, sendMessage]);
 
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
@@ -42,7 +67,7 @@ export function Chat() {
       >
         {messages.length === 0 && <Overview />}
 
-        {messages.map((message, index) => (
+        {messages.map((message) => (
           <PreviewMessage
             key={message.id}
             chatId={chatId}
@@ -50,7 +75,7 @@ export function Chat() {
           />
         ))}
 
-        {(status === 'submitted' || status === 'streaming') &&
+        {(status === "submitting" || status === "streaming") &&
           messages.length > 0 &&
           messages[messages.length - 1].role === "user" && <ThinkingMessage />}
 
@@ -65,12 +90,12 @@ export function Chat() {
           chatId={chatId}
           input={input}
           setInput={setInput}
-          handleSubmit={handleSubmit}
+          onSubmit={submitMessage}
           status={status}
           stop={stop}
           messages={messages}
           setMessages={setMessages}
-          append={append}
+          sendMessage={sendMessage}
         />
       </form>
     </div>

@@ -1,4 +1,4 @@
-import { Message } from "ai";
+import type { UIMessage } from "ai";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -6,35 +6,27 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function sanitizeUIMessages(messages: Array<Message>): Array<Message> {
-  const messagesBySanitizedToolInvocations = messages.map((message) => {
-    if (message.role !== "assistant") return message;
+export function sanitizeUIMessages(messages: Array<UIMessage>): Array<UIMessage> {
+  return messages
+    .map((message) => {
+      if (message.role !== "assistant") return message;
 
-    if (!message.toolInvocations) return message;
+      const filteredParts = message.parts.filter((part) => {
+        if (part.type === "text") {
+          return part.text.trim().length > 0;
+        }
 
-    const toolResultIds: Array<string> = [];
+        if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) {
+          return "state" in part && part.state === "output-available";
+        }
 
-    for (const toolInvocation of message.toolInvocations) {
-      if (toolInvocation.state === "result") {
-        toolResultIds.push(toolInvocation.toolCallId);
-      }
-    }
+        return true;
+      });
 
-    const sanitizedToolInvocations = message.toolInvocations.filter(
-      (toolInvocation) =>
-        toolInvocation.state === "result" ||
-        toolResultIds.includes(toolInvocation.toolCallId),
-    );
-
-    return {
-      ...message,
-      toolInvocations: sanitizedToolInvocations,
-    };
-  });
-
-  return messagesBySanitizedToolInvocations.filter(
-    (message) =>
-      message.content.length > 0 ||
-      (message.toolInvocations && message.toolInvocations.length > 0),
-  );
+      return {
+        ...message,
+        parts: filteredParts,
+      };
+    })
+    .filter((message) => message.parts.length > 0);
 }
