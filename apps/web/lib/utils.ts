@@ -1,4 +1,3 @@
-import { Message } from "ai";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -6,7 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function sanitizeUIMessages(messages: Array<Message>): Array<Message> {
+export function sanitizeUIMessages(messages: Array<any>): Array<any> {
   const messagesBySanitizedToolInvocations = messages.map((message) => {
     if (message.role !== "assistant") return message;
 
@@ -21,7 +20,7 @@ export function sanitizeUIMessages(messages: Array<Message>): Array<Message> {
     }
 
     const sanitizedToolInvocations = message.toolInvocations.filter(
-      (toolInvocation) =>
+      (toolInvocation: any) =>
         toolInvocation.state === "result" ||
         toolResultIds.includes(toolInvocation.toolCallId),
     );

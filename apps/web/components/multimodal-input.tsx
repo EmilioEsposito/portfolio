@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatRequestOptions, CreateMessage, Message } from "ai";
+import type { ChatRequestOptions, CreateUIMessage, UIMessage } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -49,10 +49,10 @@ export function MultimodalInput({
   setInput: (value: string) => void;
   status: "submitted" | "streaming" | "ready" | "error";
   stop: () => void;
-  messages: Array<Message>;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
+  messages: Array<any>;
+  setMessages: Dispatch<SetStateAction<Array<any>>>;
   append: (
-    message: Message | CreateMessage,
+    message: any,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
   handleSubmit: (

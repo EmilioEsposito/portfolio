@@ -1,6 +1,6 @@
 "use client";
 
-import type { Message } from "ai";
+import type { UIMessage } from "ai";
 import { motion } from "framer-motion";
 
 import { SparklesIcon } from "./icons";
@@ -13,7 +13,7 @@ export const PreviewMessage = ({
   message,
 }: {
   chatId: string;
-  message: Message;
+  message: any;
 }) => {
   return (
     <motion.div
@@ -42,7 +42,7 @@ export const PreviewMessage = ({
 
           {message.toolInvocations && message.toolInvocations.length > 0 && (
             <div className="flex flex-col gap-4">
-              {message.toolInvocations.map((toolInvocation) => {
+              {message.toolInvocations.map((toolInvocation: any) => {
                 const { toolName, toolCallId, state } = toolInvocation;
 
                 if (state === "result") {
@@ -74,7 +74,7 @@ export const PreviewMessage = ({
 
           {message.experimental_attachments && (
             <div className="flex flex-row gap-2">
-              {message.experimental_attachments.map((attachment) => (
+              {message.experimental_attachments.map((attachment: any) => (
                 <PreviewAttachment
                   key={attachment.url}
                   attachment={attachment}

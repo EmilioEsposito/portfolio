@@ -41,13 +41,15 @@ export function PortfolioChat() {
       >
         {messages.length === 0 && <PortfolioOverview />}
 
-        {messages.map((message) => (
-          <PreviewMessage
-            key={message.id}
-            chatId={chatId}
-            message={message}
-          />
-        ))}
+        {messages
+          .filter((message) => message.role !== "data")
+          .map((message) => (
+            <PreviewMessage
+              key={message.id}
+              chatId={chatId}
+              message={message as any}
+            />
+          ))}
 
         {(status === 'submitted' || status === 'streaming') &&
           messages.length > 0 &&
@@ -67,8 +69,8 @@ export function PortfolioChat() {
           handleSubmit={handleSubmit}
           status={status}
           stop={stop}
-          messages={messages}
-          setMessages={setMessages}
+          messages={messages as any}
+          setMessages={setMessages as any}
           append={append}
         />
       </form>

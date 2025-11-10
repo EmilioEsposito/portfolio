@@ -4,7 +4,6 @@ import { PreviewMessage, ThinkingMessage } from "@/components/message";
 import { MultimodalInput } from "@/components/multimodal-input";
 import { Overview } from "@/components/overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { ToolInvocation } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { toast } from "sonner";
 
@@ -42,13 +41,15 @@ export function Chat() {
       >
         {messages.length === 0 && <Overview />}
 
-        {messages.map((message, index) => (
-          <PreviewMessage
-            key={message.id}
-            chatId={chatId}
-            message={message}
-          />
-        ))}
+        {messages
+          .filter((message) => message.role !== "data")
+          .map((message) => (
+            <PreviewMessage
+              key={message.id}
+              chatId={chatId}
+              message={message as any}
+            />
+          ))}
 
         {(status === 'submitted' || status === 'streaming') &&
           messages.length > 0 &&
@@ -68,8 +69,8 @@ export function Chat() {
           handleSubmit={handleSubmit}
           status={status}
           stop={stop}
-          messages={messages}
-          setMessages={setMessages}
+          messages={messages as any}
+          setMessages={setMessages as any}
           append={append}
         />
       </form>
