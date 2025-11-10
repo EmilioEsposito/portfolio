@@ -51,6 +51,7 @@ import traceback
 
 # Import from api.src
 from api.src.chat.routes import router as chat_router
+from api.src.ai.routes import router as ai_router
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
 from api.src.google.common.routes import router as google_router
@@ -340,6 +341,7 @@ graphql_router = GraphQLRouter(schema, path="/graphql")
 # Include all routers
 app.include_router(graphql_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")
