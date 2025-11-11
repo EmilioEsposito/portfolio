@@ -3,7 +3,7 @@ Portfolio Chatbot Agent using PydanticAI
 
 This agent can answer questions about the developer's portfolio, skills, and projects.
 """
-import logging
+import logfire
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -12,9 +12,6 @@ from pydantic_ai import BinaryContent
 from dotenv import load_dotenv
 import pytest
 load_dotenv('.env.development.local')
-
-
-logger = logging.getLogger(__name__)
 
 
 
@@ -49,13 +46,26 @@ agent = Agent(
 )
 
 
+def _ensure_pdf_exists(pdf_path: Path) -> None:
+    """Ensure PDF file exists, logging error and raising FileNotFoundError if not."""
+    if not pdf_path.exists():
+        logfire.error(
+            'PDF not found',
+            pdf_path=str(pdf_path.absolute()),
+            current_working_directory=str(Path.cwd()),
+            file_location=__file__
+        )
+        raise FileNotFoundError(f"PDF not found at {pdf_path.absolute()}")
+
+
 @agent.tool_plain
 async def read_emilio_linkedin_profile() -> BinaryContent:
     """
     Get Emilio's LinkedIn profile.
     Link: https://www.linkedin.com/in/emilioespositousa/
     """
-    pdf_path = Path('api/src/ai/pdfs/LinkedinProfile.pdf')
+    pdf_path = Path(__file__).parent / 'pdfs' / 'LinkedinProfile.pdf'
+    _ensure_pdf_exists(pdf_path)
     return BinaryContent(data=pdf_path.read_bytes(), media_type='application/pdf')
 
 
@@ -73,7 +83,8 @@ async def read_emilio_linkedin_skills() -> BinaryContent:
     """
     Get Emilio's LinkedIn skills.
     """
-    pdf_path = Path('api/src/ai/pdfs/LinkedinSkills.pdf')
+    pdf_path = Path(__file__).parent / 'pdfs' / 'LinkedinSkills.pdf'
+    _ensure_pdf_exists(pdf_path)
     return BinaryContent(data=pdf_path.read_bytes(), media_type='application/pdf')
 
 
@@ -83,7 +94,8 @@ async def read_linkedin_article_ai_launch() -> BinaryContent:
     Get LinkedIn article where Emilio is mentioned as the Engineering lead for the internal AI call simulator.
     Link: https://www.linkedin.com/pulse/powering-next-generation-legal-services-inside-legalzooms-ai-ymlic/?trackingId=cEzrxUhWX4Pc218FiNBjEw%3D%3D
     """
-    pdf_path = Path('api/src/ai/pdfs/LinkedInArticle-LegalZoom-AI-Launch.pdf')
+    pdf_path = Path(__file__).parent / 'pdfs' / 'LinkedInArticle-LegalZoom-AI-Launch.pdf'
+    _ensure_pdf_exists(pdf_path)
     return BinaryContent(data=pdf_path.read_bytes(), media_type='application/pdf')
 
 
@@ -93,7 +105,8 @@ async def read_linkedin_interview_ai_launch() -> BinaryContent:
     Get interview transcript where Emilio talks about an AI project launched at LegalZoom.
     Link: https://www.techtarget.com/searchcio/feature/Building-an-internal-AI-call-simulator-Lessons-for-CIOs
     """
-    pdf_path = Path('api/src/ai/pdfs/Search-CIO-Interview-AI.pdf')
+    pdf_path = Path(__file__).parent / 'pdfs' / 'Search-CIO-Interview-AI.pdf'
+    _ensure_pdf_exists(pdf_path)
     return BinaryContent(data=pdf_path.read_bytes(), media_type='application/pdf')
 
 
@@ -111,7 +124,7 @@ async def get_emilio_links(ctx: RunContext[PortfolioContext]) -> dict:
     """
     Get Emilio's links to his LinkedIn profile, Github, Sernia Capital LLC, public article/interview references, portfolio website, etc.
     """
-    logger.info(f"Getting Emilio's links")
+    logfire.info("Getting Emilio's links")
     
     return EMILIO_LINKS
    
