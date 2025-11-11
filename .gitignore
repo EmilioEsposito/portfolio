@@ -65,3 +65,6 @@ docker*.log
 
 
 scratch/
+
+# PDF files in ai/pdfs directory
+*.pdf
