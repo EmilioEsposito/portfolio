@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatRequestOptions, CreateMessage, Message } from "ai";
+import type { ChatRequestOptions, } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -19,18 +19,19 @@ import { ArrowUpIcon, StopIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 
-const suggestedActions = [
+const defaultSuggestedActions = [
   {
-    title: "What is the weather",
-    label: "in San Francisco?",
-    action: "What is the weather in San Francisco?",
-  },
-  {
-    title: "How is python useful",
-    label: "for AI engineers?",
-    action: "How is python useful for AI engineers?",
+    title: "Example Prompt",
+    subtitle: "Click to get started",
+    action: "Example Prompt. Click to get started.",
   },
 ];
+
+export interface SuggestedAction {
+  title: string;
+  subtitle?: string;
+  action: string;
+}
 
 export function MultimodalInput({
   chatId,
@@ -43,16 +44,17 @@ export function MultimodalInput({
   append,
   handleSubmit,
   className,
+  suggestedActions = defaultSuggestedActions,
 }: {
   chatId: string;
   input: string;
   setInput: (value: string) => void;
   status: "submitted" | "streaming" | "ready" | "error";
   stop: () => void;
-  messages: Array<Message>;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
+  messages: Array<any>;
+  setMessages: Dispatch<SetStateAction<Array<any>>>;
   append: (
-    message: Message | CreateMessage,
+    message: any,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
   handleSubmit: (
@@ -62,6 +64,7 @@ export function MultimodalInput({
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
+  suggestedActions?: SuggestedAction[];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -139,7 +142,7 @@ export function MultimodalInput({
               >
                 <span className="font-medium">{suggestedAction.title}</span>
                 <span className="text-muted-foreground">
-                  {suggestedAction.label}
+                  {suggestedAction.subtitle}
                 </span>
               </Button>
             </motion.div>

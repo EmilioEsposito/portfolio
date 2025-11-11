@@ -25,7 +25,7 @@
             "type": "shell",
             "command": "lsof -ti:3000 | xargs kill -9",
             "windows": {
-                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a"
+                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a & timeout /t 5 /nobreak >nul"
             },
             "linux": {
                 "command": "fuser -k 3000/tcp || true"
@@ -50,10 +50,38 @@
             }
         },
         {
+            "label": "Kill Chrome Debug Sessions",
+            "type": "shell",
+            "command": "pkill -9 -f 'remote-debugging-pipe|ms-vscode.js-debug' 2>/dev/null || true",
+            "windows": {
+                "command": "taskkill /F /IM chrome.exe /FI \"COMMANDLINE eq *remote-debugging-pipe*\" 2>nul || taskkill /F /IM chrome.exe /FI \"COMMANDLINE eq *ms-vscode.js-debug*\" 2>nul || exit 0"
+            },
+            "linux": {
+                "command": "pkill -9 -f 'remote-debugging-pipe|ms-vscode.js-debug' 2>/dev/null || true"
+            },
+            "osx": {
+                "command": "pkill -9 -f 'remote-debugging-pipe|ms-vscode.js-debug' 2>/dev/null || true"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            }
+        },
+        {
             "label": "Prepare FastAPI Backend",
             "dependsOn": [
                 "Ensure Postgres Running",
                 "Kill Port 8000"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Prepare Next.js Frontend",
+            "dependsOn": [
+                "Kill Chrome Debug Sessions",
+                "Kill Port 3000"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []
