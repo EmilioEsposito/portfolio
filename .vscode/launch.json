@@ -19,7 +19,7 @@
                 "uriFormat": "%s",
                 "action": "debugWithChrome"
             },
-            "preLaunchTask": "Kill Port 3000"
+            "preLaunchTask": "Prepare Next.js Frontend"
         },
         {
             "name": "FastAPI Backend",
@@ -50,7 +50,8 @@
                 "pattern": "Web:.+(https?://.+)",
                 "uriFormat": "%s",
                 "action": "debugWithChrome"
-            }
+            },
+            "preLaunchTask": "Kill Chrome Debug Sessions"
         },
         {
             "name": "Full Stack (FastAPI + Next.js via Script)",
