@@ -22,14 +22,14 @@ import { Textarea } from "./ui/textarea";
 const defaultSuggestedActions = [
   {
     title: "Example Prompt",
-    label: "Click to get started",
-    action: "Example Prompt",
+    subtitle: "Click to get started",
+    action: "Example Prompt. Click to get started.",
   },
 ];
 
 export interface SuggestedAction {
   title: string;
-  label: string;
+  subtitle?: string;
   action: string;
 }
 
@@ -142,7 +142,7 @@ export function MultimodalInput({
               >
                 <span className="font-medium">{suggestedAction.title}</span>
                 <span className="text-muted-foreground">
-                  {suggestedAction.label}
+                  {suggestedAction.subtitle}
                 </span>
               </Button>
             </motion.div>

@@ -11,23 +11,19 @@ import { toast } from "sonner";
 
 const portfolioSuggestedActions: SuggestedAction[] = [
   {
-    title: "What technologies",
-    label: "does Emilio work with?",
-    action: "What technologies does Emilio work with?",
+    title: "Tell me about Emilio",
+    action: "Tell me about Emilio.",
   },
   {
-    title: "Tell me about",
-    label: "his projects",
-    action: "Tell me about his projects",
+    title: "Tell me about his projects",
+    action: "Tell me about Emilio's projects",
   },
   {
-    title: "Where can I see",
-    label: "some of his work?",
-    action: "Where can I see some of his work?",
+    title: "Where can I see some of Emilio's work?",
+    action: "Where can I see some of Emilio's work?",
   },
   {
-    title: "Is Emilio referenced",
-    label: "in any public articles/interviews?",
+    title: "Is Emilio referenced in any public articles/interviews?",
     action: "Is Emilio referenced in any public articles/interviews?",
   },
 ];

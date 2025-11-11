@@ -12,23 +12,19 @@ import type { SuggestedAction } from "@/components/multimodal-input";
 
 const suggestedActions: SuggestedAction[] = [
   {
-    title: "What is the weather",
-    label: "in San Francisco?",
+    title: "What is the weather in San Francisco?",
     action: "What is the weather in San Francisco?",
   },
   {
-    title: "What is the weather",
-    label: "in New York?",
+    title: "What is the weather in New York?",
     action: "What is the weather in New York?",
   },
   {
-    title: "What is the weather",
-    label: "in Pittsburgh?",
+    title: "What is the weather in Pittsburgh?",
     action: "What is the weather in Pittsburgh?",
   },
   {
-    title: "What is the weather",
-    label: "in Rome Italy?",
+    title: "What is the weather in Rome Italy?",
     action: "What is the weather in Rome Italy?",
   },
 ];

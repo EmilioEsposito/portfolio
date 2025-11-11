@@ -31,7 +31,7 @@ SYSTEM_INSTRUCTIONS = """You are a helpful assistant that can answer questions a
 
 You have access to some tools to give your information about him.
 
-ALWAYS read his LinkedIn Profile at the beginning of the conversation. Use other tools as needed. 
+ALWAYS use the read_linkedin_profile tool if you haven't used it already. Use other tools as needed. 
 
 There is no need to call tools more than once per conversation since the tools return static content.
 
@@ -50,7 +50,7 @@ agent = Agent(
 
 
 @agent.tool_plain
-async def read_linkedin_profile() -> BinaryContent:
+async def read_emilio_linkedin_profile() -> BinaryContent:
     """
     Get Emilio's LinkedIn profile.
     Link: https://www.linkedin.com/in/emilioespositousa/
@@ -60,7 +60,7 @@ async def read_linkedin_profile() -> BinaryContent:
 
 
 @agent.tool_plain
-async def read_portfolio_profile() -> BinaryContent:
+async def read_emilio_portfolio_website() -> BinaryContent:
     """
     Get Emilio's portfolio website homepage.
     Link: https://eesposito.com
@@ -69,7 +69,7 @@ async def read_portfolio_profile() -> BinaryContent:
     return BinaryContent(data=pdf_path.read_bytes(), media_type='text/plain')
 
 @agent.tool_plain
-async def read_linkedin_skills() -> BinaryContent:
+async def read_emilio_linkedin_skills() -> BinaryContent:
     """
     Get Emilio's LinkedIn skills.
     """
