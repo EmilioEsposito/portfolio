@@ -4,7 +4,8 @@ Routes for PydanticAI-powered portfolio chatbot
 import logging
 from typing import List
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from starlette.requests import Request
+from starlette.responses import Response
 from pydantic import BaseModel
 from pydantic_ai.messages import (
     ModelMessage,
@@ -12,14 +13,16 @@ from pydantic_ai.messages import (
     ModelResponse, 
     UserPromptPart,
     TextPart,
-    SystemPromptPart,
 )
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.vercel_ai.request_types import RequestData, SubmitMessage
 
 from api.src.ai.agent import agent, PortfolioContext
+from api.src.utils.swagger_schema import expand_json_schema
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["ai"])
 
 
 class Message(BaseModel):
@@ -33,119 +36,142 @@ class ChatRequest(BaseModel):
     messages: List[Message]
 
 
-def convert_to_pydantic_messages(messages: List[Message]) -> List[ModelMessage]:
-    """
-    Convert frontend messages to PydanticAI message format.
-    
-    Args:
-        messages: List of messages from the frontend
-        
-    Returns:
-        List of PydanticAI ModelMessage objects
-    """
-    pydantic_messages: List[ModelMessage] = []
-    
-    for msg in messages:
-        if msg.role == "user":
-            pydantic_messages.append(
-                ModelRequest(parts=[UserPromptPart(content=msg.content)])
-            )
-        elif msg.role == "assistant":
-            pydantic_messages.append(
-                ModelResponse(parts=[TextPart(content=msg.content)])
-            )
-        elif msg.role == "system":
-            # System messages are typically handled by the agent's system_prompt
-            # but we can include them if needed
-            pydantic_messages.append(
-                ModelRequest(parts=[SystemPromptPart(content=msg.content)])
-            )
-    
-    return pydantic_messages
+# Use PydanticAI's RequestData for type checking/documentation
+# RequestData is a union of SubmitMessage | RegenerateMessage
+# Both have: trigger, id, messages: list[UIMessage]
+# where UIMessage has: id, role, parts: list[UIMessagePart]
+
+# Essential Documentation Links - DO NOT REMOVE:
+# https://ai.pydantic.dev/ui/vercel-ai/
+# https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol
 
 
-async def stream_chat_response(messages: List[Message]):
-    """
-    Stream chat responses using PydanticAI agent with Vercel AI SDK format.
-    
-    Args:
-        messages: Chat message history
-        
-    Yields:
-        Server-sent events in Vercel AI SDK format
-    """
-    import json
-    
-    try:
-        # Get the last user message
-        last_user_message = None
-        for msg in reversed(messages):
-            if msg.role == "user":
-                last_user_message = msg.content
-                break
-        
-        if not last_user_message:
-            yield '0:"No user message found"\n'
-            yield 'e:{"finishReason":"error","usage":{"promptTokens":0,"completionTokens":0},"isContinued":false}\n'
-            return
-        
-        # Build message history (excluding the last user message)
-        message_history = convert_to_pydantic_messages(messages[:-1]) if len(messages) > 1 else []
-        
-        # Create context
-        ctx = PortfolioContext(user_name="visitor")
-        
-        # Stream the response
-        async with agent.run_stream(
-            last_user_message,
-            message_history=message_history,
-            deps=ctx,
-        ) as result:
-            async for text in result.stream_text(delta=True):
-                # Vercel AI SDK format: type:payload\n
-                # type 0 = text chunk
-                if text:
-                    yield f'0:{json.dumps(text)}\n'
-            
-            # Get final result for usage stats
-            final_result = await result.get_data()
-            
-            # Send finish event
-            # type e = end/finish
-            usage_data = {
-                "finishReason": "stop",
-                "usage": {
-                    "promptTokens": 0,  # PydanticAI doesn't expose these directly
-                    "completionTokens": 0,
-                },
-                "isContinued": False,
+# Swagger/OpenAPI documentation for chat-emilio endpoint
+_CHAT_EMILIO_RESPONSES = {
+    200: {
+        "description": "Server-Sent Events (SSE) stream using Vercel AI SDK Data Stream Protocol",
+        "content": {
+            "text/event-stream": {
+                "example": """data: {"type":"start"}
+data: {"type":"text-start","id":"msg-123"}
+data: {"type":"text-delta","id":"msg-123","delta":"Hello"}
+data: {"type":"text-delta","id":"msg-123","delta":" there"}
+data: {"type":"text-end","id":"msg-123"}
+data: {"type":"finish"}
+data: [DONE]"""
             }
-            yield f'e:{json.dumps(usage_data)}\n'
-            
-    except Exception as e:
-        logger.error(f"Error in stream_chat_response: {e}", exc_info=True)
-        yield f'0:{json.dumps(f"Error: {str(e)}")}\n'
-        yield 'e:{"finishReason":"error","usage":{"promptTokens":0,"completionTokens":0},"isContinued":false}\n'
+        },
+        "headers": {
+            "x-vercel-ai-ui-message-stream": {
+                "description": "Vercel AI SDK stream version",
+                "schema": {"type": "string", "example": "v1"}
+            },
+            "X-Accel-Buffering": {
+                "description": "Disables buffering for streaming",
+                "schema": {"type": "string", "example": "no"}
+            }
+        }
+    }
+}
 
 
-@router.post("/ai/chat")
-async def portfolio_chat(request: ChatRequest):
+_CHAT_EMILIO_REQUEST_EXAMPLES = {
+    "single_message": {
+        "summary": "Single user message",
+        "description": "Send a single message to start a conversation",
+        "value": {
+            "trigger": "submit-message",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "messages": [
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440001",
+                    "role": "user",
+                    "parts": [
+                        {
+                            "type": "text",
+                            "text": "What technologies does Emilio work with?"
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "conversation": {
+        "summary": "Conversation with history",
+        "description": "Send a message with conversation history",
+        "value": {
+            "trigger": "submit-message",
+            "id": "550e8400-e29b-41d4-a716-446655440002",
+            "messages": [
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440003",
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Hello"}]
+                },
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440004",
+                    "role": "assistant",
+                    "parts": [{"type": "text", "text": "Hi there! How can I help you?"}]
+                },
+                {
+                    "id": "550e8400-e29b-41d4-a716-446655440005",
+                    "role": "user",
+                    "parts": [{"type": "text", "text": "Tell me about Emilio's projects"}]
+                }
+            ]
+        }
+    }
+}
+
+_CHAT_EMILIO_OPENAPI_EXTRA = {
+    "requestBody": {
+        "content": {
+            "application/json": {
+                "schema": expand_json_schema(SubmitMessage.model_json_schema()),
+                "examples": _CHAT_EMILIO_REQUEST_EXAMPLES
+            }
+        },
+        "required": True
+    }
+}
+
+
+
+
+# https://ai.pydantic.dev/ui/vercel-ai/
+@router.post(
+    "/ai/chat-emilio",
+    response_class=Response,
+    responses=_CHAT_EMILIO_RESPONSES,
+    summary="Chat with Emilio's portfolio assistant",
+    openapi_extra=_CHAT_EMILIO_OPENAPI_EXTRA,
+)
+async def chat_emilio(request: Request) -> Response:
     """
-    Chat endpoint for portfolio assistant.
-    
-    Streams responses using PydanticAI and formats them for Vercel AI SDK.
+    Chat endpoint using PydanticAI's VercelAIAdapter.
+
+    This endpoint streams responses using the Vercel AI SDK Data Stream Protocol (SSE format).
+    Compatible with @ai-sdk/react v2.0.92+ useChat hook.
+
+    **Response:**
+    Returns a Server-Sent Events (SSE) stream with Content-Type: `text/event-stream`.
+    Each event follows the Vercel AI SDK Data Stream Protocol format.
     """
-    logger.info(f"Portfolio chat request with {len(request.messages)} messages")
+    logger.info("Portfolio chat request using VercelAIAdapter")
     
-    response = StreamingResponse(
-        stream_chat_response(request.messages),
-        media_type="text/plain",
+    # Use VercelAIAdapter to handle the request and stream response
+    # Note: VercelAIAdapter.dispatch_request expects a raw Request object
+    # and handles parsing internally, so we can't use Pydantic validation here
+    response = await VercelAIAdapter.dispatch_request(
+        request,
+        agent=agent,
+        deps=PortfolioContext(user_name="visitor"),
     )
-    response.headers["x-vercel-ai-data-stream"] = "v1"
+    
+    # Add headers to prevent browser/proxy buffering
+    # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache, no-transform"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
     return response
-
-
-@router.get("/ai/health")
-async def ai_health_check():
-    """Health check endpoint for AI service"""
-    return {"status": "healthy", "service": "portfolio-ai"}

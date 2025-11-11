@@ -1,4 +1,4 @@
-import { PortfolioChat } from "@/components/portfolio-chat";
+import { ChatEmilio } from "@/components/chat-emilio";
 
 export const metadata = {
   title: "Portfolio Assistant | Emilio Esposito",
@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function Page() {
-  return <PortfolioChat />;
+  return <ChatEmilio />;
 }

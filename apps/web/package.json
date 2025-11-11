@@ -11,8 +11,8 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.64",
-    "@ai-sdk/react": "^1.2.11",
+    "@ai-sdk/openai": "2.0.65",
+    "@ai-sdk/react": "2.0.92",
     "@ai-sdk/ui-utils": "^0.0.20",
     "@clerk/nextjs": "^6.11.3",
     "@expo/next-adapter": "^6.0.0",
@@ -42,7 +42,7 @@
     "@vercel/kv": "^2.0.0",
     "@vercel/og": "^0.6.5",
     "@vercel/postgres": "^0.10.0",
-    "ai": "^5.0.90",
+    "ai": "5.0.92",
     "autoprefixer": "10.4.14",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

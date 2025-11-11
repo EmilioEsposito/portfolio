@@ -6,7 +6,7 @@ This agent can answer questions about the developer's portfolio, skills, and pro
 import logging
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ clever abstractions, and I'm always learning new technologies to solve real prob
 
 
 # Create the agent with the OpenAI model
-model = OpenAIModel("gpt-4o-mini")
+model = OpenAIChatModel("gpt-4o-mini")
 
 agent = Agent(
     model=model,

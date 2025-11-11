@@ -3,10 +3,10 @@ import Link from "next/link";
 
 import { SparklesIcon } from "./icons";
 
-export const PortfolioOverview = () => {
+export const ChatEmilioOverview = () => {
   return (
     <motion.div
-      key="portfolio-overview"
+      key="chat-emilio-overview"
       className="max-w-3xl mx-auto md:mt-20"
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -21,20 +21,14 @@ export const PortfolioOverview = () => {
         </div>
         
         <div className="flex flex-col gap-4">
-          <h1 className="text-3xl font-bold">Portfolio Assistant</h1>
+          <h1 className="text-3xl font-bold">Chat about Emilio</h1>
           <p className="text-muted-foreground">
             Ask me anything about Emilio's skills, projects, and experience!
           </p>
         </div>
 
         <div className="flex flex-col gap-3 text-sm text-left">
-          <p className="font-semibold">Try asking:</p>
-          <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-            <li>"What technologies does Emilio work with?"</li>
-            <li>"Tell me about his projects"</li>
-            <li>"What's his experience with Python?"</li>
-            <li>"Does he have experience with React?"</li>
-          </ul>
+          <p className="font-semibold">Try the suggested prompts below, or ask your own question!</p>
         </div>
 
         <div className="border-t pt-6 text-sm text-muted-foreground">

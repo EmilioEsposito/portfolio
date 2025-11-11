@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatRequestOptions, CreateUIMessage, UIMessage } from "ai";
+import type { ChatRequestOptions, } from "ai";
 import { motion } from "framer-motion";
 import type React from "react";
 import {
@@ -19,7 +19,7 @@ import { ArrowUpIcon, StopIcon } from "./icons";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 
-const suggestedActions = [
+const defaultSuggestedActions = [
   {
     title: "What is the weather",
     label: "in San Francisco?",
@@ -32,6 +32,12 @@ const suggestedActions = [
   },
 ];
 
+export interface SuggestedAction {
+  title: string;
+  label: string;
+  action: string;
+}
+
 export function MultimodalInput({
   chatId,
   input,
@@ -43,6 +49,7 @@ export function MultimodalInput({
   append,
   handleSubmit,
   className,
+  suggestedActions = defaultSuggestedActions,
 }: {
   chatId: string;
   input: string;
@@ -62,6 +69,7 @@ export function MultimodalInput({
     chatRequestOptions?: ChatRequestOptions,
   ) => void;
   className?: string;
+  suggestedActions?: SuggestedAction[];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();

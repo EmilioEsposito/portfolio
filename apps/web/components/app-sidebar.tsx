@@ -120,6 +120,13 @@ export function AppSidebar() {
         },
         {
           type: "navigation",
+          title: "Chat about Emilio",
+          url: "/chat-emilio",
+          icon: MessageSquare,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
           title: "AI Email Responder",
           url: "/ai-email-responder",
           icon: Inbox,

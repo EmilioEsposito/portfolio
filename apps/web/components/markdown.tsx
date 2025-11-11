@@ -1,5 +1,5 @@
 import Link from "next/link";
-import React, { memo } from "react";
+import React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -117,7 +117,6 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
   );
 };
 
-export const Markdown = memo(
-  NonMemoizedMarkdown,
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
-);
+// Removed memoization to allow streaming updates to render incrementally
+// The comparison function was preventing re-renders when content changed during streaming
+export const Markdown = NonMemoizedMarkdown;

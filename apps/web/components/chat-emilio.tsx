@@ -2,16 +2,39 @@
 
 import { useState } from "react";
 import { PreviewMessage, ThinkingMessage } from "@/components/message";
-import { MultimodalInput } from "@/components/multimodal-input";
-import { Overview } from "@/components/overview";
+import { MultimodalInput, type SuggestedAction } from "@/components/multimodal-input";
+import { ChatEmilioOverview } from "@/components/chat-emilio-overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { toast } from "sonner";
 
-export function Chat() {
-  const chatId = "001";
+const portfolioSuggestedActions: SuggestedAction[] = [
+  {
+    title: "What technologies",
+    label: "does Emilio work with?",
+    action: "What technologies does Emilio work with?",
+  },
+  {
+    title: "Tell me about",
+    label: "his projects",
+    action: "Tell me about his projects",
+  },
+  {
+    title: "What's his experience",
+    label: "with Python?",
+    action: "What's his experience with Python?",
+  },
+  {
+    title: "Does he have experience",
+    label: "with React?",
+    action: "Does he have experience with React?",
+  },
+];
 
+export function ChatEmilio() {
+  const chatId = "chat-emilio";
+  
   // Manage input state manually (AI SDK v2+ removed it from useChat)
   const [input, setInput] = useState("");
 
@@ -23,7 +46,7 @@ export function Chat() {
     stop,
   } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: "/api/ai/chat-emilio", 
       prepareSendMessagesRequest: ({ messages, body, trigger, id }) => {
         // Transform messages to UIMessage format with parts array
         const transformedMessages = messages.map((msg: any) => {
@@ -56,17 +79,11 @@ export function Chat() {
         };
       },
     }),
-    maxSteps: 4,
     onError: (error: Error) => {
-      if (error.message.includes("Too many requests")) {
-        toast.error(
-          "You are sending too many messages. Please try again later.",
-        );
-      } else {
-        toast.error(
-          error.message || "An error occurred. Please try again.",
-        );
-      }
+      console.error("Chat error:", error);
+      toast.error(
+        error.message || "An error occurred. Please try again.",
+      );
     },
   } as any) as any;
 
@@ -93,7 +110,7 @@ export function Chat() {
         ref={messagesContainerRef}
         className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
       >
-        {messages.length === 0 && <Overview />}
+        {messages.length === 0 && <ChatEmilioOverview />}
 
         {messages
           .filter((message: any) => message.role !== "data")
@@ -126,6 +143,7 @@ export function Chat() {
           messages={messages as any}
           setMessages={setMessages as any}
           append={append}
+          suggestedActions={portfolioSuggestedActions}
         />
       </form>
     </div>
