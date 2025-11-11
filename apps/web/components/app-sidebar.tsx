@@ -109,19 +109,19 @@ export function AppSidebar() {
       ],
     },
     {
-      label: "AI & LLM",
+      label: "AI Agents",
       items: [
         {
           type: "navigation",
-          title: "Chat",
-          url: "/chat",
+          title: "Chat about Emilio",
+          url: "/chat-emilio",
           icon: MessageSquare,
           onClick: toggleSidebarIfMobile,
         },
         {
           type: "navigation",
-          title: "Chat about Emilio",
-          url: "/chat-emilio",
+          title: "AI Weather Agent",
+          url: "/chat-weather",
           icon: MessageSquare,
           onClick: toggleSidebarIfMobile,
         },

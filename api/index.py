@@ -2,6 +2,7 @@ import logging
 import sys # Added for sys.stdout
 from dotenv import load_dotenv, find_dotenv
 import json # Added import
+import logfire
 
 # --- Forceful Logging Reconfiguration ---
 # Remove all handlers associated with the root logger object.
@@ -77,8 +78,13 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # Define a logger for this module
 logger = logging.getLogger(__name__)
 
+# Logfire configuration
+logfire.configure()  
+logfire.instrument_pydantic_ai()  
+logger.info("Logfire configured and instrumented")
+
 # Test log message immediately after reconfiguration
-logger.info("EMILIO: FastAPI index.py loaded")
+logger.info("EMILIO: FastAPI index.py loaded and Logfire configured")
 
 # Verify critical environment variables
 required_env_vars = {

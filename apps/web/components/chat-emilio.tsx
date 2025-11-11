@@ -21,14 +21,14 @@ const portfolioSuggestedActions: SuggestedAction[] = [
     action: "Tell me about his projects",
   },
   {
-    title: "What's his experience",
-    label: "with Python?",
-    action: "What's his experience with Python?",
+    title: "Where can I see",
+    label: "some of his work?",
+    action: "Where can I see some of his work?",
   },
   {
-    title: "Does he have experience",
-    label: "with React?",
-    action: "Does he have experience with React?",
+    title: "Is Emilio referenced",
+    label: "in any public articles/interviews?",
+    action: "Is Emilio referenced in any public articles/interviews?",
   },
 ];
 

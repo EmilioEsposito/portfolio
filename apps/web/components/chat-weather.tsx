@@ -3,11 +3,35 @@
 import { useState } from "react";
 import { PreviewMessage, ThinkingMessage } from "@/components/message";
 import { MultimodalInput } from "@/components/multimodal-input";
-import { Overview } from "@/components/overview";
+import { Overview } from "@/components/chat-weather-overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { toast } from "sonner";
+import type { SuggestedAction } from "@/components/multimodal-input";
+
+const suggestedActions: SuggestedAction[] = [
+  {
+    title: "What is the weather",
+    label: "in San Francisco?",
+    action: "What is the weather in San Francisco?",
+  },
+  {
+    title: "What is the weather",
+    label: "in New York?",
+    action: "What is the weather in New York?",
+  },
+  {
+    title: "What is the weather",
+    label: "in Pittsburgh?",
+    action: "What is the weather in Pittsburgh?",
+  },
+  {
+    title: "What is the weather",
+    label: "in Rome Italy?",
+    action: "What is the weather in Rome Italy?",
+  },
+];
 
 export function Chat() {
   const chatId = "001";
@@ -126,6 +150,7 @@ export function Chat() {
           messages={messages as any}
           setMessages={setMessages as any}
           append={append}
+          suggestedActions={suggestedActions}
         />
       </form>
     </div>
