@@ -1,43 +1,72 @@
-# Agentic AI Assistant Service
+# Portfolio AI Chatbot
 
-This service is responsible for handling all AI related tasks.
+An intelligent portfolio assistant built with PydanticAI and integrated with Vercel AI SDK.
 
-## Goals
+## Quick Start
 
-There should be some backend-only self-scheduling logic, but maybe the same agent is also used for interactive chat in the app? For interactive chat solution this potential solution for integrating PydanticAI with Vercel's AI SDK: https://pastebin.com/zGXT2Wp2 (also saved in scratch/aisdk_and_pydanticai.md)
+### Test the Agent Directly
+```bash
+cd /workspace
+source .venv/bin/activate
+python -c "from api.src.ai.agent import test_agent; test_agent()"
+```
 
-## Known Requirements
+### Run the Frontend
+```bash
+cd /workspace/apps/web
+pnpm dev
+```
 
-* The agent should be able to call these functions:
-* api.src.open_phone.service.send_message
-* api.src.google.gmail.service.send_email
-* api.src.push.service.send_push_to_user
-* api.src.scheduler.service.schedule_sms
-* api.src.scheduler.service.schedule_email
-* api.src.scheduler.service.schedule_push
+Visit: http://localhost:3000/portfolio-chat
 
-To be created:
-* api.src.google.calendar.service.create_event
+## Files
 
+- `agent.py` - PydanticAI agent with portfolio information and tools
+- `routes.py` - FastAPI endpoints for streaming chat
+- `README.md` - This file
 
+## API Endpoints
 
+### POST /api/ai/chat
+Main chat endpoint that accepts messages and streams responses.
 
-## Framework Options (not necessarily mutually exclusive)
+**Request Body:**
+```json
+{
+  "messages": [
+    {"role": "user", "content": "What technologies does Emilio work with?"}
+  ]
+}
+```
 
-* PydanticAI
-* Vercel AI SDK
-    * has good frontend support for chat
-* OpenAI Native tooling
-  * Responses API
-  * Completions API
-  * Agent SDK
-* Langchain
-    * Not preferred for anything. Has a bad reputation for confusing abstractions, poor documentation, breaking changes, etc.
+**Response:** Server-Sent Events stream using Vercel AI SDK Data Stream Protocol
 
+### GET /api/ai/health
+Health check endpoint.
 
+## Architecture
 
+1. Frontend sends messages via `useChat` hook
+2. Backend receives request at `/api/ai/chat`
+3. Messages converted to PydanticAI format
+4. Agent generates streaming response with OpenAI
+5. Response streams back to frontend in real-time
 
+## Extending the Agent
 
-## Questions
+Add new tools to the agent:
 
-Could this agent also handle interactive chat in the app? Or should we have a separate agent (maybe on a different framework) for that? Would a separate agent be able to either call this agent or use same tools though (does this depend on the framework)?
+```python
+@agent.tool
+async def your_tool_name(ctx: RunContext[PortfolioContext], param: str) -> str:
+    """Tool description"""
+    # Your logic here
+    return "result"
+```
+
+The tool will automatically be available to the agent during conversations.
+
+## See Also
+
+- [Full Documentation](/workspace/PYDANTIC_AI_CHATBOT.md)
+- [Implementation Summary](/workspace/PORTFOLIO_CHATBOT_SUMMARY.md)

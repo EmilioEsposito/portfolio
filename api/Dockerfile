@@ -27,7 +27,8 @@ ENV PYTHONPATH=/app
 
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
-RUN uv sync
+# Exclude dev dependencies for production builds
+RUN uv sync --no-dev
 
 # Expose the port (the PORT on Railway app is hardcoded to 8000)
 EXPOSE 8000

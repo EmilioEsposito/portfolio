@@ -1,19 +1,39 @@
 """
-Routes for general-purpose chat with weather tool support
+Routes for PydanticAI-powered portfolio chatbot
 """
 import logging
+from typing import List
 from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import Response
+from pydantic import BaseModel
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse, 
+    UserPromptPart,
+    TextPart,
+)
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+from pydantic_ai.ui.vercel_ai.request_types import RequestData, SubmitMessage
 
-from api.src.chat.agent import agent, ChatContext
+from api.src.ai.agent import agent, PortfolioContext
 from api.src.utils.swagger_schema import expand_json_schema
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(tags=["ai"])
+
+
+class Message(BaseModel):
+    """Message model for chat requests"""
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Chat request with message history"""
+    messages: List[Message]
 
 
 # Use PydanticAI's RequestData for type checking/documentation
@@ -21,25 +41,22 @@ router = APIRouter(tags=["chat"])
 # Both have: trigger, id, messages: list[UIMessage]
 # where UIMessage has: id, role, parts: list[UIMessagePart]
 
+# Essential Documentation Links - DO NOT REMOVE:
+# https://ai.pydantic.dev/ui/vercel-ai/
+# https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol#data-stream-protocol
 
-# Swagger/OpenAPI documentation for chat endpoint
-_CHAT_RESPONSES = {
+
+# Swagger/OpenAPI documentation for chat-emilio endpoint
+_CHAT_EMILIO_RESPONSES = {
     200: {
         "description": "Server-Sent Events (SSE) stream using Vercel AI SDK Data Stream Protocol",
         "content": {
             "text/event-stream": {
                 "example": """data: {"type":"start"}
 data: {"type":"text-start","id":"msg-123"}
-data: {"type":"text-delta","id":"msg-123","delta":"Let me check the weather for you."}
+data: {"type":"text-delta","id":"msg-123","delta":"Hello"}
+data: {"type":"text-delta","id":"msg-123","delta":" there"}
 data: {"type":"text-end","id":"msg-123"}
-data: {"type":"tool-input-start","toolCallId":"call_abc123","toolName":"get_current_weather"}
-data: {"type":"tool-input-delta","toolCallId":"call_abc123","inputTextDelta":"{\\"latitude\\":40.7128"}
-data: {"type":"tool-input-delta","toolCallId":"call_abc123","inputTextDelta":",\\"longitude\\":-74.0060}"}
-data: {"type":"tool-input-available","toolCallId":"call_abc123","toolName":"get_current_weather","input":{"latitude":40.7128,"longitude":-74.0060}}
-data: {"type":"tool-output-available","toolCallId":"call_abc123","output":{"current":{"temperature_2m":22.5,"time":"2024-01-15T12:00"},"hourly":{"temperature_2m":[20,21,22,23,24,25]},"daily":{"sunrise":["2024-01-15T07:00"],"sunset":["2024-01-15T17:00"]}}}
-data: {"type":"text-start","id":"msg-124"}
-data: {"type":"text-delta","id":"msg-124","delta":"The weather in New York is currently 22.5°C."}
-data: {"type":"text-end","id":"msg-124"}
 data: {"type":"finish"}
 data: [DONE]"""
             }
@@ -58,7 +75,7 @@ data: [DONE]"""
 }
 
 
-_CHAT_REQUEST_EXAMPLES = {
+_CHAT_EMILIO_REQUEST_EXAMPLES = {
     "single_message": {
         "summary": "Single user message",
         "description": "Send a single message to start a conversation",
@@ -72,7 +89,7 @@ _CHAT_REQUEST_EXAMPLES = {
                     "parts": [
                         {
                             "type": "text",
-                            "text": "What's the weather like in New York?"
+                            "text": "What technologies does Emilio work with?"
                         }
                     ]
                 }
@@ -99,19 +116,19 @@ _CHAT_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440005",
                     "role": "user",
-                    "parts": [{"type": "text", "text": "Can you check the weather?"}]
+                    "parts": [{"type": "text", "text": "Tell me about Emilio's projects"}]
                 }
             ]
         }
     }
 }
 
-_CHAT_OPENAPI_EXTRA = {
+_CHAT_EMILIO_OPENAPI_EXTRA = {
     "requestBody": {
         "content": {
             "application/json": {
                 "schema": expand_json_schema(SubmitMessage.model_json_schema()),
-                "examples": _CHAT_REQUEST_EXAMPLES
+                "examples": _CHAT_EMILIO_REQUEST_EXAMPLES
             }
         },
         "required": True
@@ -119,30 +136,28 @@ _CHAT_OPENAPI_EXTRA = {
 }
 
 
+
+
+# https://ai.pydantic.dev/ui/vercel-ai/
 @router.post(
-    "/chat",
+    "/ai/chat-emilio",
     response_class=Response,
-    responses=_CHAT_RESPONSES,
-    summary="General-purpose chat with weather tool support",
-    openapi_extra=_CHAT_OPENAPI_EXTRA,
+    responses=_CHAT_EMILIO_RESPONSES,
+    summary="Chat with Emilio's portfolio assistant",
+    openapi_extra=_CHAT_EMILIO_OPENAPI_EXTRA,
 )
-async def chat(request: Request) -> Response:
+async def chat_emilio(request: Request) -> Response:
     """
     Chat endpoint using PydanticAI's VercelAIAdapter.
 
     This endpoint streams responses using the Vercel AI SDK Data Stream Protocol (SSE format).
     Compatible with @ai-sdk/react v2.0.92+ useChat hook.
 
-    **Features:**
-    - General-purpose conversational AI
-    - Weather tool for getting current weather at any location
-    - Streaming responses in real-time
-
     **Response:**
     Returns a Server-Sent Events (SSE) stream with Content-Type: `text/event-stream`.
     Each event follows the Vercel AI SDK Data Stream Protocol format.
     """
-    logger.info("Chat request using VercelAIAdapter")
+    logger.info("Portfolio chat request using VercelAIAdapter")
     
     # Use VercelAIAdapter to handle the request and stream response
     # Note: VercelAIAdapter.dispatch_request expects a raw Request object
@@ -150,7 +165,7 @@ async def chat(request: Request) -> Response:
     response = await VercelAIAdapter.dispatch_request(
         request,
         agent=agent,
-        deps=ChatContext(),
+        deps=PortfolioContext(user_name="visitor"),
     )
     
     # Add headers to prevent browser/proxy buffering
@@ -159,4 +174,4 @@ async def chat(request: Request) -> Response:
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
     
-    return response 
+    return response
