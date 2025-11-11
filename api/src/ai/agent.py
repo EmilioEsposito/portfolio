@@ -81,8 +81,11 @@ async def read_emilio_portfolio_website() -> BinaryContent:
     Get Emilio's portfolio website homepage.
     Link: https://eesposito.com
     """
-    pdf_path = Path('apps/web/app/page.tsx')
-    return BinaryContent(data=pdf_path.read_bytes(), media_type='text/plain')
+    url = 'https://eesposito.com'
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return BinaryContent(data=response.content, media_type='text/html')
 
 @agent.tool_plain
 async def read_emilio_linkedin_skills() -> BinaryContent:
