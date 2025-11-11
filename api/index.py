@@ -79,8 +79,10 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 logger = logging.getLogger(__name__)
 
 # Logfire configuration
-logfire.configure()  
+logfire.configure(environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'))  
 logfire.instrument_pydantic_ai()  
+logfire.instrument_httpx()
+logfire.instrument_asyncpg()
 logger.info("Logfire configured and instrumented")
 
 # Test log message immediately after reconfiguration
@@ -149,6 +151,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
+logfire.instrument_fastapi(app)
 
 # --- Error Notification ---
 async def send_error_notification(request: Request, exc: Exception) -> None:
