@@ -10,8 +10,7 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 
 from api.src.chat.agent import agent, ChatContext
 from api.src.utils.swagger_schema import expand_json_schema
-
-logger = logging.getLogger(__name__)
+import logfire
 
 router = APIRouter(tags=["chat"])
 
@@ -142,7 +141,19 @@ async def chat(request: Request) -> Response:
     Returns a Server-Sent Events (SSE) stream with Content-Type: `text/event-stream`.
     Each event follows the Vercel AI SDK Data Stream Protocol format.
     """
-    logger.info("Chat request using VercelAIAdapter")
+    logfire.info("Weather chat request using VercelAIAdapter")
+
+    # Log new messages
+    request_json = await request.json()
+    if request_json.get('trigger') == 'submit-message':
+        messages = request_json.get('messages', [])
+        # Structured logging for easy querying/alerting in Logfire UI
+        latest_message = messages[-1]
+        logfire.info("new chat message",
+            slack_alert=True,
+            endpoint="/api/chat",
+            message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
+        )
     
     # Use VercelAIAdapter to handle the request and stream response
     # Note: VercelAIAdapter.dispatch_request expects a raw Request object
