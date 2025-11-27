@@ -1,72 +1,39 @@
-# Portfolio AI Chatbot
+# AI Chat Examples
 
-An intelligent portfolio assistant built with PydanticAI and integrated with Vercel AI SDK.
+This directory now contains three standalone chat agents plus a graph-driven multi-agent router. Each folder exposes its own `routes.py` so the backend and frontend can showcase the agents independently.
 
-## Quick Start
+```
+ai/
+├─ chat_emilio/          # Portfolio assistant (tools + /api/ai/chat-emilio)
+│  ├─ agent.py
+│  └─ routes.py
+├─ chat_weather/         # Weather + general chat (/api/ai/chat-weather)
+│  ├─ agent.py
+│  └─ routes.py
+└─ multi_agent_chat/     # Graph router that fans out to the leaf agents
+   ├─ decision_agent.py
+   ├─ graph.py
+   └─ routes.py          # /api/ai/multi-agent-chat
+```
 
-### Test the Agent Directly
+## Quick checks
+
 ```bash
-cd /workspace
+# Shell helpers
+cd /Users/eesposito/portfolio
 source .venv/bin/activate
-python -c "from api.src.ai.agent import test_agent; test_agent()"
+
+# Run the simple in-file agent tests
+python -c "from api.src.ai.chat_emilio.agent import test_agent; import asyncio; asyncio.run(test_agent())"
+python -c "from api.src.ai.chat_weather.agent import test_agent"
+
+# Exercise the multi-agent streaming endpoint (FastAPI + Vercel adapter)
+pytest api/src/tests/test_multi_agent_chat_vercel.py -k weather -vv
 ```
 
-### Run the Frontend
-```bash
-cd /workspace/apps/web
-pnpm dev
-```
+Frontend pages:
+- `/chat-emilio`
+- `/chat-weather`
+- `/multi-agent-chat` (uses the graph router)
 
-Visit: http://localhost:3000/portfolio-chat
-
-## Files
-
-- `agent.py` - PydanticAI agent with portfolio information and tools
-- `routes.py` - FastAPI endpoints for streaming chat
-- `README.md` - This file
-
-## API Endpoints
-
-### POST /api/ai/chat
-Main chat endpoint that accepts messages and streams responses.
-
-**Request Body:**
-```json
-{
-  "messages": [
-    {"role": "user", "content": "What technologies does Emilio work with?"}
-  ]
-}
-```
-
-**Response:** Server-Sent Events stream using Vercel AI SDK Data Stream Protocol
-
-### GET /api/ai/health
-Health check endpoint.
-
-## Architecture
-
-1. Frontend sends messages via `useChat` hook
-2. Backend receives request at `/api/ai/chat`
-3. Messages converted to PydanticAI format
-4. Agent generates streaming response with OpenAI
-5. Response streams back to frontend in real-time
-
-## Extending the Agent
-
-Add new tools to the agent:
-
-```python
-@agent.tool
-async def your_tool_name(ctx: RunContext[PortfolioContext], param: str) -> str:
-    """Tool description"""
-    # Your logic here
-    return "result"
-```
-
-The tool will automatically be available to the agent during conversations.
-
-## See Also
-
-- [Full Documentation](/workspace/PYDANTIC_AI_CHATBOT.md)
-- [Implementation Summary](/workspace/PORTFOLIO_CHATBOT_SUMMARY.md)
+Each page uses the same streaming contract (Vercel AI SDK Data Stream Protocol) so you can compare the standalone agents against the multi-agent orchestration.

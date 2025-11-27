@@ -2,36 +2,35 @@
 
 import { useState } from "react";
 import { PreviewMessage, ThinkingMessage } from "@/components/message";
-import { MultimodalInput } from "@/components/multimodal-input";
-import { Overview } from "@/components/chat-weather-overview";
+import { MultimodalInput, type SuggestedAction } from "@/components/multimodal-input";
+import { MultiAgentChatOverview } from "@/components/multi-agent-chat-overview";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { toast } from "sonner";
-import type { SuggestedAction } from "@/components/multimodal-input";
 
-const suggestedActions: SuggestedAction[] = [
+const multiAgentSuggestedActions: SuggestedAction[] = [
   {
-    title: "What is the weather in San Francisco?",
-    action: "What is the weather in San Francisco?",
+    title: "Tell me about Emilio",
+    action: "Tell me about Emilio.",
   },
   {
-    title: "What is the weather in New York?",
-    action: "What is the weather in New York?",
+    title: "What's the weather in San Francisco?",
+    action: "What's the weather in San Francisco?",
   },
   {
-    title: "What is the weather in Pittsburgh?",
-    action: "What is the weather in Pittsburgh?",
+    title: "Tell me about Emilio's projects",
+    action: "Tell me about Emilio's projects",
   },
   {
-    title: "What is the weather in Rome Italy?",
-    action: "What is the weather in Rome Italy?",
+    title: "What's the weather in New York?",
+    action: "What's the weather in New York?",
   },
 ];
 
-export function Chat() {
-  const chatId = "001";
-
+export function MultiAgentChat() {
+  const chatId = "multi-agent-chat";
+  
   // Manage input state manually (AI SDK v2+ removed it from useChat)
   const [input, setInput] = useState("");
 
@@ -43,7 +42,7 @@ export function Chat() {
     stop,
   } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/ai/chat-weather",
+      api: "/api/ai/multi-agent-chat",
       prepareSendMessagesRequest: ({ messages, body, trigger, id }) => {
         // Transform messages to UIMessage format with parts array
         const transformedMessages = messages.map((msg: any) => {
@@ -76,17 +75,11 @@ export function Chat() {
         };
       },
     }),
-    maxSteps: 4,
     onError: (error: Error) => {
-      if (error.message.includes("Too many requests")) {
-        toast.error(
-          "You are sending too many messages. Please try again later.",
-        );
-      } else {
-        toast.error(
-          error.message || "An error occurred. Please try again.",
-        );
-      }
+      console.error("Chat error:", error);
+      toast.error(
+        error.message || "An error occurred. Please try again.",
+      );
     },
   } as any) as any;
 
@@ -113,7 +106,7 @@ export function Chat() {
         ref={messagesContainerRef}
         className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
       >
-        {messages.length === 0 && <Overview />}
+        {messages.length === 0 && <MultiAgentChatOverview />}
 
         {messages
           .filter((message: any) => message.role !== "data")
@@ -146,9 +139,12 @@ export function Chat() {
           messages={messages as any}
           setMessages={setMessages as any}
           append={append}
-          suggestedActions={suggestedActions}
+          suggestedActions={multiAgentSuggestedActions}
         />
       </form>
     </div>
   );
 }
+
+
+
