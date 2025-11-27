@@ -113,6 +113,13 @@ export function AppSidebar() {
       items: [
         {
           type: "navigation",
+          title: "Multi-Agent AI Assistant",
+          url: "/multi-agent-chat",
+          icon: MessageSquare,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
           title: "Chat about Emilio",
           url: "/chat-emilio",
           icon: MessageSquare,
