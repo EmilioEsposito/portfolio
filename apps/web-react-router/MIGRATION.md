@@ -197,9 +197,9 @@ export default {
 ### Feature Migration
 - [x] Homepage
 - [x] chat-emilio UI with FastAPI backend integration ✨
-- [ ] Navbar and sidebar
-- [ ] multi-agent-chat UI (probably also need to do the backend rewrite and stuff like that in next.config.js)
-- [ ] chat-weather UI
+- [x] Navbar and sidebar
+- [x] multi-agent-chat UI (probably also need to do the backend rewrite and stuff like that in next.config.js)
+- [x] chat-weather UI
 - [ ] ai-email-responder UI
 - [ ] Scheduler interface
 - [ ] Email automation UI

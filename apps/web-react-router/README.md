@@ -10,11 +10,11 @@
 # From repo root
 cd apps/web-react-router
 
-# Install dependencies (already done)
-npm install
+# Install dependencies (uses pnpm workspaces)
+pnpm install
 
 # Start dev server
-npm run dev
+pnpm dev
 ```
 
 Visit: http://localhost:5173
@@ -90,11 +90,13 @@ CLERK_SECRET_KEY="sk_test_..."
 ## Available Scripts
 
 ```bash
-npm run dev        # Start dev server (port 5173)
-npm run build      # Build for production
-npm start          # Start production server
-npm run typecheck  # Run TypeScript type checking
+pnpm dev        # Start dev server (port 5173)
+pnpm build      # Build for production
+pnpm start      # Start production server
+pnpm typecheck  # Run TypeScript type checking
 ```
+
+> **Note**: This app uses pnpm as the package manager (consistent with the monorepo). Do not use npm or yarn.
 
 ## Migration Status
 
@@ -104,18 +106,21 @@ See [MIGRATION.md](./MIGRATION.md) for detailed migration guide and patterns.
 - [x] `/` - Homepage with full portfolio content
 - [x] `/test` - Simple test page
 - [x] `/chat-emilio` - AI chat with FastAPI backend integration ✨
+- [x] `/calendly` - Schedule meeting with embedded Calendly widget
+- [x] `/multi-agent-chat` - Multi-agent AI assistant (routes to Emilio/Weather agents)
+- [x] `/chat-weather` - AI Weather agent chat
 
 ### Migrated Components
 - [x] Typography components (H1, H2, H3, P, Lead, Large, Small, Muted)
 - [x] Button component (Shadcn UI)
 - [x] Textarea component (Shadcn UI)
+- [x] Weather component (for tool results display)
 - [x] cn() utility function
 - [x] Path aliases configured (`~/` -> `./app/`)
 - [x] useScrollToBottom hook
 - [x] AI SDK integration (`ai@5.0.92` with streaming support)
 
 ### Pending Migration
-- [ ] `/multi-agent-chat` - Multi-agent interface
 - [ ] `/scheduler` - Job management
 - [ ] `/tenant-mass-messaging` - Bulk SMS
 - [ ] `/ai-email-responder` - Email automation

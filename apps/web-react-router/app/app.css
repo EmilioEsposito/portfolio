@@ -253,6 +253,152 @@
   .hover\:text-sidebar-accent-foreground:hover {
     color: hsl(var(--sidebar-accent-foreground));
   }
+  .bg-sidebar {
+    background-color: hsl(var(--sidebar-background));
+  }
+}
+
+/* Sidebar collapsible behavior - Tailwind v4 compatible */
+
+/* Base arbitrary value classes for sidebar width - Tailwind v4 doesn't auto-generate these */
+.w-\[--sidebar-width\] {
+  width: var(--sidebar-width);
+}
+
+.w-\[--sidebar-width-icon\] {
+  width: var(--sidebar-width-icon);
+}
+
+/* These handle the group-data-[collapsible=icon] variants */
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:w-\[--sidebar-width-icon\] {
+  width: var(--sidebar-width-icon);
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:w-\[calc\(var\(--sidebar-width-icon\)_\+_theme\(spacing\.4\)\)\] {
+  width: calc(var(--sidebar-width-icon) + 1rem);
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:w-\[calc\(var\(--sidebar-width-icon\)_\+_theme\(spacing\.4\)_\+2px\)\] {
+  width: calc(var(--sidebar-width-icon) + 1rem + 2px);
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:\!size-8 {
+  width: 2rem !important;
+  height: 2rem !important;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:\!p-2 {
+  padding: 0.5rem !important;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:\!p-0 {
+  padding: 0 !important;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:overflow-hidden {
+  overflow: hidden;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:hidden {
+  display: none;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:-mt-8 {
+  margin-top: -2rem;
+}
+
+.group[data-collapsible="icon"] .group-data-\[collapsible\=icon\]\:opacity-0 {
+  opacity: 0;
+}
+
+/* group-data-[collapsible=offcanvas] variants */
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:w-0 {
+  width: 0;
+}
+
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:left-\[calc\(var\(--sidebar-width\)\*-1\)\] {
+  left: calc(var(--sidebar-width) * -1);
+}
+
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:right-\[calc\(var\(--sidebar-width\)\*-1\)\] {
+  right: calc(var(--sidebar-width) * -1);
+}
+
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:translate-x-0 {
+  transform: translateX(0);
+}
+
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:after\:left-full::after {
+  left: 100%;
+}
+
+.group[data-collapsible="offcanvas"] .group-data-\[collapsible\=offcanvas\]\:hover\:bg-sidebar:hover {
+  background-color: hsl(var(--sidebar-background));
+}
+
+/* group-data-[side] variants */
+.group[data-side="left"] .group-data-\[side\=left\]\:border-r {
+  border-right-width: 1px;
+}
+
+.group[data-side="right"] .group-data-\[side\=right\]\:border-l {
+  border-left-width: 1px;
+}
+
+.group[data-side="right"] .group-data-\[side\=right\]\:rotate-180 {
+  transform: rotate(180deg);
+}
+
+.group[data-side="left"] .group-data-\[side\=left\]\:-right-4 {
+  right: -1rem;
+}
+
+.group[data-side="right"] .group-data-\[side\=right\]\:left-0 {
+  left: 0;
+}
+
+/* group-data-[variant] variants */
+.group[data-variant="floating"] .group-data-\[variant\=floating\]\:rounded-lg {
+  border-radius: 0.5rem;
+}
+
+.group[data-variant="floating"] .group-data-\[variant\=floating\]\:border {
+  border-width: 1px;
+}
+
+.group[data-variant="floating"] .group-data-\[variant\=floating\]\:border-sidebar-border {
+  border-color: hsl(var(--sidebar-border));
+}
+
+.group[data-variant="floating"] .group-data-\[variant\=floating\]\:shadow {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+/* peer-data variants for SidebarInset */
+.peer[data-variant="inset"] ~ .peer-data-\[variant\=inset\]\:min-h-\[calc\(100svh-theme\(spacing\.4\)\)\] {
+  min-height: calc(100svh - 1rem);
+}
+
+@media (min-width: 768px) {
+  .peer[data-variant="inset"] ~ .md\:peer-data-\[variant\=inset\]\:m-2 {
+    margin: 0.5rem;
+  }
+
+  .peer[data-variant="inset"] ~ .md\:peer-data-\[variant\=inset\]\:ml-0 {
+    margin-left: 0;
+  }
+
+  .peer[data-state="collapsed"][data-variant="inset"] ~ .md\:peer-data-\[state\=collapsed\]\:peer-data-\[variant\=inset\]\:ml-2 {
+    margin-left: 0.5rem;
+  }
+
+  .peer[data-variant="inset"] ~ .md\:peer-data-\[variant\=inset\]\:rounded-xl {
+    border-radius: 0.75rem;
+  }
+
+  .peer[data-variant="inset"] ~ .md\:peer-data-\[variant\=inset\]\:shadow {
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  }
 }
 
 html,
