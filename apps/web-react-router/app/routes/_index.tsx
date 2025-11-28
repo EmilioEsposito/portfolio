@@ -5,7 +5,7 @@ import { Link } from "react-router";
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Emilio Esposito - Portfolio" },
-    { name: "description", content: "Distinguished Engineer / Director, AI Enablement at LegalZoom. VP & Managing Partner at Sernia Capital." },
+    { name: "description", content: "Director & Distinguished Engineer - AI Engineering & Enablement at LegalZoom | VP & Managing Partner at Sernia Capital." },
   ];
 }
 
@@ -13,13 +13,13 @@ export default function Home() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Chat Link Banner */}
-      <div className="mb-8 p-4 bg-primary/10 rounded-lg border border-primary/20">
+      {/* <div className="mb-8 p-4 bg-primary/10 rounded-lg border border-primary/20">
         <P className="text-center">
           <Link to="/chat-emilio" className="text-primary font-medium hover:underline">
             💬 Chat with an AI about Emilio's experience and projects →
           </Link>
         </P>
-      </div>
+      </div> */}
 
       {/* Hero Section */}
       <div className="space-y-4 mb-12">
@@ -27,8 +27,9 @@ export default function Home() {
           <div className="flex-1">
             <H1>Emilio Esposito</H1>
             <P className="text-lg text-muted-foreground">
-              Distinguished Engineer / Director, AI Enablement | VP & Managing Partner at
-              Sernia Capital
+              Director & Distinguished Engineer - AI Engineering & Enablement at LegalZoom
+              <br />
+              VP & Managing Partner at Sernia Capital
             </P>
           </div>
           <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
