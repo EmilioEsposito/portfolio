@@ -6,6 +6,8 @@ import tsconfigPaths from "vite-tsconfig-paths";
 // Determine backend URL based on environment
 const getBackendUrl = () => {
   // Railway hosted (Production & Development)
+  console.log(">>> RAILWAY_ENVIRONMENT_NAME: ", process.env.RAILWAY_ENVIRONMENT_NAME);
+  console.log(">>> CUSTOM_RAILWAY_BACKEND_URL: ", process.env.CUSTOM_RAILWAY_BACKEND_URL);
   if (process.env.RAILWAY_ENVIRONMENT_NAME) {
     return process.env.CUSTOM_RAILWAY_BACKEND_URL || "http://localhost:8000";
   }
