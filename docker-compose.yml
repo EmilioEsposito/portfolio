@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:15
+    image: postgres:16
     container_name: portfolio-postgres
     restart: unless-stopped
     environment:
@@ -24,6 +24,12 @@ services:
     # these are available on run time, but not on build time
     env_file:
       - .env.development.local
+    # Override DATABASE_URL to use postgres service name instead of localhost when running in Docker
+    # Also ensure DATABASE_REQUIRE_SSL is set to false for local postgres (which doesn't support SSL)
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:-portfolio}@postgres:5432/${POSTGRES_DB:-portfolio}
+      - DATABASE_URL_UNPOOLED=postgresql://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:-portfolio}@postgres:5432/${POSTGRES_DB:-portfolio}
+      - DATABASE_REQUIRE_SSL=false
     networks:
       - portfolio-net
     depends_on:
@@ -43,6 +49,22 @@ services:
     # these are available on run time, but not on build time
     env_file:
       - .env.development.local
+    depends_on:
+      - fastapi
+      - postgres
+    networks:
+      - portfolio-net
+  web-react-router:
+    build:
+      context: .
+      dockerfile: apps/web-react-router/Dockerfile
+    container_name: portfolio-web-react-router
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env.development.local
+    environment:
+      - LOCAL_DOCKER_COMPOSE=true
     depends_on:
       - fastapi
       - postgres

@@ -5,6 +5,7 @@
   "scripts": {
     "reinstall": "rm -rf node_modules && rm -rf pnpm-lock.yaml && rm -rf apps/web/node_modules && rm -rf apps/my-expo-app/node_modules && pnpm install",
     "dev": "pnpm --filter web-nextjs dev",
+    "dev-react-router": "pnpm --filter web-react-router dev",
     "dev-with-fastapi": "concurrently \"next dev\" \"uv sync -p python3.11 && source .venv/bin/activate && python3 -m hypercorn api.index:app --reload -b 0.0.0.0:8000\"",
     "build": "pnpm --filter web-nextjs build",
     "start": "pnpm --filter web-nextjs start",

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath":  "apps/web-react-router/Dockerfile",
+    "watchPatterns": [
+      "apps/web-react-router/**",
+      "packages/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml"
+    ]
+  }
+}

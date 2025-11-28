@@ -132,17 +132,21 @@ if DATABASE_URL_UNPOOLED:
             sync_url_for_logging = sync_url_for_logging.replace(credentials_part, "<credentials>")
 
     logger.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
+    logger.info(f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}")
     try:
         # For a background service like APScheduler, use NullPool for serverless compatibility.
         # echo=False is common for sync engines unless specific SQL debugging is needed.
-        sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {}
+        # psycopg2 requires explicit sslmode setting - empty dict defaults to requiring SSL
+        sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {"sslmode": "disable"}
+        logger.info(f"Using sync_connect_args: {sync_connect_args}")
         sync_engine = create_sync_engine(
             sync_db_url,
             echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
             poolclass=NullPool,  # Use NullPool for serverless
             connect_args=sync_connect_args,
         )
-        logger.info("Synchronous SQLAlchemy engine created successfully with NullPool and SSL.")
+        ssl_status = "with SSL" if DATABASE_REQUIRE_SSL else "without SSL"
+        logger.info(f"Synchronous SQLAlchemy engine created successfully with NullPool {ssl_status}.")
     except Exception as e:
         logger.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
         sync_engine = None # Ensure it's None if creation failed
