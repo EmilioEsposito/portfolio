@@ -201,11 +201,16 @@ export default {
 - [x] Migrate authenticated pages (scheduler with Clerk auth token)
 
 ### API Proxy Setup (✅ Complete)
-All `/api/*` requests are proxied to FastAPI:
-- **Dev**: `vite.config.ts` proxy → `http://127.0.0.1:8000`
-- **Prod**: `server.js` Express proxy → `CUSTOM_RAILWAY_BACKEND_URL`
+All `/api/*` requests are proxied to FastAPI. Just use `fetch('/api/...')` - works everywhere.
 
-Just use `fetch('/api/...')` in your code - works everywhere.
+| Environment | Handler | Backend URL |
+|-------------|---------|-------------|
+| Dev (`pnpm dev`) | `vite.config.ts` | `http://127.0.0.1:8000` |
+| Docker Compose | `server.js` | `http://fastapi:8000` (via `LOCAL_DOCKER_COMPOSE=true`) |
+| Railway | `server.js` | `CUSTOM_RAILWAY_BACKEND_URL` |
+| Local prod | `server.js` | `http://127.0.0.1:8000` |
+
+See `server.js`, `vite.config.ts`, `docker-compose.yml`, and `README.md` for details.
 
 ### Component Migration (✅ Phase 3 Complete)
 - [x] Create typography components (H1, H2, H3, P, Lead, Large, Small, Muted)

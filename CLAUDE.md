@@ -32,9 +32,10 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 - **Solo Developer Context**: Simple credential management, straightforward patterns
 
 ### Key Applications
-1. **Next.js Web App** (`apps/web/`) - Primary web interface with AI chat, scheduling, tenant management
-2. **FastAPI Backend** (`api/`) - Python API with multi-agent AI, webhooks, scheduling
-3. **Expo Mobile App** (`apps/my-expo-app/`) - React Native mobile app (iOS/Android/Web)
+1. **React Router Web App** (`apps/web-react-router/`) - New primary web interface (migrating from Next.js)
+2. **Next.js Web App** (`apps/web/`) - Legacy web interface (being replaced)
+3. **FastAPI Backend** (`api/`) - Python API with multi-agent AI, webhooks, scheduling
+4. **Expo Mobile App** (`apps/my-expo-app/`) - React Native mobile app (iOS/Android/Web)
 
 ---
 
@@ -121,22 +122,22 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 │   ├── db_create_migration.sh # Generate new migration
 │   └── db_run_migration.sh    # Apply migrations
 ├── apps/
-│   ├── web/                   # Next.js Web App
+│   ├── web-react-router/      # React Router v7 Web App (primary)
+│   │   ├── app/
+│   │   │   ├── routes/        # File-based routes
+│   │   │   ├── components/    # React components
+│   │   │   └── lib/           # Utilities
+│   │   ├── server.js          # Express server with API proxy
+│   │   ├── vite.config.ts     # Vite config with dev proxy
+│   │   └── react-router.config.ts
+│   ├── web/                   # Next.js Web App (legacy)
 │   │   ├── app/               # App Router pages
-│   │   │   ├── chat-emilio/   # Portfolio chatbot UI
-│   │   │   ├── chat-weather/  # Weather chat UI
-│   │   │   ├── multi-agent-chat/  # Multi-agent interface
-│   │   │   ├── scheduler/     # Job management UI
-│   │   │   ├── tenant-mass-messaging/  # Bulk SMS UI
-│   │   │   ├── ai-email-responder/  # Email automation UI
-│   │   │   └── examples/      # Demo pages
 │   │   ├── components/        # React components
 │   │   │   └── ui/            # Shadcn components
 │   │   ├── hooks/             # Custom hooks
 │   │   ├── lib/               # Utilities
 │   │   ├── tests/             # Playwright E2E tests
-│   │   ├── next.config.js     # Next.js config
-│   │   └── tailwind.config.js # Tailwind config
+│   │   └── next.config.js     # Next.js config
 │   └── my-expo-app/           # React Native Mobile App
 │       ├── app/               # Expo Router pages
 │       │   ├── (auth)/        # Auth screens
@@ -325,12 +326,12 @@ docker compose logs -f nextjs
 ### Access URLs
 
 #### Local Development
-- **Next.js**: http://localhost:3000
-- **FastAPI (direct)**: http://localhost:8000/api/docs
-- **FastAPI (via proxy)**: http://localhost:3000/api/docs
+- **React Router**: http://localhost:5173
+- **Next.js (legacy)**: http://localhost:3000
+- **FastAPI**: http://localhost:8000/api/docs
 
 #### Dev Environment
-- **Next.js**: https://dev.eesposito.com
+- **React Router**: https://dev.eesposito.com
 - **FastAPI (direct)**: https://dev-eesposito-fastapi.up.railway.app/api/docs
 - **FastAPI (via proxy)**: https://dev.eesposito.com/api/docs
 
@@ -1374,9 +1375,10 @@ docker compose logs -f nextjs
 ```
 
 ### Common URLs
-- Local Next.js: http://localhost:3000
+- Local React Router: http://localhost:5173
+- Local Next.js (legacy): http://localhost:3000
 - Local FastAPI: http://localhost:8000/api/docs
-- Dev Environment: https://dev.eesposito.com
+- Dev: https://dev.eesposito.com
 - Production: https://eesposito.com
 
 ---
