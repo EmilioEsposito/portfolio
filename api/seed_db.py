@@ -56,6 +56,14 @@ CONTACT_SEEDS: list[ContactSeed] = [
         company="Sernia Capital LLC",
         interactive_fields=["phone_number", "email"],  # Can be overridden interactively
     ),
+    ContactSeed(
+        slug="emilio",
+        first_name="Emilio",
+        last_name="Esposito",
+        notes="Main contact for Emilio Esposito",
+        company="Sernia Capital LLC",
+        interactive_fields=["phone_number", "email"],  # Can be overridden interactively
+    ),
     # Add more seeds here as needed:
     # ContactSeed(
     #     slug="test-tenant",
