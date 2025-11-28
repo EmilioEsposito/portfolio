@@ -22,6 +22,22 @@
             "preLaunchTask": "Prepare Next.js Frontend"
         },
         {
+            "name": "React Router Frontend",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": [
+                "dev-react-router"
+            ],
+            "console": "integratedTerminal",
+            "serverReadyAction": {
+                "pattern": "- Local:.+(https?://.+)",
+                "uriFormat": "%s",
+                "action": "debugWithChrome"
+            },
+            "preLaunchTask": "Prepare React Router Frontend"
+        },
+        {
             "name": "FastAPI Backend",
             "type": "debugpy",
             "request": "launch",
@@ -85,6 +101,7 @@
             "configurations": [
                 "FastAPI Backend",
                 "Next.js Frontend",
+                "React Router Frontend",
                 // "Expo App"
             ],
             "presentation": {

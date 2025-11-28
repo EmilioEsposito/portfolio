@@ -1,5 +1,6 @@
 {
-  "name": "apps-web-react-router",
+  "name": "web-react-router",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,6 +33,7 @@
     "@react-router/fs-routes": "^7.9.6",
     "@react-router/node": "^7.9.2",
     "@react-router/serve": "^7.9.2",
+    "@tanstack/react-table": "^8.21.3",
     "ai": "^5.0.92",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -222,6 +222,7 @@ export default {
 - [x] Scheduler component (web-only version for React Router)
 - [x] Table components (for email responder)
 - [x] Fixed Command component DialogProps import issue
+- [x] DataTable component (for message-tenants with @tanstack/react-table)
 
 ### Feature Migration (✅ Phase 3 Complete)
 - [x] Homepage
@@ -234,6 +235,7 @@ export default {
 - [x] ai-email-responder-architecture with Mermaid diagram
 - [x] Scheduler interface (with Clerk auth token via useAuth hook)
 - [x] tenant-mass-messaging UI (with MultiSelect component)
+- [x] message-tenants UI (with DataTable, row selection, filtering, sorting)
 - [ ] Database queries (with Neon) - defer until needed
 
 ## Migration Patterns
