@@ -1,6 +1,6 @@
 #!/bin/bash
 
-terminal-notifier -message "--DEBUG1--conditionally_send_slack.sh" -title "DEBUG"
+# terminal-notifier -message "--DEBUG1--conditionally_send_slack.sh" -title "DEBUG"
 
 # Load environment variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +20,7 @@ result=$(terminal-notifier -list "$GROUP_ID" 2>/dev/null)
 # If there are still outstanding notifications, user hasn't dismissed them
 # This likely means they're away from their computer
 if [ -n "$result" ]; then
-  terminal-notifier -message "--DEBUG2-- SLACK_WEBHOOK_CLAUDE_CODE: $SLACK_WEBHOOK_CLAUDE_CODE" -title "DEBUG"
+  # terminal-notifier -message "--DEBUG2-- SLACK_WEBHOOK_CLAUDE_CODE: $SLACK_WEBHOOK_CLAUDE_CODE" -title "DEBUG"
   # Send Slack notification
   curl -s -X POST -H 'Content-type: application/json' \
     --data "{\"text\":\"$MESSAGE\"}" \

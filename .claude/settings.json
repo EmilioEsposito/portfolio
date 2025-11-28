@@ -43,8 +43,8 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '🔔 Claude needs your input' 30",
-            "timeout": 60
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '🔔 Claude needs your input' 60",
+            "timeout": 120
           }
         ]
       }
@@ -58,8 +58,8 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '✅ Claude has finished' 30",
-            "timeout": 60
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '✅ Claude has finished' 60",
+            "timeout": 120
           }
         ]
       }
