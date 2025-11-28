@@ -6,7 +6,7 @@ source "$SCRIPT_DIR/../.env.development.local"
 
 MESSAGE="$1"
 GROUP_ID='claude-code'
-DELAY="${2:-60}"  # Default 60 second delay
+DELAY="${2:-30}"  # Default 30 second delay
 
 # Wait to see if user dismisses the notification locally
 sleep "$DELAY"
@@ -18,6 +18,7 @@ result=$(terminal-notifier -list "$GROUP_ID" 2>/dev/null)
 # If there are still outstanding notifications, user hasn't dismissed them
 # This likely means they're away from their computer
 if [ -n "$result" ]; then
+  terminal-notifier -message "--DEBUG-- SLACK_WEBHOOK_CLAUDE_CODE: $SLACK_WEBHOOK_CLAUDE_CODE" -title "DEBUG"
   # Send Slack notification
   curl -s -X POST -H 'Content-type: application/json' \
     --data "{\"text\":\"$MESSAGE\"}" \

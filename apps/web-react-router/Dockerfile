@@ -22,6 +22,7 @@ WORKDIR /app
 COPY apps/web-react-router/package.json pnpm-lock.yaml ./
 RUN pnpm install --prod
 COPY --from=build /app/apps/web-react-router/build ./build
+COPY apps/web-react-router/server.js ./server.js
 ENV PORT=5173
 EXPOSE 5173
-CMD ["pnpm", "run", "start"]
+CMD ["node", "server.js"]

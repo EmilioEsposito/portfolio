@@ -6,7 +6,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
-    "start": "react-router-serve ./build/server/index.js",
+    "start": "node server.js",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
@@ -31,8 +31,10 @@
     "@radix-ui/react-toast": "^1.2.13",
     "@radix-ui/react-tooltip": "^1.2.6",
     "@react-router/fs-routes": "^7.9.6",
+    "@react-router/express": "^7.9.2",
     "@react-router/node": "^7.9.2",
-    "@react-router/serve": "^7.9.2",
+    "compression": "^1.7.5",
+    "express": "^4.21.2",
     "@tanstack/react-table": "^8.21.3",
     "ai": "^5.0.92",
     "class-variance-authority": "^0.7.1",
@@ -65,6 +67,8 @@
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "@types/compression": "^1.7.5",
+    "@types/express": "^5.0.3"
   }
 }

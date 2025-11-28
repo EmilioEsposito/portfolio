@@ -10,7 +10,10 @@
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git branch:*)",
+      "Bash(cat:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker run:*)",
+      "Bash(docker exec:*)",
       "mcp__playwright",
       "mcp__context7",
       "mcp__chrome-devtools"
@@ -40,7 +43,7 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '🔔 Claude needs your input' 60",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '🔔 Claude needs your input' 30",
             "timeout": 60
           }
         ]
@@ -55,7 +58,7 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '✅ Claude has finished' 60",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '✅ Claude has finished' 30",
             "timeout": 60
           }
         ]
