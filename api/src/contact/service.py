@@ -143,10 +143,7 @@ async def get_contact_by_slug(slug: str) -> Optional[Contact]:
         if contact:
             logger.info(f"Found contact with slug: {slug} (ID: {contact.id})")
         else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Contact with slug: {slug} not found."
-            )
+            logger.error(f"Contact with slug: {slug} not found.")
         return contact
 
 async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Contact]:
