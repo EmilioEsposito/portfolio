@@ -427,6 +427,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.6
         version: 1.2.6(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@react-router/fs-routes':
+        specifier: ^7.9.6
+        version: 7.9.6(@react-router/dev@7.9.6(@react-router/serve@7.9.6(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(typescript@5.9.3))(@types/node@22.15.17)(babel-plugin-macros@3.1.0)(jiti@2.6.1)(lightningcss@1.30.2)(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(terser@5.44.1)(typescript@5.9.3)(vite@7.2.4(@types/node@22.15.17)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(yaml@2.7.1))(yaml@2.7.1))(typescript@5.9.3)
       '@react-router/node':
         specifier: ^7.9.2
         version: 7.9.6(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(typescript@5.9.3)
@@ -457,6 +460,9 @@ importers:
       lucide-react:
         specifier: ^0.460.0
         version: 0.460.0(react@19.2.0)
+      mermaid:
+        specifier: ^11.6.0
+        version: 11.6.0
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -2994,6 +3000,16 @@ packages:
     peerDependencies:
       express: ^4.17.1 || ^5
       react-router: 7.9.6
+      typescript: ^5.1.0
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  '@react-router/fs-routes@7.9.6':
+    resolution: {integrity: sha512-wl0hRJS0tFwBpxkz2rcEFCqpAvLS6t2F68ZEJptvu7BPFLJ5CgVDEuzNgY0XMCdzGkr8GeGIRvC8K6tqD0+9dw==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@react-router/dev': ^7.9.6
       typescript: ^5.1.0
     peerDependenciesMeta:
       typescript:
@@ -12583,6 +12599,13 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
 
+  '@react-router/fs-routes@7.9.6(@react-router/dev@7.9.6(@react-router/serve@7.9.6(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(typescript@5.9.3))(@types/node@22.15.17)(babel-plugin-macros@3.1.0)(jiti@2.6.1)(lightningcss@1.30.2)(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(terser@5.44.1)(typescript@5.9.3)(vite@7.2.4(@types/node@22.15.17)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(yaml@2.7.1))(yaml@2.7.1))(typescript@5.9.3)':
+    dependencies:
+      '@react-router/dev': 7.9.6(@react-router/serve@7.9.6(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(typescript@5.9.3))(@types/node@22.15.17)(babel-plugin-macros@3.1.0)(jiti@2.6.1)(lightningcss@1.30.2)(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(terser@5.44.1)(typescript@5.9.3)(vite@7.2.4(@types/node@22.15.17)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(yaml@2.7.1))(yaml@2.7.1)
+      minimatch: 9.0.5
+    optionalDependencies:
+      typescript: 5.9.3
+
   '@react-router/node@7.9.6(react-router@7.9.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(typescript@5.9.3)':
     dependencies:
       '@mjackson/node-fetch-server': 0.2.0
@@ -13594,7 +13617,7 @@ snapshots:
 
   acorn-walk@8.3.4:
     dependencies:
-      acorn: 8.14.1
+      acorn: 8.15.0
 
   acorn@8.14.1: {}
 
@@ -17794,7 +17817,7 @@ snapshots:
 
   mlly@1.7.4:
     dependencies:
-      acorn: 8.14.1
+      acorn: 8.15.0
       pathe: 2.0.3
       pkg-types: 1.3.1
       ufo: 1.6.1
@@ -19759,7 +19782,7 @@ snapshots:
   terser@5.39.0:
     dependencies:
       '@jridgewell/source-map': 0.3.6
-      acorn: 8.14.1
+      acorn: 8.15.0
       commander: 2.20.3
       source-map-support: 0.5.21
 

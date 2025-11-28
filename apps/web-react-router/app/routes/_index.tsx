@@ -1,4 +1,4 @@
-import type { Route } from "./+types/home";
+import type { Route } from "./+types/_index";
 import { H1, H2, H3, P } from "~/components/typography";
 import { Link } from "react-router";
 

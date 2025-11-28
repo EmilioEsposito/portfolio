@@ -143,13 +143,13 @@ export default function ChatEmilioPage() {
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (input.trim() && status !== "submitted" && status !== "streaming") {
-      sendMessage({ role: "user", content: input });
+      sendMessage({ role: "user", parts: [{ type: "text", text: input }] });
       setInput("");
     }
   };
 
   const handleSuggestedQuestion = (question: string) => {
-    sendMessage({ role: "user", content: question });
+    sendMessage({ role: "user", parts: [{ type: "text", text: question }] });
   };
 
   return (
@@ -209,9 +209,7 @@ export default function ChatEmilioPage() {
             {messages.map((message, index) => {
               // Extract text content
               let textContent = "";
-              if (message.content && typeof message.content === "string") {
-                textContent = message.content;
-              } else if (message.parts && Array.isArray(message.parts)) {
+              if (message.parts && Array.isArray(message.parts)) {
                 const textParts = message.parts.filter(
                   (part: any) => part.type === "text"
                 );
@@ -220,9 +218,7 @@ export default function ChatEmilioPage() {
 
               // Extract tool invocations
               let toolInvocations: any[] = [];
-              if (message.toolInvocations && Array.isArray(message.toolInvocations)) {
-                toolInvocations = message.toolInvocations;
-              } else if (message.parts && Array.isArray(message.parts)) {
+              if (message.parts && Array.isArray(message.parts)) {
                 const allToolParts = message.parts.filter((part: any) =>
                   part.type?.startsWith("tool-") ||
                   part.state === "output-available" ||

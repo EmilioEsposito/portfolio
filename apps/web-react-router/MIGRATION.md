@@ -1,7 +1,8 @@
 # Next.js to React Router v7 Migration Guide
 
 > **Created**: 2025-11-27
-> **Status**: In Progress - Proof of Concept Complete
+> **Updated**: 2025-11-28
+> **Status**: Phase 3 Complete - All Core Features Migrated
 
 ## Overview
 
@@ -35,10 +36,12 @@ apps/web/
 apps/web-react-router/
 ├── app/
 │   ├── routes/
-│   │   ├── home.tsx           # Index route (/)
-│   │   └── test.tsx            # /test route
-│   ├── routes.ts               # Route configuration
-│   ├── root.tsx                # Root layout with Clerk
+│   │   ├── _index.tsx         # Index route (/)
+│   │   ├── test.tsx           # /test route
+│   │   ├── chat-emilio.tsx    # /chat-emilio route
+│   │   └── ...                # Other routes auto-discovered
+│   ├── routes.ts              # File-based routing config
+│   ├── root.tsx               # Root layout with Clerk
 │   └── app.css
 ├── .env                        # Vite env vars (VITE_ prefix)
 └── react-router.config.ts      # React Router config
@@ -54,22 +57,32 @@ app/test/page.tsx              → /test
 app/chat-emilio/page.tsx       → /chat-emilio
 ```
 
-**React Router:**
+**React Router (File-based routing with @react-router/fs-routes):**
 ```
+app/routes/_index.tsx          → /         (index route)
 app/routes/test.tsx            → /test
 app/routes/chat-emilio.tsx     → /chat-emilio
+app/routes/about.tsx           → /about
+app/routes/concerts.trending.tsx → /concerts/trending (dot = nested URL)
+app/routes/concerts.$city.tsx  → /concerts/:city ($ = dynamic param)
 ```
 
-Register routes in `app/routes.ts`:
+File-based routing in `app/routes.ts`:
 ```typescript
-import { type RouteConfig, index, route } from "@react-router/dev/routes";
+import { type RouteConfig } from "@react-router/dev/routes";
+import { flatRoutes } from "@react-router/fs-routes";
 
-export default [
-  index("routes/home.tsx"),
-  route("test", "routes/test.tsx"),
-  route("chat-emilio", "routes/chat-emilio.tsx"),
-] satisfies RouteConfig;
+export default flatRoutes() satisfies RouteConfig;
 ```
+
+**File naming conventions:**
+- `_index.tsx` - Index route for parent directory
+- `name.tsx` - Route at `/name`
+- `parent.child.tsx` - Nested URL `/parent/child` (dots create segments)
+- `$param.tsx` - Dynamic segment (`:param`)
+- `_layout.tsx` - Pathless layout (wraps children without URL segment)
+- `parent_.child.tsx` - Escape layout nesting (trailing underscore)
+- `$.tsx` - Splat/catch-all route
 
 ### 2. Page Components
 
@@ -176,36 +189,52 @@ export default {
 - [x] Set up Clerk authentication with middleware
 - [x] Configure Tailwind CSS (included by default)
 - [x] Test hello world and authentication
+- [x] Migrate to file-based routing with @react-router/fs-routes
 
-### Page Migration (✅ Phase 1 Complete)
+### Page Migration (✅ Phase 3 Complete)
 - [x] Migrate test page as proof of concept
 - [x] Create shared component library (lib/utils.ts with cn())
 - [x] Migrate homepage (full portfolio content)
 - [x] Configure path aliases (`~/` for `./app/`)
-- [ ] Migrate authenticated pages
-- [ ] Migrate API routes to loaders/actions
+- [x] Migrate chat pages with FastAPI integration
+- [x] Configure Vite proxy for /api/* routes to FastAPI (react-router.config.ts)
+- [x] Migrate authenticated pages (scheduler with Clerk auth token)
 
-### Component Migration (✅ Phase 1 Complete)
+### API Routes Strategy
+> **Decision**: Keep using client-side fetch() to FastAPI backend instead of React Router loaders/actions.
+>
+> **Rationale**:
+> - Chat pages use Vercel AI SDK streaming (must be client-side)
+> - FastAPI backend handles all business logic
+> - Vite proxy configured in react-router.config.ts handles /api/* routing
+> - Simple fetch() calls work well for our use case
+> - No need to duplicate backend logic in React Router
+
+### Component Migration (✅ Phase 3 Complete)
 - [x] Create typography components (H1, H2, H3, P, Lead, Large, Small, Muted)
 - [x] Port Button component from Shadcn UI
 - [x] Install required dependencies (clsx, tailwind-merge, @radix-ui/react-slot, class-variance-authority)
 - [x] Update import paths to use `~/` alias
 - [x] Test component functionality
-- [ ] Port additional Shadcn UI components as needed
-- [ ] Migrate custom components (chat, weather, etc.)
+- [x] Weather component (for AI tool results display)
+- [x] Mermaid component (for architecture diagrams)
+- [x] MultiSelect component (for tenant messaging)
+- [x] Scheduler component (web-only version for React Router)
+- [x] Table components (for email responder)
+- [x] Fixed Command component DialogProps import issue
 
-### Feature Migration
+### Feature Migration (✅ Phase 3 Complete)
 - [x] Homepage
 - [x] chat-emilio UI with FastAPI backend integration ✨
 - [x] Navbar and sidebar
-- [x] multi-agent-chat UI (probably also need to do the backend rewrite and stuff like that in next.config.js)
+- [x] multi-agent-chat UI with Weather tool rendering
 - [x] chat-weather UI
-- [ ] ai-email-responder UI
-- [ ] Scheduler interface
-- [ ] Email automation UI
-- [ ] message-tenants UI 
-- [ ] tenant-mass-messaging UI
-- [ ] Database queries (with Neon)
+- [x] calendly - Schedule meeting (embedded Calendly widget)
+- [x] ai-email-responder UI (main page + architecture subpage)
+- [x] ai-email-responder-architecture with Mermaid diagram
+- [x] Scheduler interface (with Clerk auth token via useAuth hook)
+- [x] tenant-mass-messaging UI (with MultiSelect component)
+- [ ] Database queries (with Neon) - defer until needed
 
 ## Migration Patterns
 

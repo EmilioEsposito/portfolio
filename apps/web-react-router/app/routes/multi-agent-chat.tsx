@@ -156,13 +156,19 @@ export default function MultiAgentChatPage() {
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (input.trim() && status !== "submitted" && status !== "streaming") {
-      sendMessage({ role: "user", content: input });
+      sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: input }],
+      });
       setInput("");
     }
   };
 
   const handleSuggestedQuestion = (question: string) => {
-    sendMessage({ role: "user", content: question });
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: question }],
+    });
   };
 
   // Process messages to extract tool invocations
