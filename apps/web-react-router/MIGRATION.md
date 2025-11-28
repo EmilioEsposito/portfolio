@@ -200,15 +200,12 @@ export default {
 - [x] Configure Vite proxy for /api/* routes to FastAPI (react-router.config.ts)
 - [x] Migrate authenticated pages (scheduler with Clerk auth token)
 
-### API Routes Strategy
-> **Decision**: Keep using client-side fetch() to FastAPI backend instead of React Router loaders/actions.
->
-> **Rationale**:
-> - Chat pages use Vercel AI SDK streaming (must be client-side)
-> - FastAPI backend handles all business logic
-> - Vite proxy configured in react-router.config.ts handles /api/* routing
-> - Simple fetch() calls work well for our use case
-> - No need to duplicate backend logic in React Router
+### API Proxy Setup (✅ Complete)
+All `/api/*` requests are proxied to FastAPI:
+- **Dev**: `vite.config.ts` proxy → `http://127.0.0.1:8000`
+- **Prod**: `server.js` Express proxy → `CUSTOM_RAILWAY_BACKEND_URL`
+
+Just use `fetch('/api/...')` in your code - works everywhere.
 
 ### Component Migration (✅ Phase 3 Complete)
 - [x] Create typography components (H1, H2, H3, P, Lead, Large, Small, Muted)
@@ -464,4 +461,4 @@ Create a shared component library that works with both:
 **A**: Keep using same database, both apps can share it
 
 ### Q: API endpoints?
-**A**: Prefer React Router loaders/actions, but can proxy to FastAPI
+**A**: Use `fetch('/api/...')` - proxied to FastAPI via `vite.config.ts` (dev) and `server.js` (prod)

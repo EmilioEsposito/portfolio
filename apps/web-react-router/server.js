@@ -1,3 +1,13 @@
+/**
+ * Custom Express server for React Router v7.
+ *
+ * API Proxy: Forwards /api/* requests to FastAPI backend.
+ * - Docker Compose: LOCAL_DOCKER_COMPOSE=true → http://fastapi:8000 (checked first)
+ * - Railway: CUSTOM_RAILWAY_BACKEND_URL
+ * - Local: http://127.0.0.1:8000
+ *
+ * See also: vite.config.ts (dev proxy), README.md, docker-compose.yml
+ */
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import compression from "compression";
@@ -79,19 +89,18 @@ app.all(
   })
 );
 
-// Helper to determine backend URL based on environment
 function getBackendUrl() {
-  // Railway hosted (Production & Development)
-  if (process.env.RAILWAY_ENVIRONMENT_NAME) {
-    return process.env.CUSTOM_RAILWAY_BACKEND_URL || "http://localhost:8000";
-  }
-
-  // Docker Compose
-  if (process.env.DOCKER_ENV) {
+  // Docker Compose (set in docker-compose.yml) - check first to override env_file
+  if (process.env.LOCAL_DOCKER_COMPOSE) {
     return "http://fastapi:8000";
   }
 
-  // Local development (default)
+  // Railway
+  if (process.env.CUSTOM_RAILWAY_BACKEND_URL) {
+    return process.env.CUSTOM_RAILWAY_BACKEND_URL;
+  }
+
+  // Local development
   return "http://127.0.0.1:8000";
 }
 

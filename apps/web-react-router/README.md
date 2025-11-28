@@ -166,12 +166,34 @@ The app uses Playwright for E2E testing (to be set up). Run tests with:
 pnpm test:e2e
 ```
 
+## API Proxy
+
+All `/api/*` requests are proxied to the FastAPI backend:
+
+| Environment | Proxy Handler | Backend URL |
+|-------------|---------------|-------------|
+| Dev (`pnpm dev`) | `vite.config.ts` | `http://127.0.0.1:8000` |
+| Railway | `server.js` | `CUSTOM_RAILWAY_BACKEND_URL` |
+| Docker Compose | `server.js` | `http://fastapi:8000` (via `LOCAL_DOCKER_COMPOSE=true`) |
+| Local prod | `server.js` | `http://127.0.0.1:8000` |
+
+**Usage**: Just use relative URLs in your code:
+```typescript
+// Client-side fetch - works in both dev and prod
+const response = await fetch('/api/health');
+```
+
+**Files**:
+- `vite.config.ts` - Dev proxy config
+- `server.js` - Production Express server with proxy
+
 ## Deployment
 
-Not yet configured. Will likely deploy to:
-- Railway (like the Next.js app)
-- Vercel (React Router v7 has Vercel adapter)
-- Or any Node.js hosting platform
+Deployed on Railway with custom Express server (`server.js`).
+
+**Env vars**:
+- `CUSTOM_RAILWAY_BACKEND_URL` - Railway internal FastAPI URL
+- `LOCAL_DOCKER_COMPOSE` - Set in docker-compose.yml to use `http://fastapi:8000`
 
 ## Documentation
 

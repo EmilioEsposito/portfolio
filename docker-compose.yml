@@ -63,6 +63,8 @@ services:
       - "5173:5173"
     env_file:
       - .env.development.local
+    environment:
+      - LOCAL_DOCKER_COMPOSE=true
     depends_on:
       - fastapi
       - postgres
