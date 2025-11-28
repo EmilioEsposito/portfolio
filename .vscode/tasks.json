@@ -17,7 +17,7 @@
             "problemMatcher": [],
             "presentation": {
                 "reveal": "silent",
-                "panel": "dedicated"
+                "panel": "shared"
             }
         },
         {
@@ -36,7 +36,26 @@
             "problemMatcher": [],
             "presentation": {
                 "reveal": "silent",
-                "panel": "dedicated"
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Kill Port 5173",
+            "type": "shell",
+            "command": "lsof -ti:5173 | xargs kill -9",
+            "windows": {
+                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :5173') do taskkill /F /PID %a"
+            },
+            "linux": {
+                "command": "fuser -k 5173/tcp || true"
+            },
+            "osx": {
+                "command": "lsof -ti:5173 | xargs kill -9 || true"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
             }
         },
         {
@@ -46,7 +65,7 @@
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",
-                "panel": "dedicated"
+                "panel": "shared"
             }
         },
         {
@@ -65,7 +84,7 @@
             "problemMatcher": [],
             "presentation": {
                 "reveal": "silent",
-                "panel": "dedicated"
+                "panel": "shared"
             }
         },
         {
@@ -82,6 +101,15 @@
             "dependsOn": [
                 "Kill Chrome Debug Sessions",
                 "Kill Port 3000"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Prepare React Router Frontend",
+            "dependsOn": [
+                "Kill Chrome Debug Sessions",
+                "Kill Port 5173"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []

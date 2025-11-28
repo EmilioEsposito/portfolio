@@ -68,3 +68,5 @@ scratch/
 
 # PDF files in ai/pdfs directory
 *.pdf
+
+.playwright-mcp
