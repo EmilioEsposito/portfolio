@@ -31,6 +31,13 @@ export default function Home() {
               Sernia Capital
             </P>
           </div>
+          <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
+            <img
+              src="/images/me.png"
+              alt="Emilio Esposito"
+              className="object-cover w-full h-full"
+            />
+          </div>
         </div>
         <div className="mt-4 text-muted-foreground">
           <P>
