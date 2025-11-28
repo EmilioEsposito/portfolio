@@ -21,6 +21,8 @@ export function apiProxyMiddleware(): Route.MiddlewareFunction {
 
     // Determine backend URL based on environment
     const getBackendUrl = () => {
+        console.log(">>> [API Proxy] RAILWAY_ENVIRONMENT_NAME: ", process.env.RAILWAY_ENVIRONMENT_NAME);
+        console.log(">>> [API Proxy] CUSTOM_RAILWAY_BACKEND_URL: ", process.env.CUSTOM_RAILWAY_BACKEND_URL);
       // Railway hosted (Production & Development)
       if (process.env.RAILWAY_ENVIRONMENT_NAME) {
         // Use Railway internal networking for server-to-server calls (faster & free)
