@@ -26,6 +26,13 @@ const examples = [
     tags: ["FastAPI", "Clerk", "Authentication", "React Router"],
   },
   {
+    title: "FastAPI + GraphQL + Neon Postgres",
+    description:
+      "Demonstrates using FastAPI with GraphQL and Neon Postgres. Shows how to handle GraphQL queries, mutations, and field mapping.",
+    href: "/examples/neon-fastapi",
+    tags: ["FastAPI", "GraphQL", "Neon", "Postgres"],
+  },
+  {
     title: "Multi-Select Component",
     description:
       "A reusable multi-select component built with Shadcn UI and Radix UI. Features search, keyboard navigation, and custom styling.",
