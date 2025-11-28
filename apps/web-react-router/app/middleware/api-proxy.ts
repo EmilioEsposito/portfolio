@@ -1,85 +1,12 @@
 import type { Route } from "../+types/root";
 
 /**
- * Middleware to proxy /api/* requests to the FastAPI backend.
- * 
- * In local development: Uses localhost backend (Vite proxy also works) (file: vite.config.ts)
- * In Railway hosted environments: Uses Railway internal networking for fast server-to-server communication (file: app/middleware/api-proxy.ts)
- * In Docker Compose production: Uses Docker Compose network for fast server-to-server communication (file: vite.config.ts)
- * 
- * This handles all client-side fetch requests to /api/*.
- * For server-side loader/action fetches, use the getBackendUrl() helper directly.
- */
-export function apiProxyMiddleware(): Route.MiddlewareFunction {
-  return async (context) => {
-    const url = new URL(context.request.url);
-
-    // Only intercept /api/* paths
-    if (!url.pathname.startsWith("/api/")) {
-      return; // Pass through to next middleware/route handler
-    }
-
-    // Determine backend URL based on environment
-    const getBackendUrl = () => {
-        console.log(">>> [API Proxy] RAILWAY_ENVIRONMENT_NAME: ", process.env.RAILWAY_ENVIRONMENT_NAME);
-        console.log(">>> [API Proxy] CUSTOM_RAILWAY_BACKEND_URL: ", process.env.CUSTOM_RAILWAY_BACKEND_URL);
-      // Railway hosted (Production & Development)
-      if (process.env.RAILWAY_ENVIRONMENT_NAME) {
-        // Use Railway internal networking for server-to-server calls (faster & free)
-        return process.env.CUSTOM_RAILWAY_BACKEND_URL || "http://localhost:8000";
-      }
-
-      // Docker Compose
-      if (process.env.DOCKER_ENV) {
-        return "http://fastapi:8000";
-      }
-
-      // Local development (default)
-      return "http://127.0.0.1:8000";
-    };
-
-    const backendUrl = getBackendUrl();
-    const proxyUrl = `${backendUrl}${url.pathname}${url.search}`;
-
-    console.log(`[API Proxy] ${context.request.method} ${url.pathname} -> ${proxyUrl}`);
-
-    try {
-      // Forward the request to FastAPI backend
-      const response = await fetch(proxyUrl, {
-        method: context.request.method,
-        headers: context.request.headers,
-        body: context.request.body,
-        // @ts-expect-error - duplex is needed for streaming but not in TS types yet
-        duplex: "half", // Required for streaming request bodies
-      });
-
-      // Return the response (preserving streaming for SSE/chat endpoints)
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    } catch (error) {
-      console.error(`[API Proxy] Error proxying request to ${proxyUrl}:`, error);
-      return new Response(
-        JSON.stringify({
-          error: "Proxy Error",
-          detail: error instanceof Error ? error.message : "Unknown error",
-        }),
-        {
-          status: 502,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-  };
-}
-
-/**
  * Helper function to get the backend URL for use in server-side loaders/actions.
- * 
- * Use this when making API calls from loaders/actions instead of relative URLs.
- * 
+ *
+ * - Railway: Uses internal networking (CUSTOM_RAILWAY_BACKEND_URL)
+ * - Docker Compose: Uses Docker service name
+ * - Local: Uses localhost
+ *
  * @example
  * ```typescript
  * export async function loader() {
@@ -104,3 +31,62 @@ export function getBackendUrl(): string {
   return "http://127.0.0.1:8000";
 }
 
+/**
+ * Middleware to proxy /api/* requests to the FastAPI backend.
+ *
+ * In local development: Uses localhost backend (Vite proxy also works)
+ * In Railway: Uses Railway internal networking for fast server-to-server communication
+ * In Docker Compose: Uses Docker network
+ *
+ * This intercepts ALL /api/* requests at the server level.
+ */
+export const apiProxyMiddleware: Route.MiddlewareFunction = async (
+  { request },
+  next
+) => {
+  const url = new URL(request.url);
+
+  // Only intercept /api/* paths
+  if (!url.pathname.startsWith("/api/")) {
+    return next(); // Pass through to next middleware/route handler
+  }
+
+  const backendUrl = getBackendUrl();
+  const proxyUrl = `${backendUrl}${url.pathname}${url.search}`;
+
+  console.log(`[API Proxy] ${request.method} ${url.pathname} -> ${proxyUrl}`);
+
+  try {
+    // Clone headers but remove host (will be set by fetch)
+    const headers = new Headers(request.headers);
+    headers.delete("host");
+
+    // Forward the request to FastAPI backend
+    const response = await fetch(proxyUrl, {
+      method: request.method,
+      headers,
+      body: request.body,
+      // @ts-expect-error - duplex is needed for streaming but not in TS types yet
+      duplex: "half", // Required for streaming request bodies
+    });
+
+    // Return the response (preserving streaming for SSE/chat endpoints)
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  } catch (error) {
+    console.error(`[API Proxy] Error proxying request to ${proxyUrl}:`, error);
+    return new Response(
+      JSON.stringify({
+        error: "Proxy Error",
+        detail: error instanceof Error ? error.message : "Unknown error",
+      }),
+      {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+};

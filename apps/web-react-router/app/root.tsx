@@ -22,7 +22,7 @@ import { cn } from "~/lib/utils";
 import { apiProxyMiddleware } from "~/middleware/api-proxy";
 
 export const middleware: Route.MiddlewareFunction[] = [
-  apiProxyMiddleware(),
+  apiProxyMiddleware,
   clerkMiddleware(),
 ];
 
