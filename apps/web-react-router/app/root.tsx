@@ -19,8 +19,12 @@ import { SidebarProvider, SidebarInset } from "~/components/ui/sidebar";
 import { AppSidebar } from "~/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
+import { apiProxyMiddleware } from "~/middleware/api-proxy";
 
-export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
+export const middleware: Route.MiddlewareFunction[] = [
+  apiProxyMiddleware(),
+  clerkMiddleware(),
+];
 
 export const loader = (args: Route.LoaderArgs) => rootAuthLoader(args);
 

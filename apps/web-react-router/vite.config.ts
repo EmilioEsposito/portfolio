@@ -27,6 +27,8 @@ console.log(`>>> Vite proxy configured: /api/* -> ${backendUrl}/api/*`);
 export default defineConfig({
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
   server: {
+    // NOTE: This proxy only works during development (pnpm run dev)
+    // In production, the apiProxyMiddleware in app/root.tsx handles /api/* requests
     proxy: {
       "/api": {
         target: backendUrl,
