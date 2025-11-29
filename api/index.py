@@ -74,9 +74,6 @@ logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 logfire.info("Logfire configured with comprehensive instrumentation")
 
-# Test log message immediately after reconfiguration
-logfire.info("EMILIO: FastAPI index.py loaded and Logfire configured")
-
 # Verify critical environment variables
 required_env_vars = {
     "SESSION_SECRET_KEY": (

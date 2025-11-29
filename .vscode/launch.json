@@ -100,7 +100,7 @@
             "name": "Full Stack (Compound)",
             "configurations": [
                 "FastAPI Backend",
-                "Next.js Frontend",
+                // "Next.js Frontend",
                 "React Router Frontend",
                 // "Expo App"
             ],
