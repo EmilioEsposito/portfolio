@@ -104,7 +104,7 @@ if sync_engine is not None:
 logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 # Validation Instrumentation
-logfire.instrument_pydantic()  # Pydantic model validation tracing
+# logfire.instrument_pydantic()  # Pydantic model validation tracing. Commented out because it's very verbose.
 
 logger.info("Logfire configured with comprehensive instrumentation")
 
