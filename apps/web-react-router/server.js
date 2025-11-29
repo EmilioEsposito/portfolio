@@ -13,12 +13,14 @@ import express from "express";
 import compression from "compression";
 import * as logfire from "@pydantic/logfire-node";
 
-// Configure Logfire for observability
+// Configure Logfire for observability with auto-instrumentation
+// This automatically instruments: Express, HTTP, fetch, and more
 logfire.configure({
   token: process.env.LOGFIRE_TOKEN,
   serviceName: "web-react-router",
   serviceVersion: "1.0.0",
   environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  autoInstrument: true, // Enable auto-instrumentation for Express, HTTP, etc.
 });
 
 const app = express();
@@ -34,7 +36,11 @@ app.use("/api", async (req, res) => {
   const backendUrl = getBackendUrl();
   const targetUrl = `${backendUrl}${req.originalUrl}`;
 
-  console.log(`[API Proxy] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+  logfire.info("API Proxy request", {
+    method: req.method,
+    originalUrl: req.originalUrl,
+    targetUrl,
+  });
 
   try {
     // Build headers, excluding host
@@ -71,7 +77,10 @@ app.use("/api", async (req, res) => {
         res.end();
       };
       pump().catch((err) => {
-        console.error("[API Proxy] Stream error:", err);
+        logfire.error("API Proxy stream error", {
+          error: err.message,
+          stack: err.stack,
+        });
         if (!res.headersSent) {
           res.status(502).json({ error: "Proxy Error", detail: err.message });
         }
@@ -80,7 +89,11 @@ app.use("/api", async (req, res) => {
       res.end();
     }
   } catch (error) {
-    console.error(`[API Proxy] Error proxying to ${targetUrl}:`, error);
+    logfire.error("API Proxy error", {
+      targetUrl,
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     if (!res.headersSent) {
       res.status(502).json({
         error: "Proxy Error",
@@ -116,6 +129,9 @@ function getBackendUrl() {
 const port = process.env.PORT || 5173;
 
 app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-  console.log(`Backend URL: ${getBackendUrl()}`);
+  logfire.info("Server started", {
+    port,
+    backendUrl: getBackendUrl(),
+    environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  });
 });
