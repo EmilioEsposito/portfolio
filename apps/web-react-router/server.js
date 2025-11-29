@@ -11,6 +11,15 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import compression from "compression";
+import * as logfire from "@pydantic/logfire-node";
+
+// Configure Logfire for observability
+logfire.configure({
+  token: process.env.LOGFIRE_TOKEN,
+  serviceName: "web-react-router",
+  serviceVersion: "1.0.0",
+  environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+});
 
 const app = express();
 
