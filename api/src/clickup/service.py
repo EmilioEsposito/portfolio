@@ -7,13 +7,12 @@ import pytest
 from datetime import datetime
 import pytz
 from api.src.open_phone.service import send_message
-import logging
+import logfire
 from api.src.scheduler.service import scheduler
 from apscheduler.triggers.cron import CronTrigger
 from api.src.contact.service import get_contact_by_slug
 import json
 
-logger = logging.getLogger(__name__)
 
 
 CLICKUP_API_KEY = os.getenv("CLICKUP_API_KEY")
@@ -41,9 +40,9 @@ async def get_peppino_view_tasks():
     today_et = datetime.now(pytz.timezone('US/Eastern'))
     tasks_filtered = []
 
-    logger.info(f"Found {len(tasks)} tasks")
-    logger.info(f"Today's date: {today_et.date()}")
-    logger.info(f"Today's weekday: {today_et.weekday()}")
+    logfire.info(f"Found {len(tasks)} tasks")
+    logfire.info(f"Today's date: {today_et.date()}")
+    logfire.info(f"Today's weekday: {today_et.weekday()}")
     
 
     # filter for tasks (due today or overdue) AND not completed
@@ -51,13 +50,13 @@ async def get_peppino_view_tasks():
         due_date = task.get('due_date') or 0 # in case due_date is None
         task_due_date = datetime.fromtimestamp(int(due_date) / 1000)
         task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
-        logger.debug(f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}")
+        logfire.debug(f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}")
         # filter for tasks due today
         if task_due_date.date() <= today_et.date():
             # filter out completed tasks
             if task['status']['status'] != 'complete':
                 pretty_task_str = json.dumps(task, indent=4)
-                logger.info(f"task payload: {pretty_task_str}")
+                logfire.info(f"task payload: {pretty_task_str}")
 
                 # for low overdue priority tasks, only append if it's Friday
                 if task.get('priority') and task.get('priority', {}).get('priority','') == 'low':
@@ -91,7 +90,7 @@ async def get_peppino_view_tasks():
             
             filtered_tasks_str += task_template
         
-        logger.info(filtered_tasks_str)
+        logfire.info(filtered_tasks_str)
 
         # send message to sernia
         env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
@@ -107,9 +106,9 @@ async def get_peppino_view_tasks():
             to_phone_number=to_phone_number,
             from_phone_number="+14129101500"
         )
-        logger.info(f"Sent Task Reminder message to {to_phone_number}")
+        logfire.info(f"Sent Task Reminder message to {to_phone_number}")
     else:
-        logger.info("No tasks due today")
+        logfire.info("No tasks due today")
 
     return filtered_tasks_str
 

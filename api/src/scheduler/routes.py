@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from apscheduler.job import Job
 from typing import List
-import logging
+import logfire
 
 # Assuming the scheduler instance is globally available or accessible via a dependency
 # We'll need to import it from where it's defined, likely service.py
@@ -17,8 +17,6 @@ router = APIRouter(
     tags=["scheduler"],
     dependencies=[Depends(verify_serniacapital_user)]
 )
-
-logger = logging.getLogger(__name__)
 
 # Helper to convert APScheduler Job to a more FastAPI-friendly dict
 def job_to_dict(job: Job) -> dict:
@@ -52,10 +50,10 @@ async def get_jobs():
 async def test_get_jobs():
 
     if not scheduler.running:
-        logger.info("Starting scheduler for test_job...")
+        logfire.info("Starting scheduler for test_job...")
         scheduler.start()
     else:
-        logger.info("Scheduler already running for test_job.")
+        logfire.info("Scheduler already running for test_job.")
     jobs = await get_jobs()
     pprint(jobs)
     scheduler.shutdown()
@@ -86,10 +84,10 @@ async def run_job_now(job_id: str):
 @pytest.mark.asyncio
 async def test_run_job_now():
     if not scheduler.running:
-        logger.info("Starting scheduler for test_job...")
+        logfire.info("Starting scheduler for test_job...")
         scheduler.start()
     else:
-        logger.info("Scheduler already running for test_job.")
+        logfire.info("Scheduler already running for test_job.")
     job_id = "zillow_test_job"
     await run_job_now(job_id)
     await asyncio.sleep(10)

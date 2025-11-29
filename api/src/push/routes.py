@@ -1,4 +1,4 @@
-import logging
+import logfire
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
@@ -11,12 +11,6 @@ from .models import PushToken # Import model for potential future use
 
 # Define router with prefix and tags
 router = APIRouter(prefix="/push", tags=["push"])
-
-# Remove placeholder dependency
-# async def get_current_user_id() -> str:
-#     ...
-
-logger = logging.getLogger(__name__)
 
 @router.post("/register", status_code=201)
 async def register_push_token(
@@ -42,7 +36,7 @@ async def register_push_token(
         # Fallback to the first email if none are verified (adjust as needed)
         if not primary_email:
              primary_email = user.email_addresses[0].email_address
-             logger.warning(f"No verified email found for user {user.id}, using first email: {primary_email}")
+             logfire.warn(f"No verified email found for user {user.id}, using first email: {primary_email}")
 
     if not primary_email:
          raise HTTPException(status_code=400, detail="Could not determine user email.")

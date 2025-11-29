@@ -4,7 +4,7 @@ FastAPI routes for Gmail-specific endpoints.
 
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, List
-import logging
+import logfire
 from openai import AsyncOpenAI
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,6 @@ import os
 
 client = AsyncOpenAI()  # Create async client instance
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
@@ -70,7 +69,7 @@ async def get_zillow_emails(session: AsyncSession = Depends(get_session)) -> Lis
         ]
     
     except Exception as e:
-        logger.error(f"Error fetching Zillow emails: {str(e)}")
+        logfire.error(f"Error fetching Zillow emails: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Zillow emails: {str(e)}"
@@ -105,7 +104,7 @@ Please generate a professional and appropriate response:"""
         return {"response": response_text}
         
     except Exception as e:
-        logger.error(f"Error generating email response: {str(e)}")
+        logfire.error(f"Error generating email response: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate email response: {str(e)}"
@@ -157,7 +156,7 @@ async def refresh_watch(payload: OptionalPassword = None):
     """
     try:
         if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
-            logger.info("Skipping Gmail watch refresh in hosted development environment")
+            logfire.info("Skipping Gmail watch refresh in hosted development environment")
             return {
                 "success": True,
                 "message": "Skipping Gmail watch refresh in hosted development environment",
@@ -166,13 +165,13 @@ async def refresh_watch(payload: OptionalPassword = None):
             # Try to stop any existing watch, but don't fail if there isn't one
             try:
                 stop_gmail_watch()
-                logger.info("✓ Stopped existing watch")
+                logfire.info("✓ Stopped existing watch")
             except Exception as stop_error:
-                logger.info(f"Note: Could not stop existing watch: {stop_error}")
+                logfire.info(f"Note: Could not stop existing watch: {stop_error}")
 
             # Start a new watch
             result = setup_gmail_watch()
-            logger.info(f"✓ Started new watch (expires: {result.get('expiration')})")
+            logfire.info(f"✓ Started new watch (expires: {result.get('expiration')})")
             
             return {
                 "success": True,

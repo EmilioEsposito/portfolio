@@ -1,4 +1,4 @@
-import logging
+import logfire
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import NoResultFound, IntegrityError
@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 from api.src.user.models import User
 
-logger = logging.getLogger(__name__)
 
 def _extract_primary_email(data: dict) -> str | None:
     """Extracts the primary email address from the Clerk user data."""
@@ -27,17 +26,17 @@ def _timestamp_ms_to_datetime(timestamp_ms: int | None) -> datetime | None:
         timestamp_sec = timestamp_ms / 1000.0
         return datetime.fromtimestamp(timestamp_sec, tz=timezone.utc).replace(tzinfo=None)
     except (ValueError, TypeError):
-        logger.warning(f"Could not convert timestamp: {timestamp_ms}")
+        logfire.warn(f"Could not convert timestamp: {timestamp_ms}")
         return None
 
 async def upsert_user(db: AsyncSession, event_data: dict, environment: str):
     """Creates a new user or updates an existing one based on Clerk webhook data."""
     clerk_user_id = event_data.get('id')
     if not clerk_user_id:
-        logger.error("Missing 'id' (clerk_user_id) in webhook data.")
+        logfire.error("Missing 'id' (clerk_user_id) in webhook data.")
         raise ValueError("Missing clerk_user_id in webhook data")
 
-    logger.info(f"Upserting user: clerk_id={clerk_user_id}, env={environment}")
+    logfire.info(f"Upserting user: clerk_id={clerk_user_id}, env={environment}")
 
     # Extract data from the payload
     clerk_created_at_ts = event_data.get('created_at')
@@ -77,31 +76,31 @@ async def upsert_user(db: AsyncSession, event_data: dict, environment: str):
 
     if existing_user:
         # Update existing user
-        logger.info(f"Updating existing user: {existing_user.id}")
+        logfire.info(f"Updating existing user: {existing_user.id}")
         for key, value in user_data.items():
             setattr(existing_user, key, value)
         db.add(existing_user)
         await db.flush() # Use flush to ensure the user object is updated
-        logger.info(f"User {existing_user.id} updated successfully.")
+        logfire.info(f"User {existing_user.id} updated successfully.")
         return f"User {existing_user.id} updated successfully."
     else:
         # Create new user
-        logger.info(f"Creating new user for clerk_id={clerk_user_id}")
+        logfire.info(f"Creating new user for clerk_id={clerk_user_id}")
         new_user = User(**user_data)
         db.add(new_user)
         try:
             await db.flush() # Flush to get the new user ID and check constraints
             await db.refresh(new_user) # Refresh to get db-generated fields like id, created_at
-            logger.info(f"User {new_user.id} created successfully.")
+            logfire.info(f"User {new_user.id} created successfully.")
             return f"User {new_user.id} created successfully."
         except IntegrityError as e:
-            logger.error(f"Integrity error creating user (likely duplicate): {e}")
+            logfire.error(f"Integrity error creating user (likely duplicate): {e}")
             await db.rollback() # Rollback the specific failed operation
             # Re-fetch just in case there was a race condition
             result = await db.execute(stmt)
             existing_user = result.scalars().first()
             if existing_user:
-                 logger.warning(f"Found user {existing_user.id} after IntegrityError, proceeding as update.")
+                 logfire.warn(f"Found user {existing_user.id} after IntegrityError, proceeding as update.")
                  # Update the re-fetched user
                  for key, value in user_data.items():
                      setattr(existing_user, key, value)
@@ -109,10 +108,10 @@ async def upsert_user(db: AsyncSession, event_data: dict, environment: str):
                  await db.flush()
                  return f"User {existing_user.id} updated successfully after race condition."
             else:
-                logger.error("Failed to find user even after IntegrityError rollback.")
+                logfire.error("Failed to find user even after IntegrityError rollback.")
                 raise # Re-raise the original integrity error if user still not found
         except Exception as e:
-             logger.error(f"Error creating user: {e}")
+             logfire.error(f"Error creating user: {e}")
              await db.rollback()
              raise
 
@@ -120,10 +119,10 @@ async def delete_user(db: AsyncSession, event_data: dict, environment: str):
     """Deletes a user based on Clerk webhook data."""
     clerk_user_id = event_data.get('id')
     if not clerk_user_id:
-        logger.error("Missing 'id' (clerk_user_id) in delete event data.")
+        logfire.error("Missing 'id' (clerk_user_id) in delete event data.")
         raise ValueError("Missing clerk_user_id in delete event data")
 
-    logger.info(f"Attempting to delete user: clerk_id={clerk_user_id}, env={environment}")
+    logfire.info(f"Attempting to delete user: clerk_id={clerk_user_id}, env={environment}")
 
     stmt = delete(User).where(
         User.clerk_user_id == clerk_user_id,
@@ -133,12 +132,12 @@ async def delete_user(db: AsyncSession, event_data: dict, environment: str):
     message = ""
 
     if result.rowcount == 0:
-        logger.warning(f"User not found for deletion: clerk_id={clerk_user_id}, env={environment}")
+        logfire.warn(f"User not found for deletion: clerk_id={clerk_user_id}, env={environment}")
         # Decide if this should be an error or just a warning
         # raise NoResultFound(f"User not found for deletion: {clerk_user_id}")
         message = "User not found for deletion"
     else:
-        logger.info(f"User deleted successfully: clerk_id={clerk_user_id}, env={environment}")
+        logfire.info(f"User deleted successfully: clerk_id={clerk_user_id}, env={environment}")
         message = "User deleted successfully"
 
     # No need to flush/commit here, handled by the session context/dependency 

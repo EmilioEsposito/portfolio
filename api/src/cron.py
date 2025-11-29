@@ -1,4 +1,4 @@
-import logging
+import logfire
 from aiohttp_retry import Union
 from fastapi import APIRouter, Request, HTTPException, Depends
 from datetime import datetime
@@ -17,7 +17,6 @@ router = APIRouter(
     tags=["cron"]    # Optional: groups endpoints in the docs
 )
 
-logger = logging.getLogger(__name__)
 
 
 # Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
