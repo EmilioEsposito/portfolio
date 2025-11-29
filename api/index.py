@@ -103,9 +103,6 @@ logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 # Validation Instrumentation
 logfire.instrument_pydantic()  # Pydantic model validation tracing
 
-# System Metrics (CPU, memory, disk, network)
-logfire.instrument_system_metrics()
-
 logger.info("Logfire configured with comprehensive instrumentation")
 
 # Test log message immediately after reconfiguration

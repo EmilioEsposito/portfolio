@@ -1787,9 +1787,6 @@ requests = [
 sqlalchemy = [
     { name = "opentelemetry-instrumentation-sqlalchemy" },
 ]
-system-metrics = [
-    { name = "opentelemetry-instrumentation-system-metrics" },
-]
 
 [[package]]
 name = "logfire-api"
@@ -2262,20 +2259,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opentelemetry-instrumentation-system-metrics"
-version = "0.59b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "psutil" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/72/b1/4982b7e2ab9bcf7e246ecb93907ea7c41add116a3012f6173884541025d6/opentelemetry_instrumentation_system_metrics-0.59b0.tar.gz", hash = "sha256:48150444e054e64699248b4fa3c8d771921f289b29caf4bbf9163a07c943aecc", size = 15870, upload-time = "2025-10-16T08:40:02.71Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/e3/ecd3ae176609ac20ba77b84b0b53bf0d465625ad81f041b01cd21f34ae88/opentelemetry_instrumentation_system_metrics-0.59b0-py3-none-any.whl", hash = "sha256:176d3722113383732fdb4a2c83a999218c2b8c1f2a25e242532fab6d2ad5123a", size = 13516, upload-time = "2025-10-16T08:39:13.176Z" },
-]
-
-[[package]]
 name = "opentelemetry-proto"
 version = "1.38.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2420,7 +2403,7 @@ dependencies = [
     { name = "idna" },
     { name = "itsdangerous" },
     { name = "jinja2" },
-    { name = "logfire", extra = ["asyncpg", "fastapi", "httpx", "requests", "sqlalchemy", "system-metrics"] },
+    { name = "logfire", extra = ["asyncpg", "fastapi", "httpx", "requests", "sqlalchemy"] },
     { name = "markdown-it-py" },
     { name = "markupsafe" },
     { name = "mdurl" },
@@ -2477,7 +2460,7 @@ requires-dist = [
     { name = "idna", specifier = "==3.7" },
     { name = "itsdangerous", specifier = "==2.2.0" },
     { name = "jinja2", specifier = "==3.1.4" },
-    { name = "logfire", extras = ["asyncpg", "httpx", "fastapi", "openai", "sqlalchemy", "pydantic", "requests", "system-metrics"], specifier = ">=0.11.0" },
+    { name = "logfire", extras = ["asyncpg", "httpx", "fastapi", "sqlalchemy", "requests"], specifier = ">=0.11.0" },
     { name = "markdown-it-py", specifier = "==3.0.0" },
     { name = "markupsafe", specifier = "==2.1.5" },
     { name = "mdurl", specifier = "==0.1.2" },
