@@ -31,7 +31,7 @@
             ],
             "console": "integratedTerminal",
             "serverReadyAction": {
-                "pattern": "- Local:.+(https?://.+)",
+                "pattern": "➜\\s+Local:\\s+(https?://[^\\s]+)",
                 "uriFormat": "%s",
                 "action": "debugWithChrome"
             },
