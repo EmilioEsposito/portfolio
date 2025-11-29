@@ -23,6 +23,28 @@ logfire.configure({
   autoInstrument: true, // Enable auto-instrumentation for Express, HTTP, etc.
 });
 
+// Logger helper: sends to both Logfire and console (for local dev visibility)
+const logger = {
+  info: (message, attributes = {}) => {
+    logfire.info(message, attributes);
+    console.log(`[INFO] ${message}`, attributes);
+  },
+  error: (message, attributes = {}) => {
+    logfire.error(message, attributes);
+    console.error(`[ERROR] ${message}`, attributes);
+  },
+  warn: (message, attributes = {}) => {
+    logfire.warn(message, attributes);
+    console.warn(`[WARN] ${message}`, attributes);
+  },
+  debug: (message, attributes = {}) => {
+    logfire.debug(message, attributes);
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(`[DEBUG] ${message}`, attributes);
+    }
+  },
+};
+
 const app = express();
 
 // Compression for all responses
@@ -36,7 +58,7 @@ app.use("/api", async (req, res) => {
   const backendUrl = getBackendUrl();
   const targetUrl = `${backendUrl}${req.originalUrl}`;
 
-  logfire.info("API Proxy request", {
+  logger.info("API Proxy request", {
     method: req.method,
     originalUrl: req.originalUrl,
     targetUrl,
@@ -77,7 +99,7 @@ app.use("/api", async (req, res) => {
         res.end();
       };
       pump().catch((err) => {
-        logfire.error("API Proxy stream error", {
+        logger.error("API Proxy stream error", {
           error: err.message,
           stack: err.stack,
         });
@@ -89,7 +111,7 @@ app.use("/api", async (req, res) => {
       res.end();
     }
   } catch (error) {
-    logfire.error("API Proxy error", {
+    logger.error("API Proxy error", {
       targetUrl,
       error: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
@@ -129,7 +151,7 @@ function getBackendUrl() {
 const port = process.env.PORT || 5173;
 
 app.listen(port, () => {
-  logfire.info("Server started", {
+  logger.info("Server started", {
     port,
     backendUrl: getBackendUrl(),
     environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
