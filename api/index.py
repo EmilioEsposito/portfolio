@@ -69,6 +69,7 @@ from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.scheduler.service import scheduler
 from api.src.zillow_email import service as zillow_email_service
 from api.src.clickup import service as clickup_service
+from api.src.database.database import engine, sync_engine
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
 
@@ -80,11 +81,32 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 logger = logging.getLogger(__name__)
 
 # Logfire configuration
-logfire.configure(environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'))  
-logfire.instrument_pydantic_ai()  
-logfire.instrument_httpx()
-logfire.instrument_asyncpg()
-logger.info("Logfire configured and instrumented")
+logfire.configure(environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'))
+
+# --- Logfire Instrumentation ---
+# AI/LLM Instrumentation
+logfire.instrument_pydantic_ai()  # PydanticAI agent tracing
+logfire.instrument_openai()  # Direct OpenAI SDK calls (completions, embeddings, etc.)
+
+# HTTP Client Instrumentation
+logfire.instrument_httpx()  # Async HTTP client used throughout the app
+logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc.)
+
+# Database Instrumentation
+logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
+# SQLAlchemy instrumentation for query-level tracing
+engines_to_instrument = [engine]
+if sync_engine is not None:
+    engines_to_instrument.append(sync_engine)
+logfire.instrument_sqlalchemy(engines=engines_to_instrument)
+
+# Validation Instrumentation
+logfire.instrument_pydantic()  # Pydantic model validation tracing
+
+# System Metrics (CPU, memory, disk, network)
+logfire.instrument_system_metrics()
+
+logger.info("Logfire configured with comprehensive instrumentation")
 
 # Test log message immediately after reconfiguration
 logger.info("EMILIO: FastAPI index.py loaded and Logfire configured")
