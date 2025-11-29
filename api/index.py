@@ -81,7 +81,10 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 logger = logging.getLogger(__name__)
 
 # Logfire configuration
-logfire.configure(environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'))
+logfire.configure(
+    service_name="fastapi",
+    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
+)
 
 # --- Logfire Instrumentation ---
 # AI/LLM Instrumentation
