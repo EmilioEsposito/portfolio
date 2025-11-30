@@ -11,6 +11,39 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import compression from "compression";
+import * as logfire from "@pydantic/logfire-node";
+
+// Configure Logfire for observability with auto-instrumentation
+// This automatically instruments: Express, HTTP, fetch, and more
+logfire.configure({
+  token: process.env.LOGFIRE_TOKEN,
+  serviceName: "web-react-router",
+  serviceVersion: "1.0.0",
+  environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  autoInstrument: true, // Enable auto-instrumentation for Express, HTTP, etc.
+});
+
+// Logger helper: sends to both Logfire and console (for local dev visibility)
+const logger = {
+  info: (message, attributes = {}) => {
+    logfire.info(message, attributes);
+    console.log(`[INFO] ${message}`, attributes);
+  },
+  error: (message, attributes = {}) => {
+    logfire.error(message, attributes);
+    console.error(`[ERROR] ${message}`, attributes);
+  },
+  warn: (message, attributes = {}) => {
+    logfire.warn(message, attributes);
+    console.warn(`[WARN] ${message}`, attributes);
+  },
+  debug: (message, attributes = {}) => {
+    logfire.debug(message, attributes);
+    if (process.env.NODE_ENV !== "production") {
+      console.debug(`[DEBUG] ${message}`, attributes);
+    }
+  },
+};
 
 const app = express();
 
@@ -25,7 +58,11 @@ app.use("/api", async (req, res) => {
   const backendUrl = getBackendUrl();
   const targetUrl = `${backendUrl}${req.originalUrl}`;
 
-  console.log(`[API Proxy] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+  logger.info("API Proxy request", {
+    method: req.method,
+    originalUrl: req.originalUrl,
+    targetUrl,
+  });
 
   try {
     // Build headers, excluding host
@@ -62,7 +99,10 @@ app.use("/api", async (req, res) => {
         res.end();
       };
       pump().catch((err) => {
-        console.error("[API Proxy] Stream error:", err);
+        logger.error("API Proxy stream error", {
+          error: err.message,
+          stack: err.stack,
+        });
         if (!res.headersSent) {
           res.status(502).json({ error: "Proxy Error", detail: err.message });
         }
@@ -71,7 +111,11 @@ app.use("/api", async (req, res) => {
       res.end();
     }
   } catch (error) {
-    console.error(`[API Proxy] Error proxying to ${targetUrl}:`, error);
+    logger.error("API Proxy error", {
+      targetUrl,
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     if (!res.headersSent) {
       res.status(502).json({
         error: "Proxy Error",
@@ -107,6 +151,9 @@ function getBackendUrl() {
 const port = process.env.PORT || 5173;
 
 app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-  console.log(`Backend URL: ${getBackendUrl()}`);
+  logger.info("Server started", {
+    port,
+    backendUrl: getBackendUrl(),
+    environment: process.env.RAILWAY_ENVIRONMENT_NAME || "local",
+  });
 });

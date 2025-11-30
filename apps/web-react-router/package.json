@@ -12,6 +12,7 @@
   "dependencies": {
     "@ai-sdk/react": "^2.0.104",
     "@clerk/react-router": "^2.3.0",
+    "@pydantic/logfire-node": "^0.11.1",
     "@radix-ui/react-accordion": "^1.2.10",
     "@radix-ui/react-alert-dialog": "^1.1.13",
     "@radix-ui/react-aspect-ratio": "^1.1.6",
@@ -30,17 +31,17 @@
     "@radix-ui/react-tabs": "^1.1.11",
     "@radix-ui/react-toast": "^1.2.13",
     "@radix-ui/react-tooltip": "^1.2.6",
-    "@react-router/fs-routes": "^7.9.6",
     "@react-router/express": "^7.9.2",
+    "@react-router/fs-routes": "^7.9.6",
     "@react-router/node": "^7.9.2",
-    "compression": "^1.7.5",
-    "express": "^4.21.2",
     "@tanstack/react-table": "^8.21.3",
     "ai": "^5.0.92",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "compression": "^1.7.5",
     "date-fns": "^2.30.0",
+    "express": "^4.21.2",
     "framer-motion": "^12.23.24",
     "isbot": "^5.1.31",
     "lucide-react": "^0.460.0",
@@ -60,6 +61,8 @@
   "devDependencies": {
     "@react-router/dev": "^7.9.2",
     "@tailwindcss/vite": "^4.1.13",
+    "@types/compression": "^1.7.5",
+    "@types/express": "^5.0.3",
     "@types/node": "^22",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
@@ -67,8 +70,6 @@
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vite-tsconfig-paths": "^5.1.4",
-    "@types/compression": "^1.7.5",
-    "@types/express": "^5.0.3"
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }
