@@ -9,7 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
-import re # Added for URL normalization
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
 
 load_dotenv(find_dotenv(".env"), override=True)
@@ -35,13 +35,21 @@ if not DATABASE_URL:
 if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
+def _remove_sslmode(url: str) -> str:
+    """Remove the ``sslmode`` query parameter while preserving all others."""
+
+    if "sslmode=" not in url:
+        return url
+
+    url_parts = urlsplit(url)
+    filtered_params = [(k, v) for k, v in parse_qsl(url_parts.query, keep_blank_values=True) if k != "sslmode"]
+    cleaned_query = urlencode(filtered_params, doseq=True)
+    return urlunsplit(url_parts._replace(query=cleaned_query))
+
+
 # Remove sslmode from URL if present (asyncpg doesn't support sslmode as a URL parameter)
 # SSL is configured via connect_args["ssl"] instead
-if "sslmode=" in DATABASE_URL:
-    DATABASE_URL = re.sub(r'[?&]sslmode=[^&]*', '', DATABASE_URL, count=1) # Remove sslmode from URL
-    # Clean up any resulting edge cases (empty query string or leading &)
-    DATABASE_URL = re.sub(r'\?$', '', DATABASE_URL)  # Remove trailing ?
-    DATABASE_URL = re.sub(r'\?&', '?', DATABASE_URL)  # Fix ?& to ?
+DATABASE_URL = _remove_sslmode(DATABASE_URL)
 
 
 def _mask_credentials(url: str) -> str:
@@ -112,7 +120,7 @@ class Base(DeclarativeBase):
 sync_engine = None
 
 if DATABASE_URL_UNPOOLED:
-    sync_db_url = DATABASE_URL_UNPOOLED
+    sync_db_url = _remove_sslmode(DATABASE_URL_UNPOOLED)
     if sync_db_url.startswith("postgresql+asyncpg://"):
         sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
     elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
