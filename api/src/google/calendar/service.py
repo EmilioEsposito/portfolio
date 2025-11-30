@@ -4,7 +4,7 @@ from fastapi import HTTPException
 import datetime
 from pprint import pprint
 import pytz
-import logging
+import logfire
 import pytest
 
 CALENDAR_SCOPES = [
@@ -14,7 +14,6 @@ CALENDAR_SCOPES = [
     # "https://www.googleapis.com/auth/calendar.events.readonly",
 ]
 
-logger = logging.getLogger(__name__)
 
 
 async def get_calendar_service(
@@ -77,15 +76,15 @@ async def create_calendar_event(service, event: dict, overwrite: bool = False):
 
         if len(events["items"]) > 0:
             if overwrite:
-                logger.info(
+                logfire.info(
                     f"Event already exists, but overwrite is True, deleting it: {events['items'][0]['id']}"
                 )
                 await delete_calendar_event(service, events["items"][0]["id"])
             else:
-                logger.info(f"Event already exists: {events['items'][0]['id']}")
+                logfire.info(f"Event already exists: {events['items'][0]['id']}")
                 return events["items"][0]
         else:
-            logger.info(f"Event does not exist, creating event: {event['summary']}")
+            logfire.info(f"Event does not exist, creating event: {event['summary']}")
 
         event = service.events().insert(calendarId="primary", body=event, sendUpdates='all').execute()
         return event

@@ -6,7 +6,7 @@ load_dotenv(find_dotenv(".env.development.local"), override=True)
 import requests
 from typing import List, Optional, Union
 from fastapi import HTTPException
-import logging
+import logfire
 from api.src.google.sheets import get_sheet_as_json
 import json
 
@@ -18,8 +18,6 @@ import random
 from openai import OpenAI
 from pydantic import BaseModel
 from pprint import pprint
-
-logger = logging.getLogger(__name__)
 
 
 # --- Twilio Configuration ---
@@ -151,14 +149,14 @@ async def ai_assess_for_escalation(open_phone_event: dict):
             text_format=ShouldEscalate,
         )
 
-        logger.info(
+        logfire.info(
             f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
         )
 
         should_escalate = response.output_parsed.should_escalate
         reason = response.output_parsed.reason
     except Exception as e:
-        logger.error(f"OpenAI API call failed: {e}", exc_info=True)
+        logfire.exception(f"OpenAI API call failed: {e}")
         should_escalate = True
         error_snippet = str(e)[:100]  # Keep first 100 chars for SMS
         reason = f"OpenAI API call failure. Emilio to investigate. Error: {error_snippet}"
@@ -180,7 +178,7 @@ async def analyze_for_twilio_escalation(
     event_from_number = open_phone_event.get("from_number")
     event_message_text = open_phone_event.get("message_text")
     event_id = open_phone_event.get("event_id", "")
-    logger.info(f"Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
+    logfire.info(f"Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
 
     result_message = "No result message"
 
@@ -205,9 +203,9 @@ async def analyze_for_twilio_escalation(
     # Allow an AI Agent to assess if this should be escalated
     try:
         should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
-        logger.info(f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}")
+        logfire.info(f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}")
     except Exception as e:
-        logger.error(f"AI Error assessing for escalation: {e}")
+        logfire.error(f"AI Error assessing for escalation: {e}")
 
     # # Check for explicit keywords in the message text, just in case the AI doesn't catch it
     # if not should_escalate and any(
@@ -231,10 +229,10 @@ async def analyze_for_twilio_escalation(
     # override should_escalate if the from number is in the never_escalate_from_numbers list
     if should_escalate and event_from_number in never_escalate_from_numbers:
         should_escalate = False
-        logger.info(f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating")
+        logfire.info(f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating")
 
     if should_escalate:
-        logger.info(
+        logfire.info(
             f"Escalation triggered. INCIDENT_ID: {incident_id} for EVENT_ID {open_phone_event.get('event_id')} to numbers {escalate_to_numbers}"
         )
         try:
@@ -256,7 +254,7 @@ async def analyze_for_twilio_escalation(
 
                 if mock:
                     result_message = f"Mocking Twilio escalation for event {open_phone_event.get('event_id')} to {escalate_to_number} with message: {event_message_text}"
-                    logger.info(result_message)
+                    logfire.info(result_message)
                     successful_escalations += 1
                 else:
                     # Make the request using Basic Auth
@@ -270,7 +268,7 @@ async def analyze_for_twilio_escalation(
                     execution_data = response.json()
                     execution_sid = execution_data.get("sid")
                     result_message = f"Successfully created Twilio execution: {execution_sid} for INCIDENT_ID {incident_id} and EVENT_ID {open_phone_event.get('event_id')}"
-                    logger.info(result_message)
+                    logfire.info(result_message)
                     successful_escalations += 1
         except requests.exceptions.RequestException as e:
             # Log the error, including the response text if available
@@ -278,16 +276,15 @@ async def analyze_for_twilio_escalation(
             if e.response is not None:
                 error_message += f"\nResponse status: {e.response.status_code}"
                 error_message += f"\nResponse text: {e.response.text}"
-            logger.error(error_message, exc_info=True)  # exc_info=True adds traceback
+            logfire.exception(error_message)  # exc_info=True adds traceback
         except Exception as e:
             # Catch any other unexpected errors during the process
-            logger.error(
-                f"An unexpected error occurred during Twilio escalation for event {open_phone_event.get('event_id')}: {str(e)}",
-                exc_info=True,
+            logfire.exception(
+                f"An unexpected error occurred during Twilio escalation for event {open_phone_event.get('event_id')}: {str(e)}"
             )
 
     else:
-        logger.debug(
+        logfire.debug(
             f"Event {open_phone_event.get('event_id')} (type: {open_phone_event.get('event_type')}) did not meet Twilio escalation criteria."
         )
 

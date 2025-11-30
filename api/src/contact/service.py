@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException, status
-import logging
+import logfire
 
 
 from api.src.contact.models import Contact
@@ -17,7 +17,6 @@ from datetime import datetime
 import types
 import re
 
-logger = logging.getLogger(__name__)
 
 # Pydantic Schemas for Contact
 class ContactBase(BaseModel):
@@ -71,12 +70,12 @@ class ContactResponse(ContactBase):
 
 async def create_contact(db: AsyncSession, contact_create: ContactCreate) -> Contact:
     # Check if slug already exists
-    logger.info(f"Attempting to create contact with slug: {contact_create.slug}, email: {contact_create.email}")
+    logfire.info(f"Attempting to create contact with slug: {contact_create.slug}, email: {contact_create.email}")
     if contact_create.slug:
-        logger.debug(f"Checking for existing contact with slug: {contact_create.slug}")
+        logfire.debug(f"Checking for existing contact with slug: {contact_create.slug}")
         existing_contact_by_slug = await get_contact_by_slug(contact_create.slug)
         if existing_contact_by_slug:
-            logger.warning(f"Contact with slug '{contact_create.slug}' already exists.")
+            logfire.warn(f"Contact with slug '{contact_create.slug}' already exists.")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Contact with slug '{contact_create.slug}' already exists."
@@ -90,18 +89,18 @@ async def create_contact(db: AsyncSession, contact_create: ContactCreate) -> Con
         user_result = await db.execute(user_by_email_query)
         found_user = user_result.scalars().first()
         if found_user:
-            logger.info(f"Found user ID {found_user.id} by email {contact_create.email} for contact creation.")
+            logfire.info(f"Found user ID {found_user.id} by email {contact_create.email} for contact creation.")
             final_user_id = found_user.id
         else:
-            logger.info(f"No user found with email {contact_create.email} during contact creation.")
+            logfire.info(f"No user found with email {contact_create.email} during contact creation.")
 
     # Validate user_id if it's set (either provided or found by email)
     if final_user_id:
-        logger.debug(f"Validating user ID {final_user_id} for new contact.")
+        logfire.debug(f"Validating user ID {final_user_id} for new contact.")
         user_exists_query = select(User).where(User.id == final_user_id)
         user_result = await db.execute(user_exists_query)
         if not user_result.scalars().first():
-            logger.warning(f"User with ID '{final_user_id}' not found during contact creation.")
+            logfire.warn(f"User with ID '{final_user_id}' not found during contact creation.")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with id '{final_user_id}' not found."
@@ -115,47 +114,47 @@ async def create_contact(db: AsyncSession, contact_create: ContactCreate) -> Con
     db.add(db_contact)
     await db.commit()
     await db.refresh(db_contact)
-    logger.info(f"Successfully created contact with ID: {db_contact.id}, slug: {db_contact.slug}")
+    logfire.info(f"Successfully created contact with ID: {db_contact.id}, slug: {db_contact.slug}")
     return db_contact
 
 async def get_contact_by_id(db: AsyncSession, contact_id: uuid.UUID) -> Optional[Contact]:
-    logger.info(f"Attempting to get contact by ID: {contact_id}")
+    logfire.info(f"Attempting to get contact by ID: {contact_id}")
     query = select(Contact).where(Contact.id == contact_id)
     result = await db.execute(query)
     contact = result.scalars().first()
     if contact:
-        logger.info(f"Found contact with ID: {contact_id}")
+        logfire.info(f"Found contact with ID: {contact_id}")
     else:
-        logger.warning(f"Contact with ID: {contact_id} not found.")
+        logfire.warn(f"Contact with ID: {contact_id} not found.")
     return contact
 
 async def get_contact_by_slug(slug: str) -> Optional[Contact]:
     """
     Get a contact by slug.
     """
-    logger.info(f"Attempting to get contact by slug: {slug}")
+    logfire.info(f"Attempting to get contact by slug: {slug}")
     async with AsyncSessionFactory() as session:
         lowercase_slug = slug.lower() # Convert incoming slug to lowercase for query
-        logger.debug(f"Querying for contact with lowercase slug: {lowercase_slug}")
+        logfire.debug(f"Querying for contact with lowercase slug: {lowercase_slug}")
         query = select(Contact).where(Contact.slug == lowercase_slug)
         result = await session.execute(query)
         contact = result.scalars().first()
         if contact:
-            logger.info(f"Found contact with slug: {slug} (ID: {contact.id})")
+            logfire.info(f"Found contact with slug: {slug} (ID: {contact.id})")
         else:
-            logger.error(f"Contact with slug: {slug} not found.")
+            logfire.error(f"Contact with slug: {slug} not found.")
         return contact
 
 async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Contact]:
-    logger.info(f"Attempting to get all contacts with skip: {skip}, limit: {limit}")
+    logfire.info(f"Attempting to get all contacts with skip: {skip}, limit: {limit}")
     query = select(Contact).offset(skip).limit(limit)
     result = await db.execute(query)
     contacts = result.scalars().all()
-    logger.info(f"Retrieved {len(contacts)} contacts.")
+    logfire.info(f"Retrieved {len(contacts)} contacts.")
     return contacts
 
 async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update: ContactUpdate) -> Optional[Contact]:
-    logger.info(f"Attempting to update contact with ID: {contact_id}. Update data: {contact_update.model_dump(exclude_unset=True)}")
+    logfire.info(f"Attempting to update contact with ID: {contact_id}. Update data: {contact_update.model_dump(exclude_unset=True)}")
     db_contact = await get_contact_by_id(db, contact_id)
     if not db_contact:
         return None
@@ -171,29 +170,29 @@ async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update
             user_result = await db.execute(user_by_email_query)
             found_user = user_result.scalars().first()
             if found_user:
-                logger.info(f"Found user ID {found_user.id} by email {update_data['email']} for contact update.")
+                logfire.info(f"Found user ID {found_user.id} by email {update_data['email']} for contact update.")
                 final_user_id_for_update = found_user.id
             else:
-                logger.info(f"No user found with email {update_data['email']} during contact update. Unlinking user.")
+                logfire.info(f"No user found with email {update_data['email']} during contact update. Unlinking user.")
                 # Email provided, but no user found, so unlink
                 final_user_id_for_update = None
         else:
-            logger.info(f"Email explicitly set to None during contact update. Unlinking user.")
+            logfire.info(f"Email explicitly set to None during contact update. Unlinking user.")
             # Email is explicitly set to None, so unlink
             final_user_id_for_update = None
 
     # If user_id is explicitly provided in the update, it takes precedence
     if "user_id" in update_data:
         final_user_id_for_update = update_data["user_id"]
-        logger.info(f"User ID explicitly provided in update: {final_user_id_for_update}")
+        logfire.info(f"User ID explicitly provided in update: {final_user_id_for_update}")
 
     # Validate final_user_id_for_update if it's not None and it's different from original or was explicitly provided
     if final_user_id_for_update is not None and (final_user_id_for_update != db_contact.user_id or "user_id" in update_data):
-        logger.debug(f"Validating final user ID {final_user_id_for_update} for contact update.")
+        logfire.debug(f"Validating final user ID {final_user_id_for_update} for contact update.")
         user_exists_query = select(User).where(User.id == final_user_id_for_update)
         user_result = await db.execute(user_exists_query)
         if not user_result.scalars().first():
-            logger.warning(f"User with ID '{final_user_id_for_update}' not found during contact update.")
+            logfire.warn(f"User with ID '{final_user_id_for_update}' not found during contact update.")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with id '{final_user_id_for_update}' not found when trying to update contact."
@@ -209,17 +208,17 @@ async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update
 
     await db.commit()
     await db.refresh(db_contact)
-    logger.info(f"Successfully updated contact with ID: {contact_id}. New user_id: {db_contact.user_id}")
+    logfire.info(f"Successfully updated contact with ID: {contact_id}. New user_id: {db_contact.user_id}")
     return db_contact
 
 async def delete_contact(db: AsyncSession, contact_id: uuid.UUID) -> Optional[Contact]:
-    logger.info(f"Attempting to delete contact with ID: {contact_id}")
+    logfire.info(f"Attempting to delete contact with ID: {contact_id}")
     db_contact = await get_contact_by_id(db, contact_id)
     if not db_contact:
         return None
     await db.delete(db_contact)
     await db.commit()
-    logger.info(f"Successfully deleted contact with ID: {contact_id}")
+    logfire.info(f"Successfully deleted contact with ID: {contact_id}")
     return db_contact
 
 
