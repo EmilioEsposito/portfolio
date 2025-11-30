@@ -12,7 +12,7 @@ from pydantic_ai import BinaryContent
 from dotenv import load_dotenv
 import pytest
 import httpx
-load_dotenv('.env.development.local')
+load_dotenv('.env')
 
 
 

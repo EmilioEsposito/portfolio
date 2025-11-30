@@ -1,5 +1,5 @@
 from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv('.env.development.local'))
+load_dotenv(find_dotenv('.env'))
 import os
 import requests
 from pprint import pprint

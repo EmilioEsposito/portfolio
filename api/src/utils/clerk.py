@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 import asyncio
 
-load_dotenv(find_dotenv(".env.development.local"), override=True)
+load_dotenv(find_dotenv(".env"), override=True)
 from fastapi import Depends, HTTPException, Header, Request, status
 from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState
 import os

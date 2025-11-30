@@ -39,18 +39,18 @@ A monorepo for personal learning projects and production AI-based services for m
 
 These instructions assume you have Docker and Docker Compose installed (e.g., via Docker Desktop).
 
-1. The [docker-compose.yml](docker-compose.yml) is just meant for local builds. Ensure `.env.development.local` file exists for local development.  The file will use this file to populate the environment variables for the containers.
+1. The [docker-compose.yml](docker-compose.yml) is just meant for local builds. Ensure `.env` file exists for local development.  The file will use this file to populate the environment variables for the containers.
 
 ### Local Postgres database
 
 Neon is not reachable from the Codespaces-style environment used for these tasks. You can run a local Postgres instance with Docker and point both FastAPI and Next.js at it instead:
 
-1. Copy `.env.example` to `.env.development.local` (or update your existing file) and uncomment the variables in the `Local Postgres (docker compose)` section. Set `DATABASE_REQUIRE_SSL=false` so the API disables SSL requirements when talking to the local database.
+1. Copy `.env.example` to `.env` (or update your existing file) and uncomment the variables in the `Local Postgres (docker compose)` section. Set `DATABASE_REQUIRE_SSL=false` so the API disables SSL requirements when talking to the local database.
 2. (Optional) Adjust the `POSTGRES_*` values if you want a different database name, user, or password. Make sure the `DATABASE_URL` and `DATABASE_URL_UNPOOLED` strings match.
 3. Start the database container:
 
    ```bash
-   docker compose --env-file .env.development.local up -d postgres
+   docker compose --env-file .env up -d postgres
    ```
 
 4. Apply the migrations so the schema exists locally:
@@ -65,34 +65,34 @@ Neon is not reachable from the Codespaces-style environment used for these tasks
 
 2. **Build and Run:**
    ```bash
-   docker compose --env-file .env.development.local build --no-cache | tee docker_build.log       
-   docker compose --env-file .env.development.local up -d | tee docker_up.log       
+   docker compose --env-file .env build --no-cache | tee docker_build.log       
+   docker compose --env-file .env up -d | tee docker_up.log       
    ```
 
    Frontend NextJS only:
 
    ```bash
-   docker compose --env-file .env.development.local build nextjs --no-cache  | tee docker_build.log        
-   docker compose --env-file .env.development.local up -d nextjs | tee docker_up.log       
+   docker compose --env-file .env build nextjs --no-cache  | tee docker_build.log        
+   docker compose --env-file .env up -d nextjs | tee docker_up.log       
    ```
 
    Backend FastAPI only:
 
    ```bash
-   docker compose --env-file .env.development.local build fastapi --no-cache | tee docker_build.log        
-   docker compose --env-file .env.development.local up -d fastapi | tee docker_up.log       
+   docker compose --env-file .env build fastapi --no-cache | tee docker_build.log        
+   docker compose --env-file .env up -d fastapi | tee docker_up.log       
    ```
 
    Expo App only:
 
    ```bash
-   docker compose --env-file .env.development.local build my-expo-app  | tee docker_build.log        
-   docker compose --env-file .env.development.local up -d my-expo-app | tee docker_up.log       
+   docker compose --env-file .env build my-expo-app  | tee docker_build.log        
+   docker compose --env-file .env up -d my-expo-app | tee docker_up.log       
    ```
 
     Or all in one with cache:
     ```bash
-    docker compose --env-file .env.development.local up -d --build | tee docker_up_build.log       
+    docker compose --env-file .env up -d --build | tee docker_up_build.log       
     ```
 
    This command builds the Docker images for the nextjs and fastapi services (if they don't exist or have changed) and starts the containers.
@@ -128,18 +128,18 @@ Neon is not reachable from the Codespaces-style environment used for these tasks
 
 This project uses Railway for deployment and environment variable management.
 
-Locally, the file that takes all precedence is `.env.development.local`. 
+Locally, the file that takes all precedence is `.env`. 
 
 TODO: Document Railway CLI commands for env variables so AI can help
 
-Expo-go will need the local IP address of the machine running the backend. Run this to update the environment variable in .env.development.local:
+Expo-go will need the local IP address of the machine running the backend. Run this to update the environment variable in .env:
 ```bash
-# Update the CUSTOM_RAILWAY_BACKEND_URL environment variable in .env.development.local
+# Update the CUSTOM_RAILWAY_BACKEND_URL environment variable in .env
 # This command checks if the variable exists, and if so, updates it with the current IP address
 # Otherwise, it adds the variable to the file
-grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env.development.local \
-  && sed -i '' "s|^CUSTOM_RAILWAY_BACKEND_URL=.*|CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000|" .env.development.local \
-  || echo "CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000" >> .env.development.local
+grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env \
+  && sed -i '' "s|^CUSTOM_RAILWAY_BACKEND_URL=.*|CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000|" .env \
+  || echo "CUSTOM_RAILWAY_BACKEND_URL=http://$(ipconfig getifaddr en0):8000" >> .env
 ```
 
 

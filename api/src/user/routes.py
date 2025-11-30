@@ -15,7 +15,7 @@ load_dotenv()
 router = APIRouter()
 
 # Retrieve the secret from environment variables
-# Make sure this is set in your .env.development.local or server environment
+# Make sure this is set in your .env or server environment
 DEV_CLERK_WEBHOOK_SECRET = os.getenv("DEV_CLERK_WEBHOOK_SECRET")
 PROD_CLERK_WEBHOOK_SECRET = os.getenv("PROD_CLERK_WEBHOOK_SECRET")
 

@@ -19,7 +19,7 @@ This is the React Native application built with [Expo](https://expo.dev) SDK 53,
 
 2.  **Update Local Backend IP (If running backend locally):
     *   The app needs to know the IP address of the machine running the FastAPI backend for local development.
-    *   Run the script defined in the root `README.md` (or `make update-local-ip`) to update the `CUSTOM_RAILWAY_BACKEND_URL` in the root `.env.development.local` file with your current local network IP.
+    *   Run the script defined in the root `README.md` (or `make update-local-ip`) to update the `CUSTOM_RAILWAY_BACKEND_URL` in the root `.env` file with your current local network IP.
 
 3.  **Start the Development Server:**
     *   Navigate to this app's directory: `cd apps/my-expo-app`
@@ -34,7 +34,7 @@ This is the React Native application built with [Expo](https://expo.dev) SDK 53,
 ## Configuration
 
 *   **`app.config.js`:** Dynamic configuration file. Reads environment variables during build time (`eas build`) or runtime (`expo start`) to configure the app (e.g., Clerk keys, API URL, EAS Update settings).
-    *   For local development (`expo start` or `eas build --local`), it loads variables from the **root** `.env.development.local` via `dotenv`.
+    *   For local development (`expo start` or `eas build --local`), it loads variables from the **root** `.env` via `dotenv`.
     *   For cloud builds (`eas build`), it reads environment variables set by the corresponding profile in `eas.json`.
 *   **`eas.json`:** Configures EAS Build profiles (`local`, `development`, `production`). Defines environment variables for cloud builds, often referencing **EAS Secrets** for sensitive values.
 *   **Environment Variables & Secrets:**
@@ -42,7 +42,7 @@ This is the React Native application built with [Expo](https://expo.dev) SDK 53,
     *   `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`: Public key for Clerk frontend.
     *   `CUSTOM_RAILWAY_BACKEND_URL`: Base URL for the FastAPI backend.
 
-    *   The `local` profile are loaded dynamically via `app.config.js` from the root `.env.development.local` file.
+    *   The `local` profile are loaded dynamically via `app.config.js` from the root `.env` file.
     *   The `development` and `production` profiles are loaded from [EAS Secrets in the EAS portal](https://expo.dev/accounts/espo412/projects/my-expo-app/environment-variables)
 
 ## Building the App (EAS Build)
@@ -52,7 +52,7 @@ Native builds are created using EAS Build. Run commands from within this directo
 *   **Local Native Build (for Simulator/Device):**
     *   Requires native dependencies: Xcode, Command Line Tools, CocoaPods, Fastlane.
     *   Command: `eas build --profile local --local -p <ios|android>`
-    *   Connects to the backend specified in the root `.env.development.local` (via `app.config.js`).
+    *   Connects to the backend specified in the root `.env` (via `app.config.js`).
 *   **Development Cloud Build (Internal Testing):**
     *   Command: `eas build --profile development -p <ios|android>`
     *   Uses environment variables/secrets defined in the `development` profile in `eas.json` (e.g., points to hosted dev backend).

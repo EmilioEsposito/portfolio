@@ -16,9 +16,9 @@ source .venv/bin/activate
 uv sync -p python3.11
 
 echo "Step 5: Creating .env file"
-touch .env.development.local
-# NOTE TO AGENTS: This .env.development.local file is not used by codex, it is only used for Emilio's local laptop development. 
-echo "✓ Created .env.development.local"
+touch .env
+# NOTE TO AGENTS: This .env file is not used by codex, it is only used for Emilio's local laptop development. 
+echo "✓ Created .env"
 
 echo "Step 6: Configuring PYTHONPATH"
 echo 'export PYTHONPATH=/workspace/portfolio:$PYTHONPATH' >> ~/.bashrc

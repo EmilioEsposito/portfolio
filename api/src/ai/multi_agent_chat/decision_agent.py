@@ -12,7 +12,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 import pytest
 from dotenv import load_dotenv
 
-load_dotenv('.env.development.local')
+load_dotenv('.env')
 from enum import Enum
 
 

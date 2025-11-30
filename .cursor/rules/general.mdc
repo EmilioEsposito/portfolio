@@ -26,4 +26,4 @@ This is a repo for me to put various projects and tools in. Some bits I build fo
 - The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add add <component>`. Old way gives errors.
 - Do not make unrelated changes to the task at hand without asking me first.
 - Do not EVER remove my comments if the comment is still valid. 
-- Do not EVER modify the .env.development.local file. You can suggest edits to it if they are wrong. 
+- Do not EVER modify the .env file. You can suggest edits to it if they are wrong. 

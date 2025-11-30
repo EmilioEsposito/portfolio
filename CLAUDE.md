@@ -191,11 +191,11 @@ uv sync -p python3.11
 uv sync --dev -p python3.11  # Include dev dependencies
 
 # 5. Configure environment variables
-cp .env.example .env.development.local
-# Edit .env.development.local with your API keys
+cp .env.example .env
+# Edit .env with your API keys
 
 # 6. Setup local Postgres (optional, see below)
-docker compose --env-file .env.development.local up -d postgres
+docker compose --env-file .env up -d postgres
 cd api && uv run alembic upgrade head
 
 # 7. Start development servers
@@ -206,7 +206,7 @@ pnpm dev-with-fastapi # Both concurrently
 
 ### Environment Variables
 
-Create `.env.development.local` based on `.env.example`:
+Create `.env` based on `.env.example`:
 
 **Required Variables**:
 ```bash
@@ -244,13 +244,13 @@ CUSTOM_RAILWAY_BACKEND_URL=http://localhost:8000  # Or Railway URL
 **When to use**: Codespaces or environments without Neon access
 
 ```bash
-# 1. Update .env.development.local
+# 1. Update .env
 DATABASE_URL="postgresql://portfolio:portfolio@localhost:5432/portfolio"
 DATABASE_URL_UNPOOLED="postgresql://portfolio:portfolio@localhost:5432/portfolio"
 DATABASE_REQUIRE_SSL=false
 
 # 2. Start Postgres container
-docker compose --env-file .env.development.local up -d postgres
+docker compose --env-file .env up -d postgres
 
 # 3. Run migrations
 cd api
@@ -308,12 +308,12 @@ uv run alembic revision --autogenerate -m "description"
 
 ```bash
 # Build and run all services
-docker compose --env-file .env.development.local up -d --build
+docker compose --env-file .env up -d --build
 
 # Individual services
-docker compose --env-file .env.development.local up -d postgres
-docker compose --env-file .env.development.local up -d fastapi
-docker compose --env-file .env.development.local up -d nextjs
+docker compose --env-file .env up -d postgres
+docker compose --env-file .env up -d fastapi
+docker compose --env-file .env up -d nextjs
 
 # Stop and remove containers
 docker compose down
@@ -356,7 +356,7 @@ docker compose logs -f nextjs
 6. **Production-Ready Only**: Only suggest code safe for main branch and production
 7. **Absolute Imports**: Prefer absolute imports over relative for easier refactoring
 8. **No Unrelated Changes**: Stick to the task at hand
-9. **Never Modify .env.development.local**: Suggest edits only
+9. **Never Modify .env**: Suggest edits only
 10. **Shadcn UI**: Use `pnpm dlx @shadcn/ui@latest add <component>` (old way gives errors)
 
 ### TypeScript/Next.js Rules
@@ -1116,7 +1116,7 @@ await send_message(
 NEW_API_KEY=****
 ```
 
-**Step 2**: Add to `.env.development.local` with actual value
+**Step 2**: Add to `.env` with actual value
 ```bash
 NEW_API_KEY=sk_live_abc123...
 ```

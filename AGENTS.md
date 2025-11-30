@@ -7,7 +7,7 @@ See .codex/setup.sh for how your development environment was setup in case you s
 Your dev environment setup has some differences from Emilio's local laptop development.
 
 Differences from Emilio's local laptop development: 
-* The .env.development.local file is not used by you (Codex Cloud Agent), it is only used for Emilio's local laptop development. Just check for the existence of some of the environment variables in env.example file. The variables should have just been injected into the environment variables when you deployed.
+* The .env file is not used by you (Codex Cloud Agent), it is only used for Emilio's local laptop development. Just check for the existence of some of the environment variables in env.example file. The variables should have just been injected into the environment variables when you deployed.
 * Postgres should already be running. You can ignore the Docker instructions for Postgres in README.md. 
 
 # Running services

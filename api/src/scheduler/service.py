@@ -2,7 +2,7 @@ from dotenv import load_dotenv, find_dotenv
 
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
-load_dotenv(find_dotenv(".env.development.local"), override=True)
+load_dotenv(find_dotenv(".env"), override=True)
 import os
 import logfire
 from apscheduler.schedulers.asyncio import AsyncIOScheduler

@@ -2,7 +2,7 @@ import os
 import re  # Added for normalization function
 from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(find_dotenv(".env.development.local"), override=True)
+load_dotenv(find_dotenv(".env"), override=True)
 import requests
 from typing import List, Optional, Union
 from fastapi import HTTPException
