@@ -6,12 +6,10 @@ from fastapi import Depends, HTTPException, Header, Request, status
 from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState
 import os
 from google.oauth2.credentials import Credentials
-import logging
+import logfire
 from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.service import get_oauth_credentials, save_oauth_credentials
 from pprint import pprint
-
-logger = logging.getLogger(__name__) # Add logger instance
 
 # Initialize Clerk client - in production, this would use os.environ
 
@@ -102,7 +100,7 @@ async def verify_domain(request: Request, domain: str) -> bool:
     user = await get_auth_user(request)
     for email in user.email_addresses:
         if email.email_address.endswith(domain) and email.verification and email.verification.status == "verified":
-            logger.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success
+            logfire.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success
             return True # Early exit: user is authorized
 
     # If the loop completes, it means no verified email for the domain was found.
@@ -163,7 +161,7 @@ async def get_google_credentials(request: Request) -> Credentials:
                 detail="User has no Google credentials.",
             )
         elif len(list_creds_responses) > 1:
-            logging.warning(
+            logfire.warn(
                 f"User {user_id} has multiple Google credentials, using the first one."
             )
 

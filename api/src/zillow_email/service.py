@@ -1,4 +1,4 @@
-import logging
+import logfire
 import os
 from pprint import pprint
 from api.src.open_phone.service import send_message, upsert_openphone_contact
@@ -18,9 +18,8 @@ from api.src.google.calendar.service import create_calendar_event, get_calendar_
 from bs4 import BeautifulSoup
 
 # Create a logger specific to this module
-logger = logging.getLogger(__name__)
 
-logger.info("Zillow unreplied email alerts service loaded")
+logfire.info("Zillow unreplied email alerts service loaded")
 
 async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None, target_slugs: list[str]=None, mock=False):
     """
@@ -32,18 +31,18 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
         target_slugs: list[str] - The slugs of the contacts to send the message to.
         mock: bool - Whether to mock the sending of the message.
     """
-    logger.info(f"check_unreplied_emails invoked. Received sql='{sql}'")
+    logfire.info(f"check_unreplied_emails invoked. Received sql='{sql}'")
     assert target_phone_numbers or target_slugs, "Either target_phone_numbers or target_slugs must be provided"
-    logger.info(f"target_phone_numbers='{target_phone_numbers}'")
-    logger.info(f"target_slugs='{target_slugs}'")
-    logger.info(f"mock='{mock}'")
+    logfire.info(f"target_phone_numbers='{target_phone_numbers}'")
+    logfire.info(f"target_slugs='{target_slugs}'")
+    logfire.info(f"mock='{mock}'")
 
     if target_slugs:
         target_phone_numbers = []
         for target_slug in target_slugs:
             target_contact = await get_contact_by_slug(target_slug)
             if not target_contact:
-                logger.error(f"Contact with slug '{target_slug}' not found.")
+                logfire.error(f"Contact with slug '{target_slug}' not found.")
                 raise Exception(f"Contact with slug '{target_slug}' not found.")
             else:
                 target_phone_numbers.append(target_contact.phone_number)
@@ -51,7 +50,7 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
     # Configuration for phone numbers
     from_phone_number = "+14129101500"  # Alert Robot
 
-    logger.info(
+    logfire.info(
         f"Running Zillow unreplied email check. Alerts to: {target_phone_numbers}"
     )
     unreplied_count = 0  # Default value
@@ -64,13 +63,13 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
             # The original service.py implies it's relative to where the script is run from (api/)
 
             if sql.endswith(".sql"):
-                logger.info(f"sql parameter '{sql}' ends with .sql, attempting to read file.")
+                logfire.info(f"sql parameter '{sql}' ends with .sql, attempting to read file.")
                 try:
                     with open(sql, "r") as f:
                         sql_query = f.read()
-                    logger.info(f"Successfully read SQL query from file: {sql}")
+                    logfire.info(f"Successfully read SQL query from file: {sql}")
                 except FileNotFoundError:
-                    logger.error(
+                    logfire.error(
                         f"SQL file not found at {sql}. Please check the path."
                     )
                     return (
@@ -78,14 +77,14 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
                     )  # Return -1 if SQL file is not found, test expects a count.
             else:
                 sql_query = sql
-                logger.info(f"sql parameter '{sql}' does not end with .sql. Using as direct query.")
+                logfire.info(f"sql parameter '{sql}' does not end with .sql. Using as direct query.")
 
             result = await session.execute(text(sql_query))
             unreplied_emails = result.fetchall()
             unreplied_count = len(unreplied_emails)
 
             if unreplied_emails:
-                logger.info(f"Found {unreplied_count} unreplied Zillow emails.")
+                logfire.info(f"Found {unreplied_count} unreplied Zillow emails.")
 
                 formatted_results = []
                 for email in unreplied_emails:
@@ -103,18 +102,18 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
 
                 current_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
                 if current_env not in ["production", "local"]:
-                    logger.info(
+                    logfire.info(
                         f"Skipping OpenPhone message in '{current_env}' environment."
                     )
                 else:
-                    logger.info(
+                    logfire.info(
                         f"Attempting to send OpenPhone message in '{current_env}' environment."
                     )
 
                     for target_phone_number in target_phone_numbers:
                         if mock:
                             sent_message_count += 1
-                            logger.info(f"Mock sending message to {target_phone_number}.")
+                            logfire.info(f"Mock sending message to {target_phone_number}.")
                         else:
                             response = await send_message(
                                 message=message_body,
@@ -122,22 +121,22 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
                                 from_phone_number=from_phone_number,
                             )
                             if response.status_code in [200, 202]:
-                                logger.info(
+                                logfire.info(
                                     f"Successfully sent summary of {unreplied_count} unreplied emails to {target_phone_number}"
                                 )
                                 sent_message_count += 1
                             else:
-                                logger.error(
+                                logfire.error(
                                     f"Failed to send OpenPhone message to {target_phone_number}: Status {response.status_code} - {getattr(response, 'text', 'No text attribute')}"
                                 )
 
             else:
-                logger.info("No unreplied Zillow emails found.")
+                logfire.info("No unreplied Zillow emails found.")
 
             return sent_message_count
 
     except Exception as e:
-        logger.error(f"Error in check_unreplied_emails job: {str(e)}", exc_info=True)
+        logfire.exception(f"Error in check_unreplied_emails job: {str(e)}")
         # Return the determined count before exception, or 0 if it occurred early
         return sent_message_count
 
@@ -262,7 +261,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
     }
     """
 
-    logger.info(f"ai_assess_thread: Assessing Zillow email thread: {thread_id}")
+    logfire.info(f"ai_assess_thread: Assessing Zillow email thread: {thread_id}")
 
     thread_str = get_clean_zillow_thread_str(messages)
 
@@ -279,7 +278,7 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
         text_format=ShouldReply,
     )
 
-    logger.info(f"ai_assess_thread: Parsed AI response: {response.output_parsed}")
+    logfire.info(f"ai_assess_thread: Parsed AI response: {response.output_parsed}")
 
     should_sernia_reply = response.output_parsed.should_reply
     reason = response.output_parsed.reason
@@ -336,7 +335,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
     }}
     """
 
-    logger.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
+    logfire.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
 
 
 
@@ -356,7 +355,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
         text_format=CollectedThreadInfo,
     )
 
-    logger.info(f"ai_collect_thread_info: Parsed AI response: {response.output_parsed}")
+    logfire.info(f"ai_collect_thread_info: Parsed AI response: {response.output_parsed}")
 
     thread_info = response.output_parsed
 
@@ -388,7 +387,7 @@ async def check_email_threads(overwrite_calendar_events=False):
             email_threads = {}
 
             if email_dicts:
-                logger.info(f"Found {len(email_dicts)} email threads.")
+                logfire.info(f"Found {len(email_dicts)} email threads.")
 
                 for email in email_dicts:
                     thread_id = email['thread_id']
@@ -412,7 +411,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                     email_threads[thread_id].append(message_detail)
 
             else:
-                logger.info("No email threads found.")
+                logfire.info("No email threads found.")
 
             # for each thread, check if it has a reply
             for thread_id, messages in email_threads.items():
@@ -426,7 +425,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                     if non_prod_env:
                         alert_message = f'ENV: {non_prod_env}\n\n{alert_message}'
 
-                    logger.info(alert_message)
+                    logfire.info(alert_message)
                     await send_message(
                         message=alert_message,
                         to_phone_number=target_phone_number,
@@ -434,7 +433,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                     )
 
                 if appointment_scheduled:
-                    logger.info(f"Appointment scheduled: {appointment_scheduled}")
+                    logfire.info(f"Appointment scheduled: {appointment_scheduled}")
 
                     thread_info, thread_str = await ai_collect_thread_info(thread_id, messages)
 
@@ -456,11 +455,11 @@ async def check_email_threads(overwrite_calendar_events=False):
                             # now create a new contact in OpenPhone
                             openphone_contact_response = await upsert_openphone_contact(contact_create)
                             openphone_contact = openphone_contact_response.json()
-                            logger.info(f"Created/updated OpenPhone contact: {openphone_contact}")
+                            logfire.info(f"Created/updated OpenPhone contact: {openphone_contact}")
                         else:
-                            logger.error(f"No phone number found for lead: {first_name_aux}")
+                            logfire.error(f"No phone number found for lead: {first_name_aux}")
                     except Exception as e:
-                        logger.error(f"Error creating OpenPhone contact: {e}")
+                        logfire.error(f"Error creating OpenPhone contact: {e}")
 
                     try:
                         if thread_info.appointment_date and thread_info.appointment_time:
@@ -519,14 +518,14 @@ async def check_email_threads(overwrite_calendar_events=False):
 
                             if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in ["production", "local"]:
                                 created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
-                                logger.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                                logfire.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
                             else:
-                                logger.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
+                                logfire.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
                         else:
-                            logger.warning(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
+                            logfire.warn(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
                     except Exception as e:
-                        logger.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
-                        logger.error(f"Thread Info for calendar event creation: {thread_info}")
+                        logfire.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
+                        logfire.error(f"Thread Info for calendar event creation: {thread_info}")
 
 
 @pytest.mark.asyncio

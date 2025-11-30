@@ -3,13 +3,12 @@ Chat Agent using PydanticAI with weather tool
 
 This agent provides a general-purpose chat assistant with weather functionality.
 """
-import logging
+import logfire
 import requests
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,10 +50,10 @@ async def get_current_weather(ctx: RunContext[ChatContext], latitude: float, lon
         response = requests.get(url)
         response.raise_for_status()
         weather_data = response.json()
-        logger.info(f"Weather fetched for lat={latitude}, lon={longitude}")
+        logfire.info(f"Weather fetched for lat={latitude}, lon={longitude}")
         return weather_data
     except requests.RequestException as e:
-        logger.error(f"Error fetching weather data: {e}")
+        logfire.error(f"Error fetching weather data: {e}")
         return {"error": f"Failed to fetch weather data: {str(e)}"}
 
 

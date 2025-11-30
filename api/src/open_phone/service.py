@@ -4,15 +4,13 @@ load_dotenv(find_dotenv(".env.development.local"), override=True)
 import requests
 from typing import List, Optional, Union
 from fastapi import HTTPException
-import logging
+import logfire
 from api.src.google.sheets import get_sheet_as_json
 from api.src.contact.service import get_contact_by_slug, create_contact, ContactCreate
 from api.src.database.database import AsyncSessionFactory
 from api.src.contact.models import Contact
 import pytest
 from sqlalchemy import select
-
-logger = logging.getLogger(__name__)
 
 async def send_message(
     message: str,
@@ -113,7 +111,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             lookup_results = lookup_response.json()['data']
             num_results = len(lookup_results)
             if num_results>1:
-                logger.warning(f"Multiple contacts found for the same externalId: {data['externalId']}")
+                logfire.warn(f"Multiple contacts found for the same externalId: {data['externalId']}")
             contact.openphone_contact_id = lookup_results[0]['id']
 
             # patch the contact
@@ -124,7 +122,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             if patch_response.status_code == 200:
                 final_response = patch_response
             else:
-                logger.error(f"Failed to patch contact: {patch_response.json()}")
+                logfire.error(f"Failed to patch contact: {patch_response.json()}")
             
         # Use merge instead of upsert
         merged_contact = await db.merge(contact)
@@ -190,7 +188,7 @@ async def get_contacts_by_external_ids(
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching contacts: {str(e)}")
+        logfire.error(f"Error fetching contacts: {str(e)}")
         raise
 
 

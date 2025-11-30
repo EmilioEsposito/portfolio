@@ -4,9 +4,7 @@ from typing import Annotated
 from api.src.utils.password import verify_admin_auth
 from api.src.utils.clerk import get_auth_user
 from api.src.utils.clerk import verify_serniacapital_user
-import logging
-
-logger = logging.getLogger(__name__)
+import logfire
 
 async def verify_cron_secret(request: Request):
     """
@@ -45,11 +43,11 @@ async def verify_admin_or_serniacapital(
     Dependency to verify either admin authentication (password) OR a logged-in user with a verified SerniaCapital email.
     Raises 401/403 if neither auth method succeeds.
     """
-    logger.info("Attempting authorization: admin password (for non-GET) or SerniaCapital user.")
+    logfire.info("Attempting authorization: admin password (for non-GET) or SerniaCapital user.")
 
     # 1. Attempt admin authentication if not a GET request
     if request.method == "GET":
-        logger.error(
+        logfire.error(
             "Programming_error: 'verify_admin_or_serniacapital' dependency "
             "was incorrectly used with a GET request for path: %s", 
             request.url.path
@@ -62,18 +60,18 @@ async def verify_admin_or_serniacapital(
     else:
         try:
             await verify_admin_auth(request)
-            logger.info("Authorization successful via admin password.")
+            logfire.info("Authorization successful via admin password.")
             return True  # Admin auth successful
         except HTTPException as admin_auth_exception:
             # Check for expected admin auth failures (e.g., bad password, no/bad body for POST/PUT)
             # 400 for bad JSON (e.g. from request.json() if body is missing/malformed for password)
             # 401 for invalid password/no password
             if admin_auth_exception.status_code in [400, 401, 403]:
-                logger.info(f"Admin password auth failed or not applicable (status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'). Proceeding to SerniaCapital user check.")
+                logfire.info(f"Admin password auth failed or not applicable (status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'). Proceeding to SerniaCapital user check.")
                 # Fall through to SerniaCapital user check below
             else:
                 # Unexpected error during admin auth
-                logger.error(f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'")
+                logfire.error(f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'")
                 raise admin_auth_exception # Re-raise unexpected exceptions
 
     # 2. Attempt SerniaCapital user authentication
@@ -87,14 +85,14 @@ async def verify_admin_or_serniacapital(
         is_sernia_user = await verify_serniacapital_user(request)
 
         # if above succeeds, is_sernia_user will always be True.
-        logger.info("Authorization successful via SerniaCapital domain verification.")
+        logfire.info("Authorization successful via SerniaCapital domain verification.")
         return is_sernia_user # SerniaCapital user is authorized (True)
 
     except HTTPException as user_auth_exception:
-        logger.warning(f"SerniaCapital auth failed: {user_auth_exception.detail}")
+        logfire.warn(f"SerniaCapital auth failed: {user_auth_exception.detail}")
         # Provide a comprehensive error message reflecting the OR logic
         detail_message = "Unauthorized: Requires admin password (for non-GET requests) or a verified @serniacapital.com user login."
         raise HTTPException(status_code=401, detail=detail_message) from user_auth_exception
     except Exception as e:
-         logger.error(f"Unexpected error during SerniaCapital check: {e}", exc_info=True)
+         logfire.exception(f"Unexpected error during SerniaCapital check: {e}")
          raise HTTPException(status_code=500, detail="Internal server error during authorization check.")

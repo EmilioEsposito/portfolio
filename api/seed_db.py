@@ -18,17 +18,19 @@ Usage:
 
 import asyncio
 import argparse
-import logging
 import sys
 from typing import Optional
 from dataclasses import dataclass, field
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+
+def log_info(msg: str) -> None:
+    """Simple logging for seed script."""
+    print(f"[INFO] {msg}")
+
+
+def log_error(msg: str) -> None:
+    """Simple error logging for seed script."""
+    print(f"[ERROR] {msg}", file=sys.stderr)
 
 
 @dataclass
@@ -100,7 +102,7 @@ async def seed_contacts(interactive: bool = False, dry_run: bool = False) -> Non
             existing = result.scalars().first()
 
             if existing:
-                logger.info(f"✓ Contact '{seed.slug}' already exists (id: {existing.id})")
+                log_info(f"✓ Contact '{seed.slug}' already exists (id: {existing.id})")
                 continue
 
             # Handle interactive mode (auto-prompt if interactive_fields is defined)
@@ -109,10 +111,10 @@ async def seed_contacts(interactive: bool = False, dry_run: bool = False) -> Non
 
             # Force interactive mode if this seed has interactive_fields defined
             should_prompt = interactive or len(seed.interactive_fields) > 0
-            logger.info(f"should_prompt: {should_prompt}")
+            log_info(f"should_prompt: {should_prompt}")
 
             if should_prompt and len(seed.interactive_fields) > 0:
-                logger.info(f"Interactive mode for '{seed.slug}':")
+                log_info(f"Interactive mode for '{seed.slug}':")
                 for field_name in seed.interactive_fields:
                     current_value = getattr(seed, field_name, None)
                     new_value = prompt_for_value(field_name, current_value, seed.slug)
@@ -122,7 +124,7 @@ async def seed_contacts(interactive: bool = False, dry_run: bool = False) -> Non
                         email = new_value
 
             if dry_run:
-                logger.info(
+                log_info(
                     f"[DRY RUN] Would create contact '{seed.slug}': "
                     f"{seed.first_name} {seed.last_name}, "
                     f"email={email}, phone={phone_number}"
@@ -140,31 +142,31 @@ async def seed_contacts(interactive: bool = False, dry_run: bool = False) -> Non
                     notes=seed.notes,
                 )
                 created = await create_contact(session, contact_data)
-                logger.info(f"✓ Created contact '{seed.slug}' (id: {created.id})")
+                log_info(f"✓ Created contact '{seed.slug}' (id: {created.id})")
             except Exception as e:
-                logger.error(f"✗ Failed to create contact '{seed.slug}': {e}")
+                log_error(f"✗ Failed to create contact '{seed.slug}': {e}")
                 raise
 
 
 async def main(interactive: bool = False, dry_run: bool = False) -> None:
     """Main entry point for seeding the database."""
-    logger.info("=" * 50)
-    logger.info("Database Seed Script")
-    logger.info("=" * 50)
+    log_info("=" * 50)
+    log_info("Database Seed Script")
+    log_info("=" * 50)
 
     if dry_run:
-        logger.info("Running in DRY RUN mode - no changes will be made")
+        log_info("Running in DRY RUN mode - no changes will be made")
     if interactive:
-        logger.info("Running in INTERACTIVE mode - will prompt for values")
+        log_info("Running in INTERACTIVE mode - will prompt for values")
 
-    logger.info("")
-    logger.info("Seeding contacts...")
+    log_info("")
+    log_info("Seeding contacts...")
     await seed_contacts(interactive=interactive, dry_run=dry_run)
 
-    logger.info("")
-    logger.info("=" * 50)
-    logger.info("Seed complete!")
-    logger.info("=" * 50)
+    log_info("")
+    log_info("=" * 50)
+    log_info("Seed complete!")
+    log_info("=" * 50)
 
 
 if __name__ == "__main__":
@@ -187,8 +189,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main(interactive=args.interactive, dry_run=args.dry_run))
     except KeyboardInterrupt:
-        logger.info("\nSeed cancelled by user")
+        log_info("\nSeed cancelled by user")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Seed failed: {e}")
+        log_error(f"Seed failed: {e}")
         sys.exit(1)

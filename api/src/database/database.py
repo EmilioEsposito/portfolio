@@ -3,18 +3,13 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData
 from sqlalchemy.pool import NullPool
 import os
-import logging
+import logfire
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 import re # Added for URL normalization
-
-logger = logging.getLogger(__name__)
-
-# Enable SQLAlchemy logging for debugging
-# logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)  # Removed, now handled in index.py
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 
@@ -59,7 +54,7 @@ def _mask_credentials(url: str) -> str:
 
 
 db_url_for_logging = _mask_credentials(DATABASE_URL)
-logger.info(f"Database URL format: {db_url_for_logging}")
+logfire.info(f"Database URL format: {db_url_for_logging}")
 
 # Always convert to asyncpg format
 if DATABASE_URL.startswith("postgres://"):
@@ -69,9 +64,9 @@ elif DATABASE_URL.startswith("postgresql://"):
 
 # Log the final URL format (with credentials removed)
 final_url_for_logging = _mask_credentials(DATABASE_URL)
-logger.info(f"Final database URL format: {final_url_for_logging}")
+logfire.info(f"Final database URL format: {final_url_for_logging}")
 
-logger.info("Creating database engine...")
+logfire.info("Creating database engine...")
 
 # Create async engine for FastAPI app (use Neon pooled connection)
 async_connect_args = {
@@ -97,7 +92,7 @@ engine = create_async_engine(
     connect_args=async_connect_args,
 )
 
-logger.info("Creating session factory...")
+logfire.info("Creating session factory...")
 
 # Session factory for FastAPI app
 AsyncSessionFactory = async_sessionmaker(
@@ -131,14 +126,14 @@ if DATABASE_URL_UNPOOLED:
             credentials_part = parts[1].split("@")[0]
             sync_url_for_logging = sync_url_for_logging.replace(credentials_part, "<credentials>")
 
-    logger.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
-    logger.info(f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}")
+    logfire.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
+    logfire.info(f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}")
     try:
         # For a background service like APScheduler, use NullPool for serverless compatibility.
         # echo=False is common for sync engines unless specific SQL debugging is needed.
         # psycopg2 requires explicit sslmode setting - empty dict defaults to requiring SSL
         sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {"sslmode": "disable"}
-        logger.info(f"Using sync_connect_args: {sync_connect_args}")
+        logfire.info(f"Using sync_connect_args: {sync_connect_args}")
         sync_engine = create_sync_engine(
             sync_db_url,
             echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
@@ -146,12 +141,12 @@ if DATABASE_URL_UNPOOLED:
             connect_args=sync_connect_args,
         )
         ssl_status = "with SSL" if DATABASE_REQUIRE_SSL else "without SSL"
-        logger.info(f"Synchronous SQLAlchemy engine created successfully with NullPool {ssl_status}.")
+        logfire.info(f"Synchronous SQLAlchemy engine created successfully with NullPool {ssl_status}.")
     except Exception as e:
-        logger.error(f"Failed to create synchronous SQLAlchemy engine: {e}", exc_info=True)
+        logfire.exception(f"Failed to create synchronous SQLAlchemy engine: {e}")
         sync_engine = None # Ensure it's None if creation failed
 elif not DATABASE_URL_UNPOOLED:
-    logger.warning("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
+    logfire.warn("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
 
 @asynccontextmanager
 async def session_context() -> AsyncGenerator[AsyncSession, None]:
@@ -164,7 +159,7 @@ async def session_context() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logger.error(f"Database session error: {str(e)}", exc_info=True)
+            logfire.exception(f"Database session error: {str(e)}")
             raise
 
 # Session dependency for FastAPI
@@ -178,6 +173,6 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            logger.error(f"Database session error: {str(e)}", exc_info=True)
-            raise 
+            logfire.exception(f"Database session error: {str(e)}")
+            raise
 
