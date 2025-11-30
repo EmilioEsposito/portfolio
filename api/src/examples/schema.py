@@ -2,7 +2,6 @@ from typing import List, Optional
 import strawberry
 from datetime import datetime
 from sqlalchemy import select, desc
-import logging
 from api.src.database.database import session_context
 from api.src.examples.models import Example as ExampleModel
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks, Security
 from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
-import logging
+import logfire
 import json
 import os
 import base64
@@ -33,8 +33,6 @@ router = APIRouter(
     prefix="/open_phone",
     tags=["open_phone"],
 )
-
-logger = logging.getLogger(__name__)
 
 
 emoji_pattern = re.compile(
@@ -93,10 +91,10 @@ async def verify_open_phone_signature(request: Request):
 
     # Make sure the computed digest matches the digest in the openphone header.
     if provided_digest == computed_digest:
-        logger.info("signature verification succeeded")
+        logfire.info("signature verification succeeded")
         return True
     else:
-        logger.error("signature verification failed")
+        logfire.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
 
 def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
@@ -155,12 +153,12 @@ async def webhook(
     try:
         # Extract event data
         event_data = extract_event_data(payload)
-        logger.info(f"OpenPhone webhook received. event_id: {event_data['event_id']}")
+        logfire.info(f"OpenPhone webhook received. event_id: {event_data['event_id']}")
 
         sernia_contact = await get_contact_by_slug("sernia")
 
         if not sernia_contact:
-            logger.error(f"Sernia contact not found for slug 'sernia'")
+            logfire.error(f"Sernia contact not found for slug 'sernia'")
             raise HTTPException(500, "Sernia contact not found")
 
         # Analyze messages to Sernia for potential Twilio escalation before saving to DB
@@ -170,7 +168,7 @@ async def webhook(
         ):
             # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
             if await contains_emoji(event_data["message_text"][:3]):
-                logger.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
+                logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
             else:
                 # Run analysis in the background
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
@@ -181,7 +179,7 @@ async def webhook(
         )
         existing_event_record = result.scalar_one_or_none()
         if existing_event_record:
-            logger.info(f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping")
+            logfire.info(f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping")
             return {"message": "Event already processed"}
         else:
             # Create database record
@@ -189,19 +187,19 @@ async def webhook(
             session.add(open_phone_event)
             await session.commit()
             await session.refresh(open_phone_event)
-            logger.info(f"Successfully recorded OpenPhone event: {payload.type}")
+            logfire.info(f"Successfully recorded OpenPhone event: {payload.type}")
             return {"message": "Event recorded successfully"}
 
-    except IntegrityError as e:        
+    except IntegrityError as e:
         # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
         event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
         log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Full payload: {payload}. Database Error: {e}"
-        logger.error(log_message, exc_info=True) # exc_info=True includes the stack trace
-        
+        logfire.exception(log_message) # exc_info=True includes the stack trace
+
         raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
         detailed_error_message = f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}"
-        logger.error(detailed_error_message, exc_info=True)
+        logfire.exception(detailed_error_message)
         await session.rollback()
         raise HTTPException(status_code=500, detail=detailed_error_message)
 
@@ -261,21 +259,21 @@ async def send_tenant_mass_message(
     body: TenantMassMessageRequest,
 ):
     """Send a message to all tenants in the specified properties."""
-    logger.info(
+    logfire.info(
         f"Starting tenant mass message request for properties: {body.property_names}"
     )
 
     try:
         # Get contacts from Google Sheet
         try:
-            logger.info("Fetching contacts from Google Sheet")
+            logfire.info("Fetching contacts from Google Sheet")
             all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logger.info(
+            logfire.info(
                 f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
             )
         except Exception as e:
-            logger.error(
-                f"Failed to fetch contacts from Google Sheet: {str(e)}", exc_info=True
+            logfire.exception(
+                f"Failed to fetch contacts from Google Sheet: {str(e)}"
             )
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch contacts: {str(e)}"
@@ -295,17 +293,17 @@ async def send_tenant_mass_message(
             if "Lease End Date" in contact:
                 if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
                     contacts.remove(contact)
-                    logger.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
+                    logfire.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
             else:
                 contacts.remove(contact)
-                logger.warning(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
+                logfire.warn(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
 
-        logger.info(
+        logfire.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
         )
 
         if not contacts:
-            logger.warning(f"No contacts found for properties: {body.property_names}")
+            logfire.warn(f"No contacts found for properties: {body.property_names}")
             raise HTTPException(
                 status_code=404,
                 detail=f"No contacts found for properties: {body.property_names}",
@@ -323,7 +321,7 @@ async def send_tenant_mass_message(
                 phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
                     " ", ""
                 ).replace("(", "").replace(")", "")
-                logger.info(
+                logfire.info(
                     f"Preparing message to {contact['First Name']} at {phone_number}"
                 )
 
@@ -347,7 +345,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logfire.error(
                     f"Failed to prepare message for {contact['First Name']}: {error_message}"
                 )
 
@@ -377,7 +375,7 @@ async def send_tenant_mass_message(
                 response_data = response.json()
                 if response_data.get("data", {}).get("status") == "sent":
                     successes += 1
-                    logger.info(f"Successfully sent message to {contact['First Name']}")
+                    logfire.info(f"Successfully sent message to {contact['First Name']}")
                 else:
                     raise Exception(
                         f"Message not confirmed as sent: {json.dumps(response_data)}"
@@ -395,7 +393,7 @@ async def send_tenant_mass_message(
                         "error": error_message,
                     }
                 )
-                logger.error(
+                logfire.error(
                     f"Failed to send message to {contact['First Name']}: {error_message}"
                 )
 
@@ -410,7 +408,7 @@ async def send_tenant_mass_message(
                 f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
                 f"Failed contacts:\n" + "\n".join(failed_details)
             )
-            logger.warning(message)
+            logfire.warn(message)
 
             return JSONResponse(
                 status_code=207 if successes > 0 else 500,
@@ -424,7 +422,7 @@ async def send_tenant_mass_message(
             )
         property_names_str = ", ".join(body.property_names)
         success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
-        logger.info(success_message)
+        logfire.info(success_message)
         return JSONResponse(
             status_code=200,
             content={
@@ -437,8 +435,8 @@ async def send_tenant_mass_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
-            f"Unexpected error in send_tenant_mass_message: {str(e)}", exc_info=True
+        logfire.exception(
+            f"Unexpected error in send_tenant_mass_message: {str(e)}"
         )
         return JSONResponse(
             status_code=500,
@@ -569,9 +567,9 @@ async def get_tenant_data():
     Requires the user to be authenticated with a @serniacapital.com email.
     """
     try:
-        logger.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
+        logfire.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
         tenant_data = get_contacts_sheet_as_json()
-        logger.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
+        logfire.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
         
         # Add 'Active Lease' field
         today = date.today()
@@ -592,14 +590,14 @@ async def get_tenant_data():
                 tenant['Active Lease'] = is_active
                 processed_data.append(tenant)
             except (ValueError, TypeError) as date_err:
-                logger.warning(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
+                logfire.warn(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
                 tenant['Active Lease'] = False # Default to False if dates are invalid
                 processed_data.append(tenant)
 
         return processed_data
     except Exception as e:
-        logger.error(
-            f"Failed to fetch or process tenant contacts: {str(e)}", exc_info=True
+        logfire.exception(
+            f"Failed to fetch or process tenant contacts: {str(e)}"
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch or process tenant contacts: {str(e)}"

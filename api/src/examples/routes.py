@@ -9,12 +9,11 @@ from api.src.google.gmail import get_gmail_service
 from pprint import pprint
 import pytz
 from datetime import datetime
-import logging
+import logfire
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 
 router = APIRouter(prefix="/examples", tags=["examples"])
-logger = logging.getLogger(__name__)
 
 # @router.get("/protected")
 # async def protected_route(
@@ -43,7 +42,7 @@ async def protected_route_simple():
     Returns user information from Clerk.
     """
 
-    logger.info("protected_route_simple")
+    logfire.info("protected_route_simple")
 
     return "You are authenticated!"
 
@@ -154,6 +153,6 @@ async def protected_route_google(
 
 @router.get("/test")
 async def hello_fast_api():
-    logging.info("/api/examples/test")
-    logger.info("/api/examples/test")
+    logfire.info("/api/examples/test")
+    logfire.info("/api/examples/test")
     return {"message": "Hello from /api/examples/test"}

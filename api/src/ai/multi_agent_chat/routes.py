@@ -13,6 +13,8 @@ from api.src.ai.multi_agent_chat.graph import (
     multi_agent_graph,
 )
 from api.src.utils.swagger_schema import expand_json_schema
+import logfire
+
 
 router = APIRouter(tags=["ai"])
 
@@ -137,7 +139,8 @@ async def multi_agent_chat(request: Request) -> Response:
     Returns a Server-Sent Events (SSE) stream with Content-Type: `text/event-stream`.
     Each event follows the Vercel AI SDK Data Stream Protocol format.
     """
-    logfire.info("Multi-agent chat request using Graph Beta API")
+    logfire.info("LOGFIRE: Multi-agent chat request using Graph Beta API")
+    logfire.info("CLASSIC LOGGER: Multi-agent chat request using Graph Beta API")
 
     request_json = await request.json()
     user_message = _extract_latest_message_text(request_json)

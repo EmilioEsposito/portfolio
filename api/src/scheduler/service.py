@@ -4,7 +4,7 @@ from api.src.google.common.service_account_auth import get_delegated_credentials
 
 load_dotenv(find_dotenv(".env.development.local"), override=True)
 import os
-import logging
+import logfire
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -25,8 +25,6 @@ from api.src.contact.service import get_contact_by_slug
 # Import the synchronous engine from database.py
 from api.src.database.database import sync_engine
 
-logger = logging.getLogger(__name__)
-
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- START
 # Store the original __str__ method in case it's ever needed for reversion or comparison
 _original_apscheduler_job_str = Job.__str__
@@ -36,12 +34,12 @@ def custom_apscheduler_job_str(self):
     return f"{self.name} (job_id: {self.id})"
 
 Job.__str__ = custom_apscheduler_job_str
-logger.info("APScheduler Job.__str__ has been monkey-patched to include job_id.")
+logfire.info("APScheduler Job.__str__ has been monkey-patched to include job_id.")
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- END
 
 # Configure the job store
 if sync_engine:
-    logger.info(
+    logfire.info(
         "Scheduler using SQLAlchemyJobStore with pre-configured synchronous engine."
     )
     jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
@@ -58,23 +56,21 @@ scheduler = AsyncIOScheduler(
     }
 )
 
-# Ensure APScheduler's own logging is not too verbose if not desired
-aps_logger = logging.getLogger("apscheduler")
-aps_logger.setLevel(logging.INFO)  # Or WARNING/ERROR, depending on desired verbosity
+# Note: APScheduler's internal logging is captured by logfire through OpenTelemetry
 
 
 # --- Centralized Job Error Handling --- START
 async def handle_job_error(event):
-    logger.info(f"--- handle_job_error START for job {event.job_id} ---")
+    logfire.info(f"--- handle_job_error START for job {event.job_id} ---")
     job_id = event.job_id
     exception = event.exception
     traceback_str = event.traceback
 
-    logger.error(f"Job {job_id} raised an exception: {exception}")
-    logger.error(f"Traceback: {traceback_str}")
+    logfire.error(f"Job {job_id} raised an exception: {exception}")
+    logfire.error(f"Traceback: {traceback_str}")
 
     credentials = None
-    logger.info(f"Attempting to get delegated credentials for job {job_id} error email.")
+    logfire.info(f"Attempting to get delegated credentials for job {job_id} error email.")
     try:
         # Assuming get_delegated_credentials might be synchronous and I/O bound.
         # If it's already async, this to_thread call is okay but not strictly necessary.
@@ -83,15 +79,15 @@ async def handle_job_error(event):
             user_email="emilio@serniacapital.com",  # TODO: Move to env var?
             scopes=["https://mail.google.com"],
         )
-        logger.info(f"Successfully got credentials for job {job_id} error email.")
+        logfire.info(f"Successfully got credentials for job {job_id} error email.")
     except Exception as e:
-        logger.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
-        logger.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
+        logfire.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
+        logfire.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
         return # Stop if we can't get credentials
 
     message_text = f"APScheduler Job Error: {job_id} raised an exception: {exception}\nTraceback: {traceback_str}"
 
-    logger.info(f"Attempting to send error email for job {job_id}.")
+    logfire.info(f"Attempting to send error email for job {job_id}.")
     try:
         # Call the now asynchronous send_email function directly
         await send_email(
@@ -100,25 +96,25 @@ async def handle_job_error(event):
             message_text=message_text,
             credentials=credentials,
         )
-        logger.info(f"Successfully sent error notification email for job {job_id}.")
+        logfire.info(f"Successfully sent error notification email for job {job_id}.")
         
         # Add a small delay here to allow underlying I/O of send_email to complete before the test process potentially exits
-        logger.info(f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}.")
+        logfire.info(f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}.")
         await asyncio.sleep(3) 
-        logger.info(f"Short delay completed in handle_job_error for job {job_id}.")
+        logfire.info(f"Short delay completed in handle_job_error for job {job_id}.")
 
     except Exception as e:
-        logger.error(f"Failed to send error notification email for job {job_id}: {e}")
-    logger.info(f"--- handle_job_error END for job {job_id} ---")
+        logfire.error(f"Failed to send error notification email for job {job_id}: {e}")
+    logfire.info(f"--- handle_job_error END for job {job_id} ---")
 
 # Synchronous wrapper for the async error handler
 def sync_error_listener_wrapper(event):
-    logger.info(f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---")
+    logfire.info(f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---")
     asyncio.create_task(handle_job_error(event))
 
 # Register the error handler
 scheduler.add_listener(sync_error_listener_wrapper, EVENT_JOB_ERROR) # Use the wrapper
-logger.info("Registered central job error handler wrapper.")
+logfire.info("Registered central job error handler wrapper.")
 # --- Centralized Job Error Handling --- END
 
 
@@ -160,7 +156,7 @@ async def schedule_sms(
         )
         is_scheduled = True
     except Exception as e:
-        logger.error(f"Error scheduling SMS: {e}")
+        logfire.error(f"Error scheduling SMS: {e}")
         is_scheduled = False
 
     return is_scheduled
@@ -223,7 +219,7 @@ async def schedule_email(
         )
         is_scheduled = True
     except Exception as e:
-        logger.error(f"Error scheduling email: {e}")
+        logfire.error(f"Error scheduling email: {e}")
         is_scheduled = False
 
     return is_scheduled
@@ -282,7 +278,7 @@ async def schedule_push(
         )
         is_scheduled = True
     except Exception as e:
-        logger.error(f"Error scheduling push: {e}")
+        logfire.error(f"Error scheduling push: {e}")
         is_scheduled = False
 
     return is_scheduled
@@ -338,7 +334,7 @@ async def test_schedule_push():
 
 async def run_hello_world(name: str):
     print(f"print: Hello {name} from test_job executed at {datetime.now()}")
-    logger.info(f"logger: Hello {name} from test_job executed at {datetime.now()}")
+    logfire.info(f"logger: Hello {name} from test_job executed at {datetime.now()}")
 
 
 def test_run_hello_world():
@@ -349,14 +345,14 @@ def test_run_hello_world():
     async def main_test_logic():  # Make it async to use await for scheduler methods
         # Start the scheduler if it's not already running (e.g. when running this script directly)
         if not scheduler.running:
-            logger.info("Starting scheduler for test_job...")
+            logfire.info("Starting scheduler for test_job...")
             scheduler.start()
         else:
-            logger.info("Scheduler already running for test_job.")
+            logfire.info("Scheduler already running for test_job.")
 
         job_id = "hello_world_test_job"
         run_date = datetime.now() + timedelta(seconds=5)  # Shortened for faster test
-        logger.info(f"Adding job '{job_id}' to run at {run_date}")
+        logfire.info(f"Adding job '{job_id}' to run at {run_date}")
 
         scheduler.add_job(
             func=run_hello_world,
@@ -368,10 +364,10 @@ def test_run_hello_world():
         )
 
         job = scheduler.get_job(job_id=job_id)
-        logger.info(f"Job added: {job}")
+        logfire.info(f"Job added: {job}")
 
         jobs = scheduler.get_jobs()
-        logger.info(f"Jobs: {jobs}")
+        logfire.info(f"Jobs: {jobs}")
 
         # Wait for the job to run
         # Giving a bit more time than the scheduled time
@@ -388,7 +384,7 @@ def test_run_hello_world():
         # Shutdown the scheduler if it was started by this test logic
         # In a real app, lifespan events handle this.
         # For a standalone test, it depends on whether you want to test shutdown too.
-        logger.info("Shutting down scheduler after test_job...")
+        logfire.info("Shutting down scheduler after test_job...")
         scheduler.shutdown(wait=True)
 
     import asyncio
@@ -397,21 +393,21 @@ def test_run_hello_world():
 
 async def job_that_will_fail():
     x=5
-    logger.info(f"job_that_will_fail: Executing, x = {x}")
+    logfire.info(f"job_that_will_fail: Executing, x = {x}")
     print(f"job_that_will_fail: print x = {x}") # For quick visual check in console
-    logger.info("job_that_will_fail: About to raise ValueError for testing error handler.")
+    logfire.info("job_that_will_fail: About to raise ValueError for testing error handler.")
     raise ValueError("This job is designed to fail for testing the error handler.")
 
 
 @pytest.mark.asyncio
 async def test_job_that_will_fail():
-    logger.info("--- test_job_that_will_fail START ---")
+    logfire.info("--- test_job_that_will_fail START ---")
     # Ensure scheduler is started for this test
     if not scheduler.running:
-        logger.info("Starting scheduler for test_job_that_will_fail...")
+        logfire.info("Starting scheduler for test_job_that_will_fail...")
         scheduler.start()
     else:
-        logger.warning("Scheduler was already running at the start of test_job_that_will_fail.")
+        logfire.warn("Scheduler was already running at the start of test_job_that_will_fail.")
 
     failing_job_id = "failing_test_job_for_handler"
     
@@ -419,7 +415,7 @@ async def test_job_that_will_fail():
     ny_tz = pytz.timezone("America/New_York")
     run_date_ny = datetime.now(ny_tz) + timedelta(seconds=4) # Increased to 4 seconds
 
-    logger.info(f"Adding failing job '{failing_job_id}' to run at {run_date_ny.isoformat()} (TZ: America/New_York) for error handler test.")
+    logfire.info(f"Adding failing job '{failing_job_id}' to run at {run_date_ny.isoformat()} (TZ: America/New_York) for error handler test.")
 
     scheduler.add_job(
         func=job_that_will_fail,
@@ -432,21 +428,21 @@ async def test_job_that_will_fail():
 
     failing_job = scheduler.get_job(job_id=failing_job_id)
     assert failing_job is not None, f"Failing job {failing_job_id} was not added successfully."
-    logger.info(f"Failing job added: {failing_job} (Next run: {failing_job.next_run_time.isoformat() if failing_job.next_run_time else 'N/A'})")
+    logfire.info(f"Failing job added: {failing_job} (Next run: {failing_job.next_run_time.isoformat() if failing_job.next_run_time else 'N/A'})")
 
     # Wait long enough for the job to execute and the error handler (including email) to fire
     # Increased sleep duration to give more time for all async operations.
-    logger.info("Waiting for job to run and error handler to complete (approx 12s)...")
+    logfire.info("Waiting for job to run and error handler to complete (approx 12s)...")
     await asyncio.sleep(12) # Increased from 10 to 12
 
     # The job should have run, failed, and been caught by the error handler.
     # Date-triggered jobs are typically removed after execution (or attempted execution).
     failing_job_after_run = scheduler.get_job(job_id=failing_job_id)
     assert failing_job_after_run is None, f"Failing job {failing_job_id} should have been removed after attempting to run."
-    logger.info(f"Failing job {failing_job_id} was correctly removed after execution attempt (expected for date trigger).")
+    logfire.info(f"Failing job {failing_job_id} was correctly removed after execution attempt (expected for date trigger).")
 
     # Ensure scheduler is shutdown after this test
     if scheduler.running:
-        logger.info("Shutting down scheduler after test_job_that_will_fail...")
+        logfire.info("Shutting down scheduler after test_job_that_will_fail...")
         scheduler.shutdown(wait=True)
-    logger.info("--- test_job_that_will_fail END ---")
+    logfire.info("--- test_job_that_will_fail END ---")

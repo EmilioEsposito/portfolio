@@ -9,12 +9,11 @@ import pytz
 from typing import Dict, Any, Optional
 from api.src.google.gmail.models import EmailMessage
 import pytest
-import logging
+import logfire
 from typing import List, AsyncGenerator
 from contextlib import asynccontextmanager
 from api.src.database.database import AsyncSessionFactory
 
-logger = logging.getLogger(__name__)
 
 # Test helper for creating database sessions
 @asynccontextmanager
@@ -46,7 +45,7 @@ async def save_email_message(
     """
     try:
         message_id = message_data.get('message_id')
-        logger.info(f"Saving email message {message_id} to database")
+        logfire.info(f"Saving email message {message_id} to database")
         
         # Check if message already exists
         existing_msg = await get_email_by_message_id(session, message_id)
@@ -70,11 +69,11 @@ async def save_email_message(
             
         except ValueError as e:
             # Fallback to UTC now if date parsing fails
-            logger.warning(f"Failed to parse date {date_str}, using current UTC time: {str(e)}")
+            logfire.warn(f"Failed to parse date {date_str}, using current UTC time: {str(e)}")
             received_date = datetime.now(pytz.UTC).replace(tzinfo=None)
         
         if existing_msg:
-            logger.info(f"Updating existing message {message_id}")
+            logfire.info(f"Updating existing message {message_id}")
             
             # Update raw_payload
             existing_msg.raw_payload = message_data['raw_payload']
@@ -93,7 +92,7 @@ async def save_email_message(
             await session.commit()
             await session.refresh(existing_msg)
             
-            logger.info(f"Successfully updated email message {message_id}")
+            logfire.info(f"Successfully updated email message {message_id}")
             return existing_msg
         else:
             # Create new email message instance
@@ -117,11 +116,11 @@ async def save_email_message(
             await session.commit()
             await session.refresh(email_msg)
             
-            logger.info(f"Successfully saved new email message {email_msg.message_id}")
+            logfire.info(f"Successfully saved new email message {email_msg.message_id}")
             return email_msg
         
     except Exception as e:
-        logger.error(f"Failed to save email message: {str(e)}", exc_info=True)
+        logfire.exception(f"Failed to save email message: {str(e)}")
         await session.rollback()
         return None
 
@@ -198,21 +197,21 @@ async def get_email_by_message_id(
         EmailMessage instance if found, None otherwise
     """
     try:
-        logger.info(f"Fetching email message with ID: {message_id}")
+        logfire.info(f"Fetching email message with ID: {message_id}")
         result = await session.execute(
             select(EmailMessage).where(EmailMessage.message_id == message_id)
         )
         email_msg = result.scalar_one_or_none()
         
         if email_msg:
-            logger.info(f"Found email message {message_id}")
+            logfire.info(f"Found email message {message_id}")
         else:
-            logger.info(f"No email message found with ID {message_id}")
+            logfire.info(f"No email message found with ID {message_id}")
             
         return email_msg
         
     except Exception as e:
-        logger.error(f"Error fetching email message {message_id}: {str(e)}", exc_info=True)
+        logfire.exception(f"Error fetching email message {message_id}: {str(e)}")
         return None
 
 async def get_emails_by_thread_id(
@@ -230,7 +229,7 @@ async def get_emails_by_thread_id(
         List of EmailMessage instances in the thread
     """
     try:
-        logger.info(f"Fetching email messages for thread: {thread_id}")
+        logfire.info(f"Fetching email messages for thread: {thread_id}")
         result = await session.execute(
             select(EmailMessage)
             .where(EmailMessage.thread_id == thread_id)
@@ -238,9 +237,9 @@ async def get_emails_by_thread_id(
         )
         messages = result.scalars().all()
         
-        logger.info(f"Found {len(messages)} messages in thread {thread_id}")
+        logfire.info(f"Found {len(messages)} messages in thread {thread_id}")
         return list(messages)
         
     except Exception as e:
-        logger.error(f"Error fetching thread {thread_id}: {str(e)}", exc_info=True)
+        logfire.exception(f"Error fetching thread {thread_id}: {str(e)}")
         return [] 

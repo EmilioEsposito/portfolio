@@ -1,7 +1,6 @@
 """
 Routes for general-purpose chat with weather tool support
 """
-import logging
 from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import Response
