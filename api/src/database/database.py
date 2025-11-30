@@ -10,8 +10,9 @@ from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 import re # Added for URL normalization
+from sqlalchemy import text
 
-load_dotenv(find_dotenv(".env.development.local"), override=True)
+load_dotenv(find_dotenv(".env"), override=True)
 
 # Configure SQLAlchemy to use lowercase, unquoted names by default
 convention = {
@@ -28,7 +29,7 @@ metadata = MetaData(naming_convention=convention)
 # Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
 DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE_URL_UNPOOLED = os.environ.get("DATABASE_URL_UNPOOLED")
-DATABASE_REQUIRE_SSL = os.environ.get("DATABASE_REQUIRE_SSL", "true").lower() == "true"
+DATABASE_REQUIRE_SSL = bool(os.environ.get("DATABASE_REQUIRE_SSL", "true").lower() == "true")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 if not DATABASE_URL_UNPOOLED:
@@ -176,3 +177,15 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             logfire.exception(f"Database session error: {str(e)}")
             raise
 
+@logfire.instrument("test-sync-engine-select-one")
+def test_sync_engine_select_one():
+    """Run a SELECT 1 from the synchronous engine to verify it's working."""
+    try:
+        with sync_engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            result = result.fetchone()[0]
+            assert result==1, f"Synchronous engine SELECT 1 test failed. Result: {result}"
+            logfire.info("SUCCESS: Synchronous engine SELECT 1 test passed successfully.")
+    except Exception as e:
+        logfire.exception(f"FAILURE: Synchronous engine SELECT 1 test failed! Exception: {e}")
+        raise Exception(f"Synchronous engine SELECT 1 test failed: {e}")

@@ -20,7 +20,7 @@ from api.src.ai.multi_agent_chat.decision_agent import AgentName, router_agent
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 
 
-load_dotenv(".env.development.local")
+load_dotenv(".env")
 
 
 @dataclass

@@ -73,7 +73,7 @@ The standard and cleanest way to manage this kind of shared codebase is using a 
 ├── package.json     # Root package.json configuring pnpm workspaces
 ├── pnpm-workspace.yaml # Defines workspace locations
 ├── pnpm-lock.yaml 
-├── .env.development.local
+├── .env
 ├── README.md
 ├── roadmap.md
 ├── pyproject.toml

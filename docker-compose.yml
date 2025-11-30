@@ -23,12 +23,12 @@ services:
       - "8000:8000"
     # these are available on run time, but not on build time
     env_file:
-      - .env.development.local
+      - .env
     # Override DATABASE_URL to use postgres service name instead of localhost when running in Docker
     # Also ensure DATABASE_REQUIRE_SSL is set to false for local postgres (which doesn't support SSL)
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:-portfolio}@postgres:5432/${POSTGRES_DB:-portfolio}
-      - DATABASE_URL_UNPOOLED=postgresql://${POSTGRES_USER:-portfolio}:${POSTGRES_PASSWORD:-portfolio}@postgres:5432/${POSTGRES_DB:-portfolio}
+      - DATABASE_URL=postgresql://portfolio:portfolio@postgres:5432/portfolio
+      - DATABASE_URL_UNPOOLED=postgresql://portfolio:portfolio@postgres:5432/portfolio
       - DATABASE_REQUIRE_SSL=false
     networks:
       - portfolio-net
@@ -48,7 +48,7 @@ services:
       - "3000:3000"
     # these are available on run time, but not on build time
     env_file:
-      - .env.development.local
+      - .env
     depends_on:
       - fastapi
       - postgres
@@ -62,7 +62,7 @@ services:
     ports:
       - "5173:5173"
     env_file:
-      - .env.development.local
+      - .env
     environment:
       - LOCAL_DOCKER_COMPOSE=true
     depends_on:
@@ -77,9 +77,9 @@ services:
     container_name: portfolio-expo
     ports:
       - "8081:8081"
-    # Add env_file if Expo app needs runtime env vars from .env.development.local
+    # Add env_file if Expo app needs runtime env vars from .env
     env_file:
-      - .env.development.local 
+      - .env 
     networks:
       - portfolio-net
 

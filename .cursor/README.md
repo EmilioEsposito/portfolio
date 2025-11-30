@@ -54,7 +54,7 @@ According to the [Cursor docs](https://cursor.com/docs/cloud-agent#base-environm
 
 The Cursor cloud agent environment has some differences from your local laptop:
 
-1. **No `.env.development.local` file**: Environment variables are injected directly by Cursor
+1. **No `.env` file**: Environment variables are injected directly by Cursor
 2. **PostgreSQL is local**: Uses local PostgreSQL instead of Neon (which isn't reachable from cloud agents)
 3. **Virtual environment**: Python venv at `/home/ubuntu/.venv` is automatically activated via `$VIRTUAL_ENV` and `$PATH`
 4. **PYTHONPATH**: Set to the repo directory (where Cursor clones your code) to ensure imports work correctly

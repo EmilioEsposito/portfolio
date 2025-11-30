@@ -3,7 +3,7 @@ Shared authentication utilities for Google APIs.
 """
 
 from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv('.env.development.local'))
+load_dotenv(find_dotenv('.env'))
 from google.oauth2 import service_account
 import os
 import json

@@ -4,7 +4,7 @@
 
 # Load environment variables
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../.env.development.local"
+source "$SCRIPT_DIR/../.env"
 
 MESSAGE="$1"
 GROUP_ID='claude-code'

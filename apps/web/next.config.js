@@ -1,5 +1,5 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env.development.local') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 // Also try to load a general .env.local or .env if specific development one isn't found or for other vars
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local'), override: false });
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), override: false });

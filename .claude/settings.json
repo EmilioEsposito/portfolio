@@ -21,7 +21,7 @@
     "deny": [
       "Bash(rm -rf:*)",
       "Bash(git push --force:*)",
-      "Read(.env.development.local)"
+      "Read(.env)"
     ],
     "ask": [
       "Bash(git push:*)",
