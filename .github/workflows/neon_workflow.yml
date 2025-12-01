@@ -2,7 +2,7 @@ name: Create/Delete Branch for Pull Request
 
 # Note: This workflow is skipped for PRs from dev -> main
 # GitHub Actions doesn't support filtering by head_ref in the on: section,
-# so the exclusion is handled in the job conditions below
+# so the exclusion is handled in the job conditions below 
 
 on:
   pull_request:
