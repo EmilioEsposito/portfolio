@@ -35,21 +35,28 @@ if not DATABASE_URL:
 if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
-def _remove_sslmode(url: str) -> str:
-    """Remove the ``sslmode`` query parameter while preserving all others."""
+_UNSUPPORTED_QUERY_PARAMS = {"sslmode", "channel_binding"}
 
-    if "sslmode=" not in url:
+
+def _remove_unsupported_query_params(url: str) -> str:
+    """Remove query parameters that asyncpg does not support (e.g., sslmode, channel_binding)."""
+
+    if not any(f"{param}=" in url for param in _UNSUPPORTED_QUERY_PARAMS):
         return url
 
     url_parts = urlsplit(url)
-    filtered_params = [(k, v) for k, v in parse_qsl(url_parts.query, keep_blank_values=True) if k != "sslmode"]
+    filtered_params = [
+        (k, v)
+        for k, v in parse_qsl(url_parts.query, keep_blank_values=True)
+        if k not in _UNSUPPORTED_QUERY_PARAMS
+    ]
     cleaned_query = urlencode(filtered_params, doseq=True)
     return urlunsplit(url_parts._replace(query=cleaned_query))
 
 
-# Remove sslmode from URL if present (asyncpg doesn't support sslmode as a URL parameter)
-# SSL is configured via connect_args["ssl"] instead
-DATABASE_URL = _remove_sslmode(DATABASE_URL)
+# Remove parameters unsupported by asyncpg (e.g., sslmode, channel_binding)
+# SSL is configured via connect_args["ssl"] instead of sslmode URL params
+DATABASE_URL = _remove_unsupported_query_params(DATABASE_URL)
 
 
 def _mask_credentials(url: str) -> str:
@@ -120,7 +127,7 @@ class Base(DeclarativeBase):
 sync_engine = None
 
 if DATABASE_URL_UNPOOLED:
-    sync_db_url = _remove_sslmode(DATABASE_URL_UNPOOLED)
+    sync_db_url = _remove_unsupported_query_params(DATABASE_URL_UNPOOLED)
     if sync_db_url.startswith("postgresql+asyncpg://"):
         sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
     elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
