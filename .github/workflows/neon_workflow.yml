@@ -71,7 +71,11 @@ jobs:
           MAX_ATTEMPTS=6
           SLEEP_SECONDS=10
 
+          echo "Looking for Railway PR environment matching PR-$PR_NUMBER"
+          echo "Expected pattern: portfolio-pr-$PR_NUMBER (or pr-$PR_NUMBER)"
+
           for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo ""
             echo "Attempt $attempt of $MAX_ATTEMPTS to find Railway PR environment..."
 
             # Query Railway API for all environments in the project
@@ -83,12 +87,32 @@ jobs:
                 "query": "query { environments(projectId: \"'$RAILWAY_PROJECT_ID'\") { edges { node { name id } } } }"
               }')
 
-            # Find the environment matching pr-{number} pattern
-            # Railway PR environments are typically named "pr-{number}" or "pr-{number}-{hash}"
-            ENV_ID=$(echo "$RESPONSE" | jq -r '.data.environments.edges[] | select(.node.name | test("^pr-'$PR_NUMBER'($|-)")) | .node.id' | head -1)
+            # Check for API errors
+            if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
+              echo "Error: Railway API returned errors:"
+              echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
+              if [ $attempt -lt $MAX_ATTEMPTS ]; then
+                echo "Waiting ${SLEEP_SECONDS}s before retry..."
+                sleep $SLEEP_SECONDS
+                continue
+              else
+                echo "Failed after $MAX_ATTEMPTS attempts due to API errors"
+                exit 1
+              fi
+            fi
+
+            # Display all available environments for debugging
+            echo "Available environments:"
+            echo "$RESPONSE" | jq -r '.data.environments.edges[] | "  - \(.node.name) (ID: \(.node.id))"'
+
+            # Find the environment matching portfolio-pr-{number} or pr-{number} pattern
+            # Railway PR environments are named "portfolio-pr-{number}" or "pr-{number}" (or with hash suffix)
+            ENV_ID=$(echo "$RESPONSE" | jq -r '.data.environments.edges[] | select(.node.name | test("(^portfolio-pr-'$PR_NUMBER'($|-))|(^pr-'$PR_NUMBER'($|-))")) | .node.id' | head -1)
+            ENV_NAME=$(echo "$RESPONSE" | jq -r '.data.environments.edges[] | select(.node.name | test("(^portfolio-pr-'$PR_NUMBER'($|-))|(^pr-'$PR_NUMBER'($|-))")) | .node.name' | head -1)
 
             if [ -n "$ENV_ID" ] && [ "$ENV_ID" != "null" ]; then
-              echo "Found Railway environment ID: $ENV_ID"
+              echo ""
+              echo "✓ Found Railway environment: $ENV_NAME (ID: $ENV_ID)"
               echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
               echo "RAILWAY_ENV_FOUND=true" >> "$GITHUB_OUTPUT"
               exit 0
@@ -101,10 +125,15 @@ jobs:
           done
 
           # If we get here, environment was not found after all attempts
-          echo "Warning: Could not find Railway environment for PR-$PR_NUMBER after $MAX_ATTEMPTS attempts"
+          echo ""
+          echo "Error: Could not find Railway environment for PR-$PR_NUMBER after $MAX_ATTEMPTS attempts"
+          echo "Searched for patterns: portfolio-pr-$PR_NUMBER or pr-$PR_NUMBER"
+          echo ""
           echo "Available environments:"
-          echo "$RESPONSE" | jq -r '.data.environments.edges[].node.name'
-          echo "RAILWAY_ENV_FOUND=false" >> "$GITHUB_OUTPUT"
+          echo "$RESPONSE" | jq -r '.data.environments.edges[] | "  - \(.node.name) (ID: \(.node.id))"'
+          echo ""
+          echo "Please ensure the Railway PR environment has been created for this pull request."
+          exit 1
 
       - name: Update Railway DATABASE_URL Variables
         if: steps.get_railway_env.outputs.RAILWAY_ENV_FOUND == 'true'
