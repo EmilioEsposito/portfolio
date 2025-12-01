@@ -96,3 +96,4 @@ fi
 
 # Success
 echo "Updated DATABASE_URL, DATABASE_URL_UNPOOLED, and INFORMATIONAL_NEON_BRANCH_NAME for Railway environment"
+echo "Redeploying Railway environment"
