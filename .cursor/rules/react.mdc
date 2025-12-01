@@ -3,7 +3,7 @@ description:
 globs: *.tsx
 alwaysApply: false
 ---
-You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.
+You are an expert in TypeScript, Node.js, React Router Framework (https://reactrouter.com/home), general React, Shadcn UI, Radix UI and Tailwind.
 
 Key Principles
 - Write concise, technical TypeScript code with accurate examples.
@@ -41,8 +41,8 @@ Key Conventions
 - Use 'nuqs' for URL search parameter state management.
 - Optimize Web Vitals (LCP, CLS, FID).
 - Limit 'use client':
-- Favor server components and Next.js SSR.
+- Favor server components and React Router SSR.
 - Use only for Web API access in small components.
 - Avoid for data fetching or state management.
 
-Follow Next.js docs for Data Fetching, Rendering, and Routing. 
+Follow React Router docs (https://reactrouter.com/home) for Data Fetching, Rendering, and Routing. 

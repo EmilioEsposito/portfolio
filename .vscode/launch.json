@@ -2,32 +2,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Next.js Frontend",
-            "type": "node",
-            "request": "launch",
-            "runtimeExecutable": "pnpm",
-            "runtimeArgs": [
-                "dev"
-            ],
-            "console": "integratedTerminal",
-            "env": {
-                "NODE_OPTIONS": "--inspect",
-                "NEXT_TURBO": "1"
-            },
-            "serverReadyAction": {
-                "pattern": "- Local:.+(https?://.+)",
-                "uriFormat": "%s",
-                "action": "debugWithChrome"
-            },
-            "preLaunchTask": "Prepare Next.js Frontend"
-        },
-        {
             "name": "React Router Frontend",
             "type": "node",
             "request": "launch",
             "runtimeExecutable": "pnpm",
             "runtimeArgs": [
-                "dev-react-router"
+                "dev"
             ],
             "console": "integratedTerminal",
             "serverReadyAction": {
@@ -70,23 +50,6 @@
             "preLaunchTask": "Kill Chrome Debug Sessions"
         },
         {
-            "name": "Full Stack (FastAPI + Next.js via Script)",
-            "type": "node",
-            "request": "launch",
-            "runtimeExecutable": "pnpm",
-            "runtimeArgs": [
-                "fastapi-dev"
-            ],
-            "console": "integratedTerminal",
-            "env": {
-                "NODE_OPTIONS": "--inspect",
-                "NEXT_TURBO": "1"
-            },
-            "serverReadyAction": {
-                "action": "openExternally"
-            }
-        },
-        {
             "name": "Python: Current File",
             "type": "debugpy",
             "request": "launch",
@@ -100,9 +63,7 @@
             "name": "Full Stack (Compound)",
             "configurations": [
                 "FastAPI Backend",
-                // "Next.js Frontend",
-                "React Router Frontend",
-                // "Expo App"
+                "React Router Frontend"
             ],
             "presentation": {
                 "hidden": false,
