@@ -9,7 +9,7 @@ from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
-import re # Added for URL normalization
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
 
 load_dotenv(find_dotenv(".env"), override=True)
@@ -35,13 +35,28 @@ if not DATABASE_URL:
 if not DATABASE_URL_UNPOOLED:
     raise ValueError("DATABASE_URL_UNPOOLED environment variable is not set")
 
-# Remove sslmode from URL if present (asyncpg doesn't support sslmode as a URL parameter)
-# SSL is configured via connect_args["ssl"] instead
-if "sslmode=" in DATABASE_URL:
-    DATABASE_URL = re.sub(r'[?&]sslmode=[^&]*', '', DATABASE_URL, count=1) # Remove sslmode from URL
-    # Clean up any resulting edge cases (empty query string or leading &)
-    DATABASE_URL = re.sub(r'\?$', '', DATABASE_URL)  # Remove trailing ?
-    DATABASE_URL = re.sub(r'\?&', '?', DATABASE_URL)  # Fix ?& to ?
+_UNSUPPORTED_QUERY_PARAMS = {"sslmode", "channel_binding"}
+
+
+def _remove_unsupported_query_params(url: str) -> str:
+    """Remove query parameters that asyncpg does not support (e.g., sslmode, channel_binding)."""
+
+    if not any(f"{param}=" in url for param in _UNSUPPORTED_QUERY_PARAMS):
+        return url
+
+    url_parts = urlsplit(url)
+    filtered_params = [
+        (k, v)
+        for k, v in parse_qsl(url_parts.query, keep_blank_values=True)
+        if k not in _UNSUPPORTED_QUERY_PARAMS
+    ]
+    cleaned_query = urlencode(filtered_params, doseq=True)
+    return urlunsplit(url_parts._replace(query=cleaned_query))
+
+
+# Remove parameters unsupported by asyncpg (e.g., sslmode, channel_binding)
+# SSL is configured via connect_args["ssl"] instead of sslmode URL params
+DATABASE_URL = _remove_unsupported_query_params(DATABASE_URL)
 
 
 def _mask_credentials(url: str) -> str:
@@ -112,7 +127,7 @@ class Base(DeclarativeBase):
 sync_engine = None
 
 if DATABASE_URL_UNPOOLED:
-    sync_db_url = DATABASE_URL_UNPOOLED
+    sync_db_url = _remove_unsupported_query_params(DATABASE_URL_UNPOOLED)
     if sync_db_url.startswith("postgresql+asyncpg://"):
         sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
     elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
@@ -189,3 +204,17 @@ def test_sync_engine_select_one():
     except Exception as e:
         logfire.exception(f"FAILURE: Synchronous engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Synchronous engine SELECT 1 test failed: {e}")
+
+
+@logfire.instrument("test-async-engine-select-one")
+async def test_async_engine_select_one():
+    """Run a SELECT 1 from the async engine to verify it's working."""
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result = result.scalar_one()
+            assert result == 1, f"Async engine SELECT 1 test failed. Result: {result}"
+            logfire.info("SUCCESS: Async engine SELECT 1 test passed successfully.")
+    except Exception as e:
+        logfire.exception(f"FAILURE: Async engine SELECT 1 test failed! Exception: {e}")
+        raise Exception(f"Async engine SELECT 1 test failed: {e}")
