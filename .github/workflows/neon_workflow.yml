@@ -25,8 +25,9 @@ jobs:
   create_neon_branch:
     name: Create Neon Branch
     outputs:
-      db_url: ${{ steps.create_neon_branch_encode.outputs.db_url }}
-      db_url_with_pooler: ${{ steps.create_neon_branch_encode.outputs.db_url_with_pooler }}
+      # Output names from neondatabase/create-branch-action: https://github.com/neondatabase/create-branch-action
+      db_url: ${{ steps.create_neon_branch.outputs.db_url }}
+      db_url_with_pooler: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
     needs: setup
     if: |
       github.event_name == 'pull_request' && (
@@ -142,7 +143,8 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           RAILWAY_ENV_ID: ${{ steps.get_railway_env.outputs.env_id }}
           RAILWAY_FASTAPI_SERVICE_ID: ${{ vars.RAILWAY_FASTAPI_SERVICE_ID }}
-          DB_URL_POOLED: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
+          # Output names from neondatabase/create-branch-action: https://github.com/neondatabase/create-branch-action
+          DB_URL_POOLED: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
           INFORMATIONAL_NEON_BRANCH_NAME: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
         run: |
