@@ -47,6 +47,7 @@ jobs:
           branch_name: pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ env.EXPIRES_AT }}
+          branch_type: default # "default" - copies full data, or "schema-only" - only copies schema
 
       - name: Get Railway PR Environment ID
         id: get_railway_env
