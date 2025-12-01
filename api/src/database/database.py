@@ -204,3 +204,17 @@ def test_sync_engine_select_one():
     except Exception as e:
         logfire.exception(f"FAILURE: Synchronous engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Synchronous engine SELECT 1 test failed: {e}")
+
+
+@logfire.instrument("test-async-engine-select-one")
+async def test_async_engine_select_one():
+    """Run a SELECT 1 from the async engine to verify it's working."""
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result = result.scalar_one()
+            assert result == 1, f"Async engine SELECT 1 test failed. Result: {result}"
+            logfire.info("SUCCESS: Async engine SELECT 1 test passed successfully.")
+    except Exception as e:
+        logfire.exception(f"FAILURE: Async engine SELECT 1 test failed! Exception: {e}")
+        raise Exception(f"Async engine SELECT 1 test failed: {e}")

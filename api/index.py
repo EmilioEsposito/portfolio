@@ -24,7 +24,12 @@ logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc
 # Database Instrumentation
 logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
 # SQLAlchemy instrumentation for query-level tracing
-from api.src.database.database import engine, sync_engine, test_sync_engine_select_one
+from api.src.database.database import (
+    engine,
+    sync_engine,
+    test_async_engine_select_one,
+    test_sync_engine_select_one,
+)
 engines_to_instrument = [engine]
 if sync_engine is not None:
     engines_to_instrument.append(sync_engine)
@@ -129,6 +134,9 @@ async def lifespan(app: FastAPI):
     # Startup logic
     logfire.info("LIFESPAN: FastAPI index.py startup...")
     try:
+        logfire.info("Running async engine SELECT 1 health check...")
+        await test_async_engine_select_one()
+        logfire.info("Async engine health check completed successfully.")
         await start_scheduler_services()
         logfire.info("FastAPI index.py startup completed successfully.")
     except Exception as e:
