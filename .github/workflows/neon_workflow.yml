@@ -144,7 +144,7 @@ jobs:
           RAILWAY_FASTAPI_SERVICE_ID: ${{ vars.RAILWAY_FASTAPI_SERVICE_ID }}
           DB_URL_POOLED: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
-          INFORMATIONAL_NEON_BRANCH_NAME: ${{ needs.setup.outputs.branch }}
+          INFORMATIONAL_NEON_BRANCH_NAME: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
         run: |
           # Update DATABASE_URL (pooled connection) 
           curl -s --request POST \
