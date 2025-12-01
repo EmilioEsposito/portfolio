@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide
 
-> **Last Updated**: 2025-11-27
+> **Last Updated**: 2025-12-01
 > **Purpose**: Comprehensive guide for AI assistants (Claude, Cursor AI, etc.) working on this codebase
 
 ---
@@ -10,6 +10,7 @@
 2. [Tech Stack](#tech-stack)
 3. [Directory Structure](#directory-structure)
 4. [Development Setup](#development-setup)
+   - [Claude Code Cloud Environment](#claude-code-cloud-environment)
 5. [Development Workflows](#development-workflows)
 6. [Coding Conventions](#coding-conventions)
 7. [AI/LLM Integration Architecture](#aillm-integration-architecture)
@@ -256,6 +257,76 @@ docker compose --env-file .env up -d postgres
 cd api
 uv run alembic upgrade head
 ```
+
+### Claude Code Cloud Environment
+
+**When to use**: Running Claude Code via the web/cloud interface (not local CLI)
+
+Claude Code Cloud has specific constraints that differ from local development:
+
+#### What Works
+- Python 3.11 with uv package manager
+- Dependency installation via `uv sync`
+- JavaScript/Node.js with pnpm
+- Git operations
+- HTTP/HTTPS connections to allowlisted domains
+- OpenAI API calls (via HTTPS)
+
+#### Known Limitations
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Neon PostgreSQL | **NOT SUPPORTED** | DNS resolution fails for `*.neon.tech` hosts |
+| Direct PostgreSQL (port 5432) | **NOT SUPPORTED** | TCP connections on non-HTTP ports fail |
+| Logfire API | **NOT SUPPORTED** | Blocked by proxy (`logfire-us.pydantic.dev`) |
+| Docker | Limited | May not be available |
+| Local Postgres | Limited | Depends on Docker availability |
+
+#### Environment Variable Quirk
+
+When environment variables are injected into Claude Code Cloud, they may be wrapped in quotes that must be stripped. Use this Python snippet to clean them:
+
+```python
+import os
+
+# List of env vars that may have quote wrapping
+env_vars_to_clean = [
+    "DATABASE_URL", "DATABASE_URL_UNPOOLED", "OPENAI_API_KEY",
+    "CLERK_SECRET_KEY", "DEV_CLERK_WEBHOOK_SECRET", "PROD_CLERK_WEBHOOK_SECRET",
+    # Add other secrets as needed
+]
+
+for var in env_vars_to_clean:
+    value = os.environ.get(var, "")
+    if value.startswith('"') and value.endswith('"'):
+        os.environ[var] = value[1:-1]
+```
+
+#### Running FastAPI in Claude Code Cloud
+
+Due to database connectivity limitations, the full FastAPI app cannot start in Claude Code Cloud because:
+1. The lifespan handler requires successful database health checks
+2. DNS resolution fails for Neon PostgreSQL hosts
+
+**Workarounds**:
+1. Skip database-dependent tests and focus on code review/editing tasks
+2. Use the local CLI version of Claude Code for full development workflows
+3. Consider adding a `SKIP_DB_HEALTHCHECK` environment variable to allow graceful degradation
+
+#### Recommended Claude Code Cloud Usage
+
+Best suited for:
+- Code review and editing
+- Documentation updates
+- Running tests that don't require database
+- Git operations
+- Dependency analysis
+
+Not suited for:
+- Running the full FastAPI server
+- Database migrations
+- Integration tests requiring Neon
+- Tasks requiring Logfire observability
 
 ---
 
@@ -1506,6 +1577,7 @@ docker compose logs -f nextjs
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2025-12-01 | Added Claude Code Cloud environment section with limitations and workarounds |
 | 1.0.0 | 2025-11-27 | Initial comprehensive documentation |
 
 ---
