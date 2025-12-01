@@ -2,7 +2,7 @@
 Service functionality for Google Sheets operations.
 """
 from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv('.env.development.local'))
+load_dotenv(find_dotenv('.env'))
 from googleapiclient.discovery import build
 import os
 from typing import List, Any, Dict

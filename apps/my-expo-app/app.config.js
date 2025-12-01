@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '../../.env.development.local' }); // Load .env from root
+require('dotenv').config({ path: '../../.env' }); // Load .env from root
 
 // Load and validate Clerk key
 const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;

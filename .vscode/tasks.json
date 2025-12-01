@@ -61,7 +61,7 @@
         {
             "label": "Ensure Postgres Running",
             "type": "shell",
-            "command": "docker ps -q -f name=portfolio-postgres | grep -q . && echo 'Postgres already running' || (echo 'Starting Postgres...' && docker compose --env-file .env.development.local up -d postgres && sleep 3)",
+            "command": "docker ps -q -f name=portfolio-postgres | grep -q . && echo 'Postgres already running' || (echo 'Starting Postgres...' && docker compose --env-file .env up -d postgres && sleep 3)",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",

@@ -1,10 +1,44 @@
 from dotenv import load_dotenv, find_dotenv
 import json
 import logfire
+import os
 
 # Load local development variables (does not impact preview/production)
-load_dotenv(find_dotenv(".env.development.local"), override=True)
+load_dotenv(find_dotenv(".env"), override=True)
 
+# Logfire configuration
+logfire.configure(
+    service_name="fastapi",
+    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
+)
+
+# --- Logfire Instrumentation ---
+# AI/LLM Instrumentation
+logfire.instrument_pydantic_ai()  # PydanticAI agent tracing
+logfire.instrument_openai()  # Direct OpenAI SDK calls (completions, embeddings, etc.)
+
+# HTTP Client Instrumentation
+logfire.instrument_httpx()  # Async HTTP client used throughout the app
+logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc.)
+
+# Database Instrumentation
+logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
+# SQLAlchemy instrumentation for query-level tracing
+from api.src.database.database import (
+    engine,
+    sync_engine,
+    test_async_engine_select_one,
+    test_sync_engine_select_one,
+)
+engines_to_instrument = [engine]
+if sync_engine is not None:
+    engines_to_instrument.append(sync_engine)
+logfire.instrument_sqlalchemy(engines=engines_to_instrument)
+
+# Validation Instrumentation
+# logfire.instrument_pydantic()  # Pydantic model validation tracing. Commented out because it's very verbose.
+
+logfire.info("Logfire configured with comprehensive instrumentation")
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from contextlib import asynccontextmanager
@@ -13,7 +47,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
 import strawberry
-import os
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import StreamingResponse
@@ -38,7 +71,6 @@ from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.scheduler.service import scheduler
 from api.src.zillow_email import service as zillow_email_service
 from api.src.clickup import service as clickup_service
-from api.src.database.database import engine, sync_engine
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
 
@@ -46,33 +78,6 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
 
 
-# Logfire configuration
-logfire.configure(
-    service_name="fastapi",
-    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
-)
-
-# --- Logfire Instrumentation ---
-# AI/LLM Instrumentation
-logfire.instrument_pydantic_ai()  # PydanticAI agent tracing
-logfire.instrument_openai()  # Direct OpenAI SDK calls (completions, embeddings, etc.)
-
-# HTTP Client Instrumentation
-logfire.instrument_httpx()  # Async HTTP client used throughout the app
-logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc.)
-
-# Database Instrumentation
-logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
-# SQLAlchemy instrumentation for query-level tracing
-engines_to_instrument = [engine]
-if sync_engine is not None:
-    engines_to_instrument.append(sync_engine)
-logfire.instrument_sqlalchemy(engines=engines_to_instrument)
-
-# Validation Instrumentation
-# logfire.instrument_pydantic()  # Pydantic model validation tracing. Commented out because it's very verbose.
-
-logfire.info("Logfire configured with comprehensive instrumentation")
 
 # Verify critical environment variables
 required_env_vars = {
@@ -105,22 +110,36 @@ if missing_vars:
         + "\n".join(missing_vars)
     )
 
+
+@logfire.instrument("scheduler-services")
+async def start_scheduler_services():
+    scheduler.start()
+    logfire.info("Scheduler initialized and started successfully.")
+    await zillow_email_service.start_service()
+    logfire.info("Zillow email service initialized and started successfully.")
+    await clickup_service.start_service()
+    logfire.info("Clickup service initialized and started successfully.")
+    # Example: Add a test job on startup if needed
+    # from datetime import datetime, timedelta
+    # def startup_test_job():
+    #     logfire.info(f"Scheduler startup_test_job executed at {datetime.now()}")
+    # add_job(startup_test_job, 'date', job_id='startup_test_job', trigger_args={'run_date': datetime.now() + timedelta(seconds=15)})
+    logfire.info("Scheduler services initialized and started successfully.")
+
 # --- Lifespan Event Handler ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
     logfire.info("LIFESPAN: FastAPI index.py startup...")
     try:
-        scheduler.start()
-        logfire.info("Scheduler initialized and started successfully.")
-        await zillow_email_service.start_service()
-        await clickup_service.start_service()
-        # Example: Add a test job on startup if needed
-        # from datetime import datetime, timedelta
-        # def startup_test_job():
-        #     logfire.info(f"Scheduler startup_test_job executed at {datetime.now()}")
-        # add_job(startup_test_job, 'date', job_id='startup_test_job', trigger_args={'run_date': datetime.now() + timedelta(seconds=15)})
-        logfire.info("Zillow email service initialized and started successfully.")
+        if sync_engine is not None:
+            logfire.info("Running sync engine SELECT 1 health check...")
+            test_sync_engine_select_one()
+            logfire.info("Sync engine health check completed successfully.")
+        logfire.info("Running async engine SELECT 1 health check...")
+        await test_async_engine_select_one()
+        logfire.info("Async engine health check completed successfully.")
+        await start_scheduler_services()
         logfire.info("FastAPI index.py startup completed successfully.")
     except Exception as e:
         logfire.exception(f"Error during scheduler startup: {e}")
