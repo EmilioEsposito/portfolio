@@ -50,23 +50,25 @@ if [ ${#MISSING_VARS[@]} -ne 0 ]; then
   exit 1
 fi
 
-# Build variables string in KEY=value format (newline separated)
-# This is the format required by Railway's variableCollectionUpsert mutation
-VARIABLES_STRING=$(printf "DATABASE_URL=%s\nDATABASE_URL_UNPOOLED=%s\nINFORMATIONAL_NEON_BRANCH_NAME=%s" \
-  "$DB_URL_POOLED" \
-  "$DB_URL_UNPOOLED" \
-  "$INFORMATIONAL_NEON_BRANCH_NAME")
+# Build variables as a JSON object (not a string)
+# Railway's variableCollectionUpsert expects variables as a JSON object with key-value pairs
+VARIABLES_JSON=$(jq -n \
+  --arg db_url "$DB_URL_POOLED" \
+  --arg db_url_unpooled "$DB_URL_UNPOOLED" \
+  --arg branch_name "$INFORMATIONAL_NEON_BRANCH_NAME" \
+  '{
+    DATABASE_URL: $db_url,
+    DATABASE_URL_UNPOOLED: $db_url_unpooled,
+    INFORMATIONAL_NEON_BRANCH_NAME: $branch_name
+  }')
 
-# Use jq to properly escape the variables string for GraphQL (as JSON string)
-ESCAPED_VARS=$(printf '%s' "$VARIABLES_STRING" | jq -Rs .)
-
-# Build GraphQL query string with escaped variables embedded
+# Build GraphQL query string with variables embedded
 # Note: We use RAILWAY_FASTAPI_SERVICE_ID for serviceId based on the workflow
 QUERY_STR=$(printf 'mutation { variableCollectionUpsert(input: { projectId: "%s", environmentId: "%s", serviceId: "%s", variables: %s, replace: true, skipDeploys: false }) }' \
   "$RAILWAY_PROJECT_ID" \
   "$RAILWAY_ENV_ID" \
   "$RAILWAY_FASTAPI_SERVICE_ID" \
-  "$ESCAPED_VARS")
+  "$VARIABLES_JSON")
 
 # Create final payload
 PAYLOAD=$(jq -n --arg query "$QUERY_STR" '{query: $query}')
