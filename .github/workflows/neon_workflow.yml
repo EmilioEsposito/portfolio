@@ -31,7 +31,7 @@ jobs:
   create_neon_branch:
     name: Create Neon Branch
     outputs:
-      # Output names from neondatabase/create-branch-action: https://github.com/neondatabase/create-branch-action
+      # Output names from neondatabase/create-branch-action: https://github.com/neondatabase/create-branch-action 
       db_url: ${{ steps.create_neon_branch.outputs.db_url }}
       db_url_with_pooler: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
     needs: setup
