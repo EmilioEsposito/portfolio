@@ -1203,6 +1203,88 @@ console.log('Debug:', variable)
 1. **Local**: Development on laptop
 2. **Dev**: Testing environment (dev.eesposito.com)
 3. **Production**: Live site (eesposito.com)
+4. **PR Environments**: Temporary environments per pull request
+
+### PR Environment Database Branching
+
+Each pull request automatically gets its own isolated Neon database branch and Railway environment. This is managed by `.github/workflows/neon_workflow.yml`.
+
+#### How It Works
+
+1. **On PR open/synchronize**:
+   - Creates a Neon database branch named `preview/pr-{number}-{branch-name}`
+   - Finds the corresponding Railway PR environment (`pr-{number}` or `portfolio-pr-{number}`)
+   - Validates all required environment variables are set
+   - Updates `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `INFORMATIONAL_NEON_BRANCH_NAME` in Railway
+   - Railway automatically redeploys when environment variables are updated
+   - Railway automatically runs Alembic migrations during predeploy (configured in `api/railway_fastapi.json`)
+
+2. **On PR close**:
+   - Deletes the Neon database branch
+   - Railway automatically cleans up the PR environment
+
+#### Required GitHub Secrets/Variables
+
+| Type | Name | Description |
+|------|------|-------------|
+| Secret | `NEON_API_KEY` | Neon API key for branch management |
+| Secret | `RAILWAY_GHA_TOKEN` | Railway Account Token (not Project Token) for GitHub Actions |
+| Variable | `NEON_PROJECT_ID` | Neon project ID |
+| Variable | `RAILWAY_PROJECT_ID` | Railway project ID |
+| Variable | `RAILWAY_FASTAPI_SERVICE_ID` | Railway FastAPI service ID |
+
+#### Workflow File
+**Location**: `.github/workflows/neon_workflow.yml`
+
+```yaml
+# Triggers on PR events: opened, reopened, synchronize, closed
+# Creates Neon branch → Finds Railway env → Validates vars → Updates DB URLs
+# Railway auto-redeploys when env vars change, then runs migrations via predeploy hook
+```
+
+#### Railway Environment Variables Set by Workflow
+
+The workflow sets three environment variables in the Railway PR environment:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Pooled connection URL (for application use) |
+| `DATABASE_URL_UNPOOLED` | Direct connection URL (for migrations) |
+| `INFORMATIONAL_NEON_BRANCH_NAME` | The Neon branch name (e.g., `preview/pr-42-feat-new-feature`) |
+
+All variables are validated before being set. If any required variable is missing, the workflow fails with an error.
+
+#### Database Migrations
+Migrations run automatically during Railway's predeploy phase (configured in `api/railway_fastapi.json`):
+- Predeploy command: `source .venv/bin/activate && alembic upgrade head`
+- Runs after build completes but before the application starts
+- Uses the `DATABASE_URL_UNPOOLED` environment variable set by the workflow
+- Triggered automatically when Railway redeploys after environment variable updates
+
+#### Neon Branch Naming
+- Pattern: `preview/pr-{PR_NUMBER}-{branch-name}`
+- Example: `preview/pr-42-feat-new-feature`
+- Auto-expires: 14 days after creation
+- Branch name is stored in Railway as `INFORMATIONAL_NEON_BRANCH_NAME` for reference
+
+#### Railway Environment Matching
+- Railway PR environments are named `pr-{number}`, `pr-{number}-{hash}`, `portfolio-pr-{number}`, or `portfolio-pr-{number}-{hash}`
+- The workflow retries up to 6 times (10s apart) to find the environment
+- If not found after all retries, the workflow fails with a detailed error message
+- Environment variable updates trigger an automatic Railway redeploy
+
+#### Debugging PR Environments
+
+```bash
+# Check Neon branches
+# Go to Neon Console → Project → Branches
+
+# Check Railway environments
+# Go to Railway Dashboard → Project → Environments
+
+# View workflow logs
+# Go to GitHub → Actions → "Create/Delete Branch for Pull Request"
+```
 
 ### Railway Services
 

@@ -22,6 +22,7 @@ ENV PATH="$VENV_PATH/bin:$PATH"
 # Copy project files
 COPY pyproject.toml uv.lock* ./
 COPY api/ ./api/
+COPY alembic.ini ./
 
 ENV PYTHONPATH=/app
 
@@ -30,11 +31,13 @@ ENV PYTHONPATH=/app
 # Exclude dev dependencies for production builds
 RUN uv sync --no-dev
 
+# Copy and make startup script executable
+COPY api/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Expose the port (the PORT on Railway app is hardcoded to 8000)
 EXPOSE 8000
 
-# Command to run the Hypercorn server
-# It will find api.index:app starting from the PYTHONPATH (/app)
-# Uses the PORT environment variable if set by the platform (e.g., Railway), otherwise defaults to 8000.
-# Binds to IPv6 ([::]) as required for Railway Private Networking.
-CMD ["sh", "-c", "hypercorn api.index:app --bind [::]:${PORT:-8000} --keep-alive 120"] 
+# Use startup script that runs migrations then starts the server
+# This ensures migrations run as part of the Docker process and logs are visible
+CMD ["/app/start.sh"] 
