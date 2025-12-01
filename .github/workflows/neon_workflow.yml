@@ -170,35 +170,17 @@ jobs:
           fi
 
           # Update all Railway environment variables in a single GraphQL mutation
+          # Load query from file and substitute environment variables
+          QUERY=$(envsubst < .github/queries/update_railway_variables.graphql)
+          # Build JSON payload with proper escaping using jq
           RESPONSE=$(curl -s --fail --request POST \
             --url https://backboard.railway.com/graphql/v2 \
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
             --header "Content-Type: application/json" \
-            --data '{
-              "query": "mutation {
-                updateDatabaseUrl: variableUpsert(input: {
-                  projectId: \"'$RAILWAY_PROJECT_ID'\",
-                  environmentId: \"'$RAILWAY_ENV_ID'\",
-                  serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\",
-                  name: \"DATABASE_URL\",
-                  value: \"'$DB_URL_POOLED'\"
-                }) { id }
-                updateDatabaseUrlUnpooled: variableUpsert(input: {
-                  projectId: \"'$RAILWAY_PROJECT_ID'\",
-                  environmentId: \"'$RAILWAY_ENV_ID'\",
-                  serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\",
-                  name: \"DATABASE_URL_UNPOOLED\",
-                  value: \"'$DB_URL_UNPOOLED'\"
-                }) { id }
-                updateNeonBranchName: variableUpsert(input: {
-                  projectId: \"'$RAILWAY_PROJECT_ID'\",
-                  environmentId: \"'$RAILWAY_ENV_ID'\",
-                  serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\",
-                  name: \"INFORMATIONAL_NEON_BRANCH_NAME\",
-                  value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\"
-                }) { id }
-              }"
-            }')
+            --data "$(jq -n --arg query "$QUERY" '{query: $query}')")
+          
+          echo "Railway API response:"
+          echo "$RESPONSE" | jq .
           
           if [ $? -ne 0 ]; then
             echo "Error: Failed to update Railway environment variables (HTTP error)"
