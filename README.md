@@ -1,15 +1,15 @@
 # Portfolio
 
-A monorepo for personal learning projects and production AI-based services for my rental real estate business, Sernia Capital LLC. 
+A monorepo for personal learning projects and production AI-based services for my rental real estate business, Sernia Capital LLC.
 
 
 ## Tech Stack:
-* Frontend: 
-    * Web: 
-        * Framework: Next.js
+* Frontend:
+    * Web:
+        * Framework: React Router v7 (framework mode)
         * UI: [Shadcn UI](https://ui.shadcn.com/docs)
         * Styling: Tailwind CSS
-    * Mobile: 
+    * Mobile:
         * Framework: Expo
         * UI: TBD - [Expo UI (Beta)](https://docs.expo.dev/versions/v53.0.0/sdk/ui/)? [React Native Reusables](https://rnr-docs.vercel.app/getting-started/introduction/)? Want something that can render on ios, android, and web.
     * Package Manager: pnpm
@@ -61,44 +61,44 @@ Neon is not reachable from the Codespaces-style environment used for these tasks
    ```
 
    (If `uv` is not installed you can also run `sh api/db_run_migration.sh` from the root of the project.)
-5. Launch the other services (FastAPI, Next.js, etc.) once the database is ready. Both apps will reuse the same environment variables.
+5. Launch the other services (FastAPI, React Router, etc.) once the database is ready. Both apps will reuse the same environment variables.
 
 2. **Build and Run:**
    ```bash
-   docker compose --env-file .env build --no-cache | tee docker_build.log       
-   docker compose --env-file .env up -d | tee docker_up.log       
+   docker compose --env-file .env build --no-cache | tee docker_build.log
+   docker compose --env-file .env up -d | tee docker_up.log
    ```
 
-   Frontend NextJS only:
+   Frontend React Router only:
 
    ```bash
-   docker compose --env-file .env build nextjs --no-cache  | tee docker_build.log        
-   docker compose --env-file .env up -d nextjs | tee docker_up.log       
+   docker compose --env-file .env build web-react-router --no-cache  | tee docker_build.log
+   docker compose --env-file .env up -d web-react-router | tee docker_up.log
    ```
 
    Backend FastAPI only:
 
    ```bash
-   docker compose --env-file .env build fastapi --no-cache | tee docker_build.log        
-   docker compose --env-file .env up -d fastapi | tee docker_up.log       
+   docker compose --env-file .env build fastapi --no-cache | tee docker_build.log
+   docker compose --env-file .env up -d fastapi | tee docker_up.log
    ```
 
    Expo App only:
 
    ```bash
-   docker compose --env-file .env build my-expo-app  | tee docker_build.log        
-   docker compose --env-file .env up -d my-expo-app | tee docker_up.log       
+   docker compose --env-file .env build my-expo-app  | tee docker_build.log
+   docker compose --env-file .env up -d my-expo-app | tee docker_up.log
    ```
 
     Or all in one with cache:
     ```bash
-    docker compose --env-file .env up -d --build | tee docker_up_build.log       
+    docker compose --env-file .env up -d --build | tee docker_up_build.log
     ```
 
-   This command builds the Docker images for the nextjs and fastapi services (if they don't exist or have changed) and starts the containers.
+   This command builds the Docker images for the web-react-router and fastapi services (if they don't exist or have changed) and starts the containers.
 
 3. **Accessing the Application:**
-   - Frontend NextJS: [http://localhost:3000](http://localhost:3000)
+   - Frontend React Router: [http://localhost:5173](http://localhost:5173)
    - Backend FastAPI: [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
 
 4. **Stopping the Application:**
@@ -110,17 +110,17 @@ Neon is not reachable from the Codespaces-style environment used for these tasks
 
 ## Environments:
 
-* Localhost: 
-    * NextJS: http://localhost:3000
-    * FastAPI (via NextJS proxy): http://localhost:3000/api/docs
+* Localhost:
+    * React Router: http://localhost:5173
+    * FastAPI (via React Router proxy): http://localhost:5173/api/docs
     * FastAPI (direct): http://localhost:8000/api/docs
-* Dev: 
-    * NextJS: https://dev.eesposito.com
-    * FastAPI (via NextJS proxy): https://dev.eesposito.com/api/docs
+* Dev:
+    * React Router: https://dev.eesposito.com
+    * FastAPI (via React Router proxy): https://dev.eesposito.com/api/docs
     * FastAPI (direct): https://dev-eesposito-fastapi.up.railway.app/api/docs
-* Production: 
-    * NextJS: https://eesposito.com
-    * FastAPI (via NextJS proxy): https://eesposito.com/api/docs
+* Production:
+    * React Router: https://eesposito.com
+    * FastAPI (via React Router proxy): https://eesposito.com/api/docs
     * FastAPI (direct): https://eesposito-fastapi.up.railway.app/api/docs
 
 

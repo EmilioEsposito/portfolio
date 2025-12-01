@@ -8,7 +8,7 @@ This directory contains the configuration for Cursor Cloud Agents.
 Main configuration file that defines:
 - **snapshot**: Base environment image (Ubuntu 22.04 with Node.js, Python, pnpm, uv, PostgreSQL pre-installed)
 - **install**: Script that runs when the agent starts (`./.cursor/install.sh`)
-- **ports**: Exposed ports for NextJS (3000) and FastAPI (8000)
+- **ports**: Exposed ports for React Router (5173) and FastAPI (8000)
 - **terminals**: Pre-configured terminal processes for development
 - **agentCanUpdateSnapshot**: Allows the agent to rebuild the snapshot from Dockerfile when needed
 
@@ -18,28 +18,25 @@ Defines the **base environment** that gets built into the snapshot. It installs:
 2. Node.js 20.x & pnpm
 3. Python 3.11 & uv
 4. PostgreSQL 16
-5. Playwright system dependencies (libnss3, libgbm1, etc.)
-6. Playwright browsers (Chromium, Firefox, WebKit)
-7. Creates the Python virtual environment at `/home/ubuntu/.venv`
+5. Creates the Python virtual environment at `/home/ubuntu/.venv`
 
-**When to rebuild:** The Dockerfile is used to create/update the snapshot. You typically don't need to rebuild unless you're updating base tools (e.g., upgrading Node, Python, Playwright, or adding new system packages).
+**When to rebuild:** The Dockerfile is used to create/update the snapshot. You typically don't need to rebuild unless you're updating base tools (e.g., upgrading Node, Python, or adding new system packages).
 
 ### `install.sh`
 Installation script that runs automatically when a Cursor cloud agent starts. It installs **project-specific dependencies**:
 1. Installs Node.js project dependencies with `pnpm install`
-2. Updates Playwright browsers to match project version (fast, since base browsers are in snapshot)
-3. Installs Python project dependencies with `uv sync`
-4. Starts PostgreSQL service
-5. Creates database user and database
-6. Runs database migrations with Alembic
-7. Configures PYTHONPATH
+2. Installs Python project dependencies with `uv sync`
+3. Starts PostgreSQL service
+4. Creates database user and database
+5. Runs database migrations with Alembic
+6. Configures PYTHONPATH
 
 ## Architecture: Two-Stage Setup
 
 According to the [Cursor docs](https://cursor.com/docs/cloud-agent#base-environment-setup), the setup is split into two stages:
 
 ### Stage 1: Base Environment (Dockerfile → Snapshot)
-- **What**: System-level tools (Node.js, Python, pnpm, uv, PostgreSQL, Playwright + browsers)
+- **What**: System-level tools (Node.js, Python, pnpm, uv, PostgreSQL)
 - **When**: One-time or when base tools need updating
 - **How**: Dockerfile builds → creates snapshot → snapshot ID saved in `environment.json`
 - **Result**: Fast startup for all future agents (heavy dependencies are pre-installed)
@@ -66,8 +63,8 @@ When you launch a Cursor cloud agent:
 1. The snapshot environment loads (Ubuntu + tools pre-installed)
 2. `install.sh` runs automatically to set up the project
 3. Three terminal tabs open automatically:
-   - **NextJS**: Development server on port 3000
-   - **FastAPI**: Backend server on port 8000  
+   - **React Router**: Development server on port 5173
+   - **FastAPI**: Backend server on port 8000
    - **ExpoWeb**: Expo web development server
 
 ## How to Update the Snapshot
