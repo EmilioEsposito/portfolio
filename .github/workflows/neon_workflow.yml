@@ -155,41 +155,7 @@ jobs:
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
           INFORMATIONAL_NEON_BRANCH_NAME: pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
         run: |
-
-          # fail if any of above environment variables are not set
-          if [ -z "$RAILWAY_API_TOKEN" ] || [ -z "$RAILWAY_PROJECT_ID" ] || [ -z "$RAILWAY_ENV_ID" ] || [ -z "$RAILWAY_FASTAPI_SERVICE_ID" ] || [ -z "$DB_URL_POOLED" ] || [ -z "$DB_URL_UNPOOLED" ] || [ -z "$INFORMATIONAL_NEON_BRANCH_NAME" ]; then
-            echo "Error: One or more environment variables are not set"
-            # print all missing variables
-            echo "Missing variables:"
-            for var in RAILWAY_API_TOKEN RAILWAY_PROJECT_ID RAILWAY_ENV_ID RAILWAY_FASTAPI_SERVICE_ID DB_URL_POOLED DB_URL_UNPOOLED INFORMATIONAL_NEON_BRANCH_NAME; do
-              if [ -z "${!var}" ]; then
-                echo "  - $var"
-              fi
-            done
-            exit 1
-          fi
-
-          # Update all Railway environment variables in a single GraphQL mutation
-          RESPONSE=$(curl -s --fail --request POST \
-            --url https://backboard.railway.com/graphql/v2 \
-            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{
-              "query": "mutation { variableUpsert1: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL\", value: \"'$DB_URL_POOLED'\" }) variableUpsert2: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL_UNPOOLED\", value: \"'$DB_URL_UNPOOLED'\" }) variableUpsert3: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"INFORMATIONAL_NEON_BRANCH_NAME\", value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\" }) }"
-            }')
-          
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to update Railway environment variables (HTTP error)"
-            exit 1
-          fi
-          
-          if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-            echo "Error: Railway API returned GraphQL errors when updating environment variables:"
-            echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
-            exit 1
-          fi
-
-          echo "Updated DATABASE_URL, DATABASE_URL_UNPOOLED, and INFORMATIONAL_NEON_BRANCH_NAME for Railway environment"
+          ./.github/scripts/railway_upsert_database_vars.sh
 
           # Redeploy happens automatically
           echo "Redeploying Railway environment"

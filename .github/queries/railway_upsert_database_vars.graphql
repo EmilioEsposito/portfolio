@@ -1,0 +1,30 @@
+mutation {
+  variableUpsert1: variableUpsert(
+    input: {
+      projectId: "${RAILWAY_PROJECT_ID}"
+      environmentId: "${RAILWAY_ENV_ID}"
+      serviceId: "${RAILWAY_FASTAPI_SERVICE_ID}"
+      name: "DATABASE_URL"
+      value: "${DB_URL_POOLED}"
+    }
+  )
+  variableUpsert2: variableUpsert(
+    input: {
+      projectId: "${RAILWAY_PROJECT_ID}"
+      environmentId: "${RAILWAY_ENV_ID}"
+      serviceId: "${RAILWAY_FASTAPI_SERVICE_ID}"
+      name: "DATABASE_URL_UNPOOLED"
+      value: "${DB_URL_UNPOOLED}"
+    }
+  )
+  variableUpsert3: variableUpsert(
+    input: {
+      projectId: "${RAILWAY_PROJECT_ID}"
+      environmentId: "${RAILWAY_ENV_ID}"
+      serviceId: "${RAILWAY_FASTAPI_SERVICE_ID}"
+      name: "INFORMATIONAL_NEON_BRANCH_NAME"
+      value: "${INFORMATIONAL_NEON_BRANCH_NAME}"
+    }
+  )
+}
+
