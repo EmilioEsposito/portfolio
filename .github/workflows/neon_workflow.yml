@@ -166,27 +166,6 @@ jobs:
 
           echo "Updated DATABASE_URL_UNPOOLED for Railway environment"
 
-      - name: Checkout code for migrations
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Run Database Migrations
-        env:
-          DATABASE_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
-        run: |
-          echo "Running Alembic migrations on Neon branch..."
-          cd api
-          uv sync --no-dev
-          uv run alembic upgrade head
-          echo "Migrations completed successfully"
-
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
 # on it, or send the connection details to a hosting platform environment.
