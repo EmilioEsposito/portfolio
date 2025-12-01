@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# Script to upsert Railway database environment variables using a GraphQL query file
+# https://railway.com/graphiql
+# Script to upsert Railway database environment variables using variableCollectionUpsert mutation
 # This script can be used both in GitHub Actions and locally for testing
+# Uses Railway's variableCollectionUpsert mutation which updates multiple variables in a single call
 #
 # Required environment variables:
 #   RAILWAY_API_TOKEN - Railway API token
@@ -19,10 +21,6 @@
 #   ./.github/scripts/railway_upsert_database_vars.sh
 
 set -e
-
-# Get script directory and resolve query file path
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-QUERY_FILE="$SCRIPT_DIR/railway_upsert_database_vars.graphql"
 
 # Required environment variables
 REQUIRED_VARS=(
@@ -52,27 +50,26 @@ if [ ${#MISSING_VARS[@]} -ne 0 ]; then
   exit 1
 fi
 
-# Check if query file exists
-if [ ! -f "$QUERY_FILE" ]; then
-  echo "Error: Query file not found at $QUERY_FILE" >&2
-  exit 1
-fi
+# Build variables string in KEY=value format (newline separated)
+# This is the format required by Railway's variableCollectionUpsert mutation
+VARIABLES_STRING=$(printf "DATABASE_URL=%s\nDATABASE_URL_UNPOOLED=%s\nINFORMATIONAL_NEON_BRANCH_NAME=%s" \
+  "$DB_URL_POOLED" \
+  "$DB_URL_UNPOOLED" \
+  "$INFORMATIONAL_NEON_BRANCH_NAME")
 
-# Read the query file and substitute variables using sed
-QUERY=$(sed \
-  -e "s|\${RAILWAY_PROJECT_ID}|$RAILWAY_PROJECT_ID|g" \
-  -e "s|\${RAILWAY_ENV_ID}|$RAILWAY_ENV_ID|g" \
-  -e "s|\${RAILWAY_FASTAPI_SERVICE_ID}|$RAILWAY_FASTAPI_SERVICE_ID|g" \
-  -e "s|\${DB_URL_POOLED}|$DB_URL_POOLED|g" \
-  -e "s|\${DB_URL_UNPOOLED}|$DB_URL_UNPOOLED|g" \
-  -e "s|\${INFORMATIONAL_NEON_BRANCH_NAME}|$INFORMATIONAL_NEON_BRANCH_NAME|g" \
-  "$QUERY_FILE")
+# Use jq to properly escape the variables string for GraphQL (as JSON string)
+ESCAPED_VARS=$(printf '%s' "$VARIABLES_STRING" | jq -Rs .)
 
-# Use jq to properly construct the JSON payload with the multi-line query
-# jq handles all JSON escaping automatically (quotes, newlines, etc.)
-# -R: raw input (don't parse as JSON)
-# -s: slurp (read all input into a single string)
-PAYLOAD=$(printf '%s' "$QUERY" | jq -Rs '{query: .}')
+# Build GraphQL query string with escaped variables embedded
+# Note: We use RAILWAY_FASTAPI_SERVICE_ID for serviceId based on the workflow
+QUERY_STR=$(printf 'mutation { variableCollectionUpsert(input: { projectId: "%s", environmentId: "%s", serviceId: "%s", variables: %s, replace: true, skipDeploys: false }) }' \
+  "$RAILWAY_PROJECT_ID" \
+  "$RAILWAY_ENV_ID" \
+  "$RAILWAY_FASTAPI_SERVICE_ID" \
+  "$ESCAPED_VARS")
+
+# Create final payload
+PAYLOAD=$(jq -n --arg query "$QUERY_STR" '{query: $query}')
 
 # Make the API call
 RESPONSE=$(curl -s --fail --request POST \
