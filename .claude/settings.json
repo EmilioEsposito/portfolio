@@ -34,6 +34,18 @@
   ],
   "enableAllProjectMcpServers": true,
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/setup_remote.sh",
+            "timeout": 60000
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [
@@ -41,11 +53,6 @@
             "type": "command",
             "command": "terminal-notifier -message 'Claude needs your input' -title '🔔 Claude Code' -sound Glass -group 'claude-code'"
           }
-          // {
-          //   "type": "command",
-          //   "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/conditionally_send_slack.sh '🔔 Claude needs your input' 60",
-          //   "timeout": 120
-          // }
         ]
       }
     ]
