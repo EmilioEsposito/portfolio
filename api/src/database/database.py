@@ -26,6 +26,12 @@ convention = {
 # Create metadata with naming convention
 metadata = MetaData(naming_convention=convention)
 
+# configure logfire
+logfire.configure(
+    service_name="fastapi",
+    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
+)
+
 # Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
 DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE_URL_UNPOOLED = os.environ.get("DATABASE_URL_UNPOOLED")
@@ -204,6 +210,19 @@ def test_sync_engine_select_one():
     except Exception as e:
         logfire.exception(f"FAILURE: Synchronous engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Synchronous engine SELECT 1 test failed: {e}")
+
+
+def wait_for_db(max_retries=10, delay=1):
+    """Wait for database to be ready with simple retry logic."""
+    import time
+    for i in range(max_retries):
+        try:
+            test_sync_engine_select_one()
+            return
+        except:
+            if i == max_retries - 1:
+                raise
+            time.sleep(delay)
 
 
 @logfire.instrument("test-async-engine-select-one")
