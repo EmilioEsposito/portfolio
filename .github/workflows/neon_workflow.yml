@@ -115,7 +115,7 @@ jobs:
           DB_URL_POOLED: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
         run: |
-          # Update DATABASE_URL (pooled connection)
+          # Update DATABASE_URL (pooled connection) 
           curl -s --request POST \
             --url https://backboard.railway.com/graphql/v2 \
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
