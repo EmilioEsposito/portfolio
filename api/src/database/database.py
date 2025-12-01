@@ -11,6 +11,7 @@ import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
+import pytest
 
 load_dotenv(find_dotenv(".env"), override=True)
 
@@ -36,6 +37,7 @@ logfire.configure(
 DATABASE_URL = os.environ.get("DATABASE_URL")
 DATABASE_URL_UNPOOLED = os.environ.get("DATABASE_URL_UNPOOLED")
 DATABASE_REQUIRE_SSL = bool(os.environ.get("DATABASE_REQUIRE_SSL", "true").lower() == "true")
+
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 if not DATABASE_URL_UNPOOLED:
@@ -224,7 +226,7 @@ def wait_for_db(max_retries=10, delay=1):
                 raise
             time.sleep(delay)
 
-
+@pytest.mark.asyncio
 @logfire.instrument("test-async-engine-select-one")
 async def test_async_engine_select_one():
     """Run a SELECT 1 from the async engine to verify it's working."""
@@ -237,3 +239,13 @@ async def test_async_engine_select_one():
     except Exception as e:
         logfire.exception(f"FAILURE: Async engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Async engine SELECT 1 test failed: {e}")
+
+@pytest.mark.asyncio
+@logfire.instrument("test-database-connections")
+async def test_database_connections():
+    try:
+        test_sync_engine_select_one()
+        await test_async_engine_select_one()
+    except Exception as e:
+        logfire.exception(f"Error during database connection test: {e}")
+        raise Exception(f"Error during database connection test: {e}")
