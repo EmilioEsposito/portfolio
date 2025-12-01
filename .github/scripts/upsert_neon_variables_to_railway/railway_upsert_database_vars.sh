@@ -18,7 +18,7 @@
 #   export RAILWAY_API_TOKEN="your-token"
 #   export RAILWAY_PROJECT_ID="your-project-id"
 #   # ... set other vars ...
-#   ./.github/scripts/railway_upsert_database_vars.sh
+#   ./.github/scripts/upsert_neon_variables_to_railway/railway_upsert_database_vars.sh
 
 set -e
 

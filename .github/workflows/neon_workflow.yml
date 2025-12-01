@@ -157,7 +157,7 @@ jobs:
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
           INFORMATIONAL_NEON_BRANCH_NAME: pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
         run: |
-          ./.github/scripts/railway_upsert_database_vars.sh
+          ./.github/scripts/upsert_neon_variables_to_railway/railway_upsert_database_vars.sh
 
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
