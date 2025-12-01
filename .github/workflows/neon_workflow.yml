@@ -141,8 +141,10 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_GHA_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           RAILWAY_ENV_ID: ${{ steps.get_railway_env.outputs.env_id }}
+          RAILWAY_FASTAPI_SERVICE_ID: ${{ vars.RAILWAY_FASTAPI_SERVICE_ID }}
           DB_URL_POOLED: ${{ steps.create_neon_branch.outputs.db_url_with_pooler }}
           DB_URL_UNPOOLED: ${{ steps.create_neon_branch.outputs.db_url }}
+          INFORMATIONAL_NEON_BRANCH_NAME: ${{ needs.setup.outputs.branch }}
         run: |
           # Update DATABASE_URL (pooled connection) 
           curl -s --request POST \
@@ -150,7 +152,7 @@ jobs:
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
             --header "Content-Type: application/json" \
             --data '{
-              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", name: \"DATABASE_URL\", value: \"'$DB_URL_POOLED'\" }) }"
+              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL\", value: \"'$DB_URL_POOLED'\" }) }"
             }'
 
           echo "Updated DATABASE_URL for Railway environment"
@@ -161,10 +163,19 @@ jobs:
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
             --header "Content-Type: application/json" \
             --data '{
-              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", name: \"DATABASE_URL_UNPOOLED\", value: \"'$DB_URL_UNPOOLED'\" }) }"
+              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL_UNPOOLED\", value: \"'$DB_URL_UNPOOLED'\" }) }"
             }'
 
           echo "Updated DATABASE_URL_UNPOOLED for Railway environment"
+
+          # Update INFORMATIONAL_NEON_BRANCH_NAME variable
+          curl -s --request POST \
+            --url https://backboard.railway.com/graphql/v2 \
+            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{
+              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"INFORMATIONAL_NEON_BRANCH_NAME\", value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\" }) }"
+            }'
 
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
