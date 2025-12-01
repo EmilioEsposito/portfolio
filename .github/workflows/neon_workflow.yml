@@ -169,69 +169,27 @@ jobs:
             exit 1
           fi
 
-          # Update DATABASE_URL (pooled connection) 
+          # Update all Railway environment variables in a single GraphQL mutation
           RESPONSE=$(curl -s --fail --request POST \
             --url https://backboard.railway.com/graphql/v2 \
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
             --header "Content-Type: application/json" \
             --data '{
-              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL\", value: \"'$DB_URL_POOLED'\" }) }"
+              "query": "mutation { variableUpsert1: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL\", value: \"'$DB_URL_POOLED'\" }) variableUpsert2: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL_UNPOOLED\", value: \"'$DB_URL_UNPOOLED'\" }) variableUpsert3: variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"INFORMATIONAL_NEON_BRANCH_NAME\", value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\" }) }"
             }')
           
           if [ $? -ne 0 ]; then
-            echo "Error: Failed to update DATABASE_URL (HTTP error)"
+            echo "Error: Failed to update Railway environment variables (HTTP error)"
             exit 1
           fi
           
           if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-            echo "Error: Railway API returned GraphQL errors when updating DATABASE_URL:"
+            echo "Error: Railway API returned GraphQL errors when updating environment variables:"
             echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
             exit 1
           fi
 
-          echo "Updated DATABASE_URL for Railway environment"
-
-          # Update DATABASE_URL_UNPOOLED (direct connection)
-          RESPONSE=$(curl -s --fail --request POST \
-            --url https://backboard.railway.com/graphql/v2 \
-            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{
-              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"DATABASE_URL_UNPOOLED\", value: \"'$DB_URL_UNPOOLED'\" }) }"
-            }')
-          
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to update DATABASE_URL_UNPOOLED (HTTP error)"
-            exit 1
-          fi
-          
-          if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-            echo "Error: Railway API returned GraphQL errors when updating DATABASE_URL_UNPOOLED:"
-            echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
-            exit 1
-          fi
-
-          echo "Updated DATABASE_URL_UNPOOLED for Railway environment"
-
-          # Update INFORMATIONAL_NEON_BRANCH_NAME variable
-          RESPONSE=$(curl -s --fail --request POST \
-            --url https://backboard.railway.com/graphql/v2 \
-            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{
-              "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"INFORMATIONAL_NEON_BRANCH_NAME\", value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\" }) }"
-            }')
-          
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to update INFORMATIONAL_NEON_BRANCH_NAME (HTTP error)"
-            exit 1
-          fi
-          
-          if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-            echo "Error: Railway API returned GraphQL errors when updating INFORMATIONAL_NEON_BRANCH_NAME:"
-            echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
-            exit 1
-          fi
+          echo "Updated DATABASE_URL, DATABASE_URL_UNPOOLED, and INFORMATIONAL_NEON_BRANCH_NAME for Railway environment"
 
           # Redeploy happens automatically
           echo "Redeploying Railway environment"
