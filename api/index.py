@@ -110,8 +110,6 @@ if missing_vars:
         + "\n".join(missing_vars)
     )
 
-test_sync_engine_select_one()
-
 
 @logfire.instrument("scheduler-services")
 async def start_scheduler_services():
@@ -134,6 +132,10 @@ async def lifespan(app: FastAPI):
     # Startup logic
     logfire.info("LIFESPAN: FastAPI index.py startup...")
     try:
+        if sync_engine is not None:
+            logfire.info("Running sync engine SELECT 1 health check...")
+            test_sync_engine_select_one()
+            logfire.info("Sync engine health check completed successfully.")
         logfire.info("Running async engine SELECT 1 health check...")
         await test_async_engine_select_one()
         logfire.info("Async engine health check completed successfully.")
