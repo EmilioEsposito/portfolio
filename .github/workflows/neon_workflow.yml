@@ -159,9 +159,6 @@ jobs:
         run: |
           ./.github/scripts/railway_upsert_database_vars.sh
 
-          # Redeploy happens automatically
-          echo "Redeploying Railway environment"
-
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
 # on it, or send the connection details to a hosting platform environment.
