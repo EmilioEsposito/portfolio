@@ -22,7 +22,7 @@ set -e
 
 # Get script directory and resolve query file path
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-QUERY_FILE="$SCRIPT_DIR/../queries/railway_upsert_database_vars.graphql"
+QUERY_FILE="$SCRIPT_DIR/railway_upsert_database_vars.graphql"
 
 # Required environment variables
 REQUIRED_VARS=(
