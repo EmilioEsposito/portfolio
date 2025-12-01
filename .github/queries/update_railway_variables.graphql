@@ -1,30 +1,24 @@
-mutation UpdateRailwayVariables(
-  $projectId: String!,
-  $environmentId: String!,
-  $serviceId: String!,
-  $dbUrlPooled: String!,
-  $dbUrlUnpooled: String!,
-  $neonBranchName: String!
-) {
+mutation {
   updateDatabaseUrl: variableUpsert(input: {
-    projectId: $projectId,
-    environmentId: $environmentId,
-    serviceId: $serviceId,
+    projectId: "$RAILWAY_PROJECT_ID",
+    environmentId: "$RAILWAY_ENV_ID",
+    serviceId: "$RAILWAY_FASTAPI_SERVICE_ID",
     name: "DATABASE_URL",
-    value: $dbUrlPooled
+    value: "$DB_URL_POOLED"
   }) { id }
   updateDatabaseUrlUnpooled: variableUpsert(input: {
-    projectId: $projectId,
-    environmentId: $environmentId,
-    serviceId: $serviceId,
+    projectId: "$RAILWAY_PROJECT_ID",
+    environmentId: "$RAILWAY_ENV_ID",
+    serviceId: "$RAILWAY_FASTAPI_SERVICE_ID",
     name: "DATABASE_URL_UNPOOLED",
-    value: $dbUrlUnpooled
+    value: "$DB_URL_UNPOOLED"
   }) { id }
   updateNeonBranchName: variableUpsert(input: {
-    projectId: $projectId,
-    environmentId: $environmentId,
-    serviceId: $serviceId,
+    projectId: "$RAILWAY_PROJECT_ID",
+    environmentId: "$RAILWAY_ENV_ID",
+    serviceId: "$RAILWAY_FASTAPI_SERVICE_ID",
     name: "INFORMATIONAL_NEON_BRANCH_NAME",
-    value: $neonBranchName
+    value: "$INFORMATIONAL_NEON_BRANCH_NAME"
   }) { id }
 }
+

@@ -172,25 +172,16 @@ jobs:
           fi
 
           # Update all Railway environment variables in a single GraphQL mutation
-          QUERY=$(cat .github/queries/update_railway_variables.graphql)
-          # Build JSON payload with proper escaping using jq variables support
-          PAYLOAD=$(jq -n \
-            --arg query "$QUERY" \
-            --arg projectId "$RAILWAY_PROJECT_ID" \
-            --arg environmentId "$RAILWAY_ENV_ID" \
-            --arg serviceId "$RAILWAY_FASTAPI_SERVICE_ID" \
-            --arg dbUrlPooled "$DB_URL_POOLED" \
-            --arg dbUrlUnpooled "$DB_URL_UNPOOLED" \
-            --arg neonBranchName "$INFORMATIONAL_NEON_BRANCH_NAME" \
-            '{query: $query, variables: {projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId, dbUrlPooled: $dbUrlPooled, dbUrlUnpooled: $dbUrlUnpooled, neonBranchName: $neonBranchName}}')
-          RESPONSE_FILE=$(mktemp)
-          HTTP_CODE=$(curl -s -o "$RESPONSE_FILE" -w "%{http_code}" --request POST \
+          # Load query from file and substitute environment variables
+          QUERY=$(envsubst < .github/queries/update_railway_variables.graphql)
+          # Build JSON payload with proper escaping using jq
+          HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" --request POST \
             --url https://backboard.railway.com/graphql/v2 \
             --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
             --header "Content-Type: application/json" \
-            --data "$PAYLOAD")
-          RESPONSE=$(cat "$RESPONSE_FILE")
-          rm "$RESPONSE_FILE"
+            --data "$(jq -n --arg query "$QUERY" '{query: $query}')")
+          
+          RESPONSE=$(cat response.json)
           
           echo "Railway API response (HTTP $HTTP_CODE):"
           echo "$RESPONSE" | jq .
