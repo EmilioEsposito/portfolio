@@ -208,7 +208,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | Dev | https://dev.eesposito.com |
 | FastAPI | https://eesposito-fastapi.up.railway.app/api/docs |
 
-**PR Environments**: Auto-created with isolated Neon database branches via `.github/workflows/neon_workflow.yml`
+**PR Environments**: Auto-created with isolated Neon database branches. See [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) for details.
 
 ---
 
@@ -238,7 +238,18 @@ uv run alembic revision --autogenerate -m "description"  # Create
 
 ---
 
-## Resources
+## Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
+| [`api/README.md`](api/README.md) | FastAPI run commands |
+| [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
+| [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) | PR database branching workflow |
+| [`.cursor/rules/`](.cursor/rules/) | AI coding guidelines (general, fastapi, react) |
+| [`roadmap.md`](roadmap.md) | Project roadmap and future plans |
+
+## External Resources
 
 - [React Router Docs](https://reactrouter.com/start/framework/installation)
 - [FastAPI Docs](https://fastapi.tiangolo.com/)
