@@ -32,24 +32,22 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 - **Solo Developer Context**: Simple credential management, straightforward patterns
 
 ### Key Applications
-1. **React Router Web App** (`apps/web-react-router/`) - New primary web interface (migrating from Next.js)
-2. **Next.js Web App** (`apps/web/`) - Legacy web interface (being replaced)
-3. **FastAPI Backend** (`api/`) - Python API with multi-agent AI, webhooks, scheduling
-4. **Expo Mobile App** (`apps/my-expo-app/`) - React Native mobile app (iOS/Android/Web)
+1. **React Router Web App** (`apps/web-react-router/`) - Primary web interface
+2. **FastAPI Backend** (`api/`) - Python API with multi-agent AI, webhooks, scheduling
+3. **Expo Mobile App** (`apps/my-expo-app/`) - React Native mobile app (iOS/Android/Web)
 
 ---
 
 ## Tech Stack
 
 ### Frontend
-- **Framework**: Next.js 15.2.3 with App Router
+- **Framework**: React Router v7 (framework mode) with Vite
 - **React**: 19.0.0
-- **UI Library**: [Shadcn UI](https://ui.shadcn.com/docs) (30+ components based on Radix UI)
-- **Styling**: Tailwind CSS 3.4.15 with dark/light mode support
-- **Authentication**: Clerk 6.11.3
-- **AI SDK**: Vercel AI SDK (ai@5.0.92) with streaming support
-- **State Management**: React hooks, URL search params (nuqs)
-- **Database**: @vercel/postgres, @neondatabase/serverless
+- **UI Library**: [Shadcn UI](https://ui.shadcn.com/docs) (components based on Radix UI)
+- **Styling**: Tailwind CSS with dark/light mode support
+- **Authentication**: Clerk (@clerk/react-router)
+- **AI SDK**: Vercel AI SDK with streaming support
+- **State Management**: React hooks
 - **Icons**: Lucide React, Radix Icons
 - **Package Manager**: pnpm
 
@@ -92,7 +90,7 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 │   └── rules/                 # AI coding guidelines
 │       ├── general.mdc        # General rules for all files
 │       ├── fastapi.mdc        # Python/FastAPI rules
-│       └── nextjs.mdc         # TypeScript/Next.js rules
+│       └── react.mdc   # TypeScript/React Router rules
 ├── .github/                   # GitHub templates
 ├── .vscode/                   # VS Code launch configs
 ├── api/                       # FastAPI Backend (Python)
@@ -116,7 +114,7 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 │   │   ├── oauth/             # OAuth flows
 │   │   ├── database/          # DB models & migrations
 │   │   │   ├── models.py      # SQLAlchemy models
-│   │   │   └── migrations/    # Alembic versions (19 migrations)
+│   │   │   └── migrations/    # Alembic versions
 │   │   ├── utils/             # Shared utilities
 │   │   └── tests/             # Pytest tests
 │   ├── db_create_migration.sh # Generate new migration
@@ -126,18 +124,11 @@ A monorepo serving **Sernia Capital LLC**'s rental real estate business with AI-
 │   │   ├── app/
 │   │   │   ├── routes/        # File-based routes
 │   │   │   ├── components/    # React components
+│   │   │   │   └── ui/        # Shadcn components
 │   │   │   └── lib/           # Utilities
 │   │   ├── server.js          # Express server with API proxy
 │   │   ├── vite.config.ts     # Vite config with dev proxy
 │   │   └── react-router.config.ts
-│   ├── web/                   # Next.js Web App (legacy)
-│   │   ├── app/               # App Router pages
-│   │   ├── components/        # React components
-│   │   │   └── ui/            # Shadcn components
-│   │   ├── hooks/             # Custom hooks
-│   │   ├── lib/               # Utilities
-│   │   ├── tests/             # Playwright E2E tests
-│   │   └── next.config.js     # Next.js config
 │   └── my-expo-app/           # React Native Mobile App
 │       ├── app/               # Expo Router pages
 │       │   ├── (auth)/        # Auth screens
@@ -199,7 +190,7 @@ docker compose --env-file .env up -d postgres
 cd api && uv run alembic upgrade head
 
 # 7. Start development servers
-pnpm dev              # Next.js only
+pnpm dev              # React Router only
 pnpm fastapi-dev      # FastAPI only
 pnpm dev-with-fastapi # Both concurrently
 ```
@@ -214,13 +205,13 @@ Create `.env` based on `.env.example`:
 OPENAI_API_KEY=sk-***
 
 # Database (Neon or Local)
-DATABASE_URL=postgresql://***  # For Next.js (pooled)
-DATABASE_URL_UNPOOLED=postgresql://***  # For FastAPI (direct)
+DATABASE_URL=postgresql://***  # Pooled connection
+DATABASE_URL_UNPOOLED=postgresql://***  # For FastAPI/migrations (direct)
 DATABASE_REQUIRE_SSL=false  # Only for local Postgres
 
 # Authentication
 CLERK_SECRET_KEY=sk_***
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_***
+VITE_CLERK_PUBLISHABLE_KEY=pk_***
 EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_***
 
 # Admin
@@ -265,12 +256,10 @@ uv run alembic upgrade head
 
 #### Root Level (package.json)
 ```bash
-pnpm dev                  # Start Next.js dev server (port 3000)
-pnpm dev-with-fastapi     # Start both Next.js and FastAPI
-pnpm build                # Build Next.js for production
-pnpm start                # Start Next.js production server
-pnpm lint                 # Run Next.js linter
-pnpm test:e2e             # Run Playwright E2E tests
+pnpm dev                  # Start React Router dev server (port 5173)
+pnpm dev-with-fastapi     # Start both React Router and FastAPI
+pnpm build                # Build React Router for production
+pnpm start                # Start React Router production server
 pnpm fastapi-dev          # Start FastAPI dev server (port 8000)
 pnpm my-expo-app          # Launch Expo app
 pnpm reinstall            # Clean reinstall all dependencies
@@ -313,21 +302,20 @@ docker compose --env-file .env up -d --build
 # Individual services
 docker compose --env-file .env up -d postgres
 docker compose --env-file .env up -d fastapi
-docker compose --env-file .env up -d nextjs
+docker compose --env-file .env up -d web-react-router
 
 # Stop and remove containers
 docker compose down
 
 # View logs
 docker compose logs -f fastapi
-docker compose logs -f nextjs
+docker compose logs -f web-react-router
 ```
 
 ### Access URLs
 
 #### Local Development
 - **React Router**: http://localhost:5173
-- **Next.js (legacy)**: http://localhost:3000
 - **FastAPI**: http://localhost:8000/api/docs
 
 #### Dev Environment
@@ -336,7 +324,7 @@ docker compose logs -f nextjs
 - **FastAPI (via proxy)**: https://dev.eesposito.com/api/docs
 
 #### Production
-- **Next.js**: https://eesposito.com
+- **React Router**: https://eesposito.com
 - **FastAPI (direct)**: https://eesposito-fastapi.up.railway.app/api/docs
 - **FastAPI (via proxy)**: https://eesposito.com/api/docs
 
@@ -359,9 +347,9 @@ docker compose logs -f nextjs
 9. **Never Modify .env**: Suggest edits only
 10. **Shadcn UI**: Use `pnpm dlx @shadcn/ui@latest add <component>` (old way gives errors)
 
-### TypeScript/Next.js Rules
+### TypeScript/React Router Rules
 
-> **Source**: `.cursor/rules/nextjs.mdc`
+> **Source**: `.cursor/rules/react-router.mdc`
 
 #### Key Principles
 - Write concise, technical TypeScript with accurate examples
@@ -369,7 +357,7 @@ docker compose logs -f nextjs
 - Prefer iteration and modularization over duplication
 - Descriptive variable names with auxiliary verbs: `isLoading`, `hasError`
 - File structure: exported component, subcomponents, helpers, static content, types
-- **Support light and dark mode** (tailwind.config.js)
+- **Support light and dark mode**
 
 #### Naming Conventions
 - **Directories**: lowercase with dashes (`components/auth-wizard`)
@@ -391,20 +379,11 @@ docker compose logs -f nextjs
 - Responsive design with Tailwind CSS
 - **Mobile-first approach**
 
-#### Performance Optimization
-- **Minimize** `use client`, `useEffect`, `setState`
-- **Favor React Server Components (RSC)**
-- Wrap client components in Suspense with fallback
-- Dynamic loading for non-critical components
-- Optimize images: WebP format, size data, lazy loading
-
-#### Key Conventions
-- Use **nuqs** for URL search parameter state management
-- Optimize Web Vitals (LCP, CLS, FID)
-- **Limit `use client`**:
-  - Favor server components and Next.js SSR
-  - Use only for Web API access in small components
-  - **Avoid for data fetching or state management**
+#### React Router Specifics
+- Use loaders for data fetching (runs on server)
+- Use actions for form submissions and mutations
+- Use `~/` alias for imports from `app/` directory
+- Environment variables use `VITE_` prefix for client-side
 
 ### Python/FastAPI Rules
 
@@ -748,57 +727,9 @@ async def db_session():
         yield session
 ```
 
-### Frontend Testing (Playwright)
+### Frontend Testing
 
-#### Configuration
-**File**: `apps/web/playwright.config.ts`
-
-```typescript
-export default defineConfig({
-  testDir: './tests',
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  use: {
-    baseURL: 'http://localhost:3000',
-    trace: 'on-first-retry',
-  },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  ],
-  webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-  },
-})
-```
-
-#### Running Tests
-```bash
-# All E2E tests
-pnpm test:e2e
-
-# With UI
-pnpm test:e2e:ui
-
-# Specific test
-pnpm test:e2e tests/example.spec.ts
-
-# Debug mode
-pnpm test:e2e --debug
-```
-
-#### Test Structure
-```typescript
-import { test, expect } from '@playwright/test'
-
-test('homepage has title', async ({ page }) => {
-  await page.goto('/')
-  await expect(page).toHaveTitle(/Portfolio/)
-})
-```
+Frontend E2E tests can be added using Playwright or similar tools. Currently the React Router app does not have E2E tests configured.
 
 ### Testing Best Practices
 
@@ -948,7 +879,7 @@ def downgrade():
 ### 1. Adding a Shadcn UI Component
 
 ```bash
-cd apps/web
+cd apps/web-react-router
 pnpm dlx @shadcn/ui@latest add <component-name>
 
 # Examples
@@ -957,18 +888,26 @@ pnpm dlx @shadcn/ui@latest add dialog
 pnpm dlx @shadcn/ui@latest add table
 ```
 
-Components are added to `apps/web/components/ui/`.
+Components are added to `apps/web-react-router/app/components/ui/`.
 
-### 2. Creating a New Next.js Page
+### 2. Creating a New React Router Page
 
 ```bash
-cd apps/web/app
-mkdir my-new-page
-touch my-new-page/page.tsx
+cd apps/web-react-router/app/routes
+touch my-new-page.tsx
 ```
 
-**page.tsx**:
+**my-new-page.tsx**:
 ```typescript
+import type { Route } from "./+types/my-new-page";
+
+export function meta({}: Route.MetaArgs) {
+  return [
+    { title: "My New Page" },
+    { name: "description", content: "Page description" },
+  ];
+}
+
 export default function MyNewPage() {
   return (
     <div className="container mx-auto p-6">
@@ -978,7 +917,7 @@ export default function MyNewPage() {
 }
 ```
 
-Access at: `http://localhost:3000/my-new-page`
+Access at: `http://localhost:5173/my-new-page`
 
 ### 3. Creating a New FastAPI Endpoint
 
@@ -1127,13 +1066,13 @@ import os
 api_key = os.getenv("NEW_API_KEY")
 ```
 
-**Step 4**: Access in Next.js
+**Step 4**: Access in React Router
 ```typescript
-// For public variables (prefix with NEXT_PUBLIC_)
-const apiUrl = process.env.NEXT_PUBLIC_API_URL
+// For client-side variables (prefix with VITE_)
+const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
-// For server-side only
-const secret = process.env.NEW_API_KEY  // Only in Server Components or API routes
+// For server-side only (in loaders/actions)
+const secret = process.env.NEW_API_KEY
 ```
 
 ### 9. Running Database Queries
@@ -1151,16 +1090,23 @@ async def get_contact_by_phone(phone: str):
         return result.scalar_one_or_none()
 ```
 
-#### In Next.js (Server Component)
+#### In React Router (Loader)
 ```typescript
-import { sql } from '@vercel/postgres'
+import type { Route } from "./+types/my-page";
 
-export default async function MyPage() {
-  const { rows } = await sql`SELECT * FROM contacts WHERE active = true`
+export async function loader({ request }: Route.LoaderArgs) {
+  // Fetch data from FastAPI backend
+  const response = await fetch('http://localhost:8000/api/contacts');
+  const contacts = await response.json();
+  return { contacts };
+}
 
+export default function MyPage({ loaderData }: Route.ComponentProps) {
   return (
     <div>
-      {rows.map(row => <div key={row.id}>{row.name}</div>)}
+      {loaderData.contacts.map((contact: any) => (
+        <div key={contact.id}>{contact.name}</div>
+      ))}
     </div>
   )
 }
@@ -1288,10 +1234,10 @@ Migrations run automatically during Railway's predeploy phase (configured in `ap
 
 ### Railway Services
 
-#### Next.js Web App
+#### React Router Web App
 - **Build**: `pnpm build`
 - **Start**: `pnpm start`
-- **Port**: 3000
+- **Port**: 5173
 - **Domain**: eesposito.com (prod), dev.eesposito.com (dev)
 
 #### FastAPI Backend
@@ -1372,9 +1318,8 @@ exit
 | `alembic.ini` | Database migration config |
 | `docker-compose.yml` | Local container orchestration |
 | `pytest.ini` | Python test configuration |
-| `apps/web/next.config.js` | Next.js configuration |
-| `apps/web/tailwind.config.js` | Tailwind CSS theme |
-| `apps/web/playwright.config.ts` | E2E test configuration |
+| `apps/web-react-router/react-router.config.ts` | React Router configuration |
+| `apps/web-react-router/vite.config.ts` | Vite/Tailwind configuration |
 | `tsconfig.json` | Root TypeScript config |
 | `.env.example` | Environment variables template |
 | `.gitignore` | Git ignore patterns |
@@ -1401,9 +1346,9 @@ exit
 | `api/src/ai/chat_emilio/agent.py` | Portfolio agent |
 | `api/src/scheduler/service.py` | APScheduler task scheduling |
 | `api/src/open_phone/service.py` | OpenPhone SMS integration |
-| `apps/web/app/layout.tsx` | Root Next.js layout |
-| `apps/web/components/ui/` | Shadcn UI components |
-| `apps/web/lib/` | Frontend utilities |
+| `apps/web-react-router/app/root.tsx` | Root React Router layout |
+| `apps/web-react-router/app/components/ui/` | Shadcn UI components |
+| `apps/web-react-router/app/lib/` | Frontend utilities |
 
 ---
 
@@ -1411,7 +1356,7 @@ exit
 
 ### Start Development
 ```bash
-# Terminal 1 - Next.js
+# Terminal 1 - React Router
 pnpm dev
 
 # Terminal 2 - FastAPI
@@ -1427,9 +1372,6 @@ pnpm dev-with-fastapi
 # Backend
 source .venv/bin/activate
 pytest -v -s
-
-# Frontend
-pnpm test:e2e
 ```
 
 ### Database Operations
@@ -1441,7 +1383,7 @@ uv run alembic revision --autogenerate -m "description"  # Create migration
 
 ### Add UI Component
 ```bash
-cd apps/web
+cd apps/web-react-router
 pnpm dlx @shadcn/ui@latest add <component>
 ```
 
@@ -1449,16 +1391,15 @@ pnpm dlx @shadcn/ui@latest add <component>
 ```bash
 # Railway
 railway logs --service fastapi
-railway logs --service nextjs
+railway logs --service web-react-router
 
 # Docker
 docker compose logs -f fastapi
-docker compose logs -f nextjs
+docker compose logs -f web-react-router
 ```
 
 ### Common URLs
 - Local React Router: http://localhost:5173
-- Local Next.js (legacy): http://localhost:3000
 - Local FastAPI: http://localhost:8000/api/docs
 - Dev: https://dev.eesposito.com
 - Production: https://eesposito.com
@@ -1468,7 +1409,7 @@ docker compose logs -f nextjs
 ## Additional Resources
 
 ### Official Documentation
-- [Next.js Docs](https://nextjs.org/docs)
+- [React Router Docs](https://reactrouter.com/start/framework/installation)
 - [FastAPI Docs](https://fastapi.tiangolo.com/)
 - [PydanticAI Docs](https://ai.pydantic.dev/)
 - [Shadcn UI Docs](https://ui.shadcn.com/docs)

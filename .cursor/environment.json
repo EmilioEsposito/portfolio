@@ -9,8 +9,8 @@
   "start": "",
   "ports": [
     {
-      "name": "NextJS",
-      "port": 3000
+      "name": "React Router",
+      "port": 5173
     },
     {
       "name": "FastAPI",
@@ -19,9 +19,9 @@
   ],
   "terminals": [
     {
-      "name": "NextJS",
-      "command": "pnpm --filter web-nextjs dev",
-      "description": "Starts the Next.js development server on port 3000."
+      "name": "React Router",
+      "command": "pnpm dev",
+      "description": "Starts the React Router development server on port 5173."
     },
     {
       "name": "FastAPI",
