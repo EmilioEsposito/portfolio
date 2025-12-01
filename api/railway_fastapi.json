@@ -12,7 +12,6 @@
     ]
   },
   "deploy": {
-    "postDeployCommand": "source .venv/bin/activate && alembic upgrade head",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
