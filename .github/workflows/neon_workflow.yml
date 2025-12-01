@@ -176,14 +176,13 @@ jobs:
           # Build JSON payload with proper escaping using jq variables support
           PAYLOAD=$(jq -n \
             --arg query "$QUERY" \
-            --arg operationName "UpdateRailwayVariables" \
             --arg projectId "$RAILWAY_PROJECT_ID" \
             --arg environmentId "$RAILWAY_ENV_ID" \
             --arg serviceId "$RAILWAY_FASTAPI_SERVICE_ID" \
             --arg dbUrlPooled "$DB_URL_POOLED" \
             --arg dbUrlUnpooled "$DB_URL_UNPOOLED" \
             --arg neonBranchName "$INFORMATIONAL_NEON_BRANCH_NAME" \
-            '{query: $query, operationName: $operationName, variables: {projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId, dbUrlPooled: $dbUrlPooled, dbUrlUnpooled: $dbUrlUnpooled, neonBranchName: $neonBranchName}}')
+            '{query: $query, variables: {projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId, dbUrlPooled: $dbUrlPooled, dbUrlUnpooled: $dbUrlUnpooled, neonBranchName: $neonBranchName}}')
           RESPONSE_FILE=$(mktemp)
           HTTP_CODE=$(curl -s -o "$RESPONSE_FILE" -w "%{http_code}" --request POST \
             --url https://backboard.railway.com/graphql/v2 \
