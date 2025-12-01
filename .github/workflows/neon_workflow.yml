@@ -135,7 +135,7 @@ jobs:
           echo "Please ensure the Railway PR environment has been created for this pull request."
           exit 1
 
-      - name: Update Railway DATABASE_URL Variables
+      - name: Update Railway DATABASE_URL Variables and Redeploy
         if: steps.get_railway_env.outputs.RAILWAY_ENV_FOUND == 'true'
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_GHA_TOKEN }}
@@ -183,6 +183,9 @@ jobs:
             --data '{
               "query": "mutation { variableUpsert(input: { projectId: \"'$RAILWAY_PROJECT_ID'\", environmentId: \"'$RAILWAY_ENV_ID'\", serviceId: \"'$RAILWAY_FASTAPI_SERVICE_ID'\", name: \"INFORMATIONAL_NEON_BRANCH_NAME\", value: \"'$INFORMATIONAL_NEON_BRANCH_NAME'\" }) }"
             }'
+
+          # Redeploy happens automatically
+          echo "Redeploying Railway environment"
 
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
