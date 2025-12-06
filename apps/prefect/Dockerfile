@@ -34,9 +34,7 @@ RUN uv sync --all-packages --no-dev
 # Expose port for Prefect UI (if running local server)
 EXPOSE 4200
 
-# Default command - can be overridden in Railway
-# Options:
-#   - Run a specific flow: python apps/prefect/main.py
-#   - Start Prefect worker: prefect worker start --pool default-agent-pool
-#   - Start Prefect server: prefect server start
-CMD ["python", "apps/prefect/main.py"]
+# Start Prefect worker that connects to Prefect Cloud
+# Requires env vars: PREFECT_API_URL, PREFECT_API_KEY
+# The worker polls for scheduled work and executes flows
+CMD ["prefect", "worker", "start", "--pool", "railway-pool"]
