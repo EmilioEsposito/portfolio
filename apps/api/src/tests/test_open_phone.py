@@ -22,12 +22,12 @@ def mock_background_services_startup():
     Mocks the startup of APScheduler etc to speed up tests in this module.
     Prevents actual scheduler/service startup during testing.
     """
-    with patch('api.index.scheduler.start', autospec=True) as mock_scheduler_start, \
-         patch('api.index.zillow_email_service.start_service', new_callable=AsyncMock) as mock_zillow_start:
-        
+    with patch('apps.api.index.scheduler.start', autospec=True) as mock_scheduler_start, \
+         patch('apps.api.index.zillow_email_service.start_service', new_callable=AsyncMock) as mock_zillow_start:
+
         print(f"\n--- Mocking background services for tests in module ---")
-        print(f"Mocked api.index.scheduler.start: {mock_scheduler_start}")
-        print(f"Mocked api.index.zillow_email_service.start_service: {mock_zillow_start}")
+        print(f"Mocked apps.api.index.scheduler.start: {mock_scheduler_start}")
+        print(f"Mocked apps.api.index.zillow_email_service.start_service: {mock_zillow_start}")
         print(f"-------------------------------------------------------\n")
         yield mock_scheduler_start, mock_zillow_start
     print("\n--- Background services unmocked for module ---\n")
@@ -60,7 +60,7 @@ def mocked_client():
 
 def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json", "r") as f:
+    with open("apps/api/src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json", "r") as f:
         request = json.load(f)
 
     # create random event id
@@ -86,7 +86,7 @@ def test_open_phone_webhook(mocked_client):
 
 def test_open_phone_webhook(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_contact_updated.json", "r") as f:
+    with open("apps/api/src/tests/requests/open_phone_contact_updated.json", "r") as f:
         body = json.load(f)['object']
 
     try:
@@ -99,7 +99,7 @@ def test_open_phone_webhook(mocked_client):
 
 def test_open_phone_webhook_call_summary_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_call_summary_completed.json", "r") as f:
+    with open("apps/api/src/tests/requests/open_phone_call_summary_completed.json", "r") as f:
         body = json.load(f)['object']
 
     try:
@@ -112,7 +112,7 @@ def test_open_phone_webhook_call_summary_completed(mocked_client):
 
 def test_open_phone_webhook_call_transcript_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_call_transcript_completed.json", "r") as f:
+    with open("apps/api/src/tests/requests/open_phone_call_transcript_completed.json", "r") as f:
         body = json.load(f)['object']
 
     try:
