@@ -46,19 +46,20 @@ echo ">>> Skipping Playwright browser install (already in snapshot)"
 # =====================================
 echo ">>> Installing Python project dependencies with uv..."
 # Note: uv will use the venv from the snapshot (/home/ubuntu/.venv)
+# Using --all-packages to sync all workspace members (api, prefect)
 if [ -f "uv.lock" ]; then
-    uv sync --locked
+    uv sync --all-packages --locked
 else
-    echo "Warning: uv.lock not found. Running 'uv sync'."
-    uv sync
+    echo "Warning: uv.lock not found. Running 'uv sync --all-packages'."
+    uv sync --all-packages
 fi
 
 echo ">>> Installing Python dev dependencies..."
 if [ -f "pyproject.toml" ]; then
     if [ -f "uv.lock" ]; then
-        uv sync --dev --locked
+        uv sync --all-packages --dev --locked
     else
-        uv sync --dev
+        uv sync --all-packages --dev
     fi
 else
     echo "Skipping dev dependencies: pyproject.toml not found."

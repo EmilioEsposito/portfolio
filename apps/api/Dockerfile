@@ -21,7 +21,7 @@ ENV PATH="$VENV_PATH/bin:$PATH"
 
 # Copy project files
 COPY pyproject.toml uv.lock* ./
-COPY api/ ./api/
+COPY apps/api/ ./apps/api/
 COPY alembic.ini ./
 
 ENV PYTHONPATH=/app
@@ -29,10 +29,10 @@ ENV PYTHONPATH=/app
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
 # Exclude dev dependencies for production builds
-RUN uv sync --no-dev
+RUN uv sync --all-packages --no-dev
 
 # Copy and make startup script executable
-COPY api/start.sh /app/start.sh
+COPY apps/api/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 # Expose the port (the PORT on Railway app is hardcoded to 8000)
