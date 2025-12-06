@@ -1,0 +1,9 @@
+[project]
+name = "prefect-app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "prefect>=3.3.1",
+]

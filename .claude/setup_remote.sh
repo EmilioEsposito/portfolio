@@ -34,7 +34,7 @@ echo "✓ Virtual environment created"
 
 echo "Step 2: Installing Python dependencies..."
 source .venv/bin/activate
-uv sync -p python3.11
+uv sync --all-packages -p python3.11
 echo "✓ Python dependencies installed"
 
 echo "Step 3: Configuring PYTHONPATH..."
@@ -109,7 +109,7 @@ echo "✓ Migrations complete"
 
 echo "Step 11: Seeding database..."
 # Seed script reads from environment variables: EMILIO_EMAIL, EMILIO_PHONE, SERNIA_EMAIL, SERNIA_PHONE
-uv run python api/seed_db.py
+uv run python apps/api/seed_db.py
 echo "✓ Database seeded"
 
 # =============================================================================
@@ -136,6 +136,7 @@ echo "Available commands:"
 echo "  pnpm dev              - Start React Router dev server (port 5173)"
 echo "  pnpm fastapi-dev      - Start FastAPI dev server (port 8000)"
 echo "  pnpm dev-with-fastapi - Start both servers"
-echo "  python api/seed_db.py - Seed the database (interactive)"
+echo "  pnpm prefect-dev      - Run Prefect flows"
+echo "  python apps/api/seed_db.py - Seed the database (interactive)"
 echo ""
 exit 0
