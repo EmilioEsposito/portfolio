@@ -28,8 +28,9 @@ ENV PYTHONPATH=/app
 
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
+# Only sync api-app package (not all workspace members like prefect)
 # Exclude dev dependencies for production builds
-RUN uv sync --all-packages --no-dev
+RUN uv sync --package api-app --no-dev
 
 # Copy and make startup script executable
 COPY apps/api/start.sh /app/start.sh
