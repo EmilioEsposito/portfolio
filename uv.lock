@@ -268,6 +268,8 @@ dependencies = [
     { name = "psycopg2-binary" },
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "pytz" },
@@ -278,12 +280,6 @@ dependencies = [
     { name = "svix" },
     { name = "twilio" },
     { name = "typer" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -309,6 +305,8 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = "==2.9.10" },
     { name = "pydantic", specifier = ">=2.11.2" },
     { name = "pydantic-ai", specifier = ">=1.18.0" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.2" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "pytz", specifier = ">=2025.2" },
@@ -322,10 +320,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = "==8.3.4" },
-    { name = "pytest-asyncio", specifier = ">=0.25.2" },
-]
+dev = []
 
 [[package]]
 name = "appnope"
