@@ -1,0 +1,18 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "apps/prefect/Dockerfile",
+    "watchPatterns": [
+      "apps/prefect/railway_prefect.json",
+      "apps/prefect/**",
+      "apps/api/src/**",
+      "pyproject.toml",
+      "uv.lock"
+    ]
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

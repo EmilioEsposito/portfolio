@@ -17,7 +17,7 @@ services:
   fastapi:
     build:
       context: .
-      dockerfile: api/Dockerfile
+      dockerfile: apps/api/Dockerfile
     container_name: portfolio-fastapi
     ports:
       - "8000:8000"
