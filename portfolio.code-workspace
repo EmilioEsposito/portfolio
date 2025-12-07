@@ -12,6 +12,9 @@
 		},
 		{
 			"path": "../resume"
+		},
+		{
+			"path": "../mcp-inspector"
 		}
 	],
 	"settings": {
