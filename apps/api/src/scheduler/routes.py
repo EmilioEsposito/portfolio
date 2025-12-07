@@ -101,7 +101,7 @@ async def _job_that_raises_error():
     raise ValueError("This is a test error to verify Logfire alerting for scheduler job failures")
 
 
-@router.post("/test-error", response_model=dict)
+@router.post("/test-error", response_model=dict, dependencies=[])
 async def trigger_test_scheduler_error():
     """
     TEMPORARY ENDPOINT: Schedules a job that will fail immediately to test
