@@ -38,15 +38,13 @@ logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 logfire.info("Logfire configured with comprehensive instrumentation")
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
 import strawberry
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 # Import from api.src
 from api.src.ai.chat_weather.routes import router as chat_weather_router
@@ -147,40 +145,7 @@ app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=li
 
 logfire.instrument_fastapi(app)
 
-
-
-# --- Middleware Definitions ---
-
-class ErrorHandlingMiddleware(BaseHTTPMiddleware):
-    """
-    Middleware to catch unhandled exceptions and log them to Logfire.
-
-    Note: logfire.instrument_fastapi(app) already captures most errors, but this
-    middleware ensures any exceptions that slip through are properly logged with
-    logfire.exception() which triggers Logfire alerts.
-    """
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        try:
-            response = await call_next(request)
-            return response
-        except Exception as exc:
-            # Log exception to Logfire for alerting
-            logfire.exception(
-                f"Unhandled exception on {request.method} {request.url.path}",
-                path=request.url.path,
-                method=request.method,
-                client_host=request.client.host if request.client else "unknown",
-            )
-            # Return a generic 500 response
-            return JSONResponse(
-                status_code=500,
-                content={"error": "Internal Server Error", "detail": "An unexpected error occurred."},
-            )
-
-
 # --- Middleware Registration ---
-# Order matters: Middlewares process requests top-to-bottom, responses bottom-to-top.
-# Error handling should wrap everything, so it's usually added early (but after essential ones like CORS/Session).
 
 is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
 
@@ -202,11 +167,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add Custom Error Handling Middleware
-# This should wrap most of the application logic to catch errors effectively.
-app.add_middleware(ErrorHandlingMiddleware)
-
 
 # --- GraphQL Setup ---
 
