@@ -6,13 +6,6 @@
         "shadcn@latest",
         "mcp"
       ]
-    },
-    "cloudflare-docs": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://docs.mcp.cloudflare.com/mcp"
-      ]
     }
   }
 }
