@@ -1,23 +1,26 @@
 from dotenv import load_dotenv, find_dotenv
 
-load_dotenv(find_dotenv(".env"), override=True)
+from api.src.google.common.service_account_auth import get_delegated_credentials
 
-import asyncio
+load_dotenv(find_dotenv(".env"), override=True)
+import os
 import logfire
-import pytest
-import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.job import Job
 from apscheduler.events import EVENT_JOB_ERROR
-from datetime import datetime, timedelta
-from typing import Literal
-
-from api.src.contact.service import get_contact_by_slug
-from api.src.google.common.service_account_auth import get_delegated_credentials
-from api.src.google.gmail.service import send_email
-from api.src.open_phone.service import send_message
+from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
+import asyncio
+from api.src.open_phone.service import send_message
+from api.src.google.gmail.service import send_email
+from api.src.push.service import send_push_to_user
+from pydantic import BaseModel
+from typing import Literal
+import pytest
+import pytz
+from api.src.contact.service import get_contact_by_slug
 
 # Import the synchronous engine from database.py
 from api.src.database.database import sync_engine
@@ -58,26 +61,51 @@ scheduler = AsyncIOScheduler(
 
 # --- Centralized Job Error Handling --- START
 async def handle_job_error(event):
-    """
-    Handles APScheduler job errors by logging them to Logfire.
-    Logfire is configured to send alerts for exceptions.
-    """
+    logfire.info(f"--- handle_job_error START for job {event.job_id} ---")
     job_id = event.job_id
     exception = event.exception
     traceback_str = event.traceback
 
-    # Re-raise the exception to create an active exception context for logfire.exception()
-    # logfire.exception() captures from sys.exc_info(), so we need an active exception
+    logfire.error(f"Job {job_id} raised an exception: {exception}")
+    logfire.error(f"Traceback: {traceback_str}")
+
+    credentials = None
+    logfire.info(f"Attempting to get delegated credentials for job {job_id} error email.")
     try:
-        raise exception
-    except Exception:
-        logfire.exception(
-            f"APScheduler job '{job_id}' failed",
-            job_id=job_id,
-            exception_type=type(exception).__name__,
-            exception_message=str(exception),
-            traceback=traceback_str,
+        # Assuming get_delegated_credentials might be synchronous and I/O bound.
+        # If it's already async, this to_thread call is okay but not strictly necessary.
+        credentials = await asyncio.to_thread(
+            get_delegated_credentials,
+            user_email="emilio@serniacapital.com",  # TODO: Move to env var?
+            scopes=["https://mail.google.com"],
         )
+        logfire.info(f"Successfully got credentials for job {job_id} error email.")
+    except Exception as e:
+        logfire.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
+        logfire.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
+        return # Stop if we can't get credentials
+
+    message_text = f"APScheduler Job Error: {job_id} raised an exception: {exception}\nTraceback: {traceback_str}"
+
+    logfire.info(f"Attempting to send error email for job {job_id}.")
+    try:
+        # Call the now asynchronous send_email function directly
+        await send_email(
+            to="espo412@gmail.com",  # TODO: Move to env var?
+            subject=f"ALERT: APScheduler Job Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment')}",
+            message_text=message_text,
+            credentials=credentials,
+        )
+        logfire.info(f"Successfully sent error notification email for job {job_id}.")
+        
+        # Add a small delay here to allow underlying I/O of send_email to complete before the test process potentially exits
+        logfire.info(f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}.")
+        await asyncio.sleep(3) 
+        logfire.info(f"Short delay completed in handle_job_error for job {job_id}.")
+
+    except Exception as e:
+        logfire.error(f"Failed to send error notification email for job {job_id}: {e}")
+    logfire.info(f"--- handle_job_error END for job {job_id} ---")
 
 # Synchronous wrapper for the async error handler
 def sync_error_listener_wrapper(event):
