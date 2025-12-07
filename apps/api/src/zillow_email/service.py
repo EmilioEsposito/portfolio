@@ -376,7 +376,7 @@ async def check_email_threads(overwrite_calendar_events=False):
         target_phone_number = target_contact.phone_number
 
         should_sernia_reply = False
-        with open("api/src/zillow_email/zillow_email_threads.sql", "r") as f:
+        with open("apps/api/src/zillow_email/zillow_email_threads.sql", "r") as f:
             sql_query = f.read()
 
             result = await session.execute(text(sql_query))
@@ -539,7 +539,7 @@ async def start_service():
         id="zillow_test_job",
         func=check_unreplied_emails,
         kwargs={
-            "sql": "api/src/zillow_email/test.sql",
+            "sql": "apps/api/src/zillow_email/test.sql",
             "target_slugs": ["emilio"],
         },
         trigger=CronTrigger(hour="10", minute="1", day="1", month="1", timezone="America/New_York"),
@@ -554,7 +554,7 @@ async def start_service():
         id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
         kwargs={
-            "sql": "api/src/zillow_email/zillow_email_new_unreplied.sql",
+            "sql": "apps/api/src/zillow_email/zillow_email_new_unreplied.sql",
             "target_slugs": ["sernia"],
         },
         trigger=CronTrigger(hour="8,12,17", minute="0", timezone="America/New_York"),

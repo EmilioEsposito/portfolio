@@ -97,7 +97,7 @@ async def save_oauth_credentials(
 async def test_save_oauth_credentials():
     import pickle
 
-    with open("api/src/tests/sensitive/creds_response.pkl", "rb") as f:
+    with open("apps/api/src/tests/sensitive/creds_response.pkl", "rb") as f:
         creds_response = pickle.load(f)
 
     user_id = "user_2tHQGipY2lem9Xat1823wKuGl7J"
