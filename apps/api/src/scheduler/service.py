@@ -69,15 +69,18 @@ async def handle_job_error(event):
     exception = event.exception
     traceback_str = event.traceback
 
-    # Use logfire.exception() to properly capture the exception for Logfire alerting
-    # This ensures Logfire categorizes it as an exception and can trigger alerts
-    logfire.exception(
-        f"APScheduler job '{job_id}' failed",
-        job_id=job_id,
-        exception_type=type(exception).__name__,
-        exception_message=str(exception),
-        traceback=traceback_str,
-    )
+    # Re-raise the exception to create an active exception context for logfire.exception()
+    # logfire.exception() captures from sys.exc_info(), so we need an active exception
+    try:
+        raise exception
+    except Exception:
+        logfire.exception(
+            f"APScheduler job '{job_id}' failed",
+            job_id=job_id,
+            exception_type=type(exception).__name__,
+            exception_message=str(exception),
+            traceback=traceback_str,
+        )
 
 # Synchronous wrapper for the async error handler
 def sync_error_listener_wrapper(event):
