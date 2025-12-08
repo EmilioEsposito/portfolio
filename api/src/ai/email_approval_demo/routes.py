@@ -1,13 +1,13 @@
 """
-Email Approval Demo - Simplified Routes
+Email Approval Demo Routes
 
-Uses DBOS workflows for durable execution. No manual state management needed.
+Uses DBOSAgent for durable agent execution.
 """
 import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .agent import email_workflow, approve_email_workflow, launch_dbos
+from .agent import start_email_workflow, resume_email_workflow, launch_dbos
 
 router = APIRouter(prefix="/ai/email-approval", tags=["email-approval-demo"])
 
@@ -36,8 +36,8 @@ async def start_workflow(request: StartRequest):
     """Start an email workflow. Returns workflow_id and status."""
     workflow_id = str(uuid.uuid4())
 
-    # Run the DBOS workflow
-    result = await email_workflow(request.user_message)
+    # Run the durable agent workflow
+    result = await start_email_workflow(request.user_message)
 
     if result["status"] == "awaiting_approval":
         # Store pending approval data
@@ -76,8 +76,8 @@ async def approve(workflow_id: str, request: ApprovalRequest):
 
     pending = _pending_approvals.pop(workflow_id)
 
-    # Run the approval workflow
-    result = await approve_email_workflow(
+    # Resume with approval decision
+    result = await resume_email_workflow(
         tool_call_id=pending["tool_call_id"],
         message_history_json=pending["message_history"],
         approved=request.approved,

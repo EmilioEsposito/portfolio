@@ -1,20 +1,19 @@
 """
-Email Approval Demo - Simplified with DBOS Durable Workflows
+Email Approval Demo - Using DBOSAgent for Durable Execution
 
-This uses DBOS's native workflow capabilities to handle:
-1. Durable agent execution (survives crashes)
-2. Workflow state persistence (PostgreSQL)
-3. Human-in-the-loop approval pattern
+DBOSAgent automatically wraps agent.run() as a DBOS workflow and model
+requests as steps. Custom tools with I/O need explicit @DBOS.step decoration.
 """
 import os
 import logfire
-from dataclasses import dataclass
 
-from dbos import DBOS, DBOSConfig, SetWorkflowID
+from dbos import DBOS, DBOSConfig
 from pydantic_ai import Agent, DeferredToolRequests, DeferredToolResults, ToolDenied
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.durable_exec.dbos import DBOSAgent
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 
-# --- DBOS Configuration (uses app's PostgreSQL) ---
+# --- DBOS Configuration ---
 dbos_config: DBOSConfig = {
     "name": "email_approval_demo",
     "database_url": os.getenv(
@@ -23,13 +22,6 @@ dbos_config: DBOSConfig = {
     ),
 }
 DBOS(config=dbos_config)
-
-
-@dataclass
-class EmailAgentDeps:
-    """Dependencies for the agent."""
-    user_name: str = "User"
-
 
 # --- Agent Definition ---
 email_agent = Agent(
@@ -45,17 +37,26 @@ Do not ask for confirmation - the tool has approval safeguards.""",
 
 
 @email_agent.tool_plain(requires_approval=True)
+@DBOS.step()
 def send_email(to: str, subject: str, body: str) -> str:
     """Send an email to the specified recipient."""
     logfire.info("Email sent", to=to, subject=subject)
     return f"Email sent to {to} with subject '{subject}'"
 
 
-# --- DBOS Step Functions (define before workflows that use them) ---
-@DBOS.step()
-async def run_agent(user_message: str) -> dict:
-    """Run the agent (as a DBOS step for checkpointing)."""
-    result = await email_agent.run(user_message, deps=EmailAgentDeps())
+# Wrap agent with DBOSAgent for durable execution
+durable_agent = DBOSAgent(email_agent)
+
+
+def launch_dbos():
+    """Launch DBOS runtime."""
+    DBOS.launch()
+    logfire.info("DBOS launched for email approval demo")
+
+
+async def start_email_workflow(user_message: str) -> dict:
+    """Start a durable email workflow."""
+    result = await durable_agent.run(user_message)
 
     if isinstance(result.output, DeferredToolRequests):
         deferred = result.output
@@ -79,16 +80,13 @@ async def run_agent(user_message: str) -> dict:
     }
 
 
-@DBOS.step()
-async def resume_agent(
+async def resume_email_workflow(
     tool_call_id: str,
     message_history_json: str,
     approved: bool,
-    reason: str | None,
+    reason: str | None = None,
 ) -> dict:
-    """Resume the agent with approval decision."""
-    from pydantic_ai.messages import ModelMessagesTypeAdapter
-
+    """Resume workflow with approval decision."""
     results = DeferredToolResults()
     if approved:
         results.approvals[tool_call_id] = True
@@ -96,12 +94,10 @@ async def resume_agent(
         results.approvals[tool_call_id] = ToolDenied(reason or "Denied by user")
         return {"status": "denied", "reason": reason or "Denied by user"}
 
-    # Parse stored message history
     message_history = ModelMessagesTypeAdapter.validate_json(message_history_json)
 
-    result = await email_agent.run(
+    result = await durable_agent.run(
         None,
-        deps=EmailAgentDeps(),
         message_history=message_history,
         deferred_tool_results=results,
     )
@@ -110,32 +106,3 @@ async def resume_agent(
         "status": "completed",
         "response": str(result.output),
     }
-
-
-# --- DBOS Workflows (call the step functions directly) ---
-@DBOS.workflow()
-async def email_workflow(user_message: str) -> dict:
-    """
-    Start an email workflow. Returns immediately with workflow_id.
-    The workflow pauses if approval is needed.
-    """
-    result = await run_agent(user_message)
-    return result
-
-
-@DBOS.workflow()
-async def approve_email_workflow(
-    tool_call_id: str,
-    message_history_json: str,
-    approved: bool,
-    reason: str | None = None,
-) -> dict:
-    """Resume workflow with approval decision."""
-    result = await resume_agent(tool_call_id, message_history_json, approved, reason)
-    return result
-
-
-def launch_dbos():
-    """Launch DBOS runtime."""
-    DBOS.launch()
-    logfire.info("DBOS launched for email approval demo")
