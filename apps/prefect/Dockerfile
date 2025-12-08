@@ -9,8 +9,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Define path for the virtual environment relative to WORKDIR & create it
-ENV VENV_PATH=.venv
+# Define path for the virtual environment with absolute path
+ENV VENV_PATH=/app/.venv
 RUN uv venv $VENV_PATH
 
 # Set VIRTUAL_ENV so uv targets it automatically

@@ -23,7 +23,7 @@
             "request": "launch",
             "module": "hypercorn",
             "args": [
-                "api.index:app",
+                "apps.api.index:app",
                 "--reload",
                 "-b",
                 "0.0.0.0:8000"

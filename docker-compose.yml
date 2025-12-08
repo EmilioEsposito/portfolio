@@ -59,9 +59,29 @@ services:
       - "8081:8081"
     # Add env_file if Expo app needs runtime env vars from .env
     env_file:
-      - .env 
+      - .env
     networks:
       - portfolio-net
+
+  prefect:
+    build:
+      context: .
+      dockerfile: apps/prefect/Dockerfile
+    container_name: portfolio-prefect
+    ports:
+      - "4200:4200"
+    env_file:
+      - .env
+    # Override DATABASE_URL to use postgres service name for local docker
+    environment:
+      - DATABASE_URL=postgresql://portfolio:portfolio@postgres:5432/portfolio
+      - DATABASE_URL_UNPOOLED=postgresql://portfolio:portfolio@postgres:5432/portfolio
+      - DATABASE_REQUIRE_SSL=false
+      # PREFECT_API_URL and PREFECT_API_KEY should be in .env for Prefect Cloud
+    networks:
+      - portfolio-net
+    depends_on:
+      - postgres
 
 networks:
   portfolio-net:
