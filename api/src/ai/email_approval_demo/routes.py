@@ -1,261 +1,101 @@
 """
-FastAPI routes for the Email Approval Demo.
+Email Approval Demo - Simplified Routes
 
-Endpoints:
-- POST /api/ai/email-approval/start - Start a new workflow
-- GET /api/ai/email-approval/status/{workflow_id} - Get workflow status
-- POST /api/ai/email-approval/approve/{workflow_id} - Approve/deny email
-- GET /api/ai/email-approval/workflows - List all workflows
-
-This demo uses DBOS for durable execution. Agent runs are checkpointed to a
-database, so if the server crashes mid-run, the workflow can resume.
+Uses DBOS workflows for durable execution. No manual state management needed.
 """
-import logfire
+import uuid
 from fastapi import APIRouter, HTTPException
-from pydantic_ai import DeferredToolRequests, DeferredToolResults, ToolDenied
+from pydantic import BaseModel
 
-from .agent import (
-    dbos_agent,  # Use the DBOS-wrapped agent for durable execution
-    ensure_dbos_launched,
-    EmailAgentContext,
-    create_workflow,
-    get_workflow,
-    update_workflow,
-    list_workflows,
-)
-from .models import (
-    WorkflowStatus,
-    WorkflowState,
-    EmailDetails,
-    StartWorkflowRequest,
-    StartWorkflowResponse,
-    ApprovalRequest,
-    ApprovalResponse,
-)
+from .agent import email_workflow, approve_email_workflow, launch_dbos
 
 router = APIRouter(prefix="/ai/email-approval", tags=["email-approval-demo"])
 
-# In-memory store for message history (needed to resume workflows)
-# In production, you'd persist this to a database
-workflow_message_history: dict[str, list] = {}
+# In-memory cache for pending approvals (workflow results)
+# In production, you'd query DBOS workflow status instead
+_pending_approvals: dict[str, dict] = {}
 
 
-@router.post("/start", response_model=StartWorkflowResponse)
-async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse:
-    """
-    Start a new email approval workflow.
-
-    The agent will process the user's message. If it decides to send an email,
-    the workflow will pause and wait for human approval.
-
-    Uses DBOS for durable execution - if the server crashes, the workflow
-    can resume from the last checkpoint.
-    """
-    # Ensure DBOS is launched before using the agent
-    ensure_dbos_launched()
-
-    # Create the workflow
-    state = create_workflow(request.user_message)
-    workflow_id = state.workflow_id
-
-    logfire.info("Starting email workflow (DBOS durable)", workflow_id=workflow_id)
-
-    try:
-        # Run the agent using DBOSAgent for durable execution
-        context = EmailAgentContext(workflow_id=workflow_id)
-        result = await dbos_agent.run(
-            request.user_message,
-            deps=context,
-        )
-
-        # Check if we got a deferred tool request (needs approval)
-        # When the agent calls a tool with requires_approval=True, the output
-        # will be a DeferredToolRequests object instead of a string
-        if isinstance(result.output, DeferredToolRequests):
-            deferred = result.output
-            if deferred.approvals:
-                # Get the first approval request (we only have one tool)
-                approval = list(deferred.approvals)[0]
-                tool_call_id = approval.tool_call_id
-
-                # Parse the email details from the tool arguments
-                # args is a JSON string, use args_as_dict() to parse it
-                args = approval.args_as_dict()
-                email_details = EmailDetails(
-                    to=args.get("to", ""),
-                    subject=args.get("subject", ""),
-                    body=args.get("body", ""),
-                )
-
-                # Store message history for resuming later
-                message_history = result.all_messages()
-
-                # Update workflow to awaiting approval
-                update_workflow(
-                    workflow_id,
-                    status=WorkflowStatus.AWAITING_APPROVAL,
-                    email_details=email_details,
-                    tool_call_id=tool_call_id,
-                )
-
-                # Store message history separately (in-memory for this demo)
-                # In production, you'd persist this to a database
-                workflow_message_history[workflow_id] = message_history
-
-                logfire.info(
-                    "Workflow awaiting approval",
-                    workflow_id=workflow_id,
-                    email_to=email_details.to,
-                )
-
-                return StartWorkflowResponse(
-                    workflow_id=workflow_id,
-                    status=WorkflowStatus.AWAITING_APPROVAL,
-                    message=f"Email to {email_details.to} requires your approval",
-                )
-
-        # No deferred tool - agent completed without needing email
-        update_workflow(
-            workflow_id,
-            status=WorkflowStatus.COMPLETED,
-            agent_response=str(result.output),
-        )
-
-        return StartWorkflowResponse(
-            workflow_id=workflow_id,
-            status=WorkflowStatus.COMPLETED,
-            message=str(result.output),
-        )
-
-    except Exception as e:
-        logfire.error("Workflow failed", workflow_id=workflow_id, error=str(e))
-        update_workflow(
-            workflow_id,
-            status=WorkflowStatus.FAILED,
-            error=str(e),
-        )
-        raise HTTPException(status_code=500, detail=f"Workflow failed: {str(e)}")
+class StartRequest(BaseModel):
+    user_message: str
 
 
-@router.get("/status/{workflow_id}", response_model=WorkflowState)
-async def get_workflow_status(workflow_id: str) -> WorkflowState:
-    """Get the current status of a workflow."""
-    state = get_workflow(workflow_id)
-    if not state:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-    return state
+class ApprovalRequest(BaseModel):
+    approved: bool
+    reason: str | None = None
 
 
-@router.post("/approve/{workflow_id}", response_model=ApprovalResponse)
-async def process_approval(
-    workflow_id: str,
-    request: ApprovalRequest,
-) -> ApprovalResponse:
-    """
-    Approve or deny the email for a workflow.
+@router.on_event("startup")
+async def startup():
+    """Launch DBOS on router startup."""
+    launch_dbos()
 
-    If approved, the email will be sent and the workflow will complete.
-    If denied, the workflow will be marked as denied.
 
-    Uses DBOS for durable execution during the resume.
-    """
-    # Ensure DBOS is launched before using the agent
-    ensure_dbos_launched()
+@router.post("/start")
+async def start_workflow(request: StartRequest):
+    """Start an email workflow. Returns workflow_id and status."""
+    workflow_id = str(uuid.uuid4())
 
-    state = get_workflow(workflow_id)
-    if not state:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+    # Run the DBOS workflow
+    result = await email_workflow(request.user_message)
 
-    if state.status != WorkflowStatus.AWAITING_APPROVAL:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Workflow is not awaiting approval (status: {state.status})",
-        )
+    if result["status"] == "awaiting_approval":
+        # Store pending approval data
+        _pending_approvals[workflow_id] = result
+        return {
+            "workflow_id": workflow_id,
+            "status": "awaiting_approval",
+            "email": result["email"],
+        }
 
-    if not state.tool_call_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No tool call ID found - workflow state is invalid",
-        )
+    return {
+        "workflow_id": workflow_id,
+        "status": result["status"],
+        "response": result.get("response"),
+    }
 
-    logfire.info(
-        "Processing approval",
-        workflow_id=workflow_id,
+
+@router.get("/status/{workflow_id}")
+async def get_status(workflow_id: str):
+    """Get workflow status."""
+    if workflow_id in _pending_approvals:
+        data = _pending_approvals[workflow_id]
+        return {
+            "workflow_id": workflow_id,
+            "status": "awaiting_approval",
+            "email": data["email"],
+        }
+    return {"workflow_id": workflow_id, "status": "not_found"}
+
+
+@router.post("/approve/{workflow_id}")
+async def approve(workflow_id: str, request: ApprovalRequest):
+    """Approve or deny a pending email."""
+    if workflow_id not in _pending_approvals:
+        raise HTTPException(404, "Workflow not found or already processed")
+
+    pending = _pending_approvals.pop(workflow_id)
+
+    # Run the approval workflow
+    result = await approve_email_workflow(
+        tool_call_id=pending["tool_call_id"],
+        message_history_json=pending["message_history"],
         approved=request.approved,
+        reason=request.reason,
     )
 
-    try:
-        # Build the deferred tool results
-        results = DeferredToolResults()
-
-        if request.approved:
-            # Approve the tool call - it will execute
-            results.approvals[state.tool_call_id] = True
-            update_workflow(workflow_id, status=WorkflowStatus.APPROVED)
-        else:
-            # Deny the tool call
-            reason = request.reason or "User denied the email"
-            results.approvals[state.tool_call_id] = ToolDenied(reason)
-            update_workflow(workflow_id, status=WorkflowStatus.DENIED)
-
-            return ApprovalResponse(
-                workflow_id=workflow_id,
-                status=WorkflowStatus.DENIED,
-                message=f"Email denied: {reason}",
-            )
-
-        # Resume the agent with the approval and message history
-        context = EmailAgentContext(workflow_id=workflow_id)
-
-        # Get the stored message history
-        message_history = workflow_message_history.get(workflow_id)
-        if not message_history:
-            raise HTTPException(
-                status_code=400,
-                detail="Message history not found - cannot resume workflow",
-            )
-
-        # Resume agent with the original message history and approval results
-        # Don't pass a new user_prompt - just continue from where we left off
-        # Uses DBOSAgent for durable execution
-        result = await dbos_agent.run(
-            None,  # No new prompt when resuming with deferred results
-            deps=context,
-            message_history=message_history,
-            deferred_tool_results=results,
-        )
-
-        # Update to completed
-        update_workflow(
-            workflow_id,
-            status=WorkflowStatus.COMPLETED,
-            agent_response=str(result.output),
-        )
-
-        return ApprovalResponse(
-            workflow_id=workflow_id,
-            status=WorkflowStatus.COMPLETED,
-            message=f"Email sent! Agent response: {result.output}",
-        )
-
-    except Exception as e:
-        logfire.error(
-            "Approval processing failed",
-            workflow_id=workflow_id,
-            error=str(e),
-        )
-        update_workflow(
-            workflow_id,
-            status=WorkflowStatus.FAILED,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process approval: {str(e)}",
-        )
+    return {
+        "workflow_id": workflow_id,
+        "status": result["status"],
+        "response": result.get("response"),
+        "reason": result.get("reason"),
+    }
 
 
-@router.get("/workflows", response_model=list[WorkflowState])
-async def list_all_workflows() -> list[WorkflowState]:
-    """List all workflows, most recent first."""
-    return list_workflows()
+@router.get("/workflows")
+async def list_workflows():
+    """List pending workflows."""
+    return [
+        {"workflow_id": wid, "status": "awaiting_approval", "email": data["email"]}
+        for wid, data in _pending_approvals.items()
+    ]
