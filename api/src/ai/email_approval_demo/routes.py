@@ -69,10 +69,12 @@ async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse
                 tool_call_id = approval.tool_call_id
 
                 # Parse the email details from the tool arguments
+                # args is a JSON string, use args_as_dict() to parse it
+                args = approval.args_as_dict()
                 email_details = EmailDetails(
-                    to=approval.args.get("to", ""),
-                    subject=approval.args.get("subject", ""),
-                    body=approval.args.get("body", ""),
+                    to=args.get("to", ""),
+                    subject=args.get("subject", ""),
+                    body=args.get("body", ""),
                 )
 
                 # Store message history for resuming later
@@ -199,8 +201,9 @@ async def process_approval(
             )
 
         # Resume agent with the original message history and approval results
+        # Don't pass a new user_prompt - just continue from where we left off
         result = await email_agent.run(
-            state.user_message,
+            None,  # No new prompt when resuming with deferred results
             deps=context,
             message_history=message_history,
             deferred_tool_results=results,

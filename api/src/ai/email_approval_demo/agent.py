@@ -40,8 +40,9 @@ email_agent = Agent(
     model=model,
     system_prompt="""You are a helpful assistant that can send emails on behalf of users.
 
-When a user asks you to send an email, use the send_email tool to do so.
-Always confirm the email details before sending.
+When a user asks you to send an email, IMMEDIATELY use the send_email tool.
+Do not ask for confirmation - just call the tool with the email details provided.
+The tool itself has approval safeguards built in.
 
 Be concise in your responses.""",
     output_type=[str, DeferredToolRequests],  # Allow deferred tool requests for approval flow
