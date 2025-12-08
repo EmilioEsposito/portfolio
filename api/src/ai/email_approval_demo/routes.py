@@ -6,13 +6,17 @@ Endpoints:
 - GET /api/ai/email-approval/status/{workflow_id} - Get workflow status
 - POST /api/ai/email-approval/approve/{workflow_id} - Approve/deny email
 - GET /api/ai/email-approval/workflows - List all workflows
+
+This demo uses DBOS for durable execution. Agent runs are checkpointed to a
+database, so if the server crashes mid-run, the workflow can resume.
 """
 import logfire
 from fastapi import APIRouter, HTTPException
 from pydantic_ai import DeferredToolRequests, DeferredToolResults, ToolDenied
 
 from .agent import (
-    email_agent,
+    dbos_agent,  # Use the DBOS-wrapped agent for durable execution
+    ensure_dbos_launched,
     EmailAgentContext,
     create_workflow,
     get_workflow,
@@ -43,17 +47,23 @@ async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse
 
     The agent will process the user's message. If it decides to send an email,
     the workflow will pause and wait for human approval.
+
+    Uses DBOS for durable execution - if the server crashes, the workflow
+    can resume from the last checkpoint.
     """
+    # Ensure DBOS is launched before using the agent
+    ensure_dbos_launched()
+
     # Create the workflow
     state = create_workflow(request.user_message)
     workflow_id = state.workflow_id
 
-    logfire.info("Starting email workflow", workflow_id=workflow_id)
+    logfire.info("Starting email workflow (DBOS durable)", workflow_id=workflow_id)
 
     try:
-        # Run the agent
+        # Run the agent using DBOSAgent for durable execution
         context = EmailAgentContext(workflow_id=workflow_id)
-        result = await email_agent.run(
+        result = await dbos_agent.run(
             request.user_message,
             deps=context,
         )
@@ -146,7 +156,12 @@ async def process_approval(
 
     If approved, the email will be sent and the workflow will complete.
     If denied, the workflow will be marked as denied.
+
+    Uses DBOS for durable execution during the resume.
     """
+    # Ensure DBOS is launched before using the agent
+    ensure_dbos_launched()
+
     state = get_workflow(workflow_id)
     if not state:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -202,7 +217,8 @@ async def process_approval(
 
         # Resume agent with the original message history and approval results
         # Don't pass a new user_prompt - just continue from where we left off
-        result = await email_agent.run(
+        # Uses DBOSAgent for durable execution
+        result = await dbos_agent.run(
             None,  # No new prompt when resuming with deferred results
             deps=context,
             message_history=message_history,

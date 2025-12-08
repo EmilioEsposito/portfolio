@@ -5,15 +5,22 @@ This is a hello-world level example demonstrating:
 1. PydanticAI agent with a tool requiring human approval
 2. DBOS for durable execution (survives crashes/restarts)
 3. Deferred tool pattern for long-running approval workflows
+
+DBOS makes the agent runs durable - if the server crashes mid-run, it can resume
+from where it left off. This is especially useful for long-running workflows
+that involve human approval steps.
 """
+import os
 import uuid
 import logfire
 from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass
 
+from dbos import DBOS, DBOSConfig
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.durable_exec.dbos import DBOSAgent
 
 from .models import (
     WorkflowState,
@@ -21,8 +28,9 @@ from .models import (
     EmailDetails,
 )
 
-# In-memory store for workflow states (in production, use a database)
-# This is kept simple for the demo - DBOS handles the durable execution
+# In-memory store for workflow states
+# Note: In production, you'd use a proper database. The workflow_store tracks
+# the human-in-the-loop approval state, while DBOS handles agent run durability.
 workflow_store: dict[str, WorkflowState] = {}
 
 
@@ -33,11 +41,26 @@ class EmailAgentContext:
     user_name: str = "User"
 
 
-# Create the agent with a simple system prompt
+# --- DBOS Configuration ---
+# Use SQLite for simplicity in this demo. In production, use PostgreSQL.
+dbos_config: DBOSConfig = {
+    "name": "email_approval_demo",
+    "database_url": os.getenv(
+        "DBOS_DATABASE_URL",
+        "sqlite:///email_approval_demo.sqlite"
+    ),
+}
+
+# Initialize DBOS (must be done before defining DBOSAgent)
+_dbos_instance = DBOS(config=dbos_config)
+
+
+# --- Agent Definition ---
 model = OpenAIChatModel("gpt-4o-mini")
 
 email_agent = Agent(
     model=model,
+    name="email_approval_agent",  # Required: unique name for DBOS workflow recovery
     system_prompt="""You are a helpful assistant that can send emails on behalf of users.
 
 When a user asks you to send an email, IMMEDIATELY use the send_email tool.
@@ -74,6 +97,28 @@ def send_email(to: str, subject: str, body: str) -> str:
     )
     return f"Email sent successfully to {to} with subject '{subject}'"
 
+
+# Wrap agent with DBOSAgent for durable execution
+# This makes agent.run() calls durable - they checkpoint to the database
+# and can resume if the server crashes mid-execution
+dbos_agent = DBOSAgent(email_agent)
+
+# Track if DBOS has been launched
+_dbos_launched = False
+
+
+def ensure_dbos_launched():
+    """Launch DBOS if not already launched. Call before using dbos_agent."""
+    global _dbos_launched
+    if not _dbos_launched:
+        DBOS.launch()
+        _dbos_launched = True
+        logfire.info("DBOS launched for email approval demo")
+
+
+# --- Workflow State Management ---
+# These functions manage the human-in-the-loop approval state.
+# DBOS handles the durability of agent runs; this handles the approval workflow.
 
 def create_workflow(user_message: str) -> WorkflowState:
     """Create a new workflow and store it."""
