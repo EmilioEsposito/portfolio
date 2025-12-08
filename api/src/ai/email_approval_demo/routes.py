@@ -4,6 +4,9 @@ Email Approval Demo Routes
 Uses DBOSAgent for durable agent execution with PostgreSQL storage.
 """
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy import select, delete
@@ -13,7 +16,19 @@ from api.src.database.database import get_session
 from .agent import start_email_workflow, resume_email_workflow, launch_dbos
 from .models import PendingApproval
 
-router = APIRouter(prefix="/ai/email-approval", tags=["email-approval-demo"])
+
+@asynccontextmanager
+async def router_lifespan(_: APIRouter) -> AsyncIterator[None]:
+    """Initialize router dependencies (DBOS)."""
+    launch_dbos()
+    yield
+
+
+router = APIRouter(
+    prefix="/ai/email-approval",
+    tags=["email-approval-demo"],
+    lifespan=router_lifespan,
+)
 
 
 class StartRequest(BaseModel):
@@ -23,12 +38,6 @@ class StartRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     approved: bool
     reason: str | None = None
-
-
-@router.on_event("startup")
-async def startup():
-    """Launch DBOS on router startup."""
-    launch_dbos()
 
 
 @router.post("/start")
