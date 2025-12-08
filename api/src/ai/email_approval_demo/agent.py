@@ -63,6 +63,10 @@ async def start_email_workflow(user_message: str) -> dict:
         if deferred.approvals:
             approval = list(deferred.approvals)[0]
             args = approval.args_as_dict()
+            # all_messages_json() returns bytes, decode to string for storage
+            message_history = result.all_messages_json()
+            if isinstance(message_history, bytes):
+                message_history = message_history.decode("utf-8")
             return {
                 "status": "awaiting_approval",
                 "tool_call_id": approval.tool_call_id,
@@ -71,7 +75,7 @@ async def start_email_workflow(user_message: str) -> dict:
                     "subject": args.get("subject", ""),
                     "body": args.get("body", ""),
                 },
-                "message_history": result.all_messages_json(),
+                "message_history": message_history,
             }
 
     return {
