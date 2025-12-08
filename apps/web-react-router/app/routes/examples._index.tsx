@@ -39,6 +39,13 @@ const examples = [
     href: "/examples/multi-select",
     tags: ["React", "Shadcn UI", "Radix UI", "TypeScript"],
   },
+  {
+    title: "PydanticAI Email Approval",
+    description:
+      "Human-in-the-loop email approval workflow using PydanticAI deferred tools. Demonstrates how to pause agent execution for human oversight before sending emails.",
+    href: "/examples/email-approval",
+    tags: ["PydanticAI", "FastAPI", "Human-in-the-Loop", "Deferred Tools"],
+  },
 ];
 
 export default function ExamplesPage() {
