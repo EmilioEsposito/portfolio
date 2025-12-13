@@ -90,7 +90,7 @@
         {
             "label": "Prepare FastAPI Backend",
             "dependsOn": [
-                "Ensure Postgres Running",
+                // "Ensure Postgres Running", // using Neon locally now too. 
                 "Kill Port 8000"
             ],
             "dependsOrder": "sequence",

@@ -13,21 +13,13 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import get_session
-from .agent import start_email_workflow, resume_email_workflow, launch_dbos
+from .agent import start_email_workflow, resume_email_workflow
 from .models import PendingApproval
-
-
-@asynccontextmanager
-async def router_lifespan(_: APIRouter) -> AsyncIterator[None]:
-    """Initialize router dependencies (DBOS)."""
-    launch_dbos()
-    yield
 
 
 router = APIRouter(
     prefix="/ai/email-approval",
-    tags=["email-approval-demo"],
-    lifespan=router_lifespan,
+    tags=["email-approval-demo"]
 )
 
 

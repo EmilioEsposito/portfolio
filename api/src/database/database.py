@@ -12,8 +12,9 @@ from sqlalchemy import create_engine as create_sync_engine # Explicit import for
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
 import pytest
+from api.src.utils.logfire_config import ensure_logfire_configured
 
-load_dotenv(find_dotenv(".env"), override=True)
+ensure_logfire_configured(mode="prod", service_name="fastapi")
 
 # Configure SQLAlchemy to use lowercase, unquoted names by default
 convention = {
@@ -26,12 +27,6 @@ convention = {
 
 # Create metadata with naming convention
 metadata = MetaData(naming_convention=convention)
-
-# configure logfire
-logfire.configure(
-    service_name="fastapi",
-    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
-)
 
 # Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
 DATABASE_URL = os.environ.get("DATABASE_URL")

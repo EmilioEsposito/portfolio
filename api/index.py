@@ -1,16 +1,12 @@
 from dotenv import load_dotenv, find_dotenv
 import json
-import logfire
 import os
 
-# Load local development variables (does not impact preview/production)
-load_dotenv(find_dotenv(".env"), override=True)
+import logfire
+from api.src.utils.logfire_config import ensure_logfire_configured
 
-# Logfire configuration
-logfire.configure(
-    service_name="fastapi",
-    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
-)
+ensure_logfire_configured(mode="prod", service_name="fastapi")
+logfire.info("Logfire configured (centralized ensure_logfire_configured)")
 
 # --- Logfire Instrumentation ---
 # AI/LLM Instrumentation
@@ -22,8 +18,9 @@ logfire.instrument_httpx()  # Async HTTP client used throughout the app
 logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc.)
 
 # Database Instrumentation
-logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
-# SQLAlchemy instrumentation for query-level tracing
+# asyncpg instrumentation is noisy with DBOS; rely on SQLAlchemy instead
+# logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
+# SQLAlchemy instrumentation for query-level tracing (app engines only)
 from api.src.database.database import (
     engine as async_engine,
     sync_engine,
@@ -32,6 +29,7 @@ from api.src.database.database import (
 engines_to_instrument = [async_engine]
 if sync_engine is not None:
     engines_to_instrument.append(sync_engine)
+
 logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 # Validation Instrumentation
@@ -67,6 +65,8 @@ from api.src.scheduler.routes import router as scheduler_router
 # from api.src.clickup.routes import router as clickup_router
 from api.src.google.gmail.service import send_email
 from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.utils.dbos_config import launch_dbos
+from api.src.dbos_examples.hello_dbos import hello_workflow
 
 from api.src.scheduler.service import scheduler
 from api.src.zillow_email import service as zillow_email_service
@@ -135,6 +135,8 @@ async def lifespan(app: FastAPI):
     try:
         await test_database_connections()
         await start_scheduler_services()
+        launch_dbos()
+        hello_workflow(5)
         logfire.info("FastAPI index.py startup completed successfully.")
     except Exception as e:
         logfire.exception(f"Error during scheduler startup: {e}")

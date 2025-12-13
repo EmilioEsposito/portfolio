@@ -13,15 +13,6 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 
-# --- DBOS Configuration ---
-dbos_config: DBOSConfig = {
-    "name": "email_approval_demo",
-    "database_url": os.getenv(
-        "DATABASE_URL",
-        "postgresql://portfolio:portfolio123@localhost:5432/portfolio"
-    ),
-}
-DBOS(config=dbos_config)
 
 # --- Agent Definition ---
 email_agent = Agent(
@@ -47,11 +38,6 @@ def send_email(to: str, subject: str, body: str) -> str:
 # Wrap agent with DBOSAgent for durable execution
 durable_agent = DBOSAgent(email_agent)
 
-
-def launch_dbos():
-    """Launch DBOS runtime."""
-    DBOS.launch()
-    logfire.info("DBOS launched for email approval demo")
 
 
 async def start_email_workflow(user_message: str) -> dict:
