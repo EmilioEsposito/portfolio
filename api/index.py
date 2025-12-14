@@ -1,5 +1,4 @@
 from dotenv import load_dotenv, find_dotenv
-import json
 import logfire
 import os
 
@@ -39,17 +38,13 @@ logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 logfire.info("Logfire configured with comprehensive instrumentation")
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
 import strawberry
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import StreamingResponse
-import traceback
 
 # Import from api.src
 from api.src.ai.chat_weather.routes import router as chat_weather_router
@@ -64,8 +59,6 @@ from api.src.user.routes import router as user_router
 from api.src.contact.routes import router as contact_router
 from api.src.scheduler.routes import router as scheduler_router
 # from api.src.clickup.routes import router as clickup_router
-from api.src.google.gmail.service import send_email
-from api.src.google.common.service_account_auth import get_delegated_credentials
 
 from api.src.scheduler.service import scheduler
 from api.src.zillow_email import service as zillow_email_service
@@ -152,160 +145,7 @@ app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=li
 
 logfire.instrument_fastapi(app)
 
-# --- Error Notification ---
-async def send_error_notification(request: Request, exc: Exception) -> None:
-    """
-    Sends an email notification for 500 errors with detailed information.
-
-    Args:
-        request: The FastAPI request object
-        exc: The exception that occurred (can be a generic one for handled 500s)
-    """
-    # Avoid sending notifications for expected errors during development/testing if needed
-    # Example: if isinstance(exc, ExpectedTestException): return
-
-    error_details = {
-        "error": str(exc),
-        # Provide traceback only if it's available (i.e., for uncaught exceptions)
-        "traceback": traceback.format_exc() if exc.__traceback__ else "N/A (Handled 500 Response)",
-        "path": request.url.path,
-        "method": request.method,
-        "headers": dict(request.headers),
-        "client_host": request.client.host if request.client else "unknown",
-    }
-
-    # Log the error details regardless of email success
-    logfire.error(
-        f"500 Error Detail:\nPath={error_details['path']}\nMethod={error_details['method']}\nError={error_details['error']}"
-    )
-
-
-    try:
-        # Send email notification using service account
-        credentials = get_delegated_credentials(
-            user_email="emilio@serniacapital.com",  # TODO: Move to env var?
-            scopes=["https://mail.google.com"],
-        )
-        message_text = f"A 500 error occurred on your application ({os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment (local?)')}).\n\n" 
-        message_text += f"Error: {error_details['error']}\n"
-        message_text += f"Path: {error_details['path']}\n"
-        message_text += f"Method: {error_details['method']}\n"
-        message_text += f"Client IP: {error_details['client_host']}\n\n"
-        message_text += f"Traceback:\n{error_details['traceback']}"
-
-        await send_email(
-            to="espo412@gmail.com",  # TODO: Move to env var?
-            subject=f"ALERT: 500 Error on {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'unknown environment (local?)')}",
-            message_text=message_text,
-            credentials=credentials,
-        )
-        logfire.info(f"Error notification email sent for 500 on {error_details['path']}")
-    except Exception as email_error:
-        logfire.exception(f"Failed to send error notification email: {str(email_error)}")
-
-
-# --- Middleware Definitions ---
-
-class ErrorHandlingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        response: Response = None # Ensure response is defined
-        try:
-            response = await call_next(request)
-
-            if response is not None and response.status_code == 500:
-                logfire.warn(f"MIDDLEWARE: Handling 500 response for: {request.url.path}")
-                logfire.warn(f"MIDDLEWARE: Response object type: {type(response)}")
-                logfire.warn(f"MIDDLEWARE: Response media type attribute: {getattr(response, 'media_type', 'N/A')}")
-                logfire.warn(f"MIDDLEWARE: Response headers: {response.headers}")
-
-                response_body_content = b""
-                
-                if hasattr(response, 'body_iterator'): # Check for body_iterator to identify streaming responses
-                    logfire.warn("MIDDLEWARE: Response has body_iterator. Iterating to get body.")
-                    async for chunk in response.body_iterator:
-                        if isinstance(chunk, bytes):
-                            response_body_content += chunk
-                        else: 
-                            response_body_content += chunk.encode('utf-8')
-                    logfire.warn(f"MIDDLEWARE: Read {len(response_body_content)} bytes from body_iterator.")
-                elif hasattr(response, 'body'): # For non-streaming, like JSONResponse directly
-                    try:
-                        # Accessing .body on some response types might trigger rendering if not already done.
-                        response_body_content = response.body 
-                        logfire.warn(f"MIDDLEWARE: Accessed response.body (non-streaming), length: {len(response_body_content) if response_body_content else 0}")
-                        if not response_body_content:
-                             logfire.warn("MIDDLEWARE: response.body (non-streaming) was empty after access.")
-                    except Exception as e_body:
-                        logfire.exception(f"MIDDLEWARE: Error accessing response.body (non-streaming): {e_body}")
-                else:
-                    logfire.warn("MIDDLEWARE: Response object does not have 'body_iterator' or 'body' attribute.")
-                
-                error_message_detail = f"Handled 500 Response for {request.url.path}" # Default
-
-                content_type_header = response.headers.get('content-type', '').lower()
-                is_json_media_type = 'application/json' in content_type_header
-
-                logfire.warn(f"MIDDLEWARE: Content-Type header: '{content_type_header}', Is JSON media type: {is_json_media_type}")
-
-                if response_body_content and is_json_media_type:
-                    try:
-                        body_str = response_body_content.decode('utf-8')
-                        logfire.warn(f"MIDDLEWARE: Attempting to parse JSON from response_body_content (decoded snippet): {body_str[:250]}")
-                        content = json.loads(body_str)
-                        if isinstance(content, dict) and 'detail' in content:
-                            extracted_detail = content['detail']
-                            if isinstance(extracted_detail, str): error_message_detail = extracted_detail
-                            else: error_message_detail = json.dumps(extracted_detail)
-                            logfire.warn(f"MIDDLEWARE: Extracted detail for email: '{error_message_detail[:250]}'")
-                        else:
-                            logfire.warn(f"MIDDLEWARE: 'detail' key not found or content not a dict. Parsed content snippet: {str(content)[:250]}")
-                    except Exception as e_json:
-                        logfire.exception(f"MIDDLEWARE: Failed to parse JSON from response body: {e_json}")
-                else:
-                    logfire.warn(f"MIDDLEWARE: Skipping JSON parsing. Body empty ({not response_body_content}) or media type not application/json (is_json_media_type: {is_json_media_type}).")
-
-                synthetic_exc = Exception(error_message_detail)
-                synthetic_exc.__traceback__ = None
-                await send_error_notification(request, synthetic_exc)
-                
-                # If we consumed a streaming response, we need to recreate it to avoid errors like
-                # "h11._util.LocalProtocolError: Too little data for declared Content-Length"
-                # because the original body_iterator is now exhausted.
-                if hasattr(response, 'body_iterator') and response_body_content:
-                    logfire.warn("MIDDLEWARE: Reconstructing response because body_iterator was consumed.")
-                    # We have status_code, headers, and the body content
-                    # response.headers is a Starlette Headers object, which is fine for a new Response
-                    # response.status_code is also available directly
-                    response = Response(
-                        content=response_body_content, 
-                        status_code=response.status_code, 
-                        headers=dict(response.headers), # Convert to dict for constructor
-                        media_type=response.headers.get('content-type') # Get media_type from headers
-                    )
-                    logfire.warn(f"MIDDLEWARE: New response created: type={type(response)}, headers={response.headers}")
-
-        except Exception as exc:
-            logfire.exception(f"MIDDLEWARE: Caught UNHANDLED exception for {request.url.path}")
-            await send_error_notification(request, exc) 
-            # For truly unhandled exceptions, create a generic 500 response
-            # Ensure response is a Response object before returning
-            response = JSONResponse(
-                status_code=500,
-                content={"error": "Internal Server Error", "detail": "An unexpected server error occurred during middleware processing."},
-            )
-        
-        if response is None: # Should ideally not happen if call_next always returns or exception is caught
-            logfire.error("MIDDLEWARE: Response object was None at exit of dispatch, creating generic 500 response.")
-            response = JSONResponse(
-                status_code=500,
-                content={"error": "Internal Server Error", "detail": "Middleware processing error; response was None at exit."},
-            )
-        return response
-
-
 # --- Middleware Registration ---
-# Order matters: Middlewares process requests top-to-bottom, responses bottom-to-top.
-# Error handling should wrap everything, so it's usually added early (but after essential ones like CORS/Session).
 
 is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
 
@@ -327,11 +167,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add Custom Error Handling Middleware
-# This should wrap most of the application logic to catch errors effectively.
-app.add_middleware(ErrorHandlingMiddleware)
-
 
 # --- GraphQL Setup ---
 
@@ -376,4 +211,3 @@ async def error_500_check():
 
     # raise a 500 error
     raise HTTPException(status_code=500, detail="Test error message")
-
