@@ -19,6 +19,10 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 # Default recipient (Emilio)
 DEFAULT_TO_PHONE = os.getenv("EMILIO_PHONE", "+14123703550")
 
+# In-memory store for SMS previews (workflow_id -> sms_preview)
+# This is used to pass SMS preview from workflow to API routes
+_sms_previews: dict[str, dict] = {}
+
 # --- Agent Definition ---
 sms_agent = Agent(
     OpenAIChatModel("gpt-4o-mini"),
@@ -112,6 +116,15 @@ async def run_agent_step(user_message: str) -> dict:
         if deferred.approvals:
             approval = list(deferred.approvals)[0]
             args = approval.args_as_dict()
+            sms_preview = {
+                "to": args.get("to", DEFAULT_TO_PHONE),
+                "body": args.get("body", ""),
+            }
+            # Store SMS preview in both DBOS event and in-memory dict
+            workflow_id = DBOS.workflow_id
+            _sms_previews[workflow_id] = sms_preview
+            DBOS.set_event("sms_preview", sms_preview)
+            logfire.info("Stored SMS preview", workflow_id=workflow_id, sms=sms_preview)
             # Decode message_history bytes to string
             message_history = result.all_messages_json()
             if isinstance(message_history, bytes):
@@ -119,10 +132,7 @@ async def run_agent_step(user_message: str) -> dict:
             return {
                 "status": "awaiting_approval",
                 "tool_call_id": approval.tool_call_id,
-                "sms": {
-                    "to": args.get("to", DEFAULT_TO_PHONE),
-                    "body": args.get("body", ""),
-                },
+                "sms": sms_preview,
                 "message_history": message_history,
             }
 
@@ -180,7 +190,48 @@ def get_workflow_status(workflow_id: str) -> dict | None:
         status = handle.get_status()
         return {
             "workflow_id": workflow_id,
-            "status": status.name if hasattr(status, 'name') else str(status),
+            "status": status.status if hasattr(status, 'status') else str(status),
         }
     except Exception:
         return None
+
+
+def get_sms_preview(workflow_id: str) -> dict | None:
+    """Get SMS preview from in-memory store or DBOS event."""
+    # Check in-memory store first (faster and works in same process)
+    if workflow_id in _sms_previews:
+        return _sms_previews[workflow_id]
+    # Fall back to DBOS event (for durability across restarts)
+    try:
+        return DBOS.get_event(workflow_id, "sms_preview", timeout_seconds=0)
+    except Exception:
+        return None
+
+
+def clear_sms_preview(workflow_id: str):
+    """Clear SMS preview from in-memory store."""
+    _sms_previews.pop(workflow_id, None)
+
+
+def get_pending_workflows() -> list[dict]:
+    """Get all pending SMS approval workflows."""
+    try:
+        # Get all workflows with PENDING status for our workflow function
+        workflows = DBOS.list_workflows(
+            status="PENDING",
+            name="sms_approval_workflow",
+        )
+        result = []
+        for wf in workflows:
+            sms = get_sms_preview(wf.workflow_id)
+            if sms:  # Only include if we have SMS preview (means it's waiting for approval)
+                result.append({
+                    "workflow_id": wf.workflow_id,
+                    "status": "awaiting_approval",
+                    "sms": sms,
+                    "created_at": wf.created_at,
+                })
+        return result
+    except Exception as e:
+        logfire.error("Failed to get pending workflows", error=str(e))
+        return []

@@ -2,24 +2,26 @@
 SMS Approval Demo Routes
 
 Uses DBOS recv/send pattern for human-in-the-loop workflows.
-Workflow state is durable in DBOS; we track SMS previews for the UI.
+All workflow state is stored durably in DBOS.
 """
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .agent import start_workflow, send_approval, get_workflow_status, DEFAULT_TO_PHONE
+from .agent import (
+    start_workflow,
+    send_approval,
+    get_workflow_status,
+    get_sms_preview,
+    get_pending_workflows,
+    clear_sms_preview,
+)
 
 router = APIRouter(
     prefix="/ai/sms-approval",
     tags=["sms-approval-demo"],
 )
-
-# Track workflow SMS previews for the UI
-# The actual workflow state is durably stored by DBOS
-_pending_workflows: dict[str, dict] = {}
 
 
 class StartRequest(BaseModel):
@@ -44,13 +46,12 @@ async def start_sms_workflow(request: StartRequest):
     # Start the DBOS workflow (runs in background)
     handle = start_workflow(workflow_id, request.user_message)
 
-    # Give the workflow time to run the agent step
+    # Give the workflow time to run the agent step and store SMS preview
+    # AI agent calls take time (usually 2-4 seconds for OpenAI)
     import asyncio
-    await asyncio.sleep(3)
+    await asyncio.sleep(5)
 
     # Check if workflow has completed
-    # WorkflowStatus has output (result) and error fields
-    # If output is None and error is None, workflow is still running (waiting)
     try:
         status = handle.get_status()
         has_completed = status.output is not None or status.error is not None
@@ -58,15 +59,11 @@ async def start_sms_workflow(request: StartRequest):
         has_completed = False
 
     if not has_completed:
-        # Workflow is still running (waiting for approval)
-        sms_preview = _parse_sms_from_message(request.user_message)
-
-        _pending_workflows[workflow_id] = {
-            "workflow_id": workflow_id,
-            "status": "awaiting_approval",
-            "sms": sms_preview,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+        # Workflow is waiting for approval - get SMS preview from DBOS event
+        sms_preview = get_sms_preview(workflow_id)
+        if not sms_preview:
+            # Fallback - shouldn't happen but handle gracefully
+            sms_preview = {"to": "", "body": "(Message being generated...)"}
 
         return {
             "workflow_id": workflow_id,
@@ -90,47 +87,16 @@ async def start_sms_workflow(request: StartRequest):
         }
 
 
-def _parse_sms_from_message(message: str) -> dict:
-    """Extract SMS details from user message (best effort)."""
-    import re
-
-    to = DEFAULT_TO_PHONE  # Default to Emilio
-    body = ""
-
-    # Try to extract phone number
-    phone_match = re.search(r'to\s+(\+?[\d\s()-]+)', message, re.IGNORECASE)
-    if phone_match:
-        # Clean up phone number
-        phone = re.sub(r'[\s()-]', '', phone_match.group(1))
-        if phone.startswith('+'):
-            to = phone
-        elif len(phone) == 10:
-            to = f"+1{phone}"
-        elif len(phone) == 11 and phone.startswith('1'):
-            to = f"+{phone}"
-
-    # Try to extract message body - common patterns
-    # "send ... message ... saying X"
-    saying_match = re.search(r'saying\s+["\']?(.+?)["\']?$', message, re.IGNORECASE)
-    if saying_match:
-        body = saying_match.group(1).strip().rstrip('.')
-    else:
-        # "message ... with body X"
-        body_match = re.search(r'(?:body|message|text)\s+["\']?(.+?)["\']?$', message, re.IGNORECASE)
-        if body_match:
-            body = body_match.group(1).strip().rstrip('.')
-
-    return {"to": to, "body": body}
-
-
 @router.get("/status/{workflow_id}")
 async def get_status(workflow_id: str):
     """Get workflow status by ID."""
     status = get_workflow_status(workflow_id)
     if status:
-        # Add SMS preview if we have it
-        if workflow_id in _pending_workflows:
-            status["sms"] = _pending_workflows[workflow_id].get("sms")
+        # Add SMS preview if workflow is pending
+        if status.get("status") == "PENDING":
+            sms = get_sms_preview(workflow_id)
+            if sms:
+                status["sms"] = sms
         return status
     raise HTTPException(404, "Workflow not found")
 
@@ -151,8 +117,8 @@ async def approve(workflow_id: str, request: ApprovalRequest):
     # Send approval decision to the workflow
     send_approval(workflow_id, request.approved, request.reason)
 
-    # Remove from pending list
-    _pending_workflows.pop(workflow_id, None)
+    # Clear SMS preview from memory
+    clear_sms_preview(workflow_id)
 
     # Wait for workflow to process
     import asyncio
@@ -180,15 +146,4 @@ async def approve(workflow_id: str, request: ApprovalRequest):
 @router.get("/workflows")
 async def list_workflows():
     """List pending workflows awaiting approval."""
-    # Return tracked pending workflows
-    # Clean up any that are no longer pending in DBOS
-    to_remove = []
-    for wf_id in _pending_workflows:
-        status = get_workflow_status(wf_id)
-        if status and "PENDING" not in status.get("status", "").upper():
-            to_remove.append(wf_id)
-
-    for wf_id in to_remove:
-        _pending_workflows.pop(wf_id, None)
-
-    return list(_pending_workflows.values())
+    return get_pending_workflows()
