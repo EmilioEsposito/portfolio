@@ -5,6 +5,7 @@ from api.src.google.common.service_account_auth import get_delegated_credentials
 load_dotenv(find_dotenv(".env"), override=True)
 import os
 import logfire
+import threading
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -37,24 +38,50 @@ Job.__str__ = custom_apscheduler_job_str
 logfire.info("APScheduler Job.__str__ has been monkey-patched to include job_id.")
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- END
 
-# Configure the job store
-if sync_engine:
-    logfire.info(
-        "Scheduler using SQLAlchemyJobStore with pre-configured synchronous engine."
-    )
-    jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
-else:
-    raise Exception(
-        "Synchronous engine not available. Scheduler cannot be initialized."
-    )
+_scheduler_lock = threading.Lock()
+_scheduler: AsyncIOScheduler | None = None
 
-# index.py will handle the start/shutdown of this scheduler instance
-scheduler = AsyncIOScheduler(
-    jobstores=jobstores,
-    job_defaults={
-        'grace_time': 60  # Set default grace_time to 60 seconds
-    }
-)
+
+def get_scheduler() -> AsyncIOScheduler:
+    """
+    Lazily construct and return the global APScheduler instance.
+
+    This keeps module import fast (no scheduler/jobstore construction at import time),
+    while preserving a single shared scheduler instance process-wide.
+    """
+    global _scheduler
+    if _scheduler is not None:
+        return _scheduler
+
+    with _scheduler_lock:
+        if _scheduler is not None:
+            return _scheduler
+
+        if not sync_engine:
+            raise Exception(
+                "Synchronous engine not available. Scheduler cannot be initialized."
+            )
+
+        logfire.info(
+            "Creating APScheduler (AsyncIOScheduler) with SQLAlchemyJobStore."
+        )
+
+        # Configure the job store (DB-backed persistence)
+        jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
+
+        scheduler = AsyncIOScheduler(
+            jobstores=jobstores,
+            job_defaults={
+                "grace_time": 60  # Set default grace_time to 60 seconds
+            },
+        )
+
+        # Register the error handler (once)
+        scheduler.add_listener(sync_error_listener_wrapper, EVENT_JOB_ERROR)  # Use the wrapper
+        logfire.info("Registered central job error handler wrapper.")
+
+        _scheduler = scheduler
+        return _scheduler
 
 # Note: APScheduler's internal logging is captured by logfire through OpenTelemetry
 
@@ -112,9 +139,6 @@ def sync_error_listener_wrapper(event):
     logfire.info(f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---")
     asyncio.create_task(handle_job_error(event))
 
-# Register the error handler
-scheduler.add_listener(sync_error_listener_wrapper, EVENT_JOB_ERROR) # Use the wrapper
-logfire.info("Registered central job error handler wrapper.")
 # --- Centralized Job Error Handling --- END
 
 
@@ -130,6 +154,7 @@ async def schedule_sms(
     recipient: Literal["EMILIO", "JACKIE", "PEPPINO", "ANNA", "SERNIA"],
     run_date: datetime,
 ):
+    scheduler = get_scheduler()
     sernia_contact = await get_contact_by_slug("sernia")
     phone_numbers = {
         "EMILIO": "+14123703550",
@@ -164,6 +189,7 @@ async def schedule_sms(
 
 @pytest.mark.asyncio
 async def test_schedule_sms():
+    scheduler = get_scheduler()
     scheduler.start()
     is_scheduled = await schedule_sms(
         message="Hello, this is a test message",
@@ -181,6 +207,7 @@ async def schedule_email(
     recipient: Literal["EMILIO", "JACKIE", "PEPPINO", "ANNA", "SERNIA"],
     run_date: datetime,
 ):
+    scheduler = get_scheduler()
 
     emails = {
         "EMILIO": "emilio@serniacapital.com",
@@ -224,9 +251,21 @@ async def schedule_email(
 
     return is_scheduled
 
+def register_hello_apscheduler_jobs():
+    scheduler = get_scheduler()
+    scheduler.add_job(
+        func=run_hello_world,
+        trigger="date",
+        kwargs={"name": "Emilio"},
+        id="hello_world_apscheduler_job",
+        run_date=datetime.now() + timedelta(seconds=30),
+        replace_existing=True,
+    )
+
 
 @pytest.mark.asyncio
 async def test_schedule_email():
+    scheduler = get_scheduler()
     scheduler.start()
     is_scheduled = await schedule_email(
         subject="Test Email",
@@ -245,6 +284,7 @@ async def schedule_push(
     recipient: Literal["EMILIO", "JACKIE", "PEPPINO", "ANNA", "SERNIA"],
     run_date: datetime,
 ):
+    scheduler = get_scheduler()
     emails = {
         "EMILIO": "emilio@serniacapital.com",
         "JACKIE": "jackie@serniacapital.com",
@@ -286,6 +326,7 @@ async def schedule_push(
 
 @pytest.mark.asyncio
 async def test_schedule_push():
+    scheduler = get_scheduler()
     scheduler.start()
     is_scheduled = await schedule_push(
         title="Scheduled Test Push",
@@ -333,8 +374,7 @@ async def test_schedule_push():
 
 
 async def run_hello_world(name: str):
-    print(f"print: Hello {name} from test_job executed at {datetime.now()}")
-    logfire.info(f"logger: Hello {name} from test_job executed at {datetime.now()}")
+  logfire.info(f"Hello {name} from apscheduler run_hello_world executed at {datetime.now()}")
 
 
 def test_run_hello_world():
@@ -343,6 +383,7 @@ def test_run_hello_world():
     print("test_job")
 
     async def main_test_logic():  # Make it async to use await for scheduler methods
+        scheduler = get_scheduler()
         # Start the scheduler if it's not already running (e.g. when running this script directly)
         if not scheduler.running:
             logfire.info("Starting scheduler for test_job...")
@@ -402,6 +443,7 @@ async def job_that_will_fail():
 @pytest.mark.asyncio
 async def test_job_that_will_fail():
     logfire.info("--- test_job_that_will_fail START ---")
+    scheduler = get_scheduler()
     # Ensure scheduler is started for this test
     if not scheduler.running:
         logfire.info("Starting scheduler for test_job_that_will_fail...")

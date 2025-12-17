@@ -25,7 +25,7 @@ def _load_local_env_if_possible() -> None:
 
 def _drop_dbos_sys_traces(span_info: TailSamplingSpanInfo) -> float:
     """
-    Tail-sampling callback to drop DBOS internal DB chatter (`neondb_dbos_sys`) while preserving other traces.
+    Tail-sampling callback to drop DBOS internal DB chatter (`*_dbos_sys`) while preserving other traces.
     """
     attrs = span_info.span.attributes or {}
     db_name = attrs.get("db.name") or attrs.get("db.instance")
@@ -34,9 +34,9 @@ def _drop_dbos_sys_traces(span_info: TailSamplingSpanInfo) -> float:
     statement_l = str(statement).lower() if statement is not None else ""
 
     is_dbos_sys = (
-        (db_name is not None and str(db_name) == "neondb_dbos_sys")
-        or ("neondb_dbos_sys" in span_name)
-        or ("neondb_dbos_sys" in statement_l)
+        (db_name is not None and "dbos_sys" in str(db_name))
+        or ("dbos_sys" in span_name)
+        or ("dbos_sys" in statement_l)
     )
     if is_dbos_sys:
         return 0.0

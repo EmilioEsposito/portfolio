@@ -8,10 +8,9 @@ from datetime import datetime
 import pytz
 from api.src.open_phone.service import send_message
 import logfire
-from api.src.scheduler.service import scheduler
-from apscheduler.triggers.cron import CronTrigger
 from api.src.contact.service import get_contact_by_slug
 import json
+from dbos import DBOS
 
 
 
@@ -74,7 +73,7 @@ async def get_peppino_view_tasks():
 
     filtered_tasks_str = "Sernia Task Reminder - Reply with updates"
 
-    if len(tasks_filtered) > 0:
+    if len(tasks_filtered) > 0 or os.getenv("RAILWAY_ENVIRONMENT_NAME","local")!='production':
 
         for task in tasks_filtered:
             is_maintenance_task = task['list']['id'] == "901312027371"
@@ -114,18 +113,18 @@ async def get_peppino_view_tasks():
 
 
 
-async def start_service():
-    # test job
-    scheduler.add_job(
-        id="clickup_peppino_tasks",
-        func=get_peppino_view_tasks,
-        trigger=CronTrigger(hour="8,17", minute="0", timezone="America/New_York"),
-        coalesce=True,
-        max_instances=1,
-        replace_existing=True,
-        misfire_grace_time=300
-    )
+# DBOS Scheduled Workflow: Run at 8am and 5pm ET
+# Cron: minute hour day month weekday
+# "0 8,17 * * *" = at minute 0 of hours 8 and 17, every day
+@DBOS.scheduled("0 8,17 * * *")
+@DBOS.workflow()
+async def clickup_peppino_tasks_scheduled(scheduled_time: datetime, actual_time: datetime):
+    """DBOS scheduled workflow for ClickUp Peppino tasks reminder."""
+    logfire.info(f"clickup_peppino_tasks_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
+    await get_peppino_view_tasks()
 
+def register_clickup_dbos_jobs():
+    logfire.info("ClickUp DBOS jobs registered.")
 
 @pytest.mark.asyncio
 async def test_get_peppino_view_tasks():

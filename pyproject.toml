@@ -54,6 +54,7 @@ dependencies = [
     "strawberry-graphql[fastapi]>=0.219.2",
     "pytz>=2025.2",
     "svix>=1.81.0",
+    "croniter>=6.0.0",
 ]
 
 [dependency-groups]

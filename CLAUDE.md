@@ -64,7 +64,7 @@ Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote N
 - FastAPI + Hypercorn (ASGI) + Python 3.11+
 - SQLAlchemy 2.0 + Alembic + Neon Postgres
 - PydanticAI with Graph Beta API for multi-agent AI
-- APScheduler + Logfire observability
+- DBOS workflows + APScheduler + Logfire observability
 
 ### External Integrations
 OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
@@ -245,6 +245,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
 | [`api/README.md`](api/README.md) | FastAPI run commands |
 | [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
+| [`api/src/schedulers/README.md`](api/src/schedulers/README.md) | Why we have DBOS + APScheduler + unified scheduler endpoints |
 | [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) | PR database branching workflow |
 | [`.cursor/rules/`](.cursor/rules/) | AI coding guidelines (general, fastapi, react) |
 | [`roadmap.md`](roadmap.md) | Project roadmap and future plans |
