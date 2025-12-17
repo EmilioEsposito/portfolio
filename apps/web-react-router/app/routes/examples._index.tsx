@@ -40,11 +40,11 @@ const examples = [
     tags: ["React", "Shadcn UI", "Radix UI", "TypeScript"],
   },
   {
-    title: "PydanticAI Email Approval",
+    title: "PydanticAI SMS Approval",
     description:
-      "Human-in-the-loop email approval workflow using PydanticAI deferred tools. Demonstrates how to pause agent execution for human oversight before sending emails.",
-    href: "/examples/email-approval",
-    tags: ["PydanticAI", "FastAPI", "Human-in-the-Loop", "Deferred Tools"],
+      "Human-in-the-loop SMS approval workflow using PydanticAI deferred tools and DBOS durable execution. Demonstrates how to pause agent execution for human oversight before sending SMS via OpenPhone.",
+    href: "/examples/sms-approval",
+    tags: ["PydanticAI", "DBOS", "Human-in-the-Loop", "OpenPhone"],
   },
 ];
 
