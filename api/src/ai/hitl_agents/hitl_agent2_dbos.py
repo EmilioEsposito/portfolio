@@ -108,35 +108,35 @@ async def hitl_agent2_dbos_workflow(prompt: str) -> str:
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
 
-async def start_workflow(prompt: str, workflow_id: str) -> str:
-    # Set the workflow ID for the next started workflow
-    with SetWorkflowID(workflow_id):
-        handle = await DBOS.start_workflow_async(func=hitl_agent2_dbos_workflow, prompt=prompt)
+# async def start_workflow(prompt: str, workflow_id: str) -> str:
+#     # Set the workflow ID for the next started workflow
+#     with SetWorkflowID(workflow_id):
+#         handle = await DBOS.start_workflow_async(func=hitl_agent2_dbos_workflow, prompt=prompt)
     
 
 
-    wf_status = await handle.get_status()
-    print(f"Workflow status: {wf_status.status}")
+#     wf_status = await handle.get_status()
+#     print(f"Workflow status: {wf_status.status}")
     
-    # Wait for the workflow to complete to ensure the script doesn't exit early
-    # This prevents 'cancelled' errors from the main workflow shutting down prematurely
-    print(f"Waiting for workflow to complete...")
-    # result = await handle.get_result()
-    time.sleep(30)
-    # print(f"Workflow result1: {result}")
-    # result = await handle.get_result()
-    # print(f"Workflow result2: {result}")
+#     # Wait for the workflow to complete to ensure the script doesn't exit early
+#     # This prevents 'cancelled' errors from the main workflow shutting down prematurely
+#     print(f"Waiting for workflow to complete...")
+#     # result = await handle.get_result()
+#     time.sleep(30)
+#     # print(f"Workflow result1: {result}")
+#     # result = await handle.get_result()
+#     # print(f"Workflow result2: {result}")
 
-    wf_status = await handle.get_status()
-    print(f"Final Workflow status: {wf_status.status}")
-    return wf_status.workflow_id
+#     wf_status = await handle.get_status()
+#     print(f"Final Workflow status: {wf_status.status}")
+#     return wf_status.workflow_id
 
 if __name__ == "__main__":
     launch_dbos()
 
     # simple run
-    # asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))
+    asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))
 
     # cusomtize the workflow_id
-    workflow_id = 'custom-' + str(uuid.uuid4())
-    asyncio.run(start_workflow(prompt="send funny haiku to Emilio", workflow_id=workflow_id))
+    # workflow_id = 'custom-' + str(uuid.uuid4())
+    # asyncio.run(start_workflow(prompt="send funny haiku to Emilio", workflow_id=workflow_id))
