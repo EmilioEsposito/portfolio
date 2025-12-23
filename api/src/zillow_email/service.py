@@ -534,7 +534,7 @@ async def test_check_email_threads():
 
 # DBOS Scheduled Workflows for Zillow Email
 
-# Test job - runs once a year on Jan 1 at 10:01am ET (for testing purposes)
+# Test job - runs once a year on Jan 1 at 10:01am UTC (for testing purposes)
 @DBOS.scheduled("1 10 1 1 *")
 @DBOS.workflow()
 async def zillow_test_job_scheduled(scheduled_time: datetime, actual_time: datetime):
@@ -547,7 +547,7 @@ async def zillow_test_job_scheduled(scheduled_time: datetime, actual_time: datet
 
 
 # New unreplied emails check - runs at 8am, 12pm, and 5pm ET
-@DBOS.scheduled("0 8,12,17 * * *")
+@DBOS.scheduled("0 13,18,23 * * *")
 @DBOS.workflow()
 async def zillow_email_new_unreplied_scheduled(scheduled_time: datetime, actual_time: datetime):
     """DBOS scheduled workflow for checking new unreplied Zillow emails."""

@@ -116,7 +116,7 @@ async def get_peppino_view_tasks():
 # DBOS Scheduled Workflow: Run at 8am and 5pm ET
 # Cron: minute hour day month weekday
 # "0 8,17 * * *" = at minute 0 of hours 8 and 17, every day
-@DBOS.scheduled("0 8,17 * * *")
+@DBOS.scheduled("0 13,21 * * *")
 @DBOS.workflow()
 async def clickup_peppino_tasks_scheduled(scheduled_time: datetime, actual_time: datetime):
     """DBOS scheduled workflow for ClickUp Peppino tasks reminder."""
