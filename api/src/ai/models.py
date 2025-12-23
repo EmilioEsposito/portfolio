@@ -6,8 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic_core import to_jsonable_python
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
+from pydantic_ai.agent import AgentRunResult
+import logfire
 
-from api.src.database.database import Base
+from api.src.database.database import Base, AsyncSessionFactory
 
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
@@ -52,13 +54,29 @@ async def save_agent_conversation(
 ) -> AgentConversation:
     """
     Save or update an agent conversation.
-    Handles serialization of messages to JSON.
+    Uses SQLAlchemy's merge for idiomatic upsert behavior.
     """
-    # Convert messages to JSON-able format
-    messages_json = to_jsonable_python(messages)
+    # Convert messages to JSON-safe format using Pydantic's adapter
+    # mode='json' ensures bytes are serialized (e.g. to utf-8 string if valid, but care needed for raw binary)
+    # If messages contain raw binary that isn't utf-8 (like PDF bytes), dump_python(mode='json') might fail or produce errors.
+    # However, ModelMessagesTypeAdapter is usually robust. 
+    # If you encounter encoding errors, we might need a custom serializer for bytes to base64.
     
-    # Use upsert (insert on conflict update)
-    stmt = pg_insert(AgentConversation).values(
+    if not agent_name:
+        logfire.error("No agent_name provided for conversation persistence")
+    
+    try:
+        messages_json = ModelMessagesTypeAdapter.dump_python(messages, mode='json')
+    except Exception:
+        logfire.exception(f"Failed to convert messages to JSON, using fallback")
+        # Fallback: simple to_jsonable_python which might leave bytes as is, 
+        # but we iterate to stringify bytes to avoid DB errors
+        data = to_jsonable_python(messages)
+        messages_json = _sanitize_json(data)
+
+    # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
+    # This is idiomatic SQLAlchemy ORM.
+    conversation = AgentConversation(
         id=conversation_id,
         agent_name=agent_name,
         user_id=user_id,
@@ -66,21 +84,49 @@ async def save_agent_conversation(
         metadata_=metadata
     )
     
-    # Define the update set on conflict
-    update_dict = {
-        'messages': stmt.excluded.messages,
-        'updated_at': func.now(),
-    }
-    if metadata is not None:
-        update_dict['metadata_'] = stmt.excluded.metadata_
-        
-    stmt = stmt.on_conflict_do_update(
-        index_elements=['id'],
-        set_=update_dict
-    )
-    
-    await session.execute(stmt)
+    # merge returns the persistent instance attached to the session
+    conversation = await session.merge(conversation)
     await session.commit()
     
-    # Return the updated record
-    return await get_agent_conversation(session, conversation_id)
+    return conversation
+
+async def persist_agent_run_result(
+    result: AgentRunResult,
+    conversation_id: str,
+    agent_name: str,
+    user_id: str | None = None,
+    metadata: dict[str, Any] | None = None
+) -> None:
+    """
+    Convenience function to persist an agent run result to the database.
+    Handles session creation and error logging.
+    """
+    if not conversation_id:
+        logfire.warning("No conversation_id provided for persistence")
+        return
+
+    try:
+        async with AsyncSessionFactory() as session:
+            await save_agent_conversation(
+                session=session,
+                conversation_id=conversation_id,
+                agent_name=agent_name,
+                messages=result.all_messages(),
+                user_id=user_id,
+                metadata=metadata
+            )
+        logfire.info(f"Saved conversation {conversation_id} for agent {agent_name}")
+    except Exception as e:
+        logfire.error(f"Failed to save conversation {conversation_id}: {e}")
+
+def _sanitize_json(obj: Any) -> Any:
+    """Helper to ensure all data is JSON compliant, converting bytes to string placeholder."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    elif isinstance(obj, bytes):
+        # Convert bytes to string representation or base64 if needed. 
+        # For logs/history, we probably don't want huge binary blobs.
+        return f"<bytes len={len(obj)}>"
+    return obj
