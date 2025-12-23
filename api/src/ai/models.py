@@ -1,11 +1,12 @@
+import asyncio
 from datetime import datetime
 from typing import Any
-from sqlalchemy import String, DateTime, func, JSON, select
+from sqlalchemy import String, DateTime, func, JSON, select, desc
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic_core import to_jsonable_python
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRequest, TextPart
 from pydantic_ai.agent import AgentRunResult
 import logfire
 
@@ -31,11 +32,32 @@ class AgentConversation(Base):
         onupdate=func.now(),
     )
 
-async def get_agent_conversation(session: AsyncSession, conversation_id: str) -> AgentConversation | None:
-    """Retrieve an agent conversation by ID."""
-    stmt = select(AgentConversation).where(AgentConversation.id == conversation_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+async def get_agent_conversation(
+    session: AsyncSession,
+    conversation_id: str,
+    retries: int = 3,
+    retry_delay: float = 0.5,
+) -> AgentConversation | None:
+    """
+    Retrieve an agent conversation by ID with retry logic.
+
+    Retries help handle race conditions where the conversation may not be
+    persisted yet when approval is clicked quickly after streaming completes.
+    """
+    for attempt in range(retries):
+        stmt = select(AgentConversation).where(AgentConversation.id == conversation_id)
+        result = await session.execute(stmt)
+        conversation = result.scalar_one_or_none()
+
+        if conversation is not None:
+            return conversation
+
+        # Only retry if we didn't find it and have attempts left
+        if attempt < retries - 1:
+            logfire.info(f"Conversation {conversation_id} not found, retrying ({attempt + 1}/{retries})...")
+            await asyncio.sleep(retry_delay)
+
+    return None
 
 async def get_conversation_messages(session: AsyncSession, conversation_id: str) -> list[ModelMessage]:
     """Retrieve conversation messages parsed back into PydanticAI ModelMessage objects."""
@@ -101,6 +123,7 @@ async def persist_agent_run_result(
     Convenience function to persist an agent run result to the database.
     Handles session creation and error logging.
     """
+    logfire.info(f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}")
     if not conversation_id:
         logfire.warning("No conversation_id provided for persistence")
         return
@@ -126,7 +149,79 @@ def _sanitize_json(obj: Any) -> Any:
     elif isinstance(obj, list):
         return [_sanitize_json(v) for v in obj]
     elif isinstance(obj, bytes):
-        # Convert bytes to string representation or base64 if needed. 
+        # Convert bytes to string representation or base64 if needed.
         # For logs/history, we probably don't want huge binary blobs.
         return f"<bytes len={len(obj)}>"
     return obj
+
+
+async def list_user_conversations(
+    user_id: str,
+    agent_name: str,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    List conversations for a specific user and agent.
+
+    Returns conversations sorted by updated_at desc with summary info.
+    """
+    async with AsyncSessionFactory() as session:
+        stmt = (
+            select(AgentConversation)
+            .where(AgentConversation.agent_name == agent_name)
+            .where(AgentConversation.user_id == user_id)
+            .order_by(desc(AgentConversation.updated_at))
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        conversations = result.scalars().all()
+
+        conv_list = []
+        for conv in conversations:
+            messages = await get_conversation_messages(session, conv.id)
+
+            # Extract first user message as preview
+            preview = ""
+            for msg in messages:
+                if isinstance(msg, ModelRequest):
+                    for part in msg.parts:
+                        if isinstance(part, TextPart):
+                            preview = part.content[:100]
+                            break
+                    if preview:
+                        break
+
+            # Check for pending approval (tool call without return)
+            has_pending = _has_pending_tool_call(messages)
+
+            conv_list.append({
+                "conversation_id": conv.id,
+                "agent_name": conv.agent_name,
+                "user_id": conv.user_id,
+                "preview": preview,
+                "has_pending": has_pending,
+                "created_at": conv.created_at.isoformat() if conv.created_at else None,
+                "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+            })
+
+        return conv_list
+
+
+def _has_pending_tool_call(messages: list[ModelMessage]) -> bool:
+    """Check if there's a tool call without a corresponding return."""
+    from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
+
+    returned_tool_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    returned_tool_ids.add(part.tool_call_id)
+
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    if part.tool_call_id not in returned_tool_ids:
+                        return True
+    return False

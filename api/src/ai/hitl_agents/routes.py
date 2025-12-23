@@ -1,0 +1,253 @@
+"""
+HITL Agent 3 Routes
+
+Two interaction modes, both using the same simple dual-run pattern:
+1. Streaming Chat (/chat) - Real-time interaction via Vercel AI SDK
+2. Workflow API (/conversation/*) - Start conversations and manage approvals
+
+The approval flow is the same for both:
+- First run returns DeferredToolRequests → saved to DB
+- Frontend shows approval UI
+- Approval triggers second run with DeferredToolResults
+"""
+import json
+import uuid
+import functools
+import logfire
+
+from fastapi import APIRouter, HTTPException, Depends
+from starlette.requests import Request
+from starlette.responses import Response
+from pydantic import BaseModel
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+
+from api.src.ai.hitl_agents.hitl_agent3 import (
+    hitl_agent3,
+    HITLAgentContext,
+    run_agent_with_persistence,
+    resume_with_approval,
+    list_pending_conversations,
+    get_conversation_with_pending,
+    extract_pending_approval,
+)
+from api.src.ai.models import persist_agent_run_result, list_user_conversations
+from api.src.utils.swagger_schema import expand_json_schema
+from api.src.utils.clerk import verify_serniacapital_user, get_auth_user
+
+router = APIRouter(
+    prefix="/ai/hitl-agent",
+    tags=["hitl-agent"],
+    dependencies=[Depends(verify_serniacapital_user)]
+)
+
+
+async def get_user_email(request: Request) -> str:
+    """Extract user email from Clerk auth. Returns first verified email."""
+    try:
+        user = await get_auth_user(request)
+        for email in user.email_addresses:
+            if email.verification and email.verification.status == "verified":
+                return email.email_address
+        # Fallback to first email if none verified
+        if user.email_addresses:
+            return user.email_addresses[0].email_address
+    except Exception as e:
+        logfire.warning(f"Failed to get user email: {e}")
+    return "anonymous"
+
+
+# =============================================================================
+# Streaming Chat Mode (Vercel AI SDK)
+# =============================================================================
+
+_CHAT_RESPONSES = {
+    200: {
+        "description": "Server-Sent Events (SSE) stream using Vercel AI SDK Data Stream Protocol",
+        "content": {
+            "text/event-stream": {
+                "example": """data: {"type":"start"}
+data: {"type":"tool-input-available","toolCallId":"call_123","toolName":"send_sms","input":{"body":"Hello!"}}
+data: {"type":"finish"}
+data: [DONE]"""
+            }
+        },
+    }
+}
+
+
+@router.post("/chat", response_class=Response, responses=_CHAT_RESPONSES)
+async def chat(request: Request) -> Response:
+    """
+    Streaming chat endpoint for real-time interaction.
+
+    When the agent needs approval, the stream includes tool-input-available events.
+    The frontend should display an approval UI and call /conversation/{id}/approve.
+    """
+    logfire.info("HITL agent chat request")
+
+    # Get user email from Clerk auth
+    user_email = await get_user_email(request)
+
+    request_json = await request.json()
+    conversation_id = request_json.get("id") or str(uuid.uuid4())
+    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}")
+
+    # Log the incoming message
+    if request_json.get("trigger") == "submit-message":
+        messages = request_json.get("messages", [])
+        if messages:
+            latest = messages[-1]
+            text = latest.get("parts", [{}])[0].get("text", "") if latest.get("parts") else ""
+            logfire.info("HITL chat message", endpoint="/api/ai/hitl-agent/chat", message_text=text[:100])
+
+    on_complete = functools.partial(
+        persist_agent_run_result,
+        conversation_id=conversation_id,
+        agent_name=hitl_agent3.name,
+        user_id=user_email,
+    )
+
+    response = await VercelAIAdapter.dispatch_request(
+        request,
+        agent=hitl_agent3,
+        deps=HITLAgentContext(user_id=user_email, conversation_id=conversation_id),
+        on_complete=on_complete,
+    )
+
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache, no-transform"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Include conversation ID in response headers for frontend to use
+    response.headers["X-Conversation-Id"] = conversation_id
+
+    return response
+
+
+# =============================================================================
+# Conversation/Approval API (for both chat and workflow UIs)
+# =============================================================================
+
+class StartConversationRequest(BaseModel):
+    prompt: str
+    user_id: str | None = None
+
+
+class ApprovalRequest(BaseModel):
+    tool_call_id: str
+    approved: bool
+    reason: str | None = None
+    override_args: dict | None = None  # e.g., {"body": "modified message"}
+
+
+@router.post("/conversation/start")
+async def start_conversation(request: StartConversationRequest):
+    """
+    Start a new conversation with the agent.
+
+    If the agent needs approval (e.g., for send_sms), the response includes
+    pending approval details. The conversation is saved to DB.
+    """
+    conversation_id = str(uuid.uuid4())
+    user_id = request.user_id or "anonymous"
+
+    result = await run_agent_with_persistence(
+        prompt=request.prompt,
+        conversation_id=conversation_id,
+        user_id=user_id,
+    )
+
+    pending = extract_pending_approval(result)
+
+    return {
+        "conversation_id": conversation_id,
+        "output": result.output if isinstance(result.output, str) else None,
+        "pending": pending,
+        "status": "pending_approval" if pending else "completed",
+    }
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """
+    Get conversation details including pending approval info.
+    """
+    conv = await get_conversation_with_pending(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {
+        "conversation_id": conversation_id,
+        "pending": conv["pending"],
+        "agent_name": conv["agent_name"],
+        "user_id": conv["user_id"],
+        "created_at": conv["created_at"].isoformat() if conv["created_at"] else None,
+        "updated_at": conv["updated_at"].isoformat() if conv["updated_at"] else None,
+        "status": "pending_approval" if conv["pending"] else "completed",
+    }
+
+
+@router.post("/conversation/{conversation_id}/approve")
+async def approve_conversation(conversation_id: str, request: ApprovalRequest):
+    """
+    Approve or deny a pending tool call.
+
+    This resumes the agent with the approval decision and returns the final result.
+    """
+    logfire.info(f"Approve request for conversation_id: {conversation_id}")
+    try:
+        result = await resume_with_approval(
+            conversation_id=conversation_id,
+            tool_call_id=request.tool_call_id,
+            approved=request.approved,
+            override_args=request.override_args,
+            denial_reason=request.reason,
+        )
+
+        # Check if there's another pending approval (unlikely but possible)
+        pending = extract_pending_approval(result)
+
+        return {
+            "conversation_id": conversation_id,
+            "output": result.output if isinstance(result.output, str) else None,
+            "pending": pending,
+            "status": "pending_approval" if pending else "completed",
+            "approved": request.approved,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # TODO: handle case with multiple pending approvals
+        logfire.error(f"Error approving conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversations/pending")
+async def list_pending():
+    """
+    List all conversations with pending approvals.
+    """
+    pending = await list_pending_conversations()
+    return {
+        "conversations": pending,
+        "count": len(pending),
+    }
+
+
+@router.get("/conversations/history")
+async def get_conversation_history(request: Request, limit: int = 20):
+    """
+    List conversations for the authenticated user.
+    Returns recent conversations sorted by updated_at desc.
+    """
+    user_email = await get_user_email(request)
+    conversations = await list_user_conversations(
+        user_id=user_email,
+        agent_name=hitl_agent3.name,
+        limit=limit,
+    )
+    return {
+        "conversations": conversations,
+        "count": len(conversations),
+        "user_id": user_email,
+    }

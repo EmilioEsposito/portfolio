@@ -39,13 +39,6 @@ const examples = [
     href: "/examples/multi-select",
     tags: ["React", "Shadcn UI", "Radix UI", "TypeScript"],
   },
-  {
-    title: "PydanticAI SMS Approval",
-    description:
-      "Human-in-the-loop SMS approval workflow using PydanticAI deferred tools and DBOS durable execution. Demonstrates how to pause agent execution for human oversight before sending SMS via OpenPhone.",
-    href: "/examples/sms-approval",
-    tags: ["PydanticAI", "DBOS", "Human-in-the-Loop", "OpenPhone"],
-  },
 ];
 
 export default function ExamplesPage() {
