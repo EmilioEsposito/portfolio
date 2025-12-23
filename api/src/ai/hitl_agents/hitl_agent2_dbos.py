@@ -79,7 +79,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
         return error_msg
 
 
-hitl_agent2 = DBOSAgent(hitl_agent2) # DBOS-tag (can comment out)
+hitl_agent2_dbos = DBOSAgent(hitl_agent2) # DBOS-tag (can comment out)
 
 @DBOS.step() # DBOS-tag (can comment out)
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
@@ -99,9 +99,9 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
 
 @DBOS.workflow() # DBOS-tag (can comment out)
 async def hitl_agent2_dbos_workflow(prompt: str) -> str:
-    first_run_result = await hitl_agent2.run(user_prompt=prompt)
+    first_run_result = await hitl_agent2_dbos.run(user_prompt=prompt)
     deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
-    resumed = await hitl_agent2.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
+    resumed = await hitl_agent2_dbos.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
