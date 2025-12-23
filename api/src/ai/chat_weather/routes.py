@@ -9,7 +9,9 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 
 from api.src.ai.chat_weather.agent import agent, ChatContext
 from api.src.utils.swagger_schema import expand_json_schema
+from api.src.ai.models import persist_agent_run_result
 import logfire
+import functools
 
 router = APIRouter(tags=["chat"])
 
@@ -153,6 +155,16 @@ async def chat(request: Request) -> Response:
             endpoint="/api/ai/chat-weather",
             message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
         )
+    conversation_id = request_json.get('id')
+
+    # Use functools.partial to create a callback with pre-filled arguments
+    # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
+    on_complete_callback = functools.partial(
+        persist_agent_run_result, 
+        conversation_id=conversation_id, 
+        agent_name=agent.name, 
+        user_id="visitor"
+    )
     
     # Use VercelAIAdapter to handle the request and stream response
     # Note: VercelAIAdapter.dispatch_request expects a raw Request object
@@ -161,6 +173,7 @@ async def chat(request: Request) -> Response:
         request,
         agent=agent,
         deps=ChatContext(),
+        on_complete=on_complete_callback,
     )
     
     # Add headers to prevent browser/proxy buffering

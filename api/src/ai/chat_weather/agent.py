@@ -28,6 +28,7 @@ agent = Agent(
         "Be friendly, concise, and helpful."
     ),
     retries=2,
+    name="chat_weather",
 )
 
 

@@ -14,6 +14,7 @@ from pydantic_ai.tools import DeferredToolRequests
 import os
 import time
 import logfire
+import uuid
 
 from dbos import DBOS, SetWorkflowID
 from pydantic_ai import (
@@ -34,6 +35,8 @@ from api.src.contact.service import get_contact_by_slug
 import asyncio
 import json
 from pprint import pprint
+from api.src.database.database import AsyncSessionFactory
+from api.src.ai.models import save_agent_conversation, get_conversation_messages, persist_agent_run_result
 
 # --- Agent Definition ---
 hitl_agent1 = Agent(
@@ -79,8 +82,22 @@ async def send_sms(body: str, to: str | None = None) -> str:
 
 
 async def run_agent():
+    # Use a fixed ID or generate one. For this demo, let's generate one.
+    conversation_id = str(uuid.uuid4())
+    print(f"Starting conversation {conversation_id}")
+    
     prompt = "send funny haiku to Emilio"
     result = await hitl_agent1.run(user_prompt=prompt)
+    
+    # Save conversation state to DB after first run
+    await persist_agent_run_result(
+        result=result,
+        conversation_id=conversation_id,
+        agent_name=hitl_agent1.name,
+        user_id="emilio_dev"
+    )
+    print("Saved conversation state after first run")
+    
     assert isinstance(result.output, DeferredToolRequests)
     assert result.output.approvals[0].tool_name == "send_sms"
     assert len(result.output.approvals[0].args)>0
@@ -97,10 +114,31 @@ async def run_agent():
         }
     )
 
+    # In a real app, we would use the conversation_id to load messages from DB here if this was a separate process
+    loaded_messages = []
+    async with AsyncSessionFactory() as session:
+        loaded_messages = await get_conversation_messages(session, conversation_id)
+    
     resumed = await hitl_agent1.run(
-        message_history=result.all_messages(),
+        message_history=loaded_messages,
         deferred_tool_results=deferred_results
     )
+    
+    # # If we didn't save the conversation state to DB, we could just use the result in memory:
+    # resumed = await hitl_agent1.run(
+    #     message_history=result.all_messages(),
+    #     deferred_tool_results=deferred_results
+    # )
+    
+    # Save final state to DB
+    await persist_agent_run_result(
+        result=resumed,
+        conversation_id=conversation_id,
+        agent_name=hitl_agent1.name,
+        user_id="emilio_dev"
+    )
+    print("Saved final conversation state")
+        
     return resumed
 
 
