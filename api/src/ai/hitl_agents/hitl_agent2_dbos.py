@@ -16,7 +16,16 @@ import time
 import logfire
 
 from dbos import DBOS, SetWorkflowID
-from pydantic_ai import Agent, DeferredToolRequests, DeferredToolResults, ToolDenied, ToolApproved, ApprovalRequired, AgentRunResult
+from pydantic_ai import (
+    Agent, 
+    DeferredToolRequests, 
+    DeferredToolResults, 
+    ToolDenied, 
+    ToolApproved, 
+    ApprovalRequired, 
+    AgentRunResult,
+)
+from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.messages import ModelMessagesTypeAdapter
 from api.src.open_phone.service import send_message
@@ -27,9 +36,9 @@ import json
 from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
 
 # --- Agent Definition ---
-hitl_agent2_dbos = Agent(
+hitl_agent2 = Agent(
     OpenAIChatModel("gpt-4o-mini"),
-    name="hitl_agent2_dbos",
+    name="hitl_agent2",
     system_prompt=f"""You are a helpful assistant that sends SMS messages.
 When asked to send an SMS or text message, IMMEDIATELY use the send_sms tool.
 Be creative and write engaging, personalized messages.
@@ -42,7 +51,7 @@ Do not ask for confirmation - the tool has approval safeguards.""",
 
 
 
-@hitl_agent2_dbos.tool_plain(requires_approval=True)
+@hitl_agent2.tool_plain(requires_approval=True)
 async def send_sms(body: str, to: str | None = None) -> str:
     """
     Send an SMS message to the specified phone number.
@@ -68,15 +77,10 @@ async def send_sms(body: str, to: str | None = None) -> str:
         logfire.error(error_msg)
         return error_msg
 
-@DBOS.step()
-async def start_agent(prompt: str) -> AgentRunResult:
-    logfire.info("Starting agent...", prompt=prompt)
-    result = await hitl_agent2_dbos.run(user_prompt=prompt)
-    assert isinstance(result.output, DeferredToolRequests)
-    assert result.output.approvals[0].tool_name == "send_sms"
-    assert len(result.output.approvals[0].args)>0
-    logfire.info(f"Started agent messages: {result.all_messages()}")
-    return result
+hitl_agent2_dbos = DBOSAgent(
+    hitl_agent2,
+    name="hitl_agent2_dbos"
+)
 
 @DBOS.step()
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
@@ -94,27 +98,14 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
     )
     return deferred_tool_results
 
-@DBOS.step()
-async def resume_agent(first_run_result: AgentRunResult, deferred_tool_results: DeferredToolResults) -> AgentRunResult:
-    logfire.info("Resuming agent...")
-    resumed = await hitl_agent2_dbos.run(
-        message_history=first_run_result.all_messages(),
-        deferred_tool_results=deferred_tool_results
-    )
-    logfire.info(f"Resumed agent messages: {resumed.all_messages()}")
-    return resumed
-
 @DBOS.workflow()
 async def hitl_agent2_dbos_workflow(prompt: str) -> str:
-    prompt = "send funny haiku to Emilio"
-    first_run_result = await start_agent(prompt)
+    first_run_result = await hitl_agent2_dbos.run(user_prompt=prompt)
     deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
-    resumed = await resume_agent(first_run_result, deferred_tool_results)
+    resumed = await hitl_agent2_dbos.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
-
-# TODO: Add DBOS decorators to make it a workflow
 
 if __name__ == "__main__":
     launch_dbos()
