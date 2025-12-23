@@ -79,7 +79,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
         return error_msg
 
 
-hitl_agent2_dbos = DBOSAgent(hitl_agent2) # DBOS-tag (can comment out)
+hitl_agent2_dbos = DBOSAgent(hitl_agent2, name="hitl_agent2_dbos") # DBOS-tag (can comment out)
 
 @DBOS.step() # DBOS-tag (can comment out)
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
