@@ -62,7 +62,7 @@ from api.src.contact.routes import router as contact_router
 from api.src.apscheduler_service.routes import router as apscheduler_router
 from api.src.dbos_service.routes import router as dbos_router
 # from api.src.clickup.routes import router as clickup_router
-from api.src.dbos_service.dbos_config import launch_dbos
+from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
 from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
 from api.src.dbos_service.examples.hello_dbos import hello_workflow
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
@@ -181,7 +181,48 @@ async def lifespan(app: FastAPI):
 
     # Shutdown logic
     logfire.info("Application shutdown...")
-    # DBOS handles its own cleanup
+
+    # Cancel background startup tasks if still running
+    for task_name in ("dbos_startup_task", "apscheduler_startup_task"):
+        task = getattr(app.state, task_name, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+
+    # Shutdown APScheduler
+    logfire.info("Shutting down APScheduler...")
+    try:
+        scheduler = get_scheduler()
+        if scheduler.running:
+            scheduler.shutdown(wait=False)  # Don't wait for jobs to complete
+    except Exception as e:
+        logfire.warn(f"APScheduler shutdown error: {e}")
+
+    # Shutdown DBOS in a thread with a hard timeout to avoid blocking hot reload.
+    # DBOS workflows are durable, so pending workflows will resume on restart.
+    logfire.info("Shutting down DBOS...")
+    dbos_shutdown_timed_out = False
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(shutdown_dbos, workflow_completion_timeout_sec=1),
+            timeout=3.0  # Hard timeout - don't block hot reload
+        )
+    except asyncio.TimeoutError:
+        dbos_shutdown_timed_out = True
+        logfire.warn("DBOS shutdown timed out - will force exit (workflows recover on restart)")
+
+    logfire.info("Application shutdown completed successfully.")
+
+    # DBOS spawns non-daemon threads that block process exit even after destroy() times out.
+    # Force exit to allow hot reload to work. This is safe because:
+    # 1. DBOS workflows are durable and will recover from the database on restart
+    # 2. We've already completed our graceful shutdown logic above
+    if dbos_shutdown_timed_out:
+        import os
+        os._exit(0)
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
