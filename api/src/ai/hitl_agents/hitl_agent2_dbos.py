@@ -78,12 +78,10 @@ async def send_sms(body: str, to: str | None = None) -> str:
         logfire.error(error_msg)
         return error_msg
 
-hitl_agent2_dbos = DBOSAgent(
-    hitl_agent2,
-    name="hitl_agent2_dbos"
-)
 
-@DBOS.step()
+hitl_agent2 = DBOSAgent(hitl_agent2) # DBOS-tag (can comment out)
+
+@DBOS.step() # DBOS-tag (can comment out)
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
     logfire.info("Handling deferred tool requests...", result=result)
     tool_call_id = result.output.approvals[0].tool_call_id
@@ -99,11 +97,11 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
     )
     return deferred_tool_results
 
-@DBOS.workflow()
+@DBOS.workflow() # DBOS-tag (can comment out)
 async def hitl_agent2_dbos_workflow(prompt: str) -> str:
-    first_run_result = await hitl_agent2_dbos.run(user_prompt=prompt)
+    first_run_result = await hitl_agent2.run(user_prompt=prompt)
     deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
-    resumed = await hitl_agent2_dbos.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
+    resumed = await hitl_agent2.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
@@ -132,7 +130,7 @@ async def hitl_agent2_dbos_workflow(prompt: str) -> str:
 #     return wf_status.workflow_id
 
 if __name__ == "__main__":
-    launch_dbos()
+    launch_dbos() # DBOS-tag (can comment out)
 
     # simple run
     asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))
