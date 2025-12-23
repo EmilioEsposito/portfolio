@@ -68,7 +68,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
         logfire.error(error_msg)
         return error_msg
 
-
+@DBOS.step()
 async def start_agent(prompt: str) -> AgentRunResult:
     logfire.info("Starting agent...", prompt=prompt)
     result = await hitl_agent2_dbos.run(user_prompt=prompt)
@@ -78,6 +78,7 @@ async def start_agent(prompt: str) -> AgentRunResult:
     logfire.info(f"Started agent messages: {result.all_messages()}")
     return result
 
+@DBOS.step()
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
     logfire.info("Handling deferred tool requests...", result=result)
     tool_call_id = result.output.approvals[0].tool_call_id
@@ -93,6 +94,7 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
     )
     return deferred_tool_results
 
+@DBOS.step()
 async def resume_agent(first_run_result: AgentRunResult, deferred_tool_results: DeferredToolResults) -> AgentRunResult:
     logfire.info("Resuming agent...")
     resumed = await hitl_agent2_dbos.run(
@@ -102,13 +104,18 @@ async def resume_agent(first_run_result: AgentRunResult, deferred_tool_results: 
     logfire.info(f"Resumed agent messages: {resumed.all_messages()}")
     return resumed
 
-if __name__ == "__main__":
+@DBOS.workflow()
+async def hitl_agent2_dbos_workflow(prompt: str) -> str:
     prompt = "send funny haiku to Emilio"
-    first_run_result = asyncio.run(start_agent(prompt))
-    deferred_tool_results = asyncio.run(handle_deferred_tool_requests(first_run_result))
-    resumed = asyncio.run(resume_agent(first_run_result, deferred_tool_results))
+    first_run_result = await start_agent(prompt)
+    deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
+    resumed = await resume_agent(first_run_result, deferred_tool_results)
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
 
 # TODO: Add DBOS decorators to make it a workflow
+
+if __name__ == "__main__":
+    launch_dbos()
+    asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))
