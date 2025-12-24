@@ -1,5 +1,6 @@
 import type { Route } from "./+types/hitl-agent-chat";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useAuth } from "@clerk/react-router";
@@ -226,22 +227,82 @@ function ToolApprovalCard({
   );
 }
 
-// Completed tool result display
-function ToolResultCard({ toolName, result }: { toolName: string; result: string }) {
+// Completed tool result display - shows both input and output
+function ToolResultCard({
+  toolName,
+  args,
+  result,
+}: {
+  toolName: string;
+  args?: Record<string, any>;
+  result: string;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isDenied = result === "Denied by user" || result.toLowerCase().includes("denied");
+
   return (
-    <Card className="border-2 border-green-500 bg-green-50 dark:bg-green-950/20">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-            <CardTitle className="text-sm font-medium">Action Completed</CardTitle>
+    <Card className={cn(
+      "border",
+      isDenied
+        ? "border-red-300 bg-red-50/50 dark:bg-red-950/10"
+        : "border-green-300 bg-green-50/50 dark:bg-green-950/10"
+    )}>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full text-left"
+      >
+        <CardHeader className="pb-2 py-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isDenied ? (
+                <XCircle className="w-4 h-4 text-red-500" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-green-500" />
+              )}
+              <span className="text-sm font-medium">
+                {isDenied ? "Action Denied" : "Action Completed"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">{toolName}</Badge>
+              <span className="text-xs text-muted-foreground">{isExpanded ? "▼" : "▶"}</span>
+            </div>
           </div>
-          <Badge variant="secondary">{toolName}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{result}</p>
-      </CardContent>
+        </CardHeader>
+      </button>
+      {isExpanded && (
+        <CardContent className="pt-0 pb-3 space-y-2">
+          {/* Show tool input/args */}
+          {args && Object.keys(args).length > 0 && (
+            <div className="text-sm">
+              <Label className="text-muted-foreground text-xs">Input</Label>
+              {args.to && (
+                <p className="text-xs"><span className="text-muted-foreground">To:</span> {args.to}</p>
+              )}
+              {args.body && (
+                <p className="text-xs mt-1 p-2 bg-background rounded border whitespace-pre-wrap">
+                  {args.body}
+                </p>
+              )}
+              {!args.to && !args.body && (
+                <pre className="text-xs overflow-x-auto bg-background p-2 rounded border mt-1">
+                  {JSON.stringify(args, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+          {/* Show result */}
+          <div className="text-sm">
+            <Label className="text-muted-foreground text-xs">Result</Label>
+            <p className={cn(
+              "text-xs mt-1",
+              isDenied ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
+            )}>
+              {result}
+            </p>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -296,13 +357,20 @@ interface ConversationSummary {
 
 export default function HITLAgentChatPage() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  // Get conversation ID from URL or generate new one
+  const urlConversationId = searchParams.get("id");
+  const [conversationId, setConversationId] = useState<string>(() => urlConversationId || crypto.randomUUID());
+
   const [input, setInput] = useState("");
-  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationSummary[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Fetch conversation history
@@ -331,9 +399,61 @@ export default function HITLAgentChatPage() {
     }
   }, [historyOpen, fetchHistory]);
 
+  // Load conversation from URL on mount or when URL changes
+  const loadConversationFromUrl = useCallback(async (convId: string) => {
+    if (!isSignedIn) return;
+    setIsLoadingConversation(true);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        console.error("Failed to load conversation from URL");
+        // Clear invalid conversation ID from URL
+        navigate("/hitl-agent-chat", { replace: true });
+        setIsLoadingConversation(false);
+        return;
+      }
+
+      const data = await res.json();
+      setConversationId(convId);
+
+      // We need to set messages after useChat is ready
+      // Store the loaded messages to set after transport is ready
+      // Keep isLoadingConversation=true until messages are applied in the effect below
+      pendingMessagesRef.current = data.messages || [];
+      pendingApprovalRef.current = data.pending || null;
+    } catch (err) {
+      console.error("Failed to load conversation:", err);
+      navigate("/hitl-agent-chat", { replace: true });
+      setIsLoadingConversation(false);
+    }
+    // Note: Don't set isLoadingConversation=false here - it's set when messages are applied
+  }, [isSignedIn, getToken, navigate]);
+
+  // Refs to store pending data when loading from URL
+  const pendingMessagesRef = useRef<any[] | null>(null);
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
+  // Track which conversation ID has been loaded to prevent re-loading
+  const loadedConversationIdRef = useRef<string | null>(null);
+
+  // Load conversation from URL on mount
+  useEffect(() => {
+    // Only load if we have a URL conversation ID, user is signed in,
+    // and we haven't already loaded this conversation
+    if (urlConversationId && isSignedIn && loadedConversationIdRef.current !== urlConversationId) {
+      loadedConversationIdRef.current = urlConversationId;
+      loadConversationFromUrl(urlConversationId);
+    }
+  }, [urlConversationId, isSignedIn, loadConversationFromUrl]);
+
   // Create transport with auth - needs to be a ref to handle async token
   const transportRef = useRef<DefaultChatTransport<any> | null>(null);
-  const [transportReady, setTransportReady] = useState(false);
+  // Use a version counter to track when transport is ready for a new conversation
+  const [transportVersion, setTransportVersion] = useState(0);
 
   useEffect(() => {
     if (!isSignedIn) return;
@@ -344,22 +464,11 @@ export default function HITLAgentChatPage() {
         api: "/api/ai/hitl-agent/chat",
         headers: { Authorization: `Bearer ${token}` },
         prepareSendMessagesRequest: ({ messages, body, trigger }) => {
+          // Transform messages to proper format
+          // Backend extracts only the last message and loads history from DB
           const transformedMessages = messages.map((msg: any) => {
-            // Handle messages that already have parts
             if (msg.parts) {
-              // Transform tool parts that have outputs into completed tool results
-              const transformedParts = msg.parts.map((part: any) => {
-                // If this is a completed tool call (has output), mark it properly
-                if (part.type?.startsWith("tool-") && part.state === "output-available" && part.output) {
-                  return {
-                    ...part,
-                    // Ensure the output is included so the backend knows this tool was resolved
-                    result: part.output,
-                  };
-                }
-                return part;
-              });
-              return { ...msg, parts: transformedParts };
+              return { id: msg.id || crypto.randomUUID(), role: msg.role, parts: msg.parts };
             }
             return {
               id: msg.id || crypto.randomUUID(),
@@ -378,7 +487,8 @@ export default function HITLAgentChatPage() {
           };
         },
       });
-      setTransportReady(true);
+      // Increment version to trigger the effect that applies pending messages
+      setTransportVersion((v) => v + 1);
     };
 
     setupTransport();
@@ -388,6 +498,70 @@ export default function HITLAgentChatPage() {
     id: conversationId,
     transport: transportRef.current || new DefaultChatTransport({ api: "/api/ai/hitl-agent/chat" }),
   } as any);
+
+  // Apply pending messages from URL load once transport is ready
+  // This effect runs when transportVersion changes OR when setMessages becomes available
+  useEffect(() => {
+    // Need transportVersion > 0 to ensure transport is set up
+    // Also check if we have pending messages to apply
+    if (transportVersion > 0 && pendingMessagesRef.current && setMessages) {
+      console.log("Applying pending messages:", pendingMessagesRef.current.length);
+      setMessages(pendingMessagesRef.current);
+      if (pendingApprovalRef.current) {
+        setPendingApproval(pendingApprovalRef.current);
+      }
+      // Clear refs
+      pendingMessagesRef.current = null;
+      pendingApprovalRef.current = null;
+      // Now we can hide the loading state
+      setIsLoadingConversation(false);
+    }
+  }, [transportVersion, setMessages]);
+
+  // Poll to apply pending messages - handles race condition on initial load
+  // where fetch completes after transport is ready
+  useEffect(() => {
+    if (!isLoadingConversation) return;
+
+    const tryApplyPendingMessages = () => {
+      if (pendingMessagesRef.current && setMessages) {
+        console.log("Applying pending messages (poll):", pendingMessagesRef.current.length);
+        setMessages(pendingMessagesRef.current);
+        if (pendingApprovalRef.current) {
+          setPendingApproval(pendingApprovalRef.current);
+        }
+        pendingMessagesRef.current = null;
+        pendingApprovalRef.current = null;
+        setIsLoadingConversation(false);
+        return true;
+      }
+      return false;
+    };
+
+    // Try immediately
+    if (tryApplyPendingMessages()) return;
+
+    // Poll every 100ms while loading
+    const interval = setInterval(() => {
+      if (tryApplyPendingMessages()) {
+        clearInterval(interval);
+      }
+    }, 100);
+
+    // Cleanup after 5 seconds max
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      if (isLoadingConversation) {
+        console.error("Timed out waiting for messages to load");
+        setIsLoadingConversation(false);
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [isLoadingConversation, setMessages]);
 
   const [messagesContainerRef, messagesEndRef] = useScrollToBottom<HTMLDivElement>();
 
@@ -508,15 +682,27 @@ export default function HITLAgentChatPage() {
     }
 
     // Extract tool invocations that have results (completed)
+    // This handles both:
+    // 1. Tools completed during this session (state: "output-available", has output)
+    // 2. Tools loaded from history that were already completed (has output/result)
     let completedTools: any[] = [];
     if (message.parts && Array.isArray(message.parts)) {
       completedTools = message.parts
         .filter((part: any) => {
-          // Tool invocation with result means it's completed
-          // Check for tool-{name} format OR explicit tool properties
-          const isToolPart = part.type?.startsWith("tool-") || part.type === "tool-invocation" || part.type === "tool-call" || part.toolCallId;
-          const hasOutput = part.result || part.output;
-          return isToolPart && hasOutput;
+          // Check if this is a tool part
+          const isToolPart = part.type?.startsWith("tool-") ||
+                            part.type === "tool-invocation" ||
+                            part.type === "tool-call" ||
+                            part.toolCallId;
+          if (!isToolPart) return false;
+
+          // A tool is "completed" if:
+          // 1. It has output/result data, OR
+          // 2. Its state is "output-available" (even if output is just a string like "completed")
+          const hasOutput = part.result !== undefined || part.output !== undefined;
+          const isOutputAvailable = part.state === "output-available";
+
+          return hasOutput || isOutputAvailable;
         })
         .map((part: any) => {
           // Extract tool name from type (e.g., "tool-send_sms" -> "send_sms")
@@ -528,7 +714,7 @@ export default function HITLAgentChatPage() {
             toolCallId: part.toolCallId || part.id,
             toolName: toolName || "unknown",
             args: part.args || part.input,
-            result: part.result || part.output,
+            result: part.result || part.output || "Completed",
           };
         });
     }
@@ -543,11 +729,56 @@ export default function HITLAgentChatPage() {
   };
 
   const startNewConversation = () => {
-    setConversationId(crypto.randomUUID());
+    const newId = crypto.randomUUID();
+    setConversationId(newId);
     setMessages([]);
     setPendingApproval(null);
     setHistoryOpen(false);
+    // Reset the loaded conversation tracker
+    loadedConversationIdRef.current = null;
+    // Update URL without the id param for new conversations
+    navigate("/hitl-agent-chat", { replace: true });
   };
+
+  const loadConversation = useCallback(async (convId: string) => {
+    if (!isSignedIn) return;
+    setIsLoadingConversation(true);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        console.error("Failed to load conversation");
+        setIsLoadingConversation(false);
+        return;
+      }
+
+      const data = await res.json();
+
+      // Update URL with conversation ID
+      navigate(`/hitl-agent-chat?id=${convId}`, { replace: true });
+
+      // Mark this conversation as loaded to prevent the URL effect from re-triggering
+      loadedConversationIdRef.current = convId;
+
+      // Set the conversation ID - this will trigger transport recreation
+      setConversationId(convId);
+
+      // Store messages in refs to apply after transport is ready
+      // Keep isLoadingConversation=true until messages are applied in the effect
+      pendingMessagesRef.current = data.messages || [];
+      pendingApprovalRef.current = data.pending || null;
+
+      setHistoryOpen(false);
+    } catch (err) {
+      console.error("Failed to load conversation:", err);
+      setIsLoadingConversation(false);
+    }
+    // Note: isLoadingConversation is set to false when messages are applied in the effect
+  }, [isSignedIn, getToken, navigate]);
 
   // Auth check
   if (!isLoaded) {
@@ -563,6 +794,15 @@ export default function HITLAgentChatPage() {
       <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
         <MessageSquare className="w-12 h-12 text-muted-foreground" />
         <p className="text-muted-foreground">Please sign in to use HITL Agent Chat</p>
+      </div>
+    );
+  }
+
+  if (isLoadingConversation) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        <p className="text-muted-foreground">Loading conversation...</p>
       </div>
     );
   }
@@ -605,11 +845,7 @@ export default function HITLAgentChatPage() {
                   conversationHistory.map((conv) => (
                     <button
                       key={conv.conversation_id}
-                      onClick={() => {
-                        setConversationId(conv.conversation_id);
-                        setHistoryOpen(false);
-                        // TODO: Load conversation messages
-                      }}
+                      onClick={() => loadConversation(conv.conversation_id)}
                       className={cn(
                         "w-full text-left p-2 rounded-lg hover:bg-muted transition-colors",
                         conv.conversation_id === conversationId && "bg-muted"
@@ -707,6 +943,7 @@ export default function HITLAgentChatPage() {
                           <ToolResultCard
                             key={tool.toolCallId}
                             toolName={tool.toolName}
+                            args={tool.args}
                             result={typeof tool.result === "string" ? tool.result : JSON.stringify(tool.result)}
                           />
                         ))}

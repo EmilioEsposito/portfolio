@@ -30,6 +30,7 @@ from api.src.ai.hitl_agents.hitl_agent3 import (
     list_pending_conversations,
     get_conversation_with_pending,
     extract_pending_approval,
+    extract_pending_approval_from_messages,
 )
 from api.src.ai.models import persist_agent_run_result, list_user_conversations, get_conversation_messages
 from api.src.utils.swagger_schema import expand_json_schema
@@ -45,7 +46,7 @@ router = APIRouter(
 
 
 async def get_user_email(request: Request) -> str:
-    """Extract user email from Clerk auth. Returns first verified email."""
+    """Extract user email from Clerk auth. Raises HTTPException if not found."""
     try:
         user = await get_auth_user(request)
         for email in user.email_addresses:
@@ -54,9 +55,14 @@ async def get_user_email(request: Request) -> str:
         # Fallback to first email if none verified
         if user.email_addresses:
             return user.email_addresses[0].email_address
+        # User exists but has no email addresses
+        logfire.error(f"User {user.id} has no email addresses")
+        raise HTTPException(status_code=400, detail="User has no email address")
+    except HTTPException:
+        raise
     except Exception as e:
-        logfire.warning(f"Failed to get user email: {e}")
-    return "anonymous"
+        logfire.error(f"Failed to get user email: {e}")
+        raise HTTPException(status_code=401, detail="Could not authenticate user")
 
 
 # =============================================================================
@@ -78,6 +84,24 @@ data: [DONE]"""
 }
 
 
+class _ModifiedJsonRequest:
+    """Wrapper to provide modified JSON body to VercelAIAdapter."""
+
+    def __init__(self, original_request: Request, modified_body: dict):
+        self._original = original_request
+        self._body = json.dumps(modified_body).encode()
+
+    async def body(self) -> bytes:
+        return self._body
+
+    @property
+    def headers(self):
+        return self._original.headers
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+
 @router.post("/chat", response_class=Response, responses=_CHAT_RESPONSES)
 async def chat(request: Request, session: AsyncSession = Depends(get_session)) -> Response:
     """
@@ -87,9 +111,9 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
     The frontend should display an approval UI and call /conversation/{id}/approve.
 
     Message flow:
-    - Frontend sends all messages (including history) in the request
-    - VercelAIAdapter parses these into ModelMessages via load_messages()
-    - We do NOT pass message_history separately - the adapter handles everything
+    - Frontend sends messages (we only use the last one - the new message)
+    - Backend loads message_history from DB (authoritative source)
+    - VercelAIAdapter combines them and runs the agent
     - result.all_messages() returns the complete conversation to persist
     """
     logfire.info("HITL agent chat request")
@@ -100,10 +124,21 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
     request_json = await request.json()
     conversation_id = request_json.get("id")
     frontend_messages = request_json.get("messages", [])
-    # backend_message_history = await get_conversation_messages(conversation_id, session=session)
-    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}, frontend_msg_count: {len(frontend_messages)}")
 
-    # save the conversation to the DB after the agent runs
+    # Load message history from DB (authoritative source)
+    backend_message_history = await get_conversation_messages(conversation_id, session=session)
+    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
+
+    # Only use the LAST message from frontend (the new user input)
+    # Backend DB has the authoritative history
+    last_message = frontend_messages[-1] if frontend_messages else None
+    modified_body = {
+        **request_json,
+        "messages": [last_message] if last_message else [],
+    }
+    wrapped_request = _ModifiedJsonRequest(request, modified_body)
+
+    # Save the conversation to the DB after the agent runs
     on_complete = functools.partial(
         persist_agent_run_result,
         conversation_id=conversation_id,
@@ -111,11 +146,12 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
         user_id=user_email,
     )
 
-    # Let VercelAIAdapter handle message parsing from frontend request
-    # Do NOT pass message_history - frontend sends complete history
+    # Backend DB is source of truth for history
+    # Wrapped request only contains the new message from the frontend
     response = await VercelAIAdapter.dispatch_request(
-        request,
+        wrapped_request,
         agent=hitl_agent3,
+        message_history=backend_message_history if backend_message_history else None,
         deps=HITLAgentContext(user_id=user_email, conversation_id=conversation_id),
         on_complete=on_complete,
     )
@@ -135,7 +171,6 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
 
 class StartConversationRequest(BaseModel):
     prompt: str
-    user_id: str | None = None
 
 
 class ApprovalRequest(BaseModel):
@@ -146,7 +181,7 @@ class ApprovalRequest(BaseModel):
 
 
 @router.post("/conversation/start")
-async def start_conversation(request: StartConversationRequest):
+async def start_conversation(body: StartConversationRequest, request: Request):
     """
     Start a new conversation with the agent.
 
@@ -154,12 +189,12 @@ async def start_conversation(request: StartConversationRequest):
     pending approval details. The conversation is saved to DB.
     """
     conversation_id = str(uuid.uuid4())
-    user_id = request.user_id or "anonymous"
+    user_email = await get_user_email(request)
 
     result = await run_agent_with_persistence(
-        prompt=request.prompt,
+        prompt=body.prompt,
         conversation_id=conversation_id,
-        user_id=user_id,
+        user_id=user_email,
     )
 
     pending = extract_pending_approval(result)
@@ -193,20 +228,22 @@ async def get_conversation(conversation_id: str):
 
 
 @router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(conversation_id: str, request: ApprovalRequest):
+async def approve_conversation(conversation_id: str, body: ApprovalRequest, request: Request):
     """
     Approve or deny a pending tool call.
 
     This resumes the agent with the approval decision and returns the final result.
     """
     logfire.info(f"Approve request for conversation_id: {conversation_id}")
+    user_email = await get_user_email(request)
     try:
         result = await resume_with_approval(
             conversation_id=conversation_id,
-            tool_call_id=request.tool_call_id,
-            approved=request.approved,
-            override_args=request.override_args,
-            denial_reason=request.reason,
+            tool_call_id=body.tool_call_id,
+            approved=body.approved,
+            override_args=body.override_args,
+            denial_reason=body.reason,
+            user_id=user_email,
         )
 
         # Check if there's another pending approval (unlikely but possible)
@@ -217,7 +254,7 @@ async def approve_conversation(conversation_id: str, request: ApprovalRequest):
             "output": result.output if isinstance(result.output, str) else None,
             "pending": pending,
             "status": "pending_approval" if pending else "completed",
-            "approved": request.approved,
+            "approved": body.approved,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -255,4 +292,34 @@ async def get_conversation_history(request: Request, limit: int = 20):
         "conversations": conversations,
         "count": len(conversations),
         "user_id": user_email,
+    }
+
+
+@router.get("/conversation/{conversation_id}/messages")
+async def get_conversation_messages_endpoint(
+    conversation_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Get conversation messages in Vercel AI SDK format.
+
+    This endpoint allows the frontend to load an existing conversation
+    and resume it. Messages are returned in Vercel AI UIMessage format.
+    """
+    # Load messages from DB in PydanticAI format
+    pydantic_messages = await get_conversation_messages(conversation_id, session=session)
+
+    if not pydantic_messages:
+        return {"messages": [], "conversation_id": conversation_id}
+
+    # Convert to Vercel AI format using the adapter
+    vercel_messages = VercelAIAdapter.dump_messages(pydantic_messages)
+
+    # Also check for pending approval
+    pending = extract_pending_approval_from_messages(pydantic_messages)
+
+    return {
+        "messages": [msg.model_dump() for msg in vercel_messages],
+        "conversation_id": conversation_id,
+        "pending": pending,
     }

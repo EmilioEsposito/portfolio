@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic_core import to_jsonable_python
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRequest, TextPart
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRequest, TextPart, UserPromptPart
 from pydantic_ai.agent import AgentRunResult
 import logfire
 
@@ -193,8 +193,21 @@ async def list_user_conversations(
             for msg in messages:
                 if isinstance(msg, ModelRequest):
                     for part in msg.parts:
-                        if isinstance(part, TextPart):
-                            preview = part.content[:100]
+                        # UserPromptPart contains the user's message text
+                        if isinstance(part, UserPromptPart):
+                            # UserPromptPart.content can be str or list
+                            content = part.content
+                            if isinstance(content, str):
+                                preview = content[:100]
+                            elif isinstance(content, list):
+                                # Extract text from list of content parts
+                                for item in content:
+                                    if isinstance(item, str):
+                                        preview = item[:100]
+                                        break
+                                    elif hasattr(item, 'text'):
+                                        preview = item.text[:100]
+                                        break
                             break
                     if preview:
                         break
