@@ -685,15 +685,19 @@ export default function HITLAgentChatPage() {
     // This handles both:
     // 1. Tools completed during this session (state: "output-available", has output)
     // 2. Tools loaded from history that were already completed (has output/result)
+    // 3. Dynamic tools from PydanticAI (type: "dynamic-tool")
     let completedTools: any[] = [];
     if (message.parts && Array.isArray(message.parts)) {
       completedTools = message.parts
         .filter((part: any) => {
           // Check if this is a tool part
+          // Formats: "tool-{name}", "tool-invocation", "tool-call", "dynamic-tool", or has toolCallId/tool_call_id
           const isToolPart = part.type?.startsWith("tool-") ||
                             part.type === "tool-invocation" ||
                             part.type === "tool-call" ||
-                            part.toolCallId;
+                            part.type === "dynamic-tool" ||
+                            part.toolCallId ||
+                            part.tool_call_id;
           if (!isToolPart) return false;
 
           // A tool is "completed" if:
@@ -705,15 +709,30 @@ export default function HITLAgentChatPage() {
           return hasOutput || isOutputAvailable;
         })
         .map((part: any) => {
-          // Extract tool name from type (e.g., "tool-send_sms" -> "send_sms")
-          let toolName = part.toolName || part.name;
-          if (!toolName && part.type?.startsWith("tool-")) {
+          // Extract tool name from various formats:
+          // - tool_name (from dynamic-tool)
+          // - toolName (from tool-invocation)
+          // - name (generic)
+          // - type "tool-{name}" -> "{name}"
+          let toolName = part.tool_name || part.toolName || part.name;
+          if (!toolName && part.type?.startsWith("tool-") && part.type !== "tool-invocation" && part.type !== "tool-call") {
             toolName = part.type.replace("tool-", "");
           }
+
+          // Parse input if it's a JSON string (from dynamic-tool format)
+          let args = part.args || part.input;
+          if (typeof args === "string") {
+            try {
+              args = JSON.parse(args);
+            } catch {
+              // Keep as string if not valid JSON
+            }
+          }
+
           return {
-            toolCallId: part.toolCallId || part.id,
+            toolCallId: part.toolCallId || part.tool_call_id || part.id,
             toolName: toolName || "unknown",
-            args: part.args || part.input,
+            args,
             result: part.result || part.output || "Completed",
           };
         });
