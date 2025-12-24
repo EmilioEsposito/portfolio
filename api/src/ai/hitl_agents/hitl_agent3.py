@@ -167,7 +167,7 @@ async def get_conversation_with_pending(conversation_id: str) -> dict | None:
         if not conversation:
             return None
 
-        messages = await get_conversation_messages(session, conversation_id)
+        messages = await get_conversation_messages(conversation_id, session=session)
         pending = extract_pending_approval_from_messages(messages)
 
         return {
@@ -234,7 +234,7 @@ async def resume_with_approval(
     """
     # Load conversation history from database
     async with AsyncSessionFactory() as session:
-        messages = await get_conversation_messages(session, conversation_id)
+        messages = await get_conversation_messages(conversation_id, session=session)
 
     if not messages:
         raise ValueError(f"No conversation found with ID: {conversation_id}")
@@ -288,7 +288,7 @@ async def list_pending_conversations(agent_name: str = "hitl_agent3", limit: int
 
         pending_list = []
         for conv in conversations:
-            messages = await get_conversation_messages(session, conv.id)
+            messages = await get_conversation_messages(conv.id, session=session)
             pending = extract_pending_approval_from_messages(messages)
             if pending:
                 pending_list.append({

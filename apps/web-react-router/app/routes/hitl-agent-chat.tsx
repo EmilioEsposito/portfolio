@@ -299,7 +299,6 @@ export default function HITLAgentChatPage() {
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
-  const [approvalResult, setApprovalResult] = useState<string | null>(null);
   const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationSummary[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -346,7 +345,22 @@ export default function HITLAgentChatPage() {
         headers: { Authorization: `Bearer ${token}` },
         prepareSendMessagesRequest: ({ messages, body, trigger }) => {
           const transformedMessages = messages.map((msg: any) => {
-            if (msg.parts) return msg;
+            // Handle messages that already have parts
+            if (msg.parts) {
+              // Transform tool parts that have outputs into completed tool results
+              const transformedParts = msg.parts.map((part: any) => {
+                // If this is a completed tool call (has output), mark it properly
+                if (part.type?.startsWith("tool-") && part.state === "output-available" && part.output) {
+                  return {
+                    ...part,
+                    // Ensure the output is included so the backend knows this tool was resolved
+                    result: part.output,
+                  };
+                }
+                return part;
+              });
+              return { ...msg, parts: transformedParts };
+            }
             return {
               id: msg.id || crypto.randomUUID(),
               role: msg.role,
@@ -429,7 +443,6 @@ export default function HITLAgentChatPage() {
     if (input.trim() && status !== "submitted" && status !== "streaming") {
       // Reset approval state for new message
       setPendingApproval(null);
-      setApprovalResult(null);
       sendMessage({ role: "user", parts: [{ type: "text", text: input }] });
       setInput("");
     }
@@ -437,18 +450,52 @@ export default function HITLAgentChatPage() {
 
   const handleSuggestedPrompt = (prompt: string) => {
     setPendingApproval(null);
-    setApprovalResult(null);
     sendMessage({ role: "user", parts: [{ type: "text", text: prompt }] });
   };
 
   const handleApprovalComplete = useCallback((result: any) => {
     setPendingApproval(null);
-    if (result.output) {
-      setApprovalResult(result.output);
-    }
-    // Reset conversation for next interaction
-    // setConversationId(crypto.randomUUID());
-  }, []);
+
+    // Update the last message to include the tool result, then add the agent's response
+    setMessages((prev: any[]) => {
+      const updated = [...prev];
+
+      // Find the last assistant message (with the tool call) and update it to show completed state
+      const lastAssistantIdx = updated.findLastIndex((m: any) => m.role === "assistant");
+      if (lastAssistantIdx >= 0) {
+        const lastMsg = updated[lastAssistantIdx];
+        // Update tool parts to show completed state with proper tool name extraction
+        if (lastMsg.parts) {
+          lastMsg.parts = lastMsg.parts.map((part: any) => {
+            if (part.type?.startsWith("tool-") && part.state === "input-available") {
+              const toolName = part.type.replace("tool-", "");
+              return {
+                ...part,
+                state: "output-available",
+                output: result.approved
+                  ? `${toolName} completed successfully`
+                  : "Denied by user",
+              };
+            }
+            return part;
+          });
+        }
+        updated[lastAssistantIdx] = { ...lastMsg };
+      }
+
+      // Add the agent's response as a new message if there's output
+      // Note: Don't include 'content' field - PydanticAI's adapter rejects extra fields
+      if (result.output) {
+        updated.push({
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          parts: [{ type: "text", text: result.output }],
+        });
+      }
+
+      return updated;
+    });
+  }, [setMessages]);
 
   // Process messages to extract content and tool invocations
   const processMessage = (message: any) => {
@@ -466,17 +513,24 @@ export default function HITLAgentChatPage() {
       completedTools = message.parts
         .filter((part: any) => {
           // Tool invocation with result means it's completed
-          return (
-            (part.type === "tool-invocation" || part.type === "tool-call" || part.toolCallId) &&
-            (part.result || part.output)
-          );
+          // Check for tool-{name} format OR explicit tool properties
+          const isToolPart = part.type?.startsWith("tool-") || part.type === "tool-invocation" || part.type === "tool-call" || part.toolCallId;
+          const hasOutput = part.result || part.output;
+          return isToolPart && hasOutput;
         })
-        .map((part: any) => ({
-          toolCallId: part.toolCallId || part.id,
-          toolName: part.toolName || part.name,
-          args: part.args || part.input,
-          result: part.result || part.output,
-        }));
+        .map((part: any) => {
+          // Extract tool name from type (e.g., "tool-send_sms" -> "send_sms")
+          let toolName = part.toolName || part.name;
+          if (!toolName && part.type?.startsWith("tool-")) {
+            toolName = part.type.replace("tool-", "");
+          }
+          return {
+            toolCallId: part.toolCallId || part.id,
+            toolName: toolName || "unknown",
+            args: part.args || part.input,
+            result: part.result || part.output,
+          };
+        });
     }
 
     return { textContent, completedTools };
@@ -492,7 +546,6 @@ export default function HITLAgentChatPage() {
     setConversationId(crypto.randomUUID());
     setMessages([]);
     setPendingApproval(null);
-    setApprovalResult(null);
     setHistoryOpen(false);
   };
 
@@ -667,11 +720,6 @@ export default function HITLAgentChatPage() {
                             isProcessing={isProcessingApproval}
                             getToken={getToken}
                           />
-                        )}
-
-                        {/* Approval result (after approval completes) */}
-                        {isLastAssistant && approvalResult && !pendingApproval && (
-                          <ToolResultCard toolName="send_sms" result={approvalResult} />
                         )}
                       </>
                     )}

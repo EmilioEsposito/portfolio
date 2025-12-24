@@ -117,7 +117,7 @@ async def run_agent():
     # In a real app, we would use the conversation_id to load messages from DB here if this was a separate process
     loaded_messages = []
     async with AsyncSessionFactory() as session:
-        loaded_messages = await get_conversation_messages(session, conversation_id)
+        loaded_messages = await get_conversation_messages(conversation_id, session=session)
     
     resumed = await hitl_agent1.run(
         message_history=loaded_messages,

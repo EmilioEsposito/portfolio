@@ -195,6 +195,21 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             logfire.exception(f"Database session error: {str(e)}")
             raise
 
+@asynccontextmanager
+async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Context manager that yields the provided session if it exists,
+    or creates a new one using AsyncSessionFactory.
+    
+    Useful for functions that can be called either with an existing session (e.g. from a route)
+    or standalone (e.g. from a script).
+    """
+    if session:
+        yield session
+    else:
+        async with AsyncSessionFactory() as new_session:
+            yield new_session
+
 @logfire.instrument("test-sync-engine-select-one")
 def test_sync_engine_select_one():
     """Run a SELECT 1 from the synchronous engine to verify it's working."""

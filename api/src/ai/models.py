@@ -10,7 +10,7 @@ from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRe
 from pydantic_ai.agent import AgentRunResult
 import logfire
 
-from api.src.database.database import Base, AsyncSessionFactory
+from api.src.database.database import Base, AsyncSessionFactory, provide_session
 
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
@@ -59,12 +59,14 @@ async def get_agent_conversation(
 
     return None
 
-async def get_conversation_messages(session: AsyncSession, conversation_id: str) -> list[ModelMessage]:
+async def get_conversation_messages(conversation_id: str, session: AsyncSession | None = None) -> list[ModelMessage]:
     """Retrieve conversation messages parsed back into PydanticAI ModelMessage objects."""
-    conversation = await get_agent_conversation(session, conversation_id)
-    if conversation and conversation.messages:
-        return ModelMessagesTypeAdapter.validate_python(conversation.messages)
-    return []
+    
+    async with provide_session(session) as s:
+        conversation = await get_agent_conversation(s, conversation_id)
+        if conversation and conversation.messages:
+            return ModelMessagesTypeAdapter.validate_python(conversation.messages)
+        return []
 
 async def save_agent_conversation(
     session: AsyncSession,
@@ -122,6 +124,9 @@ async def persist_agent_run_result(
     """
     Convenience function to persist an agent run result to the database.
     Handles session creation and error logging.
+
+    Uses result.all_messages() which includes the full conversation.
+    This replaces the existing conversation in DB (upsert behavior).
     """
     logfire.info(f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}")
     if not conversation_id:
@@ -130,11 +135,14 @@ async def persist_agent_run_result(
 
     try:
         async with AsyncSessionFactory() as session:
+            all_messages = result.all_messages()
+            logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
+
             await save_agent_conversation(
                 session=session,
                 conversation_id=conversation_id,
                 agent_name=agent_name,
-                messages=result.all_messages(),
+                messages=all_messages,
                 user_id=user_id,
                 metadata=metadata
             )
@@ -178,7 +186,7 @@ async def list_user_conversations(
 
         conv_list = []
         for conv in conversations:
-            messages = await get_conversation_messages(session, conv.id)
+            messages = await get_conversation_messages(conv.id, session=session)
 
             # Extract first user message as preview
             preview = ""

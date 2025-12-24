@@ -31,9 +31,11 @@ from api.src.ai.hitl_agents.hitl_agent3 import (
     get_conversation_with_pending,
     extract_pending_approval,
 )
-from api.src.ai.models import persist_agent_run_result, list_user_conversations
+from api.src.ai.models import persist_agent_run_result, list_user_conversations, get_conversation_messages
 from api.src.utils.swagger_schema import expand_json_schema
 from api.src.utils.clerk import verify_serniacapital_user, get_auth_user
+from api.src.database.database import get_session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(
     prefix="/ai/hitl-agent",
@@ -77,12 +79,18 @@ data: [DONE]"""
 
 
 @router.post("/chat", response_class=Response, responses=_CHAT_RESPONSES)
-async def chat(request: Request) -> Response:
+async def chat(request: Request, session: AsyncSession = Depends(get_session)) -> Response:
     """
     Streaming chat endpoint for real-time interaction.
 
     When the agent needs approval, the stream includes tool-input-available events.
     The frontend should display an approval UI and call /conversation/{id}/approve.
+
+    Message flow:
+    - Frontend sends all messages (including history) in the request
+    - VercelAIAdapter parses these into ModelMessages via load_messages()
+    - We do NOT pass message_history separately - the adapter handles everything
+    - result.all_messages() returns the complete conversation to persist
     """
     logfire.info("HITL agent chat request")
 
@@ -90,17 +98,12 @@ async def chat(request: Request) -> Response:
     user_email = await get_user_email(request)
 
     request_json = await request.json()
-    conversation_id = request_json.get("id") or str(uuid.uuid4())
-    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}")
+    conversation_id = request_json.get("id")
+    frontend_messages = request_json.get("messages", [])
+    # backend_message_history = await get_conversation_messages(conversation_id, session=session)
+    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}, frontend_msg_count: {len(frontend_messages)}")
 
-    # Log the incoming message
-    if request_json.get("trigger") == "submit-message":
-        messages = request_json.get("messages", [])
-        if messages:
-            latest = messages[-1]
-            text = latest.get("parts", [{}])[0].get("text", "") if latest.get("parts") else ""
-            logfire.info("HITL chat message", endpoint="/api/ai/hitl-agent/chat", message_text=text[:100])
-
+    # save the conversation to the DB after the agent runs
     on_complete = functools.partial(
         persist_agent_run_result,
         conversation_id=conversation_id,
@@ -108,6 +111,8 @@ async def chat(request: Request) -> Response:
         user_id=user_email,
     )
 
+    # Let VercelAIAdapter handle message parsing from frontend request
+    # Do NOT pass message_history - frontend sends complete history
     response = await VercelAIAdapter.dispatch_request(
         request,
         agent=hitl_agent3,
