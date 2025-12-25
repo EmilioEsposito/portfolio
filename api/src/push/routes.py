@@ -1,10 +1,9 @@
 import logfire
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body
 from typing import Annotated
-from clerk_backend_api import User
 
 from api.src.database.database import DBSession
-from api.src.utils.clerk import get_auth_user
+from api.src.utils.clerk import AuthUser
 from . import service
 from .models import PushToken
 
@@ -13,7 +12,7 @@ router = APIRouter(prefix="/push", tags=["push"])
 @router.post("/register", status_code=201)
 async def register_push_token(
     token_body: Annotated[dict, Body(embed=True, example={"token": "ExponentPushToken[...token..."})],
-    user: Annotated[User, Depends(get_auth_user)],
+    user: AuthUser,
     db: DBSession
 ):
     """Registers an Expo push token for the currently authenticated user."""

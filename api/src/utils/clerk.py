@@ -1,9 +1,10 @@
 from dotenv import load_dotenv, find_dotenv
 import asyncio
+from typing import Annotated
 
 load_dotenv(find_dotenv(".env"), override=True)
 from fastapi import Depends, HTTPException, Header, Request, status
-from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState
+from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState, User
 import os
 from google.oauth2.credentials import Credentials
 import logfire
@@ -68,10 +69,9 @@ async def get_auth_session(request: Request) -> Session:
     return session
 
 
-async def get_auth_user(request: Request):
+async def get_auth_user(request: Request) -> User:
     """
     FastAPI dependency that returns the authenticated user from Clerk.
-    Must be used with get_auth_session.
     """
     auth_state = await get_auth_state(request)
 
@@ -80,11 +80,17 @@ async def get_auth_user(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User is not signed in.",
         )
-    else:
-        user_id = auth_state.payload["sub"]
-        user = clerk_client.users.get(user_id=user_id)
 
+    user_id = auth_state.payload["sub"]
+    user = clerk_client.users.get(user_id=user_id)
     return user
+
+
+# Type alias for dependency injection - use this in route handlers:
+#   async def my_route(user: AuthUser):
+# Instead of:
+#   async def my_route(user: AuthUser):
+AuthUser = Annotated[User, Depends(get_auth_user)]
 
 async def verify_domain(request: Request, domain: str) -> bool:
     """
@@ -97,7 +103,7 @@ async def verify_domain(request: Request, domain: str) -> bool:
     Returns:
         True if authorized. Raises HTTPException with status 401 if not authorized.
     """
-    user = await get_auth_user(request)
+    user: User = await get_auth_user(request)
     for email in user.email_addresses:
         if email.email_address.endswith(domain) and email.verification and email.verification.status == "verified":
             logfire.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success

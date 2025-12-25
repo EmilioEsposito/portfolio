@@ -41,19 +41,14 @@ from api.src.ai.models import (
     delete_conversation,
 )
 from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.clerk import verify_serniacapital_user, get_auth_user
+from api.src.utils.clerk import verify_serniacapital_user, AuthUser
 from api.src.database.database import DBSession
-from clerk_backend_api import User
-from typing import Annotated
 
 router = APIRouter(
     prefix="/ai/hitl-agent",
     tags=["hitl-agent"],
     dependencies=[Depends(verify_serniacapital_user)]
 )
-
-# Type alias for injected Clerk user
-AuthUser = Annotated[User, Depends(get_auth_user)]
 
 
 # =============================================================================
