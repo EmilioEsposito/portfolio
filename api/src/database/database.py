@@ -6,7 +6,8 @@ import os
 import logfire
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Annotated
+from fastapi import Depends
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -194,6 +195,13 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")
             raise
+
+
+# Type alias for dependency injection - use this in route handlers:
+#   async def my_route(session: DBSession):
+# Instead of:
+#   async def my_route(session: AsyncSession = Depends(get_session)):
+DBSession = Annotated[AsyncSession, Depends(get_session)]
 
 @asynccontextmanager
 async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator[AsyncSession, None]:

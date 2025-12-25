@@ -13,6 +13,7 @@ The approval flow is the same for both:
 import json
 import uuid
 import functools
+import asyncio
 import logfire
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -32,11 +33,18 @@ from api.src.ai.hitl_agents.hitl_agent3 import (
     extract_pending_approval,
     extract_pending_approval_from_messages,
 )
-from api.src.ai.models import persist_agent_run_result, list_user_conversations, get_conversation_messages
+from api.src.ai.models import (
+    persist_agent_run_result,
+    list_user_conversations,
+    get_conversation_messages,
+    verify_conversation_ownership,
+    delete_conversation,
+)
 from api.src.utils.swagger_schema import expand_json_schema
 from api.src.utils.clerk import verify_serniacapital_user, get_auth_user
-from api.src.database.database import get_session
-from sqlalchemy.ext.asyncio import AsyncSession
+from api.src.database.database import DBSession
+from clerk_backend_api import User
+from typing import Annotated
 
 router = APIRouter(
     prefix="/ai/hitl-agent",
@@ -44,25 +52,8 @@ router = APIRouter(
     dependencies=[Depends(verify_serniacapital_user)]
 )
 
-
-async def get_user_email(request: Request) -> str:
-    """Extract user email from Clerk auth. Raises HTTPException if not found."""
-    try:
-        user = await get_auth_user(request)
-        for email in user.email_addresses:
-            if email.verification and email.verification.status == "verified":
-                return email.email_address
-        # Fallback to first email if none verified
-        if user.email_addresses:
-            return user.email_addresses[0].email_address
-        # User exists but has no email addresses
-        logfire.error(f"User {user.id} has no email addresses")
-        raise HTTPException(status_code=400, detail="User has no email address")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logfire.error(f"Failed to get user email: {e}")
-        raise HTTPException(status_code=401, detail="Could not authenticate user")
+# Type alias for injected Clerk user
+AuthUser = Annotated[User, Depends(get_auth_user)]
 
 
 # =============================================================================
@@ -103,7 +94,7 @@ class _ModifiedJsonRequest:
 
 
 @router.post("/chat", response_class=Response, responses=_CHAT_RESPONSES)
-async def chat(request: Request, session: AsyncSession = Depends(get_session)) -> Response:
+async def chat(request: Request, user: AuthUser, session: DBSession) -> Response:
     """
     Streaming chat endpoint for real-time interaction.
 
@@ -118,8 +109,7 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
     """
     logfire.info("HITL agent chat request")
 
-    # Get user email from Clerk auth
-    user_email = await get_user_email(request)
+    user_id = user.id
 
     request_json = await request.json()
     conversation_id = request_json.get("id")
@@ -127,7 +117,15 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
 
     # Load message history from DB (authoritative source)
     backend_message_history = await get_conversation_messages(conversation_id, session=session)
-    logfire.info(f"Chat conversation_id: {conversation_id}, user: {user_email}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
+
+    # If conversation exists, verify ownership using Clerk user ID
+    if backend_message_history:
+        try:
+            await verify_conversation_ownership(conversation_id, user_id, session)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail="Error verifying conversation ownership: " + str(e))
+
+    logfire.info(f"Chat conversation_id: {conversation_id}, user_id: {user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
 
     # Only use the LAST message from frontend (the new user input)
     # Backend DB has the authoritative history
@@ -143,7 +141,7 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
         persist_agent_run_result,
         conversation_id=conversation_id,
         agent_name=hitl_agent3.name,
-        user_id=user_email,
+        user_id=user_id,
     )
 
     # Backend DB is source of truth for history
@@ -152,7 +150,7 @@ async def chat(request: Request, session: AsyncSession = Depends(get_session)) -
         wrapped_request,
         agent=hitl_agent3,
         message_history=backend_message_history if backend_message_history else None,
-        deps=HITLAgentContext(user_id=user_email, conversation_id=conversation_id),
+        deps=HITLAgentContext(user_id=user_id, conversation_id=conversation_id),
         on_complete=on_complete,
     )
 
@@ -181,7 +179,7 @@ class ApprovalRequest(BaseModel):
 
 
 @router.post("/conversation/start")
-async def start_conversation(body: StartConversationRequest, request: Request):
+async def start_conversation(body: StartConversationRequest, user: AuthUser):
     """
     Start a new conversation with the agent.
 
@@ -189,12 +187,12 @@ async def start_conversation(body: StartConversationRequest, request: Request):
     pending approval details. The conversation is saved to DB.
     """
     conversation_id = str(uuid.uuid4())
-    user_email = await get_user_email(request)
+    user_id = user.id
 
     result = await run_agent_with_persistence(
         prompt=body.prompt,
         conversation_id=conversation_id,
-        user_id=user_email,
+        user_id=user_id,
     )
 
     pending = extract_pending_approval(result)
@@ -208,10 +206,19 @@ async def start_conversation(body: StartConversationRequest, request: Request):
 
 
 @router.get("/conversation/{conversation_id}")
-async def get_conversation(conversation_id: str):
+async def get_conversation(conversation_id: str, user: AuthUser):
     """
     Get conversation details including pending approval info.
+    Only accessible by the conversation owner.
     """
+    user_id = user.id
+
+    # Verify ownership using Clerk user ID
+    try:
+        await verify_conversation_ownership(conversation_id, user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     conv = await get_conversation_with_pending(conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -228,14 +235,23 @@ async def get_conversation(conversation_id: str):
 
 
 @router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(conversation_id: str, body: ApprovalRequest, request: Request):
+async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: AuthUser):
     """
     Approve or deny a pending tool call.
+    Only accessible by the conversation owner.
 
     This resumes the agent with the approval decision and returns the final result.
     """
     logfire.info(f"Approve request for conversation_id: {conversation_id}")
-    user_email = await get_user_email(request)
+    user_id = user.id
+
+    # Verify ownership before allowing approval using Clerk user ID
+    try:
+        await verify_conversation_ownership(conversation_id, user_id)
+    except ValueError as e:
+        logfire.error(f"Approval failed - error verifying conversation ownership: {conversation_id}, user_id: {user_id}, error: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Error verifying conversation ownership: {str(e)}")
+
     try:
         result = await resume_with_approval(
             conversation_id=conversation_id,
@@ -243,7 +259,7 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, requ
             approved=body.approved,
             override_args=body.override_args,
             denial_reason=body.reason,
-            user_id=user_email,
+            user_id=user_id,
         )
 
         # Check if there's another pending approval (unlikely but possible)
@@ -277,35 +293,45 @@ async def list_pending():
 
 
 @router.get("/conversations/history")
-async def get_conversation_history(request: Request, limit: int = 20):
+async def get_conversation_history(user: AuthUser, limit: int = 20):
     """
     List conversations for the authenticated user.
     Returns recent conversations sorted by updated_at desc.
     """
-    user_email = await get_user_email(request)
+    user_id = user.id
     conversations = await list_user_conversations(
-        user_id=user_email,
+        user_id=user_id,
         agent_name=hitl_agent3.name,
         limit=limit,
     )
     return {
         "conversations": conversations,
         "count": len(conversations),
-        "user_id": user_email,
+        "user_id": user_id,
     }
 
 
 @router.get("/conversation/{conversation_id}/messages")
 async def get_conversation_messages_endpoint(
     conversation_id: str,
-    session: AsyncSession = Depends(get_session),
+    user: AuthUser,
+    session: DBSession,
 ):
     """
     Get conversation messages in Vercel AI SDK format.
+    Only accessible by the conversation owner.
 
     This endpoint allows the frontend to load an existing conversation
     and resume it. Messages are returned in Vercel AI UIMessage format.
     """
+    user_id = user.id
+
+    # Verify ownership using Clerk user ID
+    try:
+        await verify_conversation_ownership(conversation_id, user_id, session)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     # Load messages from DB in PydanticAI format
     pydantic_messages = await get_conversation_messages(conversation_id, session=session)
 
@@ -323,3 +349,18 @@ async def get_conversation_messages_endpoint(
         "conversation_id": conversation_id,
         "pending": pending,
     }
+
+
+@router.delete("/conversation/{conversation_id}")
+async def delete_conversation_endpoint(conversation_id: str, user: AuthUser):
+    """
+    Delete a conversation.
+    Only accessible by the conversation owner.
+    """
+    user_id = user.id
+
+    try:
+        await delete_conversation(conversation_id, user_id)
+        return {"success": True, "conversation_id": conversation_id}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")

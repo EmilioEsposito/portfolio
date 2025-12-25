@@ -12,6 +12,7 @@ from api.src.utils.swagger_schema import expand_json_schema
 from api.src.ai.models import persist_agent_run_result
 import logfire
 import functools
+from api.src.database.database import DBSession
 
 router = APIRouter(tags=["chat"])
 
@@ -126,7 +127,7 @@ _CHAT_OPENAPI_EXTRA = {
     summary="General-purpose chat with weather tool support",
     openapi_extra=_CHAT_OPENAPI_EXTRA,
 )
-async def chat(request: Request) -> Response:
+async def chat(request: Request, session: DBSession) -> Response:
     """
     Chat endpoint using PydanticAI's VercelAIAdapter.
 
@@ -163,7 +164,8 @@ async def chat(request: Request) -> Response:
         persist_agent_run_result, 
         conversation_id=conversation_id, 
         agent_name=agent.name, 
-        user_id="visitor"
+        user_id="visitor",
+        session=session
     )
     
     # Use VercelAIAdapter to handle the request and stream response

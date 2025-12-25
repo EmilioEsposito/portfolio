@@ -22,6 +22,7 @@ import {
   History,
   Plus,
   Clock,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
@@ -393,6 +394,36 @@ export default function HITLAgentChatPage() {
     }
   }, [isSignedIn, getToken]);
 
+  // Delete a conversation
+  const deleteConversationHandler = useCallback(async (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering loadConversation
+    if (!isSignedIn) return;
+
+    if (!confirm("Are you sure you want to delete this conversation?")) return;
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        // Remove from local state
+        setConversationHistory((prev) => prev.filter((c) => c.conversation_id !== convId));
+
+        // If we deleted the current conversation, start a new one
+        if (convId === conversationId) {
+          startNewConversation();
+        }
+      } else {
+        console.error("Failed to delete conversation");
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+    }
+  }, [isSignedIn, getToken, conversationId]);
+
   useEffect(() => {
     if (historyOpen) {
       fetchHistory();
@@ -455,44 +486,51 @@ export default function HITLAgentChatPage() {
   // Use a version counter to track when transport is ready for a new conversation
   const [transportVersion, setTransportVersion] = useState(0);
 
+  // Store getToken in a ref so transport can always get a fresh token
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+
   useEffect(() => {
     if (!isSignedIn) return;
 
-    const setupTransport = async () => {
-      const token = await getToken();
-      transportRef.current = new DefaultChatTransport({
-        api: "/api/ai/hitl-agent/chat",
-        headers: { Authorization: `Bearer ${token}` },
-        prepareSendMessagesRequest: ({ messages, body, trigger }) => {
-          // Transform messages to proper format
-          // Backend extracts only the last message and loads history from DB
-          const transformedMessages = messages.map((msg: any) => {
-            if (msg.parts) {
-              return { id: msg.id || crypto.randomUUID(), role: msg.role, parts: msg.parts };
-            }
-            return {
-              id: msg.id || crypto.randomUUID(),
-              role: msg.role,
-              parts: [{ type: "text", text: msg.content || "" }],
-            };
-          });
-
+    // Use a function for headers to get fresh token on each request
+    // This prevents "User is not signed in" errors when token expires
+    transportRef.current = new DefaultChatTransport({
+      api: "/api/ai/hitl-agent/chat",
+      // headers as a function is called fresh for each request
+      headers: async () => {
+        const freshToken = await getTokenRef.current();
+        return {
+          Authorization: `Bearer ${freshToken}`,
+        };
+      },
+      prepareSendMessagesRequest: ({ messages, body, trigger }) => {
+        // Transform messages to proper format
+        // Backend extracts only the last message and loads history from DB
+        const transformedMessages = messages.map((msg: any) => {
+          if (msg.parts) {
+            return { id: msg.id || crypto.randomUUID(), role: msg.role, parts: msg.parts };
+          }
           return {
-            body: {
-              trigger,
-              id: conversationId,
-              messages: transformedMessages,
-              ...body,
-            },
+            id: msg.id || crypto.randomUUID(),
+            role: msg.role,
+            parts: [{ type: "text", text: msg.content || "" }],
           };
-        },
-      });
-      // Increment version to trigger the effect that applies pending messages
-      setTransportVersion((v) => v + 1);
-    };
+        });
 
-    setupTransport();
-  }, [isSignedIn, getToken, conversationId]);
+        return {
+          body: {
+            trigger,
+            id: conversationId,
+            messages: transformedMessages,
+            ...body,
+          },
+        };
+      },
+    });
+    // Increment version to trigger the effect that applies pending messages
+    setTransportVersion((v) => v + 1);
+  }, [isSignedIn, conversationId]);
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: conversationId,
@@ -862,29 +900,41 @@ export default function HITLAgentChatPage() {
                   </p>
                 ) : (
                   conversationHistory.map((conv) => (
-                    <button
+                    <div
                       key={conv.conversation_id}
-                      onClick={() => loadConversation(conv.conversation_id)}
                       className={cn(
-                        "w-full text-left p-2 rounded-lg hover:bg-muted transition-colors",
+                        "group flex items-center gap-1 p-2 rounded-lg hover:bg-muted transition-colors",
                         conv.conversation_id === conversationId && "bg-muted"
                       )}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm truncate flex-1">
-                          {conv.preview || "Empty conversation"}
-                        </span>
-                        {conv.has_pending && (
-                          <Badge variant="outline" className="ml-2 text-xs">
-                            Pending
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                        <Clock className="w-3 h-3" />
-                        {formatDate(conv.updated_at)}
-                      </div>
-                    </button>
+                      <button
+                        onClick={() => loadConversation(conv.conversation_id)}
+                        className="flex-1 text-left min-w-0"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm truncate flex-1">
+                            {conv.preview || "Empty conversation"}
+                          </span>
+                          {conv.has_pending && (
+                            <Badge variant="outline" className="ml-2 text-xs">
+                              Pending
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                          <Clock className="w-3 h-3" />
+                          {formatDate(conv.updated_at)}
+                        </div>
+                      </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                        onClick={(e) => deleteConversationHandler(conv.conversation_id, e)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   ))
                 )}
               </div>

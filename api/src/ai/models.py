@@ -16,18 +16,21 @@ class AgentConversation(Base):
     __tablename__ = "agent_conversations"
 
     # conversation_id is used as the primary key
-    id: Mapped[str] = mapped_column(String, primary_key=True, index=True) 
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     agent_name: Mapped[str] = mapped_column(String, index=True)
+    # user_id is the Clerk user ID (e.g., "user_2abc123...") - used for ownership logic
     user_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    # user_email for display/debugging convenience
+    user_email: Mapped[str | None] = mapped_column(String, nullable=True)
     messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        DateTime(timezone=True),
         server_default=func.now(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
+        DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
@@ -59,14 +62,31 @@ async def get_agent_conversation(
 
     return None
 
-async def get_conversation_messages(conversation_id: str, session: AsyncSession | None = None) -> list[ModelMessage]:
+async def get_conversation_messages(conversation_id: str, session: AsyncSession | None = None, retries: int = 3, retry_delay: float = 0.5) -> list[ModelMessage]:
     """Retrieve conversation messages parsed back into PydanticAI ModelMessage objects."""
     
     async with provide_session(session) as s:
-        conversation = await get_agent_conversation(s, conversation_id)
+        conversation = await get_agent_conversation(s, conversation_id, retries=retries, retry_delay=retry_delay)
         if conversation and conversation.messages:
             return ModelMessagesTypeAdapter.validate_python(conversation.messages)
         return []
+
+async def _get_user_email_from_clerk(user_id: str) -> str | None:
+    """Look up user email from Clerk given a user ID."""
+    try:
+        from api.src.utils.clerk import clerk_client
+        user = clerk_client.users.get(user_id=user_id)
+        if user and user.email_addresses:
+            # Prefer verified email
+            for email in user.email_addresses:
+                if email.verification and email.verification.status == "verified":
+                    return email.email_address
+            # Fallback to first email
+            return user.email_addresses[0].email_address
+    except Exception as e:
+        logfire.warning(f"Failed to get email for user {user_id}: {e}")
+    return None
+
 
 async def save_agent_conversation(
     session: AsyncSession,
@@ -79,24 +99,32 @@ async def save_agent_conversation(
     """
     Save or update an agent conversation.
     Uses SQLAlchemy's merge for idiomatic upsert behavior.
+
+    Args:
+        user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
     """
     # Convert messages to JSON-safe format using Pydantic's adapter
     # mode='json' ensures bytes are serialized (e.g. to utf-8 string if valid, but care needed for raw binary)
     # If messages contain raw binary that isn't utf-8 (like PDF bytes), dump_python(mode='json') might fail or produce errors.
-    # However, ModelMessagesTypeAdapter is usually robust. 
+    # However, ModelMessagesTypeAdapter is usually robust.
     # If you encounter encoding errors, we might need a custom serializer for bytes to base64.
-    
+
     if not agent_name:
         logfire.error("No agent_name provided for conversation persistence")
-    
+
     try:
         messages_json = ModelMessagesTypeAdapter.dump_python(messages, mode='json')
     except Exception:
-        logfire.exception(f"Failed to convert messages to JSON, using fallback")
-        # Fallback: simple to_jsonable_python which might leave bytes as is, 
+        logfire.exception("Failed to convert messages to JSON, using fallback")
+        # Fallback: simple to_jsonable_python which might leave bytes as is,
         # but we iterate to stringify bytes to avoid DB errors
         data = to_jsonable_python(messages)
         messages_json = _sanitize_json(data)
+
+    # Look up user email from Clerk for convenience/debugging
+    user_email = None
+    if user_id:
+        user_email = await _get_user_email_from_clerk(user_id)
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
     # This is idiomatic SQLAlchemy ORM.
@@ -104,14 +132,15 @@ async def save_agent_conversation(
         id=conversation_id,
         agent_name=agent_name,
         user_id=user_id,
+        user_email=user_email,
         messages=messages_json,
         metadata_=metadata
     )
-    
+
     # merge returns the persistent instance attached to the session
     conversation = await session.merge(conversation)
     await session.commit()
-    
+
     return conversation
 
 async def persist_agent_run_result(
@@ -119,7 +148,8 @@ async def persist_agent_run_result(
     conversation_id: str,
     agent_name: str,
     user_id: str | None = None,
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None,
+    session: AsyncSession | None = None,
 ) -> None:
     """
     Convenience function to persist an agent run result to the database.
@@ -127,28 +157,50 @@ async def persist_agent_run_result(
 
     Uses result.all_messages() which includes the full conversation.
     This replaces the existing conversation in DB (upsert behavior).
+
+    IMPORTANT: This function uses asyncio.shield to protect against cancellation.
+    When called from a streaming on_complete callback, client disconnection can
+    cancel the parent task. Shield ensures persistence completes regardless.
+
+    Args:
+        result: The agent run result to persist
+        conversation_id: Unique ID for the conversation
+        agent_name: Name of the agent
+        user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
+        metadata: Optional metadata to store
+        session: Optional existing session (uses provide_session if not provided)
     """
     logfire.info(f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}")
     if not conversation_id:
         logfire.warning("No conversation_id provided for persistence")
         return
 
-    try:
-        async with AsyncSessionFactory() as session:
-            all_messages = result.all_messages()
-            logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
+    async def _do_persist():
+        """Inner function that does the actual persistence."""
+        try:
+            async with provide_session(session) as s:
+                all_messages = result.all_messages()
+                logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
 
-            await save_agent_conversation(
-                session=session,
-                conversation_id=conversation_id,
-                agent_name=agent_name,
-                messages=all_messages,
-                user_id=user_id,
-                metadata=metadata
-            )
-        logfire.info(f"Saved conversation {conversation_id} for agent {agent_name}")
-    except Exception as e:
-        logfire.error(f"Failed to save conversation {conversation_id}: {e}")
+                await save_agent_conversation(
+                    session=s,
+                    conversation_id=conversation_id,
+                    agent_name=agent_name,
+                    messages=all_messages,
+                    user_id=user_id,
+                    metadata=metadata
+                )
+            logfire.info(f"Saved conversation {conversation_id} for agent {agent_name}")
+        except Exception as e:
+            logfire.error(f"Failed to save conversation {conversation_id}: {e}")
+
+    # Spawn as a background task and shield from cancellation
+    task = asyncio.create_task(_do_persist())
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Parent was cancelled (e.g., client disconnected), but task continues
+        logfire.info(f"Persistence shielded from cancellation for {conversation_id}")
 
 def _sanitize_json(obj: Any) -> Any:
     """Helper to ensure all data is JSON compliant, converting bytes to string placeholder."""
@@ -246,3 +298,70 @@ def _has_pending_tool_call(messages: list[ModelMessage]) -> bool:
                     if part.tool_call_id not in returned_tool_ids:
                         return True
     return False
+
+
+async def verify_conversation_ownership(
+    conversation_id: str,
+    user_id: str,
+    session: AsyncSession | None = None,
+) -> AgentConversation:
+    """
+    Verify that a conversation exists and belongs to the specified user.
+
+    Args:
+        conversation_id: The conversation ID to check
+        user_id: The user ID that should own the conversation
+        session: Optional existing session
+
+    Returns:
+        The AgentConversation if ownership is verified
+
+    Raises:
+        ValueError: If conversation not found or user doesn't own it
+    """
+    async with provide_session(session) as s:
+        conversation = await get_agent_conversation(s, conversation_id, retries=4, retry_delay=0.5)
+
+        if conversation is None:
+            raise ValueError(f"Conversation not found: {conversation_id}")
+
+        if conversation.user_id != user_id:
+            logfire.warning(
+                f"User {user_id} attempted to access conversation {conversation_id} "
+                f"owned by {conversation.user_id}"
+            )
+            raise ValueError(f"Conversation for user {user_id} not found: {conversation_id}")
+
+        return conversation
+
+
+async def delete_conversation(
+    conversation_id: str,
+    user_id: str,
+) -> bool:
+    """
+    Delete a conversation if it belongs to the specified user.
+
+    Args:
+        conversation_id: The conversation ID to delete
+        user_id: The user ID that should own the conversation
+
+    Returns:
+        True if deleted successfully
+
+    Raises:
+        ValueError: If conversation not found or user doesn't own it
+    """
+    from sqlalchemy import delete
+
+    async with AsyncSessionFactory() as session:
+        # First verify ownership
+        await verify_conversation_ownership(conversation_id, user_id, session)
+
+        # Delete the conversation
+        stmt = delete(AgentConversation).where(AgentConversation.id == conversation_id)
+        await session.execute(stmt)
+        await session.commit()
+
+        logfire.info(f"Deleted conversation {conversation_id} for user {user_id}")
+        return True

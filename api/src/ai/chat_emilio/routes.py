@@ -22,6 +22,7 @@ from api.src.ai.chat_emilio.agent import agent, PortfolioContext
 from api.src.utils.swagger_schema import expand_json_schema
 from api.src.ai.models import persist_agent_run_result
 import functools
+from api.src.database.database import DBSession
 
 router = APIRouter(tags=["ai"])
 
@@ -137,7 +138,7 @@ _CHAT_EMILIO_OPENAPI_EXTRA = {
     summary="Chat with Emilio's portfolio assistant",
     openapi_extra=_CHAT_EMILIO_OPENAPI_EXTRA,
 )
-async def chat_emilio(request: Request) -> Response:
+async def chat_emilio(request: Request, session: DBSession) -> Response:
     """
     Chat endpoint using PydanticAI's VercelAIAdapter.
 
@@ -171,7 +172,8 @@ async def chat_emilio(request: Request) -> Response:
         persist_agent_run_result, 
         conversation_id=conversation_id, 
         agent_name=agent.name, 
-        user_id="visitor"
+        user_id="visitor",
+        session=session
     )
 
     # Use the high-level dispatch_request method which supports on_complete
