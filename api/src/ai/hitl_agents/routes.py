@@ -1,9 +1,14 @@
 """
-HITL Agent 3 Routes
+HITL Agent Routes
 
 Two interaction modes, both using the same simple dual-run pattern:
 1. Streaming Chat (/chat) - Real-time interaction via Vercel AI SDK
-2. Workflow API (/conversation/*) - Start conversations and manage approvals
+2. Workflow API (/workflow/*) - Start conversations and manage approvals programmatically
+
+Endpoint naming convention:
+- /chat - Chat-specific (streaming)
+- /workflow/* - Workflow-specific (non-streaming, programmatic)
+- /conversation/* - Shared endpoints used by both modes
 
 The approval flow is the same for both:
 - First run returns DeferredToolRequests → saved to DB
@@ -28,17 +33,16 @@ from api.src.ai.hitl_agents.hitl_agent3 import (
     HITLAgentContext,
     run_agent_with_persistence,
     resume_with_approval,
-    list_pending_conversations,
-    get_conversation_with_pending,
     extract_pending_approval,
-    extract_pending_approval_from_messages,
 )
 from api.src.ai.models import (
     persist_agent_run_result,
     list_user_conversations,
     get_conversation_messages,
-    verify_conversation_ownership,
     delete_conversation,
+    list_pending_conversations,
+    get_conversation_with_pending,
+    extract_pending_approval_from_messages,
 )
 from api.src.utils.swagger_schema import expand_json_schema
 from api.src.utils.clerk import verify_serniacapital_user, AuthUser
@@ -104,23 +108,19 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
     """
     logfire.info("HITL agent chat request")
 
-    user_id = user.id
+    clerk_user_id = user.id
 
     request_json = await request.json()
     conversation_id = request_json.get("id")
     frontend_messages = request_json.get("messages", [])
 
     # Load message history from DB (authoritative source)
-    backend_message_history = await get_conversation_messages(conversation_id, session=session)
+    # clerk_user_id filter is applied in SQL - returns empty if not found or not owned
+    backend_message_history = await get_conversation_messages(
+        conversation_id, clerk_user_id, session=session
+    )
 
-    # If conversation exists, verify ownership using Clerk user ID
-    if backend_message_history:
-        try:
-            await verify_conversation_ownership(conversation_id, user_id, session)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail="Error verifying conversation ownership: " + str(e))
-
-    logfire.info(f"Chat conversation_id: {conversation_id}, user_id: {user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
+    logfire.info(f"Chat conversation_id: {conversation_id}, clerk_user_id: {clerk_user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
 
     # Only use the LAST message from frontend (the new user input)
     # Backend DB has the authoritative history
@@ -136,7 +136,7 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
         persist_agent_run_result,
         conversation_id=conversation_id,
         agent_name=hitl_agent3.name,
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
     )
 
     # Backend DB is source of truth for history
@@ -145,7 +145,7 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
         wrapped_request,
         agent=hitl_agent3,
         message_history=backend_message_history if backend_message_history else None,
-        deps=HITLAgentContext(user_id=user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
         on_complete=on_complete,
     )
 
@@ -173,21 +173,21 @@ class ApprovalRequest(BaseModel):
     override_args: dict | None = None  # e.g., {"body": "modified message"}
 
 
-@router.post("/conversation/start")
-async def start_conversation(body: StartConversationRequest, user: AuthUser):
+@router.post("/workflow/start")
+async def start_workflow(body: StartConversationRequest, user: AuthUser):
     """
-    Start a new conversation with the agent.
+    Start a new workflow conversation with the agent (non-streaming).
 
     If the agent needs approval (e.g., for send_sms), the response includes
     pending approval details. The conversation is saved to DB.
     """
     conversation_id = str(uuid.uuid4())
-    user_id = user.id
+    clerk_user_id = user.id
 
     result = await run_agent_with_persistence(
         prompt=body.prompt,
         conversation_id=conversation_id,
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
     )
 
     pending = extract_pending_approval(result)
@@ -206,15 +206,8 @@ async def get_conversation(conversation_id: str, user: AuthUser):
     Get conversation details including pending approval info.
     Only accessible by the conversation owner.
     """
-    user_id = user.id
-
-    # Verify ownership using Clerk user ID
-    try:
-        await verify_conversation_ownership(conversation_id, user_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    conv = await get_conversation_with_pending(conversation_id)
+    # clerk_user_id filter is applied in SQL - returns None if not found or not owned
+    conv = await get_conversation_with_pending(conversation_id, user.id)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -222,7 +215,7 @@ async def get_conversation(conversation_id: str, user: AuthUser):
         "conversation_id": conversation_id,
         "pending": conv["pending"],
         "agent_name": conv["agent_name"],
-        "user_id": conv["user_id"],
+        "clerk_user_id": conv["clerk_user_id"],
         "created_at": conv["created_at"].isoformat() if conv["created_at"] else None,
         "updated_at": conv["updated_at"].isoformat() if conv["updated_at"] else None,
         "status": "pending_approval" if conv["pending"] else "completed",
@@ -238,23 +231,17 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
     This resumes the agent with the approval decision and returns the final result.
     """
     logfire.info(f"Approve request for conversation_id: {conversation_id}")
-    user_id = user.id
-
-    # Verify ownership before allowing approval using Clerk user ID
-    try:
-        await verify_conversation_ownership(conversation_id, user_id)
-    except ValueError as e:
-        logfire.error(f"Approval failed - error verifying conversation ownership: {conversation_id}, user_id: {user_id}, error: {str(e)}")
-        raise HTTPException(status_code=404, detail=f"Error verifying conversation ownership: {str(e)}")
+    clerk_user_id = user.id
 
     try:
+        # resume_with_approval applies clerk_user_id filter when loading messages
         result = await resume_with_approval(
             conversation_id=conversation_id,
             tool_call_id=body.tool_call_id,
             approved=body.approved,
             override_args=body.override_args,
             denial_reason=body.reason,
-            user_id=user_id,
+            clerk_user_id=clerk_user_id,
         )
 
         # Check if there's another pending approval (unlikely but possible)
@@ -275,12 +262,16 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/conversations/pending")
-async def list_pending():
+@router.get("/workflow/pending")
+async def list_pending_workflows(user: AuthUser, session: DBSession):
     """
-    List all conversations with pending approvals.
+    List workflow conversations with pending approvals for the authenticated user.
     """
-    pending = await list_pending_conversations()
+    pending = await list_pending_conversations(
+        agent_name=hitl_agent3.name,
+        clerk_user_id=user.id,
+        session=session,
+    )
     return {
         "conversations": pending,
         "count": len(pending),
@@ -293,16 +284,16 @@ async def get_conversation_history(user: AuthUser, limit: int = 20):
     List conversations for the authenticated user.
     Returns recent conversations sorted by updated_at desc.
     """
-    user_id = user.id
+    clerk_user_id = user.id
     conversations = await list_user_conversations(
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
         agent_name=hitl_agent3.name,
         limit=limit,
     )
     return {
         "conversations": conversations,
         "count": len(conversations),
-        "user_id": user_id,
+        "clerk_user_id": clerk_user_id,
     }
 
 
@@ -319,16 +310,10 @@ async def get_conversation_messages_endpoint(
     This endpoint allows the frontend to load an existing conversation
     and resume it. Messages are returned in Vercel AI UIMessage format.
     """
-    user_id = user.id
-
-    # Verify ownership using Clerk user ID
-    try:
-        await verify_conversation_ownership(conversation_id, user_id, session)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Load messages from DB in PydanticAI format
-    pydantic_messages = await get_conversation_messages(conversation_id, session=session)
+    # Load messages from DB - user_id filter applied in SQL
+    pydantic_messages = await get_conversation_messages(
+        conversation_id, user.id, session=session
+    )
 
     if not pydantic_messages:
         return {"messages": [], "conversation_id": conversation_id}
@@ -352,10 +337,10 @@ async def delete_conversation_endpoint(conversation_id: str, user: AuthUser):
     Delete a conversation.
     Only accessible by the conversation owner.
     """
-    user_id = user.id
+    clerk_user_id = user.id
 
     try:
-        await delete_conversation(conversation_id, user_id)
+        await delete_conversation(conversation_id, clerk_user_id)
         return {"success": True, "conversation_id": conversation_id}
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")

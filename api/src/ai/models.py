@@ -6,7 +6,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from pydantic_core import to_jsonable_python
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelRequest, TextPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
+import json
 from pydantic_ai.agent import AgentRunResult
 import logfire
 
@@ -18,8 +28,9 @@ class AgentConversation(Base):
     # conversation_id is used as the primary key
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
     agent_name: Mapped[str] = mapped_column(String, index=True)
-    # user_id is the Clerk user ID (e.g., "user_2abc123...") - used for ownership logic
-    user_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    # clerk_user_id is the Clerk user ID (e.g., "user_2abc123...") - used for ownership
+    # Matches convention in User model (user/models.py)
+    clerk_user_id: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     # user_email for display/debugging convenience
     user_email: Mapped[str | None] = mapped_column(String, nullable=True)
     messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
@@ -38,17 +49,24 @@ class AgentConversation(Base):
 async def get_agent_conversation(
     session: AsyncSession,
     conversation_id: str,
+    clerk_user_id: str,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> AgentConversation | None:
     """
-    Retrieve an agent conversation by ID with retry logic.
+    Retrieve an agent conversation by ID for a specific user.
+
+    The clerk_user_id filter is applied in the SQL query - returns None if
+    conversation doesn't exist OR doesn't belong to user.
 
     Retries help handle race conditions where the conversation may not be
     persisted yet when approval is clicked quickly after streaming completes.
     """
     for attempt in range(retries):
-        stmt = select(AgentConversation).where(AgentConversation.id == conversation_id)
+        stmt = select(AgentConversation).where(
+            AgentConversation.id == conversation_id,
+            AgentConversation.clerk_user_id == clerk_user_id,
+        )
         result = await session.execute(stmt)
         conversation = result.scalar_one_or_none()
 
@@ -57,16 +75,27 @@ async def get_agent_conversation(
 
         # Only retry if we didn't find it and have attempts left
         if attempt < retries - 1:
-            logfire.info(f"Conversation {conversation_id} not found, retrying ({attempt + 1}/{retries})...")
+            logfire.info(f"Conversation {conversation_id} not found for user {clerk_user_id}, retrying ({attempt + 1}/{retries})...")
             await asyncio.sleep(retry_delay)
 
     return None
 
-async def get_conversation_messages(conversation_id: str, session: AsyncSession | None = None, retries: int = 3, retry_delay: float = 0.5) -> list[ModelMessage]:
-    """Retrieve conversation messages parsed back into PydanticAI ModelMessage objects."""
-    
+async def get_conversation_messages(
+    conversation_id: str,
+    clerk_user_id: str,
+    session: AsyncSession | None = None,
+    retries: int = 3,
+    retry_delay: float = 0.5,
+) -> list[ModelMessage]:
+    """
+    Retrieve conversation messages for a specific user.
+
+    Returns empty list if conversation doesn't exist or doesn't belong to user.
+    """
     async with provide_session(session) as s:
-        conversation = await get_agent_conversation(s, conversation_id, retries=retries, retry_delay=retry_delay)
+        conversation = await get_agent_conversation(
+            s, conversation_id, clerk_user_id, retries=retries, retry_delay=retry_delay
+        )
         if conversation and conversation.messages:
             return ModelMessagesTypeAdapter.validate_python(conversation.messages)
         return []
@@ -93,7 +122,7 @@ async def save_agent_conversation(
     conversation_id: str,
     agent_name: str,
     messages: list[ModelMessage] | list[Any],
-    user_id: str | None = None,
+    clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None
 ) -> AgentConversation:
     """
@@ -101,7 +130,7 @@ async def save_agent_conversation(
     Uses SQLAlchemy's merge for idiomatic upsert behavior.
 
     Args:
-        user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
+        clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
     """
     # Convert messages to JSON-safe format using Pydantic's adapter
     # mode='json' ensures bytes are serialized (e.g. to utf-8 string if valid, but care needed for raw binary)
@@ -123,15 +152,15 @@ async def save_agent_conversation(
 
     # Look up user email from Clerk for convenience/debugging
     user_email = None
-    if user_id:
-        user_email = await _get_user_email_from_clerk(user_id)
+    if clerk_user_id:
+        user_email = await _get_user_email_from_clerk(clerk_user_id)
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
     # This is idiomatic SQLAlchemy ORM.
     conversation = AgentConversation(
         id=conversation_id,
         agent_name=agent_name,
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
         user_email=user_email,
         messages=messages_json,
         metadata_=metadata
@@ -147,7 +176,7 @@ async def persist_agent_run_result(
     result: AgentRunResult,
     conversation_id: str,
     agent_name: str,
-    user_id: str | None = None,
+    clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     session: AsyncSession | None = None,
 ) -> None:
@@ -166,7 +195,7 @@ async def persist_agent_run_result(
         result: The agent run result to persist
         conversation_id: Unique ID for the conversation
         agent_name: Name of the agent
-        user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
+        clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
         metadata: Optional metadata to store
         session: Optional existing session (uses provide_session if not provided)
     """
@@ -187,7 +216,7 @@ async def persist_agent_run_result(
                     conversation_id=conversation_id,
                     agent_name=agent_name,
                     messages=all_messages,
-                    user_id=user_id,
+                    clerk_user_id=clerk_user_id,
                     metadata=metadata
                 )
             logfire.info(f"Saved conversation {conversation_id} for agent {agent_name}")
@@ -216,29 +245,45 @@ def _sanitize_json(obj: Any) -> Any:
 
 
 async def list_user_conversations(
-    user_id: str,
+    clerk_user_id: str,
     agent_name: str,
     limit: int = 20,
+    pending_only: bool = False,
+    session: AsyncSession | None = None,
 ) -> list[dict]:
     """
     List conversations for a specific user and agent.
 
+    Args:
+        clerk_user_id: Clerk user ID
+        agent_name: Name of the agent
+        limit: Maximum number of conversations to return
+        pending_only: If True, only return conversations with pending approvals
+        session: Optional existing session
+
     Returns conversations sorted by updated_at desc with summary info.
     """
-    async with AsyncSessionFactory() as session:
+    async with provide_session(session) as s:
         stmt = (
             select(AgentConversation)
             .where(AgentConversation.agent_name == agent_name)
-            .where(AgentConversation.user_id == user_id)
+            .where(AgentConversation.clerk_user_id == clerk_user_id)
             .order_by(desc(AgentConversation.updated_at))
             .limit(limit)
         )
-        result = await session.execute(stmt)
+        result = await s.execute(stmt)
         conversations = result.scalars().all()
 
         conv_list = []
         for conv in conversations:
-            messages = await get_conversation_messages(conv.id, session=session)
+            messages = await get_conversation_messages(conv.id, clerk_user_id, session=s)
+
+            # Check for pending approval
+            pending = extract_pending_approval_from_messages(messages)
+
+            # Skip non-pending if pending_only filter is set
+            if pending_only and not pending:
+                continue
 
             # Extract first user message as preview
             preview = ""
@@ -264,15 +309,13 @@ async def list_user_conversations(
                     if preview:
                         break
 
-            # Check for pending approval (tool call without return)
-            has_pending = _has_pending_tool_call(messages)
-
             conv_list.append({
                 "conversation_id": conv.id,
                 "agent_name": conv.agent_name,
-                "user_id": conv.user_id,
+                "clerk_user_id": conv.clerk_user_id,
                 "preview": preview,
-                "has_pending": has_pending,
+                "pending": pending,  # Full pending info (or None)
+                "has_pending": pending is not None,  # Boolean for quick checks
                 "created_at": conv.created_at.isoformat() if conv.created_at else None,
                 "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
             })
@@ -280,71 +323,20 @@ async def list_user_conversations(
         return conv_list
 
 
-def _has_pending_tool_call(messages: list[ModelMessage]) -> bool:
-    """Check if there's a tool call without a corresponding return."""
-    from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
-
-    returned_tool_ids: set[str] = set()
-    for msg in messages:
-        if isinstance(msg, ModelRequest):
-            for part in msg.parts:
-                if isinstance(part, ToolReturnPart):
-                    returned_tool_ids.add(part.tool_call_id)
-
-    for msg in messages:
-        if isinstance(msg, ModelResponse):
-            for part in msg.parts:
-                if isinstance(part, ToolCallPart):
-                    if part.tool_call_id not in returned_tool_ids:
-                        return True
-    return False
-
-
-async def verify_conversation_ownership(
-    conversation_id: str,
-    user_id: str,
-    session: AsyncSession | None = None,
-) -> AgentConversation:
-    """
-    Verify that a conversation exists and belongs to the specified user.
-
-    Args:
-        conversation_id: The conversation ID to check
-        user_id: The user ID that should own the conversation
-        session: Optional existing session
-
-    Returns:
-        The AgentConversation if ownership is verified
-
-    Raises:
-        ValueError: If conversation not found or user doesn't own it
-    """
-    async with provide_session(session) as s:
-        conversation = await get_agent_conversation(s, conversation_id, retries=4, retry_delay=0.5)
-
-        if conversation is None:
-            raise ValueError(f"Conversation not found: {conversation_id}")
-
-        if conversation.user_id != user_id:
-            logfire.warning(
-                f"User {user_id} attempted to access conversation {conversation_id} "
-                f"owned by {conversation.user_id}"
-            )
-            raise ValueError(f"Conversation for user {user_id} not found: {conversation_id}")
-
-        return conversation
-
-
 async def delete_conversation(
     conversation_id: str,
-    user_id: str,
+    clerk_user_id: str,
+    session: AsyncSession | None = None,
 ) -> bool:
     """
     Delete a conversation if it belongs to the specified user.
 
+    Uses a single query with both conversation_id and clerk_user_id filters.
+
     Args:
         conversation_id: The conversation ID to delete
-        user_id: The user ID that should own the conversation
+        clerk_user_id: The Clerk user ID that should own the conversation
+        session: Optional existing session
 
     Returns:
         True if deleted successfully
@@ -354,14 +346,117 @@ async def delete_conversation(
     """
     from sqlalchemy import delete
 
-    async with AsyncSessionFactory() as session:
-        # First verify ownership
-        await verify_conversation_ownership(conversation_id, user_id, session)
+    async with provide_session(session) as s:
+        # Single delete with both filters - only deletes if user owns it
+        stmt = delete(AgentConversation).where(
+            AgentConversation.id == conversation_id,
+            AgentConversation.clerk_user_id == clerk_user_id,
+        )
+        result = await s.execute(stmt)
+        await s.commit()
 
-        # Delete the conversation
-        stmt = delete(AgentConversation).where(AgentConversation.id == conversation_id)
-        await session.execute(stmt)
-        await session.commit()
+        # Check if any row was deleted
+        if result.rowcount == 0:
+            raise ValueError(f"Conversation not found: {conversation_id}")
 
-        logfire.info(f"Deleted conversation {conversation_id} for user {user_id}")
+        logfire.info(f"Deleted conversation {conversation_id} for user {clerk_user_id}")
         return True
+
+
+# =============================================================================
+# Pending Approval Utilities
+# =============================================================================
+
+def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> dict | None:
+    """
+    Extract pending approval info from stored messages.
+
+    A tool call is pending if:
+    1. There's a ToolCallPart in a ModelResponse
+    2. There's NO corresponding ToolReturnPart in a subsequent ModelRequest
+
+    This works because:
+    - First run: [ModelRequest(user), ModelResponse(ToolCallPart)] - pending
+    - After approval: [ModelRequest(user), ModelResponse(ToolCallPart), ModelRequest(ToolReturnPart), ModelResponse(text)] - not pending
+    """
+    # Collect all tool_call_ids that have been returned (executed)
+    returned_tool_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    returned_tool_ids.add(part.tool_call_id)
+
+    # Find tool calls that haven't been returned yet (pending approval)
+    for msg in reversed(messages):
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    if part.tool_call_id not in returned_tool_ids:
+                        # This tool call has no corresponding return - it's pending
+                        return {
+                            "tool_call_id": part.tool_call_id,
+                            "tool_name": part.tool_name,
+                            "args": json.loads(part.args) if isinstance(part.args, str) else part.args,
+                        }
+    return None
+
+
+async def get_conversation_with_pending(
+    conversation_id: str,
+    clerk_user_id: str,
+    session: AsyncSession | None = None,
+) -> dict | None:
+    """
+    Get a conversation and check if it has a pending approval.
+
+    Returns None if conversation doesn't exist or doesn't belong to user.
+
+    Returns:
+        {
+            "conversation_id": str,
+            "messages": list[ModelMessage],
+            "pending": dict | None,  # approval info if pending
+            "agent_name": str,
+            "clerk_user_id": str,
+            "created_at": datetime,
+            "updated_at": datetime,
+        }
+    """
+    async with provide_session(session) as s:
+        conversation = await get_agent_conversation(s, conversation_id, clerk_user_id)
+        if not conversation:
+            return None
+
+        messages = await get_conversation_messages(conversation_id, clerk_user_id, session=s)
+        pending = extract_pending_approval_from_messages(messages)
+
+        return {
+            "conversation_id": conversation_id,
+            "messages": messages,
+            "pending": pending,
+            "agent_name": conversation.agent_name,
+            "clerk_user_id": conversation.clerk_user_id,
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+        }
+
+
+async def list_pending_conversations(
+    agent_name: str,
+    clerk_user_id: str,
+    limit: int = 50,
+    session: AsyncSession | None = None,
+) -> list[dict]:
+    """
+    List conversations that have pending approvals for a specific user.
+
+    This is a convenience wrapper around list_user_conversations with pending_only=True.
+    """
+    return await list_user_conversations(
+        clerk_user_id=clerk_user_id,
+        agent_name=agent_name,
+        limit=limit,
+        pending_only=True,
+        session=session,
+    )

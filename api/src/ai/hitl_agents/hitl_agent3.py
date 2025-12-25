@@ -12,7 +12,6 @@ import json
 import uuid
 import logfire
 from dataclasses import dataclass
-from typing import Any
 
 from pydantic_ai import (
     Agent,
@@ -24,15 +23,12 @@ from pydantic_ai import (
 )
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.messages import ModelMessage
-
 from api.src.open_phone.service import send_message
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import AsyncSessionFactory
 from api.src.ai.models import (
-    save_agent_conversation,
     get_conversation_messages,
     persist_agent_run_result,
-    get_agent_conversation,
 )
 
 
@@ -112,79 +108,10 @@ def extract_pending_approval(result: AgentRunResult) -> dict | None:
     }
 
 
-def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> dict | None:
-    """
-    Extract pending approval info from stored messages.
-
-    A tool call is pending if:
-    1. There's a ToolCallPart in a ModelResponse
-    2. There's NO corresponding ToolReturnPart in a subsequent ModelRequest
-
-    This works because:
-    - First run: [ModelRequest(user), ModelResponse(ToolCallPart)] - pending
-    - After approval: [ModelRequest(user), ModelResponse(ToolCallPart), ModelRequest(ToolReturnPart), ModelResponse(text)] - not pending
-    """
-    from pydantic_ai.messages import ModelResponse, ModelRequest, ToolCallPart, ToolReturnPart
-
-    # Collect all tool_call_ids that have been returned (executed)
-    returned_tool_ids: set[str] = set()
-    for msg in messages:
-        if isinstance(msg, ModelRequest):
-            for part in msg.parts:
-                if isinstance(part, ToolReturnPart):
-                    returned_tool_ids.add(part.tool_call_id)
-
-    # Find tool calls that haven't been returned yet (pending approval)
-    for msg in reversed(messages):
-        if isinstance(msg, ModelResponse):
-            for part in msg.parts:
-                if isinstance(part, ToolCallPart):
-                    if part.tool_call_id not in returned_tool_ids:
-                        # This tool call has no corresponding return - it's pending
-                        return {
-                            "tool_call_id": part.tool_call_id,
-                            "tool_name": part.tool_name,
-                            "args": json.loads(part.args) if isinstance(part.args, str) else part.args,
-                        }
-    return None
-
-
-async def get_conversation_with_pending(conversation_id: str) -> dict | None:
-    """
-    Get a conversation and check if it has a pending approval.
-
-    Returns:
-        {
-            "conversation_id": str,
-            "messages": list[ModelMessage],
-            "pending": dict | None,  # approval info if pending
-            "agent_name": str,
-            "user_id": str,
-        }
-    """
-    async with AsyncSessionFactory() as session:
-        conversation = await get_agent_conversation(session, conversation_id)
-        if not conversation:
-            return None
-
-        messages = await get_conversation_messages(conversation_id, session=session)
-        pending = extract_pending_approval_from_messages(messages)
-
-        return {
-            "conversation_id": conversation_id,
-            "messages": messages,
-            "pending": pending,
-            "agent_name": conversation.agent_name,
-            "user_id": conversation.user_id,
-            "created_at": conversation.created_at,
-            "updated_at": conversation.updated_at,
-        }
-
-
 async def run_agent_with_persistence(
     prompt: str,
     conversation_id: str | None = None,
-    user_id: str = "anonymous",
+    clerk_user_id: str = "anonymous",
     message_history: list[ModelMessage] | None = None,
     deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentRunResult:
@@ -199,7 +126,7 @@ async def run_agent_with_persistence(
         user_prompt=prompt if not message_history else None,
         message_history=message_history,
         deferred_tool_results=deferred_tool_results,
-        deps=HITLAgentContext(user_id=user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
     )
 
     # Persist conversation state
@@ -207,7 +134,7 @@ async def run_agent_with_persistence(
         result=result,
         conversation_id=conversation_id,
         agent_name=hitl_agent3.name,
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
     )
 
     return result
@@ -219,7 +146,7 @@ async def resume_with_approval(
     approved: bool,
     override_args: dict | None = None,
     denial_reason: str | None = None,
-    user_id: str = "anonymous",
+    clerk_user_id: str = "anonymous",
 ) -> AgentRunResult:
     """
     Resume a paused agent with an approval decision.
@@ -230,11 +157,12 @@ async def resume_with_approval(
         approved: Whether to approve or deny
         override_args: Optional dict to override tool arguments (e.g., {"body": "new message"})
         denial_reason: Reason for denial (if denied)
-        user_id: User ID for tracking
+        clerk_user_id: Clerk user ID for tracking and ownership
     """
     # Load conversation history from database
+    # clerk_user_id filter is applied in SQL - returns empty if not found or not owned
     async with AsyncSessionFactory() as session:
-        messages = await get_conversation_messages(conversation_id, session=session)
+        messages = await get_conversation_messages(conversation_id, clerk_user_id, session=session)
 
     if not messages:
         raise ValueError(f"No conversation found with ID: {conversation_id}")
@@ -253,7 +181,7 @@ async def resume_with_approval(
     result = await hitl_agent3.run(
         message_history=messages,
         deferred_tool_results=deferred_results,
-        deps=HITLAgentContext(user_id=user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
     )
 
     # Persist updated conversation state
@@ -261,46 +189,10 @@ async def resume_with_approval(
         result=result,
         conversation_id=conversation_id,
         agent_name=hitl_agent3.name,
-        user_id=user_id,
+        clerk_user_id=clerk_user_id,
     )
 
     return result
-
-
-async def list_pending_conversations(agent_name: str = "hitl_agent3", limit: int = 50) -> list[dict]:
-    """
-    List conversations that have pending approvals.
-
-    Scans recent conversations and checks if they have pending tool calls.
-    """
-    from sqlalchemy import select, desc
-    from api.src.ai.models import AgentConversation
-
-    async with AsyncSessionFactory() as session:
-        stmt = (
-            select(AgentConversation)
-            .where(AgentConversation.agent_name == agent_name)
-            .order_by(desc(AgentConversation.updated_at))
-            .limit(limit)
-        )
-        result = await session.execute(stmt)
-        conversations = result.scalars().all()
-
-        pending_list = []
-        for conv in conversations:
-            messages = await get_conversation_messages(conv.id, session=session)
-            pending = extract_pending_approval_from_messages(messages)
-            if pending:
-                pending_list.append({
-                    "conversation_id": conv.id,
-                    "agent_name": conv.agent_name,
-                    "user_id": conv.user_id,
-                    "pending": pending,
-                    "created_at": conv.created_at.isoformat() if conv.created_at else None,
-                    "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
-                })
-
-        return pending_list
 
 
 # --- Demo/Test ---
@@ -318,7 +210,7 @@ if __name__ == "__main__":
         result = await run_agent_with_persistence(
             prompt="Send a friendly hello to Emilio",
             conversation_id=conversation_id,
-            user_id="demo_user",
+            clerk_user_id="demo_user",
         )
 
         pending = extract_pending_approval(result)
@@ -337,7 +229,7 @@ if __name__ == "__main__":
                 tool_call_id=pending["tool_call_id"],
                 approved=True,
                 override_args={"body": modified_body},
-                user_id="demo_user",
+                clerk_user_id="demo_user",
             )
 
             print(f"✓ Agent resumed and completed")
@@ -347,7 +239,11 @@ if __name__ == "__main__":
 
         # Step 3: List pending conversations
         print("Step 3: Listing pending conversations...")
-        pending_convs = await list_pending_conversations()
+        from api.src.ai.models import list_pending_conversations
+        pending_convs = await list_pending_conversations(
+            agent_name=hitl_agent3.name,
+            clerk_user_id="demo_user",
+        )
         print(f"  Found {len(pending_convs)} pending conversations")
 
     asyncio.run(demo())

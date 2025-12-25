@@ -70,7 +70,7 @@ export default function HITLAgentWorkflowPage() {
     setRefreshing(true);
     try {
       const token = await getToken();
-      const res = await fetch("/api/ai/hitl-agent/conversations/pending", {
+      const res = await fetch("/api/ai/hitl-agent/workflow/pending", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -102,7 +102,7 @@ export default function HITLAgentWorkflowPage() {
 
     try {
       const token = await getToken();
-      const res = await fetch("/api/ai/hitl-agent/conversation/start", {
+      const res = await fetch("/api/ai/hitl-agent/workflow/start", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
