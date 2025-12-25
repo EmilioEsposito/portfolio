@@ -1,16 +1,15 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, Request
-from clerk_backend_api import Session, User, RequestState
+from clerk_backend_api import Session
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from api.src.utils.clerk import is_signed_in, get_auth_session, get_auth_user, get_google_credentials
+from api.src.utils.clerk import is_signed_in, get_auth_session, get_google_credentials, AuthUser, verify_serniacapital_user
 from api.src.google.gmail import get_gmail_service
 from pprint import pprint
 import pytz
 from datetime import datetime
 import logfire
-from api.src.utils.clerk import verify_serniacapital_user
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 
 router = APIRouter(prefix="/examples", tags=["examples"])
@@ -18,7 +17,7 @@ router = APIRouter(prefix="/examples", tags=["examples"])
 # @router.get("/protected")
 # async def protected_route(
 #     session: Annotated[Session, Depends(get_auth_session)],
-#     user: Annotated[User, Depends(get_auth_user)]
+#     user: AuthUser
 # ):
 #     """
 #     Example protected endpoint that requires authentication.
@@ -59,9 +58,7 @@ async def protected_route_get_session(
     return session
 
 @router.get("/protected_get_user")
-async def protected_route_get_user(
-    user: Annotated[User, Depends(get_auth_user)]
-):
+async def protected_route_get_user(user: AuthUser):
     """
     Example protected endpoint that requires authentication.
     Returns user information from Clerk.

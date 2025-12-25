@@ -44,6 +44,7 @@ agent = Agent(
     system_prompt=SYSTEM_INSTRUCTIONS,
     retries=3,
     instrument=True,
+    name="chat_emilio",
 )
 
 

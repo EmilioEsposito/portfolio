@@ -1,11 +1,9 @@
 import pytest
-import logfire
+
+from api.src.utils.logfire_config import ensure_logfire_configured
 
 @pytest.fixture(scope="session", autouse=True)
 def configure_logfire():
     """Configure logfire for testing - logs locally without sending to cloud"""
-    logfire.configure(
-        send_to_logfire=False,  # Don't send to cloud
-        console=logfire.ConsoleOptions(colors='auto'),  # Output to console
-    )
+    ensure_logfire_configured(mode="test")
 

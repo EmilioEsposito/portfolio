@@ -6,11 +6,10 @@ import json
 import os
 import base64
 import hmac
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Union
 from pydantic import BaseModel
-from api.src.database.database import get_session
+from api.src.database.database import DBSession
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
@@ -148,7 +147,7 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
 async def webhook(
     payload: OpenPhoneWebhookPayload,
     background_tasks: BackgroundTasks,
-    session: AsyncSession = Depends(get_session)
+    session: DBSession
 ):
     try:
         # Extract event data

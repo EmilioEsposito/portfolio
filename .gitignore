@@ -70,3 +70,6 @@ scratch/
 *.pdf
 
 .playwright-mcp
+
+# DBOS SQLite databases
+*.sqlite

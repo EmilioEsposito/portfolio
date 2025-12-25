@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from apscheduler.job import Job
+from apscheduler.jobstores.base import JobLookupError
 from typing import List
 import logfire
 
 # Assuming the scheduler instance is globally available or accessible via a dependency
 # We'll need to import it from where it's defined, likely service.py
-from api.src.scheduler.service import scheduler # This might need adjustment
+from api.src.apscheduler_service.service import get_scheduler
 from api.src.utils.clerk import verify_serniacapital_user
 from datetime import datetime, timedelta
 import pytest
@@ -13,8 +14,8 @@ from pprint import pprint
 import asyncio
 
 router = APIRouter(
-    prefix="/scheduler",
-    tags=["scheduler"],
+    prefix="/apscheduler",
+    tags=["apscheduler"],
     dependencies=[Depends(verify_serniacapital_user)]
 )
 
@@ -39,7 +40,7 @@ async def get_jobs():
     """
     Retrieve all scheduled jobs.
     """
-
+    scheduler = get_scheduler()
     jobs = scheduler.get_jobs()
     # sort by job_id
     jobs.sort(key=lambda x: x.id)
@@ -49,6 +50,7 @@ async def get_jobs():
 @pytest.mark.asyncio
 async def test_get_jobs():
 
+    scheduler = get_scheduler()
     if not scheduler.running:
         logfire.info("Starting scheduler for test_job...")
         scheduler.start()
@@ -67,6 +69,7 @@ async def run_job_now(job_id: str):
     If the job is a persistent one, its next_run_time will be updated.
     Consider if a one-off execution *without* altering the schedule is needed.
     """
+    scheduler = get_scheduler()
     job = scheduler.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job with id {job_id} not found")
@@ -80,9 +83,28 @@ async def run_job_now(job_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to run job {job_id}: {str(e)}") 
     
 
+@router.delete("/delete_job/{job_id}", response_model=dict)
+async def delete_job(job_id: str):
+    """
+    Delete a specific APScheduler job.
+
+    APScheduler jobs are persisted in the SQLAlchemyJobStore, so deleting here
+    removes them from the DB-backed job store.
+    """
+    try:
+        scheduler = get_scheduler()
+        scheduler.remove_job(job_id)
+        return {"message": f"Job {job_id} deleted successfully.", "job_id": job_id}
+    except JobLookupError:
+        raise HTTPException(status_code=404, detail=f"Job with id {job_id} not found")
+    except Exception as e:
+        logfire.exception(f"Failed to delete job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete job {job_id}: {str(e)}")
+
 
 @pytest.mark.asyncio
 async def test_run_job_now():
+    scheduler = get_scheduler()
     if not scheduler.running:
         logfire.info("Starting scheduler for test_job...")
         scheduler.start()

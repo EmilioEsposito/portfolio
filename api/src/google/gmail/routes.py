@@ -7,9 +7,8 @@ from typing import Dict, Any, List
 import logfire
 from openai import AsyncOpenAI
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.utils.dependencies import verify_cron_or_admin
-from api.src.database.database import get_session
+from api.src.database.database import DBSession
 from api.src.google.gmail.service import (
     send_email,
     setup_gmail_watch,
@@ -34,7 +33,7 @@ client = AsyncOpenAI()  # Create async client instance
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
 @router.get("/get_zillow_emails")
-async def get_zillow_emails(session: AsyncSession = Depends(get_session)) -> List[ZillowEmailResponse]:
+async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
     """
     Fetch 10 random email messages containing 'zillow' in the body HTML,
     excluding daily listing emails.

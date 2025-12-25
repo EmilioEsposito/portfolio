@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "~/components/ui/button";
+import { Badge } from "~/components/ui/badge";
+import { useAuth } from "@clerk/react-router";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
-import { ChevronDown, RefreshCw, Play } from "lucide-react";
+import { ChevronDown, RefreshCw, Play, Trash2 } from "lucide-react";
 
 interface SchedulerJob {
   id: string;
   name?: string;
+  service: "dbos" | "apscheduler";
   func_ref: string;
   args: any[];
   kwargs: Record<string, any>;
@@ -24,36 +27,69 @@ interface SchedulerJob {
 
 interface SchedulerProps {
   apiBaseUrl: string;
-  authToken?: string;
 }
 
-export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
+export function Scheduler({ apiBaseUrl }: SchedulerProps) {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const [jobs, setJobs] = useState<SchedulerJob[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [runningJob, setRunningJob] = useState<string | null>(null);
+  const [deletingJob, setDeletingJob] = useState<string | null>(null);
   const [openJobs, setOpenJobs] = useState<Set<string>>(new Set());
 
+  const fetchWithAuth = useCallback(
+    async (url: string, init: RequestInit, retryOn401 = true) => {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Not authenticated (no token available).");
+      }
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+        Authorization: `Bearer ${token}`,
+      };
+
+      const response = await fetch(url, { ...init, headers });
+      if (response.status === 401 && retryOn401) {
+        // Clerk tokens can rotate; retry once with a fresh token call.
+        const token2 = await getToken();
+        if (!token2) return response;
+        const headers2: HeadersInit = {
+          "Content-Type": "application/json",
+          ...(init.headers ?? {}),
+          Authorization: `Bearer ${token2}`,
+        };
+        return await fetch(url, { ...init, headers: headers2 });
+      }
+      return response;
+    },
+    [getToken]
+  );
+
   const fetchJobs = useCallback(async () => {
-    if (!authToken) {
-      setError("No auth token available!");
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setError("Not signed in.");
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      };
-
-      const response = await fetch(`${apiBaseUrl}/scheduler/get_jobs`, {
-        method: "GET",
-        headers: headers,
-      });
+      const response = await fetchWithAuth(
+        `${apiBaseUrl}/schedulers/get_jobs`,
+        { method: "GET" },
+        true
+      );
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response
+          .json()
+          .catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
       }
       const data = await response.json();
       setJobs(data);
@@ -62,26 +98,21 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
       setError(e instanceof Error ? e.message : "An unknown error occurred");
     }
     setLoading(false);
-  }, [apiBaseUrl, authToken]);
+  }, [apiBaseUrl, fetchWithAuth, isLoaded, isSignedIn]);
 
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
 
-  const handleRunJobNow = async (jobId: string) => {
-    setRunningJob(jobId);
+  const handleRunJobNow = async (job: SchedulerJob) => {
+    const jobKey = `${job.service}:${job.id}`;
+    setRunningJob(jobKey);
     setError(null);
     try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      };
-
-      const response = await fetch(
-        `${apiBaseUrl}/scheduler/run_job_now/${jobId}`,
+      const response = await fetchWithAuth(
+        `${apiBaseUrl}/schedulers/run_job_now/${job.service}/${job.id}`,
         {
           method: "GET",
-          headers: headers,
         }
       );
       if (!response.ok) {
@@ -93,10 +124,10 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
         );
       }
       const result = await response.json();
-      alert(result.message || `Job ${jobId} triggered successfully.`);
+      alert(result.message || `Job ${job.id} triggered successfully.`);
       fetchJobs();
     } catch (e) {
-      console.error(`Failed to run job ${jobId}:`, e);
+      console.error(`Failed to run job ${job.id}:`, e);
       const errorMessage =
         e instanceof Error
           ? e.message
@@ -107,13 +138,56 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
     setRunningJob(null);
   };
 
-  const toggleJob = (jobId: string) => {
+  const handleDeleteJob = async (job: SchedulerJob) => {
+    if (job.service !== "apscheduler") return;
+
+    const ok = window.confirm(
+      `Delete APScheduler job "${job.name || job.id}"?\n\nThis removes it from the persisted job store.`
+    );
+    if (!ok) return;
+
+    const jobKey = `${job.service}:${job.id}`;
+    setDeletingJob(jobKey);
+    setError(null);
+    try {
+      const response = await fetchWithAuth(
+        `${apiBaseUrl}/schedulers/delete_job/${job.service}/${job.id}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ detail: `HTTP error! status: ${response.status}` }));
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
+      }
+
+      const result = await response.json();
+      alert(result.message || `Job ${job.id} deleted successfully.`);
+      fetchJobs();
+    } catch (e) {
+      console.error(`Failed to delete job ${job.id}:`, e);
+      const errorMessage =
+        e instanceof Error
+          ? e.message
+          : "An unknown error occurred while deleting the job";
+      setError(errorMessage);
+      alert(`Error: ${errorMessage}`);
+    }
+    setDeletingJob(null);
+  };
+
+  const toggleJob = (jobKey: string) => {
     setOpenJobs((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(jobId)) {
-        newSet.delete(jobId);
+      if (newSet.has(jobKey)) {
+        newSet.delete(jobKey);
       } else {
-        newSet.add(jobId);
+        newSet.add(jobKey);
       }
       return newSet;
     });
@@ -123,7 +197,9 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-2">
         <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-        <p className="text-muted-foreground">Loading jobs...</p>
+        <p className="text-muted-foreground">
+          {!isLoaded ? "Loading authentication..." : "Loading jobs..."}
+        </p>
       </div>
     );
   }
@@ -163,17 +239,24 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
       )}
 
       <div className="space-y-2">
-        {jobs.map((job) => (
+        {jobs.map((job) => {
+          const jobKey = `${job.service}:${job.id}`;
+          return (
           <Collapsible
-            key={job.id}
-            open={openJobs.has(job.id)}
-            onOpenChange={() => toggleJob(job.id)}
+            key={jobKey}
+            open={openJobs.has(jobKey)}
+            onOpenChange={() => toggleJob(jobKey)}
           >
             <div className="border rounded-lg">
               <CollapsibleTrigger asChild>
                 <button className="flex w-full items-center justify-between p-4 hover:bg-muted/50 transition-colors">
                   <div className="flex flex-col items-start text-left">
-                    <span className="font-medium">{job.name || job.id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{job.name || job.id}</span>
+                      <Badge variant={job.service === "dbos" ? "default" : "secondary"}>
+                        {job.service.toUpperCase()}
+                      </Badge>
+                    </div>
                     <span className="text-sm text-muted-foreground">
                       Next Run:{" "}
                       {job.next_run_time
@@ -183,7 +266,7 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
                   </div>
                   <ChevronDown
                     className={`h-4 w-4 text-muted-foreground transition-transform ${
-                      openJobs.has(job.id) ? "rotate-180" : ""
+                      openJobs.has(jobKey) ? "rotate-180" : ""
                     }`}
                   />
                 </button>
@@ -193,6 +276,9 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <span className="font-medium">ID:</span> {job.id}
+                    </div>
+                    <div>
+                      <span className="font-medium">Service:</span> {job.service}
                     </div>
                     <div>
                       <span className="font-medium">Trigger:</span> {job.trigger}
@@ -233,20 +319,35 @@ export function Scheduler({ apiBaseUrl, authToken }: SchedulerProps) {
                     </div>
                   </div>
                   <div className="pt-2">
-                    <Button
-                      onClick={() => handleRunJobNow(job.id)}
-                      disabled={runningJob === job.id || loading}
-                      size="sm"
-                    >
-                      <Play className="h-4 w-4 mr-2" />
-                      {runningJob === job.id ? "Running..." : "Run Now"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => handleRunJobNow(job)}
+                        disabled={runningJob === jobKey || loading || deletingJob === jobKey}
+                        size="sm"
+                      >
+                        <Play className="h-4 w-4 mr-2" />
+                        {runningJob === jobKey ? "Running..." : "Run Now"}
+                      </Button>
+
+                      {job.service === "apscheduler" && (
+                        <Button
+                          onClick={() => handleDeleteJob(job)}
+                          disabled={loading || runningJob === jobKey || deletingJob === jobKey}
+                          size="sm"
+                          variant="destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          {deletingJob === jobKey ? "Deleting..." : "Delete"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </CollapsibleContent>
             </div>
           </Collapsible>
-        ))}
+          );
+        })}
       </div>
 
       {loading && jobs.length > 0 && (

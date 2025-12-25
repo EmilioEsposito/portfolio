@@ -2,7 +2,6 @@ from fastapi import Request, HTTPException, Depends, status
 import os
 from typing import Annotated
 from api.src.utils.password import verify_admin_auth
-from api.src.utils.clerk import get_auth_user
 from api.src.utils.clerk import verify_serniacapital_user
 import logfire
 
