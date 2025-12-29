@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide
 
-> **Last Updated**: 2025-12-01
+> **Last Updated**: 2025-12-29
 
 ---
 
@@ -64,7 +64,8 @@ Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote N
 - FastAPI + Hypercorn (ASGI) + Python 3.11+
 - SQLAlchemy 2.0 + Alembic + Neon Postgres
 - PydanticAI with Graph Beta API for multi-agent AI
-- APScheduler + Logfire observability
+- APScheduler for scheduled jobs + Logfire observability
+- DBOS workflows (currently disabled - see below)
 
 ### External Integrations
 OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
@@ -83,7 +84,8 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 │   └── src/
 │       ├── ai/                # AI agents (chat_emilio, chat_weather, multi_agent_chat)
 │       ├── database/          # Models, migrations
-│       ├── scheduler/         # APScheduler
+│       ├── apscheduler_service/ # APScheduler (active)
+│       ├── dbos_service/      # DBOS workflows (disabled)
 │       └── ...                # Other modules
 ├── apps/
 │   ├── web-react-router/      # React Router v7 Web App
@@ -183,6 +185,16 @@ Uses Vercel AI SDK Data Stream Protocol for streaming responses.
 
 ---
 
+## Scheduled Jobs
+
+**Active**: APScheduler (`api/src/apscheduler_service/`)
+
+All scheduled jobs run via APScheduler with DB-backed persistence. See [`api/src/schedulers/README.md`](api/src/schedulers/README.md) for details.
+
+**DBOS Disabled**: DBOS workflows are disabled to avoid $75/month DB keep-alive costs. The code is preserved and can be re-enabled - see the schedulers README for instructions. Search for `# DBOS DISABLED` to find all disabled code.
+
+---
+
 ## Database
 
 **Provider**: Neon Postgres (remote) or local PostgreSQL (Claude Code on web)
@@ -245,6 +257,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
 | [`api/README.md`](api/README.md) | FastAPI run commands |
 | [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
+| [`api/src/schedulers/README.md`](api/src/schedulers/README.md) | Scheduler setup (APScheduler active, DBOS disabled) |
 | [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) | PR database branching workflow |
 | [`.cursor/rules/`](.cursor/rules/) | AI coding guidelines (general, fastapi, react) |
 | [`roadmap.md`](roadmap.md) | Project roadmap and future plans |

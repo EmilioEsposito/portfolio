@@ -1,12 +1,11 @@
 import os
 import json
 import logfire
-from fastapi import APIRouter, Request, Depends, HTTPException, Header, Response
+from fastapi import APIRouter, Request, HTTPException, Header, Response
 from svix.webhooks import Webhook, WebhookVerificationError
-from sqlalchemy.ext.asyncio import AsyncSession
 from dotenv import load_dotenv
 
-from api.src.database.database import get_session
+from api.src.database.database import DBSession
 from api.src.user.service import upsert_user, delete_user
 
 # Load environment variables (especially CLERK_WEBHOOK_SIGNING_SECRET)
@@ -36,10 +35,10 @@ webhook_prod = Webhook(PROD_CLERK_WEBHOOK_SECRET) if PROD_CLERK_WEBHOOK_SECRET e
 @router.post("/user/webhook/clerk", status_code=200)
 async def handle_clerk_webhook(
     request: Request,
+    db: DBSession,
     svix_id: str | None = Header(None),
     svix_timestamp: str | None = Header(None),
     svix_signature: str | None = Header(None),
-    db: AsyncSession = Depends(get_session)
 ):
     """Handles incoming webhooks from Clerk for user events, trying multiple secrets."""
     logfire.info("Received Clerk webhook request")

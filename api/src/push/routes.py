@@ -1,23 +1,19 @@
 import logfire
-from fastapi import APIRouter, Depends, HTTPException, Body
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Body
 from typing import Annotated
-from clerk_backend_api import User # Import Clerk User model
 
-from api.src.database.database import get_session # Assuming get_session provides DB session
-from api.src.utils.clerk import get_auth_user # Import your actual user dependency
+from api.src.database.database import DBSession
+from api.src.utils.clerk import AuthUser
 from . import service
-from .models import PushToken # Import model for potential future use
+from .models import PushToken
 
-# Define router with prefix and tags
 router = APIRouter(prefix="/push", tags=["push"])
 
 @router.post("/register", status_code=201)
 async def register_push_token(
     token_body: Annotated[dict, Body(embed=True, example={"token": "ExponentPushToken[...token..."})],
-    # Use the get_auth_user dependency to get Clerk user object
-    user: Annotated[User, Depends(get_auth_user)], 
-    db: Annotated[AsyncSession, Depends(get_session)]
+    user: AuthUser,
+    db: DBSession
 ):
     """Registers an Expo push token for the currently authenticated user."""
     token = token_body.get("token")

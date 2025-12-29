@@ -16,6 +16,8 @@ import {
   Sun,
   Blocks,
   MessagesSquare,
+  ShieldCheck,
+  ClipboardCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -137,6 +139,22 @@ export function AppSidebar() {
           icon: Inbox,
           onClick: toggleSidebarIfMobile,
         },
+        ...(isSerniaCapitalUser ? [
+          {
+            type: "navigation" as const,
+            title: "HITL Agent Chat",
+            url: "/hitl-agent-chat",
+            icon: ShieldCheck,
+            onClick: toggleSidebarIfMobile,
+          },
+          {
+            type: "navigation" as const,
+            title: "HITL Approval Queue",
+            url: "/hitl-agent-workflow",
+            icon: ClipboardCheck,
+            onClick: toggleSidebarIfMobile,
+          },
+        ] : []),
       ],
     },
     {
