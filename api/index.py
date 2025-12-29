@@ -8,7 +8,7 @@ import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 ensure_logfire_configured(mode="prod", service_name="fastapi")
-logfire.info("FastAPI index.py starting...")
+logfire.info("STARTUP0: FastAPI index.py starting...")
 
 # --- Logfire Instrumentation ---
 # AI/LLM Instrumentation
@@ -23,16 +23,17 @@ logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc
 # asyncpg instrumentation is noisy with DBOS; rely on SQLAlchemy instead
 # logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
 # SQLAlchemy instrumentation for query-level tracing (app engines only)
-from api.src.database.database import (
-    engine as async_engine,
-    sync_engine,
-    test_database_connections
-)
-engines_to_instrument = [async_engine]
-if sync_engine is not None:
-    engines_to_instrument.append(sync_engine)
+with logfire.span("Database"):
+    from api.src.database.database import (
+        engine as async_engine,
+        sync_engine,
+        test_database_connections
+    )
+    engines_to_instrument = [async_engine]
+    if sync_engine is not None:
+        engines_to_instrument.append(sync_engine)
 
-logfire.instrument_sqlalchemy(engines=engines_to_instrument)
+    logfire.instrument_sqlalchemy(engines=engines_to_instrument)
 
 # Validation Instrumentation
 # logfire.instrument_pydantic()  # Pydantic model validation tracing. Commented out because it's very verbose.
@@ -46,12 +47,15 @@ from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
 import strawberry
 from starlette.middleware.sessions import SessionMiddleware
+logfire.info("STARTUP1")
 
 # Import from api.src
-from api.src.ai.chat_weather.routes import router as chat_weather_router
-from api.src.ai.chat_emilio.routes import router as chat_emilio_router
-from api.src.ai.multi_agent_chat.routes import router as multi_agent_chat_router
-from api.src.ai.hitl_agents.routes import router as hitl_agents_router
+with logfire.span("Creating AI Agent Routes"):
+    from api.src.ai.chat_weather.routes import router as chat_weather_router
+    from api.src.ai.chat_emilio.routes import router as chat_emilio_router
+    from api.src.ai.multi_agent_chat.routes import router as multi_agent_chat_router
+    from api.src.ai.hitl_agents.routes import router as hitl_agents_router
+
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
 from api.src.google.common.routes import router as google_router
@@ -65,6 +69,7 @@ from api.src.dbos_service.routes import router as dbos_router
 from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
 from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
 from api.src.dbos_service.examples.hello_dbos import hello_workflow
+
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.schedulers.routes import router as schedulers_router
 
@@ -76,7 +81,6 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
-
 
 
 # Verify critical environment variables
@@ -128,7 +132,6 @@ def _dbos_startup_sync() -> None:
                 register_clickup_dbos_jobs()  # just make sure the service module is imported
 
         # Keep existing behavior, but run it after DBOS is up and off the main startup path.
-        hello_workflow(5)
         logfire.info("DBOS background startup completed successfully.")
     except Exception as e:
         # Don't take down the API if DBOS fails to launch; log loudly instead.
@@ -156,26 +159,26 @@ async def _apscheduler_startup_async() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    logfire.info("LIFESPAN: FastAPI index.py startup...")
-    try:
-        await test_database_connections()
+    with logfire.span("LIFESPAN: FastAPI index.py"):
+        try:
+            await test_database_connections()
 
-        # Start APScheduler in the background so FastAPI can begin serving immediately.
-        app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
+            # Start APScheduler in the background so FastAPI can begin serving immediately.
+            app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
 
-        # IMPORTANT: Capture scheduled workflow info BEFORE launch_dbos().
-        # Keep this synchronous so the /dbos endpoints can respond immediately.
-        with logfire.span("capture_scheduled_workflows"):
-            capture_scheduled_workflows()
+            # IMPORTANT: Capture scheduled workflow info BEFORE launch_dbos().
+            # Keep this synchronous so the /dbos endpoints can respond immediately.
+            with logfire.span("capture_scheduled_workflows"):
+                capture_scheduled_workflows()
 
-        # Start DBOS in the background so FastAPI can begin serving immediately.
-        # Store task so we can introspect it later if needed.
-        app.state.dbos_startup_task = asyncio.create_task(asyncio.to_thread(_dbos_startup_sync))
+            # Start DBOS in the background so FastAPI can begin serving immediately.
+            # Store task so we can introspect it later if needed.
+            app.state.dbos_startup_task = asyncio.create_task(asyncio.to_thread(_dbos_startup_sync))
 
-        logfire.info("LIFESPAN: FastAPI index.py startup completed successfully.")
-    except Exception as e:
-        logfire.exception(f"Error during startup: {e}")
-        raise
+            logfire.info("LIFESPAN: FastAPI index.py startup completed successfully.")
+        except Exception as e:
+            logfire.exception(f"Error during startup: {e}")
+            raise
 
     yield # Application runs here
 
