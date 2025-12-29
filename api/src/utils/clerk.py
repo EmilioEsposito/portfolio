@@ -92,22 +92,22 @@ async def get_auth_user(request: Request) -> User:
 #   async def my_route(user: AuthUser):
 AuthUser = Annotated[User, Depends(get_auth_user)]
 
-async def verify_domain(request: Request, domain: str) -> bool:
+async def verify_domain(request: Request, domain: str) -> User:
     """
     FastAPI dependency that verifies if the user has a verified email from a specific domain.
-    
+
     Args:
         request: FastAPI request object
         domain: Domain to verify (e.g. "@serniacapital.com")
 
     Returns:
-        True if authorized. Raises HTTPException with status 401 if not authorized.
+        The authenticated User if authorized. Raises HTTPException with status 401 if not authorized.
     """
     user: User = await get_auth_user(request)
     for email in user.email_addresses:
         if email.email_address.endswith(domain) and email.verification and email.verification.status == "verified":
             logfire.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success
-            return True # Early exit: user is authorized
+            return user  # Return the user instead of True
 
     # If the loop completes, it means no verified email for the domain was found.
     raise HTTPException(
@@ -115,11 +115,16 @@ async def verify_domain(request: Request, domain: str) -> bool:
         detail=f"User is not authorized to access this resource. Please use a verified {domain} email.",
     )
 
-async def verify_serniacapital_user(request: Request):
+async def verify_serniacapital_user(request: Request) -> User:
     """
     FastAPI dependency that verifies if the user has a verified email from @serniacapital.com.
+    Returns the authenticated User object.
     """
     return await verify_domain(request, "@serniacapital.com")
+
+
+# Type alias for Sernia Capital authenticated users - combines auth + domain verification in one call
+SerniaUser = Annotated[User, Depends(verify_serniacapital_user)]
     
 async def get_google_credentials(request: Request) -> Credentials:
     """

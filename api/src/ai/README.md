@@ -1,20 +1,38 @@
-# AI Chat Examples
+# AI Agents
 
-This directory now contains three standalone chat agents plus a graph-driven multi-agent router. Each folder exposes its own `routes.py` so the backend and frontend can showcase the agents independently.
+This directory contains AI agents built with PydanticAI.
 
 ```
 ai/
-├─ chat_emilio/          # Portfolio assistant (tools + /api/ai/chat-emilio)
-│  ├─ agent.py
-│  └─ routes.py
-├─ chat_weather/         # Weather + general chat (/api/ai/chat-weather)
-│  ├─ agent.py
-│  └─ routes.py
-└─ multi_agent_chat/     # Graph router that fans out to the leaf agents
-   ├─ decision_agent.py
-   ├─ graph.py
-   └─ routes.py          # /api/ai/multi-agent-chat
+├─ models.py                # Shared: AgentConversation model, persistence helpers
+├─ agent_run_patching.py    # Shared: Auto-persistence patch for agents
+├─ chat_emilio/             # Portfolio assistant (/api/ai/chat-emilio)
+├─ chat_weather/            # Weather + general chat (/api/ai/chat-weather)
+├─ multi_agent_chat/        # Graph router that fans out to leaf agents
+└─ hitl_agents/             # Human-in-the-Loop agents with approval workflows
 ```
+
+## Agent Run Patching (Auto-Persistence)
+
+Agents that need conversation persistence can use the `patch_run_with_persistence` helper. This patches `agent.run()` to automatically save results to the database after each run.
+
+```python
+from api.src.ai.agent_run_patching import patch_run_with_persistence
+
+my_agent = Agent(...)
+patch_run_with_persistence(my_agent)
+
+# Now agent.run() automatically persists to DB when deps has conversation_id
+result = await my_agent.run(
+    user_prompt="Hello",
+    deps=MyContext(clerk_user_id="user_123", conversation_id="conv_456"),
+)
+# ✓ Conversation saved to agent_conversations table
+```
+
+**Requirements:**
+- Agent's `deps` must have `conversation_id` and `clerk_user_id` attributes (or be a dict with those keys)
+- If `conversation_id` is None, persistence is skipped (useful for one-off queries)
 
 ## Quick checks
 

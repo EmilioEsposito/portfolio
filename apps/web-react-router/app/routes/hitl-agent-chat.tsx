@@ -56,6 +56,19 @@ const suggestedPrompts = [
   { title: "Send a reminder", prompt: "Send a reminder to Emilio about the meeting tomorrow" },
 ];
 
+// Convert pending from API format (snake_case array) to frontend format (camelCase single)
+// API returns: [{tool_call_id, tool_name, args}, ...] or empty array/null
+// Frontend expects: {toolCallId, toolName, args} or null
+function convertPendingFromApi(pending: any[] | null): PendingApproval | null {
+  if (!pending || pending.length === 0) return null;
+  const first = pending[0];
+  return {
+    toolCallId: first.tool_call_id,
+    toolName: first.tool_name,
+    args: first.args || {},
+  };
+}
+
 interface PendingApproval {
   toolCallId: string;
   toolName: string;
@@ -77,14 +90,14 @@ function ToolApprovalCard({
   getToken: () => Promise<string | null>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editedBody, setEditedBody] = useState(pending.args.body || "");
+  const [editedBody, setEditedBody] = useState(pending.args?.body || "");
   const [processing, setProcessing] = useState(false);
 
   const handleApproval = async (approved: boolean) => {
     setProcessing(true);
     try {
       const token = await getToken();
-      const overrideArgs = isEditing && editedBody !== pending.args.body
+      const overrideArgs = isEditing && editedBody !== pending.args?.body
         ? { body: editedBody }
         : undefined;
 
@@ -98,10 +111,12 @@ function ToolApprovalCard({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          tool_call_id: pending.toolCallId,
-          approved,
-          override_args: overrideArgs,
-          reason: approved ? undefined : "Denied by user",
+          decisions: [{
+            tool_call_id: pending.toolCallId,
+            approved,
+            override_args: overrideArgs,
+            reason: approved ? undefined : "Denied by user",
+          }],
         }),
       });
 
@@ -135,13 +150,13 @@ function ToolApprovalCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Recipient */}
-        {pending.args.to && (
+        {pending.args?.to && (
           <div className="text-sm">
             <Label className="text-muted-foreground text-xs">To</Label>
             <p className="font-mono">{pending.args.to}</p>
           </div>
         )}
-        {!pending.args.to && (
+        {!pending.args?.to && (
           <div className="text-sm">
             <Label className="text-muted-foreground text-xs">To</Label>
             <p className="font-mono text-muted-foreground">Default (Emilio)</p>
@@ -173,7 +188,7 @@ function ToolApprovalCard({
                 className="min-h-[80px] bg-background"
                 disabled={isDisabled}
               />
-              {editedBody !== pending.args.body && (
+              {editedBody !== pending.args?.body && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Modified - will override AI's suggestion
                 </p>
@@ -183,7 +198,7 @@ function ToolApprovalCard({
                 size="sm"
                 onClick={() => {
                   setIsEditing(false);
-                  setEditedBody(pending.args.body || "");
+                  setEditedBody(pending.args?.body || "");
                 }}
                 disabled={isDisabled}
               >
@@ -192,7 +207,7 @@ function ToolApprovalCard({
             </div>
           ) : (
             <p className="p-2 bg-background rounded border whitespace-pre-wrap">
-              {pending.args.body}
+              {pending.args?.body || "(No message body)"}
             </p>
           )}
         </div>
@@ -239,7 +254,10 @@ function ToolResultCard({
   result: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const isDenied = result === "Denied by user" || result.toLowerCase().includes("denied");
+  // Check if this specific result indicates denial (not just any mention of "denied")
+  const isDenied = result === "Denied by user" ||
+    result === "The tool call was denied." ||
+    result.startsWith("Denied:");
 
   return (
     <Card className={cn(
@@ -456,7 +474,7 @@ export default function HITLAgentChatPage() {
       // Store the loaded messages to set after transport is ready
       // Keep isLoadingConversation=true until messages are applied in the effect below
       pendingMessagesRef.current = data.messages || [];
-      pendingApprovalRef.current = data.pending || null;
+      pendingApprovalRef.current = convertPendingFromApi(data.pending);
     } catch (err) {
       console.error("Failed to load conversation:", err);
       navigate("/hitl-agent-chat", { replace: true });
@@ -668,6 +686,14 @@ export default function HITLAgentChatPage() {
   const handleApprovalComplete = useCallback((result: any) => {
     setPendingApproval(null);
 
+    // Build a map of tool_call_id -> approved status from the response
+    const decisionMap = new Map<string, boolean>();
+    if (result.decisions) {
+      for (const d of result.decisions) {
+        decisionMap.set(d.tool_call_id, d.approved);
+      }
+    }
+
     // Update the last message to include the tool result, then add the agent's response
     setMessages((prev: any[]) => {
       const updated = [...prev];
@@ -681,10 +707,13 @@ export default function HITLAgentChatPage() {
           lastMsg.parts = lastMsg.parts.map((part: any) => {
             if (part.type?.startsWith("tool-") && part.state === "input-available") {
               const toolName = part.type.replace("tool-", "");
+              // Look up approval status from decisions, default to true if not found
+              const toolCallId = part.toolCallId;
+              const wasApproved = toolCallId ? decisionMap.get(toolCallId) ?? true : true;
               return {
                 ...part,
                 state: "output-available",
-                output: result.approved
+                output: wasApproved
                   ? `${toolName} completed successfully`
                   : "Denied by user",
               };
@@ -827,7 +856,7 @@ export default function HITLAgentChatPage() {
       // Store messages in refs to apply after transport is ready
       // Keep isLoadingConversation=true until messages are applied in the effect
       pendingMessagesRef.current = data.messages || [];
-      pendingApprovalRef.current = data.pending || null;
+      pendingApprovalRef.current = convertPendingFromApi(data.pending);
 
       setHistoryOpen(false);
     } catch (err) {

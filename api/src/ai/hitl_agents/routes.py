@@ -31,9 +31,9 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 from api.src.ai.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,
     HITLAgentContext,
-    run_agent_with_persistence,
-    resume_with_approval,
-    extract_pending_approval,
+    resume_with_approvals,
+    extract_pending_approvals,
+    ApprovalDecision,
 )
 from api.src.ai.models import (
     persist_agent_run_result,
@@ -45,13 +45,13 @@ from api.src.ai.models import (
     extract_pending_approval_from_messages,
 )
 from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.clerk import verify_serniacapital_user, AuthUser
+from api.src.utils.clerk import SerniaUser
 from api.src.database.database import DBSession
 
 router = APIRouter(
     prefix="/ai/hitl-agent",
     tags=["hitl-agent"],
-    dependencies=[Depends(verify_serniacapital_user)]
+    # Note: Domain verification is handled by SerniaUser dependency on each route
 )
 
 
@@ -93,7 +93,7 @@ class _ModifiedJsonRequest:
 
 
 @router.post("/chat", response_class=Response, responses=_CHAT_RESPONSES)
-async def chat(request: Request, user: AuthUser, session: DBSession) -> Response:
+async def chat(request: Request, user: SerniaUser, session: DBSession) -> Response:
     """
     Streaming chat endpoint for real-time interaction.
 
@@ -166,42 +166,48 @@ class StartConversationRequest(BaseModel):
     prompt: str
 
 
-class ApprovalRequest(BaseModel):
+class ApprovalDecisionRequest(BaseModel):
+    """A single approval decision for one tool call."""
     tool_call_id: str
     approved: bool
     reason: str | None = None
     override_args: dict | None = None  # e.g., {"body": "modified message"}
 
 
+class ApprovalRequest(BaseModel):
+    """Batch approval request for one or more tool calls."""
+    decisions: list[ApprovalDecisionRequest]
+
+
 @router.post("/workflow/start")
-async def start_workflow(body: StartConversationRequest, user: AuthUser):
+async def start_workflow(body: StartConversationRequest, user: SerniaUser):
     """
     Start a new workflow conversation with the agent (non-streaming).
 
     If the agent needs approval (e.g., for send_sms), the response includes
-    pending approval details. The conversation is saved to DB.
+    pending approval details as a list. The conversation is saved to DB.
     """
     conversation_id = str(uuid.uuid4())
     clerk_user_id = user.id
 
-    result = await run_agent_with_persistence(
-        prompt=body.prompt,
-        conversation_id=conversation_id,
-        clerk_user_id=clerk_user_id,
+    # Agent has persistence patch applied - automatically saves to DB after run
+    result = await hitl_sms_agent.run(
+        user_prompt=body.prompt,
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
     )
 
-    pending = extract_pending_approval(result)
+    pending = extract_pending_approvals(result)
 
     return {
         "conversation_id": conversation_id,
         "output": result.output if isinstance(result.output, str) else None,
-        "pending": pending,
+        "pending": pending,  # Always a list (empty if no approvals needed)
         "status": "pending_approval" if pending else "completed",
     }
 
 
 @router.get("/conversation/{conversation_id}")
-async def get_conversation(conversation_id: str, user: AuthUser):
+async def get_conversation(conversation_id: str, user: SerniaUser):
     """
     Get conversation details including pending approval info.
     Only accessible by the conversation owner.
@@ -223,47 +229,60 @@ async def get_conversation(conversation_id: str, user: AuthUser):
 
 
 @router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: AuthUser):
+async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: SerniaUser):
     """
-    Approve or deny a pending tool call.
+    Approve or deny pending tool calls (batch).
     Only accessible by the conversation owner.
 
-    This resumes the agent with the approval decision and returns the final result.
+    This resumes the agent with approval decisions and returns the result.
+    If the agent requests more approvals, they'll be in the pending list.
     """
-    logfire.info(f"Approve request for conversation_id: {conversation_id}")
+    logfire.info(f"Approve request for conversation_id: {conversation_id}, decisions: {len(body.decisions)}")
     clerk_user_id = user.id
 
     try:
-        # resume_with_approval applies clerk_user_id filter when loading messages
-        result = await resume_with_approval(
+        # Convert request models to domain objects
+        decisions = [
+            ApprovalDecision(
+                tool_call_id=d.tool_call_id,
+                approved=d.approved,
+                override_args=d.override_args,
+                denial_reason=d.reason,
+            )
+            for d in body.decisions
+        ]
+
+        result = await resume_with_approvals(
             conversation_id=conversation_id,
-            tool_call_id=body.tool_call_id,
-            approved=body.approved,
-            override_args=body.override_args,
-            denial_reason=body.reason,
+            decisions=decisions,
             clerk_user_id=clerk_user_id,
         )
 
-        # Check if there's another pending approval (unlikely but possible)
-        pending = extract_pending_approval(result)
+        # Check if there are more pending approvals
+        pending = extract_pending_approvals(result)
+
+        # Return the decisions with their approval status for UI display
+        processed_decisions = [
+            {"tool_call_id": d.tool_call_id, "approved": d.approved}
+            for d in body.decisions
+        ]
 
         return {
             "conversation_id": conversation_id,
             "output": result.output if isinstance(result.output, str) else None,
-            "pending": pending,
+            "pending": pending,  # Always a list
             "status": "pending_approval" if pending else "completed",
-            "approved": body.approved,
+            "decisions": processed_decisions,  # What was approved/denied
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        # TODO: handle case with multiple pending approvals
         logfire.error(f"Error approving conversation {conversation_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/workflow/pending")
-async def list_pending_workflows(user: AuthUser, session: DBSession):
+async def list_pending_workflows(user: SerniaUser, session: DBSession):
     """
     List workflow conversations with pending approvals for the authenticated user.
     """
@@ -279,7 +298,7 @@ async def list_pending_workflows(user: AuthUser, session: DBSession):
 
 
 @router.get("/conversations/history")
-async def get_conversation_history(user: AuthUser, limit: int = 20):
+async def get_conversation_history(user: SerniaUser, limit: int = 20):
     """
     List conversations for the authenticated user.
     Returns recent conversations sorted by updated_at desc.
@@ -300,7 +319,7 @@ async def get_conversation_history(user: AuthUser, limit: int = 20):
 @router.get("/conversation/{conversation_id}/messages")
 async def get_conversation_messages_endpoint(
     conversation_id: str,
-    user: AuthUser,
+    user: SerniaUser,
     session: DBSession,
 ):
     """
@@ -332,7 +351,7 @@ async def get_conversation_messages_endpoint(
 
 
 @router.delete("/conversation/{conversation_id}")
-async def delete_conversation_endpoint(conversation_id: str, user: AuthUser):
+async def delete_conversation_endpoint(conversation_id: str, user: SerniaUser):
     """
     Delete a conversation.
     Only accessible by the conversation owner.

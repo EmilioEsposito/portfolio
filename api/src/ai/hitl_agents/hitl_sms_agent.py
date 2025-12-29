@@ -94,62 +94,61 @@ def extract_pending_approval(result: AgentRunResult) -> dict | None:
         "tool_name": str,
         "args": dict,
     }
+
+    Note: For multiple approvals, use extract_pending_approvals() instead.
+    This function returns only the first approval for backward compatibility.
+    """
+    approvals = extract_pending_approvals(result)
+    return approvals[0] if approvals else None
+
+
+def extract_pending_approvals(result: AgentRunResult) -> list[dict]:
+    """
+    Extract all pending approval info from an agent result.
+
+    Returns empty list if no approvals are pending, otherwise returns list of:
+    {
+        "tool_call_id": str,
+        "tool_name": str,
+        "args": dict,
+    }
     """
     if not isinstance(result.output, DeferredToolRequests):
-        return None
+        return []
 
     if not result.output.approvals:
-        return None
+        return []
 
-    approval = result.output.approvals[0]
-    return {
-        "tool_call_id": approval.tool_call_id,
-        "tool_name": approval.tool_name,
-        "args": json.loads(approval.args) if isinstance(approval.args, str) else approval.args,
-    }
-
-
-async def run_agent_with_persistence(
-    prompt: str,
-    conversation_id: str | None = None,
-    clerk_user_id: str = "anonymous",
-    message_history: list[ModelMessage] | None = None,
-    deferred_tool_results: DeferredToolResults | None = None,
-) -> AgentRunResult:
-    """
-    Run the agent - persistence is handled automatically by the patched run method.
-
-    This is used for both initial runs and resumed runs after approval.
-    """
-    conversation_id = conversation_id or str(uuid.uuid4())
-
-    result = await hitl_sms_agent.run(
-        user_prompt=prompt if not message_history else None,
-        message_history=message_history,
-        deferred_tool_results=deferred_tool_results,
-        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
-    )
-
-    return result
+    return [
+        {
+            "tool_call_id": approval.tool_call_id,
+            "tool_name": approval.tool_name,
+            "args": json.loads(approval.args) if isinstance(approval.args, str) else approval.args,
+        }
+        for approval in result.output.approvals
+    ]
 
 
-async def resume_with_approval(
+@dataclass
+class ApprovalDecision:
+    """A single approval/denial decision for a tool call."""
+    tool_call_id: str
+    approved: bool
+    override_args: dict | None = None
+    denial_reason: str | None = None
+
+
+async def resume_with_approvals(
     conversation_id: str,
-    tool_call_id: str,
-    approved: bool,
-    override_args: dict | None = None,
-    denial_reason: str | None = None,
+    decisions: list[ApprovalDecision],
     clerk_user_id: str = "anonymous",
 ) -> AgentRunResult:
     """
-    Resume a paused agent with an approval decision.
+    Resume a paused agent with approval decisions.
 
     Args:
         conversation_id: ID of the conversation to resume
-        tool_call_id: ID of the tool call being approved/denied
-        approved: Whether to approve or deny
-        override_args: Optional dict to override tool arguments (e.g., {"body": "new message"})
-        denial_reason: Reason for denial (if denied)
+        decisions: List of approval decisions for pending tool calls
         clerk_user_id: Clerk user ID for tracking and ownership
     """
     # Load conversation history from database
@@ -160,15 +159,15 @@ async def resume_with_approval(
     if not messages:
         raise ValueError(f"No conversation found with ID: {conversation_id}")
 
-    # Build approval/denial decision
-    if approved:
-        decision = ToolApproved(override_args=override_args)
-    else:
-        decision = ToolDenied(denial_reason or "Denied by user")
+    # Build approval/denial decisions for all tool calls
+    approvals_dict = {}
+    for decision in decisions:
+        if decision.approved:
+            approvals_dict[decision.tool_call_id] = ToolApproved(override_args=decision.override_args)
+        else:
+            approvals_dict[decision.tool_call_id] = ToolDenied(decision.denial_reason or "Denied by user")
 
-    deferred_results = DeferredToolResults(
-        approvals={tool_call_id: decision}
-    )
+    deferred_results = DeferredToolResults(approvals=approvals_dict)
 
     # Resume the agent - persistence is handled automatically by the patched run method
     result = await hitl_sms_agent.run(
@@ -186,34 +185,39 @@ if __name__ == "__main__":
     import asyncio
 
     async def demo():
-        print("=== HITL Agent 3 Demo ===\n")
+        print("=== HITL SMS Agent Demo ===\n")
 
         # Step 1: First run - agent proposes an action
         print("Step 1: Running agent with SMS request...")
         conversation_id = str(uuid.uuid4())
 
-        result = await run_agent_with_persistence(
-            prompt="Send a friendly hello to Emilio",
-            conversation_id=conversation_id,
-            clerk_user_id="demo_user",
+        # Use agent.run directly - persistence patch handles saving to DB
+        result = await hitl_sms_agent.run(
+            user_prompt="Send a friendly hello to Emilio",
+            deps=HITLAgentContext(clerk_user_id="demo_user", conversation_id=conversation_id),
         )
 
-        pending = extract_pending_approval(result)
-        if pending:
-            print(f"✓ Agent returned DeferredToolRequests")
-            print(f"  Tool: {pending['tool_name']}")
-            print(f"  Args: {pending['args']}")
+        pending_list = extract_pending_approvals(result)
+        if pending_list:
+            print(f"✓ Agent returned DeferredToolRequests with {len(pending_list)} pending approval(s)")
+            for p in pending_list:
+                print(f"  - Tool: {p['tool_name']}, Args: {p['args']}")
             print(f"  Conversation saved to DB: {conversation_id}\n")
 
             # Step 2: Simulate user approval with modified message
-            print("Step 2: Approving with modified message...")
-            modified_body = f"[APPROVED] {pending['args'].get('body', '')}"
+            print("Step 2: Approving all pending tool calls...")
+            decisions = [
+                ApprovalDecision(
+                    tool_call_id=p["tool_call_id"],
+                    approved=True,
+                    override_args={"body": f"[APPROVED] {p['args'].get('body', '')}"} if p['tool_name'] == 'send_sms' else None,
+                )
+                for p in pending_list
+            ]
 
-            final = await resume_with_approval(
+            final = await resume_with_approvals(
                 conversation_id=conversation_id,
-                tool_call_id=pending["tool_call_id"],
-                approved=True,
-                override_args={"body": modified_body},
+                decisions=decisions,
                 clerk_user_id="demo_user",
             )
 
@@ -221,14 +225,5 @@ if __name__ == "__main__":
             print(f"  Final output: {final.output}\n")
         else:
             print(f"Result (no approval needed): {result.output}")
-
-        # Step 3: List pending conversations
-        print("Step 3: Listing pending conversations...")
-        from api.src.ai.models import list_pending_conversations
-        pending_convs = await list_pending_conversations(
-            agent_name=hitl_sms_agent.name,
-            clerk_user_id="demo_user",
-        )
-        print(f"  Found {len(pending_convs)} pending conversations")
 
     asyncio.run(demo())

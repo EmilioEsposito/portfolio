@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Any
-from sqlalchemy import String, DateTime, func, JSON, select, desc
+from sqlalchemy import String, DateTime, func, JSON, select, desc, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -24,6 +24,10 @@ from api.src.database.database import Base, AsyncSessionFactory, provide_session
 
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
+    __table_args__ = (
+        # Composite index for efficient listing by user + agent with ordering
+        Index("ix_agent_conv_user_agent_updated", "clerk_user_id", "agent_name", "updated_at"),
+    )
 
     # conversation_id is used as the primary key
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
@@ -263,61 +267,59 @@ async def list_user_conversations(
 
     Returns conversations sorted by updated_at desc with summary info.
     """
+    from sqlalchemy import text
+
     async with provide_session(session) as s:
-        stmt = (
-            select(AgentConversation)
-            .where(AgentConversation.agent_name == agent_name)
-            .where(AgentConversation.clerk_user_id == clerk_user_id)
-            .order_by(desc(AgentConversation.updated_at))
-            .limit(limit)
-        )
-        result = await s.execute(stmt)
-        conversations = result.scalars().all()
+        # Use raw SQL to extract preview at DB level - avoids loading full messages JSON
+        # Preview is extracted from: messages[0].parts[0].content (first user message)
+        query = text("""
+            SELECT
+                id,
+                agent_name,
+                clerk_user_id,
+                LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100) as preview,
+                created_at,
+                updated_at
+            FROM agent_conversations
+            WHERE agent_name = :agent_name
+              AND clerk_user_id = :clerk_user_id
+            ORDER BY updated_at DESC
+            LIMIT :limit
+        """)
+
+        result = await s.execute(query, {
+            "agent_name": agent_name,
+            "clerk_user_id": clerk_user_id,
+            "limit": limit,
+        })
+        rows = result.fetchall()
 
         conv_list = []
-        for conv in conversations:
-            messages = await get_conversation_messages(conv.id, clerk_user_id, session=s)
+        for row in rows:
+            # For pending_only filter, we need to check pending status
+            # This requires loading the full messages - only do it when filtering
+            has_pending = False
+            pending: list[dict] = []
 
-            # Check for pending approval
-            pending = extract_pending_approval_from_messages(messages)
-
-            # Skip non-pending if pending_only filter is set
-            if pending_only and not pending:
-                continue
-
-            # Extract first user message as preview
-            preview = ""
-            for msg in messages:
-                if isinstance(msg, ModelRequest):
-                    for part in msg.parts:
-                        # UserPromptPart contains the user's message text
-                        if isinstance(part, UserPromptPart):
-                            # UserPromptPart.content can be str or list
-                            content = part.content
-                            if isinstance(content, str):
-                                preview = content[:100]
-                            elif isinstance(content, list):
-                                # Extract text from list of content parts
-                                for item in content:
-                                    if isinstance(item, str):
-                                        preview = item[:100]
-                                        break
-                                    elif hasattr(item, 'text'):
-                                        preview = item.text[:100]
-                                        break
-                            break
-                    if preview:
-                        break
+            if pending_only:
+                # Load full conversation to check pending status
+                conv = await get_agent_conversation(s, row.id, clerk_user_id)
+                if conv and conv.messages:
+                    messages = ModelMessagesTypeAdapter.validate_python(conv.messages)
+                    pending = extract_pending_approval_from_messages(messages)
+                    has_pending = len(pending) > 0
+                    if not has_pending:
+                        continue  # Skip non-pending conversations
 
             conv_list.append({
-                "conversation_id": conv.id,
-                "agent_name": conv.agent_name,
-                "clerk_user_id": conv.clerk_user_id,
-                "preview": preview,
-                "pending": pending,  # Full pending info (or None)
-                "has_pending": pending is not None,  # Boolean for quick checks
-                "created_at": conv.created_at.isoformat() if conv.created_at else None,
-                "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                "conversation_id": row.id,
+                "agent_name": row.agent_name,
+                "clerk_user_id": row.clerk_user_id,
+                "preview": row.preview or "",
+                "pending": pending,
+                "has_pending": has_pending,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             })
 
         return conv_list
@@ -367,9 +369,9 @@ async def delete_conversation(
 # Pending Approval Utilities
 # =============================================================================
 
-def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> dict | None:
+def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list[dict]:
     """
-    Extract pending approval info from stored messages.
+    Extract all pending approval info from stored messages.
 
     A tool call is pending if:
     1. There's a ToolCallPart in a ModelResponse
@@ -378,6 +380,8 @@ def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> dict
     This works because:
     - First run: [ModelRequest(user), ModelResponse(ToolCallPart)] - pending
     - After approval: [ModelRequest(user), ModelResponse(ToolCallPart), ModelRequest(ToolReturnPart), ModelResponse(text)] - not pending
+
+    Returns a list of pending approvals (empty if none).
     """
     # Collect all tool_call_ids that have been returned (executed)
     returned_tool_ids: set[str] = set()
@@ -387,19 +391,19 @@ def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> dict
                 if isinstance(part, ToolReturnPart):
                     returned_tool_ids.add(part.tool_call_id)
 
-    # Find tool calls that haven't been returned yet (pending approval)
-    for msg in reversed(messages):
+    # Find all tool calls that haven't been returned yet (pending approval)
+    pending: list[dict] = []
+    for msg in messages:
         if isinstance(msg, ModelResponse):
             for part in msg.parts:
                 if isinstance(part, ToolCallPart):
                     if part.tool_call_id not in returned_tool_ids:
-                        # This tool call has no corresponding return - it's pending
-                        return {
+                        pending.append({
                             "tool_call_id": part.tool_call_id,
                             "tool_name": part.tool_name,
                             "args": json.loads(part.args) if isinstance(part.args, str) else part.args,
-                        }
-    return None
+                        })
+    return pending
 
 
 async def get_conversation_with_pending(

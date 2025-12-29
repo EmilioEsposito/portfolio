@@ -50,7 +50,7 @@ interface Conversation {
   conversation_id: string;
   agent_name: string;
   clerk_user_id: string | null;
-  pending: PendingApproval | null;
+  pending: PendingApproval[];  // Always a list (empty if none)
   created_at: string | null;
   updated_at: string | null;
 }
@@ -118,14 +118,14 @@ export default function HITLAgentWorkflowPage() {
 
       const result = await res.json();
 
-      // If there's a pending approval, add it to the list
-      if (result.pending) {
+      // If there are pending approvals, add to the list
+      if (result.pending && result.pending.length > 0) {
         setConversations((prev) => [
           {
             conversation_id: result.conversation_id,
             agent_name: "hitl_sms_agent",
             clerk_user_id: null,
-            pending: result.pending,
+            pending: result.pending,  // Already a list from backend
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
@@ -143,18 +143,30 @@ export default function HITLAgentWorkflowPage() {
 
   const handleApproval = async (conversationId: string, approved: boolean) => {
     const conv = conversations.find((c) => c.conversation_id === conversationId);
-    if (!conv?.pending || !isSignedIn) return;
+    if (!conv?.pending || conv.pending.length === 0 || !isSignedIn) return;
 
     setProcessingId(conversationId);
     setError(null);
 
     try {
       const token = await getToken();
-      const overrideBody = editedBodies[conversationId];
-      const overrideArgs =
-        overrideBody && overrideBody !== conv.pending.args.body
-          ? { body: overrideBody }
-          : undefined;
+
+      // Build batch decisions for all pending approvals
+      const decisions = conv.pending.map((p) => {
+        const editKey = `${conversationId}:${p.tool_call_id}`;
+        const overrideBody = editedBodies[editKey];
+        const overrideArgs =
+          overrideBody && overrideBody !== p.args.body
+            ? { body: overrideBody }
+            : undefined;
+
+        return {
+          tool_call_id: p.tool_call_id,
+          approved,
+          override_args: overrideArgs,
+          reason: approved ? undefined : "Denied by user",
+        };
+      });
 
       const res = await fetch(`/api/ai/hitl-agent/conversation/${conversationId}/approve`, {
         method: "POST",
@@ -162,23 +174,26 @@ export default function HITLAgentWorkflowPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          tool_call_id: conv.pending.tool_call_id,
-          approved,
-          override_args: overrideArgs,
-          reason: approved ? undefined : "Denied by user",
-        }),
+        body: JSON.stringify({ decisions }),
       });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.detail || "Failed to process approval");
+        const detail = data.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : Array.isArray(detail)
+            ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
+            : "Failed to process approval";
+        throw new Error(message);
       }
 
-      // Clear edited body and remove from list
+      // Clear edited bodies for this conversation
       setEditedBodies((prev) => {
         const next = { ...prev };
-        delete next[conversationId];
+        conv.pending.forEach((p) => {
+          delete next[`${conversationId}:${p.tool_call_id}`];
+        });
         return next;
       });
 
@@ -349,86 +364,95 @@ export default function HITLAgentWorkflowPage() {
                 </div>
 
                 {/* Pending Approval Details */}
-                {conv.pending && (
+                {conv.pending && conv.pending.length > 0 && (
                   <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Approval Required</span>
-                      <code className="text-xs bg-muted px-2 py-0.5 rounded">
-                        {conv.pending.tool_name}
-                      </code>
+                      <span className="text-sm font-medium">
+                        {conv.pending.length === 1 ? "Approval Required" : `${conv.pending.length} Approvals Required`}
+                      </span>
                     </div>
 
-                    <div className="space-y-2">
-                      {/* Recipient */}
-                      <div className="text-sm">
-                        <Label className="text-muted-foreground text-xs">To</Label>
-                        <p className="font-mono">
-                          {conv.pending.args.to || "Default (Emilio)"}
-                        </p>
-                      </div>
+                    {/* Render each pending approval */}
+                    {conv.pending.map((p) => {
+                      const editKey = `${conv.conversation_id}:${p.tool_call_id}`;
+                      return (
+                        <div key={p.tool_call_id} className="space-y-2 border-t pt-3 first:border-t-0 first:pt-0">
+                          <code className="text-xs bg-muted px-2 py-0.5 rounded">
+                            {p.tool_name}
+                          </code>
 
-                      {/* Message - editable */}
-                      <div className="text-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <Label className="text-muted-foreground text-xs">Message</Label>
-                          {!editedBodies[conv.conversation_id] && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-xs"
-                              onClick={() =>
-                                setEditedBodies((prev) => ({
-                                  ...prev,
-                                  [conv.conversation_id]: conv.pending?.args.body || "",
-                                }))
-                              }
-                              disabled={processingId === conv.conversation_id}
-                            >
-                              <Edit3 className="w-3 h-3 mr-1" />
-                              Edit
-                            </Button>
-                          )}
-                        </div>
-                        {editedBodies[conv.conversation_id] !== undefined ? (
-                          <div className="space-y-2">
-                            <Textarea
-                              value={editedBodies[conv.conversation_id]}
-                              onChange={(e) =>
-                                setEditedBodies((prev) => ({
-                                  ...prev,
-                                  [conv.conversation_id]: e.target.value,
-                                }))
-                              }
-                              className="min-h-[80px] bg-background"
-                              disabled={processingId === conv.conversation_id}
-                            />
-                            {editedBodies[conv.conversation_id] !== conv.pending.args.body && (
-                              <p className="text-xs text-amber-600 dark:text-amber-400">
-                                Modified - will override AI's suggestion
+                          {/* Recipient */}
+                          <div className="text-sm">
+                            <Label className="text-muted-foreground text-xs">To</Label>
+                            <p className="font-mono">
+                              {p.args.to || "Default (Emilio)"}
+                            </p>
+                          </div>
+
+                          {/* Message - editable */}
+                          <div className="text-sm">
+                            <div className="flex items-center justify-between mb-1">
+                              <Label className="text-muted-foreground text-xs">Message</Label>
+                              {!editedBodies[editKey] && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() =>
+                                    setEditedBodies((prev) => ({
+                                      ...prev,
+                                      [editKey]: p.args.body || "",
+                                    }))
+                                  }
+                                  disabled={processingId === conv.conversation_id}
+                                >
+                                  <Edit3 className="w-3 h-3 mr-1" />
+                                  Edit
+                                </Button>
+                              )}
+                            </div>
+                            {editedBodies[editKey] !== undefined ? (
+                              <div className="space-y-2">
+                                <Textarea
+                                  value={editedBodies[editKey]}
+                                  onChange={(e) =>
+                                    setEditedBodies((prev) => ({
+                                      ...prev,
+                                      [editKey]: e.target.value,
+                                    }))
+                                  }
+                                  className="min-h-[80px] bg-background"
+                                  disabled={processingId === conv.conversation_id}
+                                />
+                                {editedBodies[editKey] !== p.args.body && (
+                                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    Modified - will override AI's suggestion
+                                  </p>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setEditedBodies((prev) => {
+                                      const next = { ...prev };
+                                      delete next[editKey];
+                                      return next;
+                                    })
+                                  }
+                                  disabled={processingId === conv.conversation_id}
+                                >
+                                  Cancel edit
+                                </Button>
+                              </div>
+                            ) : (
+                              <p className="p-2 bg-background rounded border whitespace-pre-wrap">
+                                {p.args.body}
                               </p>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setEditedBodies((prev) => {
-                                  const next = { ...prev };
-                                  delete next[conv.conversation_id];
-                                  return next;
-                                })
-                              }
-                              disabled={processingId === conv.conversation_id}
-                            >
-                              Cancel edit
-                            </Button>
                           </div>
-                        ) : (
-                          <p className="p-2 bg-background rounded border whitespace-pre-wrap">
-                            {conv.pending.args.body}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+                      );
+                    })}
 
                     <div className="flex gap-2 pt-2">
                       <Button
@@ -444,7 +468,7 @@ export default function HITLAgentWorkflowPage() {
                         )}
                         {processingId === conv.conversation_id
                           ? "Processing..."
-                          : "Approve & Send"}
+                          : conv.pending.length === 1 ? "Approve & Send" : "Approve All"}
                       </Button>
                       <Button
                         size="sm"
