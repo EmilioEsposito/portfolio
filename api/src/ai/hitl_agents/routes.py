@@ -28,8 +28,8 @@ from pydantic import BaseModel
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 
-from api.src.ai.hitl_agents.hitl_agent3 import (
-    hitl_agent3,
+from api.src.ai.hitl_agents.hitl_sms_agent import (
+    hitl_sms_agent,
     HITLAgentContext,
     run_agent_with_persistence,
     resume_with_approval,
@@ -135,7 +135,7 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
     on_complete = functools.partial(
         persist_agent_run_result,
         conversation_id=conversation_id,
-        agent_name=hitl_agent3.name,
+        agent_name=hitl_sms_agent.name,
         clerk_user_id=clerk_user_id,
     )
 
@@ -143,7 +143,7 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
     # Wrapped request only contains the new message from the frontend
     response = await VercelAIAdapter.dispatch_request(
         wrapped_request,
-        agent=hitl_agent3,
+        agent=hitl_sms_agent,
         message_history=backend_message_history if backend_message_history else None,
         deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
         on_complete=on_complete,
@@ -268,7 +268,7 @@ async def list_pending_workflows(user: AuthUser, session: DBSession):
     List workflow conversations with pending approvals for the authenticated user.
     """
     pending = await list_pending_conversations(
-        agent_name=hitl_agent3.name,
+        agent_name=hitl_sms_agent.name,
         clerk_user_id=user.id,
         session=session,
     )
@@ -287,7 +287,7 @@ async def get_conversation_history(user: AuthUser, limit: int = 20):
     clerk_user_id = user.id
     conversations = await list_user_conversations(
         clerk_user_id=clerk_user_id,
-        agent_name=hitl_agent3.name,
+        agent_name=hitl_sms_agent.name,
         limit=limit,
     )
     return {

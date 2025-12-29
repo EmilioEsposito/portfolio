@@ -41,9 +41,9 @@ class HITLAgentContext:
 
 
 # --- Agent Definition ---
-hitl_agent3 = Agent(
+hitl_sms_agent = Agent(
     OpenAIChatModel("gpt-4o-mini"),
-    name="hitl_agent3",
+    name="hitl_sms_agent",
     system_prompt="""You are a helpful assistant that can send SMS messages.
 When asked to send an SMS or text message, use the send_sms tool.
 Be creative and write engaging, personalized messages.
@@ -55,7 +55,7 @@ Do not ask for confirmation - the tool has approval safeguards built in.""",
 )
 
 
-@hitl_agent3.tool_plain(requires_approval=True)
+@hitl_sms_agent.tool_plain(requires_approval=True)
 async def send_sms(body: str, to: str | None = None) -> str:
     """
     Send an SMS message to the specified phone number.
@@ -122,7 +122,7 @@ async def run_agent_with_persistence(
     """
     conversation_id = conversation_id or str(uuid.uuid4())
 
-    result = await hitl_agent3.run(
+    result = await hitl_sms_agent.run(
         user_prompt=prompt if not message_history else None,
         message_history=message_history,
         deferred_tool_results=deferred_tool_results,
@@ -133,7 +133,7 @@ async def run_agent_with_persistence(
     await persist_agent_run_result(
         result=result,
         conversation_id=conversation_id,
-        agent_name=hitl_agent3.name,
+        agent_name=hitl_sms_agent.name,
         clerk_user_id=clerk_user_id,
     )
 
@@ -178,7 +178,7 @@ async def resume_with_approval(
     )
 
     # Resume the agent
-    result = await hitl_agent3.run(
+    result = await hitl_sms_agent.run(
         message_history=messages,
         deferred_tool_results=deferred_results,
         deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
@@ -188,7 +188,7 @@ async def resume_with_approval(
     await persist_agent_run_result(
         result=result,
         conversation_id=conversation_id,
-        agent_name=hitl_agent3.name,
+        agent_name=hitl_sms_agent.name,
         clerk_user_id=clerk_user_id,
     )
 
@@ -241,7 +241,7 @@ if __name__ == "__main__":
         print("Step 3: Listing pending conversations...")
         from api.src.ai.models import list_pending_conversations
         pending_convs = await list_pending_conversations(
-            agent_name=hitl_agent3.name,
+            agent_name=hitl_sms_agent.name,
             clerk_user_id="demo_user",
         )
         print(f"  Found {len(pending_convs)} pending conversations")
