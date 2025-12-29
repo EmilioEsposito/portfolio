@@ -25,7 +25,7 @@ def _load_local_env_if_possible() -> None:
 
 def _drop_dbos_sqlalchemy_sys_traces(span_info: TailSamplingSpanInfo) -> float:
     """
-    Tail-sampling callback to drop 99% of DBOS SQLAlchemy internal DB chatter (`*_dbos_sys`) while preserving other traces.
+    Tail-sampling callback to drop 90% of DBOS SQLAlchemy internal DB chatter (`*_dbos_sys`) while preserving other traces.
     """
     attrs = span_info.span.attributes or {}
     db_name = attrs.get("db.name") or attrs.get("db.instance")
@@ -39,7 +39,7 @@ def _drop_dbos_sqlalchemy_sys_traces(span_info: TailSamplingSpanInfo) -> float:
         or ("dbos_sys" in statement_l)
     )
     if is_dbos_sys:
-        return 0.01 # 1% chance of keeping DBOS internal DB chatter
+        return 0.10 # 10% chance of keeping DBOS internal DB chatter
 
     # Buffer until end so we can decide with full attributes, then include.
     return 1.0 if span_info.event == "end" else 0.0

@@ -64,17 +64,19 @@ from api.src.push.routes import router as push_router
 from api.src.user.routes import router as user_router
 from api.src.contact.routes import router as contact_router
 from api.src.apscheduler_service.routes import router as apscheduler_router
-from api.src.dbos_service.routes import router as dbos_router
-# from api.src.clickup.routes import router as clickup_router
-from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
-from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
+# DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
+# See api/src/schedulers/README.md for re-enabling instructions.
+# from api.src.dbos_service.routes import router as dbos_router
+# from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
+# from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
+# from api.src.zillow_email.service import register_zillow_dbos_jobs
+# from api.src.clickup.service import register_clickup_dbos_jobs
 
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
+from api.src.clickup.service import register_clickup_apscheduler_jobs
+from api.src.zillow_email.service import register_zillow_apscheduler_jobs
 from api.src.schedulers.routes import router as schedulers_router
 
-# Import DBOS scheduled workflows to register them with DBOS
-from api.src.zillow_email.service import register_zillow_dbos_jobs
-from api.src.clickup.service import register_clickup_dbos_jobs
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
 
@@ -114,27 +116,30 @@ if missing_vars:
     )
 
 # --- Lifespan Event Handler ---
-def _dbos_startup_sync() -> None:
-    """
-    Start DBOS without blocking FastAPI startup.
 
-    NOTE: This runs in a background thread via asyncio.to_thread(), because DBOS
-    startup is expected to take a while and is synchronous.
-    """
-    try:
-        with logfire.span("dbos_startup"):
-            with logfire.span("launch_dbos"):
-                launch_dbos()
-            with logfire.span("register_zillow_dbos_jobs"):
-                register_zillow_dbos_jobs()  # just make sure the service module is imported
-            with logfire.span("register_clickup_dbos_jobs"):
-                register_clickup_dbos_jobs()  # just make sure the service module is imported
-
-        # Keep existing behavior, but run it after DBOS is up and off the main startup path.
-        logfire.info("DBOS background startup completed successfully.")
-    except Exception as e:
-        # Don't take down the API if DBOS fails to launch; log loudly instead.
-        logfire.exception(f"DBOS background startup failed: {e}")
+# DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
+# See api/src/schedulers/README.md for re-enabling instructions.
+# def _dbos_startup_sync() -> None:
+#     """
+#     Start DBOS without blocking FastAPI startup.
+#
+#     NOTE: This runs in a background thread via asyncio.to_thread(), because DBOS
+#     startup is expected to take a while and is synchronous.
+#     """
+#     try:
+#         with logfire.span("dbos_startup"):
+#             with logfire.span("launch_dbos"):
+#                 launch_dbos()
+#             with logfire.span("register_zillow_dbos_jobs"):
+#                 register_zillow_dbos_jobs()  # just make sure the service module is imported
+#             with logfire.span("register_clickup_dbos_jobs"):
+#                 register_clickup_dbos_jobs()  # just make sure the service module is imported
+#
+#         # Keep existing behavior, but run it after DBOS is up and off the main startup path.
+#         logfire.info("DBOS background startup completed successfully.")
+#     except Exception as e:
+#         # Don't take down the API if DBOS fails to launch; log loudly instead.
+#         logfire.exception(f"DBOS background startup failed: {e}")
 
 
 async def _apscheduler_startup_async() -> None:
@@ -150,6 +155,9 @@ async def _apscheduler_startup_async() -> None:
             if not apscheduler.running:
                 apscheduler.start()
             register_hello_apscheduler_jobs()
+            # Register production scheduled jobs (moved from DBOS)
+            register_clickup_apscheduler_jobs()
+            register_zillow_apscheduler_jobs()
         logfire.info("APScheduler background startup completed successfully.")
     except Exception as e:
         logfire.exception(f"APScheduler background startup failed: {e}")
@@ -165,14 +173,16 @@ async def lifespan(app: FastAPI):
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
 
-            # IMPORTANT: Capture scheduled workflow info BEFORE launch_dbos().
-            # Keep this synchronous so the /dbos endpoints can respond immediately.
-            with logfire.span("capture_scheduled_workflows"):
-                capture_scheduled_workflows()
-
-            # Start DBOS in the background so FastAPI can begin serving immediately.
-            # Store task so we can introspect it later if needed.
-            app.state.dbos_startup_task = asyncio.create_task(asyncio.to_thread(_dbos_startup_sync))
+            # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
+            # See api/src/schedulers/README.md for re-enabling instructions.
+            # # IMPORTANT: Capture scheduled workflow info BEFORE launch_dbos().
+            # # Keep this synchronous so the /dbos endpoints can respond immediately.
+            # with logfire.span("capture_scheduled_workflows"):
+            #     capture_scheduled_workflows()
+            #
+            # # Start DBOS in the background so FastAPI can begin serving immediately.
+            # # Store task so we can introspect it later if needed.
+            # app.state.dbos_startup_task = asyncio.create_task(asyncio.to_thread(_dbos_startup_sync))
 
             logfire.info("LIFESPAN: FastAPI index.py startup completed successfully.")
         except Exception as e:
@@ -185,7 +195,7 @@ async def lifespan(app: FastAPI):
     logfire.info("Application shutdown...")
 
     # Cancel background startup tasks if still running
-    for task_name in ("dbos_startup_task", "apscheduler_startup_task"):
+    for task_name in ("apscheduler_startup_task",):  # DBOS disabled
         task = getattr(app.state, task_name, None)
         if task and not task.done():
             task.cancel()
@@ -203,28 +213,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logfire.warn(f"APScheduler shutdown error: {e}")
 
-    # Shutdown DBOS in a thread with a hard timeout to avoid blocking hot reload.
-    # DBOS workflows are durable, so pending workflows will resume on restart.
-    logfire.info("Shutting down DBOS...")
-    dbos_shutdown_timed_out = False
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(shutdown_dbos, workflow_completion_timeout_sec=1),
-            timeout=3.0  # Hard timeout - don't block hot reload
-        )
-    except asyncio.TimeoutError:
-        dbos_shutdown_timed_out = True
-        logfire.warn("DBOS shutdown timed out - will force exit (workflows recover on restart)")
+    # DBOS DISABLED: Shutdown code preserved for re-enabling.
+    # # Shutdown DBOS in a thread with a hard timeout to avoid blocking hot reload.
+    # # DBOS workflows are durable, so pending workflows will resume on restart.
+    # logfire.info("Shutting down DBOS...")
+    # dbos_shutdown_timed_out = False
+    # try:
+    #     await asyncio.wait_for(
+    #         asyncio.to_thread(shutdown_dbos, workflow_completion_timeout_sec=1),
+    #         timeout=3.0  # Hard timeout - don't block hot reload
+    #     )
+    # except asyncio.TimeoutError:
+    #     dbos_shutdown_timed_out = True
+    #     logfire.warn("DBOS shutdown timed out - will force exit (workflows recover on restart)")
 
     logfire.info("Application shutdown completed successfully.")
 
-    # DBOS spawns non-daemon threads that block process exit even after destroy() times out.
-    # Force exit to allow hot reload to work. This is safe because:
-    # 1. DBOS workflows are durable and will recover from the database on restart
-    # 2. We've already completed our graceful shutdown logic above
-    if dbos_shutdown_timed_out:
-        import os
-        os._exit(0)
+    # DBOS DISABLED: Force exit code no longer needed.
+    # # DBOS spawns non-daemon threads that block process exit even after destroy() times out.
+    # # Force exit to allow hot reload to work. This is safe because:
+    # # 1. DBOS workflows are durable and will recover from the database on restart
+    # # 2. We've already completed our graceful shutdown logic above
+    # if dbos_shutdown_timed_out:
+    #     import os
+    #     os._exit(0)
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
@@ -279,7 +291,8 @@ app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
-app.include_router(dbos_router, prefix="/api")
+# DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
+# app.include_router(dbos_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 

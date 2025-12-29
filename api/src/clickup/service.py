@@ -10,7 +10,9 @@ from api.src.open_phone.service import send_message
 import logfire
 from api.src.contact.service import get_contact_by_slug
 import json
-from dbos import DBOS
+# DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
+# See api/src/schedulers/README.md for re-enabling instructions.
+# from dbos import DBOS
 
 
 
@@ -113,18 +115,41 @@ async def get_peppino_view_tasks():
 
 
 
-# DBOS Scheduled Workflow: Run at 8am and 5pm ET
-# Cron: minute hour day month weekday
-# "0 8,17 * * *" = at minute 0 of hours 8 and 17, every day
-@DBOS.scheduled("0 13,21 * * *")
-@DBOS.workflow()
-async def clickup_peppino_tasks_scheduled(scheduled_time: datetime, actual_time: datetime):
-    """DBOS scheduled workflow for ClickUp Peppino tasks reminder."""
-    logfire.info(f"clickup_peppino_tasks_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
-    await get_peppino_view_tasks()
+# --- APScheduler Job Registration ---
 
-def register_clickup_dbos_jobs():
-    logfire.info("ClickUp DBOS jobs registered.")
+def register_clickup_apscheduler_jobs():
+    """Register ClickUp scheduled jobs with APScheduler.
+
+    Runs at 8am and 5pm ET (13:00 and 21:00 UTC).
+    """
+    from api.src.apscheduler_service.service import get_scheduler
+
+    scheduler = get_scheduler()
+    scheduler.add_job(
+        func=get_peppino_view_tasks,
+        trigger="cron",
+        hour="13,21",  # 8am and 5pm ET = 13:00 and 21:00 UTC
+        minute=0,
+        id="clickup_peppino_tasks_scheduled",
+        replace_existing=True,
+        name="ClickUp Peppino Tasks Reminder",
+    )
+    logfire.info("ClickUp APScheduler jobs registered.")
+
+
+# DBOS DISABLED: Moved to APScheduler. See api/src/schedulers/README.md for re-enabling.
+# # DBOS Scheduled Workflow: Run at 8am and 5pm ET
+# # Cron: minute hour day month weekday
+# # "0 8,17 * * *" = at minute 0 of hours 8 and 17, every day
+# @DBOS.scheduled("0 13,21 * * *")
+# @DBOS.workflow()
+# async def clickup_peppino_tasks_scheduled(scheduled_time: datetime, actual_time: datetime):
+#     """DBOS scheduled workflow for ClickUp Peppino tasks reminder."""
+#     logfire.info(f"clickup_peppino_tasks_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
+#     await get_peppino_view_tasks()
+#
+# def register_clickup_dbos_jobs():
+#     logfire.info("ClickUp DBOS jobs registered.")
 
 @pytest.mark.asyncio
 async def test_get_peppino_view_tasks():
