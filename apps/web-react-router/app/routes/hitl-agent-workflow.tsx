@@ -49,7 +49,7 @@ interface PendingApproval {
 interface Conversation {
   conversation_id: string;
   agent_name: string;
-  user_id: string | null;
+  clerk_user_id: string | null;
   pending: PendingApproval | null;
   created_at: string | null;
   updated_at: string | null;
@@ -123,8 +123,8 @@ export default function HITLAgentWorkflowPage() {
         setConversations((prev) => [
           {
             conversation_id: result.conversation_id,
-            agent_name: "hitl_agent3",
-            user_id: "anonymous",
+            agent_name: "hitl_sms_agent",
+            clerk_user_id: null,
             pending: result.pending,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),

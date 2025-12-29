@@ -26,17 +26,14 @@ from pydantic_ai.messages import ModelMessage
 from api.src.open_phone.service import send_message
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import AsyncSessionFactory
-from api.src.ai.models import (
-    get_conversation_messages,
-    persist_agent_run_result,
-)
+from api.src.ai.models import get_conversation_messages
 
 
 # --- Context ---
 @dataclass
 class HITLAgentContext:
     """Context passed to the agent during execution."""
-    user_id: str = "anonymous"
+    clerk_user_id: str = "anonymous"
     conversation_id: str | None = None
 
 
@@ -53,6 +50,10 @@ Do not ask for confirmation - the tool has approval safeguards built in.""",
     retries=2,
     instrument=True,
 )
+
+# Apply persistence patch - automatically persists conversation after each run
+from api.src.ai.agent_run_patching import patch_run_with_persistence
+patch_run_with_persistence(hitl_sms_agent)
 
 
 @hitl_sms_agent.tool_plain(requires_approval=True)
@@ -116,7 +117,7 @@ async def run_agent_with_persistence(
     deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentRunResult:
     """
-    Run the agent and persist the conversation to the database.
+    Run the agent - persistence is handled automatically by the patched run method.
 
     This is used for both initial runs and resumed runs after approval.
     """
@@ -126,15 +127,7 @@ async def run_agent_with_persistence(
         user_prompt=prompt if not message_history else None,
         message_history=message_history,
         deferred_tool_results=deferred_tool_results,
-        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
-    )
-
-    # Persist conversation state
-    await persist_agent_run_result(
-        result=result,
-        conversation_id=conversation_id,
-        agent_name=hitl_sms_agent.name,
-        clerk_user_id=clerk_user_id,
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
     )
 
     return result
@@ -177,19 +170,11 @@ async def resume_with_approval(
         approvals={tool_call_id: decision}
     )
 
-    # Resume the agent
+    # Resume the agent - persistence is handled automatically by the patched run method
     result = await hitl_sms_agent.run(
         message_history=messages,
         deferred_tool_results=deferred_results,
-        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
-    )
-
-    # Persist updated conversation state
-    await persist_agent_run_result(
-        result=result,
-        conversation_id=conversation_id,
-        agent_name=hitl_sms_agent.name,
-        clerk_user_id=clerk_user_id,
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
     )
 
     return result

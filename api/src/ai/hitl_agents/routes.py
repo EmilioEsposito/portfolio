@@ -145,7 +145,7 @@ async def chat(request: Request, user: AuthUser, session: DBSession) -> Response
         wrapped_request,
         agent=hitl_sms_agent,
         message_history=backend_message_history if backend_message_history else None,
-        deps=HITLAgentContext(user_id=clerk_user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
         on_complete=on_complete,
     )
 
