@@ -68,7 +68,6 @@ from api.src.dbos_service.routes import router as dbos_router
 # from api.src.clickup.routes import router as clickup_router
 from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
 from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
-from api.src.dbos_service.examples.hello_dbos import hello_workflow
 
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.schedulers.routes import router as schedulers_router

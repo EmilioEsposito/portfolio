@@ -17,8 +17,8 @@ def launch_dbos():
     """Launch DBOS runtime."""
     dbos_config: DBOSConfig = {
         "name": "dbos-portfolio",
-        "database_url": os.getenv("DATABASE_URL"),
-        # "log_level": "WARN",
+        "database_url": os.getenv("DATABASE_URL_UNPOOLED"),
+        "log_level": "INFO",
         "enable_otlp": True,
         "conductor_key": os.getenv("DBOS_CONDUCTOR_KEY"),
         # "run_admin_server": False,  # Disable to avoid port conflicts in tests/dev
