@@ -1,0 +1,239 @@
+"""
+HITL Agent 3 - Human-in-the-Loop with Database Persistence
+
+Simple dual-run pattern:
+1. First run: Agent returns DeferredToolRequests → save to DB
+2. User reviews pending approval from DB
+3. Second run: Load messages from DB + DeferredToolResults → agent resumes
+
+DBOS is optional and only for crash recovery resilience.
+"""
+import json
+import uuid
+import logfire
+from dataclasses import dataclass
+
+from pydantic_ai import (
+    Agent,
+    AgentRunResult,
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
+    ToolDenied,
+)
+from pydantic_ai.durable_exec.dbos import DBOSAgent
+from dbos import DBOS
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.messages import ModelMessage
+from api.src.open_phone.service import send_message
+from api.src.contact.service import get_contact_by_slug
+from api.src.database.database import AsyncSessionFactory
+from api.src.ai.models import get_conversation_messages
+from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
+from api.src.ai.agent_run_patching import patch_run_with_persistence
+from api.src.database.database import provide_session, AsyncSession
+
+# --- Context ---
+@dataclass
+class HITLAgentContext:
+    """Context passed to the agent during execution."""
+    clerk_user_id: str = "anonymous"
+    conversation_id: str | None = None
+    db_session: AsyncSession | None = None
+
+
+# --- Agent Definition ---
+hitl_sms_agent = Agent(
+    OpenAIChatModel("gpt-4o-mini"),
+    name="hitl_sms_agent",
+    system_prompt="""You are a helpful assistant that can send SMS messages.
+When asked to send an SMS or text message, use the send_sms tool.
+Be creative and write engaging, personalized messages.
+The default recipient is Emilio unless otherwise specified.
+Do not ask for confirmation - the tool has approval safeguards built in.""",
+    output_type=[str, DeferredToolRequests],
+    retries=2,
+    instrument=True,
+)
+
+@DBOS.step()
+@hitl_sms_agent.tool_plain(requires_approval=True)
+async def send_sms(body: str, to: str | None = None) -> str:
+    """
+    Send an SMS message to the specified phone number.
+
+    Args:
+        body: The message content to send
+        to: Phone number in E.164 format (e.g., +14123703550). Defaults to Emilio.
+    """
+    if to is None:
+        contact = await get_contact_by_slug("emilio")
+        to = contact.phone_number
+
+    logfire.info("Sending SMS", to=to, body_preview=body[:50] if body else "")
+
+    response = await send_message(body, to)
+
+    if response.status_code in [200, 202]:
+        logfire.info("SMS sent successfully", to=to, status_code=response.status_code)
+        return f"SMS sent successfully to {to}"
+    else:
+        error_msg = f"Failed to send SMS: {response.status_code} - {response.text}"
+        logfire.error(error_msg)
+        return error_msg
+
+# Apply persistence patch - automatically persists conversation after each run
+patch_run_with_persistence(hitl_sms_agent)
+
+# # DBOS - Leaving commented out because not yet needed and breaks streaming.
+# dbos_hitl_sms_agent = DBOSAgent(hitl_sms_agent, name="dbos_hitl_sms_agent")
+# patch_run_with_persistence(dbos_hitl_sms_agent)
+
+
+# --- Helper Functions ---
+
+def extract_pending_approval(result: AgentRunResult) -> dict | None:
+    """
+    Extract pending approval info from an agent result.
+
+    Returns None if no approval is pending, otherwise returns:
+    {
+        "tool_call_id": str,
+        "tool_name": str,
+        "args": dict,
+    }
+
+    Note: For multiple approvals, use extract_pending_approvals() instead.
+    This function returns only the first approval for backward compatibility.
+    """
+    approvals = extract_pending_approvals(result)
+    return approvals[0] if approvals else None
+
+
+def extract_pending_approvals(result: AgentRunResult) -> list[dict]:
+    """
+    Extract all pending approval info from an agent result.
+
+    Returns empty list if no approvals are pending, otherwise returns list of:
+    {
+        "tool_call_id": str,
+        "tool_name": str,
+        "args": dict,
+    }
+    """
+    if not isinstance(result.output, DeferredToolRequests):
+        return []
+
+    if not result.output.approvals:
+        return []
+
+    return [
+        {
+            "tool_call_id": approval.tool_call_id,
+            "tool_name": approval.tool_name,
+            "args": json.loads(approval.args) if isinstance(approval.args, str) else approval.args,
+        }
+        for approval in result.output.approvals
+    ]
+
+
+@dataclass
+class ApprovalDecision:
+    """A single approval/denial decision for a tool call."""
+    tool_call_id: str
+    approved: bool
+    override_args: dict | None = None
+    denial_reason: str | None = None
+
+
+async def resume_with_approvals(
+    conversation_id: str,
+    decisions: list[ApprovalDecision],
+    clerk_user_id: str = "anonymous",
+    session: AsyncSession | None = None,
+) -> AgentRunResult:
+    """
+    Resume a paused agent with approval decisions.
+
+    Args:
+        conversation_id: ID of the conversation to resume
+        decisions: List of approval decisions for pending tool calls
+        clerk_user_id: Clerk user ID for tracking and ownership
+    """
+    # Load conversation history from database
+    # clerk_user_id filter is applied in SQL - returns empty if not found or not owned
+    async with provide_session(session) as session:
+        messages = await get_conversation_messages(conversation_id, clerk_user_id, session=session)
+
+    if not messages:
+        raise ValueError(f"No conversation found with ID: {conversation_id}")
+
+    # Build approval/denial decisions for all tool calls
+    approvals_dict = {}
+    for decision in decisions:
+        if decision.approved:
+            approvals_dict[decision.tool_call_id] = ToolApproved(override_args=decision.override_args)
+        else:
+            approvals_dict[decision.tool_call_id] = ToolDenied(decision.denial_reason or "Denied by user")
+
+    deferred_results = DeferredToolResults(approvals=approvals_dict)
+
+    # Resume the agent - persistence is handled automatically by the patched run method
+    result = await hitl_sms_agent.run(
+        message_history=messages,
+        deferred_tool_results=deferred_results,
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session),
+    )
+
+    return result
+
+
+# --- Demo/Test ---
+
+if __name__ == "__main__":
+    import asyncio
+
+    # launch_dbos()
+
+    async def demo():
+        print("=== HITL SMS Agent Demo ===\n")
+
+        # Step 1: First run - agent proposes an action
+        print("Step 1: Running agent with SMS request...")
+        conversation_id = str(uuid.uuid4())
+
+        # Use agent.run directly - persistence patch handles saving to DB
+        result = await hitl_sms_agent.run(
+            user_prompt="Send a friendly hello to Emilio",
+            deps=HITLAgentContext(clerk_user_id="demo_user", conversation_id=conversation_id),
+        )
+
+        pending_list = extract_pending_approvals(result)
+        if pending_list:
+            print(f"✓ Agent returned DeferredToolRequests with {len(pending_list)} pending approval(s)")
+            for p in pending_list:
+                print(f"  - Tool: {p['tool_name']}, Args: {p['args']}")
+
+            # Step 2: Simulate user approval with modified message
+            print("Step 2: Approving all pending tool calls...")
+            decisions = [
+                ApprovalDecision(
+                    tool_call_id=p["tool_call_id"],
+                    approved=True,
+                    override_args={"body": f"[APPROVED] {p['args'].get('body', '')}"} if p['tool_name'] == 'send_sms' else None,
+                )
+                for p in pending_list
+            ]
+
+            final = await resume_with_approvals(
+                conversation_id=conversation_id,
+                decisions=decisions,
+                clerk_user_id="demo_user",
+            )
+
+            print(f"✓ Agent resumed and completed")
+            print(f"  Final output: {final.output}\n")
+        else:
+            print(f"Result (no approval needed): {result.output}")
+
+    asyncio.run(demo())

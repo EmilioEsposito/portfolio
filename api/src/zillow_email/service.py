@@ -3,9 +3,7 @@ import os
 from pprint import pprint
 from api.src.open_phone.service import send_message, upsert_openphone_contact
 from api.src.database.database import AsyncSessionFactory
-from api.src.scheduler.service import scheduler
 from api.src.contact.service import ContactCreate
-from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text
 import pytest
 from api.src.contact.service import get_contact_by_slug
@@ -16,6 +14,9 @@ import openai
 import pytz
 from api.src.google.calendar.service import create_calendar_event, get_calendar_service
 from bs4 import BeautifulSoup
+# DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
+# See api/src/schedulers/README.md for re-enabling instructions.
+# from dbos import DBOS
 
 # Create a logger specific to this module
 
@@ -533,44 +534,83 @@ async def test_check_email_threads():
     await check_email_threads(overwrite_calendar_events=True)
 
 
-async def start_service():
-    # test job
-    scheduler.add_job(
-        id="zillow_test_job",
-        func=check_unreplied_emails,
-        kwargs={
-            "sql": "api/src/zillow_email/test.sql",
-            "target_slugs": ["emilio"],
-        },
-        trigger=CronTrigger(hour="10", minute="1", day="1", month="1", timezone="America/New_York"),
-        coalesce=True,
-        max_instances=1,
-        replace_existing=True,
-        misfire_grace_time=300
-    )
+# --- APScheduler Job Registration ---
 
-    # Schedule the job to run
+def register_zillow_apscheduler_jobs():
+    """Register Zillow email scheduled jobs with APScheduler.
+
+    Jobs:
+    - zillow_email_new_unreplied_scheduled: runs at 8am, 12pm, 5pm ET
+    - zillow_email_threads_ai_scheduled: runs at 8am and 5pm ET
+    """
+    from api.src.apscheduler_service.service import get_scheduler
+
+    scheduler = get_scheduler()
+
+    # New unreplied emails check - runs at 8am, 12pm, and 5pm ET
     scheduler.add_job(
-        id="zillow_email_new_unreplied_job",
         func=check_unreplied_emails,
+        trigger="cron",
+        hour="13,18,23",  # 8am, 12pm, 5pm ET = 13:00, 18:00, 23:00 UTC
+        minute=0,
         kwargs={
             "sql": "api/src/zillow_email/zillow_email_new_unreplied.sql",
             "target_slugs": ["sernia"],
         },
-        trigger=CronTrigger(hour="8,12,17", minute="0", timezone="America/New_York"),
-        coalesce=True,
-        max_instances=1,
+        id="zillow_email_new_unreplied_scheduled",
         replace_existing=True,
-        misfire_grace_time=300
+        name="Zillow New Unreplied Emails Check",
     )
 
-    # Schedule AI job to run
+    # AI thread analysis - runs at 8am and 5pm ET
     scheduler.add_job(
-        id="zillow_email_threads_ai",
         func=check_email_threads,
-        trigger=CronTrigger(hour="8,17", minute="0", timezone="America/New_York"),
-        coalesce=True,
-        max_instances=1,
+        trigger="cron",
+        hour="13,22",  # 8am and 5pm ET = 13:00 and 22:00 UTC
+        minute=0,
+        id="zillow_email_threads_ai_scheduled",
         replace_existing=True,
-        misfire_grace_time=300
+        name="Zillow Email Threads AI Analysis",
     )
+
+    logfire.info("Zillow APScheduler jobs registered.")
+
+
+# DBOS DISABLED: Moved to APScheduler. See api/src/schedulers/README.md for re-enabling.
+# # DBOS Scheduled Workflows for Zillow Email
+#
+# # Test job - runs once a year on Jan 1 at 10:01am UTC (for testing purposes)
+# @DBOS.scheduled("1 10 1 1 *")
+# @DBOS.workflow()
+# async def zillow_test_job_scheduled(scheduled_time: datetime, actual_time: datetime):
+#     """DBOS scheduled workflow for Zillow test job."""
+#     logfire.info(f"zillow_test_job_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
+#     await check_unreplied_emails(
+#             sql="api/src/zillow_email/test.sql",
+#             target_slugs=["emilio"],
+#         )
+#
+#
+# # New unreplied emails check - runs at 8am, 12pm, and 5pm ET
+# @DBOS.scheduled("0 13,18,23 * * *")
+# @DBOS.workflow()
+# async def zillow_email_new_unreplied_scheduled(scheduled_time: datetime, actual_time: datetime):
+#     """DBOS scheduled workflow for checking new unreplied Zillow emails."""
+#     logfire.info(f"zillow_email_new_unreplied_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
+#     await check_unreplied_emails(
+#             sql="api/src/zillow_email/zillow_email_new_unreplied.sql",
+#             target_slugs=["sernia"],
+#         )
+#
+#
+# # AI thread analysis - runs at 8am and 5pm ET
+# @DBOS.scheduled("0 8,17 * * *")
+# @DBOS.workflow()
+# async def zillow_email_threads_ai_scheduled(scheduled_time: datetime, actual_time: datetime):
+#     """DBOS scheduled workflow for AI analysis of Zillow email threads."""
+#     logfire.info(f"zillow_email_threads_ai_scheduled: Scheduled: {scheduled_time}, actual: {actual_time}")
+#     await check_email_threads()
+#
+# # noop function just to make sure this service gets imported in index.py and the dbos decorators are activate
+# def register_zillow_dbos_jobs():
+#     logfire.info("Zillow Scheduled DBOS jobs registered.")

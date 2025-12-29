@@ -6,14 +6,16 @@ import os
 import logfire
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Annotated
+from fastapi import Depends
 import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
 import pytest
+from api.src.utils.logfire_config import ensure_logfire_configured
 
-load_dotenv(find_dotenv(".env"), override=True)
+ensure_logfire_configured(mode="prod", service_name="fastapi")
 
 # Configure SQLAlchemy to use lowercase, unquoted names by default
 convention = {
@@ -26,12 +28,6 @@ convention = {
 
 # Create metadata with naming convention
 metadata = MetaData(naming_convention=convention)
-
-# configure logfire
-logfire.configure(
-    service_name="fastapi",
-    environment=os.getenv('RAILWAY_ENVIRONMENT_NAME', 'local'),
-)
 
 # Get the DATABASE_URL (pooled, for async app) and DATABASE_URL_UNPOOLED (unpooled, for sync app) from env variables
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -199,6 +195,28 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")
             raise
+
+
+# Type alias for dependency injection - use this in route handlers:
+#   async def my_route(session: DBSession):
+# Instead of:
+#   async def my_route(session: AsyncSession = Depends(get_session)):
+DBSession = Annotated[AsyncSession, Depends(get_session)]
+
+@asynccontextmanager
+async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Context manager that yields the provided session if it exists,
+    or creates a new one using AsyncSessionFactory.
+    
+    Useful for functions that can be called either with an existing session (e.g. from a route)
+    or standalone (e.g. from a script).
+    """
+    if session:
+        yield session
+    else:
+        async with AsyncSessionFactory() as new_session:
+            yield new_session
 
 @logfire.instrument("test-sync-engine-select-one")
 def test_sync_engine_select_one():

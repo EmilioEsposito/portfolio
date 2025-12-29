@@ -2,7 +2,7 @@
 FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response
 import logfire
 import json
 import traceback
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
 from api.src.google.gmail.service import process_single_message
-from api.src.database.database import get_session
+from api.src.database.database import DBSession
 from api.src.google.gmail.db_ops import save_email_message, get_email_by_message_id, get_test_session
 from api.src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
 from api.src.google.common.service_account_auth import get_delegated_credentials
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 @router.post("/gmail/notifications")
 async def handle_gmail_notifications(
     request: Request,
-    session: AsyncSession = Depends(get_session)
+    session: DBSession
 ):
     """
     Receives Gmail push notifications from Google Pub/Sub.

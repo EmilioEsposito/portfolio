@@ -13,9 +13,9 @@
 		{
 			"path": "../resume"
 		},
-		{
-			"path": "../mcp-inspector"
-		}
+		// {
+		// 	"path": "../mcp-inspector"
+		// }
 	],
 	"settings": {
 		"python.testing.pytestEnabled": true,
