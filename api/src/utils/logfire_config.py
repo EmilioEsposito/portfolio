@@ -23,9 +23,9 @@ def _load_local_env_if_possible() -> None:
         pass
 
 
-def _drop_dbos_sys_traces(span_info: TailSamplingSpanInfo) -> float:
+def _drop_dbos_sqlalchemy_sys_traces(span_info: TailSamplingSpanInfo) -> float:
     """
-    Tail-sampling callback to drop 99% of DBOS internal DB chatter (`*_dbos_sys`) while preserving other traces.
+    Tail-sampling callback to drop 99% of DBOS SQLAlchemy internal DB chatter (`*_dbos_sys`) while preserving other traces.
     """
     attrs = span_info.span.attributes or {}
     db_name = attrs.get("db.name") or attrs.get("db.instance")
@@ -86,14 +86,14 @@ def ensure_logfire_configured(
         logfire.configure(
             send_to_logfire=False,
             console=logfire.ConsoleOptions(colors="auto"),
-            sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sys_traces),
+            sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sqlalchemy_sys_traces),
         )
     else:
         logfire.configure(
             service_name=service_name,
             environment=env_name,
             send_to_logfire=True,
-            sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sys_traces),
+            sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sqlalchemy_sys_traces),
         )
 
     _CONFIGURED = True
