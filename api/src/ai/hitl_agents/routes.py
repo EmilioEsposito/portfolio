@@ -137,6 +137,7 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
         conversation_id=conversation_id,
         agent_name=hitl_sms_agent.name,
         clerk_user_id=clerk_user_id,
+        session=session,
     )
 
     # Backend DB is source of truth for history
@@ -180,7 +181,7 @@ class ApprovalRequest(BaseModel):
 
 
 @router.post("/workflow/start")
-async def start_workflow(body: StartConversationRequest, user: SerniaUser):
+async def start_workflow(body: StartConversationRequest, user: SerniaUser, session: DBSession):
     """
     Start a new workflow conversation with the agent (non-streaming).
 
@@ -193,7 +194,7 @@ async def start_workflow(body: StartConversationRequest, user: SerniaUser):
     # Agent has persistence patch applied - automatically saves to DB after run
     result = await hitl_sms_agent.run(
         user_prompt=body.prompt,
-        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session),
     )
 
     pending = extract_pending_approvals(result)
@@ -207,13 +208,13 @@ async def start_workflow(body: StartConversationRequest, user: SerniaUser):
 
 
 @router.get("/conversation/{conversation_id}")
-async def get_conversation(conversation_id: str, user: SerniaUser):
+async def get_conversation(conversation_id: str, user: SerniaUser, session: DBSession):
     """
     Get conversation details including pending approval info.
     Only accessible by the conversation owner.
     """
     # clerk_user_id filter is applied in SQL - returns None if not found or not owned
-    conv = await get_conversation_with_pending(conversation_id, user.id)
+    conv = await get_conversation_with_pending(conversation_id, user.id, session=session)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -229,7 +230,7 @@ async def get_conversation(conversation_id: str, user: SerniaUser):
 
 
 @router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: SerniaUser):
+async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: SerniaUser, session: DBSession):
     """
     Approve or deny pending tool calls (batch).
     Only accessible by the conversation owner.
@@ -256,6 +257,7 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
             conversation_id=conversation_id,
             decisions=decisions,
             clerk_user_id=clerk_user_id,
+            session=session,
         )
 
         # Check if there are more pending approvals

@@ -223,7 +223,7 @@ async def persist_agent_run_result(
                     clerk_user_id=clerk_user_id,
                     metadata=metadata
                 )
-            logfire.info(f"Saved conversation {conversation_id} for agent {agent_name}")
+            logfire.info(f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}")
         except Exception as e:
             logfire.error(f"Failed to save conversation {conversation_id}: {e}")
 

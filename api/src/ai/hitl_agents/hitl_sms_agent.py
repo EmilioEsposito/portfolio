@@ -21,13 +21,17 @@ from pydantic_ai import (
     ToolApproved,
     ToolDenied,
 )
+from pydantic_ai.durable_exec.dbos import DBOSAgent
+from dbos import DBOS
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.messages import ModelMessage
 from api.src.open_phone.service import send_message
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import AsyncSessionFactory
 from api.src.ai.models import get_conversation_messages
-
+from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
+from api.src.ai.agent_run_patching import patch_run_with_persistence
+from api.src.database.database import provide_session, AsyncSession
 
 # --- Context ---
 @dataclass
@@ -35,6 +39,7 @@ class HITLAgentContext:
     """Context passed to the agent during execution."""
     clerk_user_id: str = "anonymous"
     conversation_id: str | None = None
+    db_session: AsyncSession | None = None
 
 
 # --- Agent Definition ---
@@ -51,11 +56,7 @@ Do not ask for confirmation - the tool has approval safeguards built in.""",
     instrument=True,
 )
 
-# Apply persistence patch - automatically persists conversation after each run
-from api.src.ai.agent_run_patching import patch_run_with_persistence
-patch_run_with_persistence(hitl_sms_agent)
-
-
+@DBOS.step()
 @hitl_sms_agent.tool_plain(requires_approval=True)
 async def send_sms(body: str, to: str | None = None) -> str:
     """
@@ -80,6 +81,13 @@ async def send_sms(body: str, to: str | None = None) -> str:
         error_msg = f"Failed to send SMS: {response.status_code} - {response.text}"
         logfire.error(error_msg)
         return error_msg
+
+# Apply persistence patch - automatically persists conversation after each run
+patch_run_with_persistence(hitl_sms_agent)
+
+# # DBOS - Leaving commented out because not yet needed and breaks streaming.
+# dbos_hitl_sms_agent = DBOSAgent(hitl_sms_agent, name="dbos_hitl_sms_agent")
+# patch_run_with_persistence(dbos_hitl_sms_agent)
 
 
 # --- Helper Functions ---
@@ -142,6 +150,7 @@ async def resume_with_approvals(
     conversation_id: str,
     decisions: list[ApprovalDecision],
     clerk_user_id: str = "anonymous",
+    session: AsyncSession | None = None,
 ) -> AgentRunResult:
     """
     Resume a paused agent with approval decisions.
@@ -153,7 +162,7 @@ async def resume_with_approvals(
     """
     # Load conversation history from database
     # clerk_user_id filter is applied in SQL - returns empty if not found or not owned
-    async with AsyncSessionFactory() as session:
+    async with provide_session(session) as session:
         messages = await get_conversation_messages(conversation_id, clerk_user_id, session=session)
 
     if not messages:
@@ -173,7 +182,7 @@ async def resume_with_approvals(
     result = await hitl_sms_agent.run(
         message_history=messages,
         deferred_tool_results=deferred_results,
-        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id),
+        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session),
     )
 
     return result
@@ -183,6 +192,8 @@ async def resume_with_approvals(
 
 if __name__ == "__main__":
     import asyncio
+
+    # launch_dbos()
 
     async def demo():
         print("=== HITL SMS Agent Demo ===\n")
@@ -202,7 +213,6 @@ if __name__ == "__main__":
             print(f"✓ Agent returned DeferredToolRequests with {len(pending_list)} pending approval(s)")
             for p in pending_list:
                 print(f"  - Tool: {p['tool_name']}, Args: {p['args']}")
-            print(f"  Conversation saved to DB: {conversation_id}\n")
 
             # Step 2: Simulate user approval with modified message
             print("Step 2: Approving all pending tool calls...")
