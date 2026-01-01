@@ -1,5 +1,5 @@
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 
 from api.src.docuform.docx_content_controls import read_content_controls_detailed
@@ -84,3 +84,80 @@ async def get_document_content_controls(filename: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse content controls: {str(e)}")
+
+
+@router.post("/documents/upload")
+async def upload_document(file: UploadFile = File(...)):
+    """
+    Upload a DOCX document (template) to the documents folder.
+
+    Returns the uploaded document's metadata and content controls.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    if not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only .docx files are allowed")
+
+    # Sanitize filename to prevent path traversal
+    safe_filename = Path(file.filename).name
+    if safe_filename != file.filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = DOCUMENTS_DIR / safe_filename
+
+    # Check if file already exists
+    if file_path.exists():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document '{safe_filename}' already exists. Delete it first or use a different name."
+        )
+
+    try:
+        # Save the uploaded file
+        content = await file.read()
+        file_path.write_bytes(content)
+
+        # Extract content controls from the uploaded document
+        controls = read_content_controls_detailed(str(file_path))
+
+        return {
+            "message": "Document uploaded successfully",
+            "filename": safe_filename,
+            "name": file_path.stem,
+            "content_controls": controls,
+            "content_control_count": len(controls),
+        }
+    except Exception as e:
+        # Clean up if something went wrong
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
+
+
+@router.delete("/documents/{filename}")
+async def delete_document(filename: str):
+    """
+    Delete a DOCX document from the documents folder.
+    """
+    if not filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only .docx files are allowed")
+
+    file_path = DOCUMENTS_DIR / filename
+
+    # Security: prevent path traversal
+    try:
+        file_path = file_path.resolve()
+        if not str(file_path).startswith(str(DOCUMENTS_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Document '{filename}' not found")
+
+    try:
+        file_path.unlink()
+        return {"message": f"Document '{filename}' deleted successfully", "filename": filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")

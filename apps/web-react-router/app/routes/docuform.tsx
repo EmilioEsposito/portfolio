@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FileText, Users, LayoutTemplate, Home, Settings, Bell, Search, ChevronRight, ChevronDown, Check, Sparkles, RotateCcw, Eye, Download, Zap, Shield, FileCheck, Undo2, Scale, type LucideIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { FileText, Users, LayoutTemplate, Home, Settings, Bell, Search, ChevronRight, ChevronDown, Check, Sparkles, RotateCcw, Eye, Download, Zap, Shield, FileCheck, Undo2, Scale, Upload, Plus, Trash2, type LucideIcon } from 'lucide-react';
 
 type FieldSource = 'ai' | 'client' | 'attorney';
 type FieldStatus = 'pending' | 'reviewed';
@@ -47,9 +47,102 @@ interface FieldRowProps {
   onRegenerate: () => void;
 }
 
+interface Template {
+  name: string;
+  filename: string;
+}
+
 export default function DocgenPage() {
   const [activeView, setActiveView] = useState('review');
   const [expandedField, setExpandedField] = useState<string | null>('recital_transfer_terms');
+
+  // Templates state
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch templates from API
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const response = await fetch('/api/docuform/documents');
+      if (!response.ok) throw new Error('Failed to fetch templates');
+      const data = await response.json();
+      setTemplates(data.documents || []);
+    } catch (err) {
+      console.error('Failed to fetch templates:', err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  // Fetch templates when switching to templates view
+  useEffect(() => {
+    if (activeView === 'templates') {
+      fetchTemplates();
+    }
+  }, [activeView]);
+
+  // Handle file upload
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('/api/docuform/documents/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Upload failed');
+      }
+
+      // Refresh templates list
+      await fetchTemplates();
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle template deletion
+  const handleDelete = async (filename: string) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/docuform/documents/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Delete failed');
+      }
+
+      // Refresh templates list
+      await fetchTemplates();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
 
   const [fields, setFields] = useState<Field[]>([
     { id: 'company_name', title: 'Company Name', section: 'Preamble', source: 'client', status: 'reviewed', value: 'Acme Corporation', originalValue: 'Acme Corporation' },
@@ -235,7 +328,123 @@ export default function DocgenPage() {
           </div>
         </header>
 
+        {/* Templates View */}
+        {activeView === 'templates' && (
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-4xl mx-auto">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-2xl font-semibold text-foreground">Document Templates</h1>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Upload and manage DOCX templates with content controls
+                  </p>
+                </div>
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".docx"
+                    onChange={handleUpload}
+                    className="hidden"
+                    id="template-upload"
+                  />
+                  <label
+                    htmlFor="template-upload"
+                    className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
+                      uploading
+                        ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                        : 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700'
+                    }`}
+                  >
+                    {uploading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={16} />
+                        Upload Template
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* Upload Error */}
+              {uploadError && (
+                <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
+                  {uploadError}
+                </div>
+              )}
+
+              {/* Templates Grid */}
+              {templatesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="text-center py-16 bg-card rounded-lg border border-border">
+                  <LayoutTemplate size={48} className="mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium text-foreground mb-2">No templates yet</h3>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    Upload a DOCX file with content controls to get started
+                  </p>
+                  <label
+                    htmlFor="template-upload"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-muted text-foreground hover:bg-muted/80 cursor-pointer transition-colors text-sm font-medium"
+                  >
+                    <Plus size={16} />
+                    Add Your First Template
+                  </label>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {templates.map((template) => (
+                    <div
+                      key={template.filename}
+                      className="bg-card rounded-lg border border-border p-5 hover:border-amber-500/50 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
+                          <FileText size={20} className="text-white" />
+                        </div>
+                        <button
+                          onClick={() => handleDelete(template.filename)}
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Delete template"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <h3 className="font-medium text-foreground mb-1 truncate" title={template.name}>
+                        {template.name}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mb-4">{template.filename}</p>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`/api/docuform/documents/${template.filename}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 py-2 rounded-md bg-muted text-center text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+                        >
+                          Download
+                        </a>
+                        <button className="flex-1 py-2 rounded-md bg-amber-500/20 text-center text-sm font-medium hover:bg-amber-500/30 transition-colors" style={{ color: 'var(--pill-orange)' }}>
+                          Use Template
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Document Review View */}
+        {activeView === 'review' && (
         <div className="flex-1 flex overflow-hidden">
           {/* Document Preview Panel */}
           <div className="flex-1 flex flex-col border-r border-border min-w-0">
@@ -480,6 +689,7 @@ export default function DocgenPage() {
             </div>
           </div>
         </div>
+        )}
       </main>
     </div>
   );
