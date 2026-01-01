@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+
+interface ContentControl {
+  tag: string;
+  alias: string;
+  value: string;
+  id: string | null;
+}
 
 /**
  * Standalone example of using docx-preview (docxjs) to render DOCX files in the browser.
@@ -7,7 +14,7 @@ import { useEffect, useRef, useState } from 'react';
  * 1. Basic DOCX rendering with docx-preview
  * 2. Fetching DOCX from our FastAPI backend
  * 3. Custom styling injection
- * 4. Content control visibility (for future field highlighting)
+ * 4. Content control visibility with post-render highlighting
  */
 export default function DocuformDocxPreview() {
   // Dynamic import to avoid Vite bundling issues
@@ -21,6 +28,8 @@ export default function DocuformDocxPreview() {
   const [error, setError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<{ name: string; filename: string }[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
+  const [contentControls, setContentControls] = useState<ContentControl[]>([]);
+  const [highlightedCount, setHighlightedCount] = useState(0);
 
   // Fetch available documents on mount
   useEffect(() => {
@@ -41,6 +50,69 @@ export default function DocuformDocxPreview() {
     fetchDocuments();
   }, []);
 
+  // Highlight content controls in the rendered HTML
+  const highlightContentControls = useCallback((controls: ContentControl[]) => {
+    if (!containerRef.current || controls.length === 0) return 0;
+
+    let highlighted = 0;
+
+    // Walk through text nodes and find matches
+    const walker = document.createTreeWalker(
+      containerRef.current,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
+
+    const nodesToWrap: { node: Text; control: ContentControl; start: number; end: number }[] = [];
+
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      const text = node.textContent || '';
+
+      for (const control of controls) {
+        if (!control.value || control.value.trim() === '') continue;
+
+        const index = text.indexOf(control.value);
+        if (index !== -1) {
+          nodesToWrap.push({
+            node,
+            control,
+            start: index,
+            end: index + control.value.length,
+          });
+          break; // Only one match per text node to avoid complexity
+        }
+      }
+    }
+
+    // Wrap matches in highlight spans (process in reverse to maintain offsets)
+    for (const { node, control, start, end } of nodesToWrap.reverse()) {
+      const parent = node.parentNode;
+      if (!parent) continue;
+
+      const before = node.textContent?.substring(0, start) || '';
+      const match = node.textContent?.substring(start, end) || '';
+      const after = node.textContent?.substring(end) || '';
+
+      const wrapper = document.createElement('span');
+      wrapper.className = 'content-control-highlight';
+      wrapper.dataset.tag = control.tag;
+      wrapper.dataset.alias = control.alias;
+      wrapper.title = `${control.alias} (${control.tag})`;
+      wrapper.textContent = match;
+
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      frag.appendChild(wrapper);
+      if (after) frag.appendChild(document.createTextNode(after));
+
+      parent.replaceChild(frag, node);
+      highlighted++;
+    }
+
+    return highlighted;
+  }, []);
+
   // Render selected document
   useEffect(() => {
     if (!selectedDocument || !containerRef.current || !docxPreview) return;
@@ -48,10 +120,28 @@ export default function DocuformDocxPreview() {
     async function loadAndRenderDocx() {
       setLoading(true);
       setError(null);
+      setContentControls([]);
+      setHighlightedCount(0);
 
       try {
-        // Fetch the DOCX file from our API
-        const response = await fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}`);
+        // Fetch content controls and document in parallel
+        const [controlsResponse, docResponse] = await Promise.all([
+          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}/content-controls`),
+          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}`),
+        ]);
+
+        // Parse content controls
+        let controls: ContentControl[] = [];
+        if (controlsResponse.ok) {
+          const data = await controlsResponse.json();
+          controls = data.content_controls || [];
+          setContentControls(controls);
+          console.log('Content controls:', controls);
+        } else {
+          console.warn('Failed to fetch content controls:', controlsResponse.statusText);
+        }
+
+        const response = docResponse;
         if (!response.ok) {
           throw new Error(`Failed to fetch document: ${response.statusText}`);
         }
@@ -85,24 +175,23 @@ export default function DocuformDocxPreview() {
         }
 
         // Render the DOCX using dynamically imported module
-        await docxPreview.renderAsync(blob, containerRef.current!, undefined, options);
+        await docxPreview!.renderAsync(blob, containerRef.current!, undefined, options);
 
-        // After rendering, let's inspect what elements are created
-        // This helps us understand if content controls are preserved
+        // After rendering, highlight content controls by matching text
+        if (containerRef.current && controls.length > 0) {
+          const count = highlightContentControls(controls);
+          setHighlightedCount(count);
+          console.log(`Highlighted ${count} content controls out of ${controls.length}`);
+        }
+
+        // Debug: inspect rendered elements
         if (containerRef.current) {
           const allElements = containerRef.current.querySelectorAll('*');
           console.log('Total rendered elements:', allElements.length);
 
-          // Look for potential content control markers
-          const sdtElements = containerRef.current.querySelectorAll('[class*="sdt"]');
-          console.log('SDT (Structured Document Tag) elements:', sdtElements.length);
-
-          // Log some element classes to understand the structure
-          const uniqueClasses = new Set<string>();
-          allElements.forEach((el) => {
-            el.classList.forEach((cls) => uniqueClasses.add(cls));
-          });
-          console.log('Unique CSS classes in rendered document:', Array.from(uniqueClasses).sort());
+          // Look for our highlighted elements
+          const highlightedElements = containerRef.current.querySelectorAll('.content-control-highlight');
+          console.log('Highlighted content control elements:', highlightedElements.length);
         }
 
         setLoading(false);
@@ -114,7 +203,7 @@ export default function DocuformDocxPreview() {
     }
 
     loadAndRenderDocx();
-  }, [selectedDocument, docxPreview]);
+  }, [selectedDocument, docxPreview, highlightContentControls]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -177,17 +266,17 @@ export default function DocuformDocxPreview() {
               padding: 0;
               margin: 0 auto;
             }
-            /* Highlight SDT (Structured Document Tag) elements if they exist */
-            .docx-preview-container [class*="sdt"] {
-              background-color: rgba(139, 92, 246, 0.2);
+            /* Content control highlights (applied via JavaScript) */
+            .content-control-highlight {
+              background-color: rgba(139, 92, 246, 0.25);
               border-bottom: 2px solid #8b5cf6;
-              padding: 2px 4px;
+              padding: 1px 2px;
               border-radius: 2px;
+              cursor: pointer;
+              transition: background-color 0.15s ease;
             }
-            /* Style for content controls */
-            .docx-preview-container .sdt-content {
-              background-color: rgba(16, 185, 129, 0.2);
-              border-bottom: 2px solid #10b981;
+            .content-control-highlight:hover {
+              background-color: rgba(139, 92, 246, 0.4);
             }
           `}</style>
 
@@ -211,12 +300,35 @@ export default function DocuformDocxPreview() {
 
       {/* Debug info */}
       <div className="px-6 py-4 border-t border-border bg-muted/30 mt-8">
-        <h2 className="text-sm font-semibold text-foreground mb-2">Debug Info</h2>
-        <p className="text-xs text-muted-foreground">
-          Open browser DevTools console to see rendered element analysis.
-          <br />
-          We're looking for SDT (Structured Document Tag) elements which represent Word content controls.
-        </p>
+        <h2 className="text-sm font-semibold text-foreground mb-2">Content Controls</h2>
+        <div className="text-xs text-muted-foreground space-y-2">
+          <p>
+            Found <span className="font-mono text-foreground">{contentControls.length}</span> content controls,{' '}
+            <span className="font-mono text-foreground">{highlightedCount}</span> highlighted in preview.
+          </p>
+          {contentControls.length > 0 && (
+            <div className="mt-3">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="py-1 pr-4 font-medium">Tag</th>
+                    <th className="py-1 pr-4 font-medium">Alias</th>
+                    <th className="py-1 font-medium">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contentControls.map((cc, i) => (
+                    <tr key={cc.id || i} className="border-b border-border/50">
+                      <td className="py-1 pr-4 font-mono">{cc.tag}</td>
+                      <td className="py-1 pr-4">{cc.alias}</td>
+                      <td className="py-1 font-mono truncate max-w-xs">{cc.value || '(empty)'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
