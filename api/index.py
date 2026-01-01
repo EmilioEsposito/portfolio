@@ -76,6 +76,7 @@ from api.src.apscheduler_service.service import register_hello_apscheduler_jobs,
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
 from api.src.schedulers.routes import router as schedulers_router
+from api.src.docuform.routes import router as docuform_router
 
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
@@ -294,6 +295,7 @@ app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
+app.include_router(docuform_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 
 @app.get("/api/hello")

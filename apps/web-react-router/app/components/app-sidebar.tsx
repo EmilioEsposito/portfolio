@@ -18,6 +18,8 @@ import {
   MessagesSquare,
   ShieldCheck,
   ClipboardCheck,
+  FileText,
+  FileSearch,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -174,6 +176,25 @@ export function AppSidebar() {
           icon: MessagesSquare,
           onClick: toggleSidebarIfMobile,
         }] : []),
+      ],
+    },
+    {
+      label: "Docuform",
+      items: [
+        {
+          type: "navigation",
+          title: "Document Generator",
+          url: "/docuform",
+          icon: FileText,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "DOCX Preview Spike",
+          url: "/docuform-docx-preview",
+          icon: FileSearch,
+          onClick: toggleSidebarIfMobile,
+        },
       ],
     },
     {
