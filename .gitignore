@@ -66,10 +66,12 @@ docker*.log
 
 scratch/
 
-# PDF files in ai/pdfs directory
+# Binary documents
 *.pdf
+*.docx
 
 .playwright-mcp
 
 # DBOS SQLite databases
 *.sqlite
+
