@@ -479,7 +479,7 @@ function DocuformAIContent() {
       ignoreWidth: false,
       ignoreHeight: true,
       ignoreFonts: false,
-      debug: true,
+      debug: false,
       renderHeaders: true,
       renderFooters: true,
     };

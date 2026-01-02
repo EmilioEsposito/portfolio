@@ -170,6 +170,10 @@ async def _apscheduler_startup_async() -> None:
             await asyncio.to_thread(register_zillow_apscheduler_jobs)
 
         logfire.info("APScheduler startup completed successfully.")
+    except asyncio.CancelledError:
+        # Expected during hot reload - don't let debugger pause here
+        logfire.debug("APScheduler startup cancelled (hot reload)")
+        return  # Exit cleanly without re-raising
     except Exception as e:
         logfire.exception(f"APScheduler startup failed: {e}")
 

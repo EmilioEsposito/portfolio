@@ -200,6 +200,40 @@ def add_inline_content_control(
     return sdt
 
 
+def _collect_all_paragraphs(doc: Document) -> list:
+    """
+    Collect all paragraphs from the entire document, including:
+    - Body paragraphs
+    - Table cells
+    - Headers and footers
+    """
+    paragraphs = []
+
+    # Body paragraphs
+    paragraphs.extend(doc.paragraphs)
+
+    # Table cells
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                paragraphs.extend(cell.paragraphs)
+
+    # Headers and footers
+    for section in doc.sections:
+        try:
+            if section.header:
+                paragraphs.extend(section.header.paragraphs)
+        except Exception:
+            pass
+        try:
+            if section.footer:
+                paragraphs.extend(section.footer.paragraphs)
+        except Exception:
+            pass
+
+    return paragraphs
+
+
 def wrap_text_in_content_control(
     doc: Document,
     search_text: str,
@@ -210,6 +244,7 @@ def wrap_text_in_content_control(
     """
     Find text in the document and wrap ONLY the matched text in a content control.
 
+    Searches the ENTIRE document including body text, tables, headers, and footers.
     Splits runs as needed to wrap just the search text, leaving surrounding
     text in separate runs.
 
@@ -225,7 +260,8 @@ def wrap_text_in_content_control(
     """
     count = 0
 
-    for paragraph in doc.paragraphs:
+    # Search all paragraphs in the document (body, tables, headers, footers)
+    for paragraph in _collect_all_paragraphs(doc):
         for run in paragraph.runs:
             if search_text not in run.text:
                 continue
@@ -295,16 +331,17 @@ def set_content_control_value(
     value: str,
 ) -> bool:
     """
-    Update an existing content control's value in a Document object.
+    Update all content controls with the given tag in a Document object.
 
     Args:
         doc: The python-docx Document object
-        tag: The tag/key of the content control to update
+        tag: The tag/key of the content control(s) to update
         value: The new value to set
 
     Returns:
-        True if found and updated, False if not found
+        True if at least one was found and updated, False if none found
     """
+    found = False
     for sdt in doc._element.iter(W_SDT):
         sdtPr = sdt.find(W_SDT_PR)
         if sdtPr is None:
@@ -326,9 +363,9 @@ def set_content_control_value(
             raise RuntimeError(f"Content control '{tag}' has no text node")
 
         first.text = value
-        return True
+        found = True
 
-    return False
+    return found
 
 
 # =============================================================================
