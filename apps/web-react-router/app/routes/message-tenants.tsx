@@ -2,6 +2,7 @@ import type { Route } from "./+types/message-tenants";
 import React, { useState, useEffect, useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
+import { AuthGuard } from "~/components/auth-guard";
 import {
   AlertCircle,
   Filter,
@@ -9,6 +10,7 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
+  MessageCircle,
 } from "lucide-react";
 import { DataTable } from "~/components/data-table";
 import type {
@@ -226,7 +228,7 @@ export default function MessageTenantsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="-ml-3 h-8 p-1 data-[state=open]:bg-accent text-left justify-start flex-grow truncate text-xs sm:text-sm"
+                      className="-ml-3 h-8 p-1 data-[state=open]:bg-accent text-left justify-start grow truncate text-xs sm:text-sm"
                       onClick={() =>
                         canSort &&
                         column.toggleSorting(column.getIsSorted() === "asc")
@@ -468,6 +470,10 @@ export default function MessageTenantsPage() {
   };
 
   return (
+    <AuthGuard
+      message="Sign in to send SMS messages to tenants"
+      icon={<MessageCircle className="w-16 h-16 text-muted-foreground" />}
+    >
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
       <h1 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">
         Message Tenants
@@ -666,5 +672,6 @@ export default function MessageTenantsPage() {
         </Dialog>
       )}
     </div>
+    </AuthGuard>
   );
 }

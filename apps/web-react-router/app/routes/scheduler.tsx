@@ -1,6 +1,7 @@
 import type { Route } from "./+types/scheduler";
 import { Scheduler } from "~/components/scheduler";
-import { useAuth } from "@clerk/react-router";
+import { AuthGuard } from "~/components/auth-guard";
+import { Calendar } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -13,20 +14,15 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function SchedulerPage() {
-  const { isLoaded, isSignedIn } = useAuth();
-
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h2 className="text-2xl font-bold mb-4">Scheduler Admin</h2>
-      {!isLoaded ? (
-        <p className="text-muted-foreground">Loading authentication...</p>
-      ) : isSignedIn ? (
+    <AuthGuard
+      message="Sign in to manage scheduled jobs and tasks"
+      icon={<Calendar className="w-16 h-16 text-muted-foreground" />}
+    >
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <h2 className="text-2xl font-bold mb-4">Scheduler Admin</h2>
         <Scheduler apiBaseUrl="/api" />
-      ) : (
-        <p className="text-muted-foreground">
-          Could not authenticate. Scheduler disabled.
-        </p>
-      )}
-    </div>
+      </div>
+    </AuthGuard>
   );
 }

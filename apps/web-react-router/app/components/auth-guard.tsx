@@ -1,0 +1,64 @@
+import { useAuth, SignInButton } from "@clerk/react-router";
+import { useLocation } from "react-router";
+import { Button } from "~/components/ui/button";
+import { Loader2, ShieldAlert } from "lucide-react";
+
+interface AuthGuardProps {
+  children: React.ReactNode;
+  /** Optional custom message to display when not authenticated */
+  message?: string;
+  /** Optional custom title for the auth prompt */
+  title?: string;
+  /** Optional icon to display (defaults to ShieldAlert) */
+  icon?: React.ReactNode;
+}
+
+/**
+ * AuthGuard component that protects content requiring authentication.
+ * Shows a loading state while auth is loading, and a sign-in prompt when not authenticated.
+ * After signing in, the user is redirected back to the protected page.
+ */
+export function AuthGuard({
+  children,
+  message = "Please sign in to access this page",
+  title = "Authentication Required",
+  icon,
+}: AuthGuardProps) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const location = useLocation();
+
+  // Show loading state while auth is being determined
+  if (!isLoaded) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100dvh-52px)]">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Show sign-in prompt when not authenticated
+  if (!isSignedIn) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-6 px-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          {icon || <ShieldAlert className="w-16 h-16 text-muted-foreground" />}
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold">{title}</h2>
+            <p className="text-muted-foreground max-w-md">{message}</p>
+          </div>
+        </div>
+        <SignInButton
+          mode="modal"
+          forceRedirectUrl={location.pathname + location.search}
+        >
+          <Button size="lg" className="gap-2">
+            Sign In to Continue
+          </Button>
+        </SignInButton>
+      </div>
+    );
+  }
+
+  // User is authenticated, render protected content
+  return <>{children}</>;
+}
