@@ -3,6 +3,9 @@ import asyncio
 import json
 import logfire
 import os
+import time
+
+_startup_time = time.perf_counter()  # Capture immediately for startup timing
 
 import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured
@@ -147,21 +150,27 @@ async def _apscheduler_startup_async() -> None:
     """
     Start APScheduler without blocking FastAPI startup.
 
-    NOTE: APScheduler is an AsyncIO scheduler, so we keep this on the main event loop
-    (do NOT run it in a background thread).
+    The SQLAlchemy job store and job registration do sync I/O, so we run those in
+    a thread pool. However, AsyncIOScheduler.start() must be called on the main
+    event loop since it registers asyncio callbacks.
     """
     try:
         with logfire.span("apscheduler_startup"):
-            apscheduler = get_scheduler()
+                        # Initialize scheduler in thread pool (SQLAlchemy jobstore may block on DB)
+            apscheduler = await asyncio.to_thread(get_scheduler)
+
+            # start() must be on main event loop for AsyncIOScheduler
             if not apscheduler.running:
                 apscheduler.start()
-            register_hello_apscheduler_jobs()
-            # Register production scheduled jobs (moved from DBOS)
-            register_clickup_apscheduler_jobs()
-            register_zillow_apscheduler_jobs()
-        logfire.info("APScheduler background startup completed successfully.")
+            # Register jobs in thread pool (add_job writes to the DB via sync engine)
+            await asyncio.to_thread(register_hello_apscheduler_jobs)
+            await asyncio.to_thread(register_clickup_apscheduler_jobs)
+            await asyncio.to_thread(register_zillow_apscheduler_jobs)
+
+        logfire.info("APScheduler startup completed successfully.")
     except Exception as e:
-        logfire.exception(f"APScheduler background startup failed: {e}")
+        logfire.exception(f"APScheduler startup failed: {e}")
+
 
 
 @asynccontextmanager
@@ -191,6 +200,7 @@ async def lifespan(app: FastAPI):
             raise
 
     yield # Application runs here
+
 
     # Shutdown logic
     logfire.info("Application shutdown...")
@@ -304,8 +314,15 @@ async def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 
+_startup_logged = False
+
 @app.get("/api/health")
 async def health_check():
+    global _startup_logged
+    if not _startup_logged:
+        _startup_logged = True
+        elapsed = time.perf_counter() - _startup_time
+        logfire.info(f"🚀 STARTUP COMPLETE: First request served after {elapsed:.2f}s")
     return {"status": "healthy"}
 
 @app.get("/api/error")
