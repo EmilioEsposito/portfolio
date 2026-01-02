@@ -368,6 +368,129 @@ def set_content_control_value(
     return found
 
 
+def delete_content_control(
+    doc: Document,
+    tag: str,
+    preserve_text: bool = True,
+) -> int:
+    """
+    Delete content control(s) with the given tag from a Document.
+
+    Args:
+        doc: The python-docx Document object
+        tag: The tag of the content control(s) to delete
+        preserve_text: If True, keep the text content in place (unwrap).
+                       If False, remove both the control and its text.
+
+    Returns:
+        Number of content controls deleted
+    """
+    count = 0
+    # Collect SDTs to delete (can't modify while iterating)
+    sdts_to_delete = []
+
+    for sdt in doc._element.iter(W_SDT):
+        sdtPr = sdt.find(W_SDT_PR)
+        if sdtPr is None:
+            continue
+
+        tag_el = sdtPr.find(W_TAG)
+        if tag_el is None or tag_el.get(W_VAL) != tag:
+            continue
+
+        sdts_to_delete.append(sdt)
+
+    for sdt in sdts_to_delete:
+        parent = sdt.getparent()
+        if parent is None:
+            continue
+
+        if preserve_text:
+            # Get the content and insert it in place of the SDT
+            content = sdt.find(W_SDT_CONTENT)
+            if content is not None:
+                # Get position of SDT in parent
+                sdt_index = list(parent).index(sdt)
+                # Remove the SDT first
+                parent.remove(sdt)
+                # Insert all children of sdtContent at the original position
+                for i, child in enumerate(list(content)):
+                    parent.insert(sdt_index + i, child)
+            else:
+                parent.remove(sdt)
+        else:
+            # Just remove the entire SDT
+            parent.remove(sdt)
+
+        count += 1
+
+    return count
+
+
+def update_content_control(
+    doc: Document,
+    tag: str,
+    new_tag: str | None = None,
+    new_alias: str | None = None,
+    new_value: str | None = None,
+) -> int:
+    """
+    Update properties of content control(s) with the given tag.
+
+    Args:
+        doc: The python-docx Document object
+        tag: The tag of the content control(s) to update
+        new_tag: New tag value (None to keep existing)
+        new_alias: New alias/display name (None to keep existing)
+        new_value: New text value (None to keep existing)
+
+    Returns:
+        Number of content controls updated
+    """
+    count = 0
+
+    for sdt in doc._element.iter(W_SDT):
+        sdtPr = sdt.find(W_SDT_PR)
+        if sdtPr is None:
+            continue
+
+        tag_el = sdtPr.find(W_TAG)
+        if tag_el is None or tag_el.get(W_VAL) != tag:
+            continue
+
+        # Update tag if requested
+        if new_tag is not None:
+            tag_el.set(W_VAL, new_tag)
+
+        # Update alias if requested
+        if new_alias is not None:
+            alias_el = sdtPr.find(W_ALIAS)
+            if alias_el is not None:
+                alias_el.set(W_VAL, new_alias)
+            else:
+                # Create alias element if it doesn't exist
+                alias_el = _make_element("w:alias", val=new_alias)
+                # Insert after tag element or at beginning
+                tag_idx = list(sdtPr).index(tag_el)
+                sdtPr.insert(tag_idx, alias_el)
+
+        # Update value if requested
+        if new_value is not None:
+            content = sdt.find(W_SDT_CONTENT)
+            if content is not None:
+                # Clear all existing text nodes
+                for t in content.iter(W_T):
+                    t.text = ""
+                # Write into the first text node
+                first = next(content.iter(W_T), None)
+                if first is not None:
+                    first.text = new_value
+
+        count += 1
+
+    return count
+
+
 # =============================================================================
 # Reading Functions
 # =============================================================================

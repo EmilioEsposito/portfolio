@@ -19,6 +19,8 @@ from api.src.docuform.docx_content_controls import (
     wrap_text_in_content_control,
     read_content_controls_detailed,
     set_content_control_value,
+    delete_content_control,
+    update_content_control,
 )
 
 
@@ -175,7 +177,9 @@ into a template by identifying values that should become fillable fields?"
 
 **Modifying:**
 - `create_fields` - Convert text into template fields. Always use this tool for creating fields.
-- `update_field_value` - Change the value inside an existing field
+- `edit_field` - Edit an existing field's tag, display name, or value
+- `delete_field` - Remove a field (optionally preserving its text)
+- `update_field_value` - Quick way to change just the value of an existing field
 - `reset_working_copy` - Discard all modifications
 
 ## Workflow for Converting Filled Documents
@@ -937,6 +941,184 @@ async def update_field_value(
     except Exception as e:
         logfire.error(f"Failed to update field: {e}")
         return f"Error updating field: {str(e)}"
+
+
+@agent.tool(sequential=True)
+async def delete_field(
+    ctx: RunContext[TemplateAgentContext],
+    tag: str,
+    preserve_text: bool = True,
+) -> str:
+    """
+    Delete a template field from the document.
+
+    Args:
+        tag: The tag of the field to delete (e.g., "declarant.name")
+        preserve_text: If True (default), keep the text content in place.
+                       If False, remove both the field and its text.
+
+    Returns:
+        Status message indicating success or failure
+    """
+    if ctx.deps.document is None:
+        return "No document loaded. Use load_document first."
+
+    try:
+        # Get current value for logging
+        working_path = ctx.deps.get_working_path()
+        if working_path and working_path.exists():
+            controls = read_content_controls_detailed(str(working_path))
+        else:
+            controls = read_content_controls_detailed(str(ctx.deps.get_document_path()))
+
+        # Check if field exists
+        field_info = None
+        for ctrl in controls:
+            if ctrl["tag"] == tag:
+                field_info = ctrl
+                break
+
+        if field_info is None:
+            available_tags = [ctrl["tag"] for ctrl in controls]
+            return f"Field with tag '{tag}' not found. Available tags: {available_tags}"
+
+        # Delete the field
+        count = delete_content_control(ctx.deps.document, tag, preserve_text=preserve_text)
+
+        if count > 0:
+            action = "removed (text preserved)" if preserve_text else "removed with text"
+            ctx.deps.modifications.append(f"Deleted field '{tag}' ({action})")
+
+            # Save working copy
+            if working_path:
+                ctx.deps.document.save(str(working_path))
+
+            logfire.info(f"Deleted field {tag}", preserve_text=preserve_text)
+            return f"Deleted field '{tag}' (was: '{field_info['value'][:50]}...')" if len(field_info['value']) > 50 else f"Deleted field '{tag}' (was: '{field_info['value']}')"
+        else:
+            return f"Failed to delete field '{tag}'"
+
+    except Exception as e:
+        logfire.error(f"Failed to delete field: {e}")
+        return f"Error deleting field: {str(e)}"
+
+
+@agent.tool(sequential=True)
+async def edit_field(
+    ctx: RunContext[TemplateAgentContext],
+    tag: str,
+    new_tag: str | None = None,
+    new_alias: str | None = None,
+    new_value: str | None = None,
+    sync_new_tag_changes: bool = True,
+) -> str:
+    """
+    Edit an existing template field's properties.
+
+    By default, changing the tag will also update the alias and value to match.
+    Set sync_new_tag_changes=False to provide explicit values or change only the tag.
+
+    Args:
+        tag: The current tag of the field to edit (e.g., "declarant_name")
+        new_tag: New tag value (e.g., "declarant.name"). None to keep existing.
+        new_alias: New display name. Requires sync_new_tag_changes=False if provided with new_tag.
+        new_value: New text value. Requires sync_new_tag_changes=False if provided with new_tag.
+        sync_new_tag_changes: If True (default), changing tag auto-generates alias/value.
+                              MUST be False if providing explicit new_alias or new_value with new_tag.
+
+    Examples:
+        # Rename field completely (tag, alias, value all sync)
+        edit_field(tag="client_name", new_tag="client.name")
+
+        # Rename with custom alias/value - must set sync_new_tag_changes=False
+        edit_field(tag="client_name", new_tag="client.name", new_alias="Full Name", sync_new_tag_changes=False)
+
+        # Change only the tag, keep existing alias/value
+        edit_field(tag="client_name", new_tag="client.name", sync_new_tag_changes=False)
+
+        # Change just alias or value (no new_tag, sync doesn't apply)
+        edit_field(tag="client_name", new_alias="Full Name")
+
+    Returns:
+        Status message indicating success or failure
+    """
+    if ctx.deps.document is None:
+        return "No document loaded. Use load_document first."
+
+    if new_tag is None and new_alias is None and new_value is None:
+        return "No changes specified. Provide at least one of: new_tag, new_alias, or new_value."
+
+    # Validation: explicit values with sync_new_tag_changes=True is ambiguous
+    if sync_new_tag_changes and new_tag is not None:
+        if new_alias is not None or new_value is not None:
+            provided = []
+            if new_alias is not None:
+                provided.append("new_alias")
+            if new_value is not None:
+                provided.append("new_value")
+            return (
+                f"Ambiguous call: {', '.join(provided)} provided with sync_new_tag_changes=True. "
+                f"Set sync_new_tag_changes=False when providing explicit values with new_tag."
+            )
+        # Auto-generate alias and value
+        new_alias = new_tag.replace(".", " ").replace("_", " ").title()
+        new_value = f"[{new_tag}]"
+
+    try:
+        # Get current info for logging
+        working_path = ctx.deps.get_working_path()
+        if working_path and working_path.exists():
+            controls = read_content_controls_detailed(str(working_path))
+        else:
+            controls = read_content_controls_detailed(str(ctx.deps.get_document_path()))
+
+        # Check if field exists
+        field_info = None
+        for ctrl in controls:
+            if ctrl["tag"] == tag:
+                field_info = ctrl
+                break
+
+        if field_info is None:
+            available_tags = [ctrl["tag"] for ctrl in controls]
+            return f"Field with tag '{tag}' not found. Available tags: {available_tags}"
+
+        # Update the field
+        count = update_content_control(
+            ctx.deps.document,
+            tag=tag,
+            new_tag=new_tag,
+            new_alias=new_alias,
+            new_value=new_value,
+        )
+
+        if count > 0:
+            # Build change summary
+            changes = []
+            if new_tag is not None:
+                changes.append(f"tag: '{tag}' → '{new_tag}'")
+            if new_alias is not None:
+                changes.append(f"display name: '{field_info['alias']}' → '{new_alias}'")
+            if new_value is not None:
+                old_val = field_info['value'][:30] + "..." if len(field_info['value']) > 30 else field_info['value']
+                new_val = new_value[:30] + "..." if len(new_value) > 30 else new_value
+                changes.append(f"value: '{old_val}' → '{new_val}'")
+
+            change_summary = ", ".join(changes)
+            ctx.deps.modifications.append(f"Edited field '{tag}': {change_summary}")
+
+            # Save working copy
+            if working_path:
+                ctx.deps.document.save(str(working_path))
+
+            logfire.info(f"Edited field {tag}", new_tag=new_tag, new_alias=new_alias, new_value=new_value)
+            return f"Edited field '{tag}': {change_summary}"
+        else:
+            return f"Failed to edit field '{tag}'"
+
+    except Exception as e:
+        logfire.error(f"Failed to edit field: {e}")
+        return f"Error editing field: {str(e)}"
 
 
 @agent.tool(sequential=True)
