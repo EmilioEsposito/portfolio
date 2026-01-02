@@ -9,7 +9,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
-import { AuthGuard } from "~/components/auth-guard";
+import { SerniaAuthGuard } from "~/components/sernia-auth-guard";
 import {
   MessageSquare,
   Zap,
@@ -867,24 +867,21 @@ export default function HITLAgentChatPage() {
     // Note: isLoadingConversation is set to false when messages are applied in the effect
   }, [isSignedIn, getToken, navigate]);
 
-  // Loading conversation state (shown inside AuthGuard)
+  // Loading conversation state (shown inside SerniaAuthGuard)
   if (isLoadingConversation) {
     return (
-      <AuthGuard
-        message="Chat with an AI agent that requires approval for sensitive actions"
-        icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
-      >
+      <SerniaAuthGuard>
         <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
           <p className="text-muted-foreground">Loading conversation...</p>
         </div>
-      </AuthGuard>
+      </SerniaAuthGuard>
     );
   }
 
   return (
-    <AuthGuard
-      message="Chat with an AI agent that requires approval for sensitive actions"
+    <SerniaAuthGuard
+      message="Chat with an AI agent that requires approval for sensitive actions."
       icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
     >
     <div className="flex flex-col min-w-0 h-[calc(100dvh-52px)] bg-background">
@@ -1158,6 +1155,6 @@ export default function HITLAgentChatPage() {
         )}
       </form>
     </div>
-    </AuthGuard>
+    </SerniaAuthGuard>
   );
 }

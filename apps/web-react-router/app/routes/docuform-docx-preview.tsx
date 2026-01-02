@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useAuth } from '@clerk/react-router';
+import { SerniaAuthGuard } from '~/components/sernia-auth-guard';
 
 interface ContentControl {
   tag: string;
@@ -17,6 +19,16 @@ interface ContentControl {
  * 4. Content control visibility with post-render highlighting
  */
 export default function DocuformDocxPreview() {
+  return (
+    <SerniaAuthGuard>
+      <DocuformDocxPreviewContent />
+    </SerniaAuthGuard>
+  );
+}
+
+function DocuformDocxPreviewContent() {
+  const { getToken } = useAuth();
+
   // Dynamic import to avoid Vite bundling issues
   const [docxPreview, setDocxPreview] = useState<typeof import('docx-preview') | null>(null);
 
@@ -35,7 +47,10 @@ export default function DocuformDocxPreview() {
   useEffect(() => {
     async function fetchDocuments() {
       try {
-        const response = await fetch('/api/docuform/documents');
+        const token = await getToken();
+        const response = await fetch('/api/docuform/documents', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!response.ok) throw new Error('Failed to fetch documents');
         const data = await response.json();
         setDocuments(data.documents);
@@ -48,7 +63,7 @@ export default function DocuformDocxPreview() {
       }
     }
     fetchDocuments();
-  }, []);
+  }, [getToken]);
 
   // Highlight content controls in the rendered HTML
   const highlightContentControls = useCallback((controls: ContentControl[]) => {
@@ -124,10 +139,13 @@ export default function DocuformDocxPreview() {
       setHighlightedCount(0);
 
       try {
+        const token = await getToken();
+        const headers = { Authorization: `Bearer ${token}` };
+
         // Fetch content controls and document in parallel
         const [controlsResponse, docResponse] = await Promise.all([
-          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}/content-controls`),
-          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}`),
+          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}/content-controls`, { headers }),
+          fetch(`/api/docuform/documents/${encodeURIComponent(selectedDocument!)}`, { headers }),
         ]);
 
         // Parse content controls
@@ -203,7 +221,7 @@ export default function DocuformDocxPreview() {
     }
 
     loadAndRenderDocx();
-  }, [selectedDocument, docxPreview, highlightContentControls]);
+  }, [selectedDocument, docxPreview, highlightContentControls, getToken]);
 
   return (
     <div className="min-h-screen bg-background">

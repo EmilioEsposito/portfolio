@@ -85,10 +85,10 @@ export function AppSidebar() {
   };
 
   // Determine if user is a verified SerniaCapital user
-  const isSerniaCapitalUser = user?.emailAddresses?.some(
-    email => email.emailAddress.endsWith('@serniacapital.com') &&
-             email.verification?.status === 'verified'
-  ) ?? false;
+  // const isSerniaCapitalUser = user?.emailAddresses?.some(
+  //   email => email.emailAddress.endsWith('@serniacapital.com') &&
+  //            email.verification?.status === 'verified'
+  // ) ?? false;
 
   const sidebarSections: SidebarSection[] = [
     {
@@ -141,22 +141,20 @@ export function AppSidebar() {
           icon: Inbox,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [
-          {
-            type: "navigation" as const,
-            title: "HITL Agent Chat",
-            url: "/hitl-agent-chat",
-            icon: ShieldCheck,
-            onClick: toggleSidebarIfMobile,
-          },
-          {
-            type: "navigation" as const,
-            title: "HITL Approval Queue",
-            url: "/hitl-agent-workflow",
-            icon: ClipboardCheck,
-            onClick: toggleSidebarIfMobile,
-          },
-        ] : []),
+        {
+          type: "navigation",
+          title: "HITL Agent Chat",
+          url: "/hitl-agent-chat",
+          icon: ShieldCheck,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "HITL Approval Queue",
+          url: "/hitl-agent-workflow",
+          icon: ClipboardCheck,
+          onClick: toggleSidebarIfMobile,
+        },
       ],
     },
     {
@@ -169,13 +167,16 @@ export function AppSidebar() {
           icon: Building,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [{
+        // Example of how to filter items based on user role
+        // ...(isSerniaCapitalUser ? [
+          {
           type: "navigation" as const,
           title: "Message Tenants",
           url: "/message-tenants",
           icon: MessagesSquare,
           onClick: toggleSidebarIfMobile,
-        }] : []),
+        }
+      // ] : []),
       ],
     },
     {
@@ -214,13 +215,13 @@ export function AppSidebar() {
           icon: Blocks,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [{
-          type: "navigation" as const,
+        {
+          type: "navigation",
           title: "Scheduler Admin",
           url: "/scheduler",
           icon: Calendar,
           onClick: toggleSidebarIfMobile,
-        }] : []),
+        },
       ],
     },
     {

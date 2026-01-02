@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { FileText, Users, LayoutTemplate, Home, Settings, Bell, Search, ChevronRight, ChevronDown, Check, Sparkles, RotateCcw, Eye, Download, Zap, Shield, FileCheck, Undo2, Scale, Upload, Plus, Trash2, type LucideIcon } from 'lucide-react';
+import { useAuth } from '@clerk/react-router';
+import { SerniaAuthGuard } from '~/components/sernia-auth-guard';
 
 type FieldSource = 'ai' | 'client' | 'attorney';
 type FieldStatus = 'pending' | 'reviewed';
@@ -53,6 +55,16 @@ interface Template {
 }
 
 export default function DocgenPage() {
+  return (
+    <SerniaAuthGuard>
+      <DocgenPageContent />
+    </SerniaAuthGuard>
+  );
+}
+
+function DocgenPageContent() {
+  const { getToken } = useAuth();
+
   const [activeView, setActiveView] = useState('review');
   const [expandedField, setExpandedField] = useState<string | null>('recital_transfer_terms');
 
@@ -67,7 +79,10 @@ export default function DocgenPage() {
   const fetchTemplates = async () => {
     setTemplatesLoading(true);
     try {
-      const response = await fetch('/api/docuform/documents');
+      const token = await getToken();
+      const response = await fetch('/api/docuform/documents', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!response.ok) throw new Error('Failed to fetch templates');
       const data = await response.json();
       setTemplates(data.documents || []);
@@ -97,8 +112,10 @@ export default function DocgenPage() {
     formData.append('file', file);
 
     try {
+      const token = await getToken();
       const response = await fetch('/api/docuform/documents/upload', {
         method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -128,8 +145,10 @@ export default function DocgenPage() {
     }
 
     try {
+      const token = await getToken();
       const response = await fetch(`/api/docuform/documents/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
@@ -244,7 +263,7 @@ export default function DocgenPage() {
       <aside className="w-56 bg-card border-r border-border flex flex-col shrink-0">
         <div className="h-14 px-4 flex items-center border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-amber-700 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-linear-to-br from-amber-500 to-amber-700 rounded-lg flex items-center justify-center">
               <FileText size={16} className="text-white" />
             </div>
             <span className="text-base font-semibold text-foreground">Counsel</span>

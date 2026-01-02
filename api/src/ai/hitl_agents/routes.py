@@ -45,13 +45,13 @@ from api.src.ai.models import (
     extract_pending_approval_from_messages,
 )
 from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.clerk import SerniaUser
+from api.src.utils.clerk import SerniaUser, verify_serniacapital_user
 from api.src.database.database import DBSession
 
 router = APIRouter(
     prefix="/ai/hitl-agent",
     tags=["hitl-agent"],
-    # Note: Domain verification is handled by SerniaUser dependency on each route
+    dependencies=[Depends(verify_serniacapital_user)],
 )
 
 

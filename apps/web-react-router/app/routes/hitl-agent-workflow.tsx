@@ -14,7 +14,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/label";
-import { AuthGuard } from "~/components/auth-guard";
+import { SerniaAuthGuard } from "~/components/sernia-auth-guard";
 import {
   RefreshCw,
   Play,
@@ -57,7 +57,15 @@ interface Conversation {
 }
 
 export default function HITLAgentWorkflowPage() {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+  return (
+    <SerniaAuthGuard>
+      <HITLAgentWorkflowContent />
+    </SerniaAuthGuard>
+  );
+}
+
+function HITLAgentWorkflowContent() {
+  const { getToken } = useAuth();
   const [prompt, setPrompt] = useState("Send a creative message to Emilio");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +75,6 @@ export default function HITLAgentWorkflowPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchPendingConversations = useCallback(async () => {
-    if (!isSignedIn) return;
     setRefreshing(true);
     try {
       const token = await getToken();
@@ -86,18 +93,17 @@ export default function HITLAgentWorkflowPage() {
     } finally {
       setRefreshing(false);
     }
-  }, [isSignedIn, getToken]);
+  }, [getToken]);
 
   useEffect(() => {
-    if (!isSignedIn) return;
     fetchPendingConversations();
     // Poll every 10 seconds
     const interval = setInterval(fetchPendingConversations, 10000);
     return () => clearInterval(interval);
-  }, [fetchPendingConversations, isSignedIn]);
+  }, [fetchPendingConversations]);
 
   const startConversation = async () => {
-    if (!prompt.trim() || !isSignedIn) return;
+    if (!prompt.trim()) return;
     setLoading(true);
     setError(null);
 
@@ -223,10 +229,6 @@ export default function HITLAgentWorkflowPage() {
   const pendingCount = conversations.length;
 
   return (
-    <AuthGuard
-      message="Sign in to review and approve pending agent actions"
-      icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
-    >
     <div className="container mx-auto py-10 px-4 md:px-8 max-w-4xl">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -509,6 +511,5 @@ export default function HITLAgentWorkflowPage() {
         </CardContent>
       </Card>
     </div>
-    </AuthGuard>
   );
 }

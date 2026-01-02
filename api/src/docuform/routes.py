@@ -1,10 +1,17 @@
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import FileResponse
 
 from api.src.docuform.docx_content_controls import read_content_controls_detailed
+from api.src.utils.clerk import verify_serniacapital_user, SerniaUser
 
-router = APIRouter(prefix="/docuform", tags=["docuform"])
+# Router-level auth: all routes require @serniacapital.com user
+# If a route needs the user object, add `user: SerniaUser` - FastAPI caches the dependency
+router = APIRouter(
+    prefix="/docuform",
+    tags=["docuform"],
+    dependencies=[Depends(verify_serniacapital_user)],
+)
 
 # Directory containing DOCX documents (templates and filled documents)
 DOCUMENTS_DIR = Path(__file__).parent / "documents"
