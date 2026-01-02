@@ -164,7 +164,7 @@ async def chat(request: Request, session: DBSession) -> Response:
         persist_agent_run_result, 
         conversation_id=conversation_id, 
         agent_name=agent.name, 
-        user_id="visitor",
+        clerk_user_id="visitor",
         session=session
     )
     

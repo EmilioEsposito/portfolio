@@ -164,6 +164,7 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 - Async for I/O operations
 - Early returns, guard clauses
 - HTTPException for expected errors
+- **Hierarchical routing**: Use `router.include_router()` so sub-modules inherit parent prefixes. Only include the top-level router in `index.py`. Example: `docuform/routes.py` includes `docuform/template_agent/routes.py`, so only `docuform_router` is added to the app.
 
 ---
 

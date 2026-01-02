@@ -16,7 +16,10 @@
       "Bash(docker exec:*)",
       "mcp__playwright",
       "mcp__context7",
-      "mcp__chrome-devtools"
+      "mcp__chrome-devtools",
+      "pnpm fastapi-dev",
+      "pnpm dev",
+      "pnpm dev-with-fastapi"
     ],
     "deny": [
       "Bash(rm -rf:*)",

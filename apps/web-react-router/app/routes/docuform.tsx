@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { FileText, Users, LayoutTemplate, Home, Settings, Bell, Search, ChevronRight, ChevronDown, Check, Sparkles, RotateCcw, Eye, Download, Zap, Shield, FileCheck, Undo2, Scale, Upload, Plus, Trash2, type LucideIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { useAuth } from '@clerk/react-router';
 import { SerniaAuthGuard } from '~/components/sernia-auth-guard';
 
@@ -359,7 +360,7 @@ function DocgenPageContent() {
                     Upload and manage DOCX templates with content controls
                   </p>
                 </div>
-                <div>
+                <div className="flex items-center gap-3">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -441,18 +442,27 @@ function DocgenPageContent() {
                         {template.name}
                       </h3>
                       <p className="text-xs text-muted-foreground mb-4">{template.filename}</p>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`/api/docuform/documents/${template.filename}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 py-2 rounded-md bg-muted text-center text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+                      <div className="flex flex-col gap-2">
+                        <Link
+                          to={`/docuform-ai?doc=${encodeURIComponent(template.filename)}`}
+                          className="w-full py-2 rounded-md bg-violet-500/20 text-center text-sm font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-500/30 transition-colors flex items-center justify-center gap-2"
                         >
-                          Download
-                        </a>
-                        <button className="flex-1 py-2 rounded-md bg-amber-500/20 text-center text-sm font-medium hover:bg-amber-500/30 transition-colors" style={{ color: 'var(--pill-orange)' }}>
-                          Use Template
-                        </button>
+                          <Sparkles size={14} />
+                          Detect Fields
+                        </Link>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`/api/docuform/documents/${template.filename}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 py-2 rounded-md bg-muted text-center text-sm font-medium text-foreground hover:bg-muted/80 transition-colors"
+                          >
+                            Download
+                          </a>
+                          <button className="flex-1 py-2 rounded-md bg-amber-500/20 text-center text-sm font-medium hover:bg-amber-500/30 transition-colors" style={{ color: 'var(--pill-orange)' }}>
+                            Use Template
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

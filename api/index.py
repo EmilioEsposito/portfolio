@@ -83,6 +83,8 @@ from api.src.docuform.routes import router as docuform_router
 
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
+from pathlib import Path
+import threading
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
@@ -172,13 +174,40 @@ async def _apscheduler_startup_async() -> None:
         logfire.exception(f"APScheduler startup failed: {e}")
 
 
+def _local_heartbeat():
+    """
+    Write a timestamp heartbeat to disk.
+    Used only in local / non-Railway environments to detect debugger pauses.
+    """
+    HEARTBEAT_PATH = Path("/tmp/fastapi_heartbeat")
+
+    def _run():
+        while True:
+            try:
+                HEARTBEAT_PATH.write_text(str(time.time()))
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+    threading.Thread(
+        target=_run,
+        name="fastapi-heartbeat",
+        daemon=True,
+    ).start()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
-            await test_database_connections()
+
+            # Enable heartbeat only when NOT running on Railway
+            if not os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+                _local_heartbeat()
+            
+            # if we are deploying on Railway, we want to block deployment if the DB connection test fails.
+            if os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+                await test_database_connections()
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
@@ -218,6 +247,7 @@ async def lifespan(app: FastAPI):
     # Shutdown APScheduler
     logfire.info("Shutting down APScheduler...")
     try:
+        # TODO: cleanup threads that are blocking the process from exiting
         scheduler = get_scheduler()
         if scheduler.running:
             scheduler.shutdown(wait=False)  # Don't wait for jobs to complete
@@ -240,14 +270,10 @@ async def lifespan(app: FastAPI):
 
     logfire.info("Application shutdown completed successfully.")
 
-    # DBOS DISABLED: Force exit code no longer needed.
-    # # DBOS spawns non-daemon threads that block process exit even after destroy() times out.
-    # # Force exit to allow hot reload to work. This is safe because:
-    # # 1. DBOS workflows are durable and will recover from the database on restart
-    # # 2. We've already completed our graceful shutdown logic above
-    # if dbos_shutdown_timed_out:
-    #     import os
-    #     os._exit(0)
+    # Force exit in local dev to avoid Hypercorn shutdown timeout.
+    # APScheduler threads can block clean shutdown; this is safe for local dev.
+    if not os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+        os._exit(0)
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 

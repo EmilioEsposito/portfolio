@@ -205,7 +205,7 @@ def wrap_text_in_content_control(
     search_text: str,
     tag: str,
     alias: str | None = None,
-    first_only: bool = True,
+    first_only: bool = False,
 ) -> int:
     """
     Find text in the document and wrap ONLY the matched text in a content control.
@@ -218,7 +218,7 @@ def wrap_text_in_content_control(
         search_text: The exact text to find and wrap
         tag: The programmatic tag/key for the content control
         alias: Display name (defaults to tag)
-        first_only: If True, only wrap the first occurrence
+        first_only: If True, only wrap the first occurrence. If False, wrap all occurrences.
 
     Returns:
         Number of content controls created
