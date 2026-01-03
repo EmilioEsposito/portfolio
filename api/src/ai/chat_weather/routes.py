@@ -14,7 +14,7 @@ import logfire
 import functools
 from api.src.database.database import DBSession
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(prefix="/chat-weather", tags=["ai"])
 
 
 # Use PydanticAI's RequestData for type checking/documentation
@@ -121,7 +121,7 @@ _CHAT_OPENAPI_EXTRA = {
 
 
 @router.post(
-    "/ai/chat-weather",
+    "",
     response_class=Response,
     responses=_CHAT_RESPONSES,
     summary="General-purpose chat with weather tool support",

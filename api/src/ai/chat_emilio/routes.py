@@ -24,7 +24,7 @@ from api.src.ai.models import persist_agent_run_result
 import functools
 from api.src.database.database import DBSession
 
-router = APIRouter(tags=["ai"])
+router = APIRouter(prefix="/chat-emilio", tags=["ai"])
 
 
 
@@ -132,7 +132,7 @@ _CHAT_EMILIO_OPENAPI_EXTRA = {
 
 # https://ai.pydantic.dev/ui/vercel-ai/
 @router.post(
-    "/ai/chat-emilio",
+    "",
     response_class=Response,
     responses=_CHAT_EMILIO_RESPONSES,
     summary="Chat with Emilio's portfolio assistant",

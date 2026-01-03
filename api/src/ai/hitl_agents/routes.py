@@ -49,7 +49,7 @@ from api.src.utils.clerk import SerniaUser, verify_serniacapital_user
 from api.src.database.database import DBSession
 
 router = APIRouter(
-    prefix="/ai/hitl-agent",
+    prefix="/hitl-agent",
     tags=["hitl-agent"],
     dependencies=[Depends(verify_serniacapital_user)],
 )
