@@ -172,8 +172,7 @@ into a template by identifying values that should become fillable fields?"
 - `get_document_text` - Get the full document text for analysis
 - `search_text` - Find all occurrences of specific text (useful for names that appear multiple times)
 - `list_fields` - Show existing template fields
-- `inspect_document_structure` - (Internal) Search entire document including tables, headers, footers
-- `browse_document_segments` - (Internal) Browse all text segments when search fails
+- `debug_find_text` - (Internal) Debug tool for when create_fields fails. Searches entire document.
 
 **Modifying:**
 - `create_fields` - Convert text into template fields. Always use this tool for creating fields.
@@ -217,17 +216,20 @@ Display names should be human-readable:
 - `signing.date` → "Signing Date"
 
 ## When Field Creation Fails
-If create_fields can't find text, PROACTIVELY diagnose using these steps:
+If create_fields can't find text, PROACTIVELY diagnose using `debug_find_text`:
 
-1. **Use `inspect_document_structure`** with the search text to search the ENTIRE document
+1. **Search mode**: `debug_find_text(query="the text")` searches the ENTIRE document
    (body, tables, headers, footers). Text is often in tables, especially signature blocks.
 
-2. **If still not found**, use `browse_document_segments` with location_filter="table" to
-   browse table content, or no filter to see all segments.
+2. **Filter by location**: `debug_find_text(query="text", location="table")` to search
+   only in tables, or use location="body", "header", "footer".
 
-3. **Try shorter substrings** - search for just a first name or part of a word.
+3. **Browse mode**: `debug_find_text()` with no query lists all segments. Use pagination
+   with `start` and `limit` params, or filter with `location="table"`.
 
-4. **Once you locate the text**, note if it's fragmented across segments. If so, create
+4. **Try shorter substrings** - search for just a first name or part of a word.
+
+5. **Once you locate the text**, note if it's fragmented across segments. If so, create
    fields for the individual fragments that exist in single segments.
 
 IMPORTANT: Do this investigation automatically without asking the user. Only communicate
@@ -580,153 +582,33 @@ def _collect_all_runs(doc: Document) -> list[tuple[str, str, any]]:
 
 
 @agent.tool
-async def inspect_document_structure(
+async def debug_find_text(
     ctx: RunContext[TemplateAgentContext],
-    search_text: str | None = None,
-    context_segments: int = 5,
-    max_results: int = 10,
-) -> str:
-    """
-    (Internal diagnostic tool) Inspect the full document structure to find text.
-
-    Searches the ENTIRE document including body text, tables, headers, and footers.
-    Use this when create_fields fails - text might be in a table cell or fragmented.
-
-    DO NOT expose technical details to the user. Use this information internally
-    to identify text fragments and suggest alternatives.
-
-    Args:
-        search_text: Text to search for (case-insensitive). If None, lists all segments.
-        context_segments: Number of segments to show around each match (default: 5)
-        max_results: Maximum results to return (default: 10)
-
-    Returns:
-        Document structure showing where text is located
-    """
-    if ctx.deps.document is None:
-        return "No document loaded. Use load_document first."
-
-    doc = ctx.deps.document
-    all_runs = _collect_all_runs(doc)
-
-    if not all_runs:
-        return "Document has no text content."
-
-    # If no search text, just list all segments
-    if not search_text:
-        result = f"Document has {len(all_runs)} text segment(s):\n\n"
-        for i, (loc, text, _) in enumerate(all_runs[:50]):  # Limit to first 50
-            result += f"{i+1}. [{loc}]: \"{text[:60]}{'...' if len(text) > 60 else ''}\"\n"
-        if len(all_runs) > 50:
-            result += f"\n... and {len(all_runs) - 50} more segments"
-        return result
-
-    # Search for text
-    search_lower = search_text.lower()
-
-    # Build combined text and map positions back to runs
-    combined_text = ""
-    run_boundaries: list[tuple[int, int, int]] = []  # (start_pos, end_pos, run_list_idx)
-
-    for i, (loc, text, run_obj) in enumerate(all_runs):
-        start = len(combined_text)
-        combined_text += text
-        end = len(combined_text)
-        run_boundaries.append((start, end, i))
-
-    # Find all occurrences
-    results = []
-    pos = 0
-    while len(results) < max_results:
-        idx = combined_text.lower().find(search_lower, pos)
-        if idx == -1:
-            break
-
-        match_end = idx + len(search_text)
-
-        # Find the run(s) containing the match
-        matching_run_indices = []
-        for start, end, run_list_idx in run_boundaries:
-            if start < match_end and end > idx:
-                matching_run_indices.append(run_list_idx)
-
-        if matching_run_indices:
-            first_run_idx = matching_run_indices[0]
-            last_run_idx = matching_run_indices[-1]
-
-            # Get context runs
-            start_idx = max(0, first_run_idx - context_segments)
-            end_idx = min(len(all_runs), last_run_idx + context_segments + 1)
-
-            # Format the runs
-            runs_info = []
-            for i in range(start_idx, end_idx):
-                loc, text, run_obj = all_runs[i]
-                is_match = i in matching_run_indices
-                marker = ">>>" if is_match else "   "
-
-                # Note formatting
-                fmt = []
-                try:
-                    if run_obj.bold:
-                        fmt.append("bold")
-                    if run_obj.italic:
-                        fmt.append("italic")
-                except:
-                    pass
-                fmt_str = f" [{', '.join(fmt)}]" if fmt else ""
-
-                runs_info.append(f"{marker} [{loc}]: \"{text}\"{fmt_str}")
-
-            actual_match = combined_text[idx:match_end]
-            result = f"Match {len(results) + 1}: \"{actual_match}\"\n"
-            result += "\n".join(runs_info)
-            results.append(result)
-
-        pos = idx + 1
-
-    if not results:
-        # No matches - show summary of where text exists
-        locations = set()
-        for loc, _, _ in all_runs:
-            if loc.startswith("body:"):
-                locations.add("body paragraphs")
-            elif loc.startswith("table"):
-                locations.add("tables")
-            elif loc.startswith("header"):
-                locations.add("headers")
-            elif loc.startswith("footer"):
-                locations.add("footers")
-
-        return f"No occurrences of '{search_text}' found.\n\nDocument contains text in: {', '.join(sorted(locations))}\nTotal segments: {len(all_runs)}\n\nTry searching for a shorter substring or use search_text=None to list all segments."
-
-    header = f"Found {len(results)} occurrence(s) of '{search_text}':\n"
-    header += ">>> marks matching segment(s). Location format: [container:paragraph:run]\n"
-    header += "Text in tables shows as [tableX:rowY:cellZ:...]\n\n"
-
-    return header + "\n\n".join(results)
-
-
-@agent.tool
-async def browse_document_segments(
-    ctx: RunContext[TemplateAgentContext],
+    query: str | None = None,
+    location: str | None = None,
     start: int = 0,
-    count: int = 30,
-    location_filter: str | None = None,
+    limit: int = 30,
+    context: int = 3,
 ) -> str:
     """
-    (Internal diagnostic tool) Browse all text segments in the document.
+    Debug tool to find text in the document when create_fields fails.
 
-    Use this to explore document structure when you can't find text.
-    Shows segments from all parts of the document (body, tables, headers, footers).
+    Searches the ENTIRE document including body, tables, headers, and footers.
+    Use this to locate text that might be fragmented or in unexpected places.
+
+    Two modes:
+    - Search mode (query provided): Find text and show surrounding context
+    - Browse mode (no query): List all text segments with pagination
 
     Args:
-        start: Starting segment index (default: 0)
-        count: Number of segments to return (default: 30, max: 100)
-        location_filter: Filter to specific locations like "table" or "body" (optional)
+        query: Text to search for (case-insensitive). None = browse all segments.
+        location: Filter by location: "body", "table", "header", "footer" (optional)
+        start: Pagination offset for browse mode (default: 0)
+        limit: Max results/segments to return (default: 30, max: 100)
+        context: Segments to show around matches in search mode (default: 3)
 
     Returns:
-        List of text segments with their locations
+        Found text locations or list of document segments
     """
     if ctx.deps.document is None:
         return "No document loaded. Use load_document first."
@@ -738,32 +620,106 @@ async def browse_document_segments(
         return "Document has no text content."
 
     # Apply location filter
-    if location_filter:
-        filter_lower = location_filter.lower()
-        all_runs = [(loc, text, run) for loc, text, run in all_runs if filter_lower in loc.lower()]
+    if location:
+        location_lower = location.lower()
+        all_runs = [(loc, text, run) for loc, text, run in all_runs if location_lower in loc.lower()]
+        if not all_runs:
+            return f"No segments found in '{location}'"
 
-    if not all_runs:
-        return f"No segments found matching filter '{location_filter}'"
+    limit = min(limit, 100)
 
-    # Limit count
-    count = min(count, 100)
-    end = min(start + count, len(all_runs))
+    # Browse mode: list segments with pagination
+    if not query:
+        end = min(start + limit, len(all_runs))
+        result = f"Segments {start+1}-{end} of {len(all_runs)} total"
+        if location:
+            result += f" (in '{location}')"
+        result += ":\n\n"
 
-    result = f"Segments {start+1}-{end} of {len(all_runs)} total"
-    if location_filter:
-        result += f" (filtered by '{location_filter}')"
-    result += ":\n\n"
+        for i in range(start, end):
+            loc, text, _ = all_runs[i]
+            display_text = text[:80] + ("..." if len(text) > 80 else "")
+            result += f"{i+1}. [{loc}]: \"{display_text}\"\n"
 
-    for i in range(start, end):
-        loc, text, _ = all_runs[i]
-        # Truncate long text
-        display_text = text[:80] + ("..." if len(text) > 80 else "")
-        result += f"{i+1}. [{loc}]: \"{display_text}\"\n"
+        if end < len(all_runs):
+            result += f"\n... {len(all_runs) - end} more. Use start={end} to continue."
 
-    if end < len(all_runs):
-        result += f"\n... {len(all_runs) - end} more segments. Use start={end} to see more."
+        return result
 
-    return result
+    # Search mode: find text with context
+    query_lower = query.lower()
+
+    # Build combined text and map positions back to runs
+    combined_text = ""
+    run_boundaries: list[tuple[int, int, int]] = []
+
+    for i, (loc, text, _) in enumerate(all_runs):
+        seg_start = len(combined_text)
+        combined_text += text
+        seg_end = len(combined_text)
+        run_boundaries.append((seg_start, seg_end, i))
+
+    # Find all occurrences
+    results = []
+    pos = 0
+    while len(results) < limit:
+        idx = combined_text.lower().find(query_lower, pos)
+        if idx == -1:
+            break
+
+        match_end = idx + len(query)
+
+        # Find the run(s) containing the match
+        matching_run_indices = []
+        for seg_start, seg_end, run_idx in run_boundaries:
+            if seg_start < match_end and seg_end > idx:
+                matching_run_indices.append(run_idx)
+
+        if matching_run_indices:
+            first_idx = matching_run_indices[0]
+            last_idx = matching_run_indices[-1]
+
+            # Get context runs
+            ctx_start = max(0, first_idx - context)
+            ctx_end = min(len(all_runs), last_idx + context + 1)
+
+            # Format the runs
+            runs_info = []
+            for i in range(ctx_start, ctx_end):
+                loc, text, _ = all_runs[i]
+                marker = ">>>" if i in matching_run_indices else "   "
+                runs_info.append(f"{marker} [{loc}]: \"{text}\"")
+
+            actual_match = combined_text[idx:match_end]
+            result = f"Match {len(results) + 1}: \"{actual_match}\"\n"
+            result += "\n".join(runs_info)
+            results.append(result)
+
+        pos = idx + 1
+
+    if not results:
+        # Summarize where text exists
+        locations = set()
+        for loc, _, _ in all_runs:
+            if loc.startswith("body:"):
+                locations.add("body")
+            elif loc.startswith("table"):
+                locations.add("tables")
+            elif loc.startswith("header"):
+                locations.add("headers")
+            elif loc.startswith("footer"):
+                locations.add("footers")
+
+        return (
+            f"'{query}' not found.\n\n"
+            f"Document has {len(all_runs)} segments in: {', '.join(sorted(locations))}\n"
+            f"Try a shorter substring or browse with query=None."
+        )
+
+    header = f"Found {len(results)} match(es) for '{query}':\n"
+    header += ">>> = matching segment. Location: [container:paragraph:run]\n\n"
+
+    return header + "\n\n".join(results)
 
 
 def _create_single_field(
