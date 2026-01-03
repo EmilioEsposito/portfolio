@@ -662,7 +662,7 @@ function DocuformAIContent() {
               <ArrowLeft size={18} className="text-muted-foreground" />
             </Link>
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-linear-to-br from-violet-500 to-violet-700 flex items-center justify-center">
                 <Bot size={16} className="text-white" />
               </div>
               <div>

@@ -65,7 +65,7 @@ export default function HITLAgentWorkflowPage() {
 }
 
 function HITLAgentWorkflowContent() {
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
   const [prompt, setPrompt] = useState("Send a creative message to Emilio");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

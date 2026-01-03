@@ -342,7 +342,7 @@ function DocgenPageContent() {
             </button>
             <div className="w-px h-6 bg-border" />
             <button className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted transition-colors">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-xs font-semibold text-white">JR</div>
+              <div className="w-8 h-8 rounded-full bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center text-xs font-semibold text-white">JR</div>
               <span className="text-sm font-medium text-foreground">J. Richardson</span>
             </button>
           </div>
@@ -374,7 +374,7 @@ function DocgenPageContent() {
                     className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors ${
                       uploading
                         ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                        : 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700'
+                        : 'bg-linear-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700'
                     }`}
                   >
                     {uploading ? (
@@ -427,7 +427,7 @@ function DocgenPageContent() {
                       className="bg-card rounded-lg border border-border p-5 hover:border-amber-500/50 transition-colors group"
                     >
                       <div className="flex items-start justify-between mb-3">
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-lg bg-linear-to-br from-blue-500 to-blue-700 flex items-center justify-center">
                           <FileText size={20} className="text-white" />
                         </div>
                         <button
@@ -704,7 +704,7 @@ function DocgenPageContent() {
                 className={`w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                   pendingFields.length > 0
                     ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                    : 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-lg'
+                    : 'bg-linear-to-r from-amber-500 to-amber-600 text-white hover:from-amber-600 hover:to-amber-700 shadow-lg'
                 }`}
               >
                 <FileCheck size={18} />

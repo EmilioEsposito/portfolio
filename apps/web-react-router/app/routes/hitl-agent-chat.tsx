@@ -1003,7 +1003,7 @@ export default function HITLAgentChatPage() {
                   )}
                 >
                   {message.role === "assistant" && (
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
                         <MessageSquare className="w-4 h-4 text-primary-foreground" />
                       </div>
@@ -1051,7 +1051,7 @@ export default function HITLAgentChatPage() {
                   </div>
 
                   {message.role === "user" && (
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
                         U
                       </div>

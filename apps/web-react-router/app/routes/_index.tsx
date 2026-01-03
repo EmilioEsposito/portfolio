@@ -32,7 +32,7 @@ export default function Home() {
               VP & Managing Partner at Sernia Capital
             </P>
           </div>
-          <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
+          <div className="relative w-32 h-32 rounded-full overflow-hidden shrink-0">
             <img
               src="/images/me.png"
               alt="Emilio Esposito"
