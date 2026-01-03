@@ -31,7 +31,8 @@
       "Bash(wc:*)",
       "Bash(file:*)",
       "Bash(touch:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(source .venv/bin/activate:*)"
     ],
     "deny": [
       "Bash(rm -rf:*)",

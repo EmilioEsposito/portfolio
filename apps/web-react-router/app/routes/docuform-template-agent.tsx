@@ -1,5 +1,5 @@
 import type { Route } from "./+types/docuform-template-agent";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAuth } from "@clerk/react-router";
 import { DefaultChatTransport } from "ai";
@@ -20,6 +20,10 @@ import {
   Sparkles,
   Loader2,
   RotateCcw,
+  Users,
+  Scale,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -42,12 +46,22 @@ import {
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Link, useSearchParams } from "react-router";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+
+type FieldSource = "client" | "attorney" | "ai";
 
 interface ContentControl {
   tag: string;
   alias: string;
   value: string;
   id: string | null;
+  source: FieldSource;
 }
 
 export function meta({}: Route.MetaArgs) {
@@ -170,6 +184,7 @@ function DocuformAIContent() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [contentControls, setContentControls] = useState<ContentControl[]>([]);
+  const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
 
   // Save dialog state
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
@@ -362,10 +377,11 @@ function DocuformAIContent() {
       const after = node.textContent?.substring(end) || "";
 
       const wrapper = document.createElement("span");
-      wrapper.className = "content-control-highlight";
+      wrapper.className = `content-control-highlight content-control-${control.source}`;
       wrapper.dataset.tag = control.tag;
       wrapper.dataset.alias = control.alias;
-      wrapper.title = `${control.alias} (${control.tag})`;
+      wrapper.dataset.source = control.source;
+      wrapper.title = `${control.alias || control.tag} (${control.source})`;
       wrapper.textContent = match;
 
       const frag = document.createDocumentFragment();
@@ -412,7 +428,11 @@ function DocuformAIContent() {
       let controls: ContentControl[] = [];
       if (controlsResponse.ok) {
         const data = await controlsResponse.json();
-        controls = data.content_controls || [];
+        // Map controls and add default source "client" (or use saved source from API)
+        controls = (data.content_controls || []).map((c: any) => ({
+          ...c,
+          source: c.source || "client" as FieldSource,
+        }));
         setContentControls(controls);
         // Check if we're viewing a working copy
         if (previewMode === "working" && data.is_working_copy) {
@@ -474,6 +494,44 @@ function DocuformAIContent() {
     renderDocxPreview();
   }, [documentFilename, docxPreview, previewMode, hasModifications, renderDocxPreview]);
 
+  // Update field source (updates all instances of the same tag)
+  const updateFieldSource = (tag: string, source: FieldSource) => {
+    setContentControls(controls =>
+      controls.map(c => c.tag === tag ? { ...c, source } : c)
+    );
+
+    // Update preview highlighting classes in the DOM
+    if (previewContainerRef.current) {
+      const highlights = previewContainerRef.current.querySelectorAll(
+        `.content-control-highlight[data-tag="${tag}"]`
+      );
+      highlights.forEach(el => {
+        el.classList.remove("content-control-client", "content-control-attorney", "content-control-ai");
+        el.classList.add(`content-control-${source}`);
+        el.setAttribute("data-source", source);
+        el.setAttribute("title", `${el.getAttribute("data-alias") || tag} (${source})`);
+      });
+    }
+  };
+
+  // Dedupe fields by tag and count instances
+  interface DedupedField extends ContentControl {
+    count: number;
+  }
+
+  const dedupedFields = useMemo((): DedupedField[] => {
+    const tagMap = new Map<string, DedupedField>();
+    for (const control of contentControls) {
+      const existing = tagMap.get(control.tag);
+      if (existing) {
+        existing.count++;
+      } else {
+        tagMap.set(control.tag, { ...control, count: 1 });
+      }
+    }
+    return Array.from(tagMap.values());
+  }, [contentControls]);
+
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (input.trim() && status !== "submitted" && status !== "streaming") {
@@ -498,11 +556,20 @@ function DocuformAIContent() {
     setSaveError(null);
     try {
       const token = await getToken();
+      // Build field_sources from dedupedFields state
+      const fieldSources = dedupedFields.map(f => ({
+        tag: f.tag,
+        source: f.source,
+      }));
       const response = await fetch(
         `/api/docuform/documents/${encodeURIComponent(documentFilename)}/save?conversation_id=${encodeURIComponent(conversationId)}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ field_sources: fieldSources }),
         }
       );
       if (!response.ok) {
@@ -538,11 +605,20 @@ function DocuformAIContent() {
         new_filename: saveAsFilename,
         conversation_id: conversationId,
       });
+      // Build field_sources from dedupedFields state
+      const fieldSources = dedupedFields.map(f => ({
+        tag: f.tag,
+        source: f.source,
+      }));
       const response = await fetch(
         `/api/docuform/documents/${encodeURIComponent(documentFilename)}/save-as?${params.toString()}`,
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ field_sources: fieldSources }),
         }
       );
       if (!response.ok) {
@@ -937,9 +1013,9 @@ function DocuformAIContent() {
           )}
         </header>
 
-        <div className="flex-1 overflow-auto min-h-0">
+        <div className="flex-1 flex flex-col min-h-0">
           {documentFilename ? (
-            <div className="h-full">
+            <>
               {/* Custom styles for the rendered document */}
               <style>{`
                 .docx-preview-container {
@@ -961,61 +1037,202 @@ function DocuformAIContent() {
                 }
                 /* Content control highlights (applied via JavaScript) */
                 .content-control-highlight {
-                  background-color: rgba(139, 92, 246, 0.25);
-                  border-bottom: 2px solid #8b5cf6;
                   padding: 1px 2px;
                   border-radius: 2px;
                   cursor: pointer;
                   transition: background-color 0.15s ease;
                 }
-                .content-control-highlight:hover {
+                /* Client source - Blue */
+                .content-control-client {
+                  background-color: rgba(59, 130, 246, 0.25);
+                  border-bottom: 2px solid #3b82f6;
+                }
+                .content-control-client:hover {
+                  background-color: rgba(59, 130, 246, 0.4);
+                }
+                /* Attorney source - Amber */
+                .content-control-attorney {
+                  background-color: rgba(245, 158, 11, 0.25);
+                  border-bottom: 2px solid #f59e0b;
+                }
+                .content-control-attorney:hover {
+                  background-color: rgba(245, 158, 11, 0.4);
+                }
+                /* AI source - Violet */
+                .content-control-ai {
+                  background-color: rgba(139, 92, 246, 0.25);
+                  border-bottom: 2px solid #8b5cf6;
+                }
+                .content-control-ai:hover {
                   background-color: rgba(139, 92, 246, 0.4);
                 }
               `}</style>
 
-              {/* Loading state */}
-              {previewLoading && (
-                <div className="flex items-center justify-center h-64">
-                  <div className="text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Loading document...</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Error state */}
-              {previewError && !previewLoading && (
-                <div className="p-4">
-                  <div className="bg-destructive/10 border border-destructive/30 rounded-md p-4">
-                    <p className="text-sm text-destructive">{previewError}</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={renderDocxPreview}
-                    >
-                      Retry
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* DOCX Preview Container */}
+              {/* Document Preview Section - 70% when fields visible */}
               <div
-                ref={previewContainerRef}
-                className="bg-white min-h-[400px]"
-                style={{ display: previewLoading ? "none" : "block" }}
-              />
+                className={cn(
+                  "overflow-auto",
+                  fieldsCollapsed ? "flex-1" : "h-[70%]"
+                )}
+              >
+                {/* Loading state */}
+                {previewLoading && (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">Loading document...</p>
+                    </div>
+                  </div>
+                )}
 
-              {/* Content controls info */}
+                {/* Error state */}
+                {previewError && !previewLoading && (
+                  <div className="p-4">
+                    <div className="bg-destructive/10 border border-destructive/30 rounded-md p-4">
+                      <p className="text-sm text-destructive">{previewError}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={renderDocxPreview}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* DOCX Preview Container */}
+                <div
+                  ref={previewContainerRef}
+                  className="bg-white min-h-[400px]"
+                  style={{ display: previewLoading ? "none" : "block" }}
+                />
+              </div>
+
+              {/* Color Legend */}
               {contentControls.length > 0 && !previewLoading && (
-                <div className="px-4 py-3 border-t border-border bg-muted/30 text-xs text-muted-foreground">
-                  {contentControls.length} content control{contentControls.length !== 1 ? "s" : ""} highlighted
+                <div className="px-4 py-2 border-t border-border bg-muted/20 flex items-center gap-4 text-xs shrink-0">
+                  <span className="text-muted-foreground font-medium">Legend:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-blue-500/30 border-b-2 border-blue-500" />
+                    <span className="text-muted-foreground">Client</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-amber-500/30 border-b-2 border-amber-500" />
+                    <span className="text-muted-foreground">Attorney</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-violet-500/30 border-b-2 border-violet-500" />
+                    <span className="text-muted-foreground">AI</span>
+                  </div>
                 </div>
               )}
-            </div>
+
+              {/* Fields Panel - 30% height, collapsible */}
+              <div
+                className={cn(
+                  "border-t border-border bg-card flex flex-col",
+                  fieldsCollapsed ? "h-auto" : "h-[30%] min-h-[120px]"
+                )}
+              >
+                {/* Fields Header */}
+                <button
+                  onClick={() => setFieldsCollapsed(!fieldsCollapsed)}
+                  className="flex items-center justify-between px-4 py-2 hover:bg-muted/50 transition-colors shrink-0"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileCheck size={16} className="text-violet-500" />
+                    <span className="text-sm font-medium">
+                      Fields
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {dedupedFields.length} unique{contentControls.length > dedupedFields.length && ` (${contentControls.length} instances)`}
+                    </span>
+                  </div>
+                  {fieldsCollapsed ? (
+                    <ChevronUp size={16} className="text-muted-foreground" />
+                  ) : (
+                    <ChevronDown size={16} className="text-muted-foreground" />
+                  )}
+                </button>
+
+                {/* Fields List */}
+                {!fieldsCollapsed && (
+                  <div className="flex-1 overflow-auto px-4 pb-4">
+                    {dedupedFields.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center py-4">
+                        <p className="text-sm text-muted-foreground">
+                          No fields detected yet. Ask the AI to analyze the document.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {dedupedFields.map((field) => (
+                          <div
+                            key={field.tag}
+                            className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-foreground truncate">
+                                  {field.alias || field.tag}
+                                </span>
+                                {field.count > 1 && (
+                                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full shrink-0">
+                                    x{field.count}
+                                  </span>
+                                )}
+                              </div>
+                              <code className="text-xs text-muted-foreground mt-0.5 block truncate">
+                                {field.tag}
+                              </code>
+                            </div>
+                            <Select
+                              value={field.source}
+                              onValueChange={(value: FieldSource) => updateFieldSource(field.tag, value)}
+                            >
+                              <SelectTrigger
+                                className={cn(
+                                  "w-[110px] h-7 text-xs font-medium rounded-full",
+                                  field.source === "client" && "text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100 dark:text-blue-300 dark:bg-blue-950 dark:border-blue-800 dark:hover:bg-blue-900",
+                                  field.source === "attorney" && "text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-950 dark:border-amber-800 dark:hover:bg-amber-900",
+                                  field.source === "ai" && "text-violet-600 bg-violet-50 border-violet-200 hover:bg-violet-100 dark:text-violet-300 dark:bg-violet-950 dark:border-violet-800 dark:hover:bg-violet-900"
+                                )}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="client">
+                                  <div className="flex items-center gap-1.5">
+                                    <Users size={12} className="text-blue-600" />
+                                    <span>Client</span>
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="attorney">
+                                  <div className="flex items-center gap-1.5">
+                                    <Scale size={12} className="text-amber-600" />
+                                    <span>Attorney</span>
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="ai">
+                                  <div className="flex items-center gap-1.5">
+                                    <Sparkles size={12} className="text-violet-600" />
+                                    <span>AI</span>
+                                  </div>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center p-4">
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
               <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
                 <FileText size={32} className="text-muted-foreground" />
               </div>
