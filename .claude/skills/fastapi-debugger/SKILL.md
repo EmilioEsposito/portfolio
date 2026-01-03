@@ -161,16 +161,7 @@ Note: this terminates the VS Code debugger session.
 
 ## Start a Fresh Debug Session (Claude-Owned)
 
-Run the backend directly under debugpy in a background process:
-
-```bash
-python -m debugpy \
-  --listen 5678 \
-  -m hypercorn api.index:app \
-  --reload \
-  -b 0.0.0.0:8000 \
-  > backend.log 2>&1 &
-```
+Run the backend directly with the `pnpm fastapi-dev` command. This will kill any existing processes on port 8000, activate the virtual environment, and start the backend in debug mode.
 
 This allows Claude Code to control lifecycle and restart cleanly.
 
