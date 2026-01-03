@@ -242,11 +242,10 @@ def wrap_text_in_content_control(
     first_only: bool = False,
 ) -> int:
     """
-    Find text in the document and wrap ONLY the matched text in a content control.
+    Find text in the document and wrap it in a content control.
 
     Searches the ENTIRE document including body text, tables, headers, and footers.
-    Splits runs as needed to wrap just the search text, leaving surrounding
-    text in separate runs.
+    Handles text that spans multiple runs (common when Word applies formatting).
 
     Args:
         doc: The python-docx Document object
@@ -262,65 +261,104 @@ def wrap_text_in_content_control(
 
     # Search all paragraphs in the document (body, tables, headers, footers)
     for paragraph in _collect_all_paragraphs(doc):
-        for run in paragraph.runs:
-            if search_text not in run.text:
+        # Build concatenated text and track run boundaries
+        runs = paragraph.runs
+        if not runs:
+            continue
+
+        combined_text = ""
+        run_boundaries = []  # [(start_pos, end_pos, run_index), ...]
+
+        for i, run in enumerate(runs):
+            start = len(combined_text)
+            combined_text += run.text or ""
+            end = len(combined_text)
+            run_boundaries.append((start, end, i))
+
+        # Search for text in combined paragraph text
+        search_start = 0
+        while True:
+            idx = combined_text.find(search_text, search_start)
+            if idx == -1:
+                break
+
+            match_end = idx + len(search_text)
+
+            # Find which runs contain the match
+            first_run_idx = None
+            last_run_idx = None
+            for start, end, run_idx in run_boundaries:
+                if start < match_end and end > idx:
+                    if first_run_idx is None:
+                        first_run_idx = run_idx
+                    last_run_idx = run_idx
+
+            if first_run_idx is None:
+                search_start = idx + 1
                 continue
 
-            # Find the position of the search text
-            text = run.text
-            start_idx = text.find(search_text)
-            end_idx = start_idx + len(search_text)
+            # Calculate offsets within first and last runs
+            first_run_start, _, _ = run_boundaries[first_run_idx]
+            last_run_start, _, _ = run_boundaries[last_run_idx]
 
-            # Split into: before, match, after
-            before_text = text[:start_idx]
-            match_text = text[start_idx:end_idx]
-            after_text = text[end_idx:]
+            offset_in_first = idx - first_run_start
+            offset_in_last = match_end - last_run_start
 
-            parent = run._element.getparent()
-            run_index = list(parent).index(run._element)
+            # Get the parent element and run positions
+            parent = runs[first_run_idx]._element.getparent()
+            first_elem_idx = list(parent).index(runs[first_run_idx]._element)
 
-            # Remove the original run
-            parent.remove(run._element)
+            # Collect text parts
+            first_run_text = runs[first_run_idx].text or ""
+            last_run_text = runs[last_run_idx].text or ""
 
-            # Insert elements in order: before (if any), SDT, after (if any)
-            insert_position = run_index
+            before_text = first_run_text[:offset_in_first]
+            after_text = last_run_text[offset_in_last:]
 
-            # Add "before" text as a new run
+            # Remove runs that are part of the match (in reverse order to preserve indices)
+            for i in range(last_run_idx, first_run_idx - 1, -1):
+                parent.remove(runs[i]._element)
+
+            # Insert replacement elements
+            insert_pos = first_elem_idx
+
+            # Add "before" text if any
             if before_text:
                 before_run = _make_element("w:r")
                 before_t = _make_element("w:t")
                 before_t.text = before_text
-                # Preserve spaces
                 if before_text.endswith(" "):
                     before_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
                 before_run.append(before_t)
-                parent.insert(insert_position, before_run)
-                insert_position += 1
+                parent.insert(insert_pos, before_run)
+                insert_pos += 1
 
-            # Add the content control with just the matched text
+            # Add the content control
             sdt = create_content_control_element(
                 tag=tag,
-                value=match_text,
+                value=search_text,
                 alias=alias,
                 block_level=False,
             )
-            parent.insert(insert_position, sdt)
-            insert_position += 1
+            parent.insert(insert_pos, sdt)
+            insert_pos += 1
 
-            # Add "after" text as a new run
+            # Add "after" text if any
             if after_text:
                 after_run = _make_element("w:r")
                 after_t = _make_element("w:t")
                 after_t.text = after_text
-                # Preserve spaces
                 if after_text.startswith(" "):
                     after_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
                 after_run.append(after_t)
-                parent.insert(insert_position, after_run)
+                parent.insert(insert_pos, after_run)
 
             count += 1
             if first_only:
                 return count
+
+            # Paragraph structure changed, break and let outer loop re-process if needed
+            break
 
     return count
 

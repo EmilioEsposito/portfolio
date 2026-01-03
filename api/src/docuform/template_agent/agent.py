@@ -229,12 +229,12 @@ If create_fields can't find text, PROACTIVELY diagnose using `debug_find_text`:
 
 4. **Try shorter substrings** - search for just a first name or part of a word.
 
-5. **Once you locate the text**, note if it's fragmented across segments. If so, create
-   fields for the individual fragments that exist in single segments.
+NOTE: The field creation tool handles text that spans multiple document segments automatically.
+You don't need to split names like "John Smith" into separate fields - just search for the
+full text and create_fields will combine the segments into one field.
 
 IMPORTANT: Do this investigation automatically without asking the user. Only communicate
-results in user-friendly terms like "I found it in a table" or "The text is split up,
-so I'll create the field in parts."
+results in user-friendly terms like "I found it in a table".
 
 Always explain what you're doing and ask for confirmation before making changes.
 """,
