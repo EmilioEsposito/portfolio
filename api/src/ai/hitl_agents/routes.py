@@ -49,7 +49,7 @@ from api.src.utils.clerk import SerniaUser
 from api.src.database.database import DBSession
 
 router = APIRouter(
-    prefix="/ai/hitl-agent",
+    prefix="/hitl-agent",
     tags=["hitl-agent"],
     # Note: Domain verification is handled by SerniaUser dependency on each route
 )

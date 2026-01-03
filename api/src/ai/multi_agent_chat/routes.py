@@ -16,7 +16,7 @@ from api.src.utils.swagger_schema import expand_json_schema
 import logfire
 
 
-router = APIRouter(tags=["ai"])
+router = APIRouter(prefix="/multi-agent-chat", tags=["ai"])
 
 
 def _extract_latest_message_text(request_payload: dict) -> str:
@@ -118,7 +118,7 @@ _MULTI_AGENT_OPENAPI_EXTRA = {
 
 
 @router.post(
-    "/ai/multi-agent-chat",
+    "",
     response_class=Response,
     responses=_MULTI_AGENT_RESPONSES,
     summary="Unified chat endpoint with dynamic agent routing",
