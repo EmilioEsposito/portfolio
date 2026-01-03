@@ -444,7 +444,7 @@ function DocgenPageContent() {
                       <p className="text-xs text-muted-foreground mb-4">{template.filename}</p>
                       <div className="flex flex-col gap-2">
                         <Link
-                          to={`/docuform-ai?doc=${encodeURIComponent(template.filename)}`}
+                          to={`/docuform-template-agent?doc=${encodeURIComponent(template.filename)}`}
                           className="w-full py-2 rounded-md bg-violet-500/20 text-center text-sm font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-500/30 transition-colors flex items-center justify-center gap-2"
                         >
                           <Sparkles size={14} />

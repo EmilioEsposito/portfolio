@@ -465,6 +465,82 @@ def delete_content_control(
     return count
 
 
+def split_content_control(
+    doc: Document,
+    tag: str,
+    new_tags: list[str],
+) -> int:
+    """
+    Split a content control into multiple adjacent content controls.
+
+    Replaces one field with N fields. Each new field gets a placeholder value
+    of "[tag_name]". Useful for splitting a name field into first/middle/last.
+
+    Args:
+        doc: The python-docx Document object
+        tag: The tag of the content control to split
+        new_tags: List of new tag names (e.g., ["person.first", "person.middle", "person.last"])
+
+    Returns:
+        Number of new content controls created (0 if original not found)
+    """
+    if not new_tags:
+        return 0
+
+    # Find the content control to split
+    target_sdt = None
+    for sdt in doc._element.iter(W_SDT):
+        sdtPr = sdt.find(W_SDT_PR)
+        if sdtPr is None:
+            continue
+        tag_el = sdtPr.find(W_TAG)
+        if tag_el is not None and tag_el.get(W_VAL) == tag:
+            target_sdt = sdt
+            break
+
+    if target_sdt is None:
+        return 0
+
+    parent = target_sdt.getparent()
+    if parent is None:
+        return 0
+
+    # Get position of original SDT
+    sdt_index = list(parent).index(target_sdt)
+
+    # Remove the original SDT
+    parent.remove(target_sdt)
+
+    # Insert new content controls with spaces between them
+    insert_pos = sdt_index
+    for i, new_tag in enumerate(new_tags):
+        # Generate alias from tag: "person.first_name" -> "Person First Name"
+        alias = new_tag.replace(".", " ").replace("_", " ").title()
+        placeholder = f"[{new_tag}]"
+
+        # Create the new content control
+        new_sdt = create_content_control_element(
+            tag=new_tag,
+            value=placeholder,
+            alias=alias,
+            block_level=False,
+        )
+        parent.insert(insert_pos, new_sdt)
+        insert_pos += 1
+
+        # Add a space run between fields (except after the last one)
+        if i < len(new_tags) - 1:
+            space_run = _make_element("w:r")
+            space_t = _make_element("w:t")
+            space_t.text = " "
+            space_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            space_run.append(space_t)
+            parent.insert(insert_pos, space_run)
+            insert_pos += 1
+
+    return len(new_tags)
+
+
 def update_content_control(
     doc: Document,
     tag: str,

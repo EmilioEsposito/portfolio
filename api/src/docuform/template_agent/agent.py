@@ -21,6 +21,14 @@ from api.src.docuform.docx_content_controls import (
     set_content_control_value,
     delete_content_control,
     update_content_control,
+    split_content_control,
+    W_SDT,
+    W_SDT_PR,
+    W_SDT_CONTENT,
+    W_TAG,
+    W_VAL,
+    W_T,
+    W_R,
 )
 
 
@@ -170,14 +178,14 @@ into a template by identifying values that should become fillable fields?"
 **Reading & Searching:**
 - `get_document_info` - See loaded document info and preview
 - `get_document_text` - Get the full document text for analysis
-- `search_text` - Find all occurrences of specific text (useful for names that appear multiple times)
 - `list_fields` - Show existing template fields
-- `debug_find_text` - (Internal) Debug tool for when create_fields fails. Searches entire document.
+- `find_text` - Search or browse all document text (body, tables, headers, footers)
 
 **Modifying:**
 - `create_fields` - Convert text into template fields. Always use this tool for creating fields.
 - `edit_field` - Edit an existing field's tag, display name, or value
 - `delete_field` - Remove a field (optionally preserving its text)
+- `split_field` - Split one field into multiple adjacent fields (e.g., name → first/middle/last)
 - `update_field_value` - Quick way to change just the value of an existing field
 - `reset_working_copy` - Discard all modifications
 
@@ -185,9 +193,10 @@ into a template by identifying values that should become fillable fields?"
 
 1. Use `get_document_text` to read the full content
 2. Identify values that should become fields (names, dates, addresses, amounts)
-3. Use `search_text` to find all occurrences of each value
+3. Use `find_text` to find all occurrences of each value
 4. Ask user to confirm which items to convert
 5. Use `create_fields` to mark ALL confirmed fields in one call
+6. Run `get_document_text` again to see if there are any remaining instances of the same/similar text, or if was an already filled document being converted into a template there could be straggler fields that need to be created.
 
 ## Tag Naming
 ALWAYS use dot notation (object.property format) for clarity and consistency:
@@ -216,15 +225,15 @@ Display names should be human-readable:
 - `signing.date` → "Signing Date"
 
 ## When Field Creation Fails
-If create_fields can't find text, PROACTIVELY diagnose using `debug_find_text`:
+If create_fields can't find text, PROACTIVELY diagnose using `find_text`:
 
-1. **Search mode**: `debug_find_text(query="the text")` searches the ENTIRE document
+1. **Search mode**: `find_text(query="the text")` searches the ENTIRE document
    (body, tables, headers, footers). Text is often in tables, especially signature blocks.
 
-2. **Filter by location**: `debug_find_text(query="text", location="table")` to search
+2. **Filter by location**: `find_text(query="text", location="table")` to search
    only in tables, or use location="body", "header", "footer".
 
-3. **Browse mode**: `debug_find_text()` with no query lists all segments. Use pagination
+3. **Browse mode**: `find_text()` with no query lists all segments. Use pagination
    with `start` and `limit` params, or filter with `location="table"`.
 
 4. **Try shorter substrings** - search for just a first name or part of a word.
@@ -235,6 +244,18 @@ full text and create_fields will combine the segments into one field.
 
 IMPORTANT: Do this investigation automatically without asking the user. Only communicate
 results in user-friendly terms like "I found it in a table".
+
+## Splitting a Field into Multiple Fields
+Use the `split_field` tool to replace one field with multiple adjacent fields:
+- `split_field(tag="declarant.name", new_tags=["declarant.first_name", "declarant.middle_name", "declarant.last_name"])`
+
+This replaces the single field with placeholder fields like `[declarant.first_name] [declarant.middle_name] [declarant.last_name]`.
+The original text is discarded - users will fill in the new fields when using the template.
+
+## Finishing Up
+When the user is happy with the template and all fields have been created, tell them to click
+the **Save** or **Save As** button in the interface to save their completed template.
+This is the final step - remind them that the save buttons are how they get their finished document.
 
 Always explain what you're doing and ask for confirmation before making changes.
 """,
@@ -387,112 +408,57 @@ async def get_document_text(ctx: RunContext[TemplateAgentContext], max_chars: in
     Look for things like names, dates, addresses, dollar amounts, or any text
     that should be replaceable in a template.
 
+    Existing template fields are shown as {{FIELD:tag_name:value}} so you know
+    what has already been processed.
+
     Args:
         max_chars: Maximum characters to return (default 10000). Use higher values for longer documents.
 
     Returns:
-        The document text content
+        The document text content with fields marked
     """
     if ctx.deps.document is None:
         return "No document loaded. Use load_document first."
 
     doc = ctx.deps.document
-    all_text = "\n\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+
+    # Build text from all runs including content controls
+    all_runs = _collect_all_runs(doc)
+
+    # Group runs by paragraph to reconstruct readable text
+    paragraphs: dict[str, list[tuple[str, str]]] = {}
+    for loc, text, _ in all_runs:
+        # Extract paragraph key (everything before last colon segment)
+        # e.g., "body:p0:r0" -> "body:p0", "body:p0:field[name]" -> "body:p0"
+        parts = loc.rsplit(":", 1)
+        para_key = parts[0] if len(parts) > 1 else loc
+
+        if para_key not in paragraphs:
+            paragraphs[para_key] = []
+
+        # Mark fields clearly in the text stream
+        if ":field[" in loc:
+            # Extract tag name from location like "body:p0:field[declarant.name]"
+            tag_start = loc.find(":field[") + 7
+            tag_end = loc.find("]", tag_start)
+            tag_name = loc[tag_start:tag_end]
+            paragraphs[para_key].append((loc, f"{{{{FIELD:{tag_name}:{text}}}}}"))
+        else:
+            paragraphs[para_key].append((loc, text))
+
+    # Join runs within each paragraph, then join paragraphs
+    para_texts = []
+    for para_key in sorted(paragraphs.keys()):
+        para_text = "".join(text for _, text in paragraphs[para_key])
+        if para_text.strip():
+            para_texts.append(para_text)
+
+    all_text = "\n\n".join(para_texts)
 
     if len(all_text) > max_chars:
         return all_text[:max_chars] + f"\n\n... (truncated, {len(all_text) - max_chars} more characters)"
 
     return all_text
-
-
-@agent.tool
-async def search_text(
-    ctx: RunContext[TemplateAgentContext],
-    query: str,
-    case_sensitive: bool = False,
-    context_before: int = 50,
-    context_after: int = 50,
-) -> str:
-    """
-    Search for text in the document. Returns all occurrences with context.
-
-    Use this to find specific text (like a person's name) that appears in the document,
-    which you can then convert into a template field. You can also use this to read sections
-    of a long document by searching for a heading and using large context_after values.
-
-    Args:
-        query: The text to search for
-        case_sensitive: Whether the search should be case-sensitive (default: False)
-        context_before: Characters to show before each match (default: 50, max: 2000)
-        context_after: Characters to show after each match (default: 50, max: 2000)
-
-    Returns:
-        List of matches with surrounding context
-    """
-    if ctx.deps.document is None:
-        return "No document loaded. Use load_document first."
-
-    # Clamp context values
-    context_before = max(0, min(context_before, 2000))
-    context_after = max(0, min(context_after, 2000))
-
-    doc = ctx.deps.document
-    all_text = "\n".join([p.text for p in doc.paragraphs])
-
-    if not case_sensitive:
-        search_text_lower = query.lower()
-        matches = []
-        pos = 0
-        while True:
-            idx = all_text.lower().find(search_text_lower, pos)
-            if idx == -1:
-                break
-            # Get the actual text (preserving case)
-            actual_text = all_text[idx:idx + len(query)]
-            # Get context
-            start = max(0, idx - context_before)
-            end = min(len(all_text), idx + len(query) + context_after)
-            context = all_text[start:end]
-            if start > 0:
-                context = "..." + context
-            if end < len(all_text):
-                context = context + "..."
-            matches.append({
-                "text": actual_text,
-                "context": context.replace("\n", " "),
-                "position": idx,
-            })
-            pos = idx + 1
-    else:
-        matches = []
-        pos = 0
-        while True:
-            idx = all_text.find(query, pos)
-            if idx == -1:
-                break
-            start = max(0, idx - context_before)
-            end = min(len(all_text), idx + len(query) + context_after)
-            context = all_text[start:end]
-            if start > 0:
-                context = "..." + context
-            if end < len(all_text):
-                context = context + "..."
-            matches.append({
-                "text": query,
-                "context": context.replace("\n", " "),
-                "position": idx,
-            })
-            pos = idx + 1
-
-    if not matches:
-        return f"No matches found for '{query}'"
-
-    result = f"Found {len(matches)} occurrence(s) of '{query}':\n\n"
-    for i, m in enumerate(matches, 1):
-        result += f"{i}. \"{m['text']}\" (position: {m['position']})\n"
-        result += f"   Context: {m['context']}\n\n"
-
-    return result
 
 
 @agent.tool
@@ -525,32 +491,74 @@ async def list_fields(ctx: RunContext[TemplateAgentContext]) -> str:
     return result
 
 
+def _extract_paragraph_content(para_element, location_prefix: str) -> list[tuple[str, str, any]]:
+    """
+    Extract text from a paragraph element, including both regular runs and content controls.
+
+    Iterates through paragraph children in document order to capture:
+    - Regular runs (w:r elements)
+    - Content controls (w:sdt elements) - marked with [field:tag] prefix
+
+    Returns list of (location, text, element) tuples.
+    """
+    results: list[tuple[str, str, any]] = []
+    run_idx = 0
+    sdt_idx = 0
+
+    for child in para_element:
+        tag = child.tag
+
+        if tag == W_R:
+            # Regular run - extract text
+            texts = [t.text for t in child.iter(W_T) if t.text]
+            text = "".join(texts)
+            if text:
+                results.append((f"{location_prefix}:r{run_idx}", text, child))
+            run_idx += 1
+
+        elif tag == W_SDT:
+            # Content control - extract text and tag name
+            sdt_pr = child.find(W_SDT_PR)
+            tag_el = sdt_pr.find(W_TAG) if sdt_pr is not None else None
+            field_tag = tag_el.get(W_VAL) if tag_el is not None else "unknown"
+
+            content = child.find(W_SDT_CONTENT)
+            texts = [t.text for t in content.iter(W_T) if t.text] if content is not None else []
+            text = "".join(texts)
+
+            if text:
+                # Mark as field with tag name for AI context
+                results.append((f"{location_prefix}:field[{field_tag}]", text, child))
+            sdt_idx += 1
+
+    return results
+
+
 def _collect_all_runs(doc: Document) -> list[tuple[str, str, any]]:
     """
-    Collect ALL text runs from the entire document, including:
-    - Body paragraphs
+    Collect ALL text from the entire document, including:
+    - Body paragraphs (regular text and content controls)
     - Tables (all cells)
     - Headers and footers
 
-    Returns list of (location, text, run_obj) tuples.
+    Content controls are marked with location like "body:p5:field[tag_name]"
+    so the AI knows which text is inside template fields.
+
+    Returns list of (location, text, element) tuples.
     """
-    all_runs: list[tuple[str, str, any]] = []  # (location, text, run_obj)
+    all_runs: list[tuple[str, str, any]] = []
 
     # Body paragraphs
     for para_idx, para in enumerate(doc.paragraphs):
-        for run_idx, run in enumerate(para.runs):
-            if run.text:
-                all_runs.append((f"body:p{para_idx}:r{run_idx}", run.text, run))
+        all_runs.extend(_extract_paragraph_content(para._element, f"body:p{para_idx}"))
 
     # Tables
     for table_idx, table in enumerate(doc.tables):
         for row_idx, row in enumerate(table.rows):
             for cell_idx, cell in enumerate(row.cells):
                 for para_idx, para in enumerate(cell.paragraphs):
-                    for run_idx, run in enumerate(para.runs):
-                        if run.text:
-                            loc = f"table{table_idx}:row{row_idx}:cell{cell_idx}:p{para_idx}:r{run_idx}"
-                            all_runs.append((loc, run.text, run))
+                    loc_prefix = f"table{table_idx}:row{row_idx}:cell{cell_idx}:p{para_idx}"
+                    all_runs.extend(_extract_paragraph_content(para._element, loc_prefix))
 
     # Headers and footers (from all sections)
     for section_idx, section in enumerate(doc.sections):
@@ -559,10 +567,7 @@ def _collect_all_runs(doc: Document) -> list[tuple[str, str, any]]:
             header = section.header
             if header:
                 for para_idx, para in enumerate(header.paragraphs):
-                    for run_idx, run in enumerate(para.runs):
-                        if run.text:
-                            loc = f"header{section_idx}:p{para_idx}:r{run_idx}"
-                            all_runs.append((loc, run.text, run))
+                    all_runs.extend(_extract_paragraph_content(para._element, f"header{section_idx}:p{para_idx}"))
         except Exception:
             pass
 
@@ -571,10 +576,7 @@ def _collect_all_runs(doc: Document) -> list[tuple[str, str, any]]:
             footer = section.footer
             if footer:
                 for para_idx, para in enumerate(footer.paragraphs):
-                    for run_idx, run in enumerate(para.runs):
-                        if run.text:
-                            loc = f"footer{section_idx}:p{para_idx}:r{run_idx}"
-                            all_runs.append((loc, run.text, run))
+                    all_runs.extend(_extract_paragraph_content(para._element, f"footer{section_idx}:p{para_idx}"))
         except Exception:
             pass
 
@@ -582,7 +584,7 @@ def _collect_all_runs(doc: Document) -> list[tuple[str, str, any]]:
 
 
 @agent.tool
-async def debug_find_text(
+async def find_text(
     ctx: RunContext[TemplateAgentContext],
     query: str | None = None,
     location: str | None = None,
@@ -591,10 +593,12 @@ async def debug_find_text(
     context: int = 3,
 ) -> str:
     """
-    Debug tool to find text in the document when create_fields fails.
+    Search or browse all document text including body, tables, headers, and footers.
 
-    Searches the ENTIRE document including body, tables, headers, and footers.
-    Use this to locate text that might be fragmented or in unexpected places.
+    Use this to:
+    - Find specific text that should become template fields
+    - Check for remaining instances after creating fields (e.g., name in header and footer)
+    - Locate text that might be in tables or headers
 
     Two modes:
     - Search mode (query provided): Find text and show surrounding context
@@ -628,6 +632,14 @@ async def debug_find_text(
 
     limit = min(limit, 100)
 
+    def format_segment(loc: str, text: str) -> str:
+        """Format a segment, marking fields clearly."""
+        display_text = text[:80] + ("..." if len(text) > 80 else "")
+        if ":field[" in loc:
+            # Extract field tag from location like "body:p5:field[declarant.name]"
+            return f"[{loc}]: (FIELD) \"{display_text}\""
+        return f"[{loc}]: \"{display_text}\""
+
     # Browse mode: list segments with pagination
     if not query:
         end = min(start + limit, len(all_runs))
@@ -638,8 +650,7 @@ async def debug_find_text(
 
         for i in range(start, end):
             loc, text, _ = all_runs[i]
-            display_text = text[:80] + ("..." if len(text) > 80 else "")
-            result += f"{i+1}. [{loc}]: \"{display_text}\"\n"
+            result += f"{i+1}. {format_segment(loc, text)}\n"
 
         if end < len(all_runs):
             result += f"\n... {len(all_runs) - end} more. Use start={end} to continue."
@@ -688,7 +699,8 @@ async def debug_find_text(
             for i in range(ctx_start, ctx_end):
                 loc, text, _ = all_runs[i]
                 marker = ">>>" if i in matching_run_indices else "   "
-                runs_info.append(f"{marker} [{loc}]: \"{text}\"")
+                field_marker = " (FIELD)" if ":field[" in loc else ""
+                runs_info.append(f"{marker} [{loc}]:{field_marker} \"{text}\"")
 
             actual_match = combined_text[idx:match_end]
             result = f"Match {len(results) + 1}: \"{actual_match}\"\n"
@@ -1078,6 +1090,75 @@ async def edit_field(
 
 
 @agent.tool(sequential=True)
+async def split_field(
+    ctx: RunContext[TemplateAgentContext],
+    tag: str,
+    new_tags: list[str],
+) -> str:
+    """
+    Split one field into multiple adjacent fields.
+
+    Replaces a single field with multiple fields. Each new field gets a placeholder
+    value of "[tag_name]". Useful for splitting a name field into first/middle/last.
+
+    Args:
+        tag: The tag of the existing field to split (e.g., "declarant.name")
+        new_tags: List of new tag names for the split fields
+                  (e.g., ["declarant.first_name", "declarant.middle_name", "declarant.last_name"])
+
+    Example:
+        split_field(tag="declarant.name", new_tags=["declarant.first_name", "declarant.middle_name", "declarant.last_name"])
+        → Replaces [declarant.name] with [declarant.first_name] [declarant.middle_name] [declarant.last_name]
+
+    Returns:
+        Status message indicating success or failure
+    """
+    if ctx.deps.document is None:
+        return "No document loaded. Use load_document first."
+
+    if not new_tags or len(new_tags) < 2:
+        return "Must provide at least 2 new tags to split a field."
+
+    try:
+        # Check if field exists
+        working_path = ctx.deps.get_working_path()
+        if working_path and working_path.exists():
+            controls = read_content_controls_detailed(str(working_path))
+        else:
+            controls = read_content_controls_detailed(str(ctx.deps.get_document_path()))
+
+        field_info = None
+        for ctrl in controls:
+            if ctrl["tag"] == tag:
+                field_info = ctrl
+                break
+
+        if field_info is None:
+            available_tags = [ctrl["tag"] for ctrl in controls]
+            return f"Field with tag '{tag}' not found. Available tags: {available_tags}"
+
+        # Split the field
+        count = split_content_control(ctx.deps.document, tag, new_tags)
+
+        if count > 0:
+            new_tags_str = ", ".join([f"[{t}]" for t in new_tags])
+            ctx.deps.modifications.append(f"Split field '{tag}' into {count} fields: {new_tags_str}")
+
+            # Save working copy
+            if working_path:
+                ctx.deps.document.save(str(working_path))
+
+            logfire.info(f"Split field {tag} into {count} fields", new_tags=new_tags)
+            return f"Split [{tag}] into {count} fields: {new_tags_str}"
+        else:
+            return f"Failed to split field '{tag}'"
+
+    except Exception as e:
+        logfire.error(f"Failed to split field: {e}")
+        return f"Error splitting field: {str(e)}"
+
+
+@agent.tool(sequential=True)
 async def reset_working_copy(ctx: RunContext[TemplateAgentContext]) -> str:
     """
     Reset the working copy by deleting it and reloading from the original document.
@@ -1154,63 +1235,6 @@ async def get_modifications(ctx: RunContext[TemplateAgentContext]) -> str:
     for i, mod in enumerate(ctx.deps.modifications, 1):
         result += f"{i}. {mod}\n"
     return result
-
-
-@agent.tool(sequential=True)
-async def save_template(
-    ctx: RunContext[TemplateAgentContext],
-    new_filename: str | None = None,
-    overwrite: bool = False,
-) -> str:
-    """
-    Save the modified document as a template.
-
-    Args:
-        new_filename: Optional new filename. If not provided and overwrite=False,
-                      will add '_template' suffix to original name.
-        overwrite: If True, overwrite the original file
-
-    Returns:
-        Status message with the saved file path
-    """
-    if ctx.deps.document is None:
-        return "No document loaded. Use load_document first."
-
-    if not ctx.deps.modifications:
-        return "No modifications have been made. Nothing to save."
-
-    original_path = ctx.deps.get_document_path()
-
-    if overwrite and not new_filename:
-        save_path = original_path
-    elif new_filename:
-        if not new_filename.endswith(".docx"):
-            new_filename += ".docx"
-        save_path = DOCUMENTS_DIR / new_filename
-    else:
-        # Default: add _template suffix
-        stem = original_path.stem
-        save_path = DOCUMENTS_DIR / f"{stem}_template.docx"
-
-    # Check if file exists and we're not overwriting
-    if save_path.exists() and save_path != original_path and not overwrite:
-        return f"File '{save_path.name}' already exists. Use overwrite=True or provide a different filename."
-
-    try:
-        ctx.deps.document.save(str(save_path))
-
-        # Clean up working file
-        working_path = ctx.deps.get_working_path()
-        if working_path and working_path.exists() and working_path != save_path:
-            working_path.unlink()
-
-        logfire.info(f"Saved template: {save_path.name}", modifications=len(ctx.deps.modifications))
-
-        return f"Template saved successfully as '{save_path.name}' with {len(ctx.deps.modifications)} modifications."
-
-    except Exception as e:
-        logfire.error(f"Failed to save template: {e}")
-        return f"Error saving template: {str(e)}"
 
 
 @agent.tool(sequential=True)

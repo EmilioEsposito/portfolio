@@ -1,4 +1,4 @@
-import type { Route } from "./+types/docuform-ai";
+import type { Route } from "./+types/docuform-template-agent";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAuth } from "@clerk/react-router";
@@ -904,24 +904,26 @@ function DocuformAIContent() {
               >
                 <RefreshCw size={14} />
               </button>
-              {/* Save buttons - only show when there are modifications */}
+              {/* Save buttons - prominent CTA when there are modifications */}
               {hasModifications && (
                 <>
-                  <div className="w-px h-4 bg-border" />
-                  <button
+                  <div className="w-px h-6 bg-border" />
+                  <Button
+                    onClick={handleSaveAs}
+                    size="sm"
+                    className="bg-violet-600 hover:bg-violet-700 text-white gap-1.5"
+                  >
+                    <FileCheck size={14} />
+                    Save As
+                  </Button>
+                  <Button
                     onClick={handleSave}
-                    className="px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    title="Save (overwrite original)"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
                   >
                     Save
-                  </button>
-                  <button
-                    onClick={handleSaveAs}
-                    className="px-2 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    title="Save As (new file)"
-                  >
-                    Save As
-                  </button>
+                  </Button>
                   <button
                     onClick={handleReset}
                     className="p-1.5 rounded-md text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
