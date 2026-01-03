@@ -63,20 +63,8 @@ export function meta({}: Route.MetaArgs) {
 // Suggested prompts shown after document is loaded
 const suggestedPrompts = [
   {
-    title: "Analyze for fields",
-    action: "Analyze the document for potential fields that should be content controls.",
-  },
-  {
-    title: "Show current controls",
-    action: "Show me all the current content controls in the document.",
-  },
-  {
-    title: "Wrap all detected fields",
-    action: "Wrap all the detected fields in content controls.",
-  },
-  {
-    title: "Save template",
-    action: "Save the template with a new filename.",
+    title: "Detect and create fillable template fields",
+    action: "Detect and create fillable template fields in the document.",
   },
 ];
 
@@ -257,23 +245,7 @@ function DocuformAIContent() {
     const successPatterns = ["Successfully wrapped", "Successfully replaced", "Working copy reset"];
 
     for (const message of messages) {
-      // Check toolInvocations array (older SDK format)
-      if (message.toolInvocations && Array.isArray(message.toolInvocations)) {
-        for (const tool of message.toolInvocations) {
-          if (modifyingTools.includes(tool.toolName) && tool.state === "result") {
-            const output = tool.result;
-            if (typeof output === "string") {
-              if (successPatterns.some(p => output.includes(p))) {
-                setHasModifications(true);
-              }
-              if (output.includes("Working copy reset")) {
-                setHasModifications(false); // Reset clears modifications
-              }
-            }
-          }
-        }
-      }
-      // Check parts array (newer SDK format)
+      // Check parts array (current SDK format)
       if (message.parts && Array.isArray(message.parts)) {
         for (const part of message.parts as any[]) {
           // Only check parts with output available
