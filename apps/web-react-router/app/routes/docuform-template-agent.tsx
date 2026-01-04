@@ -1,5 +1,6 @@
 import type { Route } from "./+types/docuform-template-agent";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useTheme } from "next-themes";
 import { useChat } from "@ai-sdk/react";
 import { useAuth } from "@clerk/react-router";
 import { DefaultChatTransport } from "ai";
@@ -169,6 +170,8 @@ function DocuformAIContent() {
   const [searchParams] = useSearchParams();
   const docFromUrl = searchParams.get("doc");
   const { getToken } = useAuth();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   // Stable conversation ID for this session - used to scope working copies
   const [conversationId] = useState(() => crypto.randomUUID());
@@ -1193,12 +1196,24 @@ function DocuformAIContent() {
                               onValueChange={(value: FieldSource) => updateFieldSource(field.tag, value)}
                             >
                               <SelectTrigger
-                                className={cn(
-                                  "w-[110px] h-7 text-xs font-medium rounded-full",
-                                  field.source === "client" && "text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100 dark:text-blue-300 dark:bg-blue-950 dark:border-blue-800 dark:hover:bg-blue-900",
-                                  field.source === "attorney" && "text-amber-600 bg-amber-50 border-amber-200 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-950 dark:border-amber-800 dark:hover:bg-amber-900",
-                                  field.source === "ai" && "text-violet-600 bg-violet-50 border-violet-200 hover:bg-violet-100 dark:text-violet-300 dark:bg-violet-950 dark:border-violet-800 dark:hover:bg-violet-900"
-                                )}
+                                className="w-[110px] h-7 text-xs font-medium rounded-full"
+                                style={{
+                                  backgroundColor: field.source === "client"
+                                    ? (isDark ? "rgb(23 37 84)" : "rgb(239 246 255)")
+                                    : field.source === "attorney"
+                                    ? (isDark ? "rgb(69 26 3)" : "rgb(255 251 235)")
+                                    : (isDark ? "rgb(46 16 101)" : "rgb(245 243 255)"),
+                                  color: field.source === "client"
+                                    ? (isDark ? "rgb(147 197 253)" : "rgb(37 99 235)")
+                                    : field.source === "attorney"
+                                    ? (isDark ? "rgb(252 211 77)" : "rgb(217 119 6)")
+                                    : (isDark ? "rgb(196 181 253)" : "rgb(124 58 237)"),
+                                  borderColor: field.source === "client"
+                                    ? (isDark ? "rgb(30 64 175)" : "rgb(191 219 254)")
+                                    : field.source === "attorney"
+                                    ? (isDark ? "rgb(146 64 14)" : "rgb(253 230 138)")
+                                    : (isDark ? "rgb(91 33 182)" : "rgb(221 214 254)"),
+                                }}
                               >
                                 <SelectValue />
                               </SelectTrigger>

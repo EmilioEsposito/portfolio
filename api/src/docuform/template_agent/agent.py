@@ -99,7 +99,6 @@ class TemplateAgentContext:
     conversation_id: str | None = None  # Conversation ID for scoped working copies
     document: Document | None = field(default=None, repr=False)
     working_filename: str | None = None  # Temp file for modifications
-    modifications: list[str] = field(default_factory=list)
 
     def get_document_path(self) -> Path:
         """Get the path to the current document"""
@@ -826,7 +825,6 @@ async def create_fields(
         )
 
         if success:
-            ctx.deps.modifications.append(f"Created field: {message}")
             results.append(f"✓ {message}")
             successes += 1
         else:
@@ -895,8 +893,6 @@ async def update_field_value(
         success = set_content_control_value(ctx.deps.document, tag, new_value)
 
         if success:
-            ctx.deps.modifications.append(f"Updated '{tag}': '{old_value}' → '{new_value}'")
-
             # Save working copy
             if working_path:
                 ctx.deps.document.save(str(working_path))
@@ -954,9 +950,6 @@ async def delete_field(
         count = delete_content_control(ctx.deps.document, tag, preserve_text=preserve_text)
 
         if count > 0:
-            action = "removed (text preserved)" if preserve_text else "removed with text"
-            ctx.deps.modifications.append(f"Deleted field '{tag}' ({action})")
-
             # Save working copy
             if working_path:
                 ctx.deps.document.save(str(working_path))
@@ -1073,7 +1066,6 @@ async def edit_field(
                 changes.append(f"value: '{old_val}' → '{new_val}'")
 
             change_summary = ", ".join(changes)
-            ctx.deps.modifications.append(f"Edited field '{tag}': {change_summary}")
 
             # Save working copy
             if working_path:
@@ -1142,7 +1134,6 @@ async def split_field(
 
         if count > 0:
             new_tags_str = ", ".join([f"[{t}]" for t in new_tags])
-            ctx.deps.modifications.append(f"Split field '{tag}' into {count} fields: {new_tags_str}")
 
             # Save working copy
             if working_path:
@@ -1178,9 +1169,6 @@ async def reset_working_copy(ctx: RunContext[TemplateAgentContext]) -> str:
             working_path.unlink()
             logfire.info(f"Deleted working copy: {working_path}")
 
-        # Clear modifications list
-        ctx.deps.modifications.clear()
-
         # Reload from original
         ctx.deps.document = None
         success, message = ctx.deps.load_document()
@@ -1193,67 +1181,6 @@ async def reset_working_copy(ctx: RunContext[TemplateAgentContext]) -> str:
     except Exception as e:
         logfire.error(f"Failed to reset working copy: {e}")
         return f"Error resetting working copy: {str(e)}"
-
-
-@agent.tool(sequential=True)
-async def get_fields(ctx: RunContext[TemplateAgentContext]) -> str:
-    """
-    Get the current list of template fields in the document.
-
-    Returns:
-        List of all fields with their tags, display names, and values
-    """
-    if ctx.deps.document is None:
-        return "No document loaded. Use load_document first."
-
-    # Save current state to temp file to read fields
-    working_path = ctx.deps.get_working_path()
-    if working_path:
-        ctx.deps.document.save(str(working_path))
-        controls = read_content_controls_detailed(str(working_path))
-    else:
-        controls = read_content_controls_detailed(str(ctx.deps.get_document_path()))
-
-    if not controls:
-        return "No template fields found in the document."
-
-    return f"Current template fields ({len(controls)}):\n\n{_format_fields(controls)}"
-
-
-@agent.tool(sequential=True)
-async def get_modifications(ctx: RunContext[TemplateAgentContext]) -> str:
-    """
-    Get the list of modifications made during this session.
-
-    Returns:
-        List of all changes made to the document
-    """
-    if not ctx.deps.modifications:
-        return "No modifications made yet."
-
-    result = f"Modifications made ({len(ctx.deps.modifications)}):\n"
-    for i, mod in enumerate(ctx.deps.modifications, 1):
-        result += f"{i}. {mod}\n"
-    return result
-
-
-@agent.tool(sequential=True)
-async def list_documents(_ctx: RunContext[TemplateAgentContext]) -> str:
-    """
-    List all available DOCX documents.
-
-    Returns:
-        List of document filenames
-    """
-    docs = list(DOCUMENTS_DIR.glob("*.docx"))
-
-    if not docs:
-        return "No documents found. Upload a document first."
-
-    result = f"Available documents ({len(docs)}):\n"
-    for doc in sorted(docs):
-        result += f"- {doc.name}\n"
-    return result
 
 
 def _format_fields(controls: list[dict]) -> str:
