@@ -1,4 +1,4 @@
-# Counsel: AI-Assisted Legal Document Generation Platform
+# Docuform: AI-Assisted Legal Document Generation Platform
 
 ## Business Context
 
