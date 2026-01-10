@@ -163,7 +163,7 @@ async def ai_assess_for_escalation(open_phone_event: dict):
     
     return should_escalate, reason
 
-
+@logfire.instrument()
 async def analyze_for_twilio_escalation(
     open_phone_event: dict, escalate_to_numbers: list[str] = [], mock: bool = False
 ):
@@ -178,7 +178,7 @@ async def analyze_for_twilio_escalation(
     event_from_number = open_phone_event.get("from_number")
     event_message_text = open_phone_event.get("message_text")
     event_id = open_phone_event.get("event_id", "")
-    logfire.info(f"Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
+    logfire.info(f"AI Assessment: Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
 
     result_message = "No result message"
 

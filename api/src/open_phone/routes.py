@@ -163,14 +163,17 @@ async def webhook(
         # Analyze messages to Sernia for potential Twilio escalation before saving to DB
         if (
             payload.type == "message.received"
-            and event_data["to_number"] == sernia_contact.phone_number
+            and sernia_contact.phone_number in event_data["to_number"]
         ):
             # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
             if await contains_emoji(event_data["message_text"][:3]):
                 logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
             else:
                 # Run analysis in the background
+                logfire.info(f"AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+        else:
+            logfire.info(f"AI Assessment Skipped. to_number: {event_data['to_number']} payload_type: {payload.type}")
 
         # check if event_id is already in the database
         result = await session.execute(
