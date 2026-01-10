@@ -45,13 +45,13 @@ from api.src.ai.models import (
     extract_pending_approval_from_messages,
 )
 from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.clerk import SerniaUser
+from api.src.utils.clerk import SerniaUser, verify_serniacapital_user
 from api.src.database.database import DBSession
 
 router = APIRouter(
     prefix="/hitl-agent",
     tags=["hitl-agent"],
-    # Note: Domain verification is handled by SerniaUser dependency on each route
+    dependencies=[Depends(verify_serniacapital_user)],
 )
 
 
@@ -150,9 +150,13 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
         on_complete=on_complete,
     )
 
-    response.headers["X-Accel-Buffering"] = "no"
-    response.headers["Cache-Control"] = "no-cache, no-transform"
-    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Think below are not needed. Keeping commented out for now in case we see performance issues.
+    # # Add headers to prevent browser/proxy buffering
+    # # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
+    # response.headers["X-Accel-Buffering"] = "no"
+    # response.headers["Cache-Control"] = "no-cache, no-transform"
+    # response.headers["X-Content-Type-Options"] = "nosniff"
+    
     # Include conversation ID in response headers for frontend to use
     response.headers["X-Conversation-Id"] = conversation_id
 

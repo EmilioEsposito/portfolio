@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dotenv import load_dotenv, find_dotenv
 import asyncio
-from typing import Annotated
+from typing import Annotated, Union
 
 load_dotenv(find_dotenv(".env"), override=True)
 from fastapi import Depends, HTTPException, Header, Request, status
@@ -21,6 +23,49 @@ if not clerk_secret_key:
 clerk_client = Clerk(bearer_auth=clerk_secret_key)
 
 # Documentation: https://github.com/clerk/clerk-sdk-python?tab=readme-ov-file#sdk-installation
+
+
+def get_verified_primary_email(user_or_id: str | User) -> str | None:
+    """
+    Return the user's verified primary email.
+
+    Accepts either:
+      - a Clerk user_id (str)
+      - a Clerk User object
+
+    Returns None if:
+      - the user does not exist
+      - there is no primary email
+      - the primary email is not verified
+    """
+    try:
+        # Normalize input
+        if isinstance(user_or_id, str):
+            user = clerk_client.users.get(user_id=user_or_id)
+        else:
+            user = user_or_id
+
+        if not user:
+            return None
+
+        primary_id = user.primary_email_address_id
+        if not primary_id:
+            return None
+
+        for email in user.email_addresses or []:
+            if (
+                email.id == primary_id
+                and email.verification
+                and email.verification.status == "verified"
+            ):
+                return email.email_address
+
+    except Exception as e:
+        logfire.warning(
+            f"Failed to get verified primary email for user {user_or_id}: {e}"
+        )
+
+    return None
 
 
 async def get_auth_state(request: Request) -> RequestState:

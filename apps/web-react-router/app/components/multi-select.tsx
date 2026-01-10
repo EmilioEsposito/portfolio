@@ -302,12 +302,12 @@ export const MultiSelect = React.forwardRef<
             />
             <CommandList>
               <CommandEmpty>No results found.</CommandEmpty>
-              <CommandGroup className="[&_[cmdk-group-items]]:pointer-events-none [&_[cmdk-item]]:pointer-events-auto">
+              <CommandGroup className="**:[[cmdk-group-items]]:pointer-events-none **:[[cmdk-item]]:pointer-events-auto">
                 {showSelectAll && (
                   <CommandItem
                     key="all"
                     onSelect={toggleAll}
-                    className="cursor-pointer data-[disabled]:opacity-100"
+                    className="cursor-pointer data-disabled:opacity-100"
                   >
                     <div
                       className={cn(
@@ -328,7 +328,7 @@ export const MultiSelect = React.forwardRef<
                     <CommandItem
                       key={option.value}
                       onSelect={() => toggleOption(option.value)}
-                      className="cursor-pointer data-[disabled]:opacity-100"
+                      className="cursor-pointer data-disabled:opacity-100"
                       data-selected={isSelected}
                     >
                       <div
@@ -350,13 +350,13 @@ export const MultiSelect = React.forwardRef<
                 })}
               </CommandGroup>
               <CommandSeparator />
-              <CommandGroup className="[&_[cmdk-group-items]]:pointer-events-none [&_[cmdk-item]]:pointer-events-auto">
+              <CommandGroup className="**:[[cmdk-group-items]]:pointer-events-none **:[[cmdk-item]]:pointer-events-auto">
                 <div className="flex items-center justify-between">
                   {selectedValues.length > 0 && (
                     <>
                       <CommandItem
                         onSelect={handleClear}
-                        className="flex-1 justify-center cursor-pointer data-[disabled]:opacity-100"
+                        className="flex-1 justify-center cursor-pointer data-disabled:opacity-100"
                       >
                         Clear
                       </CommandItem>
@@ -368,7 +368,7 @@ export const MultiSelect = React.forwardRef<
                   )}
                   <CommandItem
                     onSelect={() => setIsPopoverOpen(false)}
-                    className="flex-1 justify-center cursor-pointer data-[disabled]:opacity-100 max-w-full"
+                    className="flex-1 justify-center cursor-pointer data-disabled:opacity-100 max-w-full"
                   >
                     Close
                   </CommandItem>

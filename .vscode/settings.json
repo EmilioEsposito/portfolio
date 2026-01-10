@@ -1,4 +1,8 @@
 {
     "sql-formatter.uppercase": true,
-    "sql-formatter.dialect": "sql"
+    "sql-formatter.dialect": "sql",
+    // "css.lint.unknownAtRules": "ignore",
+    "files.associations": {
+        "*.css": "tailwindcss" // also done in vscode user settings.json
+    }
 }

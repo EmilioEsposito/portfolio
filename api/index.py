@@ -3,6 +3,9 @@ import asyncio
 import json
 import logfire
 import os
+import time
+
+_startup_time = time.perf_counter()  # Capture immediately for startup timing
 
 import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured
@@ -73,9 +76,12 @@ from api.src.apscheduler_service.service import register_hello_apscheduler_jobs,
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
 from api.src.schedulers.routes import router as schedulers_router
+from api.src.docuform.routes import router as docuform_router
 
 # Import all GraphQL schemas
 from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
+from pathlib import Path
+import threading
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
@@ -143,29 +149,66 @@ async def _apscheduler_startup_async() -> None:
     """
     Start APScheduler without blocking FastAPI startup.
 
-    NOTE: APScheduler is an AsyncIO scheduler, so we keep this on the main event loop
-    (do NOT run it in a background thread).
+    The SQLAlchemy job store and job registration do sync I/O, so we run those in
+    a thread pool. However, AsyncIOScheduler.start() must be called on the main
+    event loop since it registers asyncio callbacks.
     """
     try:
         with logfire.span("apscheduler_startup"):
-            apscheduler = get_scheduler()
+                        # Initialize scheduler in thread pool (SQLAlchemy jobstore may block on DB)
+            apscheduler = await asyncio.to_thread(get_scheduler)
+
+            # start() must be on main event loop for AsyncIOScheduler
             if not apscheduler.running:
                 apscheduler.start()
-            register_hello_apscheduler_jobs()
-            # Register production scheduled jobs (moved from DBOS)
-            register_clickup_apscheduler_jobs()
-            register_zillow_apscheduler_jobs()
-        logfire.info("APScheduler background startup completed successfully.")
-    except Exception as e:
-        logfire.exception(f"APScheduler background startup failed: {e}")
+            # Register jobs in thread pool (add_job writes to the DB via sync engine)
+            await asyncio.to_thread(register_hello_apscheduler_jobs)
+            await asyncio.to_thread(register_clickup_apscheduler_jobs)
+            await asyncio.to_thread(register_zillow_apscheduler_jobs)
 
+        logfire.info("APScheduler startup completed successfully.")
+    except asyncio.CancelledError:
+        # Expected during hot reload - don't let debugger pause here
+        logfire.debug("APScheduler startup cancelled (hot reload)")
+        return  # Exit cleanly without re-raising
+    except Exception as e:
+        logfire.exception(f"APScheduler startup failed: {e}")
+
+
+def _local_heartbeat():
+    """
+    Write a timestamp heartbeat to disk.
+    Used only in local / non-Railway environments to detect debugger pauses.
+    """
+    HEARTBEAT_PATH = Path("/tmp/fastapi_heartbeat")
+
+    def _run():
+        while True:
+            try:
+                HEARTBEAT_PATH.write_text(str(time.time()))
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+    threading.Thread(
+        target=_run,
+        name="fastapi-heartbeat",
+        daemon=True,
+    ).start()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
-            await test_database_connections()
+
+            # Enable heartbeat only when NOT running on Railway
+            if not os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+                _local_heartbeat()
+            
+            # if we are deploying on Railway, we want to block deployment if the DB connection test fails.
+            if os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+                await test_database_connections()
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
@@ -188,6 +231,7 @@ async def lifespan(app: FastAPI):
 
     yield # Application runs here
 
+
     # Shutdown logic
     logfire.info("Application shutdown...")
 
@@ -204,6 +248,7 @@ async def lifespan(app: FastAPI):
     # Shutdown APScheduler
     logfire.info("Shutting down APScheduler...")
     try:
+        # TODO: cleanup threads that are blocking the process from exiting
         scheduler = get_scheduler()
         if scheduler.running:
             scheduler.shutdown(wait=False)  # Don't wait for jobs to complete
@@ -226,14 +271,10 @@ async def lifespan(app: FastAPI):
 
     logfire.info("Application shutdown completed successfully.")
 
-    # DBOS DISABLED: Force exit code no longer needed.
-    # # DBOS spawns non-daemon threads that block process exit even after destroy() times out.
-    # # Force exit to allow hot reload to work. This is safe because:
-    # # 1. DBOS workflows are durable and will recover from the database on restart
-    # # 2. We've already completed our graceful shutdown logic above
-    # if dbos_shutdown_timed_out:
-    #     import os
-    #     os._exit(0)
+    # Force exit in local dev to avoid Hypercorn shutdown timeout.
+    # APScheduler threads can block clean shutdown; this is safe for local dev.
+    if not os.getenv("RAILWAY_ENVIRONMENT_NAME"):
+        os._exit(0)
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
@@ -288,6 +329,7 @@ app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
+app.include_router(docuform_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 
 @app.get("/api/hello")
@@ -296,8 +338,15 @@ async def hello_fast_api():
     return {"message": "Hello from FastAPI"}
 
 
+_startup_logged = False
+
 @app.get("/api/health")
 async def health_check():
+    global _startup_logged
+    if not _startup_logged:
+        _startup_logged = True
+        elapsed = time.perf_counter() - _startup_time
+        logfire.info(f"🚀 STARTUP COMPLETE: First request served after {elapsed:.2f}s")
     return {"status": "healthy"}
 
 @app.get("/api/error")

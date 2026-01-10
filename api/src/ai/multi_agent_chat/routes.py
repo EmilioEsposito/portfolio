@@ -166,9 +166,12 @@ async def multi_agent_chat(request: Request) -> Response:
     response = graph_result.response
     if not isinstance(response, Response):
         response = Response(content=response)
-    # Add headers to prevent browser/proxy buffering
-    response.headers["X-Accel-Buffering"] = "no"
-    response.headers["Cache-Control"] = "no-cache, no-transform"
-    response.headers["X-Content-Type-Options"] = "nosniff"
+        
+    # Think below are not needed. Keeping commented out for now in case we see performance issues.
+    # # Add headers to prevent browser/proxy buffering
+    # # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
+    # response.headers["X-Accel-Buffering"] = "no"
+    # response.headers["Cache-Control"] = "no-cache, no-transform"
+    # response.headers["X-Content-Type-Options"] = "nosniff"
     
     return response

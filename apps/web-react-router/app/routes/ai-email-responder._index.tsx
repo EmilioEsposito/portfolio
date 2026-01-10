@@ -280,7 +280,7 @@ ${selectedEmail.body_html}`;
               {selectedEmail ? (
                 <div className="h-full flex flex-col">
                   {/* Email Metadata */}
-                  <div className="p-4 border-b space-y-2 flex-shrink-0">
+                  <div className="p-4 border-b space-y-2 shrink-0">
                     <div className="flex items-baseline justify-between">
                       <h2 className="text-xl font-semibold">
                         {selectedEmail.subject}
@@ -296,7 +296,7 @@ ${selectedEmail.body_html}`;
                     </div>
                   </div>
                   {/* Email Body */}
-                  <div className="p-4 overflow-auto flex-grow">
+                  <div className="p-4 overflow-auto grow">
                     <div
                       className="prose max-w-none dark:prose-invert"
                       dangerouslySetInnerHTML={{
@@ -359,18 +359,18 @@ ${selectedEmail.body_html}`;
             {/* Instructions Content */}
             <div className="h-[40vh]">
               <div className="h-full flex flex-col p-4">
-                <div className="flex-shrink-0 space-y-4">
+                <div className="shrink-0 space-y-4">
                   <div className="text-sm text-muted-foreground">
                     Define how the AI agent should respond to the selected
                     email. Edit the instruction and click Save to update it.
                   </div>
                 </div>
-                <div className="flex-grow flex flex-col gap-4 mt-4">
+                <div className="grow flex flex-col gap-4 mt-4">
                   <Textarea
                     placeholder="Example: Be professional but friendly. Address their questions directly. Sign as 'Property Management Team'."
                     value={newInstruction}
                     onChange={(e) => setNewInstruction(e.target.value)}
-                    className="flex-grow min-h-0"
+                    className="grow min-h-0"
                   />
                   <Button
                     onClick={updateCurrentInstruction}
