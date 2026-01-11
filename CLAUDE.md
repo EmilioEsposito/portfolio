@@ -126,35 +126,14 @@ pnpm dev-with-fastapi
 
 ## Git Worktrees
 
-For parallel development, use worktrees to create isolated environments with separate ports and databases.
-
-### Create a Worktree
+For parallel development, use worktrees to create isolated environments with separate ports and databases. See [`docs/WORKTREES.md`](docs/WORKTREES.md) for full documentation.
 
 ```bash
-./scripts/create-worktree.sh <description>
-# Example: ./scripts/create-worktree.sh feature-auth
-# Creates: ../portfolio-feature-auth/
+./scripts/create-worktree.sh feature-auth   # Create
+./scripts/remove-worktree.sh feature-auth   # Remove
 ```
 
-The script:
-1. Creates `git worktree` at `../portfolio-<description>/`
-2. Copies `.env` with unique ports (hash-based) and isolated database
-3. Installs Python and Node dependencies
-4. Copies the database from main (or runs migrations + seed)
-5. Adds the folder to `portfolio.code-workspace`
-
-### Remove a Worktree
-
-```bash
-./scripts/remove-worktree.sh <description>
-```
-
-Drops the database, removes from workspace, and cleans up the git worktree.
-
-### Requirements
-
-- Main worktree must have `docker-compose up -d postgres` running (shared postgres instance)
-- Each worktree uses a separate database: `portfolio_<description>`
+Each worktree gets its own ports (hash-based), database, Python venv, and node_modules.
 
 ---
 
@@ -293,6 +272,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | Document | Purpose |
 |----------|---------|
 | [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
+| [`docs/WORKTREES.md`](docs/WORKTREES.md) | Git worktrees for parallel development |
 | [`api/README.md`](api/README.md) | FastAPI run commands |
 | [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
 | [`api/src/schedulers/README.md`](api/src/schedulers/README.md) | Scheduler setup (APScheduler active, DBOS disabled) |
