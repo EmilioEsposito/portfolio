@@ -129,8 +129,8 @@ pnpm dev-with-fastapi
 For parallel development, use worktrees to create isolated environments with separate ports and databases. See [`docs/WORKTREES.md`](docs/WORKTREES.md) for full documentation.
 
 ```bash
-./scripts/create-worktree.sh feature-auth   # Create
-./scripts/remove-worktree.sh feature-auth   # Remove
+./scripts/worktree-create.sh feature-auth   # Create
+./scripts/worktree-remove.sh feature-auth   # Remove
 ```
 
 Each worktree gets its own ports (hash-based), database, Python venv, and node_modules.

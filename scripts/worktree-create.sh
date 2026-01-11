@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# create-worktree.sh - Create an isolated git worktree for parallel development
+# worktree-create.sh - Create an isolated git worktree for parallel development
 #
-# Usage: ./scripts/create-worktree.sh <description>
-# Example: ./scripts/create-worktree.sh feature-auth
+# Usage: ./scripts/worktree-create.sh <description>
+# Example: ./scripts/worktree-create.sh feature-auth
 #
 # Creates:
 #   - Git worktree at ../portfolio-<description>/

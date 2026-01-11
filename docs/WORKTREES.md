@@ -6,11 +6,11 @@ Git worktrees allow parallel development with fully isolated environments. Each 
 
 ```bash
 # Create
-./scripts/create-worktree.sh feature-auth
+./scripts/worktree-create.sh feature-auth
 
 # Remove (accepts either format)
-./scripts/remove-worktree.sh feature-auth
-./scripts/remove-worktree.sh portfolio-feature-auth
+./scripts/worktree-remove.sh feature-auth
+./scripts/worktree-remove.sh portfolio-feature-auth
 ```
 
 ## What Gets Created

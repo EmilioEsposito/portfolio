@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# remove-worktree.sh - Remove a git worktree and clean up resources
+# worktree-remove.sh - Remove a git worktree and clean up resources
 #
-# Usage: ./scripts/remove-worktree.sh <description>
-# Example: ./scripts/remove-worktree.sh feature-auth
-#          ./scripts/remove-worktree.sh portfolio-feature-auth  # also works
+# Usage: ./scripts/worktree-remove.sh <description>
+# Example: ./scripts/worktree-remove.sh feature-auth
+#          ./scripts/worktree-remove.sh portfolio-feature-auth  # also works
 #
 # Removes:
 #   - The database: portfolio_<description>
