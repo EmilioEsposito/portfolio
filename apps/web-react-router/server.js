@@ -4,7 +4,10 @@
  * API Proxy: Forwards /api/* requests to FastAPI backend.
  * - Docker Compose: LOCAL_DOCKER_COMPOSE=true → http://fastapi:8000 (checked first)
  * - Railway: CUSTOM_RAILWAY_BACKEND_URL
- * - Local: http://127.0.0.1:8000
+ * - Local: http://127.0.0.1:${BACKEND_PORT} (default: 8000)
+ *
+ * Environment variables:
+ *   BACKEND_PORT - FastAPI backend port for local dev (default: 8000)
  *
  * See also: vite.config.ts (dev proxy), README.md, docker-compose.yml
  */
@@ -100,8 +103,9 @@ function getBackendUrl() {
     return process.env.CUSTOM_RAILWAY_BACKEND_URL;
   }
 
-  // Local development
-  return "http://127.0.0.1:8000";
+  // Local development (supports worktree port isolation)
+  const backendPort = process.env.BACKEND_PORT || "8000";
+  return `http://127.0.0.1:${backendPort}`;
 }
 
 const port = process.env.PORT || 5173;

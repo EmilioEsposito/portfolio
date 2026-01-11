@@ -9,6 +9,7 @@
             "runtimeArgs": [
                 "dev"
             ],
+            "envFile": "${workspaceFolder}/apps/web-react-router/.env",
             "console": "integratedTerminal",
             "serverReadyAction": {
                 "pattern": "➜\\s+Local:\\s+(https?://[^\\s]+)",
@@ -25,9 +26,10 @@
             "args": [
                 "api.index:app",
                 "--reload",
-                "-b",
-                "0.0.0.0:8000"
+                "--config",
+                "api/hypercorn_config.py"
             ],
+            "envFile": "${workspaceFolder}/.env",
             "jinja": true,
             "console": "integratedTerminal",
             "justMyCode": false,

@@ -112,11 +112,49 @@ cp .env.example .env  # Edit with your API keys
 pnpm dev-with-fastapi
 ```
 
+**Environment files**:
+- **Root `.env`** - FastAPI backend only (database, API keys, etc.)
+- **`apps/web-react-router/.env`** - Frontend only (created automatically for worktrees)
+
 **Required environment variables** (see `.env.example`):
 - `OPENAI_API_KEY` - AI features
 - `DATABASE_URL`, `DATABASE_URL_UNPOOLED` - Neon Postgres
 - `CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` - Auth
 - Various integration keys (OpenPhone, Google, etc.)
+
+---
+
+## Git Worktrees
+
+For parallel development, use worktrees to create isolated environments with separate ports and databases.
+
+### Create a Worktree
+
+```bash
+./scripts/create-worktree.sh <description>
+# Example: ./scripts/create-worktree.sh feature-auth
+# Creates: ../portfolio-feature-auth/
+```
+
+The script:
+1. Creates `git worktree` at `../portfolio-<description>/`
+2. Copies `.env` with unique ports (hash-based) and isolated database
+3. Installs Python and Node dependencies
+4. Copies the database from main (or runs migrations + seed)
+5. Adds the folder to `portfolio.code-workspace`
+
+### Remove a Worktree
+
+```bash
+./scripts/remove-worktree.sh <description>
+```
+
+Drops the database, removes from workspace, and cleans up the git worktree.
+
+### Requirements
+
+- Main worktree must have `docker-compose up -d postgres` running (shared postgres instance)
+- Each worktree uses a separate database: `portfolio_<description>`
 
 ---
 
