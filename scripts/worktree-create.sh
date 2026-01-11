@@ -94,27 +94,9 @@ desc_to_db_name() {
     echo "portfolio_${desc//-/_}" | tr '[:upper:]' '[:lower:]'
 }
 
-# Ensure postgres is running (idempotent)
+# Ensure postgres is running (delegates to standalone script)
 ensure_postgres() {
-    log_info "Ensuring postgres is running..."
-
-    # Start postgres via docker-compose (idempotent - does nothing if already running)
-    cd "$MAIN_DIR"
-    docker-compose up -d postgres
-
-    # Wait for postgres to be ready (up to 30 seconds)
-    local max_attempts=30
-    local attempt=1
-    while ! pg_isready -h localhost -p 5432 -U portfolio -q 2>/dev/null; do
-        if [[ $attempt -ge $max_attempts ]]; then
-            log_error "PostgreSQL failed to start after ${max_attempts} seconds"
-            exit 1
-        fi
-        sleep 1
-        ((attempt++))
-    done
-
-    log_success "PostgreSQL is running"
+    "$SCRIPT_DIR/ensure-postgres.sh"
 }
 
 # Create the database (copy from main or run migrations)
