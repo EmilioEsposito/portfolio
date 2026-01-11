@@ -4,6 +4,7 @@
 #
 # Usage: ./scripts/remove-worktree.sh <description>
 # Example: ./scripts/remove-worktree.sh feature-auth
+#          ./scripts/remove-worktree.sh portfolio-feature-auth  # also works
 #
 # Removes:
 #   - The database: portfolio_<description>
@@ -31,18 +32,36 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Validate we're in the main portfolio directory
+# Validate we're in the main portfolio directory (not a worktree)
 validate_main_dir() {
     if [[ ! -f "$MAIN_DIR/package.json" ]] || [[ ! -d "$MAIN_DIR/api" ]]; then
         log_error "Must be run from the main portfolio directory"
         exit 1
     fi
 
-    # Check we're not already in a worktree
-    if [[ "$(git rev-parse --git-dir)" != ".git" ]]; then
+    # Check we're not in a worktree by comparing git-dir and git-common-dir
+    # In main repo: both point to same location
+    # In worktree: git-dir points to .git/worktrees/<name>, common-dir to main .git
+    cd "$MAIN_DIR"
+    local git_dir=$(git rev-parse --git-dir 2>/dev/null)
+    local common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+
+    if [[ "$git_dir" != "$common_dir" ]]; then
         log_error "This appears to be a worktree, not the main repository"
         log_error "Run this script from the main portfolio directory"
         exit 1
+    fi
+}
+
+# Normalize input: accepts either "portfolio-<desc>" or just "<desc>"
+normalize_description() {
+    local input="$1"
+
+    # Strip "portfolio-" prefix if present
+    if [[ "$input" =~ ^portfolio-(.+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "$input"
     fi
 }
 
@@ -53,6 +72,7 @@ validate_description() {
     if [[ -z "$desc" ]]; then
         log_error "Usage: $0 <description>"
         log_error "Example: $0 feature-auth"
+        log_error "         $0 portfolio-feature-auth  # also works"
         exit 1
     fi
 
@@ -99,53 +119,21 @@ drop_database() {
     fi
 }
 
-# Remove from workspace file
+# Remove worktree folder from the workspace using Cursor CLI
 remove_from_workspace() {
-    local desc="$1"
-    local workspace_file="$MAIN_DIR/portfolio.code-workspace"
+    local worktree_dir="$1"
 
-    log_info "Updating workspace file..."
+    log_info "Removing from workspace..."
 
-    if [[ ! -f "$workspace_file" ]]; then
-        log_warn "Workspace file not found: $workspace_file"
-        return 0
+    if command -v cursor &> /dev/null; then
+        cursor --remove "$worktree_dir" 2>/dev/null || {
+            log_warn "Could not remove from workspace via Cursor CLI (may already be removed)"
+            return 0
+        }
+        log_success "Removed from workspace"
+    else
+        log_warn "Cursor CLI not found. Remove folder manually from workspace."
     fi
-
-    local relative_path="../portfolio-$desc"
-
-    # Check if in workspace
-    if ! grep -q "portfolio-$desc" "$workspace_file" 2>/dev/null; then
-        log_info "Worktree not found in workspace file"
-        return 0
-    fi
-
-    # Use node to safely modify the JSON
-    node -e "
-const fs = require('fs');
-const path = '$workspace_file';
-const content = fs.readFileSync(path, 'utf8');
-
-// Remove comments for parsing (simple approach - line comments only)
-const jsonContent = content.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '\$1');
-
-try {
-    const workspace = JSON.parse(jsonContent);
-
-    // Filter out the worktree folder
-    workspace.folders = workspace.folders.filter(f =>
-        f.path !== '$relative_path' && f.name !== 'portfolio-$desc'
-    );
-
-    // Write back
-    fs.writeFileSync(path, JSON.stringify(workspace, null, '\t'));
-    console.log('Workspace file updated');
-} catch (e) {
-    console.error('Failed to update workspace file:', e.message);
-    process.exit(1);
-}
-"
-
-    log_success "Removed from workspace file"
 }
 
 # Remove git worktree
@@ -188,7 +176,7 @@ remove_worktree() {
 
 # Main function
 main() {
-    local desc="$1"
+    local input="$1"
 
     echo ""
     echo "=========================================="
@@ -198,6 +186,9 @@ main() {
 
     # Validations
     validate_main_dir
+
+    # Normalize input (accepts "portfolio-<desc>" or just "<desc>")
+    local desc=$(normalize_description "$input")
     validate_description "$desc"
 
     # Compute values
@@ -224,8 +215,8 @@ main() {
     # Drop database
     drop_database "$db_name"
 
-    # Remove from workspace file
-    remove_from_workspace "$desc"
+    # Remove from workspace
+    remove_from_workspace "$worktree_dir"
 
     # Remove git worktree (and optionally branch)
     remove_worktree "$worktree_dir" "$branch_name"

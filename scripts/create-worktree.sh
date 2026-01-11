@@ -13,7 +13,7 @@
 #
 # Requirements:
 #   - Must be run from the main portfolio directory
-#   - Docker postgres must be running (docker-compose up -d postgres)
+#   - Docker must be available (postgres will be started automatically)
 #
 
 set -e
@@ -34,15 +34,21 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Validate we're in the main portfolio directory
+# Validate we're in the main portfolio directory (not a worktree)
 validate_main_dir() {
     if [[ ! -f "$MAIN_DIR/package.json" ]] || [[ ! -d "$MAIN_DIR/api" ]]; then
         log_error "Must be run from the main portfolio directory"
         exit 1
     fi
 
-    # Check we're not already in a worktree
-    if [[ "$(git rev-parse --git-dir)" != ".git" ]]; then
+    # Check we're not in a worktree by comparing git-dir and git-common-dir
+    # In main repo: both point to same location
+    # In worktree: git-dir points to .git/worktrees/<name>, common-dir to main .git
+    cd "$MAIN_DIR"
+    local git_dir=$(git rev-parse --git-dir 2>/dev/null)
+    local common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+
+    if [[ "$git_dir" != "$common_dir" ]]; then
         log_error "This appears to be a worktree, not the main repository"
         log_error "Run this script from the main portfolio directory"
         exit 1
@@ -88,24 +94,25 @@ desc_to_db_name() {
     echo "portfolio_${desc//-/_}" | tr '[:upper:]' '[:lower:]'
 }
 
-# Check if postgres is running
-check_postgres() {
-    log_info "Checking if postgres is running..."
+# Ensure postgres is running (idempotent)
+ensure_postgres() {
+    log_info "Ensuring postgres is running..."
 
-    if ! pg_isready -h localhost -p 5432 -U portfolio -q 2>/dev/null; then
-        log_warn "PostgreSQL is not running on localhost:5432"
-        echo ""
-        echo "Please start postgres from the main directory:"
-        echo "  cd $MAIN_DIR && docker-compose up -d postgres"
-        echo ""
-        read -p "Press Enter once postgres is running, or Ctrl+C to abort..."
+    # Start postgres via docker-compose (idempotent - does nothing if already running)
+    cd "$MAIN_DIR"
+    docker-compose up -d postgres
 
-        # Check again
-        if ! pg_isready -h localhost -p 5432 -U portfolio -q 2>/dev/null; then
-            log_error "PostgreSQL still not available. Aborting."
+    # Wait for postgres to be ready (up to 30 seconds)
+    local max_attempts=30
+    local attempt=1
+    while ! pg_isready -h localhost -p 5432 -U portfolio -q 2>/dev/null; do
+        if [[ $attempt -ge $max_attempts ]]; then
+            log_error "PostgreSQL failed to start after ${max_attempts} seconds"
             exit 1
         fi
-    fi
+        sleep 1
+        ((attempt++))
+    done
 
     log_success "PostgreSQL is running"
 }
@@ -151,59 +158,21 @@ setup_database() {
     fi
 }
 
-# Update the workspace file to add the new folder
-update_workspace_file() {
+# Add worktree folder to the workspace using Cursor CLI
+add_to_workspace() {
     local worktree_dir="$1"
-    local desc="$2"
-    local workspace_file="$MAIN_DIR/portfolio.code-workspace"
 
-    log_info "Updating workspace file..."
+    log_info "Adding to workspace..."
 
-    if [[ ! -f "$workspace_file" ]]; then
-        log_warn "Workspace file not found: $workspace_file"
-        return 0
+    if command -v cursor &> /dev/null; then
+        cursor --add "$worktree_dir" 2>/dev/null || {
+            log_warn "Could not add to workspace via Cursor CLI"
+            return 0
+        }
+        log_success "Added to workspace"
+    else
+        log_warn "Cursor CLI not found. Add folder manually: $worktree_dir"
     fi
-
-    # Get relative path from main dir to worktree
-    local relative_path="../portfolio-$desc"
-
-    # Check if already in workspace (simple check)
-    if grep -q "\"path\": \"$relative_path\"" "$workspace_file" 2>/dev/null; then
-        log_info "Worktree already in workspace file"
-        return 0
-    fi
-
-    # Use node to safely modify the JSON (handles JSONC with comments)
-    node -e "
-const fs = require('fs');
-const path = '$workspace_file';
-const content = fs.readFileSync(path, 'utf8');
-
-// Remove comments for parsing (simple approach - line comments only)
-const jsonContent = content.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '\$1');
-
-try {
-    const workspace = JSON.parse(jsonContent);
-
-    // Add new folder entry
-    const newFolder = {
-        path: '$relative_path',
-        name: 'portfolio-$desc'
-    };
-
-    // Insert after the main portfolio folder (index 1)
-    workspace.folders.splice(1, 0, newFolder);
-
-    // Write back (we lose comments, but that's acceptable)
-    fs.writeFileSync(path, JSON.stringify(workspace, null, '\t'));
-    console.log('Workspace file updated');
-} catch (e) {
-    console.error('Failed to update workspace file:', e.message);
-    process.exit(1);
-}
-"
-
-    log_success "Added to workspace file"
 }
 
 # Main function
@@ -244,8 +213,8 @@ main() {
         exit 1
     fi
 
-    # Check postgres first (before creating anything)
-    check_postgres
+    # Ensure postgres is running (idempotent)
+    ensure_postgres
 
     # Create git worktree
     log_info "Creating git worktree..."
@@ -307,8 +276,8 @@ EOF
     # Setup database
     setup_database "$db_name" "$worktree_dir"
 
-    # Update workspace file
-    update_workspace_file "$worktree_dir" "$desc"
+    # Add to workspace
+    add_to_workspace "$worktree_dir"
 
     # Print summary
     echo ""
@@ -329,9 +298,7 @@ EOF
     echo "  cd $worktree_dir"
     echo "  pnpm dev-with-fastapi"
     echo ""
-    echo "To open in VS Code/Cursor:"
-    echo "  The worktree has been added to portfolio.code-workspace"
-    echo "  Reload the workspace to see it in the sidebar"
+    echo "The worktree has been added to your Cursor workspace."
     echo ""
 }
 
