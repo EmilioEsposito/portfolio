@@ -145,7 +145,7 @@ jobs:
           echo "Please ensure the Railway PR environment has been created for this pull request."
           exit 1
 
-      - name: Update Railway DATABASE_URL Variables and Redeploy
+      - name: Update Railway DATABASE_URL Variables. Railway will automatically redeploy ONLY if skipDeploys is false in the script.
         if: steps.get_railway_env.outputs.RAILWAY_ENV_FOUND == 'true'
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_GHA_TOKEN }}

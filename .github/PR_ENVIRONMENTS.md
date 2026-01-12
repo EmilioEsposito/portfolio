@@ -14,7 +14,10 @@ Each pull request automatically gets an isolated Neon database branch and Railwa
    - `DATABASE_URL` (pooled)
    - `DATABASE_URL_UNPOOLED` (direct)
    - `INFORMATIONAL_NEON_BRANCH_NAME`
-4. Railway auto-redeploys and runs migrations via predeploy hook
+4. Railway redeploys based on `skipDeploys` setting:
+   - If `skipDeploys=true`: Waits for CI to complete (if "Wait for CI" is enabled)
+   - If `skipDeploys=false`: Triggers immediate redeploy
+   - After redeploy, runs migrations via predeploy hook
 
 ### On PR Close
 
