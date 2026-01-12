@@ -1,20 +1,24 @@
 {
 	"folders": [
 		{
+			"name": "portfolio",
 			"path": "."
 		},
 		{
-			"path": "../ai-workflows",
-			"name": "ai-workflows"
+			"name": "portfolio-docuform",
+			"path": "../portfolio-docuform"
 		},
 		{
+			"name": "ai-workflows",
+			"path": "../ai-workflows"
+		},
+		{
+			"name": "scratch",
 			"path": "../scratch"
 		},
 		{
+			"name": "resume",
 			"path": "../resume"
-		},
-		{
-			"path": "../portfolio-docuform"
 		}
 	],
 	"settings": {
