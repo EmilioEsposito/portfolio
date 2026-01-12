@@ -86,7 +86,7 @@ INPUT_JSON=$(jq -n \
     serviceId: $serviceId,
     variables: $variables,
     replace: false,
-    skipDeploys: false
+    skipDeploys: true # I think if this is true AND Railway has "Wait for CI" enabled (and working), we avoid duplicate deploys.
   }')
 
 echo "✓ Input object built"
