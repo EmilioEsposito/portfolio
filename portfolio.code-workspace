@@ -12,10 +12,7 @@
 		},
 		{
 			"path": "../resume"
-		},
-		// {
-		// 	"path": "../mcp-inspector"
-		// }
+		}
 	],
 	"settings": {
 		"python.testing.pytestEnabled": true,
@@ -25,7 +22,10 @@
 			"."
 		],
 		"python.testing.autoTestDiscoverOnSaveEnabled": true,
-		"python.terminal.launchArgs": ["-m", "IPython"],
+		"python.terminal.launchArgs": [
+			"-m",
+			"IPython"
+		],
 		"jupyter.notebookFileRoot": "${workspaceFolder}",
 		"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
 		"sqltools.connections": [
@@ -63,7 +63,9 @@
 		"markdown.updateLinksOnFileMove.enabled": "always",
 		"python.analysis.autoImportCompletions": true,
 		"python.terminal.activateEnvInCurrentTerminal": true,
-		"python.analysis.extraPaths": ["."],
+		"python.analysis.extraPaths": [
+			"."
+		],
 		"terminal.integrated.env.osx": {
 			"PYTHONPATH": "${workspaceFolder}"
 		},

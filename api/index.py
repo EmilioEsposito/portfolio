@@ -355,3 +355,21 @@ async def error_500_check():
 
     # raise a 500 error
     raise HTTPException(status_code=500, detail="Test error message")
+
+
+# =============================================================================
+# Local Development Entry Point
+# =============================================================================
+# Run directly with: python api/index.py
+# - Reads PORT from environment (default: 8000)
+# - Enables hot reload for development
+#
+# Production (Railway) uses api/start.sh instead, which:
+# - Waits for database, runs migrations
+# - Uses Hypercorn with IPv6 binding for Railway Private Networking
+# =============================================================================
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("api.index:app", host="0.0.0.0", port=port, reload=True)

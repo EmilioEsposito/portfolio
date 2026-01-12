@@ -8,7 +8,7 @@
     "dev-with-fastapi": "concurrently \"pnpm dev\" \"pnpm fastapi-dev\"",
     "build": "pnpm --filter web-react-router build",
     "start": "pnpm --filter web-react-router start",
-    "fastapi-dev": "lsof -ti:8000 | xargs kill -9 || true && uv sync -p python3.11 && source .venv/bin/activate && python -m debugpy --listen 5678 -m hypercorn api.index:app --reload -b 0.0.0.0:8000",
+    "fastapi-dev": "lsof -ti:8000 | xargs kill -9 || true && uv sync -p python3.11 && source .venv/bin/activate && set -a && source .env && set +a && python -m debugpy --listen 5678 api/index.py",
     "my-expo-app": "pnpm --filter ./apps/my-expo-app exec -- expo",
     "eas-build-local": "cd apps/my-expo-app && eas build --profile local --local --platform ios",
     "eas-build-dev": "cd apps/my-expo-app && eas build --profile development --platform ios --non-interactive",

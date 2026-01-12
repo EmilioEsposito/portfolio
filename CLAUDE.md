@@ -112,11 +112,28 @@ cp .env.example .env  # Edit with your API keys
 pnpm dev-with-fastapi
 ```
 
+**Environment files**:
+- **Root `.env`** - FastAPI backend only (database, API keys, etc.)
+- **`apps/web-react-router/.env`** - Frontend only (created automatically for worktrees)
+
 **Required environment variables** (see `.env.example`):
 - `OPENAI_API_KEY` - AI features
 - `DATABASE_URL`, `DATABASE_URL_UNPOOLED` - Neon Postgres
 - `CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` - Auth
 - Various integration keys (OpenPhone, Google, etc.)
+
+---
+
+## Git Worktrees
+
+For parallel development, use worktrees to create isolated environments with separate ports and databases. See [`docs/WORKTREES.md`](docs/WORKTREES.md) for full documentation.
+
+```bash
+./scripts/worktree-create.sh feature-auth   # Create
+./scripts/worktree-remove.sh feature-auth   # Remove
+```
+
+Each worktree gets its own ports (hash-based), database, Python venv, and node_modules.
 
 ---
 
@@ -256,6 +273,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | Document | Purpose |
 |----------|---------|
 | [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
+| [`docs/WORKTREES.md`](docs/WORKTREES.md) | Git worktrees for parallel development |
 | [`api/README.md`](api/README.md) | FastAPI run commands |
 | [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
 | [`api/src/schedulers/README.md`](api/src/schedulers/README.md) | Scheduler setup (APScheduler active, DBOS disabled) |

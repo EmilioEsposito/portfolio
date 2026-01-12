@@ -4,5 +4,6 @@
     // "css.lint.unknownAtRules": "ignore",
     "files.associations": {
         "*.css": "tailwindcss" // also done in vscode user settings.json
-    }
+    },
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 }
