@@ -139,7 +139,6 @@ remove_from_workspace() {
 # Remove git worktree
 remove_worktree() {
     local worktree_dir="$1"
-    local branch_name="$2"
 
     log_info "Removing git worktree..."
 
@@ -156,21 +155,17 @@ remove_worktree() {
         # Still try to prune stale worktrees
         git worktree prune
     fi
+}
 
-    # Offer to delete the branch
-    if git rev-parse --verify "$branch_name" >/dev/null 2>&1; then
-        echo ""
-        read -p "Delete branch '$branch_name'? [y/N] " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            if git branch -d "$branch_name" 2>/dev/null; then
-                log_success "Branch deleted"
-            else
-                log_warn "Branch has unmerged changes. Use 'git branch -D $branch_name' to force delete."
-            fi
-        else
-            log_info "Branch '$branch_name' kept"
-        fi
+# Delete the branch
+delete_branch() {
+    local branch_name="$1"
+
+    log_info "Deleting branch $branch_name..."
+    if git branch -d "$branch_name" 2>/dev/null; then
+        log_success "Branch deleted"
+    else
+        log_warn "Branch has unmerged changes. Use 'git branch -D $branch_name' to force delete."
     fi
 }
 
@@ -197,6 +192,12 @@ main() {
     local branch_name="$desc"
     local db_name=$(desc_to_db_name "$desc")
 
+    # Check if branch exists
+    local branch_exists=false
+    if git rev-parse --verify "$branch_name" >/dev/null 2>&1; then
+        branch_exists=true
+    fi
+
     log_info "Removing worktree:"
     echo "  Description: $desc"
     echo "  Directory:   $worktree_dir"
@@ -204,7 +205,7 @@ main() {
     echo "  Database:    $db_name"
     echo ""
 
-    # Confirm
+    # Confirm removal
     read -p "Are you sure you want to remove this worktree? [y/N] " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -212,14 +213,31 @@ main() {
         exit 0
     fi
 
+    # Ask about branch deletion upfront (if branch exists)
+    local delete_branch_flag=false
+    if [[ "$branch_exists" == true ]]; then
+        read -p "Also delete branch '$branch_name'? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            delete_branch_flag=true
+        fi
+    fi
+
+    echo ""
+
     # Drop database
     drop_database "$db_name"
 
     # Remove from workspace
     remove_from_workspace "$worktree_dir"
 
-    # Remove git worktree (and optionally branch)
-    remove_worktree "$worktree_dir" "$branch_name"
+    # Remove git worktree
+    remove_worktree "$worktree_dir"
+
+    # Delete branch if requested
+    if [[ "$delete_branch_flag" == true ]]; then
+        delete_branch "$branch_name"
+    fi
 
     # Final cleanup
     echo ""
@@ -231,6 +249,9 @@ main() {
     echo "  - Database: $db_name"
     echo "  - Directory: $worktree_dir"
     echo "  - Workspace entry"
+    if [[ "$delete_branch_flag" == true ]]; then
+        echo "  - Branch: $branch_name"
+    fi
     echo ""
 }
 
