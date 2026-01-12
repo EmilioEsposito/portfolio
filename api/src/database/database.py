@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator, Annotated
 from fastapi import Depends
-import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text

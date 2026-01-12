@@ -18,12 +18,12 @@ Git worktrees allow parallel development with fully isolated environments. Each 
 | Resource | Main | Worktree |
 |----------|------|----------|
 | Directory | `portfolio/` | `portfolio-<desc>/` |
-| Branch | `main` | `<desc>` |
+| Branch | `main` | `<desc>` (branched from current) |
 | FastAPI Port | 8000 | 8000 + offset |
 | Frontend Port | 5173 | 5173 + offset |
 | Database | `portfolio` | `portfolio_<desc>` |
 
-Port offset is deterministic (hash-based), so the same description always gets the same ports.
+The new branch is created from whatever branch you're currently on. Port offset is deterministic (hash-based), so the same description always gets the same ports.
 
 ## Architecture
 
