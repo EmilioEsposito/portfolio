@@ -1,0 +1,315 @@
+#!/bin/bash
+#
+# worktree-create.sh - Create an isolated git worktree for parallel development
+#
+# Usage: ./scripts/worktree-create.sh <description>
+# Example: ./scripts/worktree-create.sh feature-auth
+#
+# Creates:
+#   - Git worktree at ../portfolio-<description>/
+#   - New branch <description> based on current branch
+#   - Isolated database: portfolio_<description>
+#   - Unique ports (hash-based) for FastAPI and frontend
+#   - Adds folder to Cursor workspace
+#
+# Requirements:
+#   - Must be run from the main portfolio directory
+#   - Docker must be available (postgres will be started automatically)
+#
+
+set -e
+set -o pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Validate we're in the main portfolio directory (not a worktree)
+validate_main_dir() {
+    if [[ ! -f "$MAIN_DIR/package.json" ]] || [[ ! -d "$MAIN_DIR/api" ]]; then
+        log_error "Must be run from the main portfolio directory"
+        exit 1
+    fi
+
+    # Check we're not in a worktree by comparing git-dir and git-common-dir
+    # In main repo: both point to same location
+    # In worktree: git-dir points to .git/worktrees/<name>, common-dir to main .git
+    cd "$MAIN_DIR"
+    local git_dir=$(git rev-parse --git-dir 2>/dev/null)
+    local common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+
+    if [[ "$git_dir" != "$common_dir" ]]; then
+        log_error "This appears to be a worktree, not the main repository"
+        log_error "Run this script from the main portfolio directory"
+        exit 1
+    fi
+}
+
+# Validate description argument
+validate_description() {
+    local desc="$1"
+
+    if [[ -z "$desc" ]]; then
+        log_error "Usage: $0 <description>"
+        log_error "Example: $0 feature-auth"
+        exit 1
+    fi
+
+    # Check for valid characters (alphanumeric and hyphens only)
+    if [[ ! "$desc" =~ ^[a-zA-Z0-9-]+$ ]]; then
+        log_error "Description must contain only alphanumeric characters and hyphens"
+        exit 1
+    fi
+
+    # Check it doesn't start or end with hyphen
+    if [[ "$desc" =~ ^- ]] || [[ "$desc" =~ -$ ]]; then
+        log_error "Description cannot start or end with a hyphen"
+        exit 1
+    fi
+}
+
+# Compute deterministic port offset from description
+compute_port_offset() {
+    local desc="$1"
+    # Use cksum for cross-platform hash, take modulo 99, add 1, multiply by 10
+    # This gives offsets: 10, 20, 30, ..., 990 (never 0, to avoid conflict with main)
+    local hash=$(echo -n "$desc" | cksum | cut -d' ' -f1)
+    echo $(( ((hash % 99) + 1) * 10 ))
+}
+
+# Convert description to valid postgres database name
+desc_to_db_name() {
+    local desc="$1"
+    # Replace hyphens with underscores, lowercase
+    echo "portfolio_${desc//-/_}" | tr '[:upper:]' '[:lower:]'
+}
+
+# Ensure postgres is running (delegates to standalone script)
+ensure_postgres() {
+    "$SCRIPT_DIR/ensure-postgres.sh"
+}
+
+# Create the database (copy from main or run migrations)
+setup_database() {
+    local db_name="$1"
+    local worktree_dir="$2"
+
+    log_info "Setting up database: $db_name"
+
+    export PGPASSWORD="portfolio"
+
+    # Check if database already exists
+    if psql -h localhost -U portfolio -lqt | cut -d \| -f 1 | grep -qw "$db_name"; then
+        log_warn "Database $db_name already exists. Skipping creation."
+        return 0
+    fi
+
+    # Create database
+    log_info "Creating database $db_name..."
+    createdb -h localhost -U portfolio "$db_name"
+
+    # Try to copy from main database using a temp file to avoid pipefail issues
+    log_info "Attempting to copy data from main database..."
+    local dump_file=$(mktemp)
+    if pg_dump -h localhost -U portfolio portfolio > "$dump_file" 2>/dev/null && [[ -s "$dump_file" ]]; then
+        psql -h localhost -U portfolio "$db_name" -q < "$dump_file" 2>/dev/null
+        rm -f "$dump_file"
+        log_success "Database copied from main"
+    else
+        rm -f "$dump_file"
+        log_warn "Could not copy database, running migrations and seed instead..."
+
+        # Run migrations and seed with .env loaded
+        cd "$worktree_dir"
+        source .venv/bin/activate
+        # Export variables from .env for alembic and seed_db.py
+        set -a
+        source "$worktree_dir/.env"
+        set +a
+
+        cd "$worktree_dir/api"
+        uv run alembic upgrade head
+
+        cd "$worktree_dir"
+        python api/seed_db.py
+
+        log_success "Database initialized with migrations and seed"
+    fi
+}
+
+# Add worktree folder to the workspace using Cursor CLI
+add_to_workspace() {
+    local worktree_dir="$1"
+
+    log_info "Adding to workspace..."
+
+    if command -v cursor &> /dev/null; then
+        cursor --add "$worktree_dir" 2>/dev/null || {
+            log_warn "Could not add to workspace via Cursor CLI"
+            return 0
+        }
+        log_success "Added to workspace"
+    else
+        log_warn "Cursor CLI not found. Add folder manually: $worktree_dir"
+    fi
+}
+
+# Main function
+main() {
+    local desc="$1"
+
+    echo ""
+    echo "=========================================="
+    echo "  Git Worktree Setup"
+    echo "=========================================="
+    echo ""
+
+    # Validations
+    validate_main_dir
+    validate_description "$desc"
+
+    # Compute values
+    local worktree_name="portfolio-$desc"
+    local worktree_dir="$MAIN_DIR/../$worktree_name"
+    local branch_name="$desc"
+    local base_branch=$(git rev-parse --abbrev-ref HEAD)
+    local port_offset=$(compute_port_offset "$desc")
+    local fastapi_port=$((8000 + port_offset))
+    local frontend_port=$((5173 + port_offset))
+    local db_name=$(desc_to_db_name "$desc")
+
+    log_info "Configuration:"
+    echo "  Description:    $desc"
+    echo "  Worktree:       $worktree_dir"
+    echo "  New branch:     $branch_name (from $base_branch)"
+    echo "  FastAPI port:   $fastapi_port"
+    echo "  Frontend port:  $frontend_port"
+    echo "  Database:       $db_name"
+    echo ""
+
+    # Check if worktree already exists
+    if [[ -d "$worktree_dir" ]]; then
+        log_error "Worktree directory already exists: $worktree_dir"
+        exit 1
+    fi
+
+    # Ensure postgres is running (idempotent)
+    ensure_postgres
+
+    # Create git worktree (branch from current branch)
+    log_info "Creating git worktree (branching from $base_branch)..."
+    git worktree add "$worktree_dir" -b "$branch_name" "$base_branch" 2>/dev/null || \
+    git worktree add "$worktree_dir" "$branch_name"
+    log_success "Git worktree created"
+
+    # Copy and modify .env for FastAPI
+    log_info "Configuring environment files..."
+    if [[ -f "$MAIN_DIR/.env" ]]; then
+        cp "$MAIN_DIR/.env" "$worktree_dir/.env"
+
+        # Append/override worktree-specific settings
+        cat >> "$worktree_dir/.env" << EOF
+
+# =============================================================================
+# Worktree-specific overrides (auto-generated by worktree-create.sh)
+# =============================================================================
+PORT=$fastapi_port
+DATABASE_URL=postgresql://portfolio:portfolio@localhost:5432/$db_name
+DATABASE_URL_UNPOOLED=postgresql://portfolio:portfolio@localhost:5432/$db_name
+DATABASE_REQUIRE_SSL=false
+EOF
+        log_success "FastAPI .env configured"
+    else
+        log_warn "No .env found in main directory, creating minimal config"
+        cat > "$worktree_dir/.env" << EOF
+# Worktree environment (auto-generated by worktree-create.sh)
+PORT=$fastapi_port
+DATABASE_URL=postgresql://portfolio:portfolio@localhost:5432/$db_name
+DATABASE_URL_UNPOOLED=postgresql://portfolio:portfolio@localhost:5432/$db_name
+DATABASE_REQUIRE_SSL=false
+EOF
+    fi
+
+    # Create frontend .env (copy from main if exists, then append port settings)
+    mkdir -p "$worktree_dir/apps/web-react-router"
+    local frontend_env_src="$MAIN_DIR/apps/web-react-router/.env"
+    local frontend_env_dest="$worktree_dir/apps/web-react-router/.env"
+
+    if [[ -f "$frontend_env_src" ]]; then
+        cp "$frontend_env_src" "$frontend_env_dest"
+        cat >> "$frontend_env_dest" << EOF
+
+# =============================================================================
+# Worktree-specific overrides (auto-generated by worktree-create.sh)
+# =============================================================================
+BACKEND_PORT=$fastapi_port
+VITE_PORT=$frontend_port
+EOF
+        log_success "Frontend .env copied and configured"
+    else
+        cat > "$frontend_env_dest" << EOF
+# Frontend environment (auto-generated by worktree-create.sh)
+# BACKEND_PORT tells vite.config.ts where to proxy API requests
+# VITE_PORT sets the vite dev server port
+BACKEND_PORT=$fastapi_port
+VITE_PORT=$frontend_port
+EOF
+        log_success "Frontend .env created"
+    fi
+
+    # Setup Python environment
+    log_info "Setting up Python environment..."
+    cd "$worktree_dir"
+    uv venv
+    source .venv/bin/activate
+    uv sync -p python3.11
+    log_success "Python environment ready"
+
+    # Setup Node environment
+    log_info "Installing Node dependencies..."
+    cd "$worktree_dir"
+    pnpm install
+    log_success "Node dependencies installed"
+
+    # Setup database
+    setup_database "$db_name" "$worktree_dir"
+
+    # Add to workspace
+    add_to_workspace "$worktree_dir"
+
+    # Print summary
+    echo ""
+    echo "=========================================="
+    echo "  Worktree Ready!"
+    echo "=========================================="
+    echo ""
+    echo "Location: $worktree_dir"
+    echo "Branch:   $branch_name (branched from $base_branch)"
+    echo ""
+    echo "Ports:"
+    echo "  FastAPI:  http://localhost:$fastapi_port"
+    echo "  Frontend: http://localhost:$frontend_port"
+    echo ""
+    echo "Database: $db_name"
+    echo ""
+    echo "To start development:"
+    echo "  cd $worktree_dir"
+    echo "  pnpm dev-with-fastapi"
+    echo ""
+    echo "The worktree has been added to your Cursor workspace."
+    echo ""
+}
+
+main "$1"

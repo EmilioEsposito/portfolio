@@ -2,17 +2,17 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Kill Port 8000",
+            "label": "Kill FastAPI Port",
             "type": "shell",
-            "command": "lsof -ti:8000 | xargs kill -9",
+            "command": "PORT=$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8000}; echo \"Killing FastAPI port $PORT\"; lsof -ti:$PORT | xargs kill -9 || true",
             "windows": {
-                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :8000') do taskkill /F /PID %a"
+                "command": "for /f \"tokens=2 delims==\" %p in ('findstr /B \"PORT=\" .env') do (echo Killing port %p & for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :%p') do taskkill /F /PID %a) || exit 0"
             },
             "linux": {
-                "command": "fuser -k 8000/tcp || true"
+                "command": "PORT=$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8000}; echo \"Killing FastAPI port $PORT\"; fuser -k $PORT/tcp || true"
             },
             "osx": {
-                "command": "lsof -ti:8000 | xargs kill -9 || true"
+                "command": "PORT=$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8000}; echo \"Killing FastAPI port $PORT\"; lsof -ti:$PORT | xargs kill -9 || true"
             },
             "problemMatcher": [],
             "presentation": {
@@ -21,36 +21,17 @@
             }
         },
         {
-            "label": "Kill Port 3000",
+            "label": "Kill Frontend Port",
             "type": "shell",
-            "command": "lsof -ti:3000 | xargs kill -9",
+            "command": "PORT=$(grep -E '^VITE_PORT=' apps/web-react-router/.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-5173}; echo \"Killing frontend port $PORT\"; lsof -ti:$PORT | xargs kill -9 || true",
             "windows": {
-                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :3000') do taskkill /F /PID %a & timeout /t 5 /nobreak >nul"
+                "command": "for /f \"tokens=2 delims==\" %p in ('findstr /B \"VITE_PORT=\" apps\\web-react-router\\.env') do (echo Killing port %p & for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :%p') do taskkill /F /PID %a) || exit 0"
             },
             "linux": {
-                "command": "fuser -k 3000/tcp || true"
+                "command": "PORT=$(grep -E '^VITE_PORT=' apps/web-react-router/.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-5173}; echo \"Killing frontend port $PORT\"; fuser -k $PORT/tcp || true"
             },
             "osx": {
-                "command": "lsof -ti:3000 | xargs kill -9 || true"
-            },
-            "problemMatcher": [],
-            "presentation": {
-                "reveal": "silent",
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "Kill Port 5173",
-            "type": "shell",
-            "command": "lsof -ti:5173 | xargs kill -9",
-            "windows": {
-                "command": "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :5173') do taskkill /F /PID %a"
-            },
-            "linux": {
-                "command": "fuser -k 5173/tcp || true"
-            },
-            "osx": {
-                "command": "lsof -ti:5173 | xargs kill -9 || true"
+                "command": "PORT=$(grep -E '^VITE_PORT=' apps/web-react-router/.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-5173}; echo \"Killing frontend port $PORT\"; lsof -ti:$PORT | xargs kill -9 || true"
             },
             "problemMatcher": [],
             "presentation": {
@@ -61,7 +42,7 @@
         {
             "label": "Ensure Postgres Running",
             "type": "shell",
-            "command": "docker ps -q -f name=portfolio-postgres | grep -q . && echo 'Postgres already running' || (echo 'Starting Postgres...' && docker compose --env-file .env up -d postgres && sleep 3)",
+            "command": "./scripts/ensure-postgres.sh",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",
@@ -90,17 +71,7 @@
         {
             "label": "Prepare FastAPI Backend",
             "dependsOn": [
-                // "Ensure Postgres Running", // using Neon locally now too. 
-                "Kill Port 8000"
-            ],
-            "dependsOrder": "sequence",
-            "problemMatcher": []
-        },
-        {
-            "label": "Prepare Next.js Frontend",
-            "dependsOn": [
-                "Kill Chrome Debug Sessions",
-                "Kill Port 3000"
+                "Kill FastAPI Port"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []
@@ -109,11 +80,10 @@
             "label": "Prepare React Router Frontend",
             "dependsOn": [
                 "Kill Chrome Debug Sessions",
-                "Kill Port 5173"
+                "Kill Frontend Port"
             ],
             "dependsOrder": "sequence",
             "problemMatcher": []
         }
     ]
 }
-

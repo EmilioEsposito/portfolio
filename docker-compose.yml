@@ -4,7 +4,7 @@ services:
     container_name: portfolio-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: portfolio
+      POSTGRES_DB: ${POSTGRES_DB:-portfolio}
       POSTGRES_USER: portfolio
       POSTGRES_PASSWORD: portfolio
     ports:
