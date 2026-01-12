@@ -1,4 +1,5 @@
 {
     "sql-formatter.uppercase": true,
-    "sql-formatter.dialect": "sql"
+    "sql-formatter.dialect": "sql",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 }

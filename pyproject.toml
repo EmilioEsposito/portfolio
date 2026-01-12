@@ -55,6 +55,7 @@ dependencies = [
     "pytz>=2025.2",
     "svix>=1.81.0",
     "croniter>=6.0.0",
+    "uvicorn>=0.32.0",
 ]
 
 [dependency-groups]

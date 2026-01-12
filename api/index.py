@@ -51,10 +51,7 @@ logfire.info("STARTUP1")
 
 # Import from api.src
 with logfire.span("Creating AI Agent Routes"):
-    from api.src.ai.chat_weather.routes import router as chat_weather_router
-    from api.src.ai.chat_emilio.routes import router as chat_emilio_router
-    from api.src.ai.multi_agent_chat.routes import router as multi_agent_chat_router
-    from api.src.ai.hitl_agents.routes import router as hitl_agents_router
+    from api.src.ai.routes import router as ai_router
 
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
@@ -279,10 +276,7 @@ graphql_router = GraphQLRouter(schema, path="/graphql")
 
 # Include all routers
 app.include_router(graphql_router, prefix="/api")
-app.include_router(chat_weather_router, prefix="/api")
-app.include_router(chat_emilio_router, prefix="/api")
-app.include_router(multi_agent_chat_router, prefix="/api")
-app.include_router(hitl_agents_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")
@@ -312,3 +306,21 @@ async def error_500_check():
 
     # raise a 500 error
     raise HTTPException(status_code=500, detail="Test error message")
+
+
+# =============================================================================
+# Local Development Entry Point
+# =============================================================================
+# Run directly with: python api/index.py
+# - Reads PORT from environment (default: 8000)
+# - Enables hot reload for development
+#
+# Production (Railway) uses api/start.sh instead, which:
+# - Waits for database, runs migrations
+# - Uses Hypercorn with IPv6 binding for Railway Private Networking
+# =============================================================================
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("api.index:app", host="0.0.0.0", port=port, reload=True)

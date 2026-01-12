@@ -8,12 +8,15 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv, find_dotenv
 from typing import AsyncGenerator, Annotated
 from fastapi import Depends
-import asyncio
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
 import pytest
 from api.src.utils.logfire_config import ensure_logfire_configured
+
+# Load .env file if present (for local dev, alembic migrations, worktrees)
+# This is idempotent - won't override existing environment variables
+load_dotenv(find_dotenv(), override=False)
 
 ensure_logfire_configured(mode="prod", service_name="fastapi")
 

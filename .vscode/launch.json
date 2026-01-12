@@ -9,6 +9,7 @@
             "runtimeArgs": [
                 "dev"
             ],
+            "envFile": "${workspaceFolder}/apps/web-react-router/.env",
             "console": "integratedTerminal",
             "serverReadyAction": {
                 "pattern": "➜\\s+Local:\\s+(https?://[^\\s]+)",
@@ -21,13 +22,8 @@
             "name": "FastAPI Backend",
             "type": "debugpy",
             "request": "launch",
-            "module": "hypercorn",
-            "args": [
-                "api.index:app",
-                "--reload",
-                "-b",
-                "0.0.0.0:8000"
-            ],
+            "program": "${workspaceFolder}/api/index.py",
+            "envFile": "${workspaceFolder}/.env",
             "jinja": true,
             "console": "integratedTerminal",
             "justMyCode": false,

@@ -14,6 +14,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Label } from "~/components/ui/label";
+import { AuthGuard } from "~/components/auth-guard";
 import {
   RefreshCw,
   Play,
@@ -221,25 +222,11 @@ export default function HITLAgentWorkflowPage() {
 
   const pendingCount = conversations.length;
 
-  // Auth check
-  if (!isLoaded) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100dvh-52px)]">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!isSignedIn) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
-        <MessageSquare className="w-12 h-12 text-muted-foreground" />
-        <p className="text-muted-foreground">Please sign in to use HITL Agent Workflows</p>
-      </div>
-    );
-  }
-
   return (
+    <AuthGuard
+      message="Sign in to review and approve pending agent actions"
+      icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
+    >
     <div className="container mx-auto py-10 px-4 md:px-8 max-w-4xl">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -522,5 +509,6 @@ export default function HITLAgentWorkflowPage() {
         </CardContent>
       </Card>
     </div>
+    </AuthGuard>
   );
 }
