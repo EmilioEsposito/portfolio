@@ -323,18 +323,10 @@ async def error_500_check():
 #
 # Production (Railway) uses api/start.sh instead, which:
 # - Waits for database, runs migrations
-# - Binds to IPv6 ([::]) for Railway Private Networking
+# - Uses Hypercorn with IPv6 binding for Railway Private Networking
 # =============================================================================
 if __name__ == "__main__":
-    import uvloop
-    from hypercorn.asyncio import serve
-    from hypercorn.config import Config
+    import uvicorn
 
     port = int(os.getenv("PORT", "8000"))
-
-    config = Config()
-    config.bind = [f"0.0.0.0:{port}"]
-    config.use_reloader = True
-
-    print(f"Starting Hypercorn on http://localhost:{port}")
-    uvloop.run(serve(app, config))
+    uvicorn.run("api.index:app", host="0.0.0.0", port=port, reload=True)
