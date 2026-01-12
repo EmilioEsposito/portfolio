@@ -190,10 +190,20 @@ main() {
     local frontend_port=$((5173 + port_offset))
     local db_name=$(desc_to_db_name "$desc")
 
+    # Check if branch already exists
+    local branch_exists=false
+    if git rev-parse --verify "$branch_name" >/dev/null 2>&1; then
+        branch_exists=true
+    fi
+
     log_info "Configuration:"
     echo "  Description:    $desc"
     echo "  Worktree:       $worktree_dir"
-    echo "  New branch:     $branch_name (from $base_branch)"
+    if [[ "$branch_exists" == true ]]; then
+        echo "  Branch:         $branch_name (existing)"
+    else
+        echo "  Branch:         $branch_name (new, from $base_branch)"
+    fi
     echo "  FastAPI port:   $fastapi_port"
     echo "  Frontend port:  $frontend_port"
     echo "  Database:       $db_name"
@@ -208,10 +218,14 @@ main() {
     # Ensure postgres is running (idempotent)
     ensure_postgres
 
-    # Create git worktree (branch from current branch)
-    log_info "Creating git worktree (branching from $base_branch)..."
-    git worktree add "$worktree_dir" -b "$branch_name" "$base_branch" 2>/dev/null || \
-    git worktree add "$worktree_dir" "$branch_name"
+    # Create git worktree
+    if [[ "$branch_exists" == true ]]; then
+        log_info "Creating git worktree (using existing branch $branch_name)..."
+        git worktree add "$worktree_dir" "$branch_name"
+    else
+        log_info "Creating git worktree (new branch $branch_name from $base_branch)..."
+        git worktree add "$worktree_dir" -b "$branch_name" "$base_branch"
+    fi
     log_success "Git worktree created"
 
     # Copy and modify .env for FastAPI
@@ -296,7 +310,11 @@ EOF
     echo "=========================================="
     echo ""
     echo "Location: $worktree_dir"
-    echo "Branch:   $branch_name (branched from $base_branch)"
+    if [[ "$branch_exists" == true ]]; then
+        echo "Branch:   $branch_name (existing branch)"
+    else
+        echo "Branch:   $branch_name (new, from $base_branch)"
+    fi
     echo ""
     echo "Ports:"
     echo "  FastAPI:  http://localhost:$fastapi_port"
@@ -308,6 +326,12 @@ EOF
     echo "  cd $worktree_dir"
     echo "  pnpm dev-with-fastapi"
     echo ""
+    if [[ "$branch_exists" == true ]]; then
+        echo "To update branch with latest from $base_branch:"
+        echo "  cd $worktree_dir"
+        echo "  git merge $base_branch"
+        echo ""
+    fi
     echo "The worktree has been added to your Cursor workspace."
     echo ""
 }
