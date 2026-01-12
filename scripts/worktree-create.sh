@@ -7,9 +7,10 @@
 #
 # Creates:
 #   - Git worktree at ../portfolio-<description>/
+#   - New branch <description> based on current branch
 #   - Isolated database: portfolio_<description>
 #   - Unique ports (hash-based) for FastAPI and frontend
-#   - Adds folder to portfolio.code-workspace
+#   - Adds folder to Cursor workspace
 #
 # Requirements:
 #   - Must be run from the main portfolio directory
@@ -183,6 +184,7 @@ main() {
     local worktree_name="portfolio-$desc"
     local worktree_dir="$MAIN_DIR/../$worktree_name"
     local branch_name="$desc"
+    local base_branch=$(git rev-parse --abbrev-ref HEAD)
     local port_offset=$(compute_port_offset "$desc")
     local fastapi_port=$((8000 + port_offset))
     local frontend_port=$((5173 + port_offset))
@@ -191,7 +193,7 @@ main() {
     log_info "Configuration:"
     echo "  Description:    $desc"
     echo "  Worktree:       $worktree_dir"
-    echo "  Branch:         $branch_name"
+    echo "  New branch:     $branch_name (from $base_branch)"
     echo "  FastAPI port:   $fastapi_port"
     echo "  Frontend port:  $frontend_port"
     echo "  Database:       $db_name"
@@ -206,9 +208,9 @@ main() {
     # Ensure postgres is running (idempotent)
     ensure_postgres
 
-    # Create git worktree
-    log_info "Creating git worktree..."
-    git worktree add "$worktree_dir" -b "$branch_name" 2>/dev/null || \
+    # Create git worktree (branch from current branch)
+    log_info "Creating git worktree (branching from $base_branch)..."
+    git worktree add "$worktree_dir" -b "$branch_name" "$base_branch" 2>/dev/null || \
     git worktree add "$worktree_dir" "$branch_name"
     log_success "Git worktree created"
 
@@ -294,7 +296,7 @@ EOF
     echo "=========================================="
     echo ""
     echo "Location: $worktree_dir"
-    echo "Branch:   $branch_name"
+    echo "Branch:   $branch_name (branched from $base_branch)"
     echo ""
     echo "Ports:"
     echo "  FastAPI:  http://localhost:$fastapi_port"
