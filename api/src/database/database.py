@@ -15,6 +15,10 @@ from sqlalchemy import text
 import pytest
 from api.src.utils.logfire_config import ensure_logfire_configured
 
+# Load .env file if present (for local dev, alembic migrations, worktrees)
+# This is idempotent - won't override existing environment variables
+load_dotenv(find_dotenv(), override=False)
+
 ensure_logfire_configured(mode="prod", service_name="fastapi")
 
 # Configure SQLAlchemy to use lowercase, unquoted names by default

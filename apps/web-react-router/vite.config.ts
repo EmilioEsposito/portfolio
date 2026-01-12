@@ -6,6 +6,7 @@
  *
  * Environment variables (from .env in this directory):
  *   BACKEND_PORT - FastAPI backend port (default: 8000)
+ *   VITE_PORT - Vite dev server port (default: 5173)
  *
  * See also: server.js (production proxy), README.md (API proxy docs)
  */
@@ -18,10 +19,12 @@ export default defineConfig(({ mode }) => {
   // Load env from this directory (apps/web-react-router)
   const env = loadEnv(mode, process.cwd(), "");
   const backendPort = env.BACKEND_PORT || "8000";
+  const vitePort = env.VITE_PORT ? parseInt(env.VITE_PORT, 10) : 5173;
 
   return {
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
     server: {
+      port: vitePort,
       proxy: {
         "/api": {
           target: `http://127.0.0.1:${backendPort}`,

@@ -41,9 +41,15 @@ main() {
 
     log_info "Ensuring PostgreSQL is running..."
 
-    # Start postgres via docker-compose (idempotent - does nothing if already running)
+    # Verify docker compose is available
+    if ! docker compose version &>/dev/null; then
+        log_error "docker compose not found. Please install Docker Desktop or Docker Compose V2."
+        exit 1
+    fi
+
+    # Start postgres via docker compose (idempotent - does nothing if already running)
     cd "$repo_root"
-    docker-compose up -d postgres 2>&1 | grep -v "orphan containers" || true
+    docker compose up -d postgres 2>&1 | grep -v "orphan containers" || true
 
     # Wait for postgres to be ready (up to 30 seconds)
     local max_attempts=30

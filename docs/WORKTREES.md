@@ -47,7 +47,7 @@ portfolio-feature-auth/       # Worktree (sibling folder)
 
 ### Root `.env` (FastAPI)
 ```bash
-PORT=8340                     # Hypercorn server port
+PORT=8340                     # Server port (read by api/index.py)
 DATABASE_URL=postgresql://portfolio:portfolio@localhost:5432/portfolio_feature_auth
 DATABASE_REQUIRE_SSL=false    # Always false for local postgres
 ```
@@ -55,11 +55,12 @@ DATABASE_REQUIRE_SSL=false    # Always false for local postgres
 ### `apps/web-react-router/.env` (Frontend)
 ```bash
 BACKEND_PORT=8340             # Where vite proxies /api requests
+VITE_PORT=5513                # Vite dev server port
 ```
 
 ## Database Setup
 
-Worktrees share a single PostgreSQL instance (from main's `docker-compose up -d postgres`) but use separate databases.
+Worktrees share a single PostgreSQL instance (from main's `docker compose up -d postgres`) but use separate databases.
 
 The create script attempts to copy data from main:
 ```bash
@@ -76,24 +77,25 @@ python api/seed_db.py
 
 Ports are computed from a hash of the description:
 ```bash
-offset = (hash(description) % 100) * 10  # 0, 10, 20, ..., 990
+offset = ((hash(description) % 99) + 1) * 10  # 10, 20, 30, ..., 990 (never 0)
 fastapi_port = 8000 + offset
 frontend_port = 5173 + offset
 ```
 
 This ensures:
 - Same description always gets same ports
+- Offset is never 0, avoiding conflicts with main (8000/5173)
 - Low collision probability for different descriptions
-- Ports stay in reasonable ranges (8000-8990, 5173-6163)
+- Ports stay in reasonable ranges (8010-8990, 5183-6163)
 
 ## VS Code / Cursor Integration
 
 The create script runs `cursor --add <worktree_dir>` to add the folder to your workspace. The remove script runs `cursor --remove`.
 
 Debug configurations work automatically because:
-- `.vscode/launch.json` uses `envFile: "${workspaceFolder}/.env"`
-- `api/hypercorn_config.py` reads `PORT` from environment
-- `vite.config.ts` reads `BACKEND_PORT` from environment
+- `.vscode/launch.json` runs `python api/index.py` with `envFile: "${workspaceFolder}/.env"`
+- `api/index.py` reads `PORT` from environment in its `if __name__ == "__main__"` block
+- `vite.config.ts` reads `BACKEND_PORT` and `VITE_PORT` from environment
 
 ## Requirements
 

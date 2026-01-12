@@ -22,13 +22,7 @@
             "name": "FastAPI Backend",
             "type": "debugpy",
             "request": "launch",
-            "module": "hypercorn",
-            "args": [
-                "api.index:app",
-                "--reload",
-                "--config",
-                "api/hypercorn_config.py"
-            ],
+            "program": "${workspaceFolder}/api/index.py",
             "envFile": "${workspaceFolder}/.env",
             "jinja": true,
             "console": "integratedTerminal",
