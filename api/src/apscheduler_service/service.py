@@ -72,7 +72,7 @@ def get_scheduler() -> AsyncIOScheduler:
         scheduler = AsyncIOScheduler(
             jobstores=jobstores,
             job_defaults={
-                "grace_time": 60  # Set default grace_time to 60 seconds
+                "misfire_grace_time": 60  # Set default grace_time to 60 seconds
             },
         )
 
