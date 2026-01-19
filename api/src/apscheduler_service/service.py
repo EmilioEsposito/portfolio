@@ -72,7 +72,7 @@ def get_scheduler() -> AsyncIOScheduler:
         scheduler = AsyncIOScheduler(
             jobstores=jobstores,
             job_defaults={
-                "misfire_grace_time": 60  # Set default grace_time to 60 seconds
+                "misfire_grace_time": 60  # Grace time in seconds for missed job execution
             },
         )
 
@@ -83,7 +83,8 @@ def get_scheduler() -> AsyncIOScheduler:
         _scheduler = scheduler
         return _scheduler
 
-# Note: APScheduler's internal logging is captured by logfire through OpenTelemetry
+# Note: APScheduler's internal logging (e.g., misfire warnings) is captured by
+# logging.getLogger().addHandler(...) configured in api.src.utils.logfire_config
 
 
 # --- Centralized Job Error Handling --- START
@@ -372,7 +373,7 @@ async def test_schedule_push():
 
 # TESTING
 
-
+@logfire.instrument()
 async def run_hello_world(name: str):
   logfire.info(f"Hello {name} from apscheduler run_hello_world executed at {datetime.now()}")
 

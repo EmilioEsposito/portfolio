@@ -7,10 +7,36 @@ from typing import Optional
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
+from logfire import LogfireLoggingHandler
 from logfire.sampling import TailSamplingSpanInfo
 
 _CONFIGURED: bool = False
 _CONFIGURED_MODE: Optional[str] = None  # e.g. "prod", "test"
+
+
+# ---------------------------------------------------------------------------
+# Log Level Escalation Rules
+# ---------------------------------------------------------------------------
+# Each rule: (substring_to_match, target_level)
+# First matching rule wins. Add new rules as needed.
+_LOG_LEVEL_RULES: list[tuple[str, int]] = [
+    ("was missed by", logging.ERROR),  # APScheduler misfires → ERROR
+    ("Failed to retrieve history after", logging.INFO),  # downgrade pubsub retries to INFO
+    # ("rate limit", logging.WARNING),  # Example: API rate limiting
+]
+
+
+class _RuleBasedLoggingHandler(LogfireLoggingHandler):
+    """LogfireLoggingHandler that applies log level rules before forwarding to Logfire."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        msg = record.getMessage()
+        for pattern, level in _LOG_LEVEL_RULES:
+            if pattern in msg:
+                record.levelno = level
+                record.levelname = logging.getLevelName(level)
+                break  # First match wins
+        super().emit(record)
 
 
 def _load_local_env_if_possible() -> None:
@@ -95,6 +121,10 @@ def ensure_logfire_configured(
             send_to_logfire=True,
             sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sqlalchemy_sys_traces),
         )
+
+    # Capture Python standard library logging (includes APScheduler, third-party libs, etc.)
+    # Uses custom handler that applies log level rules (see _LOG_LEVEL_RULES above)
+    logging.getLogger().addHandler(_RuleBasedLoggingHandler(level=logging.INFO))
 
     _CONFIGURED = True
     _CONFIGURED_MODE = mode
