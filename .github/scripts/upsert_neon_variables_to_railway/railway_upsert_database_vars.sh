@@ -22,6 +22,9 @@
 
 set -e
 
+# Configuration: Set to true to skip automatic Railway deploys, false to trigger deploys
+SKIP_DEPLOYS=true
+
 echo "Step 1: Validating environment variables..."
 
 # Required environment variables
@@ -80,13 +83,14 @@ INPUT_JSON=$(jq -n \
   --arg environmentId "$RAILWAY_ENV_ID" \
   --arg serviceId "$RAILWAY_FASTAPI_SERVICE_ID" \
   --argjson variables "$VARIABLES_JSON" \
+  --argjson skipDeploys "$SKIP_DEPLOYS" \
   '{
     projectId: $projectId,
     environmentId: $environmentId,
     serviceId: $serviceId,
     variables: $variables,
     replace: false,
-    skipDeploys: false
+    skipDeploys: $skipDeploys # If true AND Railway has "Wait for CI" enabled (and working), we avoid duplicate deploys.
   }')
 
 echo "✓ Input object built"
@@ -195,5 +199,10 @@ echo "  - DATABASE_URL"
 echo "  - DATABASE_URL_UNPOOLED"
 echo "  - INFORMATIONAL_NEON_BRANCH_NAME"
 echo ""
-echo "Railway will automatically redeploy the environment"
+if [ "$SKIP_DEPLOYS" = "true" ]; then
+  echo "Railway will NOT automatically redeploy (skipDeploys=true)."
+  echo "Deployments will be triggered by CI completion if 'Wait for CI' is enabled."
+else
+  echo "Railway will automatically redeploy the environment (skipDeploys=false)."
+fi
 echo "=========================================="
