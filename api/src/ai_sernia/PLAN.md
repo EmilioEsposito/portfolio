@@ -21,7 +21,7 @@ We already have a agent_conversations table that I think we should use to store 
 * Search open_phone_messages table to find relevant information. I don't believe the OpenPhone/Quo MCP has a search capability, but we already store all messages in the database.
 
 ### Other capabilities we need
-* Memory - We should give the agent a workspace sandbox where it can store long term memories in markdown files (use https://github.com/zby/pydantic-ai-filesystem-sandbox to safely give the AI a sandbox to work in). On localhost, the sandbox should be in a gitignored `.workspace` folder. The agent should have tools to store and retrieve memories. The memory structure should be 3 tiered in this structure:
+* Memory - We should give the agent a workspace sandbox where it can store long term memories in markdown files (use https://github.com/zby/pydantic-ai-filesystem-sandbox to safely give the AI a sandbox to work in). On localhost, the sandbox should be in a gitignored `.workspace` folder. On Railway, we'll use a volume: https://docs.railway.com/volumes/reference. The agent should have tools to store and retrieve memories. The memory structure should be 3 tiered in this structure:
     * MEMORY.md - Tacit memory of general patterns, rules, and principles. This should be used judiciously since it will injected into every conversation as context.
     * daily_notes/<YYYY-MM-DD>.md - A folder with markdown files for daily notes of the agent's activities, business events, etc.
     * areas/<area_name_ai_decided>/<file_name_ai_decided>.md - The `areas` folder is where the AI can organize its own memory into any category it wants, in any folder structure it wants.
