@@ -6,13 +6,17 @@ ULTIMATE GOAL: Make an all-encompassing AI agent for Sernia Capital LLC that can
 
 Put most of the new code in the `api/src/ai_sernia` folder. There might be some imports from other folders as well to resuse logic from other existing services. Note that some of the pre-existing services might not be as high quality as we'd like (many were build in a rush). We might need to either do some cleanup/refactoring as we go too. 
 
+Use PydanticAI for the agent structure: https://ai.pydantic.dev/
+
 
 ## Capabilties
 
 ### Core Tools
-* Quo (fka as OpenPhone). For sending SMS, reading SMS and voice transcriptions. Note: I'd like to avoide using the backend table where we store openphone_messages. I think it will be cleaner to retrieve the messages from the Quo API directly. Actually, Quo even released an MCP, which might be even better than our hand-rolled wrapper functions around their APIs. See here: https://support.quo.com/core-concepts/integrations/mcp . It's possible their MCP is trash though, but we should check it out first. 
+* Quo (aka OpenPhone). For sending SMS, reading SMS and voice transcriptions. Note: I'd like to avoide using the backend table where we store openphone_messages. I think it will be cleaner to retrieve the messages from the Quo API directly. Actually, Quo even released an MCP, which might be even better than our hand-rolled wrapper functions around their APIs. See here: https://support.quo.com/core-concepts/integrations/mcp . It's possible their MCP is trash though, but we should check it out first. OpenPhone was renamed to Quo recenntly, but this repo still refers to it as OpenPhone; that's ok (don't go renaming stuff).
 * Google - Search drive, email, calendar, docs, etc. Send emails, create docs, etc. Google has no MCP, so we need to build out some functionality. We already have a service account in this repo we can use. 
 * Clickup - For managing our tasks and projects. 
+* Search past conversation threads of itself to find relevant information. This allows it to pickup context across conversations (which can span across time and modalities).
+* Search open_phone_messages table to find relevant information. I don't believe the OpenPhone/Quo MCP has a search capability, but we already store all messages in the database.
 
 ### Other capabilities we need
 * Memory - We should give the agent a workspace sandbox where it can store long term memories in markdown files (use https://github.com/zby/pydantic-ai-filesystem-sandbox to safely give the AI a sandbox to work in). On localhost, the sandbox should be in a gitignored `.workspace` folder. The agent should have tools to store and retrieve memories. The memory structure should be 3 tiered in this structure:
@@ -34,8 +38,15 @@ We should have a folder specifically for sub agents in `api/src/ai_sernia/sub_ag
 * The agent should be triggered by every incoming SMS. It doesn't necessarily need to do anything each time. 
 * The agent should read email on a scheduled basis (use APScheduler for this). Running on every new email event from pubsub is probably too noisy, so think APScheduler pattern is better.
 
+## Human interaction modalities
+
+This AI agent should be able to interact with our employees in multiple different modalities. 
+* Email - This is the secondary interaction modality. Each email thread = 1 conversation.
+* Web Chat - We will have a frontend in our React Router app that will be used to interact with the agent. Conversation threads here are straightforward. 
+* SMS - This is the primary interaction modality. This will need to be compacted often
+
 
 ## Self improving PLAN.md document
 
-As we plan, we should update this document to reflect the updated plan.
+As we plan, we should update this document to reflect the updated plan. Your first order of business should be to improve the structure/formatting of this document, and interview me on clarifications/questions.
 
