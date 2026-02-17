@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Any
-from sqlalchemy import String, DateTime, func, JSON, select, desc, Index
+from sqlalchemy import String, Integer, DateTime, func, JSON, select, desc, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -39,6 +39,11 @@ class AgentConversation(Base):
     user_email: Mapped[str | None] = mapped_column(String, nullable=True)
     messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    # Sernia agent additions
+    modality: Mapped[str | None] = mapped_column(String, index=True, nullable=True, server_default="web_chat")
+    contact_identifier: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

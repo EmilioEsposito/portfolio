@@ -19,6 +19,10 @@
 		{
 			"name": "resume",
 			"path": "../resume"
+		},
+		{
+			"name": "pricing",
+			"path": "../code/pricing"
 		}
 	],
 	"settings": {
