@@ -34,8 +34,9 @@ We should have a folder specifically for sub agents in `api/src/ai_sernia/sub_ag
 
 
 
-## Triggering the agent
-* The agent should be triggered by every incoming SMS. It doesn't necessarily need to do anything each time. 
+## AI Agent Triggers
+* Human initiated conversation - This is the primary trigger. Seee Human Interaction Modalities section below.
+* The agent should also be triggered by every incoming SMS. It doesn't necessarily need to do anything each time. Maybe just update memory. Don't replace the escalate.py agent for now. 
 * The agent should read email on a scheduled basis (use APScheduler for this). Running on every new email event from pubsub is probably too noisy, so think APScheduler pattern is better.
 
 ## Human interaction modalities
