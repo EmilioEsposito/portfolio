@@ -164,7 +164,7 @@ async def chat(request: Request, session: DBSession) -> Response:
         persist_agent_run_result, 
         conversation_id=conversation_id, 
         agent_name=agent.name, 
-        user_id="visitor",
+        clerk_user_id="visitor",
         session=session
     )
     
@@ -178,10 +178,11 @@ async def chat(request: Request, session: DBSession) -> Response:
         on_complete=on_complete_callback,
     )
     
-    # Add headers to prevent browser/proxy buffering
-    # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
-    response.headers["X-Accel-Buffering"] = "no"
-    response.headers["Cache-Control"] = "no-cache, no-transform"
-    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Think below are not needed. Keeping commented out for now in case we see performance issues.
+    # # Add headers to prevent browser/proxy buffering
+    # # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
+    # response.headers["X-Accel-Buffering"] = "no"
+    # response.headers["Cache-Control"] = "no-cache, no-transform"
+    # response.headers["X-Content-Type-Options"] = "nosniff"
     
     return response 

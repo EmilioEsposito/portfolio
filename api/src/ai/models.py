@@ -21,6 +21,7 @@ from pydantic_ai.agent import AgentRunResult
 import logfire
 
 from api.src.database.database import Base, AsyncSessionFactory, provide_session
+from api.src.utils.clerk import get_verified_primary_email
 
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
@@ -104,21 +105,6 @@ async def get_conversation_messages(
             return ModelMessagesTypeAdapter.validate_python(conversation.messages)
         return []
 
-async def _get_user_email_from_clerk(user_id: str) -> str | None:
-    """Look up user email from Clerk given a user ID."""
-    try:
-        from api.src.utils.clerk import clerk_client
-        user = clerk_client.users.get(user_id=user_id)
-        if user and user.email_addresses:
-            # Prefer verified email
-            for email in user.email_addresses:
-                if email.verification and email.verification.status == "verified":
-                    return email.email_address
-            # Fallback to first email
-            return user.email_addresses[0].email_address
-    except Exception as e:
-        logfire.warning(f"Failed to get email for user {user_id}: {e}")
-    return None
 
 
 async def save_agent_conversation(
@@ -157,7 +143,7 @@ async def save_agent_conversation(
     # Look up user email from Clerk for convenience/debugging
     user_email = None
     if clerk_user_id:
-        user_email = await _get_user_email_from_clerk(clerk_user_id)
+        user_email = get_verified_primary_email(clerk_user_id)
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
     # This is idiomatic SQLAlchemy ORM.

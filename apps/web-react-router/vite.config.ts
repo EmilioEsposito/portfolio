@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+    optimizeDeps: {
+      include: ["docx-preview"],
+    },
     server: {
       port: vitePort,
       proxy: {

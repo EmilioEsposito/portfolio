@@ -63,7 +63,7 @@ const ToolInvocationDisplay = ({
         className="w-full px-4 py-2 text-left flex items-center justify-between hover:bg-muted/50 transition-colors"
       >
         <span className="text-sm font-medium flex items-center gap-2">
-          <Zap className="w-4 w-4" />
+          <Zap className="w-4" />
           Used Tool:{" "}
           <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
             {toolName}
@@ -303,7 +303,7 @@ export default function MultiAgentChatPage() {
                   )}
                 >
                   {message.role === "assistant" && (
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="size-8 flex items-center rounded-full justify-center ring-1 ring-border">
                         <SparklesIcon size={14} />
                       </div>
@@ -368,7 +368,7 @@ export default function MultiAgentChatPage() {
                   </div>
 
                   {message.role === "user" && (
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
                         U
                       </div>
