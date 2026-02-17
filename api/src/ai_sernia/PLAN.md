@@ -8,6 +8,8 @@ Put most of the new code in the `api/src/ai_sernia` folder. There might be some 
 
 Use PydanticAI for the agent structure: https://ai.pydantic.dev/
 
+We already have a agent_conversations table that I think we should use to store conversation history. We might need to add some columns to it. 
+
 
 ## Capabilties
 
@@ -15,7 +17,7 @@ Use PydanticAI for the agent structure: https://ai.pydantic.dev/
 * Quo (aka OpenPhone). For sending SMS, reading SMS and voice transcriptions. Note: I'd like to avoide using the backend table where we store openphone_messages. I think it will be cleaner to retrieve the messages from the Quo API directly. Actually, Quo even released an MCP, which might be even better than our hand-rolled wrapper functions around their APIs. See here: https://support.quo.com/core-concepts/integrations/mcp . It's possible their MCP is trash though, but we should check it out first. OpenPhone was renamed to Quo recenntly, but this repo still refers to it as OpenPhone; that's ok (don't go renaming stuff).
 * Google - Search drive, email, calendar, docs, etc. Send emails, create docs, etc. Google has no MCP, so we need to build out some functionality. We already have a service account in this repo we can use. 
 * Clickup - For managing our tasks and projects. 
-* Search past conversation threads of itself to find relevant information. This allows it to pickup context across conversations (which can span across time and modalities).
+* Search agent_conversations table so it can lookup past conversations of itself across time/users/modalities/conversations. This allows it to pickup context across conversations (which can span across time and modalities).
 * Search open_phone_messages table to find relevant information. I don't believe the OpenPhone/Quo MCP has a search capability, but we already store all messages in the database.
 
 ### Other capabilities we need
