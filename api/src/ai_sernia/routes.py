@@ -1,12 +1,15 @@
 """
 Routes for the Sernia Capital AI agent.
 
-Phase 1: Web chat endpoint with streaming via Vercel AI SDK Data Stream Protocol.
+Phase 2: Auth, DB-backed message history, HITL approval endpoints.
+Follows the proven pattern from hitl_agents/routes.py.
 """
+import json
 import functools
 
 import logfire
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
@@ -14,10 +17,48 @@ from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from api.src.ai_sernia.agent import sernia_agent
 from api.src.ai_sernia.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.ai_sernia.deps import SerniaDeps
-from api.src.ai.models import persist_agent_run_result
+from api.src.ai_demos.hitl_utils import (
+    extract_pending_approvals,
+    ApprovalDecision,
+    resume_with_approvals,
+)
+from api.src.ai_demos.models import (
+    persist_agent_run_result,
+    list_user_conversations,
+    get_conversation_messages,
+    delete_conversation,
+    list_pending_conversations,
+    get_conversation_with_pending,
+    extract_pending_approval_from_messages,
+)
+from api.src.utils.clerk import SerniaUser
 from api.src.database.database import DBSession
+from api.src.ai_sernia.workspace_admin.routes import router as workspace_router
 
-router = APIRouter(prefix="/sernia", tags=["ai", "sernia"])
+router = APIRouter(prefix="/ai-sernia", tags=["ai-sernia"])
+router.include_router(workspace_router)
+
+
+# =============================================================================
+# Streaming Chat
+# =============================================================================
+
+class _ModifiedJsonRequest:
+    """Wrapper to provide modified JSON body to VercelAIAdapter."""
+
+    def __init__(self, original_request: Request, modified_body: dict):
+        self._original = original_request
+        self._body = json.dumps(modified_body).encode()
+
+    async def body(self) -> bytes:
+        return self._body
+
+    @property
+    def headers(self):
+        return self._original.headers
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
 
 
 @router.post(
@@ -25,61 +66,226 @@ router = APIRouter(prefix="/sernia", tags=["ai", "sernia"])
     response_class=Response,
     summary="Chat with Sernia Capital AI assistant",
 )
-async def chat_sernia(request: Request, session: DBSession) -> Response:
+async def chat_sernia(request: Request, user: SerniaUser, session: DBSession) -> Response:
     """
     Streaming chat endpoint for the Sernia Capital AI agent.
 
     Uses PydanticAI's VercelAIAdapter for Vercel AI SDK Data Stream Protocol (SSE).
-    Compatible with @ai-sdk/react useChat hook.
+    Backend DB is the authoritative source for message history.
+    Only the latest frontend message is forwarded; history is loaded from DB.
     """
+    clerk_user_id = user.id
+    user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
+
     request_json = await request.json()
     conversation_id = request_json.get("id")
+    frontend_messages = request_json.get("messages", [])
 
-    if request_json.get("trigger") == "submit-message":
-        messages = request_json.get("messages", [])
-        if messages:
-            latest = messages[-1]
-            logfire.info(
-                "sernia chat message",
-                endpoint="/api/ai/sernia/chat",
-                message_text=(
-                    latest.get("parts", [{}])[0].get("text", "")
-                    if latest.get("parts")
-                    else ""
-                ),
-            )
+    # Load message history from DB (authoritative source)
+    backend_message_history = await get_conversation_messages(
+        conversation_id, clerk_user_id, session=session
+    )
 
-    # TODO: Extract real user identity from Clerk auth headers
-    # For now, use a placeholder
-    user_name = "User"
-    user_identifier = "unknown"
+    logfire.info(
+        "sernia chat",
+        conversation_id=conversation_id,
+        clerk_user_id=clerk_user_id,
+        frontend_msg_count=len(frontend_messages),
+        db_msg_count=len(backend_message_history),
+    )
+
+    # Only use the LAST message from frontend (the new user input)
+    last_message = frontend_messages[-1] if frontend_messages else None
+    modified_body = {
+        **request_json,
+        "messages": [last_message] if last_message else [],
+    }
+    wrapped_request = _ModifiedJsonRequest(request, modified_body)
 
     deps = SerniaDeps(
         db_session=session,
         conversation_id=conversation_id or "",
-        user_identifier=user_identifier,
+        user_identifier=clerk_user_id,
         user_name=user_name,
         modality="web_chat",
         workspace_path=WORKSPACE_PATH,
     )
 
-    on_complete_callback = functools.partial(
+    on_complete = functools.partial(
         persist_agent_run_result,
         conversation_id=conversation_id,
         agent_name=AGENT_NAME,
-        clerk_user_id=user_identifier,
+        clerk_user_id=clerk_user_id,
         session=session,
     )
 
     response = await VercelAIAdapter.dispatch_request(
-        request,
+        wrapped_request,
         agent=sernia_agent,
+        message_history=backend_message_history if backend_message_history else None,
         deps=deps,
-        on_complete=on_complete_callback,
+        on_complete=on_complete,
     )
 
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Conversation-Id"] = conversation_id or ""
 
     return response
+
+
+# =============================================================================
+# Conversation / Approval API
+# =============================================================================
+
+class ApprovalDecisionRequest(BaseModel):
+    """A single approval decision for one tool call."""
+    tool_call_id: str
+    approved: bool
+    reason: str | None = None
+    override_args: dict | None = None
+
+
+class ApprovalRequest(BaseModel):
+    """Batch approval request for one or more tool calls."""
+    decisions: list[ApprovalDecisionRequest]
+
+
+@router.post("/conversation/{conversation_id}/approve")
+async def approve_conversation(
+    conversation_id: str, body: ApprovalRequest, user: SerniaUser, session: DBSession
+):
+    """
+    Approve or deny pending tool calls for a Sernia agent conversation.
+    Resumes the agent with decisions and returns the result.
+    """
+    logfire.info(
+        "sernia approve",
+        conversation_id=conversation_id,
+        decisions=len(body.decisions),
+    )
+    clerk_user_id = user.id
+    user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
+
+    try:
+        decisions = [
+            ApprovalDecision(
+                tool_call_id=d.tool_call_id,
+                approved=d.approved,
+                override_args=d.override_args,
+                denial_reason=d.reason,
+            )
+            for d in body.decisions
+        ]
+
+        deps = SerniaDeps(
+            db_session=session,
+            conversation_id=conversation_id,
+            user_identifier=clerk_user_id,
+            user_name=user_name,
+            modality="web_chat",
+            workspace_path=WORKSPACE_PATH,
+        )
+
+        result = await resume_with_approvals(
+            agent=sernia_agent,
+            conversation_id=conversation_id,
+            decisions=decisions,
+            deps=deps,
+            clerk_user_id=clerk_user_id,
+            session=session,
+        )
+
+        pending = extract_pending_approvals(result)
+
+        return {
+            "conversation_id": conversation_id,
+            "output": result.output if isinstance(result.output, str) else None,
+            "pending": pending,
+            "status": "pending_approval" if pending else "completed",
+            "decisions": [
+                {"tool_call_id": d.tool_call_id, "approved": d.approved}
+                for d in body.decisions
+            ],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logfire.error(f"Error approving sernia conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversation/{conversation_id}")
+async def get_conversation(conversation_id: str, user: SerniaUser, session: DBSession):
+    """Get conversation details including pending approval info."""
+    conv = await get_conversation_with_pending(conversation_id, user.id, session=session)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {
+        "conversation_id": conversation_id,
+        "pending": conv["pending"],
+        "agent_name": conv["agent_name"],
+        "clerk_user_id": conv["clerk_user_id"],
+        "created_at": conv["created_at"].isoformat() if conv["created_at"] else None,
+        "updated_at": conv["updated_at"].isoformat() if conv["updated_at"] else None,
+        "status": "pending_approval" if conv["pending"] else "completed",
+    }
+
+
+@router.get("/conversation/{conversation_id}/messages")
+async def get_conversation_messages_endpoint(
+    conversation_id: str, user: SerniaUser, session: DBSession
+):
+    """Get conversation messages in Vercel AI SDK format."""
+    pydantic_messages = await get_conversation_messages(
+        conversation_id, user.id, session=session
+    )
+
+    if not pydantic_messages:
+        return {"messages": [], "conversation_id": conversation_id}
+
+    vercel_messages = VercelAIAdapter.dump_messages(pydantic_messages)
+    pending = extract_pending_approval_from_messages(pydantic_messages)
+
+    return {
+        "messages": [msg.model_dump() for msg in vercel_messages],
+        "conversation_id": conversation_id,
+        "pending": pending,
+    }
+
+
+@router.get("/workflow/pending")
+async def list_pending_workflows(user: SerniaUser, session: DBSession):
+    """List Sernia conversations with pending approvals."""
+    pending = await list_pending_conversations(
+        agent_name=AGENT_NAME,
+        clerk_user_id=user.id,
+        session=session,
+    )
+    return {"conversations": pending, "count": len(pending)}
+
+
+@router.get("/conversations/history")
+async def get_conversation_history(user: SerniaUser, limit: int = 20):
+    """List recent conversations for the authenticated user."""
+    conversations = await list_user_conversations(
+        clerk_user_id=user.id,
+        agent_name=AGENT_NAME,
+        limit=limit,
+    )
+    return {
+        "conversations": conversations,
+        "count": len(conversations),
+    }
+
+
+@router.delete("/conversation/{conversation_id}")
+async def delete_conversation_endpoint(conversation_id: str, user: SerniaUser):
+    """Delete a conversation."""
+    try:
+        await delete_conversation(conversation_id, user.id)
+        return {"success": True, "conversation_id": conversation_id}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")

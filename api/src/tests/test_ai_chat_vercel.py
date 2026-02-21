@@ -16,7 +16,7 @@ def client():
 
 def test_chat_emilio_endpoint_streaming_format(client):
     """
-    Test that the /api/ai/chat-emilio endpoint returns properly formatted SSE stream.
+    Test that the /api/ai-demos/chat-emilio endpoint returns properly formatted SSE stream.
     
     Verifies:
     - Response status is 200
@@ -46,7 +46,7 @@ def test_chat_emilio_endpoint_streaming_format(client):
     # Make streaming request
     with client.stream(
         "POST",
-        "/api/ai/chat-emilio",
+        "/api/ai-demos/chat-emilio",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
@@ -155,7 +155,7 @@ def test_chat_emilio_endpoint_empty_messages(client):
     
     with client.stream(
         "POST",
-        "/api/ai/chat-emilio",
+        "/api/ai-demos/chat-emilio",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
@@ -197,7 +197,7 @@ def test_chat_emilio_endpoint_multiple_messages(client):
     
     with client.stream(
         "POST",
-        "/api/ai/chat-emilio",
+        "/api/ai-demos/chat-emilio",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:

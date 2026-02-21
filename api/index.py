@@ -51,7 +51,8 @@ logfire.info("STARTUP1")
 
 # Import from api.src
 with logfire.span("Creating AI Agent Routes"):
-    from api.src.ai.routes import router as ai_router
+    from api.src.ai_demos.routes import router as ai_demos_router
+    from api.src.ai_sernia.routes import router as ai_sernia_router
 
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
@@ -276,7 +277,8 @@ graphql_router = GraphQLRouter(schema, path="/graphql")
 
 # Include all routers
 app.include_router(graphql_router, prefix="/api")
-app.include_router(ai_router, prefix="/api")
+app.include_router(ai_demos_router, prefix="/api")
+app.include_router(ai_sernia_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")

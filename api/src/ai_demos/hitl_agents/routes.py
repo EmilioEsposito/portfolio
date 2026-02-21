@@ -28,14 +28,14 @@ from pydantic import BaseModel
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 
-from api.src.ai.hitl_agents.hitl_sms_agent import (
+from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,
     HITLAgentContext,
     resume_with_approvals,
     extract_pending_approvals,
     ApprovalDecision,
 )
-from api.src.ai.models import (
+from api.src.ai_demos.models import (
     persist_agent_run_result,
     list_user_conversations,
     get_conversation_messages,

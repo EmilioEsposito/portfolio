@@ -1,6 +1,6 @@
 # Sernia Capital LLC AI Agent — Architecture Plan
 
-> **Last Updated**: 2026-02-17
+> **Last Updated**: 2026-02-21
 
 **Goal**: Build an all-encompassing AI agent for Sernia Capital LLC that handles SMS, email, web chat, task management, and builds institutional memory over time.
 
@@ -31,13 +31,13 @@
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | **LLM (main agent)** | Claude Sonnet 4.5 (`anthropic:claude-sonnet-4-5`) | Required for `WebSearchTool` (with `allowed_domains`) and `WebFetchTool` — both are Anthropic-only features in PydanticAI. |
-| **LLM (sub-agents)** | GPT-5.2 (`openai:gpt-5.2`) | Cost savings for summarization/compaction work. No builtin tool dependency. |
+| **LLM (sub-agents)** | GPT-4o-mini (`openai:gpt-4o-mini`) | Cost savings for summarization/compaction work. No builtin tool dependency. (Originally planned GPT-5.2, switched to 4o-mini for cost.) |
 | **Framework** | PydanticAI (latest stable API) | Already in use. Use `instructions` (not `system_prompt`), `FunctionToolset`, `builtin_tools`, `history_processors`. |
 | **Code location** | `api/src/ai_sernia/` | New module. Imports from existing services (`open_phone/`, `google/`, `clickup/`, `ai/models.py`). |
 | **Conversation storage** | Existing `agent_conversations` table | Add columns for modality and contact identifier. Reuse existing persistence utilities from `api/src/ai/models.py`. |
 | **Quo/OpenPhone** | Evaluate MCP first, fallback to custom tools | MCP at `https://mcp.quo.com/sse` has 5 tools (send, bulk send, check messages, call transcripts, create contacts). Beta, SSE transport. See [Quo MCP Evaluation](#quo-mcp-evaluation). |
-| **Memory storage** | `pydantic-ai-filesystem-sandbox` | Sandboxed file access. `.workspace/` on localhost (gitignored), Railway volume in production. |
-| **Skills/SOPs** | `pydantic-ai-skills` | Progressive disclosure pattern — agent loads skill details only when needed. |
+| **Memory storage** | Custom `FunctionToolset` in `memory/toolset.py` | Hand-rolled `resolve_safe_path` with suffix allowlist (`.md`, `.txt`, `.json`) and traversal protection. Simpler than `pydantic-ai-filesystem-sandbox` and avoids the extra dependency. `.workspace/` on localhost (gitignored), Railway volume in production. |
+| **Skills/SOPs** | Deferred | `pydantic-ai-skills` was planned but not yet needed. Skills directory exists in workspace structure; toolset can be added later when SOPs are created. |
 | **Web research** | PydanticAI `WebSearchTool` + `WebFetchTool` | Builtin tools with `allowed_domains` for safe web access. Domain allowlist in easy-to-edit config file. |
 
 ---
@@ -47,45 +47,42 @@
 ```
 api/src/ai_sernia/
 ├── __init__.py
-├── agent.py                 # Main Sernia agent definition
-├── deps.py                  # SerniaDeps dataclass
-├── config.py                # Allowed domains, thresholds, tunables
-├── instructions.py          # Dynamic @agent.instructions functions
-├── history_processor.py     # Token-aware compaction via history_processors
-├── routes.py                # FastAPI routes (web chat endpoint)
+├── agent.py                 # ✅ Main Sernia agent definition
+├── deps.py                  # ✅ SerniaDeps dataclass
+├── config.py                # ✅ Allowed domains, thresholds, tunables
+├── instructions.py          # ✅ Dynamic @agent.instructions functions
+├── routes.py                # ✅ FastAPI routes (web chat, conversations, approvals, workspace admin)
 │
-├── tools/
+├── tools/                   # 🔲 Phase 4
 │   ├── __init__.py
 │   ├── quo_tools.py         # Quo/OpenPhone: send SMS, read messages, transcripts
 │   ├── google_tools.py      # Gmail, Calendar, Drive, Docs
 │   ├── clickup_tools.py     # Tasks, projects
 │   └── db_search_tools.py   # Search agent_conversations + open_phone_messages tables
 │
-├── sub_agents/
+├── sub_agents/              # 🔲 Phase 5
 │   ├── __init__.py
 │   ├── history_compactor.py # Summarize old messages for compaction
 │   └── summarization.py     # Summarize large tool results
 │
-├── triggers/
+├── triggers/                # 🔲 Phase 6
 │   ├── __init__.py
 │   ├── sms_trigger.py       # Extends OpenPhone webhook → agent
 │   └── email_scheduler.py   # APScheduler periodic email check → agent
 │
 ├── memory/
-│   ├── __init__.py
-│   └── sandbox.py           # Workspace sandbox configuration
+│   ├── __init__.py          # ✅ resolve_safe_path, ALLOWED_SUFFIXES, ensure_workspace_dirs
+│   └── toolset.py           # ✅ FunctionToolset (read/write/append/list_directory)
 │
 └── workspace_admin/
     ├── __init__.py
-    └── routes.py            # Admin API for managing .workspace/ files
+    └── routes.py            # ✅ Admin API for managing .workspace/ files (6 endpoints)
 ```
 
 **Frontend for workspace admin** (in React Router app):
 ```
 apps/web-react-router/app/routes/
-└── sernia/
-    ├── workspace.tsx        # Workspace file explorer (main page)
-    └── workspace.$path.tsx  # Dynamic route for sub-paths (breadcrumb nav)
+└── workspace.tsx            # ✅ Single-page file explorer (state-driven nav, no nested routes)
 ```
 
 **Workspace directory** (gitignored, agent-managed):
@@ -108,58 +105,48 @@ apps/web-react-router/app/routes/
 
 ## Agent Architecture
 
-### Main Agent (`agent.py`)
+### Main Agent (`agent.py`) — Implemented
 
 ```python
-from pydantic_ai import Agent, WebSearchTool, WebFetchTool
-from ai_sernia.config import WEB_SEARCH_ALLOWED_DOMAINS
-
 sernia_agent = Agent(
-    'anthropic:claude-sonnet-4-5',
+    MAIN_AGENT_MODEL,                # anthropic:claude-sonnet-4-5
     deps_type=SerniaDeps,
-    instructions='...',              # Static base instructions
-    history_processors=[compact_if_needed],
-    toolsets=[
-        quo_toolset,                 # or MCPServerSSE if MCP works
-        google_toolset,
-        clickup_toolset,
-        db_search_toolset,
-        memory_toolset,              # FileSystemToolset from sandbox
-        skills_toolset,              # SkillsToolset from pydantic-ai-skills
-    ],
-    builtin_tools=[
-        WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS),
-        WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS),
-    ],
-    instrument=True,                 # Logfire tracing
-    name='sernia',
+    instructions=STATIC_INSTRUCTIONS,
+    output_type=[str, DeferredToolRequests],  # HITL foundation
+    builtin_tools=_build_builtin_tools(),     # WebSearchTool + WebFetchTool (if Anthropic)
+    toolsets=[memory_toolset],                # Custom FunctionToolset (Phase 2)
+    # Future: quo_toolset, google_toolset, clickup_toolset, db_search_toolset
+    instrument=True,
+    name=AGENT_NAME,
 )
+register_instructions(sernia_agent)  # Dynamic context, memory, daily notes, modality
 ```
 
-### Configuration (`config.py`)
+**Note**: `history_processors` not yet wired (Phase 5). `DeferredToolRequests` output type enables HITL approval flow — the agent can return tool calls that need human approval before execution.
+
+### Configuration (`config.py`) — Implemented
 
 Easy-to-tweak file for domains, thresholds, and tunables:
 
 ```python
-# Web search / fetch: only these domains are allowed
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
-    "zillow.com",
-    "redfin.com",
-    "realtor.com",
-    "apartments.com",
-    "clickup.com",
-    "serniacapital.com",
-    # Add more as needed
+    "zillow.com", "redfin.com", "apartments.com",
+    "rentometer.com", "clickup.com", "serniacapital.com",
 ]
 
-# Compaction: trigger at ~85% of context window token estimate
-TOKEN_COMPACTION_THRESHOLD = 170_000  # ~85% of 200k context window
-
-# Summarization: tool results larger than this get summarized
+TOKEN_COMPACTION_THRESHOLD = 170_000   # ~85% of 200k context window
 SUMMARIZATION_CHAR_THRESHOLD = 10_000
+MAIN_AGENT_MODEL = "anthropic:claude-sonnet-4-5"
+SUB_AGENT_MODEL = "openai:gpt-4o-mini"
+AGENT_NAME = "sernia"
+
+# Workspace path: Railway volume mount (/.workspace) or repo-relative fallback
+WORKSPACE_PATH = Path(
+    os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parents[3] / ".workspace")
+)
 ```
 
-### Dependencies (`deps.py`)
+### Dependencies (`deps.py`) — Implemented
 
 ```python
 @dataclass
@@ -172,32 +159,16 @@ class SerniaDeps:
     workspace_path: Path            # Path to .workspace/ sandbox root
 ```
 
-### Dynamic Instructions (`instructions.py`)
+Instantiated in `routes.py` for web chat, and will be instantiated by triggers for SMS/email modalities.
 
-Using `@agent.instructions` (always re-evaluated, even with message_history):
+### Dynamic Instructions (`instructions.py`) — Implemented
 
-1. **MEMORY.md injection** — reads `.workspace/MEMORY.md` and injects contents
-2. **Current date/time** — `The current date is 2026-02-17, 3:45 PM ET.`
-3. **User identity** — `You are speaking with {user_name} via {modality}.`
-4. **Modality context** — SMS: be concise, email: more formal, web chat: standard
-5. **Active context** — recent daily notes excerpt (today's file if it exists)
+Registered via `register_instructions(agent)` pattern. Each function is decorated with `@agent.instructions` (always re-evaluated, even with message_history):
 
-```python
-@sernia_agent.instructions
-async def inject_memory(ctx: RunContext[SerniaDeps]) -> str:
-    memory_path = ctx.deps.workspace_path / "MEMORY.md"
-    if memory_path.exists():
-        return f"## Your Memory\n{memory_path.read_text()}"
-    return ""
-
-@sernia_agent.instructions
-def inject_context(ctx: RunContext[SerniaDeps]) -> str:
-    now = datetime.now(ZoneInfo("America/New_York"))
-    return (
-        f"Current: {now.strftime('%Y-%m-%d %I:%M %p ET')}. "
-        f"Speaking with {ctx.deps.user_name} via {ctx.deps.modality}."
-    )
-```
+1. **`inject_context`** — Current datetime (ET) + user name + modality
+2. **`inject_memory`** — Reads `.workspace/MEMORY.md` (capped at 5k chars)
+3. **`inject_daily_notes`** — Today's `daily_notes/YYYY-MM-DD.md` (capped at 2k chars)
+4. **`inject_modality_guidance`** — SMS: short/direct, email: formal, web_chat: conversational
 
 ---
 
@@ -341,41 +312,25 @@ Database-backed search across internal tables. Named `db_search_tools` to distin
 
 ## Memory System
 
-### Sandbox Configuration (`memory/sandbox.py`)
+### Implemented: Custom FunctionToolset (`memory/toolset.py`)
 
-```python
-from pydantic_ai_filesystem_sandbox import Sandbox, SandboxConfig, Mount, FileSystemToolset
+Instead of `pydantic-ai-filesystem-sandbox`, we use a hand-rolled `FunctionToolset` with a shared `resolve_safe_path()` helper in `memory/__init__.py`. This avoids an extra dependency while providing the same safety guarantees (path traversal protection, suffix allowlist).
 
-def create_memory_toolset(workspace_path: Path) -> FileSystemToolset:
-    config = SandboxConfig(mounts=[
-        Mount(
-            host_path=str(workspace_path),
-            mount_point="/workspace",
-            mode="rw",
-            suffixes=[".md", ".txt", ".json"],
-        ),
-    ])
-    sandbox = Sandbox(config)
-    return FileSystemToolset(sandbox)
-```
+**Shared security** (`memory/__init__.py`):
+- `resolve_safe_path(workspace, relative_path)` — blocks `..` traversal, enforces `ALLOWED_SUFFIXES` (`.md`, `.txt`, `.json`)
+- Used by both the agent tools (`memory/toolset.py`) AND the workspace admin API (`workspace_admin/routes.py`)
 
-### Skills Configuration
+**Agent tools** (`memory/toolset.py`):
+| Tool | Description |
+|------|-------------|
+| `read_file(path)` | Read a file (truncated at 10k chars) |
+| `write_file(path, content)` | Create or overwrite a file |
+| `append_to_file(path, content)` | Append to file (or create) |
+| `list_directory(path)` | List directory contents |
 
-```python
-from pydantic_ai_skills import SkillsToolset
+### Skills Configuration (Deferred)
 
-def create_skills_toolset(workspace_path: Path) -> SkillsToolset:
-    return SkillsToolset(
-        directories=[str(workspace_path / "skills")],
-        validate=True,
-        max_depth=3,
-    )
-
-# Inject available skills into agent instructions
-@sernia_agent.instructions
-async def inject_skills(ctx: RunContext[SerniaDeps]) -> str | None:
-    return await skills_toolset.get_instructions(ctx)
-```
+The `pydantic-ai-skills` package is not yet installed. The `skills/` directory exists in the workspace structure and can be wired up later when SOPs are created.
 
 ### Memory Tiers
 
@@ -388,38 +343,40 @@ async def inject_skills(ctx: RunContext[SerniaDeps]) -> str | None:
 
 ---
 
-## Workspace Admin Tool
+## Workspace Admin Tool — Implemented (Phase 3)
 
-A backend API + frontend for humans to manually browse, create, edit, and delete files in the `.workspace/` directory. Gated to `@serniacapital.com` users only.
+A backend API + frontend for humans to manually browse, create, edit, and delete files in the `.workspace/` directory. Gated to `@serniacapital.com` users via `SerniaUser` dependency.
 
-### Backend (`workspace_admin/routes.py`)
+### Backend (`workspace_admin/routes.py`) — Implemented
 
-FastAPI router mounted at `/api/ai/sernia/workspace`. All endpoints verify the requesting user's email ends with `@serniacapital.com` (via Clerk auth).
+FastAPI sub-router with `prefix="/workspace"`, included in the Sernia router. All endpoints use the `SerniaUser` dependency for auth (Clerk + `@serniacapital.com` email gate). Endpoints are at `/api/ai-sernia/workspace/*`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/ai/sernia/workspace/ls?path=/` | GET | List files and folders at path |
-| `/api/ai/sernia/workspace/read?path=/MEMORY.md` | GET | Read file contents |
-| `/api/ai/sernia/workspace/write` | POST | Create or overwrite a file (body: `{path, content}`) |
-| `/api/ai/sernia/workspace/mkdir` | POST | Create a directory (body: `{path}`) |
-| `/api/ai/sernia/workspace/delete` | DELETE | Delete a file or folder (query: `path`) |
-| `/api/ai/sernia/workspace/download?path=/areas/tenants/notes.md` | GET | Download a file |
-| `/api/ai/sernia/workspace/delete-all` | DELETE | Delete entire workspace (with confirmation) |
+| `/ls?path=` | GET | List directory contents (empty path = workspace root) |
+| `/read?path=` | GET | Read file content |
+| `/write` | POST | Create or overwrite a file (body: `{path, content}`) |
+| `/mkdir` | POST | Create a directory (body: `{path}`) |
+| `/delete?path=` | DELETE | Delete a file or empty directory |
+| `/download?path=` | GET | Download file as attachment (`FileResponse`) |
+
+**Omitted**: `delete-all` endpoint was dropped — too dangerous for a 6-person team.
 
 **Security**:
-- All paths are resolved relative to `.workspace/` root — no path traversal (reject `..`)
-- Clerk auth middleware: reject if `user.email` does not end with `@serniacapital.com`
+- All file paths validated via `resolve_safe_path()` from `memory/__init__.py` (shared with agent tools)
+- Directory paths use a separate `_safe_resolve_dir()` (no suffix check, but still traversal-protected)
+- Auth via `SerniaUser` (Clerk JWT + `@serniacapital.com` email verification)
 
-### Frontend (`sernia/workspace.tsx`)
+### Frontend (`workspace.tsx`) — Implemented
 
-A file explorer page in the React Router app:
+Single-page file explorer at `/workspace` in the React Router app. Uses state-driven navigation (no nested routes).
 
-- **Breadcrumb navigation** — clickable path segments (e.g. `.workspace / areas / tenants / notes.md`)
-- **Back button** — navigates up one directory
-- **Directory view** — lists folders and files with icons, click to navigate/open
-- **File view** — shows file content in an editable text area with Save button
-- **Actions** — Create file, Create folder, Delete, Download
-- **Auth gate** — only visible to `@serniacapital.com` users (Clerk)
+- **Path bar** — clickable `.workspace / segment / segment` breadcrumbs (shadcn `Button variant="link"`)
+- **Directory view** — entries with `Folder`/`FileText` icons, click to navigate or open
+- **File view** — content in `<Textarea>` (read-only by default). Edit/Save buttons toggle editing
+- **Actions** — New File, New Folder (inline inputs), Delete (with `AlertDialog` confirmation), Download
+- **Auth** — `<AuthGuard>` wrapper, sidebar link gated behind `isSerniaCapitalUser`
+- **Fetch pattern** — `useAuth()` → `getToken()` → `fetch()` with `Authorization: Bearer` header
 
 ---
 
@@ -429,11 +386,11 @@ A file explorer page in the React Router app:
 
 **Purpose**: Summarize old messages when conversation token count reaches ~85% of context window. Compaction is modality-agnostic — same threshold for SMS, email, and web chat.
 
-**Model**: `openai:gpt-5.2` (cost savings — summarization doesn't need builtin tools)
+**Model**: `openai:gpt-4o-mini` (configured in `config.py` as `SUB_AGENT_MODEL`)
 
 ```python
 history_compactor = Agent(
-    'openai:gpt-5.2',
+    'openai:gpt-4o-mini',
     instructions="""
 Summarize this conversation history concisely. Preserve:
 - Key decisions and outcomes
@@ -452,7 +409,7 @@ Omit: pleasantries, repeated information, irrelevant tangents.
 
 **Purpose**: Prevents large tool results (email threads, ClickUp task lists, Drive search results) from blowing up the main agent's context window.
 
-**Model**: `openai:gpt-5.2`
+**Model**: `openai:gpt-4o-mini`
 
 **Pattern**: Wraps tool calls. Returns structured output indicating whether data is verbatim or summarized:
 
@@ -465,7 +422,7 @@ class ToolResultSummary(BaseModel):
     content: str                       # The actual data or summary
 
 summarization_agent = Agent(
-    'openai:gpt-5.2',
+    'openai:gpt-4o-mini',
     output_type=ToolResultSummary,
     instructions="...",
     name='summarization',
@@ -573,7 +530,7 @@ def register_email_check_job():
 - **Conversation ID**: UUID generated by React Router frontend
 - **Compaction**: Same as all modalities — at ~85% of context window
 - **Streaming**: Vercel AI SDK Data Stream Protocol (same as existing agents)
-- **Endpoint**: `POST /api/ai/sernia/chat` with streaming response
+- **Endpoint**: `POST /api/ai-sernia/chat` with streaming response
 
 ---
 
@@ -604,29 +561,37 @@ Create Alembic migration: `cd api && uv run alembic revision --autogenerate -m "
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-- [ ] Set up directory structure and `__init__.py` files
-- [ ] Create `config.py` with allowed domains, thresholds
-- [ ] Create `deps.py` with `SerniaDeps`
-- [ ] Create `agent.py` with basic agent (Claude, static instructions, `WebSearchTool`, `WebFetchTool`, no custom tools yet)
-- [ ] Create `routes.py` with web chat endpoint (streaming)
-- [ ] Create Alembic migration for new columns
-- [ ] Set up `.workspace/` directory with gitignore
-- [ ] Wire agent into `api/index.py` route registration
-- [ ] Test: web chat round-trip with empty agent (web search should work)
+### Phase 1: Foundation — ✅ Complete
+- [x] Set up directory structure and `__init__.py` files
+- [x] Create `config.py` with allowed domains, thresholds
+- [x] Create `deps.py` with `SerniaDeps`
+- [x] Create `agent.py` with basic agent (Claude Sonnet 4.5, static instructions, `WebSearchTool`, `WebFetchTool`)
+- [x] Create `routes.py` with web chat endpoint (streaming via `VercelAIAdapter`)
+- [x] Set up `.workspace/` directory with gitignore and seed content
+- [x] Wire agent into `api/index.py` route registration (via `ai/routes.py` → `ai_sernia/routes.py`)
+- [x] Added `DeferredToolRequests` output type for HITL approval flow
+- [x] Added conversation CRUD endpoints (get, list, delete, approve)
+- [ ] ~~Create Alembic migration for new columns~~ (deferred — columns not yet needed for web chat)
 
-### Phase 2: Memory System
-- [ ] Install `pydantic-ai-filesystem-sandbox` and `pydantic-ai-skills`
-- [ ] Create `memory/sandbox.py` with sandbox config
-- [ ] Create `instructions.py` with MEMORY.md injection and context
-- [ ] Test: agent can read/write memory files, skills load correctly
+**Implementation notes**: Conversation persistence reuses existing `agent_conversations` table and utilities from `api/src/ai/models.py`. HITL approval flow reuses `api/src/ai/hitl_utils.py`. No new DB columns needed yet.
 
-### Phase 3: Workspace Admin Tool
-- [ ] Create `workspace_admin/routes.py` with file CRUD endpoints
-- [ ] Add `@serniacapital.com` email gate middleware
-- [ ] Build frontend workspace explorer page with breadcrumbs
-- [ ] Implement file view/edit, create file/folder, delete, download
-- [ ] Test: browse, create, edit, delete files via UI
+### Phase 2: Memory System — ✅ Complete
+- [x] Create `memory/__init__.py` with `resolve_safe_path`, `ALLOWED_SUFFIXES`, `ensure_workspace_dirs`
+- [x] Create `memory/toolset.py` with custom `FunctionToolset` (read_file, write_file, append_to_file, list_directory)
+- [x] Create `instructions.py` with MEMORY.md injection, daily notes, modality guidance, and datetime context
+- [x] Agent can read/write memory files via workspace tools
+
+**Deviation from plan**: Used a custom `FunctionToolset` instead of `pydantic-ai-filesystem-sandbox`. Simpler, no extra dependency, same safety guarantees. `pydantic-ai-skills` deferred until SOPs are created.
+
+### Phase 3: Workspace Admin Tool — ✅ Complete
+- [x] Create `workspace_admin/routes.py` with 6 CRUD endpoints (ls, read, write, mkdir, delete, download)
+- [x] Auth via `SerniaUser` dependency (Clerk + `@serniacapital.com` email gate)
+- [x] Extract shared `resolve_safe_path` to `memory/__init__.py` for reuse by both agent tools and admin API
+- [x] Build frontend workspace explorer page (`workspace.tsx`) with path bar, directory browsing, file view/edit
+- [x] Implement create file, create folder, delete (with `AlertDialog` confirmation), download
+- [x] Add "AI Workspace" link to sidebar (gated behind `isSerniaCapitalUser`)
+
+**Deviation from plan**: Single page at `workspace.tsx` with state-driven navigation instead of `sernia/workspace.tsx` + `sernia/workspace.$path.tsx` nested routes. Simpler and avoids dynamic route complexity. Omitted `delete-all` endpoint (too dangerous).
 
 ### Phase 4: Core Tools
 - [ ] Evaluate Quo MCP (test script with `MCPServerSSE`)
@@ -652,7 +617,7 @@ Create Alembic migration: `cd api && uv run alembic revision --autogenerate -m "
 ### Phase 7: Frontend Chat
 - [ ] Build web chat UI in React Router app
 - [ ] Conversation list, thread view, streaming messages
-- [ ] Connect to `POST /api/ai/sernia/chat`
+- [ ] Connect to `POST /api/ai-sernia/chat`
 
 ---
 
@@ -661,9 +626,10 @@ Create Alembic migration: `cd api && uv run alembic revision --autogenerate -m "
 1. **Quo MCP auth**: How does the API key get passed during SSE handshake? Need to test with `MCPServerSSE` custom headers.
 2. **Email monitoring scope**: Which inboxes/labels should the scheduled check monitor? All unread? Specific labels?
 3. **Agent autonomy for SMS responses**: Should the agent auto-reply to tenant SMS, or always require human approval (HITL pattern from existing `hitl_sms_agent.py`)?
-4. **Railway volume path**: What's the mount path for the `.workspace` volume in production?
+4. ~~**Railway volume path**~~: Resolved — uses `WORKSPACE_PATH` env var with fallback to repo-relative `.workspace/`. Railway volume mount path configurable via environment.
 5. **ClickUp scope**: Which workspaces/views should the agent have access to? Just Peppino's view, or broader?
 6. **Escalation coexistence**: How long do we run `escalate.py` alongside the new agent? What's the handoff plan?
+7. **DB migration timing**: The `modality`, `contact_identifier`, and `estimated_tokens` columns haven't been added yet. These are only needed when SMS/email triggers are built (Phase 6). Create the migration then.
 
 ---
 

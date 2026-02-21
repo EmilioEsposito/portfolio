@@ -82,7 +82,8 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 ├── api/                       # FastAPI Backend
 │   ├── index.py               # Main app entry
 │   └── src/
-│       ├── ai/                # AI agents (chat_emilio, chat_weather, multi_agent_chat)
+│       ├── ai_demos/          # Demo AI agents (chat_emilio, chat_weather, multi_agent_chat)
+│       ├── ai_sernia/         # Sernia Capital production AI agent
 │       ├── database/          # Models, migrations
 │       ├── apscheduler_service/ # APScheduler (active)
 │       ├── dbos_service/      # DBOS workflows (disabled)
@@ -182,21 +183,40 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 - Early returns, guard clauses
 - HTTPException for expected errors
 
+### API Routing Convention
+
+**Module → prefix mapping must match the folder name.** Each top-level module in `api/src/` gets its own router mounted directly on the app with a prefix that mirrors the Python module name (underscores become hyphens).
+
+| Python module | API prefix | Example endpoint |
+|---------------|-----------|------------------|
+| `api/src/ai_demos/` | `/api/ai-demos` | `/api/ai-demos/chat-emilio` |
+| `api/src/ai_sernia/` | `/api/ai-sernia` | `/api/ai-sernia/chat` |
+| `api/src/open_phone/` | `/api/open-phone` | `/api/open-phone/webhook` |
+
+**Rules:**
+- Never nest one module's router inside another module's router. Each module mounts directly on the app in `api/index.py`.
+- The URL prefix is the module folder name with underscores replaced by hyphens.
+- Sub-routers within a module use relative prefixes (e.g. `workspace_admin/routes.py` uses `prefix="/workspace"` under `ai_sernia`).
+
 ---
 
 ## AI Architecture
 
 **Framework**: PydanticAI with Graph Beta API
 
-**Multi-Agent System** (`api/src/ai/multi_agent_chat/`):
+**Demo Agents** (`api/src/ai_demos/`):
 - **Router Agent** (GPT-4o-mini): Routes to specialized agents
 - **Emilio Agent** (GPT-4o): Portfolio/career questions
 - **Weather Agent**: Weather queries
 
+**Sernia Agent** (`api/src/ai_sernia/`):
+- Production AI assistant for Sernia Capital LLC
+
 **Endpoints**:
-- `POST /api/ai/multi-agent-chat` - Unified routing
-- `POST /api/ai/chat-emilio` - Direct Emilio agent
-- `POST /api/ai/chat-weather` - Direct weather agent
+- `POST /api/ai-demos/multi-agent-chat` - Unified routing
+- `POST /api/ai-demos/chat-emilio` - Direct Emilio agent
+- `POST /api/ai-demos/chat-weather` - Direct weather agent
+- `POST /api/ai-sernia/chat` - Sernia Capital agent
 
 Uses Vercel AI SDK Data Stream Protocol for streaming responses.
 
@@ -247,7 +267,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 |------|---------|
 | `api/index.py` | FastAPI entry point |
 | `api/src/database/models.py` | SQLAlchemy models |
-| `api/src/ai/multi_agent_chat/graph.py` | Multi-agent routing |
+| `api/src/ai_demos/multi_agent_chat/graph.py` | Multi-agent routing |
 | `apps/web-react-router/app/root.tsx` | React Router root layout |
 | `.claude/setup_remote.sh` | Session-start hook for cloud env |
 | `.claude/settings.json` | Claude Code permissions and hooks |
@@ -274,7 +294,7 @@ uv run alembic revision --autogenerate -m "description"  # Create
 | [`README.md`](README.md) | Setup guide, Docker instructions, environment URLs |
 | [`docs/WORKTREES.md`](docs/WORKTREES.md) | Git worktrees for parallel development |
 | [`api/README.md`](api/README.md) | FastAPI run commands |
-| [`api/src/ai/README.md`](api/src/ai/README.md) | AI agents architecture and testing |
+| [`api/src/ai_demos/README.md`](api/src/ai_demos/README.md) | AI demo agents architecture and testing |
 | [`api/src/schedulers/README.md`](api/src/schedulers/README.md) | Scheduler setup (APScheduler active, DBOS disabled) |
 | [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) | PR database branching workflow |
 | [`.cursor/rules/`](.cursor/rules/) | AI coding guidelines (general, fastapi, react) |
