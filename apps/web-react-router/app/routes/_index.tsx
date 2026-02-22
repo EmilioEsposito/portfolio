@@ -287,7 +287,7 @@ export default function Home() {
                 around platform limitations with role-based access control.
               </p>
               <Link
-                to="/tenant-mass-messaging"
+                to="/message-tenants"
                 className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 Open app <ExternalLink className="h-3 w-3" />

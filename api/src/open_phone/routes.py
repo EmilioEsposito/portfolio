@@ -1,31 +1,28 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks, Security
 from fastapi.security import APIKeyHeader
-from fastapi.responses import JSONResponse
 import logfire
-import json
 import os
 import base64
 import hmac
 from sqlalchemy import select
-from typing import List, Optional, Union
+from typing import List, Union
 from pydantic import BaseModel
 from api.src.database.database import DBSession
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api.src.open_phone.escalate import analyze_for_twilio_escalation
-from api.src.utils.password import verify_admin_auth, verify_admin_password
-import asyncio
+from api.src.utils.password import verify_admin_password
 from datetime import datetime, date
 from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
+import pytest
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
 import re
-import pytest
 
 
 router = APIRouter(
@@ -242,200 +239,6 @@ async def route_delete_contact_by_id(id: str, admin_password: str = Security(API
     }
     response = requests.delete(url, headers=headers)
     return response.status_code
-
-class TenantMassMessageRequest(BaseModel):
-    property_names: List[str]
-    message: str
-
-@router.post("/tenant_mass_message", dependencies=[Depends(verify_admin_auth)])
-async def send_tenant_mass_message(
-    body: TenantMassMessageRequest,
-):
-    """Send a message to all tenants in the specified properties."""
-    logfire.info(
-        f"Starting tenant mass message request for properties: {body.property_names}"
-    )
-
-    try:
-        # Get contacts from Google Sheet
-        try:
-            logfire.info("Fetching contacts from Google Sheet")
-            all_unfiltered_contacts = get_contacts_sheet_as_json()
-            logfire.info(
-                f"Retrieved {len(all_unfiltered_contacts)} total contacts from sheet"
-            )
-        except Exception as e:
-            logfire.exception(
-                f"Failed to fetch contacts from Google Sheet: {str(e)}"
-            )
-            raise HTTPException(
-                status_code=500, detail=f"Failed to fetch contacts: {str(e)}"
-            )
-        
-        property_names = body.property_names
-
-        # Filter contacts for all specified properties
-        contacts = [
-            contact
-            for contact in all_unfiltered_contacts
-            if contact["Property"] in property_names
-        ]
-
-        # Filter out contacts where Lease End Date is in the past or missing
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        contacts = [
-            contact for contact in contacts
-            if contact.get("Lease End Date") and contact["Lease End Date"] >= today_str
-        ]
-
-        logfire.info(
-            f"Found {len(contacts)} total contacts for properties {body.property_names}"
-        )
-
-        if not contacts:
-            logfire.warn(f"No contacts found for properties: {body.property_names}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"No contacts found for properties: {body.property_names}",
-            )
-
-        failures = 0
-        successes = 0
-        failed_contacts = []
-        error_messages = set()
-
-        # Create a list of coroutines for concurrent message sending
-        message_tasks = []
-        for contact in contacts:
-            try:
-                phone_number = "+1" + contact["Phone Number"].replace("-", "").replace(
-                    " ", ""
-                ).replace("(", "").replace(")", "")
-                logfire.info(
-                    f"Preparing message to {contact['First Name']} at {phone_number}"
-                )
-
-                # Create a coroutine for each message
-                message_tasks.append(
-                    send_message(
-                        message=body.message,
-                        to_phone_number=phone_number,
-                    )
-                )
-
-            except Exception as e:
-                failures += 1
-                error_message = str(e)
-                error_messages.add(error_message)
-                failed_contacts.append(
-                    {
-                        "name": contact["First Name"],
-                        "phone": contact["Phone Number"],
-                        "property": contact["Property"],
-                        "error": error_message,
-                    }
-                )
-                logfire.error(
-                    f"Failed to prepare message for {contact['First Name']}: {error_message}"
-                )
-
-        # Send all messages concurrently
-        responses = await asyncio.gather(*message_tasks, return_exceptions=True)
-
-        # Process responses
-        for contact, response in zip(contacts, responses):
-            try:
-                # Skip if this was an exception
-                if isinstance(response, Exception):
-                    raise response
-
-                # Check for both 200 (OK) and 202 (Accepted) as success statuses
-                if response.status_code not in [200, 202]:
-                    error_text = response.text
-                    try:
-                        error_json = response.json()
-                        error_text = json.dumps(error_json)
-                    except:
-                        pass
-                    raise Exception(
-                        f"OpenPhone API returned status {response.status_code}: {error_text}"
-                    )
-
-                # If we get here, the message was sent successfully
-                response_data = response.json()
-                if response_data.get("data", {}).get("status") == "sent":
-                    successes += 1
-                    logfire.info(f"Successfully sent message to {contact['First Name']}")
-                else:
-                    raise Exception(
-                        f"Message not confirmed as sent: {json.dumps(response_data)}"
-                    )
-
-            except Exception as e:
-                failures += 1
-                error_message = str(e)
-                error_messages.add(error_message)
-                failed_contacts.append(
-                    {
-                        "name": contact["First Name"],
-                        "phone": contact["Phone Number"],
-                        "property": contact["Property"],
-                        "error": error_message,
-                    }
-                )
-                logfire.error(
-                    f"Failed to send message to {contact['First Name']}: {error_message}"
-                )
-
-        # Prepare response
-        if failures > 0:
-            failed_details = [
-                f"{c['name']} ({c['phone']}) in {c['property']}: {c['error']}"
-                for c in failed_contacts
-            ]
-            message = (
-                f"{'Partial success' if successes > 0 else 'Failed'}: "
-                f"Sent to {successes} contacts, failed for {failures} contacts.\n\n"
-                f"Failed contacts:\n" + "\n".join(failed_details)
-            )
-            logfire.warn(message)
-
-            return JSONResponse(
-                status_code=207 if successes > 0 else 500,
-                content={
-                    "message": message,
-                    "success": successes > 0,
-                    "failures": failures,
-                    "successes": successes,
-                    "failed_contacts": failed_contacts,
-                },
-            )
-        property_names_str = ", ".join(body.property_names)
-        success_message = f"Successfully sent message to all {successes} contacts in {property_names_str}!"
-        logfire.info(success_message)
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": success_message,
-                "success": True,
-                "successes": successes,
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logfire.exception(
-            f"Unexpected error in send_tenant_mass_message: {str(e)}"
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "message": f"Unexpected error: {str(e)}",
-                "success": False,
-                "error": str(e),
-            },
-        )
 
 
 # def test_get_ghost_ids():
