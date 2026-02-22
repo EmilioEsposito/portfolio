@@ -3,6 +3,14 @@ import { H2, P } from "~/components/typography";
 import { Link } from "react-router";
 import { Badge } from "~/components/ui/badge";
 import {
+  SITE_OWNER,
+  DEFAULT_META,
+  buildUrl,
+  generateOgMeta,
+  generateJsonLd,
+  generateCanonicalLink,
+} from "~/lib/seo";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -35,15 +43,62 @@ function LinkedInIcon({ className }: { className?: string }) {
 }
 
 export function meta(_args: Route.MetaArgs) {
+  const url = buildUrl("/");
   return [
-    { title: "Emilio Esposito" },
-    {
-      name: "description",
-      content:
-        "Senior Director, AI Engineering at LegalZoom. Co-founder & Managing Partner, Sernia Capital. Building production AI systems and operating a 40-unit real estate portfolio.",
-    },
+    { title: SITE_OWNER },
+    { name: "description", content: DEFAULT_META.description },
+    ...generateOgMeta({
+      title: SITE_OWNER,
+      description: DEFAULT_META.description,
+      url,
+      type: "profile",
+    }),
+    generateJsonLd({
+      "@context": "https://schema.org",
+      "@type": "Person",
+      name: "Emilio Esposito",
+      jobTitle: "Senior Director, AI Engineering",
+      worksFor: {
+        "@type": "Organization",
+        name: "LegalZoom",
+      },
+      founder: {
+        "@type": "Organization",
+        name: "Sernia Capital",
+      },
+      alumniOf: [
+        {
+          "@type": "CollegeOrUniversity",
+          name: "Carnegie Mellon University",
+        },
+        {
+          "@type": "CollegeOrUniversity",
+          name: "Penn State University",
+        },
+      ],
+      sameAs: [
+        "https://github.com/EmilioEsposito",
+        "https://linkedin.com/in/emilioespositousa",
+        "https://resume.eesposito.com",
+      ],
+      knowsAbout: [
+        "Artificial Intelligence",
+        "AI Engineering",
+        "Machine Learning",
+        "Real Estate Investment",
+        "Multi-Agent AI Systems",
+        "Python",
+        "TypeScript",
+      ],
+      url,
+      image: DEFAULT_META.image,
+    }),
   ];
 }
+
+export const links: Route.LinksFunction = () => [
+  generateCanonicalLink(buildUrl("/")),
+];
 
 export default function Home() {
   return (
