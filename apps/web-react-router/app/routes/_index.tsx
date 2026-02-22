@@ -34,7 +34,7 @@ export default function Home() {
           </div>
           <div className="relative w-32 h-32 rounded-full overflow-hidden flex-shrink-0">
             <img
-              src="/images/me.png"
+              src="/images/me_emilio_headshot_2026_square.jpg"
               alt="Emilio Esposito"
               className="object-cover w-full h-full"
             />
