@@ -28,7 +28,6 @@ import { useTheme } from "next-themes";
 import { cn } from "~/lib/utils";
 import { Switch } from "~/components/ui/switch";
 import { Label } from "~/components/ui/label";
-import { useUser } from "@clerk/react-router";
 
 import {
   Sidebar,
@@ -67,7 +66,6 @@ type SidebarSection = {
 export function AppSidebar() {
   const { toggleSidebar, state } = useSidebar();
   const { theme, setTheme } = useTheme();
-  const { user } = useUser();
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
 
@@ -81,12 +79,6 @@ export function AppSidebar() {
       toggleSidebar();
     }
   };
-
-  // Determine if user is a verified SerniaCapital user
-  const isSerniaCapitalUser = user?.emailAddresses?.some(
-    email => email.emailAddress.endsWith('@serniacapital.com') &&
-             email.verification?.status === 'verified'
-  ) ?? false;
 
   const sidebarSections: SidebarSection[] = [
     {
@@ -109,7 +101,7 @@ export function AppSidebar() {
       ],
     },
     {
-      label: "AI Agents",
+      label: "AI Agent Demos",
       items: [
         {
           type: "navigation",
@@ -139,54 +131,58 @@ export function AppSidebar() {
           icon: Inbox,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [
-          {
-            type: "navigation" as const,
-            title: "HITL Agent Chat",
-            url: "/hitl-agent-chat",
-            icon: ShieldCheck,
-            onClick: toggleSidebarIfMobile,
-          },
-          {
-            type: "navigation" as const,
-            title: "HITL Approval Queue",
-            url: "/hitl-agent-workflow",
-            icon: ClipboardCheck,
-            onClick: toggleSidebarIfMobile,
-          },
-        ] : []),
       ],
     },
     {
-      label: "Sernia Capital Production Apps",
+      label: "Sernia Capital",
       items: [
         {
           type: "navigation",
-          title: "Tenant Mass Messaging",
-          url: "/tenant-mass-messaging",
+          title: "Sernia AI",
+          url: "/sernia-chat",
           icon: Building,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [
-          {
-            type: "navigation" as const,
-            title: "Sernia AI",
-            url: "/sernia-chat",
-            icon: Building,
-            onClick: toggleSidebarIfMobile,
-          },
-          {
-            type: "navigation" as const,
-            title: "Message Tenants",
-            url: "/message-tenants",
-            icon: MessagesSquare,
-            onClick: toggleSidebarIfMobile,
-          },
-        ] : []),
+        {
+          type: "navigation",
+          title: "Message Tenants",
+          url: "/message-tenants",
+          icon: MessagesSquare,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "HITL Agent Chat",
+          url: "/hitl-agent-chat",
+          icon: ShieldCheck,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "HITL Approval Queue",
+          url: "/hitl-agent-workflow",
+          icon: ClipboardCheck,
+          onClick: toggleSidebarIfMobile,
+        },
+        // Tenant Mass Messaging - deprecated, superset functionality in Message Tenants
+        // {
+        //   type: "navigation",
+        //   title: "Tenant Mass Messaging",
+        //   url: "/tenant-mass-messaging",
+        //   icon: Building,
+        //   onClick: toggleSidebarIfMobile,
+        // },
+        {
+          type: "navigation",
+          title: "Scheduler Admin",
+          url: "/scheduler",
+          icon: Calendar,
+          onClick: toggleSidebarIfMobile,
+        },
       ],
     },
     {
-      label: "Pure Technical",
+      label: "Technical",
       items: [
         {
           type: "navigation",
@@ -202,13 +198,6 @@ export function AppSidebar() {
           icon: Blocks,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [{
-          type: "navigation" as const,
-          title: "Scheduler Admin",
-          url: "/scheduler",
-          icon: Calendar,
-          onClick: toggleSidebarIfMobile,
-        }] : []),
       ],
     },
     {

@@ -67,6 +67,18 @@ interface Tenant {
 }
 
 export default function MessageTenantsPage() {
+  return (
+    <AuthGuard
+      requireDomain="serniacapital.com"
+      message="Sign in with a Sernia Capital account to send SMS messages to tenants"
+      icon={<MessageCircle className="w-16 h-16 text-muted-foreground" />}
+    >
+      <MessageTenantsContent />
+    </AuthGuard>
+  );
+}
+
+function MessageTenantsContent() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [columns, setColumns] = useState<ColumnDef<Tenant>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -470,10 +482,6 @@ export default function MessageTenantsPage() {
   };
 
   return (
-    <AuthGuard
-      message="Sign in to send SMS messages to tenants"
-      icon={<MessageCircle className="w-16 h-16 text-muted-foreground" />}
-    >
     <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
       <h1 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">
         Message Tenants
@@ -672,6 +680,5 @@ export default function MessageTenantsPage() {
         </Dialog>
       )}
     </div>
-    </AuthGuard>
   );
 }

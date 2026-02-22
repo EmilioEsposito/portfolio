@@ -224,6 +224,7 @@ export default function HITLAgentWorkflowPage() {
 
   return (
     <AuthGuard
+      requireDomain="serniacapital.com"
       message="Sign in to review and approve pending agent actions"
       icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
     >
