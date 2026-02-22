@@ -14,11 +14,24 @@ import { ThemeProvider } from "next-themes";
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import { SITE_OWNER, DEFAULT_META } from "~/lib/seo";
 import { Navbar } from "~/components/navbar";
 import { SidebarProvider, SidebarInset } from "~/components/ui/sidebar";
 import { AppSidebar } from "~/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
+
+export function meta(_args: Route.MetaArgs) {
+  return [
+    { title: SITE_OWNER },
+    { name: "description", content: DEFAULT_META.description },
+    { property: "og:title", content: SITE_OWNER },
+    { property: "og:description", content: DEFAULT_META.description },
+    { property: "og:image", content: DEFAULT_META.image },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ];
+}
 
 export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
 
