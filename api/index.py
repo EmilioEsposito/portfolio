@@ -70,6 +70,8 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
 
+from api.src.ai_sernia.memory import initialize_workspace
+from api.src.ai_sernia.config import WORKSPACE_PATH
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
@@ -166,6 +168,7 @@ async def lifespan(app: FastAPI):
     # Startup logic
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
+            await initialize_workspace(WORKSPACE_PATH)
             await test_database_connections()
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.

@@ -6,7 +6,8 @@ Phase 2: Memory system (workspace file tools + dynamic instructions)
 
 Custom toolsets (Quo, Google, ClickUp, etc.) will be added in later phases.
 """
-from pydantic_ai import Agent, DeferredToolRequests
+from pydantic_ai import Agent, DeferredToolRequests, RunContext
+from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 from api.src.ai_sernia.config import (
     MAIN_AGENT_MODEL,
@@ -15,36 +16,7 @@ from api.src.ai_sernia.config import (
     WORKSPACE_PATH,
 )
 from api.src.ai_sernia.deps import SerniaDeps
-from api.src.ai_sernia.memory import ensure_workspace_dirs
-from api.src.ai_sernia.memory.toolset import memory_toolset
-from api.src.ai_sernia.instructions import register_instructions
-
-
-STATIC_INSTRUCTIONS = """\
-You are the Sernia Capital LLC AI assistant. You help the team manage their \
-rental real estate business — answering questions, looking up information, \
-managing tasks, and keeping track of important context across conversations.
-
-You are helpful, concise, and business-oriented.
-
-## Memory System
-You have a persistent workspace with files that survive across conversations. \
-Your long-term memory (MEMORY.md) is injected at the start of every conversation.
-
-- **Proactively update memory**: When you learn something important (a new \
-property, tenant name, process, preference), write it to MEMORY.md.
-- **Daily notes**: Use daily_notes/YYYY-MM-DD.md for transient context \
-(today's tasks, call summaries, follow-ups).
-- **Areas**: Use areas/ for deep topic knowledge (e.g. areas/properties.md).
-- Use the file tools (read_file, write_file, append_to_file, list_directory) \
-to manage your workspace.
-
-## Approval-Gated Actions
-Some tools (sending SMS, emails, etc.) require human approval before executing. \
-When you use one of these tools, the system will pause and ask the user to \
-approve or deny. Do NOT ask the user for confirmation before calling the tool — \
-the approval system handles that automatically. Just call the tool naturally.
-"""
+from api.src.ai_sernia.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
 
 
 def _build_builtin_tools() -> list:
@@ -57,19 +29,61 @@ def _build_builtin_tools() -> list:
     return tools
 
 
-# Ensure workspace directory structure exists
-ensure_workspace_dirs(WORKSPACE_PATH)
+# Ensure workspace directory exists (full init with git sync happens in lifespan)
+WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
+
+# Sandboxed filesystem toolset for agent memory (.workspace/)
+_sandbox = Sandbox(SandboxConfig(mounts=[
+    Mount(
+        host_path=WORKSPACE_PATH,
+        mount_point="/workspace",
+        mode="rw",
+        suffixes=[".md", ".txt", ".json"],
+        write_approval=False,
+        read_approval=False,
+    ),
+]))
+filesystem_toolset = FileSystemToolset(_sandbox)
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
     deps_type=SerniaDeps,
-    instructions=STATIC_INSTRUCTIONS,
+    instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, DeferredToolRequests],  # HITL foundation
     builtin_tools=_build_builtin_tools(),
-    toolsets=[memory_toolset],
+    toolsets=[filesystem_toolset],
     instrument=True,
     name=AGENT_NAME,
 )
 
-# Register dynamic instructions (context, memory, daily notes, modality)
-register_instructions(sernia_agent)
+
+@sernia_agent.tool
+async def search_files(
+    ctx: RunContext[SerniaDeps],
+    query: str,
+    glob_pattern: str = "**/*.md",
+) -> str:
+    """Search workspace files for a text query. Returns matching lines with file paths.
+
+    Args:
+        query: Text to search for (case-insensitive substring match).
+        glob_pattern: Glob pattern to filter files (default: all .md files).
+    """
+    results: list[str] = []
+    for path in sorted(ctx.deps.workspace_path.glob(glob_pattern)):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(ctx.deps.workspace_path)
+        for i, line in enumerate(text.splitlines(), 1):
+            if query.lower() in line.lower():
+                results.append(f"/workspace/{rel}:{i}: {line.rstrip()}")
+        if len(results) > 100:
+            results.append("...(truncated at 100 matches)")
+            break
+    if not results:
+        return f"No matches for '{query}' in {glob_pattern}"
+    return "\n".join(results)

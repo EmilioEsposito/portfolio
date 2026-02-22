@@ -13,6 +13,18 @@
         "mcp-remote",
         "https://docs.mcp.cloudflare.com/mcp"
       ]
+    },
+    "cloudflare-dns": {
+      "type": "http",
+      "url": "https://dns-analytics.mcp.cloudflare.com/mcp"
+    },
+    "Railway": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@railway/mcp-server"
+      ],
+      "env": {}
     }
   }
 }

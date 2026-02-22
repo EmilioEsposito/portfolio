@@ -7,36 +7,7 @@ from pathlib import Path
 
 import logfire
 
-ALLOWED_SUFFIXES = {".md", ".txt", ".json"}
-
-
-def resolve_safe_path(workspace: Path, relative_path: str) -> Path:
-    """
-    Resolve a relative path within the workspace, blocking traversal.
-
-    Raises ValueError on invalid paths.
-    """
-    # Normalise and reject absolute paths
-    cleaned = relative_path.strip().lstrip("/")
-    if not cleaned:
-        raise ValueError("Path cannot be empty")
-
-    resolved = (workspace / cleaned).resolve()
-
-    # Must stay inside workspace
-    try:
-        resolved.relative_to(workspace.resolve())
-    except ValueError:
-        raise ValueError(f"Path escapes workspace: {relative_path}")
-
-    # Check suffix
-    if resolved.suffix and resolved.suffix not in ALLOWED_SUFFIXES:
-        raise ValueError(
-            f"File type '{resolved.suffix}' not allowed. "
-            f"Allowed: {', '.join(sorted(ALLOWED_SUFFIXES))}"
-        )
-
-    return resolved
+from api.src.ai_sernia.memory.git_sync import ensure_repo
 
 SEED_MEMORY = """\
 # Sernia Capital - Agent Memory
@@ -59,6 +30,33 @@ SEED_MEMORY = """\
 """
 
 
+GITKEEP_FILES: dict[str, str] = {
+    "daily_notes/.gitkeep": (
+        "# Daily Notes\n"
+        "# Naming: YYYY-MM-DD_<short-desc>.md\n"
+        "# Examples:\n"
+        "#   2025-06-15_lease-renewals.md\n"
+        "#   2025-06-15_maintenance-calls.md\n"
+        "# One file per topic per day.\n"
+    ),
+    "areas/.gitkeep": (
+        "# Areas — deep topic knowledge\n"
+        "# One file per topic, e.g.:\n"
+        "#   areas/properties.md   — addresses, units, lease terms\n"
+        "#   areas/tenants.md      — names, contacts, notes\n"
+        "#   areas/vendors.md      — plumbers, electricians, etc.\n"
+        "#   areas/processes.md    — rent collection, maintenance flow\n"
+    ),
+    "skills/.gitkeep": (
+        "# Skills — learned procedures and playbooks\n"
+        "# One folder per skill with a SKILL.md and optional resources/.\n"
+        "# Example:\n"
+        "#   skills/lease_renewal/SKILL.md\n"
+        "#   skills/maintenance_request/SKILL.md\n"
+    ),
+}
+
+
 def ensure_workspace_dirs(workspace_path: Path) -> None:
     """
     Create workspace directory structure if missing.
@@ -66,7 +64,7 @@ def ensure_workspace_dirs(workspace_path: Path) -> None:
     Structure:
         .workspace/
         |-- MEMORY.md          # Long-term memory (injected every conversation)
-        |-- daily_notes/       # Per-day scratchpad (YYYY-MM-DD.md)
+        |-- daily_notes/       # YYYY-MM-DD_<short-desc>.md per topic per day
         |-- areas/             # Topic-specific deep knowledge
         |-- skills/            # Learned procedures and playbooks
     """
@@ -80,4 +78,20 @@ def ensure_workspace_dirs(workspace_path: Path) -> None:
         memory_file.write_text(SEED_MEMORY)
         logfire.info(f"Seeded MEMORY.md at {memory_file}")
 
+    for rel_path, content in GITKEEP_FILES.items():
+        gitkeep = workspace_path / rel_path
+        if not gitkeep.exists():
+            gitkeep.write_text(content)
+            logfire.info(f"Seeded {rel_path} at {gitkeep}")
+
     logfire.info(f"Workspace dirs ensured at {workspace_path}")
+
+
+async def initialize_workspace(workspace_path: Path) -> None:
+    """
+    Full workspace initialization: git clone/pull then ensure dirs.
+
+    Called once during FastAPI lifespan startup.
+    """
+    await ensure_repo(workspace_path)
+    ensure_workspace_dirs(workspace_path)
