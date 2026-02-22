@@ -1,10 +1,12 @@
 import type { Route } from "./+types/message-tenants";
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Skeleton } from "~/components/ui/skeleton";
+import { Separator } from "~/components/ui/separator";
 import { AuthGuard } from "~/components/auth-guard";
 import {
   AlertCircle,
+  Check,
   Filter,
   FilterX,
   ArrowUpDown,
@@ -12,6 +14,7 @@ import {
   ArrowUp,
   MessageCircle,
 } from "lucide-react";
+import { cn } from "~/lib/utils";
 import { DataTable } from "~/components/data-table";
 import type {
   RowSelectionState,
@@ -20,6 +23,7 @@ import type {
   Row,
   HeaderContext,
   CellContext,
+  FilterFn,
 } from "@tanstack/react-table";
 import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
@@ -38,6 +42,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "~/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "~/components/ui/command";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -49,10 +62,9 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-// Define Tenant interface
 interface Tenant {
   Property?: string | null;
-  "Active Lease"?: boolean | null;
+  "Active Lease"?: string | null;
   Unit?: string | null;
   Company?: string | null;
   Role?: string | null;
@@ -65,6 +77,39 @@ interface Tenant {
   external_id?: string | null;
   [key: string]: any;
 }
+
+// Columns that use multi-select faceted filtering
+const FACETED_COLUMNS = new Set([
+  "Property",
+  "Unit #",
+  "Company",
+  "Role",
+  "Active Lease",
+]);
+
+// Custom filter function for multi-select columns
+const facetedFilterFn: FilterFn<Tenant> = (row, columnId, filterValue: string[]) => {
+  if (!filterValue || filterValue.length === 0) return true;
+  const cellValue = String(row.getValue(columnId) ?? "");
+  return filterValue.includes(cellValue);
+};
+
+// Column display priority and visibility
+const COLUMN_CONFIG: Record<string, { priority: number; mobile: boolean; size: number }> = {
+  "First Name": { priority: 1, mobile: true, size: 100 },
+  "Last Name": { priority: 2, mobile: false, size: 100 },
+  Property: { priority: 3, mobile: true, size: 50 },
+  "Unit #": { priority: 4, mobile: true, size: 25 },
+  "Active Lease": { priority: 5, mobile: true, size: 30 },
+  "Lease Start Date": { priority: 6, mobile: true, size: 50 },
+  "Lease End Date": { priority: 7, mobile: true, size: 50 },
+  Company: { priority: 8, mobile: false, size: 120 },
+  Role: { priority: 9, mobile: false, size: 80 },
+  "Phone Number": { priority: 10, mobile: false, size: 120 },
+  Email: { priority: 11, mobile: false, size: 150 },
+  "Image URL": { priority: 12, mobile: false, size: 100 },
+  external_id: { priority: 13, mobile: false, size: 120 },
+};
 
 export default function MessageTenantsPage() {
   return (
@@ -80,7 +125,6 @@ export default function MessageTenantsPage() {
 
 function MessageTenantsContent() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [columns, setColumns] = useState<ColumnDef<Tenant>[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,50 +135,39 @@ function MessageTenantsContent() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [message, setMessage] = useState("");
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const [serniaPhoneNumber, setSerniaPhoneNumber] = useState<string | null>(
-    null
-  );
+  const [serniaPhoneNumber, setSerniaPhoneNumber] = useState<string | null>(null);
   const [showAllColumns, setShowAllColumns] = useState(false);
-  const [showOnlyTenants, setShowOnlyTenants] = useState(true);
+  const [contactFilter, setContactFilter] = useState<"active" | "all">("active");
 
+  // Fetch data once on mount
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
       setStatus(null);
-      setColumns([]);
-      setTenants([]);
-      setSerniaPhoneNumber(null);
 
       try {
-        // Fetch Sernia Contact Info
-        const serniaContactResponse = await fetch("/api/contacts/slug/sernia");
-        if (!serniaContactResponse.ok) {
-          console.error(
-            "Failed to fetch Sernia contact info",
-            serniaContactResponse.status
-          );
-        } else {
+        // Fetch both in parallel
+        const [serniaContactResponse, tenantsResponse] = await Promise.all([
+          fetch("/api/contacts/slug/sernia"),
+          fetch("/api/open_phone/tenants"),
+        ]);
+
+        // Process Sernia contact
+        if (serniaContactResponse.ok) {
           const serniaContactData = await serniaContactResponse.json();
-          if (serniaContactData && serniaContactData.phone_number) {
+          if (serniaContactData?.phone_number) {
             setSerniaPhoneNumber(serniaContactData.phone_number);
           } else {
-            console.error(
-              "Sernia contact info fetched but no phone number found."
-            );
+            console.error("Sernia contact info fetched but no phone number found.");
           }
+        } else {
+          console.error("Failed to fetch Sernia contact info", serniaContactResponse.status);
         }
 
-        // Fetch Tenants Data
-        const tenantsResponse = await fetch("/api/open_phone/tenants");
-
-        if (
-          tenantsResponse.status === 401 ||
-          tenantsResponse.status === 403
-        ) {
-          throw new Error(
-            "Unauthorized: You do not have permission to view this page."
-          );
+        // Process tenants
+        if (tenantsResponse.status === 401 || tenantsResponse.status === 403) {
+          throw new Error("Unauthorized: You do not have permission to view this page.");
         }
         if (!tenantsResponse.ok) {
           let errorDetail = `HTTP error! ${tenantsResponse.status}`;
@@ -148,233 +181,167 @@ function MessageTenantsContent() {
         }
 
         const tenantData: Tenant[] = await tenantsResponse.json();
-
         if (!Array.isArray(tenantData) || tenantData.length === 0) {
           setTenants([]);
-          console.log("No tenant data received or data is not an array.");
           return;
         }
 
         const processedData = tenantData.map((tenant) => ({
           ...tenant,
           "Phone Number": tenant["Phone Number"]?.replace(/[^+\d]/g, ""),
+          "Active Lease": tenant["Active Lease"] ? "Yes" : "No",
         }));
 
         setTenants(processedData);
-
-        const keysFromData = Object.keys(processedData[0]);
-
-        // Define column priority and visibility for mobile
-        const columnConfig = {
-          "First Name": { priority: 1, mobile: true, size: 100 },
-          "Last Name": { priority: 2, mobile: false, size: 100 },
-          Property: { priority: 3, mobile: true, size: 50 },
-          "Unit #": { priority: 4, mobile: true, size: 25 },
-          "Active Lease": { priority: 5, mobile: true, size: 30 },
-          "Lease Start Date": { priority: 6, mobile: true, size: 50 },
-          "Lease End Date": { priority: 7, mobile: true, size: 50 },
-          Company: { priority: 8, mobile: false, size: 120 },
-          Role: { priority: 9, mobile: false, size: 80 },
-          "Phone Number": { priority: 10, mobile: false, size: 120 },
-          Email: { priority: 11, mobile: false, size: 150 },
-          "Image URL": { priority: 12, mobile: false, size: 100 },
-          external_id: { priority: 13, mobile: false, size: 120 },
-        };
-
-        // Sort columns by priority and filter for mobile
-        const sortedKeys = keysFromData
-          .filter((key) => {
-            const config = columnConfig[key as keyof typeof columnConfig];
-            return config ? showAllColumns || config.mobile : true;
-          })
-          .sort((a, b) => {
-            const configA = columnConfig[a as keyof typeof columnConfig];
-            const configB = columnConfig[b as keyof typeof columnConfig];
-            const priorityA = configA ? configA.priority : 999;
-            const priorityB = configB ? configB.priority : 999;
-            return priorityA - priorityB;
-          });
-
-        const generatedColumns: ColumnDef<Tenant>[] = [
-          // Selection Column
-          {
-            id: "select",
-            header: ({ table }: HeaderContext<Tenant, unknown>) => (
-              <Checkbox
-                checked={
-                  table.getIsAllPageRowsSelected() ||
-                  (table.getIsSomePageRowsSelected() && "indeterminate")
-                }
-                onCheckedChange={(value) =>
-                  table.toggleAllPageRowsSelected(!!value)
-                }
-                aria-label="Select all"
-                className="translate-y-[2px]"
-              />
-            ),
-            cell: ({ row }: CellContext<Tenant, unknown>) => (
-              <Checkbox
-                checked={row.getIsSelected()}
-                onCheckedChange={(value) => row.toggleSelected(!!value)}
-                aria-label="Select row"
-                className="translate-y-[2px]"
-              />
-            ),
-            enableSorting: false,
-            enableHiding: false,
-            size: 40,
-          },
-          // Data Columns
-          ...sortedKeys.map((key): ColumnDef<Tenant> => {
-            const config = columnConfig[key as keyof typeof columnConfig];
-            const columnDef: ColumnDef<Tenant> = {
-              accessorKey: key,
-              header: ({ column }: { column: Column<Tenant, unknown> }) => {
-                const isFiltered = column.getIsFiltered();
-                const canSort = column.getCanSort();
-
-                return (
-                  <div
-                    className={`flex items-center space-x-1 justify-between pr-1 ${key === "First Name" ? "sticky left-0 z-20 bg-background border-r shadow-sm" : ""}`}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="-ml-3 h-8 p-1 data-[state=open]:bg-accent text-left justify-start grow truncate text-xs sm:text-sm"
-                      onClick={() =>
-                        canSort &&
-                        column.toggleSorting(column.getIsSorted() === "asc")
-                      }
-                      disabled={!canSort}
-                    >
-                      <span className="truncate">{key}</span>
-                      {canSort &&
-                        (column.getIsSorted() === "desc" ? (
-                          <ArrowDown className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4" />
-                        ) : column.getIsSorted() === "asc" ? (
-                          <ArrowUp className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4" />
-                        ) : (
-                          <ArrowUpDown className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4 opacity-30" />
-                        ))}
-                    </Button>
-
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          className={`h-5 w-5 sm:h-6 sm:w-6 p-1 ${isFiltered ? "text-primary" : ""}`}
-                        >
-                          {isFiltered ? (
-                            <FilterX className="h-3 w-3 sm:h-4 sm:w-4" />
-                          ) : (
-                            <Filter className="h-3 w-3 sm:h-4 sm:w-4" />
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-48 sm:w-64 p-2" align="start">
-                        <Input
-                          type="text"
-                          value={(column.getFilterValue() as string) ?? ""}
-                          onChange={(event) =>
-                            column.setFilterValue(event.target.value)
-                          }
-                          placeholder={`Filter ${key}...`}
-                          className="h-8 text-sm p-1 w-full"
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                );
-              },
-              cell: ({ row }: { row: Row<Tenant> }) => {
-                const value = row.getValue(key);
-                const isSticky = key === "First Name";
-                const stickyClasses = isSticky
-                  ? "sticky left-0 z-20 bg-background border-r shadow-sm"
-                  : "";
-
-                if (key === "Active Lease") {
-                  return (
-                    <div className={stickyClasses}>
-                      {value ? (
-                        <span className="text-green-600 text-xs sm:text-sm">
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="text-red-600 text-xs sm:text-sm">
-                          No
-                        </span>
-                      )}
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    className={`truncate max-w-[80px] sm:max-w-[120px] lg:max-w-[150px] text-xs sm:text-sm ${stickyClasses}`}
-                  >
-                    {String(value)}
-                  </div>
-                );
-              },
-              enableSorting: true,
-              size: config?.size || 80,
-            };
-
-            return columnDef;
-          }),
-        ];
-        setColumns(generatedColumns);
-      } catch (computeError: any) {
-        console.error("Error during data fetching or processing:", computeError);
-        if (!error) {
-          setError(computeError.message || "Failed to fetch or process data.");
-        }
-        setColumns([]);
+      } catch (fetchError: any) {
+        console.error("Error during data fetching:", fetchError);
+        setError(fetchError.message || "Failed to fetch data.");
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchData();
-  }, [showAllColumns]);
-
-  // Filter data based on showOnlyTenants
-  const filteredTenants = useMemo(() => {
-    if (!showOnlyTenants) return tenants;
-    return tenants.filter((tenant) => tenant["Role"] === "Tenant");
-  }, [tenants, showOnlyTenants]);
-
-  // Memoize selected tenants
-  const selectedTenants = useMemo(() => {
-    const selectedIndices = Object.keys(rowSelection).map(Number);
-    return selectedIndices.map((index) => filteredTenants[index]).filter(Boolean);
-  }, [rowSelection, filteredTenants]);
-
-  // Clear selections when filter changes
-  useEffect(() => {
-    setRowSelection({});
-  }, [showOnlyTenants]);
-
-  // Clear selections when column filters change
-  const handleFiltersChange = React.useCallback(() => {
-    setRowSelection({});
   }, []);
 
+  // Filter data based on contactFilter
+  const filteredTenants = useMemo(() => {
+    if (contactFilter === "all") return tenants;
+    // "active" — active tenants only (default)
+    return tenants.filter(
+      (t) => t["Role"] === "Tenant" && t["Active Lease"] === "Yes"
+    );
+  }, [tenants, contactFilter]);
+
+  // Generate columns reactively (no re-fetch needed for column toggle)
+  const columns = useMemo((): ColumnDef<Tenant>[] => {
+    if (tenants.length === 0) return [];
+
+    const keysFromData = Object.keys(tenants[0]);
+
+    const sortedKeys = keysFromData
+      .filter((key) => {
+        const config = COLUMN_CONFIG[key];
+        return config ? showAllColumns || config.mobile : true;
+      })
+      .sort((a, b) => {
+        const priorityA = COLUMN_CONFIG[a]?.priority ?? 999;
+        const priorityB = COLUMN_CONFIG[b]?.priority ?? 999;
+        return priorityA - priorityB;
+      });
+
+    return [
+      // Selection column
+      {
+        id: "select",
+        header: ({ table }: HeaderContext<Tenant, unknown>) => (
+          <Checkbox
+            checked={
+              table.getIsAllPageRowsSelected() ||
+              (table.getIsSomePageRowsSelected() && "indeterminate")
+            }
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+            className="translate-y-[2px]"
+          />
+        ),
+        cell: ({ row }: CellContext<Tenant, unknown>) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+            className="translate-y-[2px]"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        size: 40,
+      },
+      // Data columns
+      ...sortedKeys.map((key): ColumnDef<Tenant> => {
+        const config = COLUMN_CONFIG[key];
+        const isFaceted = FACETED_COLUMNS.has(key);
+
+        return {
+          accessorKey: key,
+          filterFn: isFaceted ? facetedFilterFn : "includesString",
+          header: ({ column }: { column: Column<Tenant, unknown> }) => (
+            <ColumnHeader columnKey={key} column={column} isFaceted={isFaceted} />
+          ),
+          cell: ({ row }: { row: Row<Tenant> }) => {
+            const value = row.getValue(key);
+            const isSticky = key === "First Name";
+            const stickyClasses = isSticky
+              ? "sticky left-0 z-20 bg-background border-r shadow-sm"
+              : "";
+
+            if (key === "Active Lease") {
+              return (
+                <div className={stickyClasses}>
+                  {value === "Yes" ? (
+                    <span className="text-green-600 text-xs sm:text-sm">Yes</span>
+                  ) : (
+                    <span className="text-red-600 text-xs sm:text-sm">No</span>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <div
+                className={`truncate max-w-[80px] sm:max-w-[120px] lg:max-w-[150px] text-xs sm:text-sm ${stickyClasses}`}
+              >
+                {String(value ?? "")}
+              </div>
+            );
+          },
+          enableSorting: true,
+          size: config?.size || 80,
+        };
+      }),
+    ];
+  }, [tenants, showAllColumns]);
+
+  // Derive selected tenants using stable IDs (not indices)
+  const selectedTenants = useMemo(() => {
+    const selectedIds = new Set(Object.keys(rowSelection));
+    return filteredTenants.filter((t) =>
+      selectedIds.has(t.external_id ?? t["Phone Number"] ?? "")
+    );
+  }, [rowSelection, filteredTenants]);
+
+  // Clear selections when dataset semantically changes
+  useEffect(() => {
+    setRowSelection({});
+  }, [contactFilter]);
+
   const handleSendClick = () => {
-    if (
-      selectedTenants.length === 0 ||
-      !message.trim() ||
-      !serniaPhoneNumber
-    ) {
+    if (selectedTenants.length === 0 || !message.trim() || !serniaPhoneNumber) {
       if (!serniaPhoneNumber) {
         setStatus({
           type: "error",
-          message:
-            "From phone number (Sernia contact) is not loaded. Cannot send messages.",
+          message: "From phone number (Sernia contact) is not loaded. Cannot send messages.",
         });
       }
       return;
     }
+
+    // Validate all selected tenants have valid phone numbers
+    const tenantsWithoutPhone = selectedTenants.filter((t) => {
+      const phone = t["Phone Number"];
+      return !phone || !/\+?\d{10,}/.test(phone.replace(/[^+\d]/g, ""));
+    });
+
+    if (tenantsWithoutPhone.length > 0) {
+      const names = tenantsWithoutPhone
+        .map((t) => `${t["First Name"] || ""} ${t["Last Name"] || ""}`.trim())
+        .join(", ");
+      setStatus({
+        type: "error",
+        message: `Cannot send: ${tenantsWithoutPhone.length} selected tenant(s) have no valid phone number: ${names}`,
+      });
+      return;
+    }
+
     setStatus(null);
     setShowConfirmation(true);
   };
@@ -419,9 +386,7 @@ function MessageTenantsContent() {
 
         const response = await fetch("/api/open_phone/send_message", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             to_phone_number: phoneNumber,
             message: message,
@@ -439,7 +404,6 @@ function MessageTenantsContent() {
       })
     );
 
-    // Process results
     results.forEach((result, index) => {
       const tenant = selectedTenants[index];
       const firstName = tenant["First Name"] || "";
@@ -452,9 +416,7 @@ function MessageTenantsContent() {
       } else {
         failures++;
         const errorMessage =
-          result.reason instanceof Error
-            ? result.reason.message
-            : "Unknown error";
+          result.reason instanceof Error ? result.reason.message : "Unknown error";
         failedDetails.push({ name, phone, error: errorMessage });
         console.error(`Failed to send to ${name} (${phone}):`, result.reason);
       }
@@ -462,9 +424,8 @@ function MessageTenantsContent() {
 
     setIsSending(false);
 
-    // Set final status message
     if (failures > 0) {
-      let detailedErrors = failedDetails
+      const detailedErrors = failedDetails
         .map((f) => `${f.name} (${f.phone}): ${f.error}`)
         .join("\n");
       setStatus({
@@ -510,28 +471,26 @@ function MessageTenantsContent() {
           {/* Filter and Column View Toggles */}
           {tenants.length > 0 && (
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              {/* Tenant Filter Toggle */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Show:</span>
                 <Button
-                  variant={showOnlyTenants ? "default" : "outline"}
+                  variant={contactFilter === "active" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setShowOnlyTenants(true)}
+                  onClick={() => setContactFilter("active")}
                   className="text-xs"
                 >
-                  Tenants Only
+                  Active Tenants
                 </Button>
                 <Button
-                  variant={!showOnlyTenants ? "default" : "outline"}
+                  variant={contactFilter === "all" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setShowOnlyTenants(false)}
+                  onClick={() => setContactFilter("all")}
                   className="text-xs"
                 >
                   All Contacts
                 </Button>
               </div>
 
-              {/* Column View Toggle - Only show on mobile */}
               <div className="flex justify-between items-center sm:hidden">
                 <span className="text-sm text-muted-foreground">
                   {showAllColumns ? "All Columns" : "Mobile View"}
@@ -548,14 +507,15 @@ function MessageTenantsContent() {
             </div>
           )}
 
-          {/* Render DataTable only when columns are generated */}
           {columns.length > 0 && filteredTenants.length > 0 ? (
             <DataTable
               columns={columns}
               data={filteredTenants}
               rowSelection={rowSelection}
               onRowSelectionChange={setRowSelection}
-              onFiltersChange={handleFiltersChange}
+              getRowId={(row: Tenant) =>
+                row.external_id ?? row["Phone Number"] ?? ""
+              }
             />
           ) : (
             <p>No tenant data found or could not generate columns.</p>
@@ -641,20 +601,28 @@ function MessageTenantsContent() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="mt-4 p-3 bg-muted rounded-md space-y-2 max-h-48 sm:max-h-60 overflow-y-auto">
-              <p className="text-sm font-medium text-foreground">Recipients:</p>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                {selectedTenants
-                  .map(
-                    (t) =>
-                      `${t["First Name"] || ""} ${t["Last Name"] || ""} (${t["Phone Number"] || "N/A"})`
-                  )
-                  .join(", ")}
+            <div className="mt-4 p-3 bg-muted rounded-md space-y-3 max-h-48 sm:max-h-60 overflow-y-auto">
+              <p className="text-sm font-medium text-foreground">
+                Recipients ({selectedTenants.length}):
               </p>
-              <p className="text-sm font-medium text-foreground mt-2">
-                Message:
-              </p>
-              <p className="mt-1 text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">
+              <ul className="space-y-1">
+                {selectedTenants.map((t) => (
+                  <li
+                    key={t.external_id ?? t["Phone Number"]}
+                    className="text-xs sm:text-sm text-muted-foreground flex justify-between"
+                  >
+                    <span className="font-medium">
+                      {t["First Name"] || ""} {t["Last Name"] || ""}
+                    </span>
+                    <span className="font-mono text-xs">
+                      {t["Phone Number"] || "NO PHONE"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Separator />
+              <p className="text-sm font-medium text-foreground">Message:</p>
+              <p className="text-xs sm:text-sm text-muted-foreground whitespace-pre-wrap">
                 {message}
               </p>
             </div>
@@ -680,5 +648,159 @@ function MessageTenantsContent() {
         </Dialog>
       )}
     </div>
+  );
+}
+
+// --- Column Header with Sort + Filter ---
+
+function ColumnHeader({
+  columnKey,
+  column,
+  isFaceted,
+}: {
+  columnKey: string;
+  column: Column<Tenant, unknown>;
+  isFaceted: boolean;
+}) {
+  const isFiltered = column.getIsFiltered();
+  const canSort = column.getCanSort();
+
+  return (
+    <div
+      className={`flex items-center space-x-1 justify-between pr-1 ${
+        columnKey === "First Name"
+          ? "sticky left-0 z-20 bg-background border-r shadow-sm"
+          : ""
+      }`}
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 p-1 data-[state=open]:bg-accent text-left justify-start grow truncate text-xs sm:text-sm"
+        onClick={() =>
+          canSort && column.toggleSorting(column.getIsSorted() === "asc")
+        }
+        disabled={!canSort}
+      >
+        <span className="truncate">{columnKey}</span>
+        {canSort &&
+          (column.getIsSorted() === "desc" ? (
+            <ArrowDown className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4" />
+          ) : column.getIsSorted() === "asc" ? (
+            <ArrowUp className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4" />
+          ) : (
+            <ArrowUpDown className="ml-1 h-3 w-3 sm:ml-2 sm:h-4 sm:w-4 opacity-30" />
+          ))}
+      </Button>
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            className={`h-5 w-5 sm:h-6 sm:w-6 p-1 ${isFiltered ? "text-primary" : ""}`}
+          >
+            {isFiltered ? (
+              <FilterX className="h-3 w-3 sm:h-4 sm:w-4" />
+            ) : (
+              <Filter className="h-3 w-3 sm:h-4 sm:w-4" />
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-48 sm:w-64 p-0" align="start">
+          {isFaceted ? (
+            <FacetedFilter column={column} title={columnKey} />
+          ) : (
+            <div className="p-2">
+              <Input
+                type="text"
+                value={(column.getFilterValue() as string) ?? ""}
+                onChange={(event) => column.setFilterValue(event.target.value)}
+                placeholder={`Filter ${columnKey}...`}
+                className="h-8 text-sm p-1 w-full"
+              />
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+// --- Faceted Multi-Select Filter (TanStack + shadcn standard pattern) ---
+
+function FacetedFilter({
+  column,
+  title,
+}: {
+  column: Column<Tenant, unknown>;
+  title: string;
+}) {
+  const facets = column.getFacetedUniqueValues();
+  const selectedValues = new Set(column.getFilterValue() as string[] | undefined);
+
+  const sortedOptions = useMemo(() => {
+    return Array.from(facets.keys()).sort();
+  }, [facets]);
+
+  const toggleValue = (value: string) => {
+    const next = new Set(selectedValues);
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+    column.setFilterValue(next.size > 0 ? Array.from(next) : undefined);
+  };
+
+  return (
+    <Command>
+      <CommandInput placeholder={`Search ${title}...`} className="h-8 text-sm" />
+      <CommandList className="max-h-48">
+        <CommandEmpty>No values found.</CommandEmpty>
+        <CommandGroup>
+          {sortedOptions.map((value) => {
+            const isSelected = selectedValues.has(value);
+            const count = facets.get(value);
+            return (
+              <CommandItem
+                key={value}
+                onSelect={() => toggleValue(value)}
+                className="cursor-pointer"
+              >
+                <div
+                  className={cn(
+                    "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                    isSelected
+                      ? "bg-primary text-primary-foreground"
+                      : "[&_svg]:invisible"
+                  )}
+                >
+                  <Check className="h-3 w-3" />
+                </div>
+                <span>{value}</span>
+                {count != null && (
+                  <span className="ml-auto text-muted-foreground font-mono text-xs">
+                    {count}
+                  </span>
+                )}
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
+        {selectedValues.size > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup>
+              <CommandItem
+                onSelect={() => column.setFilterValue(undefined)}
+                className="justify-center text-center cursor-pointer"
+              >
+                Clear filters
+              </CommandItem>
+            </CommandGroup>
+          </>
+        )}
+      </CommandList>
+    </Command>
   );
 }

@@ -1,6 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 import asyncio
-from typing import Annotated
+import time
+from typing import Annotated, Dict, Any
 
 load_dotenv(find_dotenv(".env"), override=True)
 from fastapi import Depends, HTTPException, Header, Request, status
@@ -10,10 +11,8 @@ from google.oauth2.credentials import Credentials
 import logfire
 from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.service import get_oauth_credentials, save_oauth_credentials
-from pprint import pprint
 
-# Initialize Clerk client - in production, this would use os.environ
-
+# Initialize Clerk client
 clerk_secret_key = os.getenv("CLERK_SECRET_KEY")
 if not clerk_secret_key:
     raise ValueError("CLERK_SECRET_KEY is not set")
@@ -22,15 +21,34 @@ clerk_client = Clerk(bearer_auth=clerk_secret_key)
 
 # Documentation: https://github.com/clerk/clerk-sdk-python?tab=readme-ov-file#sdk-installation
 
+# TTL cache for Clerk user lookups — avoids hitting Clerk API on every request.
+# Key: user_id, Value: {"user": User, "ts": float}
+_user_cache: Dict[str, Dict[str, Any]] = {}
+_USER_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_cached_user(user_id: str) -> User | None:
+    entry = _user_cache.get(user_id)
+    if entry and (time.time() - entry["ts"]) < _USER_CACHE_TTL:
+        return entry["user"]
+    return None
+
+
+def _set_cached_user(user_id: str, user: User) -> None:
+    _user_cache[user_id] = {"user": user, "ts": time.time()}
+
 
 async def get_auth_state(request: Request) -> RequestState:
     """
     FastAPI dependency that returns the authenticated state from Clerk.
+    authenticate_request has no async variant, so we run it in a thread
+    to avoid blocking the event loop.
     """
-    auth_state = clerk_client.authenticate_request(
-        request, AuthenticateRequestOptions()
+    auth_state = await asyncio.to_thread(
+        clerk_client.authenticate_request,
+        request,
+        AuthenticateRequestOptions(),
     )
-
     return auth_state
 
 
@@ -45,8 +63,7 @@ async def is_signed_in(request: Request) -> bool:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User is not signed in.",
         )
-    else:
-        return auth_state.is_signed_in
+    return auth_state.is_signed_in
 
 
 async def get_auth_session(request: Request) -> Session:
@@ -54,7 +71,6 @@ async def get_auth_session(request: Request) -> Session:
     FastAPI dependency that validates the JWT token and returns the Clerk session.
     Raises 401 if token is invalid or missing.
     """
-
     auth_state = await get_auth_state(request)
 
     if not auth_state.is_signed_in:
@@ -62,16 +78,16 @@ async def get_auth_session(request: Request) -> Session:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User is not signed in.",
         )
-    else:
-        session_id = auth_state.payload["sid"]
-        session = clerk_client.sessions.get(session_id=session_id)
 
+    session_id = auth_state.payload["sid"]
+    session = await clerk_client.sessions.get_async(session_id=session_id)
     return session
 
 
 async def get_auth_user(request: Request) -> User:
     """
     FastAPI dependency that returns the authenticated user from Clerk.
+    Uses a TTL cache to avoid hitting Clerk API on every request.
     """
     auth_state = await get_auth_state(request)
 
@@ -82,13 +98,18 @@ async def get_auth_user(request: Request) -> User:
         )
 
     user_id = auth_state.payload["sub"]
-    user = clerk_client.users.get(user_id=user_id)
+
+    cached = _get_cached_user(user_id)
+    if cached:
+        return cached
+
+    user = await clerk_client.users.get_async(user_id=user_id)
+    if user:
+        _set_cached_user(user_id, user)
     return user
 
 
 # Type alias for dependency injection - use this in route handlers:
-#   async def my_route(user: AuthUser):
-# Instead of:
 #   async def my_route(user: AuthUser):
 AuthUser = Annotated[User, Depends(get_auth_user)]
 

@@ -1,8 +1,10 @@
 import os
+import time
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(".env"), override=True)
+import httpx
 import requests
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from fastapi import HTTPException
 import logfire
 from api.src.google.sheets import get_sheet_as_json
@@ -34,9 +36,10 @@ async def send_message(
         "from": from_phone_number,
         "to": [to_phone_number],
     }
-    response = requests.post(
-        "https://api.openphone.com/v1/messages", headers=headers, json=data
-    )
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.openphone.com/v1/messages", headers=headers, json=data
+        )
     return response
 
 async def upsert_openphone_contact(contact_create: ContactCreate):
@@ -192,6 +195,22 @@ async def get_contacts_by_external_ids(
         raise
 
 
-def get_contacts_sheet_as_json():
+_contacts_sheet_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
+_CONTACTS_SHEET_CACHE_TTL = 300  # 5 minutes
+
+
+def get_contacts_sheet_as_json(bypass_cache: bool = False) -> List[Dict[str, Any]]:
+    now = time.time()
+    if (
+        not bypass_cache
+        and _contacts_sheet_cache["data"] is not None
+        and (now - _contacts_sheet_cache["ts"]) < _CONTACTS_SHEET_CACHE_TTL
+    ):
+        logfire.info("Returning cached contacts sheet data")
+        return _contacts_sheet_cache["data"]
+
     spreadsheet_id = "1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M"
-    return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone") 
+    data = get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
+    _contacts_sheet_cache["data"] = data
+    _contacts_sheet_cache["ts"] = now
+    return data

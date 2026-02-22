@@ -2,17 +2,11 @@
   "mcpServers": {
     "shadcn": {
       "command": "npx",
-      "args": [
-        "shadcn@latest",
-        "mcp"
-      ]
+      "args": ["shadcn@latest", "mcp"]
     },
     "cloudflare-docs": {
       "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://docs.mcp.cloudflare.com/mcp"
-      ]
+      "args": ["mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
     },
     "cloudflare-dns": {
       "type": "http",
@@ -21,14 +15,16 @@
     "Railway": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "@railway/mcp-server"
-      ],
+      "args": ["@railway/mcp-server"],
       "env": {}
     },
     "logfire": {
       "type": "http",
       "url": "https://logfire-us.pydantic.dev/mcp"
+    },
+    "quo": {
+      "type": "http",
+      "url": "https://mcp.quo.com/sse"
     }
   }
 }
