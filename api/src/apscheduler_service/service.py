@@ -57,17 +57,36 @@ def get_scheduler() -> AsyncIOScheduler:
         if _scheduler is not None:
             return _scheduler
 
-        if not sync_engine:
-            raise Exception(
-                "Synchronous engine not available. Scheduler cannot be initialized."
+        # APScheduler v3's SQLAlchemyJobStore is synchronous — every DB operation
+        # (add_job, get_due_jobs, update_job) blocks the asyncio event loop.
+        # On Neon each operation takes ~0.15-0.5s, and startup does ~20 of them
+        # sequentially, freezing the event loop for seconds. This delays HTTP
+        # requests including health checks.
+        #
+        # Local dev uses MemoryJobStore to avoid this entirely (0.01s startup).
+        # Railway uses SQLAlchemyJobStore for persistence across deploys — the
+        # one-time startup cost is acceptable and the 120s health check timeout
+        # absorbs it. The sync engine's QueuePool (see database.py) mitigates
+        # the per-operation cost by reusing connections.
+        #
+        # Long-term fix: migrate to APScheduler v4 which has native async
+        # support via AsyncScheduler + SQLAlchemyDataStore with async engines.
+        is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME", "")) > 0
+
+        if is_hosted:
+            if not sync_engine:
+                raise Exception(
+                    "Synchronous engine not available. Scheduler cannot be initialized."
+                )
+            logfire.info(
+                "Creating APScheduler (AsyncIOScheduler) with SQLAlchemyJobStore."
             )
-
-        logfire.info(
-            "Creating APScheduler (AsyncIOScheduler) with SQLAlchemyJobStore."
-        )
-
-        # Configure the job store (DB-backed persistence)
-        jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
+            jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
+        else:
+            logfire.info(
+                "Creating APScheduler (AsyncIOScheduler) with MemoryJobStore (local dev)."
+            )
+            jobstores = {"default": MemoryJobStore()}
 
         scheduler = AsyncIOScheduler(
             jobstores=jobstores,

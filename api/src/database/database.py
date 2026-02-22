@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import MetaData
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 import os
 import logfire
 from contextlib import asynccontextmanager
@@ -129,8 +129,13 @@ AsyncSessionFactory = async_sessionmaker(
 class Base(DeclarativeBase):
     metadata = metadata
 
-# --- Synchronous Engine for tools like APScheduler or Alembic migrations ---
-# Use unpooled connection for sync engine
+# --- Synchronous Engine for APScheduler and Alembic migrations ---
+# Uses QueuePool (pool_size=2) instead of NullPool so APScheduler reuses
+# connections. With NullPool every job-store operation opened a new TCP+TLS
+# connection to Neon (~0.5s each), and because APScheduler v3's
+# SQLAlchemyJobStore is synchronous it blocked the asyncio event loop for
+# the entire duration. QueuePool keeps a small number of idle connections
+# so subsequent operations are just pool checkouts (~0.07s).
 sync_engine = None
 
 if DATABASE_URL_UNPOOLED:
@@ -152,19 +157,21 @@ if DATABASE_URL_UNPOOLED:
     logfire.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
     logfire.info(f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}")
     try:
-        # For a background service like APScheduler, use NullPool for serverless compatibility.
-        # echo=False is common for sync engines unless specific SQL debugging is needed.
-        # psycopg2 requires explicit sslmode setting - empty dict defaults to requiring SSL
+        # See module-level comment above for why QueuePool over NullPool.
         sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {"sslmode": "disable"}
         logfire.info(f"Using sync_connect_args: {sync_connect_args}")
         sync_engine = create_sync_engine(
             sync_db_url,
             echo=os.getenv("DEBUG_SYNC_SQL", "False").lower() == "true",
-            poolclass=NullPool,  # Use NullPool for serverless
+            poolclass=QueuePool,
+            pool_size=2,
+            max_overflow=0,
+            pool_recycle=300,  # Recycle every 5 min to avoid stale Neon connections
+            pool_pre_ping=True,
             connect_args=sync_connect_args,
         )
         ssl_status = "with SSL" if DATABASE_REQUIRE_SSL else "without SSL"
-        logfire.info(f"Synchronous SQLAlchemy engine created successfully with NullPool {ssl_status}.")
+        logfire.info(f"Synchronous SQLAlchemy engine created successfully with QueuePool {ssl_status}.")
     except Exception as e:
         logfire.exception(f"Failed to create synchronous SQLAlchemy engine: {e}")
         sync_engine = None # Ensure it's None if creation failed

@@ -169,7 +169,14 @@ async def lifespan(app: FastAPI):
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
             await initialize_workspace(WORKSPACE_PATH)
-            await test_database_connections()
+            # Skip DB connection test in local dev to speed up hot reloads.
+            # Each test opens a fresh TCP+TLS connection to Neon (~1-2s each, run
+            # sequentially for sync + async engines = ~3-5s blocked startup).
+            # On Railway the test still runs so a bad deploy fails the health check.
+            if is_hosted:
+                await test_database_connections()
+            else:
+                logfire.info("Skipping DB connection test (local dev)")
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
