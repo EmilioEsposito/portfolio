@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Claude Code PermissionRequest hook — forwards approval requests to Slack.
 
-Sends a Block Kit message with Approve/Deny buttons, then polls a local
-approval server for the response. If the server isn't running or Slack
-isn't configured, falls through to the normal local prompt.
+Auto-detects whether you're at your laptop or away:
+  - Active (idle < 2 min) → falls through to local CLI prompt
+  - Idle   (idle >= 2 min) → sends to Slack for phone approval
+
+Override with:  export CLAUDE_APPROVAL_MODE=slack   (always Slack)
+                export CLAUDE_APPROVAL_MODE=local   (always local)
 """
 
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -36,6 +40,8 @@ load_dotenv()
 
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_CLAUDE_CODE", "")
 APPROVAL_SERVER = os.environ.get("CLAUDE_APPROVAL_SERVER", "https://claude-approval-production.up.railway.app")
+APPROVAL_MODE = os.environ.get("CLAUDE_APPROVAL_MODE", "auto")  # auto | slack | local
+IDLE_THRESHOLD = int(os.environ.get("CLAUDE_IDLE_THRESHOLD", "120"))  # seconds
 POLL_INTERVAL = 1  # seconds
 POLL_TIMEOUT = 600  # 10 minutes
 
@@ -43,6 +49,33 @@ POLL_TIMEOUT = 600  # 10 minutes
 def fall_through():
     """Output empty JSON so Claude Code falls through to the normal user prompt."""
     sys.exit(2)
+
+
+def get_idle_seconds() -> int:
+    """Get macOS idle time in seconds (time since last keyboard/mouse input)."""
+    try:
+        result = subprocess.run(
+            ["ioreg", "-c", "IOHIDSystem"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if "HIDIdleTime" in line:
+                # Value is in nanoseconds
+                ns = int(line.split()[-1])
+                return ns // 1_000_000_000
+    except Exception:
+        pass
+    return 0  # assume active if detection fails
+
+
+def should_use_slack() -> bool:
+    """Decide whether to route to Slack or fall through to local prompt."""
+    if APPROVAL_MODE == "slack":
+        return True
+    if APPROVAL_MODE == "local":
+        return False
+    # auto: check idle time
+    return get_idle_seconds() >= IDLE_THRESHOLD
 
 
 def decide(behavior: str, message: str = ""):
@@ -145,8 +178,8 @@ def main():
     tool_input = payload.get("tool_input", {})
     request_id = uuid.uuid4().hex[:8]
 
-    # No webhook → fall through to local prompt
-    if not SLACK_WEBHOOK:
+    # No webhook or not using Slack → fall through to local prompt
+    if not SLACK_WEBHOOK or not should_use_slack():
         fall_through()
 
     # Register the request with the approval server
