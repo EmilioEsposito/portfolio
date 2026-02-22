@@ -205,24 +205,15 @@ async def webhook(
         await session.rollback()
         raise HTTPException(status_code=500, detail=detailed_error_message)
 
+class SendMessageRequest(BaseModel):
+    message: str
+    to_phone_number: str
+    from_phone_number: str
+
 @router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
-async def send_message_endpoint(request: Request):
-    """
-    Simple endpoint wrapper around send_message.
-    Only available in development environment.
-    """
-    data = await request.json()
-    message = data["message"]
-
-    if "from_phone_number" not in data:
-        raise HTTPException(400, "from_phone_number is required")
-    if "to_phone_number" not in data:
-        raise HTTPException(400, "to_phone_number is required")
-
-    from_phone_number = data["from_phone_number"]
-    to_phone_number = data["to_phone_number"]
-
-    response = await send_message(message, to_phone_number, from_phone_number)
+async def send_message_endpoint(body: SendMessageRequest):
+    """Send a single SMS message via OpenPhone."""
+    response = await send_message(body.message, body.to_phone_number, body.from_phone_number)
     return {"message": "Message sent", "open_phone_response": response.json()}
 
 
@@ -290,15 +281,12 @@ async def send_tenant_mass_message(
             if contact["Property"] in property_names
         ]
 
-        # Filter out contacts where Lease End Date is in the past
-        for contact in contacts:
-            if "Lease End Date" in contact:
-                if contact["Lease End Date"] < datetime.now().strftime("%Y-%m-%d"):
-                    contacts.remove(contact)
-                    logfire.info(f"Removed contact {contact['First Name']} because Lease End Date is in the past")
-            else:
-                contacts.remove(contact)
-                logfire.warn(f"Contact {contact['First Name']} has no Lease End Date. Filtering out.")
+        # Filter out contacts where Lease End Date is in the past or missing
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        contacts = [
+            contact for contact in contacts
+            if contact.get("Lease End Date") and contact["Lease End Date"] >= today_str
+        ]
 
         logfire.info(
             f"Found {len(contacts)} total contacts for properties {body.property_names}"
