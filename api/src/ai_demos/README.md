@@ -5,7 +5,7 @@ This directory contains AI demo agents built with PydanticAI.
 ```
 ai_demos/
 ├─ models.py                # Shared: AgentConversation model, persistence helpers
-├─ hitl_utils.py             # Shared: HITL approval utilities (used by hitl_agents + ai_sernia)
+├─ hitl_utils.py             # Shared: HITL approval utilities (used by hitl_agents + sernia_ai)
 ├─ agent_run_patching.py    # Shared: Auto-persistence patch for agents
 ├─ chat_emilio/             # Portfolio assistant (/api/ai-demos/chat-emilio)
 ├─ chat_weather/            # Weather + general chat (/api/ai-demos/chat-weather)

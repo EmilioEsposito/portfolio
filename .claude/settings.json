@@ -1,33 +1,63 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pkill:*)",
-      "Bash(npm:*)",
+      "Edit",
+      "Write",
+      "Read",
       "Bash(pnpm:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
       "Bash(uv:*)",
       "Bash(python:*)",
+      "Bash(python3:*)",
       "Bash(pytest:*)",
-      "Bash(git status)",
+      "Bash(pkill:*)",
+      "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git worktree:*)",
+      "Bash(git remote:*)",
       "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sort:*)",
+      "Bash(diff:*)",
+      "Bash(which:*)",
+      "Bash(echo:*)",
+      "Bash(chmod:*)",
+      "Bash(source:*)",
+      "Bash(pwd)",
+      "Bash(curl:*)",
+      "Bash(docker:*)",
       "Bash(docker compose:*)",
-      "Bash(docker run:*)",
-      "Bash(docker exec:*)",
       "Bash(gh:*)",
-      "Read(docs/*)",
+      "Bash(./scripts:*)",
+      "Bash(ngrok:*)",
       "mcp__playwright",
       "mcp__context7",
-      "mcp__chrome-devtools"
+      "mcp__chrome-devtools",
+      "mcp__shadcn",
+      "mcp__github",
+      "mcp__Railway",
+      "mcp__cloudflare-dns",
+      "mcp__cloudflare-docs",
+      "mcp__claude-in-chrome"
     ],
     "deny": [
       "Bash(rm -rf:*)",
       "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
       "Read(.env)"
-    ],
-    "ask": [
-      "Bash(git push:*)",
-      "Bash(git commit:*)"
     ]
   },
   "enabledMcpjsonServers": [
@@ -53,11 +83,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "terminal-notifier -message 'Claude needs your input' -title '🔔 Claude Code' -sound Glass -group 'claude-code'"
+            "command": "terminal-notifier -message 'Claude needs your input' -title 'Claude Code' -sound Glass -group 'claude-code'"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/slack_approve.py",
+            "timeout": 600000
           }
         ]
       }
     ]
   }
 }
-

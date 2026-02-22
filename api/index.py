@@ -52,7 +52,7 @@ logfire.info("STARTUP1")
 # Import from api.src
 with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
-    from api.src.ai_sernia.routes import router as ai_sernia_router
+    from api.src.sernia_ai.routes import router as sernia_ai_router
 
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
@@ -70,6 +70,8 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
 
+from api.src.sernia_ai.memory import initialize_workspace
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
@@ -166,7 +168,15 @@ async def lifespan(app: FastAPI):
     # Startup logic
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
-            await test_database_connections()
+            await initialize_workspace(WORKSPACE_PATH)
+            # Skip DB connection test in local dev to speed up hot reloads.
+            # Each test opens a fresh TCP+TLS connection to Neon (~1-2s each, run
+            # sequentially for sync + async engines = ~3-5s blocked startup).
+            # On Railway the test still runs so a bad deploy fails the health check.
+            if is_hosted:
+                await test_database_connections()
+            else:
+                logfire.info("Skipping DB connection test (local dev)")
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
@@ -278,7 +288,7 @@ graphql_router = GraphQLRouter(schema, path="/graphql")
 # Include all routers
 app.include_router(graphql_router, prefix="/api")
 app.include_router(ai_demos_router, prefix="/api")
-app.include_router(ai_sernia_router, prefix="/api")
+app.include_router(sernia_ai_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")

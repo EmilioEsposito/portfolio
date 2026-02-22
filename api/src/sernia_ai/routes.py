@@ -1,22 +1,25 @@
 """
-Routes for the Sernia Capital AI agent.
+Routes for the Sernia AI agent.
 
-Phase 2: Auth, DB-backed message history, HITL approval endpoints.
-Follows the proven pattern from hitl_agents/routes.py.
+All routes are gated to @serniacapital.com users via a router-level dependency.
+The verified Clerk User object is stashed on request.state.sernia_user by the
+gate and retrieved by individual handlers via the SerniaUser dependency.
 """
+import asyncio
 import json
 import functools
+from typing import Literal
 
 import logfire
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from starlette.requests import Request
 from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from clerk_backend_api import User
 
-from api.src.ai_sernia.agent import sernia_agent
-from api.src.ai_sernia.config import AGENT_NAME, WORKSPACE_PATH
-from api.src.ai_sernia.deps import SerniaDeps
+from api.src.sernia_ai.agent import sernia_agent
+from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals,
     ApprovalDecision,
@@ -31,12 +34,38 @@ from api.src.ai_demos.models import (
     get_conversation_with_pending,
     extract_pending_approval_from_messages,
 )
-from api.src.utils.clerk import SerniaUser
+from api.src.sernia_ai.memory.git_sync import commit_and_push
+from api.src.utils.clerk import verify_serniacapital_user
 from api.src.database.database import DBSession
-from api.src.ai_sernia.workspace_admin.routes import router as workspace_router
 
-router = APIRouter(prefix="/ai-sernia", tags=["ai-sernia"])
-router.include_router(workspace_router)
+
+# =============================================================================
+# Router-level auth gate
+# =============================================================================
+
+async def _sernia_gate(request: Request) -> None:
+    """Router-level dependency: verify @serniacapital.com and stash user."""
+    user = await verify_serniacapital_user(request)
+    request.state.sernia_user = user
+
+
+async def _get_sernia_user(request: Request) -> User:
+    """Per-endpoint dependency: retrieve user set by the router gate."""
+    return request.state.sernia_user
+
+
+SerniaUser = User  # plain type alias — resolved by _get_sernia_user dependency
+
+router = APIRouter(
+    prefix="/sernia-ai",
+    tags=["sernia-ai"],
+    dependencies=[Depends(_sernia_gate)],
+)
+
+
+# Helper to resolve display name from Clerk User
+def _display_name(user: User) -> str:
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
 
 
 # =============================================================================
@@ -64,18 +93,22 @@ class _ModifiedJsonRequest:
 @router.post(
     "/chat",
     response_class=Response,
-    summary="Chat with Sernia Capital AI assistant",
+    summary="Chat with Sernia AI assistant",
 )
-async def chat_sernia(request: Request, user: SerniaUser, session: DBSession) -> Response:
+async def chat_sernia(
+    request: Request,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+) -> Response:
     """
-    Streaming chat endpoint for the Sernia Capital AI agent.
+    Streaming chat endpoint for the Sernia AI agent.
 
     Uses PydanticAI's VercelAIAdapter for Vercel AI SDK Data Stream Protocol (SSE).
     Backend DB is the authoritative source for message history.
     Only the latest frontend message is forwarded; history is loaded from DB.
     """
     clerk_user_id = user.id
-    user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
+    user_name = _display_name(user)
 
     request_json = await request.json()
     conversation_id = request_json.get("id")
@@ -111,13 +144,17 @@ async def chat_sernia(request: Request, user: SerniaUser, session: DBSession) ->
         workspace_path=WORKSPACE_PATH,
     )
 
-    on_complete = functools.partial(
-        persist_agent_run_result,
-        conversation_id=conversation_id,
-        agent_name=AGENT_NAME,
-        clerk_user_id=clerk_user_id,
-        session=session,
-    )
+    async def _on_complete(result):
+        await persist_agent_run_result(
+            result,
+            conversation_id=conversation_id,
+            agent_name=AGENT_NAME,
+            clerk_user_id=clerk_user_id,
+            session=session,
+        )
+        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+
+    on_complete = _on_complete
 
     response = await VercelAIAdapter.dispatch_request(
         wrapped_request,
@@ -154,7 +191,10 @@ class ApprovalRequest(BaseModel):
 
 @router.post("/conversation/{conversation_id}/approve")
 async def approve_conversation(
-    conversation_id: str, body: ApprovalRequest, user: SerniaUser, session: DBSession
+    conversation_id: str,
+    body: ApprovalRequest,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
 ):
     """
     Approve or deny pending tool calls for a Sernia agent conversation.
@@ -166,7 +206,7 @@ async def approve_conversation(
         decisions=len(body.decisions),
     )
     clerk_user_id = user.id
-    user_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
+    user_name = _display_name(user)
 
     try:
         decisions = [
@@ -196,6 +236,7 @@ async def approve_conversation(
             clerk_user_id=clerk_user_id,
             session=session,
         )
+        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
         pending = extract_pending_approvals(result)
 
@@ -217,7 +258,11 @@ async def approve_conversation(
 
 
 @router.get("/conversation/{conversation_id}")
-async def get_conversation(conversation_id: str, user: SerniaUser, session: DBSession):
+async def get_conversation(
+    conversation_id: str,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
     """Get conversation details including pending approval info."""
     conv = await get_conversation_with_pending(conversation_id, user.id, session=session)
     if not conv:
@@ -236,7 +281,9 @@ async def get_conversation(conversation_id: str, user: SerniaUser, session: DBSe
 
 @router.get("/conversation/{conversation_id}/messages")
 async def get_conversation_messages_endpoint(
-    conversation_id: str, user: SerniaUser, session: DBSession
+    conversation_id: str,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
 ):
     """Get conversation messages in Vercel AI SDK format."""
     pydantic_messages = await get_conversation_messages(
@@ -257,7 +304,10 @@ async def get_conversation_messages_endpoint(
 
 
 @router.get("/workflow/pending")
-async def list_pending_workflows(user: SerniaUser, session: DBSession):
+async def list_pending_workflows(
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
     """List Sernia conversations with pending approvals."""
     pending = await list_pending_conversations(
         agent_name=AGENT_NAME,
@@ -268,7 +318,10 @@ async def list_pending_workflows(user: SerniaUser, session: DBSession):
 
 
 @router.get("/conversations/history")
-async def get_conversation_history(user: SerniaUser, limit: int = 20):
+async def get_conversation_history(
+    user: SerniaUser = Depends(_get_sernia_user),
+    limit: int = 20,
+):
     """List recent conversations for the authenticated user."""
     conversations = await list_user_conversations(
         clerk_user_id=user.id,
@@ -282,10 +335,66 @@ async def get_conversation_history(user: SerniaUser, limit: int = 20):
 
 
 @router.delete("/conversation/{conversation_id}")
-async def delete_conversation_endpoint(conversation_id: str, user: SerniaUser):
+async def delete_conversation_endpoint(
+    conversation_id: str,
+    user: SerniaUser = Depends(_get_sernia_user),
+):
     """Delete a conversation."""
     try:
         await delete_conversation(conversation_id, user.id)
         return {"success": True, "conversation_id": conversation_id}
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+# =============================================================================
+# Admin
+# =============================================================================
+
+@router.get("/admin/system-instructions")
+async def get_system_instructions(
+    user: SerniaUser = Depends(_get_sernia_user),
+    modality: Literal["sms", "email", "web_chat"] = "web_chat",
+    user_name: str | None = None,
+):
+    """
+    Return the fully resolved system instructions as they would appear
+    at the start of an agent run.
+
+    Query params allow mocking the context deps from the frontend:
+    - modality: sms | email | web_chat (default: web_chat)
+    - user_name: override display name (default: from Clerk user)
+    """
+    from types import SimpleNamespace
+
+    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+
+    resolved_name = user_name or _display_name(user)
+
+    # Build a fake RunContext — the instruction functions only access ctx.deps.*
+    deps = SerniaDeps(
+        db_session=None,  # type: ignore[arg-type]
+        conversation_id="",
+        user_identifier=user.id,
+        user_name=resolved_name,
+        modality=modality,
+        workspace_path=WORKSPACE_PATH,
+    )
+    fake_ctx = SimpleNamespace(deps=deps)
+
+    sections = [{"label": "Static Instructions", "content": STATIC_INSTRUCTIONS}]
+    for fn in DYNAMIC_INSTRUCTIONS:
+        content = fn(fake_ctx)  # type: ignore[arg-type]
+        sections.append({"label": fn.__name__, "content": content or "(empty)"})
+
+    combined = "\n\n".join(s["content"] for s in sections)
+
+    return {
+        "sections": sections,
+        "combined": combined,
+        "model": sernia_agent.model.model_name if hasattr(sernia_agent.model, "model_name") else str(sernia_agent.model),
+        "deps": {
+            "user_name": resolved_name,
+            "modality": modality,
+        },
+    }
