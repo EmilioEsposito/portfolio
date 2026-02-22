@@ -1,5 +1,5 @@
 """
-Routes for the Sernia Capital AI agent.
+Routes for the Sernia AI agent.
 
 All routes are gated to @serniacapital.com users via a router-level dependency.
 The verified Clerk User object is stashed on request.state.sernia_user by the
@@ -17,9 +17,9 @@ from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from clerk_backend_api import User
 
-from api.src.ai_sernia.agent import sernia_agent
-from api.src.ai_sernia.config import AGENT_NAME, WORKSPACE_PATH
-from api.src.ai_sernia.deps import SerniaDeps
+from api.src.sernia_ai.agent import sernia_agent
+from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals,
     ApprovalDecision,
@@ -34,7 +34,7 @@ from api.src.ai_demos.models import (
     get_conversation_with_pending,
     extract_pending_approval_from_messages,
 )
-from api.src.ai_sernia.memory.git_sync import commit_and_push
+from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.database.database import DBSession
 
@@ -57,8 +57,8 @@ async def _get_sernia_user(request: Request) -> User:
 SerniaUser = User  # plain type alias — resolved by _get_sernia_user dependency
 
 router = APIRouter(
-    prefix="/ai-sernia",
-    tags=["ai-sernia"],
+    prefix="/sernia-ai",
+    tags=["sernia-ai"],
     dependencies=[Depends(_sernia_gate)],
 )
 
@@ -93,7 +93,7 @@ class _ModifiedJsonRequest:
 @router.post(
     "/chat",
     response_class=Response,
-    summary="Chat with Sernia Capital AI assistant",
+    summary="Chat with Sernia AI assistant",
 )
 async def chat_sernia(
     request: Request,
@@ -101,7 +101,7 @@ async def chat_sernia(
     session: DBSession = None,
 ) -> Response:
     """
-    Streaming chat endpoint for the Sernia Capital AI agent.
+    Streaming chat endpoint for the Sernia AI agent.
 
     Uses PydanticAI's VercelAIAdapter for Vercel AI SDK Data Stream Protocol (SSE).
     Backend DB is the authoritative source for message history.
@@ -367,7 +367,7 @@ async def get_system_instructions(
     """
     from types import SimpleNamespace
 
-    from api.src.ai_sernia.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
 
     resolved_name = user_name or _display_name(user)
 

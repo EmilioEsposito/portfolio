@@ -1,5 +1,5 @@
 """
-Dependencies dataclass for the Sernia Capital AI agent.
+Dependencies dataclass for the Sernia AI agent.
 """
 from dataclasses import dataclass
 from pathlib import Path

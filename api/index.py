@@ -52,7 +52,7 @@ logfire.info("STARTUP1")
 # Import from api.src
 with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
-    from api.src.ai_sernia.routes import router as ai_sernia_router
+    from api.src.sernia_ai.routes import router as sernia_ai_router
 
 from api.src.open_phone import router as open_phone_router
 from api.src.cron import router as cron_router
@@ -70,8 +70,8 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
 
-from api.src.ai_sernia.memory import initialize_workspace
-from api.src.ai_sernia.config import WORKSPACE_PATH
+from api.src.sernia_ai.memory import initialize_workspace
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
@@ -281,7 +281,7 @@ graphql_router = GraphQLRouter(schema, path="/graphql")
 # Include all routers
 app.include_router(graphql_router, prefix="/api")
 app.include_router(ai_demos_router, prefix="/api")
-app.include_router(ai_sernia_router, prefix="/api")
+app.include_router(sernia_ai_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")

@@ -43,11 +43,11 @@ import {
 } from "~/components/chat/tool-cards";
 import { processMessage } from "~/components/chat/process-message";
 
-const API_BASE = "/api/ai-sernia";
+const API_BASE = "/api/sernia-ai";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sernia Capital AI" },
+    { title: "Sernia AI" },
     {
       name: "description",
       content:
@@ -262,7 +262,7 @@ function ChatView({
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
                 <Building className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-2xl font-bold">Sernia Capital AI</h2>
+              <h2 className="text-2xl font-bold">Sernia AI</h2>
               <p className="text-sm text-muted-foreground text-center max-w-md">
                 Your AI assistant for Sernia Capital. Manages tasks, searches
                 info, sends messages, and builds knowledge over time.
@@ -770,7 +770,7 @@ export default function SerniaChatPage() {
   if (isLoading) {
     return (
       <AuthGuard
-        message="Sernia Capital AI assistant"
+        message="Sernia AI assistant"
         icon={<Building className="w-16 h-16 text-muted-foreground" />}
       >
         <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
@@ -783,7 +783,7 @@ export default function SerniaChatPage() {
 
   return (
     <AuthGuard
-      message="Sernia Capital AI assistant"
+      message="Sernia AI assistant"
       icon={<Building className="w-16 h-16 text-muted-foreground" />}
     >
       <Tabs

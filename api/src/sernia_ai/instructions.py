@@ -1,5 +1,5 @@
 """
-All instructions for the Sernia Capital AI agent — static and dynamic.
+All instructions for the Sernia AI agent — static and dynamic.
 
 Static instructions are a plain string.
 Dynamic instruction functions take a RunContext[SerniaDeps] and return a string.
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic_ai import RunContext
 
-from api.src.ai_sernia.deps import SerniaDeps
+from api.src.sernia_ai.deps import SerniaDeps
 
 # Caps to avoid blowing up context window
 MEMORY_CHAR_CAP = 5_000

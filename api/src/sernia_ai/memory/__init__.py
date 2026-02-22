@@ -1,5 +1,5 @@
 """
-Memory system for the Sernia Capital AI agent.
+Memory system for the Sernia AI agent.
 
 Manages the .workspace/ directory structure for persistent memory.
 """
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import logfire
 
-from api.src.ai_sernia.memory.git_sync import ensure_repo
+from api.src.sernia_ai.memory.git_sync import ensure_repo
 
 SEED_MEMORY = """\
 # Sernia Capital - Agent Memory

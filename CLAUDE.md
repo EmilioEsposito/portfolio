@@ -83,7 +83,7 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 │   ├── index.py               # Main app entry
 │   └── src/
 │       ├── ai_demos/          # Demo AI agents (chat_emilio, chat_weather, multi_agent_chat)
-│       ├── ai_sernia/         # Sernia Capital production AI agent
+│       ├── sernia_ai/         # Sernia AI production agent
 │       ├── database/          # Models, migrations
 │       ├── apscheduler_service/ # APScheduler (active)
 │       ├── dbos_service/      # DBOS workflows (disabled)
@@ -190,13 +190,13 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 | Python module | API prefix | Example endpoint |
 |---------------|-----------|------------------|
 | `api/src/ai_demos/` | `/api/ai-demos` | `/api/ai-demos/chat-emilio` |
-| `api/src/ai_sernia/` | `/api/ai-sernia` | `/api/ai-sernia/chat` |
+| `api/src/sernia_ai/` | `/api/sernia-ai` | `/api/sernia-ai/chat` |
 | `api/src/open_phone/` | `/api/open-phone` | `/api/open-phone/webhook` |
 
 **Rules:**
 - Never nest one module's router inside another module's router. Each module mounts directly on the app in `api/index.py`.
 - The URL prefix is the module folder name with underscores replaced by hyphens.
-- Sub-routers within a module use relative prefixes (e.g. `workspace_admin/routes.py` uses `prefix="/workspace"` under `ai_sernia`).
+- Sub-routers within a module use relative prefixes (e.g. `workspace_admin/routes.py` uses `prefix="/workspace"` under `sernia_ai`).
 
 ---
 
@@ -209,14 +209,14 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 - **Emilio Agent** (GPT-4o): Portfolio/career questions
 - **Weather Agent**: Weather queries
 
-**Sernia Agent** (`api/src/ai_sernia/`):
-- Production AI assistant for Sernia Capital LLC
+**Sernia Agent** (`api/src/sernia_ai/`):
+- Production AI assistant for Sernia Capital
 
 **Endpoints**:
 - `POST /api/ai-demos/multi-agent-chat` - Unified routing
 - `POST /api/ai-demos/chat-emilio` - Direct Emilio agent
 - `POST /api/ai-demos/chat-weather` - Direct weather agent
-- `POST /api/ai-sernia/chat` - Sernia Capital agent
+- `POST /api/sernia-ai/chat` - Sernia AI agent
 
 Uses Vercel AI SDK Data Stream Protocol for streaming responses.
 

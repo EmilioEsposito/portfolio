@@ -170,7 +170,7 @@ export function AppSidebar() {
         ...(isSerniaCapitalUser ? [
           {
             type: "navigation" as const,
-            title: "Sernia Capital AI",
+            title: "Sernia AI",
             url: "/sernia-chat",
             icon: Building,
             onClick: toggleSidebarIfMobile,

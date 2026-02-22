@@ -44,7 +44,7 @@ export function convertPendingFromApi(
 
 /**
  * Tool approval card with edit capability.
- * `apiBase` controls where the approval POST goes (e.g. "/api/ai-demos/hitl-agent" or "/api/ai-sernia").
+ * `apiBase` controls where the approval POST goes (e.g. "/api/ai-demos/hitl-agent" or "/api/sernia-ai").
  */
 export function ToolApprovalCard({
   pending,

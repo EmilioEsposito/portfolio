@@ -13,6 +13,26 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
+
+
+def load_dotenv():
+    """Load .env file from the project root (stdlib only, no python-dotenv)."""
+    env_file = Path(__file__).resolve().parents[2] / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key not in os.environ:
+            os.environ[key] = value
+
+
+load_dotenv()
 
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_CLAUDE_CODE", "")
 APPROVAL_SERVER = os.environ.get("CLAUDE_APPROVAL_SERVER", "https://claude-approval-production.up.railway.app")

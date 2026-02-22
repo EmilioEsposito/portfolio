@@ -1,5 +1,5 @@
 """
-Main Sernia Capital AI agent definition.
+Main Sernia AI agent definition.
 
 Phase 2: Memory system (workspace file tools + dynamic instructions)
      + HITL foundation (output_type includes DeferredToolRequests).
@@ -9,14 +9,14 @@ Custom toolsets (Quo, Google, ClickUp, etc.) will be added in later phases.
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
-from api.src.ai_sernia.config import (
+from api.src.sernia_ai.config import (
     MAIN_AGENT_MODEL,
     WEB_SEARCH_ALLOWED_DOMAINS,
     AGENT_NAME,
     WORKSPACE_PATH,
 )
-from api.src.ai_sernia.deps import SerniaDeps
-from api.src.ai_sernia.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
 
 
 def _build_builtin_tools() -> list:

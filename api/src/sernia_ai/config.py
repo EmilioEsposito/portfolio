@@ -1,5 +1,5 @@
 """
-Configuration for the Sernia Capital AI agent.
+Configuration for the Sernia AI agent.
 
 Keep tunables here so they're easy to find and tweak.
 """
