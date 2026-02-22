@@ -770,6 +770,7 @@ export default function SerniaChatPage() {
   if (isLoading) {
     return (
       <AuthGuard
+        requireDomain="serniacapital.com"
         message="Sernia AI assistant"
         icon={<Building className="w-16 h-16 text-muted-foreground" />}
       >

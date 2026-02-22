@@ -3,7 +3,14 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
-import { RefreshCw } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
+import { RefreshCw, Plus, Save, Trash2, Sparkles } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -173,239 +180,222 @@ ${selectedEmail.body_html}`;
     }
   }
 
+  const currentInstruction = systemInstructions.find(
+    (i) => i.id === selectedInstruction,
+  );
+
+  function deleteCurrentInstruction() {
+    if (!selectedInstruction || systemInstructions.length <= 1) return;
+    const remaining = systemInstructions.filter(
+      (i) => i.id !== selectedInstruction,
+    );
+    setSystemInstructions(remaining);
+    setSelectedInstruction(remaining[0].id);
+    setNewInstruction(remaining[0].text);
+  }
+
   return (
-    <div className="container mx-auto py-8 px-4 sm:px-6 space-y-8">
-      <div className="space-y-4">
+    <div className="container mx-auto py-8 px-4 sm:px-6 max-w-6xl space-y-8">
+      {/* Header */}
+      <div className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h1 className="text-3xl font-bold">
-            AI Email Responder Preview Tool
-          </h1>
+          <h1 className="text-3xl font-bold">AI Email Responder</h1>
           <Link
             to="/ai-email-responder/architecture"
-            className="text-sm text-muted-foreground hover:text-blue-500 flex items-center gap-2 group"
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
           >
-            View System Architecture
-            <span className="group-hover:translate-x-0.5 transition-transform">
-              →
-            </span>
+            System Architecture
+            <span>→</span>
           </Link>
         </div>
-        <div className="prose dark:prose-invert max-w-none">
-          <p className="text-muted-foreground">
-            This tool helps test and refine AI agent instructions for automated
-            Zillow rental inquiry responses. The workflow is simple:
-          </p>
-          <ol className="text-muted-foreground list-decimal list-inside space-y-1">
-            <li>Select a sample email from real Zillow inquiries</li>
-            <li>
-              Create or modify AI agent instructions to define the response
-              style
-            </li>
-            <li>Click Generate to preview how the AI would respond</li>
-          </ol>
-          <p className="text-muted-foreground mt-4">
-            Once the optimal instructions are determined, they'll be used in
-            production where Google PubSub notifications will call the{" "}
-            <Link
-              to="/api/docs#/google/handle_gmail_notifications_api_google_pubsub_gmail_notifications_post"
-              className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
-            >
-              FastAPI /api/google/pubsub/gmail/notifications endpoint
-            </Link>{" "}
-            to automatically respond to incoming Zillow inquiries in real-time.
-          </p>
-          <div className="text-muted-foreground mt-4">
-            For more information on the final production implementation, see the{" "}
-            <Link
-              to="/ai-email-responder/architecture"
-              className="text-blue-500 hover:text-blue-600 hover:underline font-medium"
-            >
-              System Architecture
-            </Link>{" "}
-            page.
-          </div>
-        </div>
+        <p className="text-muted-foreground">
+          Test and refine AI agent instructions for automated Zillow rental
+          inquiry responses. Select an email, configure the AI instructions, and
+          preview the generated response.
+        </p>
       </div>
 
-      {/* Main Grid Layout */}
-      <div className="grid lg:grid-cols-[1fr,1fr] gap-8">
-        {/* Email Selection Container */}
-        <div className="space-y-2">
-          <h2 className="text-xl font-semibold px-1">
-            Incoming Zillow Inquiries
+      {/* Step 1: Select Email */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            1. Select an Email
           </h2>
-          <div className="border rounded-lg grid grid-cols-[auto,1fr]">
-            {/* Email Tabs */}
-            <div className="border-r bg-muted/50">
-              <div className="sticky top-0 p-2 border-b bg-muted flex items-center justify-between">
-                <h2 className="text-sm font-medium">Sample Emails</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={fetchEmails}
-                  disabled={isFetchingEmails}
-                  className="h-8 w-8 p-0"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${
-                      isFetchingEmails ? "animate-spin" : ""
-                    }`}
-                  />
-                </Button>
-              </div>
-              <div className="w-[200px]">
-                {isFetchingEmails ? (
-                  <div className="p-8 flex justify-center items-center">
-                    <RefreshCw className="h-6 w-6 animate-spin" />
-                  </div>
-                ) : (
-                  <div>
-                    {emails.map((email, index) => (
-                      <button
-                        key={email.id}
-                        onClick={() => setSelectedEmail(email)}
-                        className={`w-full text-left px-4 py-3 text-sm transition-colors hover:bg-muted
-                          ${selectedEmail?.id === email.id ? "bg-muted" : ""}`}
-                      >
-                        Random Email #{index + 1}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Email Content */}
-            <div className="h-[40vh]">
-              {selectedEmail ? (
-                <div className="h-full flex flex-col">
-                  {/* Email Metadata */}
-                  <div className="p-4 border-b space-y-2 flex-shrink-0">
-                    <div className="flex items-baseline justify-between">
-                      <h2 className="text-xl font-semibold">
-                        {selectedEmail.subject}
-                      </h2>
-                      <span className="text-sm text-muted-foreground">
-                        {new Date(
-                          selectedEmail.received_at
-                        ).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      From: {selectedEmail.sender}
-                    </div>
-                  </div>
-                  {/* Email Body */}
-                  <div className="p-4 overflow-auto flex-grow">
-                    <div
-                      className="prose max-w-none dark:prose-invert"
-                      dangerouslySetInnerHTML={{
-                        __html: selectedEmail.body_html || "",
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-muted-foreground p-4">
-                  Select an email to view its content
-                </div>
-              )}
-            </div>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchEmails}
+            disabled={isFetchingEmails}
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isFetchingEmails ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
         </div>
 
-        {/* AI Instructions Container */}
-        <div className="space-y-2">
-          <h2 className="text-xl font-semibold px-1">AI Agent Instructions</h2>
-          <div className="border rounded-lg grid grid-cols-[auto,1fr]">
-            {/* Instructions Tabs */}
-            <div className="border-r bg-muted/50">
-              <div className="sticky top-0 p-2 border-b bg-muted">
-                <h2 className="text-sm font-medium">
-                  Saved Instructions ({systemInstructions.length}/10)
-                </h2>
-              </div>
-              <div className="flex flex-col h-[40vh]">
-                <div className="flex-1 overflow-auto w-[200px]">
-                  {systemInstructions.map((instruction, index) => (
-                    <button
-                      key={instruction.id}
-                      onClick={() => {
-                        setSelectedInstruction(instruction.id);
-                        setNewInstruction(instruction.text);
-                      }}
-                      className={`w-full text-left px-4 py-3 text-sm transition-colors hover:bg-muted
-                        ${
-                          selectedInstruction === instruction.id
-                            ? "bg-muted"
-                            : ""
-                        }`}
-                    >
-                      {formatInstructionName(instruction, index)}
-                    </button>
-                  ))}
+        {/* Email list as horizontal cards */}
+        {isFetchingEmails ? (
+          <div className="flex items-center justify-center py-12 border rounded-lg">
+            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : emails.length === 0 ? (
+          <div className="flex items-center justify-center py-12 border rounded-lg text-muted-foreground">
+            No emails found. Click Refresh to fetch.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {emails.map((email, index) => (
+              <button
+                key={email.id}
+                onClick={() => setSelectedEmail(email)}
+                className={`text-left p-3 rounded-lg border text-sm transition-colors hover:bg-muted ${
+                  selectedEmail?.id === email.id
+                    ? "border-primary bg-muted ring-1 ring-primary"
+                    : ""
+                }`}
+              >
+                <div className="font-medium truncate">
+                  Email #{index + 1}
                 </div>
-                <Button
-                  onClick={addSystemInstruction}
-                  disabled={systemInstructions.length >= 10}
-                  variant="ghost"
-                  className="w-full rounded-none border-t p-3 h-auto"
-                >
-                  + Add New
-                </Button>
-              </div>
-            </div>
+                <div className="text-xs text-muted-foreground truncate mt-1">
+                  {email.sender}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
 
-            {/* Instructions Content */}
-            <div className="h-[40vh]">
-              <div className="h-full flex flex-col p-4">
-                <div className="flex-shrink-0 space-y-4">
-                  <div className="text-sm text-muted-foreground">
-                    Define how the AI agent should respond to the selected
-                    email. Edit the instruction and click Save to update it.
-                  </div>
-                </div>
-                <div className="flex-grow flex flex-col gap-4 mt-4">
-                  <Textarea
-                    placeholder="Example: Be professional but friendly. Address their questions directly. Sign as 'Property Management Team'."
-                    value={newInstruction}
-                    onChange={(e) => setNewInstruction(e.target.value)}
-                    className="flex-grow min-h-0"
-                  />
-                  <Button
-                    onClick={updateCurrentInstruction}
-                    disabled={!newInstruction.trim()}
-                  >
-                    Save Changes
-                  </Button>
-                </div>
+        {/* Selected email preview */}
+        {selectedEmail && (
+          <div className="border rounded-lg">
+            <div className="p-4 border-b flex items-baseline justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className="font-semibold truncate">
+                  {selectedEmail.subject}
+                </h3>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  From: {selectedEmail.sender}
+                </p>
               </div>
+              <span className="text-sm text-muted-foreground shrink-0">
+                {new Date(selectedEmail.received_at).toLocaleDateString()}
+              </span>
+            </div>
+            <div className="p-4 max-h-[300px] overflow-auto">
+              <div
+                className="prose max-w-none dark:prose-invert text-sm"
+                dangerouslySetInnerHTML={{
+                  __html: selectedEmail.body_html || "",
+                }}
+              />
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </section>
 
-      {/* Generate Response Section */}
-      <div className="space-y-4">
-        <div className="flex justify-between items-baseline">
-          <h2 className="text-xl font-semibold">Generated Response</h2>
+      {/* Step 2: AI Instructions */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">
+          2. Configure AI Instructions
+        </h2>
+        <div className="border rounded-lg p-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <Select
+              value={selectedInstruction}
+              onValueChange={(value) => {
+                setSelectedInstruction(value);
+                const instruction = systemInstructions.find(
+                  (i) => i.id === value,
+                );
+                if (instruction) setNewInstruction(instruction.text);
+              }}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="Select an instruction set" />
+              </SelectTrigger>
+              <SelectContent>
+                {systemInstructions.map((instruction, index) => (
+                  <SelectItem key={instruction.id} value={instruction.id}>
+                    {formatInstructionName(instruction, index)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addSystemInstruction}
+              disabled={
+                systemInstructions.length >= 10 || !newInstruction.trim()
+              }
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add New
+            </Button>
+            {systemInstructions.length > 1 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={deleteCurrentInstruction}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          <Textarea
+            placeholder="Example: Be professional but friendly. Address their questions directly. Sign as 'Property Management Team'."
+            value={newInstruction}
+            onChange={(e) => setNewInstruction(e.target.value)}
+            rows={5}
+          />
+
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {systemInstructions.length}/10 instruction sets saved
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={updateCurrentInstruction}
+              disabled={
+                !newInstruction.trim() ||
+                newInstruction === currentInstruction?.text
+              }
+            >
+              <Save className="h-4 w-4 mr-1.5" />
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Step 3: Generate */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            3. Generate Response
+          </h2>
           <Button
             onClick={generateResponse}
             disabled={!selectedEmail || !selectedInstruction || isLoading}
-            className="w-[200px]"
           >
             {isLoading ? (
               <>
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
                 Generating...
               </>
             ) : (
-              "Generate Response"
+              <>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate
+              </>
             )}
           </Button>
         </div>
 
-        {generatedResponse && (
+        {generatedResponse ? (
           <div className="border rounded-lg p-4">
             <Textarea
               value={generatedResponse}
@@ -413,13 +403,31 @@ ${selectedEmail.body_html}`;
               className="min-h-[200px]"
             />
           </div>
+        ) : (
+          <div className="flex items-center justify-center py-12 border rounded-lg text-muted-foreground text-sm">
+            {!selectedEmail
+              ? "Select an email above to get started"
+              : "Click Generate to preview the AI response"}
+          </div>
         )}
-      </div>
+      </section>
 
-      {/* Footnote */}
-      <div className="text-sm text-muted-foreground italic text-center border-t pt-4">
-        This frontend UI was created entirely with Cursor AI (Claude 3.5 Sonnet
-        Model)
+      {/* Footer links */}
+      <div className="text-sm text-muted-foreground text-center border-t pt-4">
+        In production, responses are generated automatically via{" "}
+        <Link
+          to="/api/docs#/google/handle_gmail_notifications_api_google_pubsub_gmail_notifications_post"
+          className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+        >
+          Google PubSub webhook
+        </Link>
+        .{" "}
+        <Link
+          to="/ai-email-responder/architecture"
+          className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+        >
+          View architecture
+        </Link>
       </div>
     </div>
   );

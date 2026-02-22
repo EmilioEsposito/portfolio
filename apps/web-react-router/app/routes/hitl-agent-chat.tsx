@@ -871,6 +871,7 @@ export default function HITLAgentChatPage() {
   if (isLoadingConversation) {
     return (
       <AuthGuard
+        requireDomain="serniacapital.com"
         message="Chat with an AI agent that requires approval for sensitive actions"
         icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
       >
@@ -884,6 +885,7 @@ export default function HITLAgentChatPage() {
 
   return (
     <AuthGuard
+      requireDomain="serniacapital.com"
       message="Chat with an AI agent that requires approval for sensitive actions"
       icon={<MessageSquare className="w-16 h-16 text-muted-foreground" />}
     >

@@ -16,6 +16,7 @@ export function meta({}: Route.MetaArgs) {
 export default function SchedulerPage() {
   return (
     <AuthGuard
+      requireDomain="serniacapital.com"
       message="Sign in to manage scheduled jobs and tasks"
       icon={<Calendar className="w-16 h-16 text-muted-foreground" />}
     >
