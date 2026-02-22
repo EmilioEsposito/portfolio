@@ -18,6 +18,7 @@ import {
   MessagesSquare,
   ShieldCheck,
   ClipboardCheck,
+  FolderOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -167,13 +168,22 @@ export function AppSidebar() {
           icon: Building,
           onClick: toggleSidebarIfMobile,
         },
-        ...(isSerniaCapitalUser ? [{
-          type: "navigation" as const,
-          title: "Message Tenants",
-          url: "/message-tenants",
-          icon: MessagesSquare,
-          onClick: toggleSidebarIfMobile,
-        }] : []),
+        ...(isSerniaCapitalUser ? [
+          {
+            type: "navigation" as const,
+            title: "Message Tenants",
+            url: "/message-tenants",
+            icon: MessagesSquare,
+            onClick: toggleSidebarIfMobile,
+          },
+          {
+            type: "navigation" as const,
+            title: "AI Workspace",
+            url: "/workspace",
+            icon: FolderOpen,
+            onClick: toggleSidebarIfMobile,
+          },
+        ] : []),
       ],
     },
     {

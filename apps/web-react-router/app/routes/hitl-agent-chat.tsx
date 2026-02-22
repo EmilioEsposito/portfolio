@@ -102,7 +102,7 @@ function ToolApprovalCard({
         ? { body: editedBody }
         : undefined;
 
-      const url = `/api/ai/hitl-agent/conversation/${conversationId}/approve`;
+      const url = `/api/ai-demos/hitl-agent/conversation/${conversationId}/approve`;
       console.log("Approval URL:", url, "conversationId:", conversationId);
 
       const res = await fetch(url, {
@@ -399,7 +399,7 @@ export default function HITLAgentChatPage() {
     setIsLoadingHistory(true);
     try {
       const token = await getToken();
-      const res = await fetch("/api/ai/hitl-agent/conversations/history", {
+      const res = await fetch("/api/ai-demos/hitl-agent/conversations/history", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -422,7 +422,7 @@ export default function HITLAgentChatPage() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}`, {
+      const res = await fetch(`/api/ai-demos/hitl-agent/conversation/${convId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -456,7 +456,7 @@ export default function HITLAgentChatPage() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}/messages`, {
+      const res = await fetch(`/api/ai-demos/hitl-agent/conversation/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -515,7 +515,7 @@ export default function HITLAgentChatPage() {
     // Use a function for headers to get fresh token on each request
     // This prevents "User is not signed in" errors when token expires
     transportRef.current = new DefaultChatTransport({
-      api: "/api/ai/hitl-agent/chat",
+      api: "/api/ai-demos/hitl-agent/chat",
       // headers as a function is called fresh for each request
       headers: async () => {
         const freshToken = await getTokenRef.current();
@@ -553,7 +553,7 @@ export default function HITLAgentChatPage() {
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: conversationId,
-    transport: transportRef.current || new DefaultChatTransport({ api: "/api/ai/hitl-agent/chat" }),
+    transport: transportRef.current || new DefaultChatTransport({ api: "/api/ai-demos/hitl-agent/chat" }),
   } as any);
 
   // Apply pending messages from URL load once transport is ready
@@ -833,7 +833,7 @@ export default function HITLAgentChatPage() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`/api/ai/hitl-agent/conversation/${convId}/messages`, {
+      const res = await fetch(`/api/ai-demos/hitl-agent/conversation/${convId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

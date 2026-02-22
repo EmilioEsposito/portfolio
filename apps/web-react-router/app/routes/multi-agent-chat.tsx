@@ -107,7 +107,7 @@ export default function MultiAgentChatPage() {
 
   const { messages, sendMessage, status, stop } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/ai/multi-agent-chat",
+      api: "/api/ai-demos/multi-agent-chat",
       prepareSendMessagesRequest: ({ messages, body, trigger, id }) => {
         // Transform messages to UIMessage format with parts array
         const transformedMessages = messages.map((msg: any) => {

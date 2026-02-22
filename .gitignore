@@ -73,3 +73,6 @@ scratch/
 
 # DBOS SQLite databases
 *.sqlite
+
+# AI agent workspace (managed by Sernia agent)
+.workspace/

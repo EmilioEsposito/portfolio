@@ -139,7 +139,7 @@ export default function ChatWeatherPage() {
 
   const { messages, sendMessage, status, stop } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/ai/chat-weather",
+      api: "/api/ai-demos/chat-weather",
       prepareSendMessagesRequest: ({ messages, body, trigger, id }) => {
         // Transform messages to UIMessage format with parts array
         const transformedMessages = messages.map((msg: any) => {

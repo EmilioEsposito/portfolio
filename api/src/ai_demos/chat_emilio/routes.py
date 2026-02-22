@@ -18,9 +18,9 @@ from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_ai.ui.vercel_ai.request_types import RequestData, SubmitMessage
 
-from api.src.ai.chat_emilio.agent import agent, PortfolioContext
+from api.src.ai_demos.chat_emilio.agent import agent, PortfolioContext
 from api.src.utils.swagger_schema import expand_json_schema
-from api.src.ai.models import persist_agent_run_result
+from api.src.ai_demos.models import persist_agent_run_result
 import functools
 from api.src.database.database import DBSession
 
@@ -162,7 +162,7 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
         latest_message = messages[-1]
         logfire.info("new chat message",
             slack_alert=True,
-            endpoint="/api/ai/chat-emilio",
+            endpoint="/api/ai-demos/chat-emilio",
             message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
         )
 

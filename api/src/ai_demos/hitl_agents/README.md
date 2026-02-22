@@ -16,7 +16,7 @@ Agents with tools that require user approval before execution.
 ## Key Exports
 
 ```python
-from api.src.ai.hitl_agents.hitl_sms_agent import (
+from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,       # The agent (already has persistence patch applied)
     HITLAgentContext,     # Context dataclass with clerk_user_id, conversation_id
     resume_with_approvals, # Resume agent after user approves/denies
@@ -29,11 +29,11 @@ from api.src.ai.hitl_agents.hitl_sms_agent import (
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/ai/hitl-agent/chat` | Streaming chat (Vercel AI SDK) |
-| `POST /api/ai/hitl-agent/conversation/{id}/approve` | Approve/deny pending tools |
-| `GET /api/ai/hitl-agent/conversations/history` | List user's conversations |
-| `GET /api/ai/hitl-agent/conversation/{id}/messages` | Load conversation messages |
-| `DELETE /api/ai/hitl-agent/conversation/{id}` | Delete conversation |
+| `POST /api/ai-demos/hitl-agent/chat` | Streaming chat (Vercel AI SDK) |
+| `POST /api/ai-demos/hitl-agent/conversation/{id}/approve` | Approve/deny pending tools |
+| `GET /api/ai-demos/hitl-agent/conversations/history` | List user's conversations |
+| `GET /api/ai-demos/hitl-agent/conversation/{id}/messages` | Load conversation messages |
+| `DELETE /api/ai-demos/hitl-agent/conversation/{id}` | Delete conversation |
 
 ## Usage Example
 

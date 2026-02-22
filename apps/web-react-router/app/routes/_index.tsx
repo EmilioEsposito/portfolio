@@ -5,7 +5,7 @@ import { Link } from "react-router";
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Emilio Esposito - Portfolio" },
-    { name: "description", content: "Director & Distinguished Engineer - AI Engineering & Enablement at LegalZoom | VP & Managing Partner at Sernia Capital." },
+    { name: "description", content: "Senior Director & Distinguished Engineer - AI Engineering & Enablement at LegalZoom | VP & Managing Partner at Sernia Capital." },
   ];
 }
 
@@ -42,7 +42,7 @@ export default function Home() {
         </div>
         <div className="mt-4 text-muted-foreground">
           <P>
-            Distinguished Engineer / Director, AI Enablement at LegalZoom, with prior Director/Manager/IC roles
+            Distinguished Engineer / Senior Director, AI Engineering & Enablement at LegalZoom, with prior Director/Manager/IC roles
             in Data Science & Analytics at LegalZoom and Intuit.
           </P>
           <P>

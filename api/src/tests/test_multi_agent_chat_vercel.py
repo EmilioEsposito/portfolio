@@ -16,7 +16,7 @@ def client():
 
 def test_multi_agent_chat_routes_to_weather(client):
     """
-    Test that the /api/ai/multi-agent-chat endpoint routes weather questions correctly.
+    Test that the /api/ai-demos/multi-agent-chat endpoint routes weather questions correctly.
     
     Verifies:
     - Response status is 200
@@ -44,7 +44,7 @@ def test_multi_agent_chat_routes_to_weather(client):
     # Make streaming request
     with client.stream(
         "POST",
-        "/api/ai/multi-agent-chat",
+        "/api/ai-demos/multi-agent-chat",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
@@ -141,7 +141,7 @@ def test_multi_agent_chat_routes_to_weather(client):
 
 def test_multi_agent_chat_routes_to_emilio(client):
     """
-    Test that the /api/ai/multi-agent-chat endpoint routes Emilio questions correctly.
+    Test that the /api/ai-demos/multi-agent-chat endpoint routes Emilio questions correctly.
     
     Verifies:
     - Response status is 200
@@ -168,7 +168,7 @@ def test_multi_agent_chat_routes_to_emilio(client):
     # Make streaming request
     with client.stream(
         "POST",
-        "/api/ai/multi-agent-chat",
+        "/api/ai-demos/multi-agent-chat",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
@@ -235,7 +235,7 @@ def test_multi_agent_chat_handles_conversation_history(client):
     
     with client.stream(
         "POST",
-        "/api/ai/multi-agent-chat",
+        "/api/ai-demos/multi-agent-chat",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
@@ -261,7 +261,7 @@ def test_multi_agent_chat_handles_empty_messages(client):
     
     with client.stream(
         "POST",
-        "/api/ai/multi-agent-chat",
+        "/api/ai-demos/multi-agent-chat",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:

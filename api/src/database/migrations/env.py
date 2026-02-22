@@ -17,7 +17,7 @@ from api.src.open_phone.models import *  # noqa
 from api.src.push.models import *  # noqa
 from api.src.user.models import *  # noqa
 from api.src.contact.models import *  # noqa
-from api.src.ai.models import *  # noqa
+from api.src.ai_demos.models import *  # noqa
 from api.src.database.database import DATABASE_URL, engine, Base
 
 

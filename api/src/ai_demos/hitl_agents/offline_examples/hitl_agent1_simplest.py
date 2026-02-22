@@ -36,7 +36,7 @@ import asyncio
 import json
 from pprint import pprint
 from api.src.database.database import AsyncSessionFactory
-from api.src.ai.models import save_agent_conversation, get_conversation_messages, persist_agent_run_result
+from api.src.ai_demos.models import save_agent_conversation, get_conversation_messages, persist_agent_run_result
 
 # --- Agent Definition ---
 hitl_agent1 = Agent(

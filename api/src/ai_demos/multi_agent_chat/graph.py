@@ -14,9 +14,9 @@ from pydantic_graph.beta import GraphBuilder, StepContext
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai.chat_emilio.agent import agent as emilio_agent, PortfolioContext as EmilioContext
-from api.src.ai.chat_weather.agent import agent as weather_agent, ChatContext as WeatherContext
-from api.src.ai.multi_agent_chat.decision_agent import AgentName, router_agent
+from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent, PortfolioContext as EmilioContext
+from api.src.ai_demos.chat_weather.agent import agent as weather_agent, ChatContext as WeatherContext
+from api.src.ai_demos.multi_agent_chat.decision_agent import AgentName, router_agent
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 
 
@@ -248,8 +248,8 @@ def build_test_vercel_request(payload: dict) -> Request:
         "http_version": "1.1",
         "method": "POST",
         "scheme": "http",
-        "path": "/api/ai/multi-agent-chat",
-        "raw_path": b"/api/ai/multi-agent-chat",
+        "path": "/api/ai-demos/multi-agent-chat",
+        "raw_path": b"/api/ai-demos/multi-agent-chat",
         "root_path": "",
         "query_string": b"",
         "headers": [

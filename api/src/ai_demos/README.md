@@ -1,13 +1,14 @@
-# AI Agents
+# AI Demo Agents
 
-This directory contains AI agents built with PydanticAI.
+This directory contains AI demo agents built with PydanticAI.
 
 ```
-ai/
+ai_demos/
 ├─ models.py                # Shared: AgentConversation model, persistence helpers
+├─ hitl_utils.py             # Shared: HITL approval utilities (used by hitl_agents + ai_sernia)
 ├─ agent_run_patching.py    # Shared: Auto-persistence patch for agents
-├─ chat_emilio/             # Portfolio assistant (/api/ai/chat-emilio)
-├─ chat_weather/            # Weather + general chat (/api/ai/chat-weather)
+├─ chat_emilio/             # Portfolio assistant (/api/ai-demos/chat-emilio)
+├─ chat_weather/            # Weather + general chat (/api/ai-demos/chat-weather)
 ├─ multi_agent_chat/        # Graph router that fans out to leaf agents
 └─ hitl_agents/             # Human-in-the-Loop agents with approval workflows
 ```
@@ -17,7 +18,7 @@ ai/
 Agents that need conversation persistence can use the `patch_run_with_persistence` helper. This patches `agent.run()` to automatically save results to the database after each run.
 
 ```python
-from api.src.ai.agent_run_patching import patch_run_with_persistence
+from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
 
 my_agent = Agent(...)
 patch_run_with_persistence(my_agent)
@@ -27,7 +28,7 @@ result = await my_agent.run(
     user_prompt="Hello",
     deps=MyContext(clerk_user_id="user_123", conversation_id="conv_456"),
 )
-# ✓ Conversation saved to agent_conversations table
+# Conversation saved to agent_conversations table
 ```
 
 **Requirements:**
@@ -42,8 +43,8 @@ cd /Users/eesposito/portfolio
 source .venv/bin/activate
 
 # Run the simple in-file agent tests
-python -c "from api.src.ai.chat_emilio.agent import test_agent; import asyncio; asyncio.run(test_agent())"
-python -c "from api.src.ai.chat_weather.agent import test_agent"
+python -c "from api.src.ai_demos.chat_emilio.agent import test_agent; import asyncio; asyncio.run(test_agent())"
+python -c "from api.src.ai_demos.chat_weather.agent import test_agent"
 
 # Exercise the multi-agent streaming endpoint (FastAPI + Vercel adapter)
 pytest api/src/tests/test_multi_agent_chat_vercel.py -k weather -vv

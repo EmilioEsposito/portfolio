@@ -19,3 +19,18 @@ See [api/README.md](api/README.md) for more directions on FastAPI backend.
 
 # More General
 See [README.md](README.md) for more context (remember not all of this is relevant to you, Codex Cloud Agent).
+
+# API Routing Convention
+
+**Module → prefix mapping must match the folder name.** Each top-level module in `api/src/` gets its own router mounted directly on the app with a prefix that mirrors the Python module name (underscores become hyphens).
+
+| Python module | API prefix | Example endpoint |
+|---------------|-----------|------------------|
+| `api/src/ai_demos/` | `/api/ai-demos` | `/api/ai-demos/chat-emilio` |
+| `api/src/ai_sernia/` | `/api/ai-sernia` | `/api/ai-sernia/chat` |
+| `api/src/open_phone/` | `/api/open-phone` | `/api/open-phone/webhook` |
+
+**Rules:**
+- Never nest one module's router inside another module's router. Each module mounts directly on the app in `api/index.py`.
+- The URL prefix is the module folder name with underscores replaced by hyphens.
+- Sub-routers within a module use relative prefixes (e.g. `workspace_admin/routes.py` uses `prefix="/workspace"` under `ai_sernia`).

@@ -94,7 +94,7 @@ export default function ChatEmilioPage() {
     stop,
   } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/ai/chat-emilio",
+      api: "/api/ai-demos/chat-emilio",
       prepareSendMessagesRequest: ({ messages, body, trigger, id }) => {
         // Transform messages to UIMessage format with parts array
         const transformedMessages = messages.map((msg: any) => {
