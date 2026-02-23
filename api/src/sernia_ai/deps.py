@@ -14,5 +14,6 @@ class SerniaDeps:
     conversation_id: str
     user_identifier: str  # clerk_user_id, phone number, or email
     user_name: str  # Display name for the agent to use
+    user_email: str  # @serniacapital.com email for Google delegation
     modality: Literal["sms", "email", "web_chat"]
     workspace_path: Path  # Path to .workspace/ sandbox root

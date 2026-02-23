@@ -57,6 +57,10 @@ dependencies = [
     "croniter>=6.0.0",
     "uvicorn>=0.32.0",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
+    "pydantic-monty>=0.0.7",
+    "pypdf>=6.7.2",
+    "fastmcp>=2.0.0",
+    "rapidfuzz>=3.0.0",
 ]
 
 [dependency-groups]

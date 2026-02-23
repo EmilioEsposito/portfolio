@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals as _extract_pending_approvals,
     extract_pending_approval as _extract_pending_approval,
+    extract_tool_results as _extract_tool_results,
     ApprovalDecision,
     resume_with_approvals as _resume_with_approvals_generic,
 )
@@ -89,6 +90,7 @@ patch_run_with_persistence(hitl_sms_agent)
 # Re-export for backward compatibility (hitl_agents/routes.py imports from here)
 extract_pending_approval = _extract_pending_approval
 extract_pending_approvals = _extract_pending_approvals
+extract_tool_results = _extract_tool_results
 # ApprovalDecision is imported from hitl_utils and re-exported above
 
 

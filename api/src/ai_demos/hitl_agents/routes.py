@@ -33,6 +33,7 @@ from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
     HITLAgentContext,
     resume_with_approvals,
     extract_pending_approvals,
+    extract_tool_results,
     ApprovalDecision,
 )
 from api.src.ai_demos.models import (
@@ -260,8 +261,18 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
             session=session,
         )
 
+        # Persist the approval result to DB so follow-up messages have full history
+        await persist_agent_run_result(
+            result,
+            conversation_id=conversation_id,
+            agent_name=hitl_sms_agent.name,
+            clerk_user_id=clerk_user_id,
+            session=session,
+        )
+
         # Check if there are more pending approvals
         pending = extract_pending_approvals(result)
+        tool_results = extract_tool_results(result)
 
         # Return the decisions with their approval status for UI display
         processed_decisions = [
@@ -273,6 +284,7 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
             "conversation_id": conversation_id,
             "output": result.output if isinstance(result.output, str) else None,
             "pending": pending,  # Always a list
+            "tool_results": tool_results,
             "status": "pending_approval" if pending else "completed",
             "decisions": processed_decisions,  # What was approved/denied
         }
