@@ -22,6 +22,7 @@ from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals,
+    extract_tool_results,
     ApprovalDecision,
     resume_with_approvals,
 )
@@ -66,6 +67,17 @@ router = APIRouter(
 # Helper to resolve display name from Clerk User
 def _display_name(user: User) -> str:
     return f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
+
+
+def _sernia_email(user: User) -> str:
+    """Extract the @serniacapital.com email from a Clerk User."""
+    for ea in user.email_addresses or []:
+        addr = ea.email_address if hasattr(ea, "email_address") else str(ea)
+        if addr.endswith("@serniacapital.com"):
+            return addr
+    # Fallback: construct from first name (all Sernia users have one)
+    name = (user.first_name or "unknown").lower()
+    return f"{name}@serniacapital.com"
 
 
 # =============================================================================
@@ -140,6 +152,7 @@ async def chat_sernia(
         conversation_id=conversation_id or "",
         user_identifier=clerk_user_id,
         user_name=user_name,
+        user_email=_sernia_email(user),
         modality="web_chat",
         workspace_path=WORKSPACE_PATH,
     )
@@ -224,6 +237,7 @@ async def approve_conversation(
             conversation_id=conversation_id,
             user_identifier=clerk_user_id,
             user_name=user_name,
+            user_email=_sernia_email(user),
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
         )
@@ -236,14 +250,26 @@ async def approve_conversation(
             clerk_user_id=clerk_user_id,
             session=session,
         )
+
+        # Persist the approval result (tool outputs + agent follow-up) to DB
+        # so that subsequent messages have the full conversation history.
+        await persist_agent_run_result(
+            result,
+            conversation_id=conversation_id,
+            agent_name=AGENT_NAME,
+            clerk_user_id=clerk_user_id,
+            session=session,
+        )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
         pending = extract_pending_approvals(result)
+        tool_results = extract_tool_results(result)
 
         return {
             "conversation_id": conversation_id,
             "output": result.output if isinstance(result.output, str) else None,
             "pending": pending,
+            "tool_results": tool_results,
             "status": "pending_approval" if pending else "completed",
             "decisions": [
                 {"tool_call_id": d.tool_call_id, "approved": d.approved}
@@ -377,6 +403,7 @@ async def get_system_instructions(
         conversation_id="",
         user_identifier=user.id,
         user_name=resolved_name,
+        user_email=_sernia_email(user),
         modality=modality,
         workspace_path=WORKSPACE_PATH,
     )

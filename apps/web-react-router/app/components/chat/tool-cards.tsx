@@ -62,7 +62,10 @@ export function ToolApprovalCard({
   apiBase: string;
 }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editedBody, setEditedBody] = useState(pending.args?.body || "");
+  // Support both "body" and "message" arg names
+  const messageArgKey = pending.args?.message !== undefined ? "message" : "body";
+  const messageArgValue = pending.args?.[messageArgKey] || "";
+  const [editedBody, setEditedBody] = useState(messageArgValue);
   const [processing, setProcessing] = useState(false);
 
   const handleApproval = async (approved: boolean) => {
@@ -70,8 +73,8 @@ export function ToolApprovalCard({
     try {
       const token = await getToken();
       const overrideArgs =
-        isEditing && editedBody !== pending.args?.body
-          ? { body: editedBody }
+        isEditing && editedBody !== messageArgValue
+          ? { [messageArgKey]: editedBody }
           : undefined;
 
       const url = `${apiBase}/conversation/${conversationId}/approve`;
@@ -168,7 +171,7 @@ export function ToolApprovalCard({
                 className="min-h-[80px] bg-background"
                 disabled={isDisabled}
               />
-              {editedBody !== pending.args?.body && (
+              {editedBody !== messageArgValue && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Modified - will override AI's suggestion
                 </p>
@@ -178,7 +181,7 @@ export function ToolApprovalCard({
                 size="sm"
                 onClick={() => {
                   setIsEditing(false);
-                  setEditedBody(pending.args?.body || "");
+                  setEditedBody(messageArgValue);
                 }}
                 disabled={isDisabled}
               >
@@ -187,7 +190,7 @@ export function ToolApprovalCard({
             </div>
           ) : (
             <p className="p-2 bg-background rounded border whitespace-pre-wrap">
-              {pending.args?.body || "(No message body)"}
+              {messageArgValue || "(No message body)"}
             </p>
           )}
         </div>
@@ -223,7 +226,10 @@ export function ToolApprovalCard({
   );
 }
 
-/** Completed tool result display - shows both input and output */
+// Hard truncation limit for very long tool results (chars).
+const RESULT_TRUNCATE_LIMIT = 2000;
+
+/** Completed tool result display — always shows result, expand for input details */
 export function ToolResultCard({
   toolName,
   args,
@@ -239,6 +245,13 @@ export function ToolResultCard({
     result === "The tool call was denied." ||
     result.startsWith("Denied:");
 
+  const isTruncated = result.length > RESULT_TRUNCATE_LIMIT;
+  const displayResult = isTruncated
+    ? result.slice(0, RESULT_TRUNCATE_LIMIT) + "…"
+    : result;
+
+  const hasArgs = args && Object.keys(args).length > 0;
+
   return (
     <Card
       className={cn(
@@ -248,70 +261,75 @@ export function ToolResultCard({
           : "border-green-300 bg-green-50/50 dark:bg-green-950/10"
       )}
     >
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full text-left"
-      >
-        <CardHeader className="pb-2 py-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {isDenied ? (
-                <XCircle className="w-4 h-4 text-red-500" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-green-500" />
-              )}
-              <span className="text-sm font-medium">
-                {isDenied ? "Action Denied" : "Action Completed"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                {toolName}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {isExpanded ? "\u25BC" : "\u25B6"}
-              </span>
-            </div>
+      <CardHeader className="pb-0 py-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {isDenied ? (
+              <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+            )}
+            <span className="text-sm font-medium">
+              {isDenied ? "Action Denied" : "Action Completed"}
+            </span>
           </div>
-        </CardHeader>
-      </button>
-      {isExpanded && (
-        <CardContent className="pt-0 pb-3 space-y-2">
-          {args && Object.keys(args).length > 0 && (
-            <div className="text-sm">
-              <Label className="text-muted-foreground text-xs">Input</Label>
-              {args.to && (
-                <p className="text-xs">
-                  <span className="text-muted-foreground">To:</span> {args.to}
-                </p>
-              )}
-              {args.body && (
-                <p className="text-xs mt-1 p-2 bg-background rounded border whitespace-pre-wrap">
-                  {args.body}
-                </p>
-              )}
-              {!args.to && !args.body && (
-                <pre className="text-xs overflow-x-auto bg-background p-2 rounded border mt-1">
-                  {JSON.stringify(args, null, 2)}
-                </pre>
-              )}
-            </div>
+          <Badge variant="outline" className="text-xs">
+            {toolName}
+          </Badge>
+        </div>
+      </CardHeader>
+
+      {/* Result — always visible */}
+      <CardContent className="pt-1 pb-2 space-y-2">
+        <div
+          className={cn(
+            "text-xs whitespace-pre-wrap rounded border p-2 bg-background",
+            isDenied
+              ? "text-red-600 dark:text-red-400"
+              : "text-green-700 dark:text-green-400",
+            // Scrollable for medium-length results
+            displayResult.length > 200 && "max-h-[160px] overflow-y-auto"
           )}
-          <div className="text-sm">
-            <Label className="text-muted-foreground text-xs">Result</Label>
-            <p
-              className={cn(
-                "text-xs mt-1",
-                isDenied
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-green-600 dark:text-green-400"
-              )}
+        >
+          {displayResult}
+          {isTruncated && (
+            <span className="text-muted-foreground"> (truncated)</span>
+          )}
+        </div>
+
+        {/* Expandable input details */}
+        {hasArgs && (
+          <>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
             >
-              {result}
-            </p>
-          </div>
-        </CardContent>
-      )}
+              <span>{isExpanded ? "\u25BC" : "\u25B6"}</span>
+              Input details
+            </button>
+            {isExpanded && (
+              <div className="text-sm">
+                {args.to && (
+                  <p className="text-xs">
+                    <span className="text-muted-foreground">To:</span>{" "}
+                    {args.to}
+                  </p>
+                )}
+                {(args.body || args.message) && (
+                  <p className="text-xs mt-1 p-2 bg-background rounded border whitespace-pre-wrap">
+                    {args.body || args.message}
+                  </p>
+                )}
+                {!args.to && !args.body && !args.message && (
+                  <pre className="text-xs overflow-x-auto bg-background p-2 rounded border mt-1">
+                    {JSON.stringify(args, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
     </Card>
   );
 }

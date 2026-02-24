@@ -28,10 +28,10 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 
 # Main agent model.
 # Anthropic required for WebSearchTool (allowed_domains) and WebFetchTool.
-MAIN_AGENT_MODEL = "anthropic:claude-sonnet-4-5"
+MAIN_AGENT_MODEL = "anthropic:claude-sonnet-4-6"
 
 # Sub-agent model (cheaper, no builtin tool dependency)
-SUB_AGENT_MODEL = "openai:gpt-4o-mini"
+SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
 
 # Agent name used for conversation persistence
 AGENT_NAME = "sernia"
@@ -40,3 +40,15 @@ AGENT_NAME = "sernia"
 WORKSPACE_PATH = Path(
     os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parents[3] / ".workspace")
 )
+
+# ClickUp
+CLICKUP_TEAM_ID = "90131316997"
+DEFAULT_CLICKUP_VIEW_ID = "2ky3xg85-573"  # Peppino View
+
+# Quo (OpenPhone) phone IDs
+# Sernia AI: internal-only line for messaging the team and shared number.
+QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
+# Shared team number: the only line allowed to message external contacts.
+QUO_SHARED_EXTERNAL_PHONE_ID = "PNpTZEJ7la"
+# Company name used to distinguish internal vs external contacts.
+QUO_INTERNAL_COMPANY = "Sernia Capital LLC"

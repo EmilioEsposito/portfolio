@@ -1,10 +1,8 @@
 """
 Main Sernia AI agent definition.
 
-Phase 2: Memory system (workspace file tools + dynamic instructions)
-     + HITL foundation (output_type includes DeferredToolRequests).
-
-Custom toolsets (Quo, Google, ClickUp, etc.) will be added in later phases.
+Includes memory system (workspace file tools + dynamic instructions),
+HITL approval flow, and core toolsets (OpenPhone, Gmail, Calendar, ClickUp, DB search).
 """
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
@@ -17,6 +15,11 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+from api.src.sernia_ai.tools.openphone_tools import quo_toolset
+from api.src.sernia_ai.tools.google_tools import google_toolset
+from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
+from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
+from api.src.sernia_ai.tools.code_tools import code_toolset
 
 
 def _build_builtin_tools() -> list:
@@ -51,7 +54,14 @@ sernia_agent = Agent(
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, DeferredToolRequests],  # HITL foundation
     builtin_tools=_build_builtin_tools(),
-    toolsets=[filesystem_toolset],
+    toolsets=[
+        filesystem_toolset,
+        quo_toolset,
+        google_toolset,
+        clickup_toolset,
+        db_search_toolset,
+        code_toolset,
+    ],
     instrument=True,
     name=AGENT_NAME,
 )

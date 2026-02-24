@@ -204,6 +204,9 @@ function ChatView({
         }
       }
 
+      // Backend returns actual tool results keyed by tool_call_id
+      const toolResults: Record<string, string> = result.tool_results || {};
+
       setMessages((prev: any[]) => {
         const updated = [...prev];
         const lastAssistantIdx = updated.findLastIndex(
@@ -217,15 +220,17 @@ function ChatView({
                 part.type?.startsWith("tool-") &&
                 part.state === "input-available"
               ) {
-                const toolName = part.type.replace("tool-", "");
                 const wasApproved = part.toolCallId
                   ? (decisionMap.get(part.toolCallId) ?? true)
                   : true;
+                const realResult = part.toolCallId
+                  ? toolResults[part.toolCallId]
+                  : undefined;
                 return {
                   ...part,
                   state: "output-available",
                   output: wasApproved
-                    ? `${toolName} completed successfully`
+                    ? realResult || "Completed"
                     : "Denied by user",
                 };
               }

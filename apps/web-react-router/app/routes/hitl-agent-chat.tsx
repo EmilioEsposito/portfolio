@@ -695,6 +695,9 @@ export default function HITLAgentChatPage() {
       }
     }
 
+    // Backend returns actual tool results keyed by tool_call_id
+    const toolResults: Record<string, string> = result.tool_results || {};
+
     // Update the last message to include the tool result, then add the agent's response
     setMessages((prev: any[]) => {
       const updated = [...prev];
@@ -707,15 +710,15 @@ export default function HITLAgentChatPage() {
         if (lastMsg.parts) {
           lastMsg.parts = lastMsg.parts.map((part: any) => {
             if (part.type?.startsWith("tool-") && part.state === "input-available") {
-              const toolName = part.type.replace("tool-", "");
               // Look up approval status from decisions, default to true if not found
               const toolCallId = part.toolCallId;
               const wasApproved = toolCallId ? decisionMap.get(toolCallId) ?? true : true;
+              const realResult = toolCallId ? toolResults[toolCallId] : undefined;
               return {
                 ...part,
                 state: "output-available",
                 output: wasApproved
-                  ? `${toolName} completed successfully`
+                  ? realResult || "Completed"
                   : "Denied by user",
               };
             }

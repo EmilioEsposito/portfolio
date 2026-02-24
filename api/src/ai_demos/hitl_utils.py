@@ -23,6 +23,27 @@ from api.src.ai_demos.models import get_conversation_messages
 from api.src.database.database import provide_session
 
 
+def extract_tool_results(result: AgentRunResult) -> dict[str, str]:
+    """
+    Extract tool return values from an agent result's new messages.
+
+    Returns a dict mapping tool_call_id → result string for each
+    ToolReturnPart in the new messages produced by the run.
+    """
+    from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
+    tool_results: dict[str, str] = {}
+    for msg in result.new_messages():
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    content = part.content
+                    if not isinstance(content, str):
+                        content = json.dumps(content)
+                    tool_results[part.tool_call_id] = content
+    return tool_results
+
+
 def extract_pending_approvals(result: AgentRunResult) -> list[dict]:
     """
     Extract all pending approval info from an agent result.
