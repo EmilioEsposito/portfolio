@@ -130,7 +130,7 @@ class SerniaDeps:
     user_email: str                 # @serniacapital.com (used for Google delegation)
     modality: Literal["sms", "email", "web_chat"]
     workspace_path: Path
-    trigger_context: str | None     # Set by triggers, None for web chat
+    trigger_instructions: str | None     # Set by triggers, None for web chat
 ```
 
 ### Dynamic Instructions
@@ -143,7 +143,7 @@ All in `instructions.py`, passed as `instructions=[STATIC_INSTRUCTIONS, *DYNAMIC
 | `inject_memory` | `.workspace/MEMORY.md` content (capped at 5k chars) |
 | `inject_filetree` | ASCII tree of `.workspace/` (capped at 3k chars) |
 | `inject_modality_guidance` | SMS: short/direct, email: formal, web_chat: conversational |
-| `inject_trigger_guidance` | Trigger decision framework (only when `trigger_context` is set) |
+| `inject_trigger_guidance` | Trigger decision framework (only when `trigger_instructions` is set) |
 
 ### Token Management
 
@@ -375,7 +375,7 @@ Core function shared by all triggers:
 1. **Rate-limit check**: If the `rate_limit_key` (e.g. `sms:+1415...`) fired within the last 2 minutes, skip with a Logfire log and return `None`
 2. Creates its own `AsyncSession` (not from FastAPI DI — runs outside HTTP context)
 3. Builds `SerniaDeps` with system identity (`system:sernia-ai`, `emilio@serniacapital.com`)
-4. Runs agent with synthetic prompt + `trigger_context` for instruction injection
+4. Runs agent with synthetic prompt + `trigger_instructions` for instruction injection
 5. If `[NO_ACTION_NEEDED]` → silent return with enhanced Logfire logging (prompt preview + agent output). Workspace changes still committed.
 6. Otherwise → persists conversation, sends push notification (approval or alert)
 

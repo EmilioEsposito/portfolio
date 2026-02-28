@@ -17,4 +17,4 @@ class SerniaDeps:
     user_email: str  # @serniacapital.com email for Google delegation
     modality: Literal["sms", "email", "web_chat"]
     workspace_path: Path  # Path to .workspace/ sandbox root
-    trigger_context: str | None = None  # Set by triggers, None for normal web chat
+    trigger_instructions: str | None = None  # Set by triggers, None for normal web chat

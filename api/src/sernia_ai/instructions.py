@@ -197,14 +197,14 @@ SILENT_MARKER = "[NO_ACTION_NEEDED]"
 
 
 def inject_trigger_guidance(ctx: RunContext[SerniaDeps]) -> str:
-    if not ctx.deps.trigger_context:
+    if not ctx.deps.trigger_instructions:
         return ""
     return f"""## Trigger Event Processing
 
 You are processing an automated trigger event, not a direct user message. \
 The team will see your response in web chat.
 
-{ctx.deps.trigger_context}
+{ctx.deps.trigger_instructions}
 
 **Decision framework:**
 - If this needs human attention (reply needed, action required, important update, \

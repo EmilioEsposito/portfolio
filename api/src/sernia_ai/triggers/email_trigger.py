@@ -50,7 +50,7 @@ Ignore:
 If no emails need attention, respond with [NO_ACTION_NEEDED].
 If multiple emails need attention, prioritize the most urgent ones."""
 
-    trigger_context = """\
+    trigger_instructions = """\
 This is a scheduled general email check. Search the inbox for recent unread \
 emails that need the Sernia team's attention. Exclude Zillow emails (separate trigger) \
 and automated tool notifications. Focus on business communications that need a reply."""
@@ -64,7 +64,7 @@ and automated tool notifications. Focus on business communications that need a r
         trigger_source="email",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        trigger_context=trigger_context,
+        trigger_instructions=trigger_instructions,
         notification_title="Email needs attention",
         notification_body="New email(s) requiring your review",
         rate_limit_key="general",
@@ -96,7 +96,7 @@ Steps:
 If no Zillow emails need attention, respond with [NO_ACTION_NEEDED].
 If you find actionable items, provide a concise analysis for each thread."""
 
-    trigger_context = """\
+    trigger_instructions = """\
 This is a scheduled Zillow email check for new leads and follow-ups.
 
 **Zillow lead qualification criteria:**
@@ -134,7 +134,7 @@ This is a scheduled Zillow email check for new leads and follow-ups.
         trigger_source="zillow_email",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        trigger_context=trigger_context,
+        trigger_instructions=trigger_instructions,
         notification_title="Zillow lead needs attention",
         notification_body="New Zillow lead activity detected",
         rate_limit_key="zillow",

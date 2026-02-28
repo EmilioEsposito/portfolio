@@ -66,13 +66,13 @@ class TestSmoke:
 
         assert instr_marker == runner_marker
 
-    def test_trigger_context_field_on_deps(self):
-        """SerniaDeps should have the trigger_context field."""
+    def test_trigger_instructions_field_on_deps(self):
+        """SerniaDeps should have the trigger_instructions field."""
         from api.src.sernia_ai.deps import SerniaDeps
         import dataclasses
 
         fields = {f.name for f in dataclasses.fields(SerniaDeps)}
-        assert "trigger_context" in fields
+        assert "trigger_instructions" in fields
 
     def test_inject_trigger_guidance_in_dynamic_instructions(self):
         """inject_trigger_guidance should be in DYNAMIC_INSTRUCTIONS."""
@@ -388,14 +388,14 @@ class TestEmailTrigger:
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args[1]
             assert call_kwargs["trigger_source"] == "zillow_email"
-            assert "credit score" in call_kwargs["trigger_context"].lower()
+            assert "credit score" in call_kwargs["trigger_instructions"].lower()
 
 
 class TestInjectTriggerGuidance:
     """Test the trigger guidance dynamic instruction."""
 
-    def test_returns_empty_without_trigger_context(self):
-        """When trigger_context is None, instruction should return empty string."""
+    def test_returns_empty_without_trigger_instructions(self):
+        """When trigger_instructions is None, instruction should return empty string."""
         from types import SimpleNamespace
         from api.src.sernia_ai.instructions import inject_trigger_guidance
         from api.src.sernia_ai.deps import SerniaDeps
@@ -408,14 +408,14 @@ class TestInjectTriggerGuidance:
             user_email="test@serniacapital.com",
             modality="web_chat",
             workspace_path="/tmp",  # type: ignore
-            trigger_context=None,
+            trigger_instructions=None,
         )
         ctx = SimpleNamespace(deps=deps)
         result = inject_trigger_guidance(ctx)  # type: ignore
         assert result == ""
 
-    def test_returns_guidance_with_trigger_context(self):
-        """When trigger_context is set, instruction should include it."""
+    def test_returns_guidance_with_trigger_instructions(self):
+        """When trigger_instructions is set, instruction should include it."""
         from types import SimpleNamespace
         from api.src.sernia_ai.instructions import inject_trigger_guidance
         from api.src.sernia_ai.deps import SerniaDeps
@@ -428,7 +428,7 @@ class TestInjectTriggerGuidance:
             user_email="emilio@serniacapital.com",
             modality="web_chat",
             workspace_path="/tmp",  # type: ignore
-            trigger_context="This is an inbound SMS trigger.",
+            trigger_instructions="This is an inbound SMS trigger.",
         )
         ctx = SimpleNamespace(deps=deps)
         result = inject_trigger_guidance(ctx)  # type: ignore

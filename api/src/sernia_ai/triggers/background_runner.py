@@ -63,7 +63,7 @@ async def run_agent_for_trigger(
     trigger_source: str,
     trigger_prompt: str,
     trigger_metadata: dict,
-    trigger_context: str = "",
+    trigger_instructions: str = "",
     notification_title: str = "",
     notification_body: str = "",
     rate_limit_key: str | None = None,
@@ -75,7 +75,7 @@ async def run_agent_for_trigger(
         trigger_source: Origin of the trigger ("sms", "email", "zillow_email").
         trigger_prompt: Synthetic user message describing the event.
         trigger_metadata: Stored in conversation metadata_ JSON for frontend display.
-        trigger_context: Injected into agent instructions via deps.trigger_context.
+        trigger_instructions: Injected into agent instructions via deps.trigger_instructions.
         notification_title: Title for the push notification (if conversation created).
         notification_body: Body for the push notification (if conversation created).
         rate_limit_key: Cooldown key (e.g. phone number for SMS). When provided,
@@ -130,7 +130,7 @@ async def run_agent_for_trigger(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
-            trigger_context=trigger_context or f"Trigger source: {trigger_source}",
+            trigger_instructions=trigger_instructions or f"Trigger source: {trigger_source}",
         )
 
         try:

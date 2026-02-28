@@ -51,7 +51,7 @@ Use your tools to:
 
 Then decide whether the team needs to act on this."""
 
-    trigger_context = """\
+    trigger_instructions = """\
 This is an inbound SMS from a contact. The message was received via the Quo/OpenPhone \
 webhook. Analyze the message in context (who sent it, recent history, any open issues) \
 and decide if the Sernia team needs to be alerted.
@@ -82,7 +82,7 @@ Common scenarios that are routine:
         trigger_source="sms",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        trigger_context=trigger_context,
+        trigger_instructions=trigger_instructions,
         notification_title=notification_title,
         notification_body=notification_body,
         rate_limit_key=from_number,
