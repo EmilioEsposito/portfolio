@@ -19,6 +19,7 @@ from api.src.user.models import *  # noqa
 from api.src.contact.models import *  # noqa
 from api.src.ai_demos.models import *  # noqa
 from api.src.sernia_ai.push.models import *  # noqa
+from api.src.sernia_ai.models import *  # noqa
 from api.src.database.database import DATABASE_URL, engine, Base
 
 

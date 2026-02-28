@@ -17,8 +17,12 @@ from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from clerk_backend_api import User
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals,
@@ -461,6 +465,48 @@ async def get_system_instructions(
             "modality": modality,
         },
     }
+
+
+@router.get("/admin/settings")
+async def get_admin_settings(
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """Return current app settings."""
+    result = await session.execute(
+        select(AppSetting).where(AppSetting.key == "triggers_enabled")
+    )
+    row = result.scalar_one_or_none()
+    return {
+        "triggers_enabled": row.value if row else True,
+    }
+
+
+class _SettingsUpdateRequest(BaseModel):
+    triggers_enabled: bool | None = None
+
+
+@router.patch("/admin/settings")
+async def update_admin_settings(
+    body: _SettingsUpdateRequest,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """Update app settings (upsert)."""
+    updated = {}
+    if body.triggers_enabled is not None:
+        stmt = pg_insert(AppSetting).values(
+            key="triggers_enabled",
+            value=body.triggers_enabled,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": body.triggers_enabled},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        updated["triggers_enabled"] = body.triggers_enabled
+
+    return {"updated": updated}
 
 
 # =============================================================================

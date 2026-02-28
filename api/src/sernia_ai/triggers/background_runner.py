@@ -13,8 +13,10 @@ import time
 import uuid
 
 import logfire
+from sqlalchemy import select
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
@@ -80,6 +82,19 @@ async def run_agent_for_trigger(
         The conversation_id if a conversation was created (agent needs human attention),
         or None if the agent processed silently or was rate-limited.
     """
+    # --- Triggers-enabled check ---
+    async with AsyncSessionFactory() as settings_session:
+        result = await settings_session.execute(
+            select(AppSetting.value).where(AppSetting.key == "triggers_enabled")
+        )
+        triggers_enabled = result.scalar_one_or_none()
+        if triggers_enabled is None:
+            triggers_enabled = True  # default on if row missing
+
+    if not triggers_enabled:
+        logfire.info("triggers disabled — skipping", trigger_source=trigger_source)
+        return None
+
     # --- Rate-limit check ---
     cooldown_key = f"{trigger_source}:{rate_limit_key or '_global'}"
     if _is_rate_limited(cooldown_key):

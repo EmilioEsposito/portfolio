@@ -15,6 +15,7 @@ from api.src.database.database import AsyncSessionFactory, provide_session
 from api.src.sernia_ai.push.models import WebPushSubscription
 
 _VAPID_PRIVATE_KEY_RAW = os.environ.get("VAPID_PRIVATE_KEY", "")
+_RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
 VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@serniacapital.com")
 
 # Build a Vapid object at module load so pywebpush doesn't have to parse
@@ -101,6 +102,11 @@ async def notify_all_sernia_users(
     if not _vapid:
         logfire.warn("VAPID private key not loaded — skipping push notification")
         return
+
+    # Prefix title with environment name when not in production
+    if _RAILWAY_ENV != "production":
+        env_label = _RAILWAY_ENV.upper() if _RAILWAY_ENV else "LOCAL"
+        title = f"[{env_label}] {title}"
 
     payload = json.dumps({"title": title, "body": body, "data": data or {}})
     expired_endpoints: list[str] = []

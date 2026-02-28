@@ -33,7 +33,10 @@ import {
   Download,
   Phone,
   Mail,
+  Settings,
 } from "lucide-react";
+import { Switch } from "~/components/ui/switch";
+import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import {
   Sheet,
@@ -634,6 +637,114 @@ function SystemInstructionsView({
 }
 
 // ---------------------------------------------------------------------------
+// Admin Settings view
+// ---------------------------------------------------------------------------
+
+function SettingsView({
+  getToken,
+}: {
+  getToken: () => Promise<string | null>;
+}) {
+  const [triggersEnabled, setTriggersEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_BASE}/admin/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const data = await res.json();
+      setTriggersEnabled(data.triggers_enabled);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const updateSetting = useCallback(
+    async (value: boolean) => {
+      setSaving(true);
+      setError(null);
+      const prev = triggersEnabled;
+      setTriggersEnabled(value); // optimistic
+      try {
+        const token = await getToken();
+        const res = await fetch(`${API_BASE}/admin/settings`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ triggers_enabled: value }),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      } catch (err) {
+        setTriggersEnabled(prev); // revert on error
+        setError(err instanceof Error ? err.message : "Failed to save");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [getToken, triggersEnabled]
+  );
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">Settings</h2>
+          <p className="text-sm text-muted-foreground">
+            Runtime configuration for Sernia AI.
+          </p>
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="triggers-toggle" className="text-sm font-medium">
+                  Triggers Enabled
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When off, SMS and email triggers will not run the agent.
+                </p>
+              </div>
+              <Switch
+                id="triggers-toggle"
+                checked={triggersEnabled ?? false}
+                onCheckedChange={updateSetting}
+                disabled={saving}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Outer page component — manages conversation selection & history
 // ---------------------------------------------------------------------------
 
@@ -906,6 +1017,7 @@ export default function SerniaChatPage() {
               <TabsList>
                 <TabsTrigger value="chat">Chat</TabsTrigger>
                 <TabsTrigger value="instructions">Instructions</TabsTrigger>
+                <TabsTrigger value="settings">Settings</TabsTrigger>
               </TabsList>
             )}
           </div>
@@ -982,12 +1094,20 @@ export default function SerniaChatPage() {
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent
-            value="instructions"
-            className="flex-1 flex flex-col min-h-0 mt-0"
-          >
-            <SystemInstructionsView getToken={getToken} />
-          </TabsContent>
+          <>
+            <TabsContent
+              value="instructions"
+              className="flex-1 flex flex-col min-h-0 mt-0"
+            >
+              <SystemInstructionsView getToken={getToken} />
+            </TabsContent>
+            <TabsContent
+              value="settings"
+              className="flex-1 flex flex-col min-h-0 mt-0"
+            >
+              <SettingsView getToken={getToken} />
+            </TabsContent>
+          </>
         )}
       </Tabs>
     </AuthGuard>

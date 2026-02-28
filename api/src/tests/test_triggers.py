@@ -86,6 +86,15 @@ class TestSmoke:
 
         assert callable(notify_trigger_alert)
 
+    def test_app_setting_model_imports(self):
+        """AppSetting model should import and have expected fields."""
+        from api.src.sernia_ai.models import AppSetting
+
+        assert AppSetting.__tablename__ == "app_settings"
+        assert hasattr(AppSetting, "key")
+        assert hasattr(AppSetting, "value")
+        assert hasattr(AppSetting, "updated_at")
+
     def test_sms_trigger_wired_in_webhook(self):
         """handle_inbound_sms should be imported in open_phone routes."""
         import api.src.open_phone.routes as routes_module
@@ -199,6 +208,37 @@ class TestBackgroundRunner:
             )
 
             assert conv_id is None
+
+
+    @pytest.mark.asyncio
+    async def test_triggers_disabled_returns_none(self):
+        """When triggers_enabled is False in app_settings, return None without running agent."""
+        with (
+            patch("api.src.sernia_ai.triggers.background_runner.AsyncSessionFactory") as mock_sf,
+            patch("api.src.sernia_ai.triggers.background_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.triggers.background_runner.commit_and_push"),
+        ):
+            # The settings check session: execute → scalar_one_or_none returns False
+            settings_result = MagicMock()
+            settings_result.scalar_one_or_none.return_value = False
+
+            settings_session = AsyncMock()
+            settings_session.execute = AsyncMock(return_value=settings_result)
+
+            # Make the context manager return settings_session on first use
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=settings_session)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
+
+            conv_id = await run_agent_for_trigger(
+                trigger_source="sms",
+                trigger_prompt="This should be skipped",
+                trigger_metadata={"trigger_source": "sms"},
+            )
+
+            assert conv_id is None
+            mock_agent.run.assert_not_called()
 
 
 class TestRateLimiter:
