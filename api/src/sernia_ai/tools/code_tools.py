@@ -166,6 +166,3 @@ async def run_python(
     except pydantic_monty.MontyError as e:
         logfire.info(f"run_python MontyError: {e}")
         return f"Code execution error: {e}"
-    except Exception as e:
-        logfire.error(f"run_python unexpected error: {e}")
-        return f"Error running code: {e}"

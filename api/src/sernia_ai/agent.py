@@ -15,6 +15,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
 from api.src.sernia_ai.tools.openphone_tools import quo_toolset
 from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
@@ -56,12 +57,12 @@ sernia_agent = Agent(
     output_type=[str, DeferredToolRequests],  # HITL foundation
     builtin_tools=_build_builtin_tools(),
     toolsets=[
-        filesystem_toolset,
-        quo_toolset,
-        google_toolset,
-        clickup_toolset,
-        db_search_toolset,
-        code_toolset,
+        ErrorLoggingToolset(filesystem_toolset),
+        ErrorLoggingToolset(quo_toolset),
+        ErrorLoggingToolset(google_toolset),
+        ErrorLoggingToolset(clickup_toolset),
+        ErrorLoggingToolset(db_search_toolset),
+        ErrorLoggingToolset(code_toolset),
     ],
     history_processors=[summarize_tool_results, compact_history],
     instrument=True,

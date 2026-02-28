@@ -9,7 +9,6 @@ All operations delegate as ctx.deps.user_email via service account credentials.
 import io
 from datetime import datetime, timedelta
 
-import logfire
 import pytz
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -79,22 +78,18 @@ async def send_email(
         subject: Email subject line.
         body: Plain text email body.
     """
-    try:
-        credentials = get_delegated_credentials(
-            user_email=ctx.deps.user_email,
-            scopes=GMAIL_SCOPES,
-        )
-        result = await _send_email(
-            to=to,
-            subject=subject,
-            message_text=body,
-            sender=ctx.deps.user_email,
-            credentials=credentials,
-        )
-        return f"Email sent to {to} (message ID: {result.get('id', 'unknown')})."
-    except Exception as e:
-        logfire.error(f"send_email error: {e}")
-        return f"Error sending email: {e}"
+    credentials = get_delegated_credentials(
+        user_email=ctx.deps.user_email,
+        scopes=GMAIL_SCOPES,
+    )
+    result = await _send_email(
+        to=to,
+        subject=subject,
+        message_text=body,
+        sender=ctx.deps.user_email,
+        credentials=credentials,
+    )
+    return f"Email sent to {to} (message ID: {result.get('id', 'unknown')})."
 
 
 @google_toolset.tool
@@ -109,46 +104,42 @@ async def search_emails(
         query: Gmail search query (e.g. "from:john subject:rent", "is:unread", "newer_than:7d").
         max_results: Maximum number of results to return (default 10).
     """
-    try:
-        credentials = get_delegated_credentials(
-            user_email=ctx.deps.user_email,
-            scopes=GMAIL_SCOPES,
-        )
-        service = get_gmail_service(credentials)
+    credentials = get_delegated_credentials(
+        user_email=ctx.deps.user_email,
+        scopes=GMAIL_SCOPES,
+    )
+    service = get_gmail_service(credentials)
 
-        results = (
+    results = (
+        service.users()
+        .messages()
+        .list(userId="me", q=query, maxResults=max_results)
+        .execute()
+    )
+    messages = results.get("messages", [])
+    if not messages:
+        return f"No emails found for query: {query}"
+
+    lines = []
+    for msg_ref in messages:
+        msg = (
             service.users()
             .messages()
-            .list(userId="me", q=query, maxResults=max_results)
+            .get(userId="me", id=msg_ref["id"], format="metadata",
+                 metadataHeaders=["Subject", "From", "Date"])
             .execute()
         )
-        messages = results.get("messages", [])
-        if not messages:
-            return f"No emails found for query: {query}"
-
-        lines = []
-        for msg_ref in messages:
-            msg = (
-                service.users()
-                .messages()
-                .get(userId="me", id=msg_ref["id"], format="metadata",
-                     metadataHeaders=["Subject", "From", "Date"])
-                .execute()
-            )
-            headers = {
-                h["name"].lower(): h["value"]
-                for h in msg.get("payload", {}).get("headers", [])
-            }
-            lines.append(
-                f"[{headers.get('date', '?')}] From: {headers.get('from', '?')}\n"
-                f"  Subject: {headers.get('subject', '(no subject)')}\n"
-                f"  Snippet: {msg.get('snippet', '')}\n"
-                f"  ID: {msg_ref['id']}"
-            )
-        return "\n\n".join(lines)
-    except Exception as e:
-        logfire.error(f"search_emails error: {e}")
-        return f"Error searching emails: {e}"
+        headers = {
+            h["name"].lower(): h["value"]
+            for h in msg.get("payload", {}).get("headers", [])
+        }
+        lines.append(
+            f"[{headers.get('date', '?')}] From: {headers.get('from', '?')}\n"
+            f"  Subject: {headers.get('subject', '(no subject)')}\n"
+            f"  Snippet: {msg.get('snippet', '')}\n"
+            f"  ID: {msg_ref['id']}"
+        )
+    return "\n\n".join(lines)
 
 
 @google_toolset.tool
@@ -161,38 +152,34 @@ async def read_email(
     Args:
         message_id: The Gmail message ID (returned by search_emails).
     """
-    try:
-        credentials = get_delegated_credentials(
-            user_email=ctx.deps.user_email,
-            scopes=GMAIL_SCOPES,
-        )
-        service = get_gmail_service(credentials)
-        message = await get_email_content(service, message_id)
+    credentials = get_delegated_credentials(
+        user_email=ctx.deps.user_email,
+        scopes=GMAIL_SCOPES,
+    )
+    service = get_gmail_service(credentials)
+    message = await get_email_content(service, message_id)
 
-        if not message:
-            return f"Email {message_id} not found (may have been deleted)."
+    if not message:
+        return f"Email {message_id} not found (may have been deleted)."
 
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in message.get("payload", {}).get("headers", [])
-        }
-        body = extract_email_body(message)
-        content = body.get("text") or body.get("html") or "(no body)"
+    headers = {
+        h["name"].lower(): h["value"]
+        for h in message.get("payload", {}).get("headers", [])
+    }
+    body = extract_email_body(message)
+    content = body.get("text") or body.get("html") or "(no body)"
 
-        # Truncate very long emails
-        if len(content) > 5000:
-            content = content[:5000] + "\n...(truncated)"
+    # Truncate very long emails
+    if len(content) > 5000:
+        content = content[:5000] + "\n...(truncated)"
 
-        return (
-            f"From: {headers.get('from', '?')}\n"
-            f"To: {headers.get('to', '?')}\n"
-            f"Date: {headers.get('date', '?')}\n"
-            f"Subject: {headers.get('subject', '(no subject)')}\n\n"
-            f"{content}"
-        )
-    except Exception as e:
-        logfire.error(f"read_email error: {e}")
-        return f"Error reading email: {e}"
+    return (
+        f"From: {headers.get('from', '?')}\n"
+        f"To: {headers.get('to', '?')}\n"
+        f"Date: {headers.get('date', '?')}\n"
+        f"Subject: {headers.get('subject', '(no subject)')}\n\n"
+        f"{content}"
+    )
 
 
 @google_toolset.tool
@@ -205,45 +192,41 @@ async def list_calendar_events(
     Args:
         days_ahead: Number of days ahead to look (default 7).
     """
-    try:
-        service = await get_calendar_service(user_email=ctx.deps.user_email)
-        et_tz = pytz.timezone("US/Eastern")
-        now = datetime.now(tz=et_tz)
-        time_max = now + timedelta(days=days_ahead)
+    service = await get_calendar_service(user_email=ctx.deps.user_email)
+    et_tz = pytz.timezone("US/Eastern")
+    now = datetime.now(tz=et_tz)
+    time_max = now + timedelta(days=days_ahead)
 
-        events_result = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=now.isoformat(),
-                timeMax=time_max.isoformat(),
-                maxResults=50,
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
+    events_result = (
+        service.events()
+        .list(
+            calendarId="primary",
+            timeMin=now.isoformat(),
+            timeMax=time_max.isoformat(),
+            maxResults=50,
+            singleEvents=True,
+            orderBy="startTime",
         )
-        events = events_result.get("items", [])
+        .execute()
+    )
+    events = events_result.get("items", [])
 
-        if not events:
-            return f"No calendar events in the next {days_ahead} days."
+    if not events:
+        return f"No calendar events in the next {days_ahead} days."
 
-        lines = []
-        for event in events:
-            start = event["start"].get("dateTime", event["start"].get("date"))
-            end = event["end"].get("dateTime", event["end"].get("date"))
-            summary = event.get("summary", "(no title)")
-            attendees = event.get("attendees", [])
-            attendee_str = ", ".join(a.get("email", "?") for a in attendees) if attendees else "none"
-            lines.append(
-                f"- {summary}\n"
-                f"  Start: {start} | End: {end}\n"
-                f"  Attendees: {attendee_str}"
-            )
-        return "\n".join(lines)
-    except Exception as e:
-        logfire.error(f"list_calendar_events error: {e}")
-        return f"Error listing calendar events: {e}"
+    lines = []
+    for event in events:
+        start = event["start"].get("dateTime", event["start"].get("date"))
+        end = event["end"].get("dateTime", event["end"].get("date"))
+        summary = event.get("summary", "(no title)")
+        attendees = event.get("attendees", [])
+        attendee_str = ", ".join(a.get("email", "?") for a in attendees) if attendees else "none"
+        lines.append(
+            f"- {summary}\n"
+            f"  Start: {start} | End: {end}\n"
+            f"  Attendees: {attendee_str}"
+        )
+    return "\n".join(lines)
 
 
 @google_toolset.tool(requires_approval=True)
@@ -264,25 +247,21 @@ async def create_calendar_event(
         description: Optional event description.
         attendees: Optional list of attendee email addresses.
     """
-    try:
-        service = await get_calendar_service(user_email=ctx.deps.user_email)
+    service = await get_calendar_service(user_email=ctx.deps.user_email)
 
-        event_body: dict = {
-            "summary": summary,
-            "start": {"dateTime": start_iso},
-            "end": {"dateTime": end_iso},
-        }
-        if description:
-            event_body["description"] = description
-        if attendees:
-            event_body["attendees"] = [{"email": email} for email in attendees]
+    event_body: dict = {
+        "summary": summary,
+        "start": {"dateTime": start_iso},
+        "end": {"dateTime": end_iso},
+    }
+    if description:
+        event_body["description"] = description
+    if attendees:
+        event_body["attendees"] = [{"email": email} for email in attendees]
 
-        result = await _create_calendar_event(service, event_body)
-        event_link = result.get("htmlLink", "")
-        return f"Calendar event created: {summary}\nLink: {event_link}"
-    except Exception as e:
-        logfire.error(f"create_calendar_event error: {e}")
-        return f"Error creating calendar event: {e}"
+    result = await _create_calendar_event(service, event_body)
+    event_link = result.get("htmlLink", "")
+    return f"Calendar event created: {summary}\nLink: {event_link}"
 
 
 # =============================================================================
@@ -302,46 +281,42 @@ async def search_drive(
         query: Search text. Matches file names and content.
         max_results: Maximum number of results to return (default 10).
     """
-    try:
-        service = _get_drive_service(ctx.deps.user_email)
-        # Drive API query: fullText contains 'query' or name contains 'query'
-        q = f"(name contains '{query}' or fullText contains '{query}') and trashed = false"
-        results = (
-            service.files()
-            .list(
-                q=q,
-                pageSize=max_results,
-                fields="files(id, name, mimeType, modifiedTime, webViewLink)",
-                orderBy="relevance",
-            )
-            .execute()
+    service = _get_drive_service(ctx.deps.user_email)
+    # Drive API query: fullText contains 'query' or name contains 'query'
+    q = f"(name contains '{query}' or fullText contains '{query}') and trashed = false"
+    results = (
+        service.files()
+        .list(
+            q=q,
+            pageSize=max_results,
+            fields="files(id, name, mimeType, modifiedTime, webViewLink)",
+            orderBy="relevance",
         )
-        files = results.get("files", [])
-        if not files:
-            return f"No Drive files found for '{query}'."
+        .execute()
+    )
+    files = results.get("files", [])
+    if not files:
+        return f"No Drive files found for '{query}'."
 
-        lines = []
-        for f in files:
-            mime = f.get("mimeType", "")
-            # Friendly type label
-            type_label = {
-                "application/vnd.google-apps.document": "Google Doc",
-                "application/vnd.google-apps.spreadsheet": "Google Sheet",
-                "application/vnd.google-apps.presentation": "Google Slides",
-                "application/vnd.google-apps.folder": "Folder",
-                "application/pdf": "PDF",
-            }.get(mime, mime.split("/")[-1] if "/" in mime else mime)
+    lines = []
+    for f in files:
+        mime = f.get("mimeType", "")
+        # Friendly type label
+        type_label = {
+            "application/vnd.google-apps.document": "Google Doc",
+            "application/vnd.google-apps.spreadsheet": "Google Sheet",
+            "application/vnd.google-apps.presentation": "Google Slides",
+            "application/vnd.google-apps.folder": "Folder",
+            "application/pdf": "PDF",
+        }.get(mime, mime.split("/")[-1] if "/" in mime else mime)
 
-            lines.append(
-                f"- {f['name']} ({type_label})\n"
-                f"  Modified: {f.get('modifiedTime', '?')}\n"
-                f"  ID: {f['id']}\n"
-                f"  Link: {f.get('webViewLink', 'N/A')}"
-            )
-        return "\n".join(lines)
-    except Exception as e:
-        logfire.error(f"search_drive error: {e}")
-        return f"Error searching Drive: {e}"
+        lines.append(
+            f"- {f['name']} ({type_label})\n"
+            f"  Modified: {f.get('modifiedTime', '?')}\n"
+            f"  ID: {f['id']}\n"
+            f"  Link: {f.get('webViewLink', 'N/A')}"
+        )
+    return "\n".join(lines)
 
 
 @google_toolset.tool
@@ -354,30 +329,26 @@ async def read_google_doc(
     Args:
         file_id: The Google Drive file ID (returned by search_drive).
     """
-    try:
-        service = _get_docs_service(ctx.deps.user_email)
-        doc = service.documents().get(documentId=file_id).execute()
-        title = doc.get("title", "(untitled)")
+    service = _get_docs_service(ctx.deps.user_email)
+    doc = service.documents().get(documentId=file_id).execute()
+    title = doc.get("title", "(untitled)")
 
-        # Extract text from the document body
-        content_parts: list[str] = []
-        for element in doc.get("body", {}).get("content", []):
-            paragraph = element.get("paragraph")
-            if not paragraph:
-                continue
-            for pe in paragraph.get("elements", []):
-                text_run = pe.get("textRun")
-                if text_run:
-                    content_parts.append(text_run.get("content", ""))
+    # Extract text from the document body
+    content_parts: list[str] = []
+    for element in doc.get("body", {}).get("content", []):
+        paragraph = element.get("paragraph")
+        if not paragraph:
+            continue
+        for pe in paragraph.get("elements", []):
+            text_run = pe.get("textRun")
+            if text_run:
+                content_parts.append(text_run.get("content", ""))
 
-        text = "".join(content_parts).strip()
-        if len(text) > _DOC_CONTENT_CAP:
-            text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
+    text = "".join(content_parts).strip()
+    if len(text) > _DOC_CONTENT_CAP:
+        text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
 
-        return f"Title: {title}\n\n{text}" if text else f"Title: {title}\n\n(empty document)"
-    except Exception as e:
-        logfire.error(f"read_google_doc error: {e}")
-        return f"Error reading Google Doc: {e}"
+    return f"Title: {title}\n\n{text}" if text else f"Title: {title}\n\n(empty document)"
 
 
 @google_toolset.tool
@@ -394,61 +365,57 @@ async def read_google_sheet(
         sheet_name: Optional sheet/tab name (defaults to first sheet).
         range: Optional A1 range (e.g. "A1:D20"). Reads entire sheet if omitted.
     """
-    try:
-        service = _get_sheets_service(ctx.deps.user_email)
+    service = _get_sheets_service(ctx.deps.user_email)
 
-        # Build range string
-        if range and sheet_name:
-            range_str = f"'{sheet_name}'!{range}"
-        elif sheet_name:
-            range_str = sheet_name
-        elif range:
-            range_str = range
-        else:
-            range_str = ""
+    # Build range string
+    if range and sheet_name:
+        range_str = f"'{sheet_name}'!{range}"
+    elif sheet_name:
+        range_str = sheet_name
+    elif range:
+        range_str = range
+    else:
+        range_str = ""
 
-        if range_str:
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=file_id, range=range_str)
-                .execute()
-            )
-        else:
-            # Get metadata to find first sheet name, then read it
-            meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
-            first_sheet = meta["sheets"][0]["properties"]["title"]
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=file_id, range=first_sheet)
-                .execute()
-            )
+    if range_str:
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=file_id, range=range_str)
+            .execute()
+        )
+    else:
+        # Get metadata to find first sheet name, then read it
+        meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+        first_sheet = meta["sheets"][0]["properties"]["title"]
+        result = (
+            service.spreadsheets()
+            .values()
+            .get(spreadsheetId=file_id, range=first_sheet)
+            .execute()
+        )
 
-        rows = result.get("values", [])
-        if not rows:
-            return "Sheet is empty."
+    rows = result.get("values", [])
+    if not rows:
+        return "Sheet is empty."
 
-        # Format as a readable table
-        lines = []
-        # Header row
-        headers = rows[0]
-        lines.append(" | ".join(str(h) for h in headers))
-        lines.append("-" * len(lines[0]))
-        # Data rows (cap at 100)
-        for row in rows[1:101]:
-            padded = row + [""] * (len(headers) - len(row))
-            lines.append(" | ".join(str(v) for v in padded))
-        if len(rows) > 101:
-            lines.append(f"...(showing 100 of {len(rows) - 1} data rows)")
+    # Format as a readable table
+    lines = []
+    # Header row
+    headers = rows[0]
+    lines.append(" | ".join(str(h) for h in headers))
+    lines.append("-" * len(lines[0]))
+    # Data rows (cap at 100)
+    for row in rows[1:101]:
+        padded = row + [""] * (len(headers) - len(row))
+        lines.append(" | ".join(str(v) for v in padded))
+    if len(rows) > 101:
+        lines.append(f"...(showing 100 of {len(rows) - 1} data rows)")
 
-        text = "\n".join(lines)
-        if len(text) > _DOC_CONTENT_CAP:
-            text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
-        return text
-    except Exception as e:
-        logfire.error(f"read_google_sheet error: {e}")
-        return f"Error reading Google Sheet: {e}"
+    text = "\n".join(lines)
+    if len(text) > _DOC_CONTENT_CAP:
+        text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
+    return text
 
 
 @google_toolset.tool
@@ -461,49 +428,45 @@ async def read_drive_pdf(
     Args:
         file_id: The Google Drive file ID (returned by search_drive).
     """
+    service = _get_drive_service(ctx.deps.user_email)
+
+    # Get file metadata to check type
+    meta = service.files().get(fileId=file_id, fields="name,mimeType").execute()
+    name = meta.get("name", "unknown")
+    mime = meta.get("mimeType", "")
+
+    # For Google Docs, export as plain text instead
+    if mime == "application/vnd.google-apps.document":
+        return await read_google_doc(ctx, file_id)
+
+    # Download PDF content
+    request = service.files().get_media(fileId=file_id)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    buffer.seek(0)
+    pdf_bytes = buffer.read()
+
+    # Try to extract text with pypdf
     try:
-        service = _get_drive_service(ctx.deps.user_email)
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text_parts = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_parts.append(page_text)
+        text = "\n\n".join(text_parts)
+    except ImportError:
+        return f"PDF '{name}' downloaded ({len(pdf_bytes)} bytes) but pypdf is not installed for text extraction."
 
-        # Get file metadata to check type
-        meta = service.files().get(fileId=file_id, fields="name,mimeType").execute()
-        name = meta.get("name", "unknown")
-        mime = meta.get("mimeType", "")
+    if not text.strip():
+        return f"PDF '{name}' appears to be image-based (no extractable text). {len(pdf_bytes)} bytes."
 
-        # For Google Docs, export as plain text instead
-        if mime == "application/vnd.google-apps.document":
-            return await read_google_doc(ctx, file_id)
+    if len(text) > _DOC_CONTENT_CAP:
+        text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
 
-        # Download PDF content
-        request = service.files().get_media(fileId=file_id)
-        buffer = io.BytesIO()
-        downloader = MediaIoBaseDownload(buffer, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-
-        buffer.seek(0)
-        pdf_bytes = buffer.read()
-
-        # Try to extract text with pypdf
-        try:
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(pdf_bytes))
-            text_parts = []
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_parts.append(page_text)
-            text = "\n\n".join(text_parts)
-        except ImportError:
-            return f"PDF '{name}' downloaded ({len(pdf_bytes)} bytes) but pypdf is not installed for text extraction."
-
-        if not text.strip():
-            return f"PDF '{name}' appears to be image-based (no extractable text). {len(pdf_bytes)} bytes."
-
-        if len(text) > _DOC_CONTENT_CAP:
-            text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
-
-        return f"PDF: {name}\n\n{text}"
-    except Exception as e:
-        logfire.error(f"read_drive_pdf error: {e}")
-        return f"Error reading PDF: {e}"
+    return f"PDF: {name}\n\n{text}"

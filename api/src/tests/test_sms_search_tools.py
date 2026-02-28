@@ -368,12 +368,12 @@ class TestSearchSmsHistory:
 
     @pytest.mark.asyncio
     async def test_error_handling(self):
-        """Database errors should be caught and return a friendly message."""
+        """Database errors propagate (caught by ErrorLoggingToolset wrapper in production)."""
         ctx = _make_ctx()
         ctx.deps.db_session.execute = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
-        result = await search_sms_history(ctx, query="test")
-        assert "Error searching SMS history" in result
+        with pytest.raises(RuntimeError, match="DB connection lost"):
+            await search_sms_history(ctx, query="test")
 
 
 # ---------------------------------------------------------------------------
@@ -463,14 +463,13 @@ class TestGetContactSmsHistory:
 
     @pytest.mark.asyncio
     async def test_error_handling(self):
-        """Database errors should be caught and return a friendly message."""
+        """Database errors propagate (caught by ErrorLoggingToolset wrapper in production)."""
         ctx = _make_ctx()
         ctx.deps.db_session.execute = AsyncMock(side_effect=RuntimeError("DB timeout"))
 
-        with patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
-            result = await get_contact_sms_history(ctx, contact_name="John")
-
-        assert "Error fetching SMS history" in result
+        with pytest.raises(RuntimeError, match="DB timeout"):
+            with patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
+                await get_contact_sms_history(ctx, contact_name="John")
 
 
 # ---------------------------------------------------------------------------

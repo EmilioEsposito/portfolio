@@ -169,13 +169,30 @@ async def chat_sernia(
 
     on_complete = _on_complete
 
-    response = await VercelAIAdapter.dispatch_request(
-        wrapped_request,
-        agent=sernia_agent,
-        message_history=backend_message_history if backend_message_history else None,
-        deps=deps,
-        on_complete=on_complete,
-    )
+    try:
+        response = await VercelAIAdapter.dispatch_request(
+            wrapped_request,
+            agent=sernia_agent,
+            message_history=backend_message_history if backend_message_history else None,
+            deps=deps,
+            on_complete=on_complete,
+        )
+    except Exception as e:
+        logfire.exception(
+            "sernia chat dispatch error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__,
+            slack_alert=True,
+        )
+        return Response(
+            content=json.dumps({
+                "error": "An internal error occurred. Please try again.",
+                "conversation_id": conversation_id or "",
+            }),
+            status_code=500,
+            media_type="application/json",
+        )
 
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
@@ -279,7 +296,13 @@ async def approve_conversation(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logfire.error(f"Error approving sernia conversation {conversation_id}: {e}")
+        logfire.exception(
+            "sernia approve error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__,
+            slack_alert=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
