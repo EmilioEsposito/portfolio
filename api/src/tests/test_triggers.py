@@ -6,6 +6,8 @@ Unit:  Test trigger logic with mocked agent runs and push notifications.
 """
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
+import httpx
+from httpx import Response, Request
 
 
 @pytest.fixture(autouse=True)
@@ -86,6 +88,20 @@ class TestSmoke:
         from api.src.sernia_ai.push.service import notify_trigger_alert
 
         assert callable(notify_trigger_alert)
+
+    def test_notify_team_sms_imports(self):
+        """Push service should have the new SMS notification function."""
+        from api.src.sernia_ai.push.service import notify_team_sms
+
+        assert callable(notify_team_sms)
+
+    def test_config_has_shared_team_contact_id(self):
+        """Config should have QUO_SHARED_TEAM_CONTACT_ID and FRONTEND_BASE_URL."""
+        from api.src.sernia_ai.config import QUO_SHARED_TEAM_CONTACT_ID, FRONTEND_BASE_URL
+
+        assert isinstance(QUO_SHARED_TEAM_CONTACT_ID, str)
+        assert len(QUO_SHARED_TEAM_CONTACT_ID) > 0
+        assert FRONTEND_BASE_URL.startswith("http")
 
     def test_app_setting_model_imports(self):
         """AppSetting model should import and have expected fields."""
@@ -435,3 +451,123 @@ class TestInjectTriggerGuidance:
         assert "Trigger Event Processing" in result
         assert "inbound SMS trigger" in result
         assert "[NO_ACTION_NEEDED]" in result
+
+
+class TestNotifyTeamSms:
+    """Test the SMS team notification function."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_phone_cache(self):
+        """Reset the cached phone number between tests."""
+        import api.src.sernia_ai.push.service as svc
+        svc._shared_team_phone = None
+        yield
+        svc._shared_team_phone = None
+
+    @pytest.mark.asyncio
+    async def test_sends_sms_with_deeplink(self):
+        """notify_team_sms should look up phone, build message with deeplink, and send."""
+        mock_response = Response(
+            200,
+            json={
+                "data": {
+                    "defaultFields": {
+                        "phoneNumbers": [{"value": "+14125551234"}],
+                    },
+                },
+            },
+            request=Request("GET", "https://api.openphone.com/v1/contacts/test"),
+        )
+
+        with (
+            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+            patch("api.src.open_phone.service.send_message") as mock_send,
+            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+        ):
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_send.return_value = AsyncMock()
+
+            from api.src.sernia_ai.push.service import notify_team_sms
+
+            await notify_team_sms(
+                title="Approval Needed: Send Email",
+                body="to: tenant@example.com, subject: Lease Renewal",
+                conversation_id="conv-abc-123",
+            )
+
+            mock_send.assert_called_once()
+            call_kwargs = mock_send.call_args[1]
+            assert call_kwargs["to_phone_number"] == "+14125551234"
+            assert call_kwargs["from_phone_number"] == "PNWvNqsFFy"
+            assert "conv-abc-123" in call_kwargs["message"]
+            assert "/sernia-chat?id=conv-abc-123" in call_kwargs["message"]
+            assert "Approval Needed" in call_kwargs["message"]
+
+    @pytest.mark.asyncio
+    async def test_skips_when_phone_lookup_fails(self):
+        """When phone lookup fails, SMS should be silently skipped."""
+        with (
+            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+            patch("api.src.open_phone.service.send_message") as mock_send,
+            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+        ):
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(side_effect=httpx.HTTPError("API down"))
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from api.src.sernia_ai.push.service import notify_team_sms
+
+            await notify_team_sms(
+                title="Test",
+                body="Test body",
+                conversation_id="conv-xyz",
+            )
+
+            mock_send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_caches_phone_number(self):
+        """Phone number should be cached after first lookup."""
+        import api.src.sernia_ai.push.service as svc
+        svc._shared_team_phone = "+14125559999"
+
+        with (
+            patch("api.src.open_phone.service.send_message") as mock_send,
+            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_send.return_value = AsyncMock()
+
+            from api.src.sernia_ai.push.service import notify_team_sms
+
+            await notify_team_sms(
+                title="Test",
+                body="Cached test",
+                conversation_id="conv-cached",
+            )
+
+            # Should NOT have created an httpx client — used cache
+            mock_client_cls.assert_not_called()
+            mock_send.assert_called_once()
+            assert mock_send.call_args[1]["to_phone_number"] == "+14125559999"
+
+    @pytest.mark.asyncio
+    async def test_failure_does_not_raise(self):
+        """Even if send_message raises, notify_team_sms should not propagate."""
+        import api.src.sernia_ai.push.service as svc
+        svc._shared_team_phone = "+14125559999"
+
+        with patch("api.src.open_phone.service.send_message") as mock_send:
+            mock_send.side_effect = RuntimeError("OpenPhone API error")
+
+            from api.src.sernia_ai.push.service import notify_team_sms
+
+            # Should not raise
+            await notify_team_sms(
+                title="Test",
+                body="Error test",
+                conversation_id="conv-err",
+            )

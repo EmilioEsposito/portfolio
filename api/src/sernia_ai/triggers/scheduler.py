@@ -8,7 +8,7 @@ import logfire
 from api.src.apscheduler_service.service import get_scheduler, upsert_job
 from api.src.sernia_ai.config import (
     GENERAL_EMAIL_CHECK_INTERVAL_MINUTES,
-    ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES,
+    ZILLOW_EMAIL_CHECK_INTERVAL_HOURS,
 )
 
 
@@ -30,14 +30,14 @@ def register_sernia_trigger_jobs() -> None:
         name="Sernia AI: General Email Check",
     )
 
-    # Zillow email check — during business hours (8am-8pm ET)
-    # 8am ET = 13:00 UTC, 8pm ET = 01:00 UTC (next day)
+    # Zillow email check — during business hours (8am-5pm ET)
+    # 8am ET = 13:00 UTC, 5pm ET = 22:00 UTC
     upsert_job(
         scheduler,
         func=check_zillow_emails,
         trigger="cron",
-        hour="13-23,0",
-        minute=f"*/{ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES}",
+        hour=f"13-22/{ZILLOW_EMAIL_CHECK_INTERVAL_HOURS}",
+        minute=0,
         id="sernia_zillow_email_check",
         name="Sernia AI: Zillow Email Check",
     )

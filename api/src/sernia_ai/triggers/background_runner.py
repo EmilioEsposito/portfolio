@@ -32,7 +32,7 @@ from api.src.sernia_ai.config import (
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import SILENT_MARKER
 from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert
+from api.src.sernia_ai.push.service import notify_pending_approval, notify_team_sms, notify_trigger_alert
 from api.src.ai_demos.models import save_agent_conversation
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 
@@ -168,10 +168,19 @@ async def run_agent_for_trigger(
             metadata=trigger_metadata,
         )
 
-        # Send push notification
+        # Send push notification + SMS to shared team number
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
+            sms_title = f"Approval Needed: {first['tool_name'].replace('_', ' ').title()}"
+            # Build concise body from tool args
+            sms_body_parts = []
+            if first.get("args"):
+                for key in ("to", "recipient", "name", "subject", "task_name"):
+                    if key in first["args"]:
+                        sms_body_parts.append(f"{key}: {first['args'][key]}")
+            sms_body = ", ".join(sms_body_parts) if sms_body_parts else "Action requires your approval"
+
             asyncio.create_task(
                 notify_pending_approval(
                     conversation_id=conv_id,
@@ -179,13 +188,29 @@ async def run_agent_for_trigger(
                     tool_args=first.get("args"),
                 )
             )
+            asyncio.create_task(
+                notify_team_sms(
+                    title=sms_title,
+                    body=sms_body,
+                    conversation_id=conv_id,
+                )
+            )
         else:
+            alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
+            alert_body = notification_body or "New event needs your attention"
             asyncio.create_task(
                 notify_trigger_alert(
                     conversation_id=conv_id,
                     trigger_source=trigger_source,
-                    title=notification_title or f"Sernia AI: {trigger_source} alert",
-                    body=notification_body or "New event needs your attention",
+                    title=alert_title,
+                    body=alert_body,
+                )
+            )
+            asyncio.create_task(
+                notify_team_sms(
+                    title=alert_title,
+                    body=alert_body,
+                    conversation_id=conv_id,
                 )
             )
 

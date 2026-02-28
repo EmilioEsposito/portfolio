@@ -16,7 +16,7 @@ import logfire
 
 from api.src.sernia_ai.config import (
     GENERAL_EMAIL_CHECK_INTERVAL_MINUTES,
-    ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES,
+    ZILLOW_EMAIL_CHECK_INTERVAL_HOURS,
 )
 from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
 
@@ -97,7 +97,7 @@ async def check_zillow_emails() -> None:
     """
     logfire.info("email_trigger: starting Zillow email check")
 
-    lookback = _lookback_gmail(ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES)
+    lookback = _lookback_gmail(ZILLOW_EMAIL_CHECK_INTERVAL_HOURS * 60)
 
     trigger_prompt = dedent(f"""\
         You are running a scheduled Zillow email check. Search for recent
