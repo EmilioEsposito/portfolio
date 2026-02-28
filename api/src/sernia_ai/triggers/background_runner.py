@@ -12,11 +12,15 @@ import asyncio
 import time
 import uuid
 
+import os
+
 import logfire
 from sqlalchemy import select
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import AppSetting
+
+_IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production"
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
@@ -83,13 +87,22 @@ async def run_agent_for_trigger(
         or None if the agent processed silently or was rate-limited.
     """
     # --- Triggers-enabled check ---
-    async with AsyncSessionFactory() as settings_session:
-        result = await settings_session.execute(
-            select(AppSetting.value).where(AppSetting.key == "triggers_enabled")
+    # Default: enabled on production, disabled elsewhere (safety net for dev/PR envs)
+    triggers_enabled = _IS_PRODUCTION
+    try:
+        async with AsyncSessionFactory() as settings_session:
+            result = await settings_session.execute(
+                select(AppSetting.value).where(AppSetting.key == "triggers_enabled")
+            )
+            value = result.scalar_one_or_none()
+            if value is not None:
+                triggers_enabled = value
+    except Exception:
+        # Table may not exist yet (migration not applied) — keep env-based default
+        logfire.warn(
+            "triggers-enabled check failed (table may not exist), using env default",
+            default=triggers_enabled,
         )
-        triggers_enabled = result.scalar_one_or_none()
-        if triggers_enabled is None:
-            triggers_enabled = True  # default on if row missing
 
     if not triggers_enabled:
         logfire.info("triggers disabled — skipping", trigger_source=trigger_source)

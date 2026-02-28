@@ -113,8 +113,11 @@ async def handle_job_error(event):
     exception = event.exception
     traceback_str = event.traceback
 
-    logfire.error(f"Job {job_id} raised an exception: {exception}")
-    logfire.error(f"Traceback: {traceback_str}")
+    logfire.exception(
+        f"Job {job_id} raised an exception",
+        job_id=job_id,
+        _exc_info=(type(exception), exception, exception.__traceback__) if exception else None,
+    )
 
     credentials = None
     logfire.info(f"Attempting to get delegated credentials for job {job_id} error email.")
@@ -127,8 +130,8 @@ async def handle_job_error(event):
             scopes=["https://mail.google.com"],
         )
         logfire.info(f"Successfully got credentials for job {job_id} error email.")
-    except Exception as e:
-        logfire.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
+    except Exception:
+        logfire.exception(f"Failed to get delegated credentials for job {job_id} error email")
         logfire.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
         return # Stop if we can't get credentials
 
@@ -150,8 +153,8 @@ async def handle_job_error(event):
         await asyncio.sleep(3) 
         logfire.info(f"Short delay completed in handle_job_error for job {job_id}.")
 
-    except Exception as e:
-        logfire.error(f"Failed to send error notification email for job {job_id}: {e}")
+    except Exception:
+        logfire.exception(f"Failed to send error notification email for job {job_id}")
     logfire.info(f"--- handle_job_error END for job {job_id} ---")
 
 # Synchronous wrapper for the async error handler
