@@ -13,14 +13,22 @@ export function useScrollToBottom<T extends HTMLElement>(): [
 
     if (container && end) {
       const observer = new MutationObserver(() => {
-        end.scrollIntoView({ behavior: "auto", block: "end" });
+        // Only auto-scroll if user is already near the bottom.
+        // This prevents jumping when expanding tool cards, etc.
+        const threshold = 80;
+        const distanceFromBottom =
+          container.scrollHeight -
+          container.scrollTop -
+          container.clientHeight;
+
+        if (distanceFromBottom < threshold) {
+          end.scrollIntoView({ behavior: "auto", block: "end" });
+        }
       });
 
       observer.observe(container, {
         childList: true,
         subtree: true,
-        attributes: true,
-        characterData: true,
       });
 
       return () => observer.disconnect();

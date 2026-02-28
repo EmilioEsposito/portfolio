@@ -144,9 +144,9 @@ function ChatView({
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: conversationId,
-    initialMessages,
+    messages: initialMessages,
     transport,
-  } as any);
+  });
 
   // Extract pending approval from latest assistant message
   useEffect(() => {
@@ -282,7 +282,7 @@ function ChatView({
         ) : (
           <div className="mx-auto w-full max-w-3xl px-4 space-y-6">
             {messages.map((message, index) => {
-              const { textContent, completedTools } = processMessage(message);
+              const { segments } = processMessage(message);
               const isLastAssistant =
                 message.role === "assistant" &&
                 index === messages.length - 1;
@@ -307,38 +307,38 @@ function ChatView({
 
                   <div
                     className={cn(
-                      "flex flex-col gap-2 max-w-[85%]",
+                      "flex flex-col gap-2 max-w-[85%] min-w-0",
                       message.role === "user" && "items-end"
                     )}
                   >
                     {message.role === "user" ? (
                       <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
                         <p className="text-sm whitespace-pre-wrap">
-                          {textContent}
+                          {segments[0]?.type === "text" ? segments[0].content : ""}
                         </p>
                       </div>
                     ) : (
                       <>
-                        {textContent && (
-                          <div className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm">
-                            <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
-                              <Markdown>{textContent}</Markdown>
+                        {segments.map((seg, i) =>
+                          seg.type === "text" ? (
+                            <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden">
+                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words">
+                                <Markdown>{seg.content}</Markdown>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <ToolResultCard
+                              key={seg.toolCallId}
+                              toolName={seg.toolName}
+                              args={seg.args}
+                              result={
+                                typeof seg.result === "string"
+                                  ? seg.result
+                                  : JSON.stringify(seg.result)
+                              }
+                            />
+                          )
                         )}
-
-                        {completedTools.map((tool) => (
-                          <ToolResultCard
-                            key={tool.toolCallId}
-                            toolName={tool.toolName}
-                            args={tool.args}
-                            result={
-                              typeof tool.result === "string"
-                                ? tool.result
-                                : JSON.stringify(tool.result)
-                            }
-                          />
-                        ))}
 
                         {isLastAssistant && pendingApproval && (
                           <ToolApprovalCard
@@ -679,6 +679,12 @@ export default function SerniaChatPage() {
     }
   }, [isSignedIn, getToken]);
 
+  // Prefetch on mount so the list is ready when user opens history
+  useEffect(() => {
+    if (isSignedIn) fetchHistory();
+  }, [isSignedIn, fetchHistory]);
+
+  // Refresh when sheet opens (in case new conversations were created)
   useEffect(() => {
     if (historyOpen) fetchHistory();
   }, [historyOpen, fetchHistory]);

@@ -290,7 +290,6 @@ async def search_drive(
             q=q,
             pageSize=max_results,
             fields="files(id, name, mimeType, modifiedTime, webViewLink)",
-            orderBy="relevance",
         )
         .execute()
     )

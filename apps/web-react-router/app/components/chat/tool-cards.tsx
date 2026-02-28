@@ -228,8 +228,46 @@ export function ToolApprovalCard({
 
 // Hard truncation limit for very long tool results (chars).
 const RESULT_TRUNCATE_LIMIT = 2000;
+// Preview limit for collapsed sub-boxes (chars).
+const PREVIEW_LIMIT = 120;
 
-/** Completed tool result display — always shows result, expand for input details */
+/** Expandable sub-box for input/output inside a tool card */
+function ToolDetailBox({
+  label,
+  content,
+  color,
+}: {
+  label: string;
+  content: string;
+  color?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = content.length > PREVIEW_LIMIT;
+  const preview = isLong ? content.slice(0, PREVIEW_LIMIT) + "…" : content;
+
+  return (
+    <div className="rounded border bg-background overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+      >
+        <span className="shrink-0">{expanded ? "\u25BC" : "\u25B6"}</span>
+        <span className="font-medium">{label}</span>
+      </button>
+      <div
+        className={cn(
+          "px-2 pb-1.5 text-xs whitespace-pre-wrap break-all",
+          color,
+          !expanded && "line-clamp-2"
+        )}
+      >
+        {expanded ? content : preview}
+      </div>
+    </div>
+  );
+}
+
+/** Completed tool result display — collapsed by default, with expandable input/output sub-boxes */
 export function ToolResultCard({
   toolName,
   args,
@@ -239,7 +277,7 @@ export function ToolResultCard({
   args?: Record<string, any>;
   result: string;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const isDenied =
     result === "Denied by user" ||
     result === "The tool call was denied." ||
@@ -250,87 +288,58 @@ export function ToolResultCard({
     ? result.slice(0, RESULT_TRUNCATE_LIMIT) + "…"
     : result;
 
-  const hasArgs = args && Object.keys(args).length > 0;
+  const inputText = args != null
+    ? typeof args === "string"
+      ? args
+      : JSON.stringify(args, null, 2)
+    : "(no input)";
 
   return (
-    <Card
+    <div
       className={cn(
-        "border",
+        "rounded-lg border text-sm overflow-hidden",
         isDenied
           ? "border-red-300 bg-red-50/50 dark:bg-red-950/10"
           : "border-green-300 bg-green-50/50 dark:bg-green-950/10"
       )}
     >
-      <CardHeader className="pb-0 py-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {isDenied ? (
-              <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-            )}
-            <span className="text-sm font-medium">
-              {isDenied ? "Action Denied" : "Action Completed"}
-            </span>
-          </div>
-          <Badge variant="outline" className="text-xs">
-            {toolName}
-          </Badge>
-        </div>
-      </CardHeader>
-
-      {/* Result — always visible */}
-      <CardContent className="pt-1 pb-2 space-y-2">
-        <div
-          className={cn(
-            "text-xs whitespace-pre-wrap rounded border p-2 bg-background",
-            isDenied
-              ? "text-red-600 dark:text-red-400"
-              : "text-green-700 dark:text-green-400",
-            // Scrollable for medium-length results
-            displayResult.length > 200 && "max-h-[160px] overflow-y-auto"
-          )}
-        >
-          {displayResult}
-          {isTruncated && (
-            <span className="text-muted-foreground"> (truncated)</span>
-          )}
-        </div>
-
-        {/* Expandable input details */}
-        {hasArgs && (
-          <>
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-            >
-              <span>{isExpanded ? "\u25BC" : "\u25B6"}</span>
-              Input details
-            </button>
-            {isExpanded && (
-              <div className="text-sm">
-                {args.to && (
-                  <p className="text-xs">
-                    <span className="text-muted-foreground">To:</span>{" "}
-                    {args.to}
-                  </p>
-                )}
-                {(args.body || args.message) && (
-                  <p className="text-xs mt-1 p-2 bg-background rounded border whitespace-pre-wrap">
-                    {args.body || args.message}
-                  </p>
-                )}
-                {!args.to && !args.body && !args.message && (
-                  <pre className="text-xs overflow-x-auto bg-background p-2 rounded border mt-1">
-                    {JSON.stringify(args, null, 2)}
-                  </pre>
-                )}
-              </div>
-            )}
-          </>
+      {/* Clickable header — always visible */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/30 transition-colors"
+      >
+        {isDenied ? (
+          <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+        ) : (
+          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
         )}
-      </CardContent>
-    </Card>
+        <span className="text-xs font-medium flex-1 text-left">
+          {isDenied ? "Denied" : "Completed"}
+        </span>
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+          {toolName}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">
+          {isOpen ? "\u25BC" : "\u25B6"}
+        </span>
+      </button>
+
+      {/* Expandable details — input then output */}
+      {isOpen && (
+        <div className="px-3 pb-2 space-y-1.5">
+          <ToolDetailBox label="Input" content={inputText} />
+          <ToolDetailBox
+            label="Output"
+            content={displayResult + (isTruncated ? " (truncated)" : "")}
+            color={
+              isDenied
+                ? "text-red-600 dark:text-red-400"
+                : "text-green-700 dark:text-green-400"
+            }
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -344,49 +353,33 @@ export function ToolInvocationDisplay({
   args?: any;
   result?: any;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const inputText = args ? JSON.stringify(args, null, 2) : "";
+  const outputText = result
+    ? typeof result === "string"
+      ? result
+      : JSON.stringify(result, null, 2)
+    : "";
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden bg-muted/20">
+    <div className="rounded-lg border border-border overflow-hidden bg-muted/20">
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-2 text-left flex items-center justify-between hover:bg-muted/50 transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors"
       >
-        <span className="text-sm font-medium flex items-center gap-2">
-          <Zap className="w-4 h-4" />
-          Tool:{" "}
-          <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
-            {toolName}
-          </code>
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {isExpanded ? "\u25BC" : "\u25B6"}
+        <Zap className="w-3.5 h-3.5 shrink-0" />
+        <span className="text-xs font-medium flex-1 text-left">Tool</span>
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+          {toolName}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">
+          {isOpen ? "\u25BC" : "\u25B6"}
         </span>
       </button>
-      {isExpanded && (
-        <div className="px-4 py-3 bg-muted/30 border-t border-border space-y-2">
-          {args && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                Input:
-              </div>
-              <pre className="text-xs overflow-x-auto bg-background p-2 rounded border">
-                {JSON.stringify(args, null, 2)}
-              </pre>
-            </div>
-          )}
-          {result && (
-            <div>
-              <div className="text-xs font-medium text-muted-foreground mb-1">
-                Output:
-              </div>
-              <pre className="text-xs overflow-x-auto bg-background p-2 rounded border">
-                {typeof result === "string"
-                  ? result
-                  : JSON.stringify(result, null, 2)}
-              </pre>
-            </div>
-          )}
+      {isOpen && (
+        <div className="px-3 pb-2 space-y-1.5">
+          {inputText && <ToolDetailBox label="Input" content={inputText} />}
+          {outputText && <ToolDetailBox label="Output" content={outputText} />}
         </div>
       )}
     </div>

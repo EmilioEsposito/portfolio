@@ -732,7 +732,7 @@ CREATE INDEX idx_ope_to_number ON open_phone_events (to_number);
 
 
 ### Phase 8: PWA push notifications (ios and android)
-- [ ] Implement a way to send push notifications to the user's device.
+- [x] Implement a way to send push notifications to the user's device.
 
 
 ### Phase 9: Triggers and HITL behaviors per modality
