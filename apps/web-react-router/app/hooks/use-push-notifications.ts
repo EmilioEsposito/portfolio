@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
 
 const API_BASE = "/api/sernia-ai";
@@ -14,14 +14,26 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return output;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
 interface PushNotificationState {
   isSupported: boolean;
   permission: NotificationPermission | "unsupported";
   isSubscribed: boolean;
   isLoading: boolean;
   needsInstall: boolean;
+  /** "safari" | "chrome" | null — which iOS browser, for install instructions */
+  iosBrowser: "safari" | "chrome" | null;
+  /** True when push is available but user hasn't subscribed yet — show a prompt */
+  shouldPrompt: boolean;
+  /** True when the browser offers a PWA install prompt (Android Chrome) */
+  canInstall: boolean;
   subscribe: () => Promise<void>;
   unsubscribe: () => Promise<void>;
+  /** Trigger the browser's native PWA install prompt (Android Chrome) */
+  promptInstall: () => Promise<void>;
 }
 
 export function usePushNotifications(): PushNotificationState {
@@ -31,6 +43,23 @@ export function usePushNotifications(): PushNotificationState {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [needsInstall, setNeedsInstall] = useState(false);
+  const [iosBrowser, setIosBrowser] = useState<"safari" | "chrome" | null>(null);
+  const [canInstall, setCanInstall] = useState(false);
+  const deferredInstallPrompt = useRef<BeforeInstallPromptEvent | null>(null);
+
+  // Capture the beforeinstallprompt event (Android Chrome / desktop Chrome)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handler = (e: Event) => {
+      e.preventDefault(); // Prevent Chrome's default mini-infobar
+      deferredInstallPrompt.current = e as BeforeInstallPromptEvent;
+      setCanInstall(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
 
   // Check support and current state on mount
   useEffect(() => {
@@ -49,6 +78,8 @@ export function usePushNotifications(): PushNotificationState {
 
     if (isIOS && !isStandalone) {
       setNeedsInstall(true);
+      // CriOS = Chrome on iOS, everything else on iOS is Safari WebKit
+      setIosBrowser(/CriOS/.test(navigator.userAgent) ? "chrome" : "safari");
       return;
     }
 
@@ -156,13 +187,32 @@ export function usePushNotifications(): PushNotificationState {
     }
   }, [isSupported, isLoading, getToken]);
 
+  const promptInstall = useCallback(async () => {
+    if (!deferredInstallPrompt.current) return;
+    const { outcome } = await deferredInstallPrompt.current.prompt();
+    if (outcome === "accepted") {
+      setCanInstall(false);
+      deferredInstallPrompt.current = null;
+    }
+  }, []);
+
+  // Show a prompt when push is available but user hasn't opted in yet.
+  // On desktop/Android: supported + not subscribed + permission not yet denied
+  // On iOS standalone: same (needsInstall is false once installed)
+  const shouldPrompt =
+    isSupported && !needsInstall && !isSubscribed && permission !== "denied";
+
   return {
     isSupported,
     permission,
     isSubscribed,
     isLoading,
     needsInstall,
+    iosBrowser,
+    shouldPrompt,
+    canInstall,
     subscribe,
     unsubscribe,
+    promptInstall,
   };
 }

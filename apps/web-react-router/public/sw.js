@@ -2,8 +2,6 @@
 // No caching — only handles push events and notification clicks.
 
 self.addEventListener("push", (event) => {
-  console.log("[sw.js] push event received", event.data?.text());
-
   if (!event.data) return;
 
   let payload;

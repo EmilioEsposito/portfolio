@@ -340,8 +340,8 @@ export default function ChatEmilioPage() {
                   }
                 }}
                 placeholder="Send a message..."
-                className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
-                rows={3}
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                rows={1}
                 disabled={status === "submitted" || status === "streaming"}
               />
               {status === "streaming" ? (
@@ -350,22 +350,22 @@ export default function ChatEmilioPage() {
                   onClick={stop}
                   size="icon"
                   variant="outline"
-                  className="h-11 w-11 shrink-0 rounded-xl"
+                  className="h-9 w-9 shrink-0 rounded-lg"
                 >
-                  <StopCircle className="w-5 h-5" />
+                  <StopCircle className="w-4 h-4" />
                 </Button>
               ) : (
                 <Button
                   type="submit"
                   size="icon"
                   disabled={!input.trim() || status === "submitted"}
-                  className="h-11 w-11 shrink-0 rounded-xl"
+                  className="h-9 w-9 shrink-0 rounded-lg"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
                     fill="currentColor"
-                    className="w-5 h-5"
+                    className="w-4 h-4"
                   >
                     <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
                   </svg>
@@ -397,16 +397,16 @@ export default function ChatEmilioPage() {
                 onClick={stop}
                 size="icon"
                 variant="outline"
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <StopCircle className="w-5 h-5" />
+                <StopCircle className="w-4 h-4" />
               </Button>
             ) : (
               <Button
                 type="submit"
                 size="icon"
                 disabled={!input.trim() || status === "submitted"}
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
