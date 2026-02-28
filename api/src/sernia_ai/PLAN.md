@@ -62,10 +62,10 @@ api/src/sernia_ai/
 │   ├── db_search_tools.py   # ✅ Search agent_conversations
 │   └── code_tools.py        # ✅ Secure Python sandbox (pydantic-monty)
 │
-├── sub_agents/              # 🔲 Phase 5
-│   ├── __init__.py
-│   ├── history_compactor.py # Summarize old messages for compaction
-│   └── summarization.py     # Summarize large tool results
+├── sub_agents/              # ✅ Phase 6
+│   ├── __init__.py          # Exports both history processors
+│   ├── compact_history.py   # ✅ History compaction (token-aware, Haiku sub-agent)
+│   └── summarize_tool_results.py  # ✅ Tool result summarization (Haiku sub-agent)
 │
 ├── triggers/                # 🔲 Phase 6
 │   ├── __init__.py
@@ -133,7 +133,7 @@ async def search_files(ctx, query, glob_pattern="**/*.md") -> str:
 
 **File tools**: Provided by `pydantic-ai-filesystem-sandbox` `FileSystemToolset` with a `Sandbox` mounting `.workspace/` at `/workspace/` in `rw` mode. Gives the agent: `read_file`, `write_file`, `edit_file`, `list_files`, `delete_file`, `move_file`, `copy_file`. The custom `search_files` tool fills the gap (no grep in the sandbox toolset).
 
-**Note**: `history_processors` not yet wired (Phase 5). `DeferredToolRequests` output type enables HITL approval flow.
+**Note**: `DeferredToolRequests` output type enables HITL approval flow. `history_processors=[summarize_tool_results, compact_history]` wired in Phase 6.
 
 ### Configuration (`config.py`) — Implemented
 
@@ -199,32 +199,14 @@ Deterministic IDs for SMS/email so the same thread always maps to the same conve
 | Email | `email:{gmail_thread_id}` | `email:18d5f3a2b1c4e` |
 | Web Chat | UUID (frontend-generated) | `a1b2c3d4-...` |
 
-### Token-Aware Compaction
+### Token-Aware Compaction — ✅ Implemented
 
-Compaction is **modality-agnostic**. The `history_processor` monitors cumulative token usage from `ModelResponse.usage` on each message. When total tokens reach ~85% of the context window (`TOKEN_COMPACTION_THRESHOLD` in `config.py`), it triggers the `history_compactor` sub-agent to summarize older messages.
+Compaction is **modality-agnostic**. Two `history_processors` run before each model request (see [Sub-Agents](#sub-agents) section):
 
-```python
-async def compact_if_needed(
-    ctx: RunContext[SerniaDeps],
-    messages: list[ModelMessage],
-) -> list[ModelMessage]:
-    total_tokens = sum(
-        msg.usage.input_tokens + msg.usage.output_tokens
-        for msg in messages
-        if isinstance(msg, ModelResponse) and msg.usage
-    )
+1. **`summarize_tool_results`** — shrinks oversized tool results in older messages
+2. **`compact_history`** — when the last `ModelResponse.usage.input_tokens` exceeds `TOKEN_COMPACTION_THRESHOLD` (170k), summarizes the older half of the conversation
 
-    if total_tokens < TOKEN_COMPACTION_THRESHOLD:
-        return messages
-
-    # Split: older messages get summarized, recent ones kept verbatim
-    split_point = len(messages) // 2
-    older = messages[:split_point]
-    recent = messages[split_point:]
-
-    summary_result = await history_compactor.run(message_history=older)
-    return summary_result.new_messages() + recent
-```
+Both are fail-safe (preserve originals on error) and use Claude Haiku sub-agents.
 
 ---
 
@@ -301,7 +283,8 @@ Database-backed search across internal tables. Named `db_search_tools` to distin
 | Tool | Description | Status |
 |------|-------------|--------|
 | `search_conversations` | Full-text search across `agent_conversations.messages` JSON. Returns conversation snippets with metadata (who, when, modality). | ✅ |
-| `search_sms_history` | Full-text search across `open_phone_messages` table. For historical SMS context. | 🔲 Deferred |
+| `search_sms_history` | Keyword search across SMS messages, with optional contact name and date filters. Returns matches with ~10 surrounding messages for context. | 🔲 Next |
+| `get_contact_sms_history` | Chronological SMS history for a specific contact (by name, fuzzy matched). No keyword needed — just "show me recent messages with this person." Optional date filters. | 🔲 Next |
 
 ### Code Execution Tools (`code_tools.py`) — ✅ Implemented
 
@@ -399,54 +382,40 @@ Admin tab on the Sernia Chat page (`/sernia-chat` → "System Instructions" tab)
 
 ---
 
-## Sub-Agents
+## Sub-Agents — ✅ Implemented
 
-### History Compactor (`sub_agents/history_compactor.py`)
+Both sub-agents are implemented as PydanticAI `history_processors` — functions that run before each model request and transform the message list. They use Claude Haiku (`SUB_AGENT_MODEL` in `config.py`) and are wired into the main agent as `history_processors=[summarize_tool_results, compact_history]`. Order matters: summarization first (shrinks individual messages), then compaction (shrinks overall history).
 
-**Purpose**: Summarize old messages when conversation token count reaches ~85% of context window. Compaction is modality-agnostic — same threshold for SMS, email, and web chat.
+### Tool Result Summarizer (`sub_agents/summarize_tool_results.py`) — ✅ Implemented
 
-**Model**: `openai:gpt-4o-mini` (configured in `config.py` as `SUB_AGENT_MODEL`)
+**Purpose**: First line of defense. Replaces oversized `ToolReturnPart`s (>10k chars) in **older messages** with Haiku-generated summaries. Current turn results are never touched (agent is actively using them).
 
-```python
-history_compactor = Agent(
-    'openai:gpt-4o-mini',
-    instructions="""
-Summarize this conversation history concisely. Preserve:
-- Key decisions and outcomes
-- Action items and commitments
-- Important context (names, numbers, dates, addresses)
-- The emotional tone and relationship context
-Omit: pleasantries, repeated information, irrelevant tangents.
-""",
-    name='history_compactor',
-)
-```
+**Logic**:
+1. Find "current turn boundary" — walk backward from end over tool-call/return cycles to the initiating user prompt
+2. Scan older `ModelRequest` messages for `ToolReturnPart` where `len(content) > SUMMARIZATION_CHAR_THRESHOLD`
+3. Call `_summarizer.run()` for each, replace content with `"[Summarized {tool_name} result]: {summary}"`
+4. Preserve `tool_name`, `tool_call_id`, `timestamp` on the replacement part
+5. Fail-safe: on error, preserve original content
+6. Input capped at 50k chars to protect Haiku's context
 
-**Invocation**: Called by `history_processor.py:compact_if_needed()` when token threshold is exceeded. Not a tool — the main agent never calls it directly.
+### History Compactor (`sub_agents/compact_history.py`) — ✅ Implemented
 
-### Summarization Agent (`sub_agents/summarization.py`)
+**Purpose**: Second line of defense. When cumulative tokens approach 85% of the 200k context window, summarizes the older half of the conversation into a single summary message.
 
-**Purpose**: Prevents large tool results (email threads, ClickUp task lists, Drive search results) from blowing up the main agent's context window.
+**Token estimation**: Uses the **last `ModelResponse`'s `usage.input_tokens`** as the best proxy for current context size (reflects what the model actually processed).
 
-**Model**: `openai:gpt-4o-mini`
+**Logic**:
+1. If estimated tokens < `TOKEN_COMPACTION_THRESHOLD` (170k), pass through unchanged
+2. Split at ~50% of messages, snapping to a `ModelRequest` boundary; keep at least 4 recent messages
+3. Convert older messages to text transcript (`USER: ...`, `ASSISTANT: ...`, `TOOL RESULT (...): ...`)
+4. Call `_compactor.run()` to produce a summary
+5. Replace older messages with a single `ModelRequest(parts=[UserPromptPart("[Conversation summary — ...]")])`
+6. Fail-safe: on error, return original messages
+7. Input capped at 80k chars
 
-**Pattern**: Wraps tool calls. Returns structured output indicating whether data is verbatim or summarized:
+### Token Tracking (diagnostic)
 
-```python
-class ToolResultSummary(BaseModel):
-    """Structured wrapper so the main agent knows what it's getting."""
-    format: Literal["verbatim", "summarized", "truncated"]
-    item_count: int                    # Total items in original data
-    returned_count: int                # Items included in this response
-    content: str                       # The actual data or summary
-
-summarization_agent = Agent(
-    'openai:gpt-4o-mini',
-    output_type=ToolResultSummary,
-    instructions="...",
-    name='summarization',
-)
-```
+`persist_agent_run_result()` in `models.py` extracts `result.usage().total_tokens` and saves it to `AgentConversation.estimated_tokens` for observability. The compaction decision uses `ModelResponse.usage` from the actual messages, not this stored value.
 
 ---
 
@@ -581,12 +550,181 @@ Create Alembic migration when SMS/email triggers are built (Phase 6): `cd api &&
 - [x] Test: agent can send SMS, search email, list/search/create/update/delete tasks
 - [x] Live integration tests for ClickUp and OpenPhone tools (pytest -m live)
 
-### Phase 6: Sub-Agents & Compaction
-- [ ] Implement `history_compactor.py`
-- [ ] Implement `history_processor.py` with token-aware compaction (~85% threshold)
-- [ ] Implement `tool_result_summarization.py` for large tool results. This should be the first line of defense before we compact user/ai messages. Compacting just the tool results preserves the general structure of the conversation history, and better context of the user/ai messages.
-- [ ] Wire summarization into tools that return large data
-- [ ] Test: long conversation compacts correctly, large results get summarized
+### Phase 6: Sub-Agents & Compaction — ✅ Complete
+- [x] Implement `summarize_tool_results.py` — first line of defense, shrinks oversized tool results in older messages via Haiku sub-agent
+- [x] Implement `compact_history.py` — second line, compacts entire conversation when approaching 85% of context window
+- [x] Wire both as `history_processors=[summarize_tool_results, compact_history]` in `agent.py`
+- [x] Add token tracking: `persist_agent_run_result()` saves `estimated_tokens` to DB
+- [x] Tests: 36 unit tests with realistic tool result data (ClickUp task dumps, Gmail search, Drive docs) + smoke tests for wiring
+
+### Phase 6.5: SMS History Search
+- [ ] Add `search_sms_history` tool to `db_search_tools.py`
+- [ ] Add `get_contact_sms_history` tool to `db_search_tools.py`
+- [ ] Shared helpers: `_resolve_contact_phones()`, `_enrich_phone()`, `_format_sms_message()`
+- [ ] Alembic migration: indexes + `pg_trgm` extension
+- [ ] Unit tests with mocked DB queries + realistic SMS data
+- [ ] See full design below
+
+#### Design Overview
+
+**Two tools, different jobs**:
+
+| Tool | When the agent uses it | SQL shape |
+|------|----------------------|-----------|
+| `search_sms_history` | "What did Unit 203 say about the leak?" | `ILIKE` keyword search → return matches with ±5 context messages |
+| `get_contact_sms_history` | "Show me recent messages with John" / "Get me up to speed on this tenant" | No keyword — chronological fetch of most recent N messages for a contact |
+
+Both tools share: contact name resolution (fuzzy), date filters, phone-to-name enrichment, same output format.
+
+**Location**: `api/src/sernia_ai/tools/db_search_tools.py` (alongside `search_conversations`)
+
+#### Shared Infrastructure
+
+Both tools need the same contact resolution and output formatting. These are shared helpers in `db_search_tools.py`:
+
+```python
+async def _resolve_contact_phones(contact_name: str) -> tuple[str, list[str]]:
+    """Fuzzy-match a contact name → (matched display name, list of E.164 phone numbers).
+
+    Reuses _get_all_contacts() (5-min TTL cache) and fuzzy_filter() from openphone_tools.
+    Returns ("John Doe (Unit 203)", ["+14155550100", "+14155550101"]).
+    Raises ValueError if no match found.
+    """
+
+def _enrich_phone(phone: str, contact_map: dict[str, str]) -> str:
+    """Resolve +14155550100 → 'John Doe (Unit 203)' using a pre-built phone→name map."""
+
+def _format_sms_message(event, contact_map: dict[str, str], is_match: bool = False) -> str:
+    """Format a single SMS event into a readable line.
+
+    Example: [2025-06-15 2:33 PM] John Doe (Unit 203) → Sernia Capital: The leak got worse  ← MATCH
+    """
+```
+
+#### Tool 1: `search_sms_history`
+
+**Purpose**: Keyword search across SMS messages. Returns scattered matches with surrounding context.
+
+```python
+@db_search_toolset.tool
+async def search_sms_history(
+    ctx: RunContext[SerniaDeps],
+    query: str,
+    contact_name: str | None = None,
+    after: str | None = None,
+    before: str | None = None,
+    limit: int = 5,
+) -> str:
+    """Search SMS message history by keyword, with optional contact and date filters.
+
+    Args:
+        query: Text to search for in message content (case-insensitive).
+        contact_name: Optional — filter to a specific contact (fuzzy matched).
+                      Supports partial names, building/unit numbers, typos.
+                      Examples: "John", "Unit 203", "Peppino Bldg A".
+        after: Optional — only messages after this date (YYYY-MM-DD).
+        before: Optional — only messages before this date (YYYY-MM-DD).
+        limit: Max matching messages to return (default 5).
+               Each match includes ~10 surrounding messages for context.
+    """
+```
+
+**Logic**:
+1. **Build query filters**:
+   - Always: `event_type LIKE 'message.%'` and `message_text IS NOT NULL`
+   - Always: `message_text ILIKE '%{query}%'`
+   - If `contact_name`: resolve to phone numbers via `_resolve_contact_phones()`, add `(from_number IN (...) OR to_number IN (...))`
+   - If `after`/`before`: add `event_timestamp >= / <=` filters
+2. **Execute**: `ORDER BY event_timestamp DESC LIMIT {limit}`
+3. **Context window**: For each match, fetch ~10 surrounding messages in the same `conversation_id` (±5 by `event_timestamp`). Deduplicate across overlapping windows.
+4. **Format**: Group by conversation, enrich phone numbers with contact names, mark the matching message with `← MATCH`
+
+**Output example**:
+```
+=== Match 1 of 3 (conversation with John Doe — Unit 203) ===
+[2025-06-15 2:30 PM] John Doe (Unit 203) → Sernia Capital: Hey, is maintenance coming today?
+[2025-06-15 2:32 PM] Sernia Capital → John Doe (Unit 203): Yes, the plumber is scheduled for 3pm
+[2025-06-15 2:33 PM] John Doe (Unit 203) → Sernia Capital: Great, the leak has gotten worse  ← MATCH
+[2025-06-15 2:35 PM] Sernia Capital → John Doe (Unit 203): I'll let them know to prioritize it
+
+=== Match 2 of 3 (conversation with John Doe — Unit 203) ===
+[2025-06-10 9:15 AM] John Doe (Unit 203) → Sernia Capital: There's a small leak under the bathroom sink
+...
+```
+
+#### Tool 2: `get_contact_sms_history`
+
+**Purpose**: Chronological SMS history for a specific contact. No keyword needed — "show me the conversation."
+
+```python
+@db_search_toolset.tool
+async def get_contact_sms_history(
+    ctx: RunContext[SerniaDeps],
+    contact_name: str,
+    after: str | None = None,
+    before: str | None = None,
+    limit: int = 50,
+) -> str:
+    """Get recent SMS conversation history for a specific contact.
+
+    Use this to review the full conversation thread with a tenant, vendor,
+    or team member — no keyword needed.
+
+    Args:
+        contact_name: Contact name to look up (fuzzy matched — supports
+                      partial names, building/unit numbers, typos).
+                      Examples: "John", "Unit 203", "Peppino Bldg A".
+        after: Optional — only messages after this date (YYYY-MM-DD).
+        before: Optional — only messages before this date (YYYY-MM-DD).
+        limit: Max messages to return (default 50, most recent first).
+    """
+```
+
+**Logic**:
+1. **Resolve contact**: `_resolve_contact_phones(contact_name)` → phone numbers (required, not optional here)
+2. **Build query**: `WHERE event_type LIKE 'message.%' AND (from_number IN (...) OR to_number IN (...))` + optional date filters
+3. **Execute**: `ORDER BY event_timestamp DESC LIMIT {limit}`, then reverse for chronological display
+4. **Format**: Single conversation thread with enriched names
+
+**Output example**:
+```
+SMS history with John Doe (Unit 203) — showing 12 most recent messages
+
+[2025-06-10 9:15 AM] John Doe (Unit 203) → Sernia Capital: There's a small leak under the bathroom sink
+[2025-06-10 9:20 AM] Sernia Capital → John Doe (Unit 203): Thanks for reporting. I'll send maintenance today.
+[2025-06-10 3:45 PM] Sernia Capital → John Doe (Unit 203): Plumber visited, patched the pipe. Let us know if it recurs.
+[2025-06-15 2:30 PM] John Doe (Unit 203) → Sernia Capital: Hey, is maintenance coming today?
+[2025-06-15 2:32 PM] Sernia Capital → John Doe (Unit 203): Yes, the plumber is scheduled for 3pm
+[2025-06-15 2:33 PM] John Doe (Unit 203) → Sernia Capital: Great, the leak has gotten worse
+[2025-06-15 2:35 PM] Sernia Capital → John Doe (Unit 203): I'll let them know to prioritize it
+```
+
+#### Why Two Tools
+
+- **Different SQL**: keyword search uses `ILIKE` + context windows (lateral joins). History fetch is a simple `WHERE phone IN (...) ORDER BY timestamp`.
+- **Different defaults**: search returns 5 matches with context (~50 messages total). History returns 50 messages chronologically.
+- **Different intent**: search = "find something specific across all SMS", history = "get me up to speed on this person"
+- **LLM clarity**: Two focused docstrings are easier for the model to pick the right one than one overloaded tool with complex optional parameter interactions.
+
+#### Database Indexes
+
+```sql
+-- Enable trigram extension (available on Neon Postgres)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- For keyword search (ILIKE performance)
+CREATE INDEX idx_ope_message_text_trgm ON open_phone_events
+    USING GIN (message_text gin_trgm_ops);
+
+-- For context window lookups (conversation + time ordering)
+CREATE INDEX idx_ope_conv_ts ON open_phone_events (conversation_id, event_timestamp DESC);
+
+-- For phone number filtering (used by both tools)
+CREATE INDEX idx_ope_from_number ON open_phone_events (from_number);
+CREATE INDEX idx_ope_to_number ON open_phone_events (to_number);
+```
+
+**Note**: The trigram index requires `pg_trgm` extension. Already available on Neon Postgres — just needs `CREATE EXTENSION`.
 
 ### Phase 7: Error Handling and Logging
 - [ ] Feedback loop errors. I already get logfire slack messages for errors, so I want them to be very good so that another Claude Code AI can take the error and generate a fix.
