@@ -205,8 +205,8 @@ async def test_find_contact_nonexistent_number(quo_client: httpx.AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_send_message_api_contract(quo_client: httpx.AsyncClient):
-    """Verify the POST /v1/messages payload shape (dry-run)."""
+async def test_send_message_api_contract_single(quo_client: httpx.AsyncClient):
+    """Verify the POST /v1/messages payload shape with a single recipient (dry-run)."""
     resp = await quo_client.post(
         "/v1/messages",
         json={
@@ -216,3 +216,38 @@ async def test_send_message_api_contract(quo_client: httpx.AsyncClient):
         },
     )
     assert resp.status_code in (400, 404, 422)
+
+
+@pytest.mark.asyncio
+async def test_send_message_api_contract_group(quo_client: httpx.AsyncClient):
+    """Verify the POST /v1/messages payload accepts multiple recipients (dry-run)."""
+    resp = await quo_client.post(
+        "/v1/messages",
+        json={
+            "content": "pytest group test — should fail",
+            "from": "INVALID_PHONE_ID",
+            "to": ["+10000000000", "+10000000001"],
+        },
+    )
+    assert resp.status_code in (400, 404, 422)
+
+
+# ---- Internal vs external contact classification ----
+
+
+@pytest.mark.asyncio
+async def test_internal_contacts_have_sernia_company(quo_client: httpx.AsyncClient):
+    """Contacts with company='Sernia Capital LLC' should be classifiable as internal."""
+    from api.src.sernia_ai.config import QUO_INTERNAL_COMPANY
+
+    contacts = await _get_all_contacts(quo_client)
+    internal = [
+        c for c in contacts
+        if (c.get("defaultFields", {}).get("company") or "") == QUO_INTERNAL_COMPANY
+    ]
+    print(f"\nInternal contacts ({QUO_INTERNAL_COMPANY}): {len(internal)}")
+    for c in internal[:5]:
+        df = c.get("defaultFields", {})
+        name = f"{df.get('firstName', '')} {df.get('lastName', '')}".strip()
+        print(f"  {name}")
+    assert len(internal) > 0, "Expected at least one internal contact"

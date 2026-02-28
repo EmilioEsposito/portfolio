@@ -46,9 +46,14 @@ If unsure how to resolve, ask the user.
 ## Your Tools
 
 ### Quo / OpenPhone (messaging, contacts, calls)
-- **send_message**: Send an SMS/MMS (requires approval). Provide the recipient \
-phone number and message content — the system verifies the recipient is a Quo \
-contact and selects the correct sending line automatically.
+- **send_internal_sms**: Send an SMS to Sernia Capital team members. No approval \
+needed. Pass one or more phone numbers for group texts. The system verifies \
+ALL recipients are Sernia Capital LLC contacts — if any are external, it blocks \
+and you must use send_external_sms instead.
+- **send_external_sms**: Send an SMS to external contacts (requires approval). \
+Pass one or more phone numbers for group texts. The system verifies all recipients \
+exist as Quo contacts and rejects messages that include any Sernia Capital LLC \
+contacts — internal numbers must never be exposed in external threads.
 - **search_contacts**: Fuzzy-search Quo contacts by name, phone number, or \
 company. Tolerates typos. Use this to find contacts before messaging or to \
 answer questions about tenants/contacts.
@@ -101,10 +106,11 @@ No filesystem or network access.
 for your persistent /workspace/.
 
 ## Approval-Gated Actions
-Some tools (sending SMS, emails, creating events) require human approval before executing. \
+Some tools (external SMS, emails, creating events) require human approval before executing. \
 When you use one of these tools, the system will pause and ask the user to \
 approve or deny. Do NOT ask the user for confirmation before calling the tool — \
-the approval system handles that automatically. Just call the tool naturally.
+the approval system handles that automatically. Just call the tool naturally. \
+Internal SMS (send_internal_sms) does NOT require approval.
 """
 
 # Files to hide from the filetree (internal plumbing)

@@ -33,7 +33,7 @@
 | **Framework** | PydanticAI (latest stable API) | `instructions` list, `FileSystemToolset`, `builtin_tools`, `history_processors`. |
 | **Code location** | `api/src/sernia_ai/` | Dedicated module. Imports from existing services. |
 | **Conversation storage** | `agent_conversations` table | Shared with other demo agents. Columns: `modality`, `contact_identifier`, `estimated_tokens`, `metadata_`. |
-| **Quo/OpenPhone** | FastMCP OpenAPI bridge + custom guards | OpenPhone REST API spec → MCP tools. Custom `send_message` with contact verification + from-phone enforcement. |
+| **Quo/OpenPhone** | FastMCP OpenAPI bridge + custom guards | OpenPhone REST API spec → MCP tools. Custom `send_internal_sms` / `send_external_sms` with deterministic contact gates + from-phone enforcement. |
 | **Memory storage** | `pydantic-ai-filesystem-sandbox` `FileSystemToolset` | Sandboxed `.workspace/` with `.md`, `.txt`, `.json` suffixes. Custom `search_files` tool for grep. |
 | **Git sync** | `memory/git_sync.py` | `.workspace/` backed by `EmilioEsposito/sernia-knowledge` GitHub repo via PAT. Clone/pull on startup, commit+push after each agent turn. |
 | **Web research** | PydanticAI `WebSearchTool` + `WebFetchTool` | Domain allowlist in `config.py`. |
@@ -54,7 +54,7 @@ api/src/sernia_ai/
 ├── routes.py                # FastAPI routes (chat, conversations, approvals, admin)
 │
 ├── tools/
-│   ├── openphone_tools.py   # FastMCP OpenAPI bridge + custom send_message, search_contacts
+│   ├── openphone_tools.py   # FastMCP OpenAPI bridge + custom SMS tools, search_contacts
 │   ├── google_tools.py      # Gmail, Calendar, Drive, Docs, Sheets, PDFs
 │   ├── clickup_tools.py     # List browsing, task search, CRUD
 │   ├── db_search_tools.py   # Search conversations + SMS history
@@ -177,7 +177,8 @@ Write operations require human approval before execution:
 
 | Tool | Requires Approval |
 |------|:-:|
-| `send_message` (SMS) | Yes |
+| `send_internal_sms` (internal team) | No |
+| `send_external_sms` (external contacts) | Yes |
 | `send_email` | Yes |
 | `create_calendar_event` | Yes |
 | `create_task` / `update_task` / `delete_task` | Yes |
@@ -194,11 +195,11 @@ All Google API calls use a service account with domain-wide delegation, imperson
 
 ### OpenPhone Phone Line Selection
 
-The `send_message` tool auto-selects the sending phone line:
-- **Internal contacts** (company = "Sernia Capital LLC") → Sernia AI internal line (`QUO_SERNIA_AI_PHONE_ID`)
-- **External contacts** → Shared team line (`QUO_SHARED_EXTERNAL_PHONE_ID`)
+Two separate SMS tools with deterministic gates:
+- **`send_internal_sms`**: No approval. Uses `QUO_SERNIA_AI_PHONE_ID`. ALL recipients must be "Sernia Capital LLC" contacts — blocks if any are external.
+- **`send_external_sms`**: Requires approval. Uses `QUO_SHARED_EXTERNAL_PHONE_ID`. ALL recipients must be external — blocks if any are internal (protects internal phone numbers from exposure).
 
-Recipients must exist as Quo contacts before messaging (enforced by the tool).
+Both support group texts (list of phone numbers). Recipients must exist as Quo contacts before messaging (enforced by both tools).
 
 ---
 
@@ -243,7 +244,8 @@ The frontend uses `trigger_source` and `trigger_contact_name` to render icons (P
 | Tool | Type | Approval |
 |------|------|:--------:|
 | `search_contacts` | Custom (fuzzy search, 5-min cached contact list) | No |
-| `send_message` | Custom (contact verification + phone line selection) | **Yes** |
+| `send_internal_sms` | Custom (all-internal gate, group text) | No |
+| `send_external_sms` | Custom (external gate, group text) | **Yes** |
 | `listMessages_v1` / `getMessageById_v1` | MCP bridge | No |
 | `getContactById_v1` | MCP bridge | No |
 | `createContact_v1` / `updateContactById_v1` / `deleteContact_v1` | MCP bridge | **Yes** |
