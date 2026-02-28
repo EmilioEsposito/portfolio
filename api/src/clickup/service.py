@@ -122,16 +122,16 @@ def register_clickup_apscheduler_jobs():
 
     Runs at 8am and 5pm ET (13:00 and 21:00 UTC).
     """
-    from api.src.apscheduler_service.service import get_scheduler
+    from api.src.apscheduler_service.service import get_scheduler, upsert_job
 
     scheduler = get_scheduler()
-    scheduler.add_job(
+    upsert_job(
+        scheduler,
         func=get_peppino_view_tasks,
         trigger="cron",
         hour="13,21",  # 8am and 5pm ET = 13:00 and 21:00 UTC
         minute=0,
         id="clickup_peppino_tasks_scheduled",
-        replace_existing=True,
         name="ClickUp Peppino Tasks Reminder",
     )
     logfire.info("ClickUp APScheduler jobs registered.")

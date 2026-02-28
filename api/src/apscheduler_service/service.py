@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.job import Job
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.events import EVENT_JOB_ERROR
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
@@ -101,6 +102,23 @@ def get_scheduler() -> AsyncIOScheduler:
 
         _scheduler = scheduler
         return _scheduler
+
+def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
+    """Add a job, cleanly replacing any existing job with the same ID.
+
+    Unlike ``replace_existing=True`` (which does INSERT → duplicate-key error →
+    UPDATE), this removes the old job first so the INSERT always succeeds and
+    Logfire doesn't record a spurious error-level DB span on every deploy.
+    """
+    job_id = kwargs.get("id")
+    if job_id:
+        try:
+            scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
+    kwargs.pop("replace_existing", None)
+    scheduler.add_job(**kwargs)
+
 
 # Note: APScheduler's internal logging (e.g., misfire warnings) is captured by
 # logging.getLogger().addHandler(...) configured in api.src.utils.logfire_config
@@ -276,13 +294,13 @@ async def schedule_email(
 
 def register_hello_apscheduler_jobs():
     scheduler = get_scheduler()
-    scheduler.add_job(
+    upsert_job(
+        scheduler,
         func=run_hello_world,
         trigger="date",
         kwargs={"name": "Emilio"},
         id="hello_world_apscheduler_job",
         run_date=datetime.now() + timedelta(seconds=30),
-        replace_existing=True,
     )
 
 
