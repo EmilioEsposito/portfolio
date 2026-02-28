@@ -5,7 +5,7 @@ These tests hit the real OpenPhone API. They require OPEN_PHONE_API_KEY
 to be set and will be skipped otherwise.
 
 Run with:
-    pytest api/src/tests/test_openphone_tools.py -v -s
+    pytest -m live api/src/tests/test_openphone_tools.py -v -s
 """
 
 import os
@@ -24,10 +24,13 @@ from api.src.sernia_ai.tools.openphone_tools import (
 )
 from api.src.utils.fuzzy_json import fuzzy_filter
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("OPEN_PHONE_API_KEY"),
-    reason="OPEN_PHONE_API_KEY not set",
-)
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        not os.environ.get("OPEN_PHONE_API_KEY"),
+        reason="OPEN_PHONE_API_KEY not set",
+    ),
+]
 
 
 @pytest_asyncio.fixture
