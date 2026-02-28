@@ -46,7 +46,7 @@ async def check_general_emails() -> None:
 
         Steps:
         1. Search for unread emails from the last {lookback}:
-           search_emails("is:unread newer_than:{lookback} -category:promotions -category:social -from:zillow.com")
+           search_emails("in:inbox newer_than:{lookback} -from:zillow.com")
         2. For any that look relevant (not automated, not spam, not already
            handled), read the full email
         3. For each email needing attention, provide a summary and recommended action
