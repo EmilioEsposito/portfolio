@@ -20,6 +20,7 @@ from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
 from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
 from api.src.sernia_ai.tools.code_tools import code_toolset
+from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
 
 
 def _build_builtin_tools() -> list:
@@ -62,6 +63,7 @@ sernia_agent = Agent(
         db_search_toolset,
         code_toolset,
     ],
+    history_processors=[summarize_tool_results, compact_history],
     instrument=True,
     name=AGENT_NAME,
 )

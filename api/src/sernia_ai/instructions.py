@@ -5,6 +5,7 @@ Static instructions are a plain string.
 Dynamic instruction functions take a RunContext[SerniaDeps] and return a string.
 Both are passed to Agent(instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS]).
 """
+from datetime import datetime
 from pathlib import Path
 
 from pydantic_ai import RunContext
@@ -127,13 +128,23 @@ def _build_filetree(root: Path, prefix: str = "") -> str:
     return "\n".join(line for line in lines if line)
 
 
-def inject_context(ctx: RunContext[SerniaDeps]) -> str:
-    from datetime import datetime
+def format_current_datetime(now: datetime | None = None) -> str:
+    """LLM-friendly current datetime: day of week, month, ET and UTC."""
     from zoneinfo import ZoneInfo
 
-    now = datetime.now(ZoneInfo("America/New_York"))
+    et = ZoneInfo("America/New_York")
+    utc = ZoneInfo("UTC")
+    now_et = now.astimezone(et) if now is not None else datetime.now(et)
+    now_utc = now_et.astimezone(utc)
     return (
-        f"Current: {now.strftime('%Y-%m-%d %I:%M %p ET')}. "
+        f"{now_et.strftime('%A, %B %d, %Y at %I:%M %p')} ET "
+        f"({now_utc.strftime('%I:%M %p')} UTC)"
+    )
+
+
+def inject_context(ctx: RunContext[SerniaDeps]) -> str:
+    return (
+        f"Current Date and Time: {format_current_datetime()}. "
         f"Speaking with {ctx.deps.user_name} via {ctx.deps.modality}."
     )
 

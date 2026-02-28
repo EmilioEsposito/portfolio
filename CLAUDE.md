@@ -147,7 +147,9 @@ pnpm fastapi-dev          # FastAPI only (port 8000)
 pnpm dev-with-fastapi     # Both concurrently
 
 # Testing
-source .venv/bin/activate && pytest -v -s
+source .venv/bin/activate && pytest -v -s             # All unit tests (excludes live)
+pytest -m live api/src/tests/test_clickup_tools.py    # Live ClickUp API tests (needs keys)
+pytest -m live api/src/tests/test_openphone_tools.py  # Live OpenPhone API tests (needs keys)
 
 # Database migrations
 cd api && uv run alembic upgrade head
@@ -156,6 +158,14 @@ cd api && uv run alembic revision --autogenerate -m "description"
 # Add Shadcn component
 cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 ```
+
+### Testing Conventions
+
+- **Default `pytest` run** excludes tests marked `live` (see `pytest.ini` `addopts`).
+- **`live` marker**: Tests that hit real third-party APIs (ClickUp, OpenPhone, etc.). Run explicitly with `pytest -m live <file>`. Require API keys in `.env`.
+- **Smoke tests** (`TestSmoke` classes): Fast import/wiring checks that verify modules load correctly and components are connected (e.g., agent has history processors wired, sub-agent models configured). No API keys needed.
+- **Unit tests**: Mock all external calls. Use realistic tool result data matching actual output formats (ClickUp task dumps, Gmail search results, etc.), not dummy strings.
+- **Test location**: `api/src/tests/`
 
 ---
 

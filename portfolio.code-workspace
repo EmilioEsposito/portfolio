@@ -23,6 +23,10 @@
 		{
 			"name": "pricing",
 			"path": "../code/pricing"
+		},
+		{
+			"name": "genai-prices",
+			"path": "../code/genai-prices"
 		}
 	],
 	"settings": {

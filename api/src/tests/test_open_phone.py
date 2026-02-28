@@ -22,15 +22,8 @@ def mock_background_services_startup():
     Mocks the startup of APScheduler etc to speed up tests in this module.
     Prevents actual scheduler/service startup during testing.
     """
-    with patch('api.index.scheduler.start', autospec=True) as mock_scheduler_start, \
-         patch('api.index.zillow_email_service.start_service', new_callable=AsyncMock) as mock_zillow_start:
-        
-        print(f"\n--- Mocking background services for tests in module ---")
-        print(f"Mocked api.index.scheduler.start: {mock_scheduler_start}")
-        print(f"Mocked api.index.zillow_email_service.start_service: {mock_zillow_start}")
-        print(f"-------------------------------------------------------\n")
-        yield mock_scheduler_start, mock_zillow_start
-    print("\n--- Background services unmocked for module ---\n")
+    with patch('api.index._apscheduler_startup_async', new_callable=AsyncMock) as mock_scheduler_start:
+        yield mock_scheduler_start
 
 async def mock_verify(*args, **kwargs):
     return True
