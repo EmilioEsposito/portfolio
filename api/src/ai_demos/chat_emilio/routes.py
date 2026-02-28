@@ -158,13 +158,14 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
     # Log new messages
     if request_json.get('trigger') == 'submit-message':
         messages = request_json.get('messages', [])
-        # Structured logging for easy querying/alerting in Logfire UI
-        latest_message = messages[-1]
-        logfire.info("new chat message",
-            slack_alert=True,
-            endpoint="/api/ai-demos/chat-emilio",
-            message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
-        )
+        if messages:
+            # Structured logging for easy querying/alerting in Logfire UI
+            latest_message = messages[-1]
+            logfire.info("new chat message",
+                slack_alert=True,
+                endpoint="/api/ai-demos/chat-emilio",
+                message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
+            )
 
     # Use functools.partial to create a callback with pre-filled arguments
     # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
