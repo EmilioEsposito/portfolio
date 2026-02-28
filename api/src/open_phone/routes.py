@@ -12,6 +12,7 @@ from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api.src.open_phone.escalate import analyze_for_twilio_escalation
+from api.src.sernia_ai.triggers.sms_trigger import handle_inbound_sms
 from api.src.utils.password import verify_admin_password
 from datetime import datetime, date
 from sqlalchemy.exc import IntegrityError
@@ -169,6 +170,8 @@ async def webhook(
                 # Run analysis in the background
                 logfire.info(f"AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+                # Sernia AI trigger (runs alongside Twilio escalation)
+                background_tasks.add_task(handle_inbound_sms, event_data)
         else:
             logfire.info(f"AI Assessment Skipped. to_number: {event_data['to_number']} payload_type: {payload.type}")
 

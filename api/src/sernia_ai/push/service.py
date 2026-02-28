@@ -164,9 +164,34 @@ async def notify_pending_approval(
         "url": f"/sernia-chat?id={conversation_id}",
         "conversation_id": conversation_id,
         "tool_name": tool_name,
+        "type": "approval",
     }
 
     try:
         await notify_all_sernia_users(title=title, body=body, data=data)
     except Exception:
         logfire.exception("notify_pending_approval failed", conversation_id=conversation_id)
+
+
+async def notify_trigger_alert(
+    conversation_id: str,
+    trigger_source: str,
+    title: str,
+    body: str,
+) -> None:
+    """Send a push notification for a trigger-created conversation (not HITL approval)."""
+    data = {
+        "url": f"/sernia-chat?id={conversation_id}",
+        "conversation_id": conversation_id,
+        "type": "alert",
+        "trigger_source": trigger_source,
+    }
+
+    try:
+        await notify_all_sernia_users(title=title, body=body, data=data)
+    except Exception:
+        logfire.exception(
+            "notify_trigger_alert failed",
+            conversation_id=conversation_id,
+            trigger_source=trigger_source,
+        )

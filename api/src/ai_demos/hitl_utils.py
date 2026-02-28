@@ -94,7 +94,7 @@ async def resume_with_approvals(
     conversation_id: str,
     decisions: list[ApprovalDecision],
     deps: object,
-    clerk_user_id: str = "anonymous",
+    clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
 ) -> AgentRunResult:
     """
@@ -105,7 +105,7 @@ async def resume_with_approvals(
         conversation_id: ID of the conversation to resume
         decisions: List of approval decisions for pending tool calls
         deps: Agent-specific deps object
-        clerk_user_id: Clerk user ID for DB ownership filter
+        clerk_user_id: Clerk user ID for DB ownership filter, or None for shared access
         session: Optional existing DB session
     """
     async with provide_session(session) as s:

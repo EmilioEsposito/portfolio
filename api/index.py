@@ -75,6 +75,7 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
+from api.src.sernia_ai.triggers.scheduler import register_sernia_trigger_jobs
 from api.src.schedulers.routes import router as schedulers_router
 
 # Import all GraphQL schemas
@@ -158,6 +159,7 @@ async def _apscheduler_startup_async() -> None:
             # Register production scheduled jobs (moved from DBOS)
             register_clickup_apscheduler_jobs()
             register_zillow_apscheduler_jobs()
+            register_sernia_trigger_jobs()
         logfire.info("APScheduler background startup completed successfully.")
     except Exception as e:
         logfire.exception(f"APScheduler background startup failed: {e}")

@@ -58,15 +58,15 @@ class AgentConversation(Base):
 async def get_agent_conversation(
     session: AsyncSession,
     conversation_id: str,
-    clerk_user_id: str,
+    clerk_user_id: str | None = None,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> AgentConversation | None:
     """
-    Retrieve an agent conversation by ID for a specific user.
+    Retrieve an agent conversation by ID.
 
-    The clerk_user_id filter is applied in the SQL query - returns None if
-    conversation doesn't exist OR doesn't belong to user.
+    When clerk_user_id is provided, filters by ownership. When None, returns
+    the conversation regardless of owner (for shared-access agents like Sernia).
 
     Retries help handle race conditions where the conversation may not be
     persisted yet when approval is clicked quickly after streaming completes.
@@ -74,8 +74,9 @@ async def get_agent_conversation(
     for attempt in range(retries):
         stmt = select(AgentConversation).where(
             AgentConversation.id == conversation_id,
-            AgentConversation.clerk_user_id == clerk_user_id,
         )
+        if clerk_user_id is not None:
+            stmt = stmt.where(AgentConversation.clerk_user_id == clerk_user_id)
         result = await session.execute(stmt)
         conversation = result.scalar_one_or_none()
 
@@ -91,15 +92,17 @@ async def get_agent_conversation(
 
 async def get_conversation_messages(
     conversation_id: str,
-    clerk_user_id: str,
+    clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> list[ModelMessage]:
     """
-    Retrieve conversation messages for a specific user.
+    Retrieve conversation messages.
 
-    Returns empty list if conversation doesn't exist or doesn't belong to user.
+    When clerk_user_id is provided, filters by ownership. When None, returns
+    messages regardless of owner (for shared-access agents like Sernia).
+    Returns empty list if conversation doesn't exist.
     """
     async with provide_session(session) as s:
         conversation = await get_agent_conversation(
@@ -266,17 +269,19 @@ def _sanitize_json(obj: Any) -> Any:
 
 
 async def list_user_conversations(
-    clerk_user_id: str,
+    clerk_user_id: str | None,
     agent_name: str,
     limit: int = 20,
     pending_only: bool = False,
     session: AsyncSession | None = None,
 ) -> list[dict]:
     """
-    List conversations for a specific user and agent.
+    List conversations for an agent, optionally filtered by user.
 
     Args:
-        clerk_user_id: Clerk user ID
+        clerk_user_id: Clerk user ID to filter by, or None for all conversations
+                       (used by shared-access agents like Sernia where all team
+                       members can see all conversations).
         agent_name: Name of the agent
         limit: Maximum number of conversations to return
         pending_only: If True, only return conversations with pending approvals
@@ -288,27 +293,32 @@ async def list_user_conversations(
 
     async with provide_session(session) as s:
         # Use raw SQL to extract preview at DB level - avoids loading full messages JSON
-        # Preview is extracted from: messages[0].parts[0].content (first user message)
-        query = text("""
+        # Preview: prefer trigger_message_preview from metadata, fall back to first user message
+        user_filter = "AND clerk_user_id = :clerk_user_id" if clerk_user_id else ""
+        query = text(f"""
             SELECT
                 id,
                 agent_name,
                 clerk_user_id,
-                LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100) as preview,
+                metadata_,
+                COALESCE(
+                    metadata_ ->> 'trigger_message_preview',
+                    LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
+                ) as preview,
                 created_at,
                 updated_at
             FROM agent_conversations
             WHERE agent_name = :agent_name
-              AND clerk_user_id = :clerk_user_id
+              {user_filter}
             ORDER BY updated_at DESC
             LIMIT :limit
         """)
 
-        result = await s.execute(query, {
-            "agent_name": agent_name,
-            "clerk_user_id": clerk_user_id,
-            "limit": limit,
-        })
+        params: dict = {"agent_name": agent_name, "limit": limit}
+        if clerk_user_id:
+            params["clerk_user_id"] = clerk_user_id
+
+        result = await s.execute(query, params)
         rows = result.fetchall()
 
         conv_list = []
@@ -328,6 +338,9 @@ async def list_user_conversations(
                     if not has_pending:
                         continue  # Skip non-pending conversations
 
+            # Extract trigger metadata if present
+            metadata = row.metadata_ or {}
+
             conv_list.append({
                 "conversation_id": row.id,
                 "agent_name": row.agent_name,
@@ -335,6 +348,8 @@ async def list_user_conversations(
                 "preview": row.preview or "",
                 "pending": pending,
                 "has_pending": has_pending,
+                "trigger_source": metadata.get("trigger_source"),
+                "trigger_contact_name": metadata.get("trigger_contact_name"),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             })
@@ -344,33 +359,34 @@ async def list_user_conversations(
 
 async def delete_conversation(
     conversation_id: str,
-    clerk_user_id: str,
+    clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
 ) -> bool:
     """
-    Delete a conversation if it belongs to the specified user.
+    Delete a conversation, optionally restricted to a specific user.
 
-    Uses a single query with both conversation_id and clerk_user_id filters.
+    When clerk_user_id is provided, only deletes if user owns it.
+    When None, deletes regardless of owner (for shared-access agents).
 
     Args:
         conversation_id: The conversation ID to delete
-        clerk_user_id: The Clerk user ID that should own the conversation
+        clerk_user_id: Clerk user ID for ownership check, or None to skip
         session: Optional existing session
 
     Returns:
         True if deleted successfully
 
     Raises:
-        ValueError: If conversation not found or user doesn't own it
+        ValueError: If conversation not found
     """
     from sqlalchemy import delete
 
     async with provide_session(session) as s:
-        # Single delete with both filters - only deletes if user owns it
         stmt = delete(AgentConversation).where(
             AgentConversation.id == conversation_id,
-            AgentConversation.clerk_user_id == clerk_user_id,
         )
+        if clerk_user_id is not None:
+            stmt = stmt.where(AgentConversation.clerk_user_id == clerk_user_id)
         result = await s.execute(stmt)
         await s.commit()
 
@@ -425,24 +441,16 @@ def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list
 
 async def get_conversation_with_pending(
     conversation_id: str,
-    clerk_user_id: str,
+    clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
 ) -> dict | None:
     """
     Get a conversation and check if it has a pending approval.
 
-    Returns None if conversation doesn't exist or doesn't belong to user.
+    When clerk_user_id is provided, filters by ownership. When None, returns
+    the conversation regardless of owner (for shared-access agents).
 
-    Returns:
-        {
-            "conversation_id": str,
-            "messages": list[ModelMessage],
-            "pending": dict | None,  # approval info if pending
-            "agent_name": str,
-            "clerk_user_id": str,
-            "created_at": datetime,
-            "updated_at": datetime,
-        }
+    Returns None if conversation doesn't exist.
     """
     async with provide_session(session) as s:
         conversation = await get_agent_conversation(s, conversation_id, clerk_user_id)
@@ -465,14 +473,15 @@ async def get_conversation_with_pending(
 
 async def list_pending_conversations(
     agent_name: str,
-    clerk_user_id: str,
+    clerk_user_id: str | None = None,
     limit: int = 50,
     session: AsyncSession | None = None,
 ) -> list[dict]:
     """
-    List conversations that have pending approvals for a specific user.
+    List conversations that have pending approvals.
 
-    This is a convenience wrapper around list_user_conversations with pending_only=True.
+    When clerk_user_id is provided, filters by ownership. When None, returns
+    all pending conversations (for shared-access agents).
     """
     return await list_user_conversations(
         clerk_user_id=clerk_user_id,

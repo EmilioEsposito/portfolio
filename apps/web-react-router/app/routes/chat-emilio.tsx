@@ -340,7 +340,7 @@ export default function ChatEmilioPage() {
                   }
                 }}
                 placeholder="Send a message..."
-                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                 rows={1}
                 disabled={status === "submitted" || status === "streaming"}
               />

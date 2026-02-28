@@ -129,8 +129,9 @@ async def chat_sernia(
     frontend_messages = request_json.get("messages", [])
 
     # Load message history from DB (authoritative source)
+    # clerk_user_id=None for shared team access — all Sernia users see all conversations
     backend_message_history = await get_conversation_messages(
-        conversation_id, clerk_user_id, session=session
+        conversation_id, clerk_user_id=None, session=session
     )
 
     logfire.info(
@@ -277,7 +278,7 @@ async def approve_conversation(
             conversation_id=conversation_id,
             decisions=decisions,
             deps=deps,
-            clerk_user_id=clerk_user_id,
+            clerk_user_id=None,  # Shared team access
             session=session,
         )
 
@@ -325,7 +326,7 @@ async def get_conversation(
     session: DBSession = None,
 ):
     """Get conversation details including pending approval info."""
-    conv = await get_conversation_with_pending(conversation_id, user.id, session=session)
+    conv = await get_conversation_with_pending(conversation_id, clerk_user_id=None, session=session)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -348,7 +349,7 @@ async def get_conversation_messages_endpoint(
 ):
     """Get conversation messages in Vercel AI SDK format."""
     pydantic_messages = await get_conversation_messages(
-        conversation_id, user.id, session=session
+        conversation_id, clerk_user_id=None, session=session
     )
 
     if not pydantic_messages:
@@ -369,10 +370,10 @@ async def list_pending_workflows(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """List Sernia conversations with pending approvals."""
+    """List Sernia conversations with pending approvals (team-wide)."""
     pending = await list_pending_conversations(
         agent_name=AGENT_NAME,
-        clerk_user_id=user.id,
+        clerk_user_id=None,
         session=session,
     )
     return {"conversations": pending, "count": len(pending)}
@@ -383,9 +384,9 @@ async def get_conversation_history(
     user: SerniaUser = Depends(_get_sernia_user),
     limit: int = 20,
 ):
-    """List recent conversations for the authenticated user."""
+    """List recent conversations for all Sernia users (shared team context)."""
     conversations = await list_user_conversations(
-        clerk_user_id=user.id,
+        clerk_user_id=None,
         agent_name=AGENT_NAME,
         limit=limit,
     )
@@ -400,9 +401,9 @@ async def delete_conversation_endpoint(
     conversation_id: str,
     user: SerniaUser = Depends(_get_sernia_user),
 ):
-    """Delete a conversation."""
+    """Delete a conversation (any Sernia user can delete any Sernia conversation)."""
     try:
-        await delete_conversation(conversation_id, user.id)
+        await delete_conversation(conversation_id, clerk_user_id=None)
         return {"success": True, "conversation_id": conversation_id}
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")

@@ -31,6 +31,8 @@ import {
   BellOff,
   Share,
   Download,
+  Phone,
+  Mail,
 } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
@@ -80,6 +82,8 @@ interface ConversationSummary {
   conversation_id: string;
   preview: string;
   has_pending: boolean;
+  trigger_source: string | null;
+  trigger_contact_name: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -407,7 +411,7 @@ function ChatView({
                   }
                 }}
                 placeholder="Ask Sernia AI anything..."
-                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                 rows={1}
                 disabled={
                   status === "submitted" || status === "streaming"
@@ -444,7 +448,7 @@ function ChatView({
                   ? "Approve or deny the action above first..."
                   : "Ask Sernia AI anything..."
               }
-              className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+              className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
               rows={1}
               disabled={
                 status === "submitted" ||
@@ -871,8 +875,14 @@ export default function SerniaChatPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(conv.updated_at)}
+                            {conv.trigger_source === "sms" ? (
+                              <Phone className="w-3 h-3" />
+                            ) : conv.trigger_source === "email" || conv.trigger_source === "zillow_email" ? (
+                              <Mail className={cn("w-3 h-3", conv.trigger_source === "zillow_email" && "text-blue-500")} />
+                            ) : (
+                              <Clock className="w-3 h-3" />
+                            )}
+                            {conv.trigger_contact_name || formatDate(conv.updated_at)}
                           </div>
                         </button>
                         <Button

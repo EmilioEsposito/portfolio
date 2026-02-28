@@ -186,9 +186,40 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     return guidance.get(ctx.deps.modality, "")
 
 
+# Marker the agent uses to indicate no human action needed (trigger processing only)
+SILENT_MARKER = "[NO_ACTION_NEEDED]"
+
+
+def inject_trigger_guidance(ctx: RunContext[SerniaDeps]) -> str:
+    if not ctx.deps.trigger_context:
+        return ""
+    return f"""## Trigger Event Processing
+
+You are processing an automated trigger event, not a direct user message. \
+The team will see your response in web chat.
+
+{ctx.deps.trigger_context}
+
+**Decision framework:**
+- If this needs human attention (reply needed, action required, important update, \
+new lead, maintenance request, question needing a response): Provide a concise \
+analysis with context and recommended action(s). The team will review in web chat.
+- If this is routine/noise (automated message, read receipt, simple "ok thanks", \
+"got it", marketing email, tool notification): Respond with exactly \
+`{SILENT_MARKER}` and nothing else. You may still update workspace memory/notes \
+for routine events if there is useful information to record.
+
+When creating an analysis for the team, structure it as:
+1. **What happened** — who, what, when (1-2 sentences)
+2. **Context** — relevant info from memory, recent history (if useful)
+3. **Recommended action** — what should the team do next
+"""
+
+
 DYNAMIC_INSTRUCTIONS = [
     inject_context,
     inject_memory,
     inject_filetree,
     inject_modality_guidance,
+    inject_trigger_guidance,
 ]
