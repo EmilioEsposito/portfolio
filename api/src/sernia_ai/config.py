@@ -45,6 +45,14 @@ WORKSPACE_PATH = Path(
 CLICKUP_TEAM_ID = "90131316997"
 DEFAULT_CLICKUP_VIEW_ID = "2ky3xg85-573"  # Peppino View
 
+# Trigger bot identity — used when the agent runs autonomously via APScheduler
+# jobs (email checks, Zillow checks) or webhooks (inbound SMS).
+# Not a real Clerk user; conversations use shared team access (clerk_user_id=None queries).
+TRIGGER_BOT_ID = "system:sernia-ai"
+TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
+# Google API delegation requires impersonating a real Google Workspace user.
+GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
+
 # Quo (OpenPhone) phone IDs
 # Sernia AI: internal-only line for messaging the team and shared number.
 QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"

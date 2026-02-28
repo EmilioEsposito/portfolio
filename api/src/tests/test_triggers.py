@@ -29,15 +29,16 @@ class TestSmoke:
         from api.src.sernia_ai.triggers.background_runner import (
             run_agent_for_trigger,
             SILENT_MARKER,
-            SYSTEM_USER_ID,
             RATE_LIMIT_SECONDS,
             _is_rate_limited,
         )
+        from api.src.sernia_ai.config import TRIGGER_BOT_ID
 
         assert callable(run_agent_for_trigger)
         assert "[NO_ACTION_NEEDED]" in SILENT_MARKER
         assert RATE_LIMIT_SECONDS == 120
         assert callable(_is_rate_limited)
+        assert TRIGGER_BOT_ID == "system:sernia-ai"
 
     def test_sms_trigger_imports(self):
         from api.src.sernia_ai.triggers.sms_trigger import handle_inbound_sms

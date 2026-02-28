@@ -22,7 +22,13 @@ from api.src.sernia_ai.models import AppSetting
 
 _IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production"
 from api.src.sernia_ai.agent import sernia_agent
-from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.config import (
+    AGENT_NAME,
+    GOOGLE_DELEGATION_EMAIL,
+    TRIGGER_BOT_ID,
+    TRIGGER_BOT_NAME,
+    WORKSPACE_PATH,
+)
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import SILENT_MARKER
 from api.src.sernia_ai.memory.git_sync import commit_and_push
@@ -51,12 +57,6 @@ def _is_rate_limited(key: str) -> bool:
     return False
 
 
-# System identity for trigger-initiated conversations.
-# Not a real Clerk user — conversations use shared team access (clerk_user_id=None queries).
-SYSTEM_USER_ID = "system:sernia-ai"
-SYSTEM_USER_NAME = "Sernia AI (Trigger)"
-# Use Emilio's email for Google API delegation (service account requires impersonation)
-SYSTEM_USER_EMAIL = "emilio@serniacapital.com"
 
 
 async def run_agent_for_trigger(
@@ -125,9 +125,9 @@ async def run_agent_for_trigger(
         deps = SerniaDeps(
             db_session=session,
             conversation_id=conv_id,
-            user_identifier=SYSTEM_USER_ID,
-            user_name=SYSTEM_USER_NAME,
-            user_email=SYSTEM_USER_EMAIL,
+            user_identifier=TRIGGER_BOT_ID,
+            user_name=TRIGGER_BOT_NAME,
+            user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
             trigger_context=trigger_context or f"Trigger source: {trigger_source}",
@@ -164,7 +164,7 @@ async def run_agent_for_trigger(
             conversation_id=conv_id,
             agent_name=AGENT_NAME,
             messages=result.all_messages(),
-            clerk_user_id=SYSTEM_USER_ID,
+            clerk_user_id=TRIGGER_BOT_ID,
             metadata=trigger_metadata,
         )
 
