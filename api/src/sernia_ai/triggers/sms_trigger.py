@@ -7,6 +7,8 @@ whether the team needs to be alerted.
 
 Coexists with the existing Twilio escalation logic in open_phone/escalate.py.
 """
+from textwrap import dedent
+
 import logfire
 
 from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
@@ -38,35 +40,37 @@ async def handle_inbound_sms(event_data: dict) -> None:
         message_length=len(message_text),
     )
 
-    trigger_prompt = f"""\
-An inbound SMS was received. Analyze this message and decide if the team needs to be alerted.
+    trigger_prompt = dedent(f"""\
+        An inbound SMS was received. Analyze this message and decide if the
+        team needs to be alerted.
 
-**From:** {from_number}
-**Message:** {message_text}
+        **From:** {from_number}
+        **Message:** {message_text}
 
-Use your tools to:
-1. Look up who this person is — `search_contacts` with their phone number
-2. Check recent SMS history with them — `get_contact_sms_history` for context
-3. Review any relevant workspace notes or memory about this contact
+        Use your tools to:
+        1. Look up who this person is — `search_contacts` with their phone number
+        2. Check recent SMS history with them — `get_contact_sms_history` for context
+        3. Review any relevant workspace notes or memory about this contact
 
-Then decide whether the team needs to act on this."""
+        Then decide whether the team needs to act on this.""")
 
-    trigger_instructions = """\
-This is an inbound SMS from a contact. The message was received via the Quo/OpenPhone \
-webhook. Analyze the message in context (who sent it, recent history, any open issues) \
-and decide if the Sernia team needs to be alerted.
+    trigger_instructions = dedent("""\
+        This is an inbound SMS from a contact. The message was received via
+        the Quo/OpenPhone webhook. Analyze the message in context (who sent
+        it, recent history, any open issues) and decide if the Sernia team
+        needs to be alerted.
 
-Common scenarios needing attention:
-- Maintenance requests or complaints
-- Questions that need a reply
-- New leads or inquiries
-- Lease or payment discussions
-- Urgent matters
+        Common scenarios needing attention:
+        - Maintenance requests or complaints
+        - Questions that need a reply
+        - New leads or inquiries
+        - Lease or payment discussions
+        - Urgent matters
 
-Common scenarios that are routine:
-- Simple acknowledgments ("ok", "thanks", "got it", "sounds good")
-- Automated messages or read receipts
-- Messages where the conversation is already resolved"""
+        Common scenarios that are routine:
+        - Simple acknowledgments ("ok", "thanks", "got it", "sounds good")
+        - Automated messages or read receipts
+        - Messages where the conversation is already resolved""")
 
     trigger_metadata = {
         "trigger_source": "sms",
