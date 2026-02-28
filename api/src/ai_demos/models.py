@@ -132,7 +132,8 @@ async def save_agent_conversation(
     agent_name: str,
     messages: list[ModelMessage] | list[Any],
     clerk_user_id: str | None = None,
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None,
+    estimated_tokens: int | None = None,
 ) -> AgentConversation:
     """
     Save or update an agent conversation.
@@ -172,8 +173,10 @@ async def save_agent_conversation(
         clerk_user_id=clerk_user_id,
         user_email=user_email,
         messages=messages_json,
-        metadata_=metadata
+        metadata_=metadata,
     )
+    if estimated_tokens is not None:
+        conversation.estimated_tokens = estimated_tokens
 
     # merge returns the persistent instance attached to the session
     conversation = await session.merge(conversation)
@@ -220,13 +223,22 @@ async def persist_agent_run_result(
                 all_messages = result.all_messages()
                 logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
 
+                # Extract total token usage for diagnostics
+                total_tokens: int | None = None
+                try:
+                    usage = result.usage()
+                    total_tokens = usage.total_tokens if usage.total_tokens else None
+                except Exception:
+                    pass
+
                 await save_agent_conversation(
                     session=s,
                     conversation_id=conversation_id,
                     agent_name=agent_name,
                     messages=all_messages,
                     clerk_user_id=clerk_user_id,
-                    metadata=metadata
+                    metadata=metadata,
+                    estimated_tokens=total_tokens,
                 )
             logfire.info(f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}")
         except Exception as e:
