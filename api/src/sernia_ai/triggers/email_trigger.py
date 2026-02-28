@@ -3,8 +3,8 @@ Email trigger for the Sernia AI agent.
 
 Runs periodically via APScheduler to check for emails needing attention.
 Two modes:
-1. General email check (every 15 min) — checks INBOX for unread needing response
-2. Zillow email check (every 5 min during business hours) — Zillow lead processing
+1. General email check — checks INBOX for unread needing response
+2. Zillow email check (business hours) — Zillow lead processing
 
 The Zillow check subsumes the existing api/src/zillow_email/ jobs. The agent uses
 its existing email tools (search_emails, read_email) and calendar/contact tools
@@ -14,25 +14,39 @@ from textwrap import dedent
 
 import logfire
 
+from api.src.sernia_ai.config import (
+    GENERAL_EMAIL_CHECK_INTERVAL_MINUTES,
+    ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES,
+)
 from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
+
+
+def _lookback_gmail(interval_minutes: int) -> str:
+    """Return a Gmail newer_than value with ~50% overlap over the interval."""
+    minutes = int(interval_minutes * 1.5)
+    if minutes >= 60:
+        hours = (minutes + 59) // 60  # round up
+        return f"{hours}h"
+    return f"{minutes}m"
 
 
 async def check_general_emails() -> None:
     """
     Check for general emails that need Sernia team attention.
 
-    Runs every 15 minutes via APScheduler. Uses the agent's existing email
-    tools to find and analyze relevant emails.
+    Uses the agent's existing email tools to find and analyze relevant emails.
     """
     logfire.info("email_trigger: starting general email check")
 
-    trigger_prompt = dedent("""\
+    lookback = _lookback_gmail(GENERAL_EMAIL_CHECK_INTERVAL_MINUTES)
+
+    trigger_prompt = dedent(f"""\
         You are running a scheduled email check. Search for recent unread
         emails that may need the team's attention.
 
         Steps:
-        1. Search for unread emails from the last 4 hours:
-           search_emails("is:unread newer_than:4h -category:promotions -category:social -from:zillow.com")
+        1. Search for unread emails from the last {lookback}:
+           search_emails("is:unread newer_than:{lookback} -category:promotions -category:social -from:zillow.com")
         2. For any that look relevant (not automated, not spam, not already
            handled), read the full email
         3. For each email needing attention, provide a summary and recommended action
@@ -78,18 +92,20 @@ async def check_zillow_emails() -> None:
     """
     Check Zillow emails for new leads and required follow-ups.
 
-    Runs every 5 minutes during business hours via APScheduler.
+    Runs during business hours via APScheduler.
     Subsumes the existing zillow_email/ scheduled jobs.
     """
     logfire.info("email_trigger: starting Zillow email check")
 
-    trigger_prompt = dedent("""\
+    lookback = _lookback_gmail(ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES)
+
+    trigger_prompt = dedent(f"""\
         You are running a scheduled Zillow email check. Search for recent
         Zillow lead emails that need follow-up.
 
         Steps:
         1. Search for recent Zillow emails:
-           search_emails("from:zillow.com newer_than:6h")
+           search_emails("from:zillow.com newer_than:{lookback}")
         2. For each thread with new activity, read the full email to
            understand the state
         3. Assess each thread:

@@ -53,6 +53,11 @@ TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
 # Google API delegation requires impersonating a real Google Workspace user.
 GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
 
+# Trigger schedule intervals (minutes) — used by both the APScheduler cron/interval
+# config and the email search lookback window in trigger prompts.
+GENERAL_EMAIL_CHECK_INTERVAL_MINUTES = 180  # 3 hours
+ZILLOW_EMAIL_CHECK_INTERVAL_MINUTES = 30
+
 # Quo (OpenPhone) phone IDs
 # Sernia AI: internal-only line for messaging the team and shared number.
 QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
