@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
+import { usePushNotifications } from "~/hooks/use-push-notifications";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
 import { AuthGuard } from "~/components/auth-guard";
@@ -26,6 +27,8 @@ import {
   Clock,
   Trash2,
   RefreshCw,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
@@ -650,6 +653,7 @@ export default function SerniaChatPage() {
   >([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const push = usePushNotifications();
 
   // Fetch conversation history
   const fetchHistory = useCallback(async () => {
@@ -886,15 +890,43 @@ export default function SerniaChatPage() {
               </TabsTrigger>
             </TabsList>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-            onClick={startNewConversation}
-          >
-            <Plus className="w-4 h-4" />
-            New Chat
-          </Button>
+          <div className="flex items-center gap-1">
+            {push.isSupported && !push.needsInstall && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
+                disabled={push.isLoading || push.permission === "denied"}
+                title={
+                  push.permission === "denied"
+                    ? "Notifications blocked — update browser settings"
+                    : push.isSubscribed
+                      ? "Disable push notifications"
+                      : "Enable push notifications"
+                }
+              >
+                {push.isSubscribed ? (
+                  <Bell className="w-4 h-4" />
+                ) : (
+                  <BellOff className="w-4 h-4 text-muted-foreground" />
+                )}
+              </Button>
+            )}
+            {push.needsInstall && (
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                Install app for notifications
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              onClick={startNewConversation}
+            >
+              <Plus className="w-4 h-4" />
+              New Chat
+            </Button>
+          </div>
         </div>
 
         <TabsContent

@@ -23,8 +23,7 @@ def log_tool_error(
         tool_name=tool_name,
         error_type=type(error).__name__,
         error_message=str(error),
-        conversation_id=conversation_id,
-        slack_alert=True,
+        conversation_id=conversation_id
     )
 
 

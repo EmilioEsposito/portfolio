@@ -788,3 +788,17 @@ Let's pause here and discuss in greater detail before implementing these.
 | `output_type=ToolResultSummary` | Structured sub-agent output for summarization |
 | `usage=ctx.usage` | Share token tracking between parent and sub-agents |
 | `RunContext[SerniaDeps]` | Access deps in tools and instructions |
+
+
+source .venv/bin/activate && python -c "
+from py_vapid import Vapid; import base64
+v = Vapid(); v.generate_keys()
+priv = v.private_pem(); pub_raw = v.public_key.public_bytes(
+    encoding=__import__('cryptography.hazmat.primitives.serialization',fromlist=['Encodi
+ng']).Encoding.X962,
+    format=__import__('cryptography.hazmat.primitives.serialization',fromlist=['PublicFo
+rmat']).PublicFormat.UncompressedPoint)
+print('VAPID_PRIVATE_KEY:'); print(priv.decode().strip())
+print(); print('VAPID_PUBLIC_KEY:');
+print(base64.urlsafe_b64encode(pub_raw).rstrip(b'=').decode())
+"

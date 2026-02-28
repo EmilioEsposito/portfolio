@@ -305,8 +305,7 @@ def _build_quo_toolset():
             tool_name="send_message",
             status=resp.status_code,
             body=resp.text[:500],
-            conversation_id=ctx.deps.conversation_id,
-            slack_alert=True,
+            conversation_id=ctx.deps.conversation_id
         )
         return f"Failed to send message (HTTP {resp.status_code}): {resp.text}"
 

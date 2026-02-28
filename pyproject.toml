@@ -61,6 +61,7 @@ dependencies = [
     "pypdf>=6.7.2",
     "fastmcp>=2.0.0",
     "rapidfuzz>=3.0.0",
+    "pywebpush>=2.3.0",
 ]
 
 [dependency-groups]
