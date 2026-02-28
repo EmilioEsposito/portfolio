@@ -59,7 +59,7 @@ api/src/sernia_ai/
 │   ├── openphone_tools.py   # ✅ FastMCP OpenAPI bridge + custom send_message, search_contacts
 │   ├── google_tools.py      # ✅ Gmail, Calendar, Drive, Docs, Sheets, PDFs
 │   ├── clickup_tools.py     # ✅ List browsing, task search, CRUD (create/update/delete gated)
-│   ├── db_search_tools.py   # ✅ Search agent_conversations
+│   ├── db_search_tools.py   # ✅ Search agent_conversations + SMS history search
 │   └── code_tools.py        # ✅ Secure Python sandbox (pydantic-monty)
 │
 ├── sub_agents/              # ✅ Phase 6
@@ -276,15 +276,15 @@ Note: OpenPhone was renamed to Quo recently, but this repo still refers to it as
 | `update_task` | **Yes** | Update task name, status, priority, due date |
 | `delete_task` | **Yes** | Delete a task |
 
-### Database Search Tools (`db_search_tools.py`) — ✅ Implemented (partial)
+### Database Search Tools (`db_search_tools.py`) — ✅ Implemented
 
 Database-backed search across internal tables. Named `db_search_tools` to distinguish from Google Drive search, email search, etc. which live in their respective toolset files.
 
 | Tool | Description | Status |
 |------|-------------|--------|
 | `search_conversations` | Full-text search across `agent_conversations.messages` JSON. Returns conversation snippets with metadata (who, when, modality). | ✅ |
-| `search_sms_history` | Keyword search across SMS messages, with optional contact name and date filters. Returns matches with ~10 surrounding messages for context. | 🔲 Next |
-| `get_contact_sms_history` | Chronological SMS history for a specific contact (by name, fuzzy matched). No keyword needed — just "show me recent messages with this person." Optional date filters. | 🔲 Next |
+| `search_sms_history` | Keyword search across SMS messages, with optional contact name and date filters. Returns matches with ±5 surrounding messages for context. | ✅ |
+| `get_contact_sms_history` | Chronological SMS history for a specific contact (by name, fuzzy matched). No keyword needed — just "show me recent messages with this person." Optional date filters. | ✅ |
 
 ### Code Execution Tools (`code_tools.py`) — ✅ Implemented
 
@@ -557,13 +557,13 @@ Create Alembic migration when SMS/email triggers are built (Phase 6): `cd api &&
 - [x] Add token tracking: `persist_agent_run_result()` saves `estimated_tokens` to DB
 - [x] Tests: 36 unit tests with realistic tool result data (ClickUp task dumps, Gmail search, Drive docs) + smoke tests for wiring
 
-### Phase 6.5: SMS History Search
-- [ ] Add `search_sms_history` tool to `db_search_tools.py`
-- [ ] Add `get_contact_sms_history` tool to `db_search_tools.py`
-- [ ] Shared helpers: `_resolve_contact_phones()`, `_enrich_phone()`, `_format_sms_message()`
-- [ ] Alembic migration: indexes + `pg_trgm` extension
-- [ ] Unit tests with mocked DB queries + realistic SMS data
-- [ ] See full design below
+### Phase 6.5: SMS History Search — ✅ Complete
+- [x] Add `search_sms_history` tool to `db_search_tools.py`
+- [x] Add `get_contact_sms_history` tool to `db_search_tools.py`
+- [x] Shared helpers: `_resolve_contact_phones()`, `_build_contact_map()`, `_enrich_phone()`, `_format_sms_event()`, `_parse_date()`, `_build_phone_filter()`, `_build_date_filters()`, `_get_contact_map()`
+- [x] Alembic migration (`0025_sms_search_indexes`): `pg_trgm` extension, GIN trigram index on `message_text`, composite index on `(conversation_id, event_timestamp)`, indexes on `from_number` and `to_number`
+- [x] Unit tests: 28 tests with mocked DB queries + realistic SMS thread data
+- [x] See full design below
 
 #### Design Overview
 
@@ -732,10 +732,10 @@ CREATE INDEX idx_ope_to_number ON open_phone_events (to_number);
 
 
 ### Phase 8: PWA push notifications (ios and android)
-- [ ] Implement a way to send push notifications to the user's device.
+- [x] Implement a way to send push notifications to the user's device.
 
 
-### Phase 8: Triggers and HITL behaviors per modality
+### Phase 9: Triggers and HITL behaviors per modality
 
 Let's pause here and discuss in greater detail before implementing these.
 
@@ -788,3 +788,17 @@ Let's pause here and discuss in greater detail before implementing these.
 | `output_type=ToolResultSummary` | Structured sub-agent output for summarization |
 | `usage=ctx.usage` | Share token tracking between parent and sub-agents |
 | `RunContext[SerniaDeps]` | Access deps in tools and instructions |
+
+
+source .venv/bin/activate && python -c "
+from py_vapid import Vapid; import base64
+v = Vapid(); v.generate_keys()
+priv = v.private_pem(); pub_raw = v.public_key.public_bytes(
+    encoding=__import__('cryptography.hazmat.primitives.serialization',fromlist=['Encodi
+ng']).Encoding.X962,
+    format=__import__('cryptography.hazmat.primitives.serialization',fromlist=['PublicFo
+rmat']).PublicFormat.UncompressedPoint)
+print('VAPID_PRIVATE_KEY:'); print(priv.decode().strip())
+print(); print('VAPID_PUBLIC_KEY:');
+print(base64.urlsafe_b64encode(pub_raw).rstrip(b'=').decode())
+"

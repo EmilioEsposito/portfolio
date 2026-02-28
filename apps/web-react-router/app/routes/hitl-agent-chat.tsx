@@ -1108,17 +1108,17 @@ export default function HITLAgentChatPage() {
                   }
                 }}
                 placeholder="Ask the agent to send a message..."
-                className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
-                rows={2}
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                rows={1}
                 disabled={status === "submitted" || status === "streaming"}
               />
               <Button
                 type="submit"
                 size="icon"
                 disabled={!input.trim() || status === "submitted" || status === "streaming"}
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -1145,18 +1145,18 @@ export default function HITLAgentChatPage() {
                 onClick={stop}
                 size="icon"
                 variant="outline"
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <StopCircle className="w-5 h-5" />
+                <StopCircle className="w-4 h-4" />
               </Button>
             ) : (
               <Button
                 type="submit"
                 size="icon"
                 disabled={!input.trim() || status === "submitted" || !!pendingApproval}
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4" />
               </Button>
             )}
           </div>

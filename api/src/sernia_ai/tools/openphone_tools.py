@@ -31,6 +31,7 @@ from api.src.sernia_ai.config import (
     QUO_SHARED_EXTERNAL_PHONE_ID,
 )
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.tools._logging import log_tool_error
 from api.src.utils.fuzzy_json import fuzzy_filter_json
 
 OPENPHONE_SPEC_URL = (
@@ -229,12 +230,7 @@ def _build_quo_toolset():
         Args:
             query: Search term — a name, phone number, or company name.
         """
-        try:
-            contacts = await _get_all_contacts(client)
-        except httpx.HTTPError as exc:
-            logfire.error("search_contacts fetch error", error=str(exc))
-            return f"Error fetching contacts: {exc}"
-
+        contacts = await _get_all_contacts(client)
         return fuzzy_filter_json(contacts, query, top_n=5)
 
     @custom_toolset.tool(requires_approval=True)
@@ -258,10 +254,10 @@ def _build_quo_toolset():
         try:
             contact = await _find_contact_by_phone(client, to)
         except httpx.HTTPStatusError as exc:
-            logfire.error("send_message contact lookup failed", status=exc.response.status_code)
+            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
             return f"Error looking up contact: HTTP {exc.response.status_code}"
         except httpx.HTTPError as exc:
-            logfire.error("send_message contact lookup error", error=str(exc))
+            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
             return f"Error looking up contact: {exc}"
 
         if contact is None:
@@ -297,7 +293,7 @@ def _build_quo_toolset():
                 json={"content": message, "from": from_phone_id, "to": [to]},
             )
         except httpx.HTTPError as exc:
-            logfire.error("send_message HTTP error", error=str(exc))
+            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
             return f"Error sending message: {exc}"
 
         if resp.status_code in (200, 201, 202):
@@ -305,9 +301,11 @@ def _build_quo_toolset():
             return f"Message sent to {contact_name} from {line_name}."
 
         logfire.error(
-            "send_message API error",
+            "sernia tool error: {tool_name}",
+            tool_name="send_message",
             status=resp.status_code,
             body=resp.text[:500],
+            conversation_id=ctx.deps.conversation_id
         )
         return f"Failed to send message (HTTP {resp.status_code}): {resp.text}"
 

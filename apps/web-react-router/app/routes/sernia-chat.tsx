@@ -3,10 +3,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { useAuth } from "@clerk/react-router";
+import { useAuth, useUser } from "@clerk/react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
+import { usePushNotifications } from "~/hooks/use-push-notifications";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
 import { AuthGuard } from "~/components/auth-guard";
@@ -26,6 +27,10 @@ import {
   Clock,
   Trash2,
   RefreshCw,
+  Bell,
+  BellOff,
+  Share,
+  Download,
 } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
@@ -139,9 +144,9 @@ function ChatView({
 
   const { messages, sendMessage, status, stop, setMessages } = useChat({
     id: conversationId,
-    initialMessages,
+    messages: initialMessages,
     transport,
-  } as any);
+  });
 
   // Extract pending approval from latest assistant message
   useEffect(() => {
@@ -277,7 +282,7 @@ function ChatView({
         ) : (
           <div className="mx-auto w-full max-w-3xl px-4 space-y-6">
             {messages.map((message, index) => {
-              const { textContent, completedTools } = processMessage(message);
+              const { segments } = processMessage(message);
               const isLastAssistant =
                 message.role === "assistant" &&
                 index === messages.length - 1;
@@ -302,38 +307,38 @@ function ChatView({
 
                   <div
                     className={cn(
-                      "flex flex-col gap-2 max-w-[85%]",
+                      "flex flex-col gap-2 max-w-[85%] min-w-0",
                       message.role === "user" && "items-end"
                     )}
                   >
                     {message.role === "user" ? (
                       <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
                         <p className="text-sm whitespace-pre-wrap">
-                          {textContent}
+                          {segments[0]?.type === "text" ? segments[0].content : ""}
                         </p>
                       </div>
                     ) : (
                       <>
-                        {textContent && (
-                          <div className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm">
-                            <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
-                              <Markdown>{textContent}</Markdown>
+                        {segments.map((seg, i) =>
+                          seg.type === "text" ? (
+                            <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden">
+                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words">
+                                <Markdown>{seg.content}</Markdown>
+                              </div>
                             </div>
-                          </div>
+                          ) : (
+                            <ToolResultCard
+                              key={seg.toolCallId}
+                              toolName={seg.toolName}
+                              args={seg.args}
+                              result={
+                                typeof seg.result === "string"
+                                  ? seg.result
+                                  : JSON.stringify(seg.result)
+                              }
+                            />
+                          )
                         )}
-
-                        {completedTools.map((tool) => (
-                          <ToolResultCard
-                            key={tool.toolCallId}
-                            toolName={tool.toolName}
-                            args={tool.args}
-                            result={
-                              typeof tool.result === "string"
-                                ? tool.result
-                                : JSON.stringify(tool.result)
-                            }
-                          />
-                        ))}
 
                         {isLastAssistant && pendingApproval && (
                           <ToolApprovalCard
@@ -402,8 +407,8 @@ function ChatView({
                   }
                 }}
                 placeholder="Ask Sernia AI anything..."
-                className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
-                rows={2}
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                rows={1}
                 disabled={
                   status === "submitted" || status === "streaming"
                 }
@@ -416,9 +421,9 @@ function ChatView({
                   status === "submitted" ||
                   status === "streaming"
                 }
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4" />
               </Button>
             </div>
           </div>
@@ -439,8 +444,8 @@ function ChatView({
                   ? "Approve or deny the action above first..."
                   : "Ask Sernia AI anything..."
               }
-              className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
-              rows={2}
+              className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+              rows={1}
               disabled={
                 status === "submitted" ||
                 status === "streaming" ||
@@ -453,9 +458,9 @@ function ChatView({
                 onClick={stop}
                 size="icon"
                 variant="outline"
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <StopCircle className="w-5 h-5" />
+                <StopCircle className="w-4 h-4" />
               </Button>
             ) : (
               <Button
@@ -466,9 +471,9 @@ function ChatView({
                   status === "submitted" ||
                   !!pendingApproval
                 }
-                className="h-11 w-11 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-lg"
               >
-                <Send className="w-5 h-5" />
+                <Send className="w-4 h-4" />
               </Button>
             )}
           </div>
@@ -630,9 +635,11 @@ function SystemInstructionsView({
 
 export default function SerniaChatPage() {
   const { isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  const isAdmin = user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
   const urlConversationId = searchParams.get("id");
   const [conversationId, setConversationId] = useState<string>(
     () => urlConversationId || crypto.randomUUID()
@@ -650,6 +657,7 @@ export default function SerniaChatPage() {
   >([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const push = usePushNotifications();
 
   // Fetch conversation history
   const fetchHistory = useCallback(async () => {
@@ -671,6 +679,12 @@ export default function SerniaChatPage() {
     }
   }, [isSignedIn, getToken]);
 
+  // Prefetch on mount so the list is ready when user opens history
+  useEffect(() => {
+    if (isSignedIn) fetchHistory();
+  }, [isSignedIn, fetchHistory]);
+
+  // Refresh when sheet opens (in case new conversations were created)
   useEffect(() => {
     if (historyOpen) fetchHistory();
   }, [historyOpen, fetchHistory]);
@@ -797,13 +811,12 @@ export default function SerniaChatPage() {
         className="flex flex-col min-w-0 h-[calc(100dvh-52px)] bg-background"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
             <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2">
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
                   <History className="w-4 h-4" />
-                  History
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-80">
@@ -879,23 +892,70 @@ export default function SerniaChatPage() {
               </SheetContent>
             </Sheet>
 
-            <TabsList>
-              <TabsTrigger value="chat">Chat</TabsTrigger>
-              <TabsTrigger value="instructions">
-                System Instructions
-              </TabsTrigger>
-            </TabsList>
+            {isAdmin && (
+              <TabsList>
+                <TabsTrigger value="chat">Chat</TabsTrigger>
+                <TabsTrigger value="instructions">Instructions</TabsTrigger>
+              </TabsList>
+            )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-            onClick={startNewConversation}
-          >
-            <Plus className="w-4 h-4" />
-            New Chat
-          </Button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            {push.isSupported && !push.needsInstall && (
+              <Button
+                variant={push.shouldPrompt ? "outline" : "ghost"}
+                size="icon"
+                className={cn("h-8 w-8", push.shouldPrompt && "animate-pulse")}
+                onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
+                disabled={push.isLoading || push.permission === "denied"}
+                title={
+                  push.permission === "denied"
+                    ? "Notifications blocked — update browser settings"
+                    : push.isSubscribed
+                      ? "Disable push notifications"
+                      : "Enable push notifications"
+                }
+              >
+                {push.isSubscribed ? (
+                  <Bell className="w-4 h-4" />
+                ) : (
+                  <BellOff className="w-4 h-4 text-muted-foreground" />
+                )}
+              </Button>
+            )}
+            {push.canInstall && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={push.promptInstall}
+                title="Install Sernia Capital app"
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={startNewConversation}
+              title="New conversation"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
+
+        {/* iOS install banner — shown when push requires Add to Home Screen */}
+        {push.needsInstall && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
+            <Share className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              {push.iosBrowser === "chrome"
+                ? "For notifications: tap Share (top right) → Add to Home Screen"
+                : "For notifications: tap Share (bottom center) → Add to Home Screen"}
+            </span>
+          </div>
+        )}
 
         <TabsContent
           value="chat"
@@ -911,12 +971,14 @@ export default function SerniaChatPage() {
           />
         </TabsContent>
 
-        <TabsContent
-          value="instructions"
-          className="flex-1 flex flex-col min-h-0 mt-0"
-        >
-          <SystemInstructionsView getToken={getToken} />
-        </TabsContent>
+        {isAdmin && (
+          <TabsContent
+            value="instructions"
+            className="flex-1 flex flex-col min-h-0 mt-0"
+          >
+            <SystemInstructionsView getToken={getToken} />
+          </TabsContent>
+        )}
       </Tabs>
     </AuthGuard>
   );

@@ -178,6 +178,7 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 - Use Tailwind only (no manual CSS)
 - Prefer absolute imports
 - Never modify `.env` directly
+- **Document external dependencies**: When a module depends on external services, API keys, generated credentials (e.g. VAPID keys), third-party protocols, or non-obvious setup steps, create a `README.md` in that module's directory. Include: what the dependency is, how to generate/obtain credentials, links to relevant specs/docs, and how to debug. This context is critical for migration, recreation, and debugging.
 
 ### TypeScript/React Router
 - Functional components, no classes

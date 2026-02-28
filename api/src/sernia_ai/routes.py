@@ -36,6 +36,8 @@ from api.src.ai_demos.models import (
     extract_pending_approval_from_messages,
 )
 from api.src.sernia_ai.memory.git_sync import commit_and_push
+from api.src.sernia_ai.push.routes import router as push_router
+from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.database.database import DBSession
 
@@ -167,15 +169,43 @@ async def chat_sernia(
         )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
+        # Send push notification if there are pending approvals
+        pending = extract_pending_approvals(result)
+        if pending:
+            first = pending[0]
+            asyncio.create_task(
+                notify_pending_approval(
+                    conversation_id=conversation_id,
+                    tool_name=first["tool_name"],
+                    tool_args=first.get("args"),
+                )
+            )
+
     on_complete = _on_complete
 
-    response = await VercelAIAdapter.dispatch_request(
-        wrapped_request,
-        agent=sernia_agent,
-        message_history=backend_message_history if backend_message_history else None,
-        deps=deps,
-        on_complete=on_complete,
-    )
+    try:
+        response = await VercelAIAdapter.dispatch_request(
+            wrapped_request,
+            agent=sernia_agent,
+            message_history=backend_message_history if backend_message_history else None,
+            deps=deps,
+            on_complete=on_complete,
+        )
+    except Exception as e:
+        logfire.exception(
+            "sernia chat dispatch error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__
+        )
+        return Response(
+            content=json.dumps({
+                "error": "An internal error occurred. Please try again.",
+                "conversation_id": conversation_id or "",
+            }),
+            status_code=500,
+            media_type="application/json",
+        )
 
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
@@ -279,7 +309,12 @@ async def approve_conversation(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logfire.error(f"Error approving sernia conversation {conversation_id}: {e}")
+        logfire.exception(
+            "sernia approve error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -425,3 +460,10 @@ async def get_system_instructions(
             "modality": modality,
         },
     }
+
+
+# =============================================================================
+# Sub-routers
+# =============================================================================
+
+router.include_router(push_router)
