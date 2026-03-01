@@ -15,6 +15,7 @@ type EnvInfo = {
 const ENVS: Record<string, { label: string; url: string }> = {
   prod: { label: "Production", url: "https://eesposito.com" },
   dev: { label: "Dev", url: "https://dev.eesposito.com" },
+  local: { label: "Localhost", url: "http://localhost:5173" },
 };
 
 function detectEnv(hostname: string): EnvInfo | null {
@@ -60,6 +61,7 @@ export function EnvBanner() {
         <SelectContent>
           <SelectItem value="prod">Production</SelectItem>
           <SelectItem value="dev">Dev</SelectItem>
+          <SelectItem value="local">Localhost</SelectItem>
         </SelectContent>
       </Select>
     </div>

@@ -61,7 +61,15 @@ individual members when the message is specifically for them.
 - **send_external_sms**: Send an SMS to external contacts (requires approval). \
 Pass one or more phone numbers for group texts. The system verifies all recipients \
 exist as Quo contacts and rejects messages that include any Sernia Capital LLC \
-contacts — internal numbers must never be exposed in external threads.
+contacts — internal numbers must never be exposed in external threads. \
+**Group SMS unit rule**: Recipients with Property/Unit # fields must all share \
+the same unit. Cross-unit group texts are blocked to prevent sharing contact \
+info between unrelated tenants.
+
+- **mass_text_tenants**: Send the same message to all tenants in one or more \
+properties, optionally filtered to specific units. The system automatically \
+finds matching tenants, groups by unit, and sends one SMS per unit (roommates \
+share a thread, different units are isolated). Requires approval.
 - **search_contacts**: Fuzzy-search Quo contacts by name, phone number, or \
 company. Tolerates typos. Use this to find contacts before messaging or to \
 answer questions about tenants/contacts.

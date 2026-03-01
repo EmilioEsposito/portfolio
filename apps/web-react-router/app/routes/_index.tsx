@@ -89,6 +89,8 @@ export function meta(_args: Route.MetaArgs) {
         "Multi-Agent AI Systems",
         "Python",
         "TypeScript",
+        "PydanticAI",
+        "MCP",
       ],
       url,
       image: DEFAULT_META.image,
@@ -144,7 +146,7 @@ export default function Home() {
         </div>
 
         <div className="mt-6 flex gap-5">
-          <a
+          {/* <a
             href="https://resume.eesposito.com"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
             target="_blank"
@@ -152,7 +154,7 @@ export default function Home() {
           >
             <FileText className="h-4 w-4" />
             Resume
-          </a>
+          </a> */}
           <a
             href="https://github.com/EmilioEsposito"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -199,14 +201,32 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Multi-modal AI assistant that operates across SMS, email, and
-                our web app. It continuously reads all business communications,
-                autonomously learns over time through a memory-based feedback
-                loop, and can take actions (sending messages, managing tasks,
-                scheduling jobs) with human-in-the-loop approval. Triggered
-                both by incoming messages and on a scheduler so it proactively
-                follows up with property managers on project status. Built with
-                PydanticAI.
+                Multi-modal AI assistant that property managers interact with
+                via{" "}
+                <a
+                  href="https://www.quo.com/"
+                  className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Quo
+                </a>{" "}
+                SMS or our web app. It continuously reads all business
+                communications, learns over time through a memory-based
+                feedback loop, and can take actions (sending messages, managing
+                tasks, scheduling jobs) with human-in-the-loop approval.
+                Triggered three ways: user-initiated via chat, event-driven
+                (e.g. SMS webhooks), or scheduled jobs that proactively
+                follow up on project status. Built with{" "}
+                <a
+                  href="https://ai.pydantic.dev/"
+                  className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  PydanticAI
+                </a>
+                .
               </p>
             </CardContent>
           </Card>

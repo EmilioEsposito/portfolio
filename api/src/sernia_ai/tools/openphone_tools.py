@@ -177,6 +177,60 @@ async def _find_contact_by_phone(
     return None
 
 
+def _get_contact_unit(contact: dict) -> tuple[str, str] | None:
+    """Extract (property, unit) from an OpenPhone contact's custom fields.
+
+    Returns None if either field is missing (non-tenant contact).
+    """
+    prop = unit = None
+    for field in contact.get("customFields", []):
+        if field.get("name") == "Property":
+            prop = (field.get("value") or "").strip()
+        elif field.get("name") == "Unit #":
+            unit = (field.get("value") or "").strip()
+    if prop and unit:
+        return (prop, unit)
+    return None
+
+
+def _is_internal_contact(contact: dict) -> bool:
+    """Check if a contact belongs to the internal company."""
+    company = contact.get("defaultFields", {}).get("company") or ""
+    return company == QUO_INTERNAL_COMPANY
+
+
+def _filter_tenants_by_property_unit(
+    contacts: list[dict],
+    properties: list[str],
+    units: list[str] | None,
+) -> dict[tuple[str, str], list[dict]]:
+    """Group tenant contacts by (property, unit), filtered by selectors.
+
+    Returns dict mapping (property, unit) -> list of matching contacts.
+    Skips contacts without Property/Unit # fields and internal contacts.
+    """
+    from collections import defaultdict
+
+    prop_set = {p.strip() for p in properties}
+    unit_set = {u.strip() for u in units} if units is not None else None
+
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for contact in contacts:
+        cu = _get_contact_unit(contact)
+        if cu is None:
+            continue
+        if _is_internal_contact(contact):
+            continue
+        prop, unit = cu
+        if prop not in prop_set:
+            continue
+        if unit_set is not None and unit not in unit_set:
+            continue
+        grouped[(prop, unit)].append(contact)
+
+    return dict(grouped)
+
+
 # ---------------------------------------------------------------------------
 # Build the toolset
 # ---------------------------------------------------------------------------
@@ -272,10 +326,6 @@ def _build_quo_toolset():
         first = contact.get("defaultFields", {}).get("firstName") or ""
         last = contact.get("defaultFields", {}).get("lastName") or ""
         return f"{first} {last}".strip() or phone
-
-    def _is_internal_contact(contact: dict) -> bool:
-        company = contact.get("defaultFields", {}).get("company") or ""
-        return company == QUO_INTERNAL_COMPANY
 
     async def _send_sms(
         tool_name: str,
@@ -391,7 +441,10 @@ def _build_quo_toolset():
         contact — internal numbers must never be exposed in external threads.
         Use send_internal_sms for internal-only messages.
 
-        Supports group texts — pass multiple phone numbers.
+        Supports group texts — pass multiple phone numbers. However, group
+        texts to tenants in DIFFERENT units are blocked to prevent sharing
+        contact info between unrelated tenants. Same-unit groups (e.g.
+        roommates) are allowed.
 
         Args:
             to: Recipient phone numbers in E.164 format (e.g. ["+14125551234"]).
@@ -423,6 +476,31 @@ def _build_quo_toolset():
                     "Use send_internal_sms for internal recipients."
                 )
 
+        # Gate: recipients with unit info must all share the same unit.
+        if len(contacts) > 1:
+            units: dict[str, tuple[str, str]] = {}
+            for contact, phone in zip(contacts, to):
+                cu = _get_contact_unit(contact)
+                if cu is not None:
+                    units[phone] = cu
+
+            if units:
+                unique_units = set(units.values())
+                if len(unique_units) > 1:
+                    details = ", ".join(
+                        f"{_contact_display_name(c, p)} → {units[p][0]} Unit {units[p][1]}"
+                        for c, p in zip(contacts, to) if p in units
+                    )
+                    logfire.warn(
+                        "send_external_sms blocked: cross-unit group text",
+                        to=to, units=str(unique_units),
+                    )
+                    return (
+                        f"Blocked: recipients span multiple units ({details}). "
+                        "Tenants in different units must NEVER be on the same group SMS. "
+                        "Send separate messages per unit."
+                    )
+
         names = [_contact_display_name(c, p) for c, p in zip(contacts, to)]
         logfire.info(
             "send_external_sms sending",
@@ -439,6 +517,82 @@ def _build_quo_toolset():
             "Sernia Capital Team",
             ctx.deps.conversation_id,
         )
+
+    # ------------------------------------------------------------------
+    # mass_text_tenants — per-unit sharding, requires HITL
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool(requires_approval=True)
+    async def mass_text_tenants(
+        ctx: RunContext[SerniaDeps],
+        message: str,
+        properties: list[str],
+        units: list[str] | None = None,
+    ) -> str:
+        """Send the same SMS to all tenants in one or more properties.
+
+        Automatically finds matching tenants from the contact list, groups
+        by (Property, Unit #), and sends one SMS per unit group. Roommates
+        in the same unit share a thread; different units are isolated.
+
+        Args:
+            message: The text message body to send to all matching tenants.
+            properties: Property names to target (e.g. ["320"] or ["320", "400"]).
+            units: Optional unit filter within those properties. None = all units.
+        """
+        logfire.info(
+            "mass_text_tenants called",
+            properties=properties,
+            units=units,
+            message_length=len(message),
+        )
+
+        contacts = await _get_all_contacts(client)
+        grouped = _filter_tenants_by_property_unit(contacts, properties, units)
+
+        if not grouped:
+            unit_desc = f" units {units}" if units else ""
+            return f"No tenants found matching properties {properties}{unit_desc}."
+
+        results: list[str] = []
+        failures: list[str] = []
+
+        for (prop, unit), group_contacts in sorted(grouped.items()):
+            phones = []
+            names = []
+            for c in group_contacts:
+                phone_numbers = c.get("defaultFields", {}).get("phoneNumbers", [])
+                if phone_numbers:
+                    phones.append(phone_numbers[0].get("value"))
+                    names.append(_contact_display_name(c, phone_numbers[0].get("value", "")))
+
+            if not phones:
+                failures.append(f"{prop} Unit {unit}: no phone numbers")
+                continue
+
+            result = await _send_sms(
+                "mass_text_tenants",
+                phones,
+                message,
+                QUO_SHARED_EXTERNAL_PHONE_ID,
+                "Sernia Capital Team",
+                ctx.deps.conversation_id,
+            )
+
+            if result.startswith("Message sent"):
+                recipient_desc = ", ".join(names)
+                results.append(
+                    f"{prop} Unit {unit} ({len(phones)} recipient{'s' if len(phones) != 1 else ''}: {recipient_desc})"
+                )
+            else:
+                failures.append(f"{prop} Unit {unit}: {result}")
+
+        parts: list[str] = []
+        if results:
+            parts.append(f"Sent {len(results)} message{'s' if len(results) != 1 else ''}: {'; '.join(results)}.")
+        if failures:
+            parts.append(f"Failed: {'; '.join(failures)}.")
+        return " ".join(parts)
 
     return CombinedToolset(toolsets=[mcp_toolset, custom_toolset])
 
