@@ -165,6 +165,7 @@ cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
 - **`live` marker**: Tests that hit real third-party APIs (ClickUp, OpenPhone, etc.). Run explicitly with `pytest -m live <file>`. Require API keys in `.env`.
 - **Smoke tests** (`TestSmoke` classes): Fast import/wiring checks that verify modules load correctly and components are connected (e.g., agent has history processors wired, sub-agent models configured). No API keys needed.
 - **Unit tests**: Mock all external calls. Use realistic tool result data matching actual output formats (ClickUp task dumps, Gmail search results, etc.), not dummy strings.
+- **SMS test safety**: NEVER create live tests that send real SMS to external contacts (tenants, vendors, etc.). External SMS tests must ALWAYS mock the send. Only `send_internal_sms` may be tested live against real internal numbers. If a dedicated test phone number is provided in the future, it will be explicitly configured — do not guess or use tenant numbers.
 - **Test location**: `api/src/tests/`
 
 ---
