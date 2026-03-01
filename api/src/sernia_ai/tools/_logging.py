@@ -4,7 +4,11 @@ from typing import Any
 
 import logfire
 from pydantic_ai import RunContext
+from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError
 from pydantic_ai.toolsets import WrapperToolset
+
+# PydanticAI control-flow exceptions that must propagate — never catch these.
+_PASSTHROUGH_EXCEPTIONS = (ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError)
 
 
 def log_tool_error(
@@ -36,6 +40,9 @@ class ErrorLoggingToolset(WrapperToolset):
     to this wrapper — the ``except`` here only fires for truly unhandled
     exceptions.  New tools get error logging for free without any per-tool
     boilerplate.
+
+    PydanticAI control-flow exceptions (ApprovalRequired, ModelRetry, etc.)
+    are always re-raised so the framework can handle them.
     """
 
     async def call_tool(
@@ -47,6 +54,8 @@ class ErrorLoggingToolset(WrapperToolset):
     ) -> Any:
         try:
             return await super().call_tool(name, tool_args, ctx, tool)
+        except _PASSTHROUGH_EXCEPTIONS:
+            raise
         except Exception as e:
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id)

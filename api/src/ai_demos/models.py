@@ -280,7 +280,9 @@ async def list_user_conversations(
     clerk_user_id: str | None,
     agent_name: str,
     limit: int = 20,
+    offset: int = 0,
     pending_only: bool = False,
+    modality: str | None = None,
     session: AsyncSession | None = None,
 ) -> list[dict]:
     """
@@ -292,7 +294,9 @@ async def list_user_conversations(
                        members can see all conversations).
         agent_name: Name of the agent
         limit: Maximum number of conversations to return
+        offset: Number of conversations to skip (for pagination)
         pending_only: If True, only return conversations with pending approvals
+        modality: Filter by modality (e.g. "web_chat", "sms", "email")
         session: Optional existing session
 
     Returns conversations sorted by updated_at desc with summary info.
@@ -303,13 +307,17 @@ async def list_user_conversations(
         # Use raw SQL to extract preview at DB level - avoids loading full messages JSON
         # Preview: prefer trigger_message_preview from metadata, fall back to first user message
         user_filter = "AND clerk_user_id = :clerk_user_id" if clerk_user_id else ""
+        modality_filter = "AND modality = :modality" if modality else ""
         query = text(f"""
             SELECT
                 id,
                 agent_name,
                 clerk_user_id,
+                user_email,
                 metadata_,
                 modality,
+                estimated_tokens,
+                contact_identifier,
                 COALESCE(
                     metadata_ ->> 'trigger_message_preview',
                     LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
@@ -319,13 +327,17 @@ async def list_user_conversations(
             FROM agent_conversations
             WHERE agent_name = :agent_name
               {user_filter}
+              {modality_filter}
             ORDER BY updated_at DESC
             LIMIT :limit
+            OFFSET :offset
         """)
 
-        params: dict = {"agent_name": agent_name, "limit": limit}
+        params: dict = {"agent_name": agent_name, "limit": limit, "offset": offset}
         if clerk_user_id:
             params["clerk_user_id"] = clerk_user_id
+        if modality:
+            params["modality"] = modality
 
         result = await s.execute(query, params)
         rows = result.fetchall()
@@ -354,8 +366,11 @@ async def list_user_conversations(
                 "conversation_id": row.id,
                 "agent_name": row.agent_name,
                 "clerk_user_id": row.clerk_user_id,
+                "user_email": row.user_email,
                 "modality": row.modality or "web_chat",
                 "preview": row.preview or "",
+                "estimated_tokens": row.estimated_tokens or 0,
+                "contact_identifier": row.contact_identifier,
                 "pending": pending,
                 "has_pending": has_pending,
                 "trigger_source": metadata.get("trigger_source"),
