@@ -21,11 +21,46 @@ from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
+import httpx as _httpx
 import pytest
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
 import re
+
+
+# ---------------------------------------------------------------------------
+# Cached AI phone number lookup (circular trigger guard)
+# ---------------------------------------------------------------------------
+_ai_phone_number: str | None = None
+
+
+async def _get_ai_phone_number() -> str | None:
+    """Look up the AI phone's actual number via OpenPhone API, caching at module level."""
+    global _ai_phone_number
+    if _ai_phone_number is not None:
+        return _ai_phone_number
+
+    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    if not api_key:
+        return None
+
+    try:
+        async with _httpx.AsyncClient(
+            base_url="https://api.openphone.com",
+            headers={"Authorization": api_key},
+            timeout=15,
+        ) as client:
+            resp = await client.get(f"/v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}")
+            resp.raise_for_status()
+            phone = resp.json().get("data", {}).get("phoneNumber")
+            if phone:
+                _ai_phone_number = phone
+                logfire.info("cached AI phone number for circular trigger guard")
+                return _ai_phone_number
+    except Exception:
+        logfire.exception("failed to look up AI phone number")
+    return None
 
 
 router = APIRouter(
@@ -166,7 +201,10 @@ async def webhook(
             and sernia_contact.phone_number in event_data["to_number"]
         ):
             # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
-            if await contains_emoji(event_data["message_text"][:3]):
+            ai_phone = await _get_ai_phone_number()
+            if ai_phone and event_data.get("from_number") == ai_phone:
+                logfire.info("Ignoring message from AI phone (circular trigger guard)")
+            elif await contains_emoji(event_data["message_text"][:3]):
                 logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
             else:
                 # Run analysis in the background

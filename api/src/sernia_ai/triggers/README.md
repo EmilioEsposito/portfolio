@@ -17,7 +17,9 @@ The OpenPhone webhook routes inbound SMS to one of two handlers based on which p
 flowchart TD
     WH["open_phone/routes.webhook()"] --> CHECK{Which phone<br/>received it?}
 
-    CHECK -->|"to: shared team number"| EMOJI{"Starts with<br/>emoji?"}
+    CHECK -->|"to: shared team number"| CIRC{"from: AI phone?<br/>(circular guard)"}
+    CIRC -->|Yes| SKIP_C["Skip (AI→team notification)"]
+    CIRC -->|No| EMOJI{"Starts with<br/>emoji?"}
     EMOJI -->|Yes| SKIP["Skip (text reaction)"]
     EMOJI -->|No| PAR["Background tasks (parallel)"]
     PAR --> TWILIO["escalate.analyze_for_twilio_escalation()"]
@@ -62,7 +64,9 @@ The AI SMS event trigger treats the SMS thread as a direct conversation. Only in
 flowchart TD
     IN["ai_sms_event_trigger.handle_ai_sms_event()"] --> VALIDATE{"from_number and<br/>message_text present?"}
     VALIDATE -->|No| SKIP["Skip event"]
-    VALIDATE -->|Yes| RATE{"ai_sms_event_trigger._is_ai_sms_rate_limited()<br/>(10 per 10 min sliding window)"}
+    VALIDATE -->|Yes| ENABLED{"is_sernia_ai_enabled()?"}
+    ENABLED -->|No| SKIP2a["Skip (disabled)"]
+    ENABLED -->|Yes| RATE{"ai_sms_event_trigger._is_ai_sms_rate_limited()<br/>(10 per 10 min sliding window)"}
     RATE -->|Yes| SKIP2["Skip (rate limited)"]
     RATE -->|No| CONTACT["ai_sms_event_trigger._verify_internal_contact()<br/>OpenPhone API lookup"]
 
@@ -113,6 +117,23 @@ Two scheduled jobs via APScheduler poll the Gmail inbox:
 | `email_scheduled_trigger.check_zillow_emails()` | 3 hours (8am-5pm ET) | Zillow leads with qualification criteria |
 
 Both use `background_agent_runner.run_agent_for_trigger()` with the same silent/alert pattern as the team SMS event trigger.
+
+## Universal Kill Switch (`is_sernia_ai_enabled`)
+
+The `triggers_enabled` app setting in the DB acts as a universal kill switch for all **automated** agent runs. It prevents triggers from firing in lower environments (dev, PR envs) where webhooks or schedulers might still deliver events.
+
+| Path | Gated? | Why |
+|------|--------|-----|
+| Team SMS event trigger | Yes | Automated — webhook-driven |
+| AI SMS event trigger | Yes | Automated — webhook-driven |
+| General email trigger | Yes | Automated — scheduler-driven |
+| Zillow email trigger | Yes | Automated — scheduler-driven |
+| Web chat (`/chat`) | **No** | User-initiated, intentional |
+| HITL approvals (`/approve`) | **No** | User-initiated, write actions already behind HITL |
+
+**Default**: Enabled on production, disabled elsewhere (safety net for dev/PR envs). DB setting overrides the environment-based default when present.
+
+**Implementation**: `is_sernia_ai_enabled()` in `sernia_ai/models.py` — shared by `background_agent_runner.py` and `ai_sms_event_trigger.py`.
 
 ## Rate Limiting
 

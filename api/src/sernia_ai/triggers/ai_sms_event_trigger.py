@@ -34,6 +34,7 @@ from pydantic_ai.messages import (
 )
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -236,6 +237,11 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         logfire.info(
             "ai_sms_event: skipping event with missing data", event_id=event_id
         )
+        return
+
+    # --- Universal kill switch ---
+    if not await is_sernia_ai_enabled():
+        logfire.info("sernia_ai disabled — skipping ai_sms_event", event_id=event_id)
         return
 
     logfire.info(

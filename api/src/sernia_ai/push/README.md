@@ -85,7 +85,7 @@ flowchart TD
 
 ### Circular messaging safety
 
-The AI sends FROM its phone TO the shared number (outbound). The OpenPhone webhook handler checks `event_data["to_number"]` matches sernia's number for inbound — so AI→shared messages don't re-trigger.
+When `notify_team_sms()` sends FROM the AI phone TO the shared team number, OpenPhone fires a `message.received` webhook on the shared team phone. The webhook handler guards against this by looking up the AI phone's actual number via `GET /v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}` (cached at module level). If `from_number` matches the AI phone, the message is skipped before reaching the team SMS event trigger. See `open_phone/routes.py`.
 
 ### Config (`config.py`)
 

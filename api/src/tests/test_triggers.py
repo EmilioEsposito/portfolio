@@ -122,6 +122,13 @@ class TestSmoke:
 
         assert hasattr(routes_module, "handle_team_sms_event")
 
+    def test_circular_trigger_guard_wired(self):
+        """_get_ai_phone_number should exist in webhook routing for circular guard."""
+        import api.src.open_phone.routes as routes_module
+
+        assert hasattr(routes_module, "_get_ai_phone_number")
+        assert callable(routes_module._get_ai_phone_number)
+
     def test_list_user_conversations_accepts_none_clerk_user_id(self):
         """list_user_conversations should accept clerk_user_id=None."""
         import inspect
@@ -150,6 +157,8 @@ class TestBackgroundAgentRunner:
         mock_result.all_messages.return_value = []
 
         with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
             patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
@@ -185,6 +194,8 @@ class TestBackgroundAgentRunner:
         mock_result.output = "[NO_ACTION_NEEDED]"
 
         with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
             patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
@@ -210,6 +221,8 @@ class TestBackgroundAgentRunner:
     async def test_handles_agent_error_gracefully(self):
         """When the agent raises an exception, return None without crashing."""
         with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
@@ -232,23 +245,12 @@ class TestBackgroundAgentRunner:
 
     @pytest.mark.asyncio
     async def test_triggers_disabled_returns_none(self):
-        """When triggers_enabled is False in app_settings, return None without running agent."""
+        """When is_sernia_ai_enabled() returns False, return None without running agent."""
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_sf,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=False),
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
         ):
-            # The settings check session: execute → scalar_one_or_none returns False
-            settings_result = MagicMock()
-            settings_result.scalar_one_or_none.return_value = False
-
-            settings_session = AsyncMock()
-            settings_session.execute = AsyncMock(return_value=settings_result)
-
-            # Make the context manager return settings_session on first use
-            mock_sf.return_value.__aenter__ = AsyncMock(return_value=settings_session)
-            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
             conv_id = await run_agent_for_trigger(
@@ -303,11 +305,14 @@ class TestRateLimiter:
         mock_result.all_messages.return_value = []
 
         with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_sf,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
             patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.notify_trigger_alert"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_team_sms"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
         ):
@@ -829,6 +834,8 @@ class TestHandleAiSmsEvent:
         }
 
         with (
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                   return_value=internal_contact),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
@@ -867,6 +874,8 @@ class TestHandleAiSmsEvent:
     async def test_blocks_external_contacts(self):
         """Messages from external/unknown contacts should be silently ignored."""
         with (
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                   return_value=None),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
@@ -914,6 +923,8 @@ class TestHandleAiSmsEvent:
         }
 
         with (
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                   return_value=internal_contact),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
@@ -964,6 +975,8 @@ class TestHandleAiSmsEvent:
         }
 
         with (
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                   return_value=internal_contact),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
@@ -995,3 +1008,67 @@ class TestHandleAiSmsEvent:
 
             # Should NOT have sent SMS reply (waiting for approval)
             mock_reply.assert_not_called()
+
+
+# =========================================================================
+# Universal Kill Switch Tests
+# =========================================================================
+
+
+class TestUniversalKillSwitch:
+    """Verify is_sernia_ai_enabled() blocks all agent execution paths when disabled."""
+
+    @pytest.mark.asyncio
+    async def test_ai_sms_event_skips_when_disabled(self):
+        """handle_ai_sms_event should return early when Sernia AI is disabled."""
+        with (
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                new_callable=AsyncMock, return_value=False,
+            ),
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact") as mock_verify,
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+        ):
+            from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
+
+            await handle_ai_sms_event({
+                "from_number": "+14155550100",
+                "message_text": "Hello",
+                "event_id": "evt_disabled",
+            })
+
+            mock_verify.assert_not_called()
+            mock_agent.run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_background_runner_skips_when_disabled(self):
+        """run_agent_for_trigger should return None when Sernia AI is disabled."""
+        with (
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock, return_value=False,
+            ),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+        ):
+            from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+            result = await run_agent_for_trigger(
+                trigger_source="test",
+                trigger_prompt="Should be blocked",
+                trigger_metadata={},
+            )
+
+            assert result is None
+            mock_agent.run.assert_not_called()
+
+    def test_is_sernia_ai_enabled_importable(self):
+        """The shared kill switch function should be importable from models."""
+        from api.src.sernia_ai.models import is_sernia_ai_enabled
+
+        assert callable(is_sernia_ai_enabled)
+
+    def test_ai_sms_event_trigger_imports_kill_switch(self):
+        """ai_sms_event_trigger.py should import is_sernia_ai_enabled."""
+        import api.src.sernia_ai.triggers.ai_sms_event_trigger as ai_sms_mod
+
+        assert hasattr(ai_sms_mod, "is_sernia_ai_enabled")

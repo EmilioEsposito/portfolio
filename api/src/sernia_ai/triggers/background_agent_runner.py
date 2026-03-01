@@ -12,15 +12,10 @@ import asyncio
 import time
 import uuid
 
-import os
-
 import logfire
-from sqlalchemy import select
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import AppSetting
-
-_IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production"
+from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -86,26 +81,9 @@ async def run_agent_for_trigger(
         The conversation_id if a conversation was created (agent needs human attention),
         or None if the agent processed silently or was rate-limited.
     """
-    # --- Triggers-enabled check ---
-    # Default: enabled on production, disabled elsewhere (safety net for dev/PR envs)
-    triggers_enabled = _IS_PRODUCTION
-    try:
-        async with AsyncSessionFactory() as settings_session:
-            result = await settings_session.execute(
-                select(AppSetting.value).where(AppSetting.key == "triggers_enabled")
-            )
-            value = result.scalar_one_or_none()
-            if value is not None:
-                triggers_enabled = value
-    except Exception:
-        # Table may not exist yet (migration not applied) — keep env-based default
-        logfire.warn(
-            "triggers-enabled check failed (table may not exist), using env default",
-            default=triggers_enabled,
-        )
-
-    if not triggers_enabled:
-        logfire.info("triggers disabled — skipping", trigger_source=trigger_source)
+    # --- Sernia AI enabled check (universal kill switch) ---
+    if not await is_sernia_ai_enabled():
+        logfire.info("sernia_ai disabled — skipping trigger", trigger_source=trigger_source)
         return None
 
     # --- Rate-limit check ---
@@ -159,14 +137,22 @@ async def run_agent_for_trigger(
             return None
 
         # Agent wants human attention — persist the conversation
-        await save_agent_conversation(
-            session=session,
-            conversation_id=conv_id,
-            agent_name=AGENT_NAME,
-            messages=result.all_messages(),
-            clerk_user_id=TRIGGER_BOT_ID,
-            metadata=trigger_metadata,
-        )
+        try:
+            await save_agent_conversation(
+                session=session,
+                conversation_id=conv_id,
+                agent_name=AGENT_NAME,
+                messages=result.all_messages(),
+                clerk_user_id=TRIGGER_BOT_ID,
+                metadata=trigger_metadata,
+            )
+        except Exception:
+            logfire.exception(
+                "trigger conversation save failed",
+                trigger_source=trigger_source,
+                conversation_id=conv_id,
+            )
+            return None
 
         # Send push notification + SMS to shared team number
         pending = extract_pending_approvals(result)
