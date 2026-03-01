@@ -419,12 +419,16 @@ async def list_pending_workflows(
 async def get_conversation_history(
     user: SerniaUser = Depends(_get_sernia_user),
     limit: int = 20,
+    offset: int = 0,
+    modality: str | None = None,
 ):
     """List recent conversations for all Sernia users (shared team context)."""
     conversations = await list_user_conversations(
         clerk_user_id=None,
         agent_name=AGENT_NAME,
         limit=limit,
+        offset=offset,
+        modality=modality,
     )
     return {
         "conversations": conversations,

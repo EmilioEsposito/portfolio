@@ -35,6 +35,7 @@ import {
   Mail,
   Settings,
   Upload,
+  LayoutList,
 } from "lucide-react";
 import { Switch } from "~/components/ui/switch";
 import { Label } from "~/components/ui/label";
@@ -1102,11 +1103,22 @@ export default function SerniaChatPage() {
             </Sheet>
 
             {isAdmin && (
-              <TabsList>
-                <TabsTrigger value="chat">Chat</TabsTrigger>
-                <TabsTrigger value="instructions">Instructions</TabsTrigger>
-                <TabsTrigger value="settings">Settings</TabsTrigger>
-              </TabsList>
+              <>
+                <TabsList>
+                  <TabsTrigger value="chat">Chat</TabsTrigger>
+                  <TabsTrigger value="instructions">Instructions</TabsTrigger>
+                  <TabsTrigger value="settings">Settings</TabsTrigger>
+                </TabsList>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => navigate("/sernia-admin")}
+                  title="Browse all conversations"
+                >
+                  <LayoutList className="w-4 h-4" />
+                </Button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
