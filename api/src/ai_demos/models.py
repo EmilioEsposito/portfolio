@@ -137,6 +137,8 @@ async def save_agent_conversation(
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     estimated_tokens: int | None = None,
+    modality: str | None = None,
+    contact_identifier: str | None = None,
 ) -> AgentConversation:
     """
     Save or update an agent conversation.
@@ -180,6 +182,10 @@ async def save_agent_conversation(
     )
     if estimated_tokens is not None:
         conversation.estimated_tokens = estimated_tokens
+    if modality is not None:
+        conversation.modality = modality
+    if contact_identifier is not None:
+        conversation.contact_identifier = contact_identifier
 
     # merge returns the persistent instance attached to the session
     conversation = await session.merge(conversation)
@@ -301,6 +307,7 @@ async def list_user_conversations(
                 agent_name,
                 clerk_user_id,
                 metadata_,
+                modality,
                 COALESCE(
                     metadata_ ->> 'trigger_message_preview',
                     LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
@@ -345,6 +352,7 @@ async def list_user_conversations(
                 "conversation_id": row.id,
                 "agent_name": row.agent_name,
                 "clerk_user_id": row.clerk_user_id,
+                "modality": row.modality or "web_chat",
                 "preview": row.preview or "",
                 "pending": pending,
                 "has_pending": has_pending,

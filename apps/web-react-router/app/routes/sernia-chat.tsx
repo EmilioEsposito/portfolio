@@ -90,6 +90,7 @@ const suggestedPrompts = [
 
 interface ConversationSummary {
   conversation_id: string;
+  modality: string;
   preview: string;
   has_pending: boolean;
   trigger_source: string | null;
@@ -107,11 +108,13 @@ function ChatView({
   initialMessages,
   initialPending,
   getToken,
+  readOnly = false,
 }: {
   conversationId: string;
   initialMessages: any[];
   initialPending: PendingApproval | null;
   getToken: () => Promise<string | null>;
+  readOnly?: boolean;
 }) {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(initialPending);
@@ -428,7 +431,13 @@ function ChatView({
         onChange={attachment.handleFileInputChange}
       />
 
-      {/* Input Area */}
+      {/* Input Area — hidden for read-only SMS conversations */}
+      {readOnly ? (
+        <div className="flex items-center justify-center px-4 py-3 border-t text-sm text-muted-foreground">
+          <Phone className="w-4 h-4 mr-2" />
+          SMS conversation — reply via text message
+        </div>
+      ) : (
       <form
         onSubmit={handleSubmit}
         className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
@@ -559,6 +568,7 @@ function ChatView({
           </div>
         )}
       </form>
+      )}
     </>
   );
 }
@@ -839,6 +849,7 @@ export default function SerniaChatPage() {
   );
   const [loadedPending, setLoadedPending] =
     useState<PendingApproval | null>(null);
+  const [conversationModality, setConversationModality] = useState<string>("web_chat");
 
   const [conversationHistory, setConversationHistory] = useState<
     ConversationSummary[]
@@ -879,7 +890,7 @@ export default function SerniaChatPage() {
 
   // Load conversation messages from API
   const loadConversation = useCallback(
-    async (convId: string, opts?: { updateUrl?: boolean }) => {
+    async (convId: string, opts?: { updateUrl?: boolean; modality?: string }) => {
       if (!isSignedIn) return;
       setLoadedMessages(null); // triggers loading state
 
@@ -901,6 +912,9 @@ export default function SerniaChatPage() {
         setLoadedPending(convertPendingFromApi(data.pending));
         setConversationId(convId);
         setLoadedMessages(data.messages || []);
+        setConversationModality(
+          opts?.modality || (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat")
+        );
         setHistoryOpen(false);
 
         if (opts?.updateUrl !== false) {
@@ -958,6 +972,7 @@ export default function SerniaChatPage() {
     setConversationId(newId);
     setLoadedMessages([]);
     setLoadedPending(null);
+    setConversationModality("web_chat");
     setHistoryOpen(false);
     navigate("/sernia-chat", { replace: true });
   };
@@ -1041,7 +1056,7 @@ export default function SerniaChatPage() {
                       >
                         <button
                           onClick={() =>
-                            loadConversation(conv.conversation_id)
+                            loadConversation(conv.conversation_id, { modality: conv.modality })
                           }
                           className="flex-1 text-left min-w-0"
                         >
@@ -1163,6 +1178,7 @@ export default function SerniaChatPage() {
             initialMessages={loadedMessages}
             initialPending={loadedPending}
             getToken={getToken}
+            readOnly={conversationModality === "sms"}
           />
         </TabsContent>
 

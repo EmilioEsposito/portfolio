@@ -32,6 +32,7 @@ from api.src.ai_demos.hitl_utils import (
 )
 from api.src.ai_demos.models import (
     persist_agent_run_result,
+    get_agent_conversation,
     list_user_conversations,
     get_conversation_messages,
     delete_conversation,
@@ -297,6 +298,23 @@ async def approve_conversation(
         )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
+        # If this is an SMS conversation, send the agent's response back via SMS
+        conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+        if (
+            conv
+            and conv.modality == "sms"
+            and isinstance(result.output, str)
+            and result.output.strip()
+            and conv.metadata_
+            and conv.metadata_.get("trigger_phone")
+        ):
+            asyncio.create_task(
+                _send_sms_reply(
+                    to_phone=conv.metadata_["trigger_phone"],
+                    message=result.output,
+                )
+            )
+
         pending = extract_pending_approvals(result)
         tool_results = extract_tool_results(result)
 
@@ -507,6 +525,27 @@ async def update_admin_settings(
         updated["triggers_enabled"] = body.triggers_enabled
 
     return {"updated": updated}
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+
+async def _send_sms_reply(to_phone: str, message: str) -> None:
+    """Send an SMS reply from the AI phone number. Never raises."""
+    from api.src.open_phone.service import send_message
+    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+
+    try:
+        await send_message(
+            message=message,
+            to_phone_number=to_phone,
+            from_phone_number=QUO_SERNIA_AI_PHONE_ID,
+        )
+        logfire.info("post-approval SMS reply sent", to_phone=to_phone)
+    except Exception:
+        logfire.exception("post-approval SMS reply failed", to_phone=to_phone)
 
 
 # =============================================================================

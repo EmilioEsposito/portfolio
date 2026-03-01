@@ -1,6 +1,6 @@
 # Sernia AI Agent — Architecture Plan
 
-> **Last Updated**: 2026-02-28
+> **Last Updated**: 2026-03-01
 
 **Goal**: An AI agent for Sernia Capital LLC that handles SMS, email, web chat, task management, and builds institutional memory over time.
 
@@ -65,14 +65,15 @@ api/src/sernia_ai/
 │   └── summarize_tool_results.py  # Tool result summarization (Haiku sub-agent)
 │
 ├── triggers/
-│   ├── background_runner.py # Core async runner (agent outside HTTP context)
-│   ├── sms_trigger.py       # Extends OpenPhone webhook → agent
-│   ├── email_trigger.py     # APScheduler email checks (general + Zillow)
-│   └── scheduler.py         # Registers APScheduler trigger jobs
+│   ├── background_agent_runner.py      # Core async runner (agent outside HTTP context)
+│   ├── team_sms_event_trigger.py       # Team SMS event trigger (monitor + alert)
+│   ├── ai_sms_event_trigger.py         # AI SMS event trigger (direct SMS ↔ agent)
+│   ├── email_scheduled_trigger.py      # Scheduled email checks (general + Zillow)
+│   └── register_scheduled_triggers.py  # Registers APScheduler trigger jobs
 │
 ├── push/
 │   ├── models.py            # WebPushSubscription SQLAlchemy model
-│   ├── service.py           # Push send logic (subscriptions, VAPID, delivery)
+│   ├── service.py           # Push + SMS send logic (subscriptions, VAPID, delivery, team SMS)
 │   ├── routes.py            # Subscribe/unsubscribe/test endpoints
 │   └── README.md            # VAPID key generation, debugging guide
 │
@@ -211,18 +212,31 @@ Both support group texts (list of phone numbers). Recipients must exist as Quo c
 |--------|--------|---------|
 | Web Chat (user-initiated) | UUID (frontend-generated) | `a1b2c3d4-...` |
 | Trigger (agent-initiated) | UUID (backend-generated) | `f5e6d7c8-...` |
+| AI SMS conversation | `ai_sms_from_{digits}` (deterministic) | `ai_sms_from_14155550100` |
 
-Previous plans for `sms:{phone}` and `email:{thread_id}` conversation IDs were not implemented. All conversations are web chat conversations — triggers create new UUIDs.
+Web chat and trigger conversations use random UUIDs. AI SMS conversations use deterministic IDs derived from the sender's phone number, enabling upsert behavior — follow-up messages update the same conversation.
 
 ### Trigger Metadata
 
 Agent-initiated conversations store trigger info in the `metadata_` JSON column:
+
+**Team SMS trigger**:
 ```json
 {
   "trigger_source": "sms",
   "trigger_phone": "+14155550100",
   "trigger_message_preview": "The heater is broken",
   "trigger_event_id": "evt_123"
+}
+```
+
+**AI SMS conversation**:
+```json
+{
+  "trigger_source": "ai_sms",
+  "trigger_phone": "+14155550100",
+  "trigger_contact_name": "John Doe",
+  "openphone_conversation_id": "conv_abc"
 }
 ```
 
@@ -321,30 +335,53 @@ Background agent processing (full tool access)
     ↓
 Agent decides: ─── routine ──→ [NO_ACTION_NEEDED] → silent (log only, may update memory)
     │
-    └── needs attention ──→ Create web chat conversation + push notification
+    └── needs attention ──→ Create web chat conversation
                                 ↓
-                           Employee opens notification → web chat
+                           Push notification + SMS to shared team number
+                           (belt and suspenders — both always fire)
+                                ↓
+                           Employee opens notification or SMS deeplink → web chat
                                 ↓
                            Reviews analysis → approves/rejects/follows up
                                 ↓
                            Agent executes approved actions
 ```
 
+### Two SMS Modalities
+
+There are two distinct SMS-triggered flows, routed by which phone number receives the message:
+
+| Modality | File | Phone | Conv ID | Agent Responds Via |
+|----------|------|-------|---------|-------------------|
+| **Team SMS trigger** | `sms_trigger.py` | Shared team number | UUID (new per event) | Web chat only |
+| **AI SMS conversation** | `ai_sms_handler.py` | AI's direct number | `ai_sms_from_{digits}` | SMS (native reply) |
+
 ### Key Design Decisions
 
-- **All SMS replies require HITL approval** — no auto-responding, even for simple acks
-- **Agent uses `[NO_ACTION_NEEDED]` marker** for silent processing (routine messages). Silent runs are logged to Logfire with the trigger prompt preview and agent output for auditability.
+- **Team SMS trigger**: All SMS replies require HITL approval — no auto-responding, even for simple acks. Agent monitors, analyzes, and alerts team via web chat.
+- **AI SMS conversation**: Always responds — this is a direct conversation. Internal contacts only (gated on `QUO_INTERNAL_COMPANY`). HITL tools still pause for approval; post-approval, the result is sent back as SMS.
+- **Agent uses `[NO_ACTION_NEEDED]` marker** for silent processing (team SMS trigger only — routine messages). Silent runs are logged to Logfire with the trigger prompt preview and agent output for auditability.
 - **Per-key rate limiting (2 min cooldown)** — event-based triggers are rate-limited to prevent the same key (e.g. phone number) from firing more than once every 2 minutes. In-memory dict (`_trigger_cooldowns`), resets on restart. Rate-limited triggers are logged and skipped before the agent runs.
-- **One conversation per trigger event** — no cross-modality conversations, no dedup (simple first)
-- **Triggers coexist with existing systems** — Twilio escalation runs alongside SMS trigger
+- **Triggers coexist with existing systems** — Twilio escalation runs alongside team SMS trigger
 - **Zillow email processing subsumed** into Sernia AI agent (was separate APScheduler jobs)
 
-### SMS Trigger
+### Team SMS Trigger (`sms_trigger.py`)
 
-- **Entry point**: `handle_inbound_sms()` called as `BackgroundTask` from OpenPhone webhook
+- **Entry point**: `handle_team_sms_event()` called as `BackgroundTask` from OpenPhone webhook
 - **Fires for**: `message.received` events to the Sernia phone number (skips emoji-leading messages)
 - **Agent prompt**: Includes the message + instructions to look up contact, check SMS history, decide if team needs alerting
 - **Coexists with**: `analyze_for_twilio_escalation()` — both fire independently
+
+### AI SMS Conversation (`ai_sms_handler.py`)
+
+- **Entry point**: `handle_ai_sms_event()` called as `BackgroundTask` from OpenPhone webhook
+- **Fires for**: `message.received` events to `QUO_SERNIA_AI_PHONE_ID`
+- **Contact gate**: Verifies sender is a Sernia Capital LLC contact via OpenPhone API — unknown/external numbers silently ignored
+- **History**: Loads from DB if conversation exists (preserves tool context). On first message, bootstraps from OpenPhone SMS thread (`GET /v1/messages`)
+- **Agent modality**: `modality="sms"` — agent produces short, direct responses without markdown
+- **Result handling**: Text output → sent as SMS reply. `DeferredToolRequests` (HITL) → saves to DB, sends push + SMS notification to team
+- **Post-approval**: When team approves in web chat, `approve_conversation` endpoint detects `modality="sms"` and sends the agent's result back via SMS
+- **Frontend**: SMS conversations appear read-only in web chat (no compose input, HITL approval cards still function)
 
 ### Email Trigger
 
@@ -368,6 +405,21 @@ Two scheduled jobs via APScheduler:
 - **Delivery**: All active subscriptions (all devices of all Sernia users)
 - **Auto-cleanup**: Expired endpoints (410/404) deleted on next send attempt
 
+### SMS Team Notifications
+
+SMS notifications sent alongside push for belt-and-suspenders delivery. Ensures team members without push enabled still get notified, and leaves a persistent record in the shared OpenPhone thread.
+
+- **From**: `QUO_SERNIA_AI_PHONE_ID` (Sernia AI's internal line)
+- **To**: Shared team number (looked up from `QUO_SHARED_TEAM_CONTACT_ID` via OpenPhone API, cached at module level)
+- **Message format**: `{title}\n{body}\n\n{deeplink_url}`
+- **Deeplink**: `{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}` — environment-aware (prod/dev/local)
+- **Failure isolation**: SMS errors are logged via `logfire.exception()` but never re-raised — SMS failure should never block trigger flow
+- **Circular safety**: AI→shared number is outbound from AI's perspective; the webhook fires on `message.received` inbound to sernia's number, so no re-trigger loop
+
+**Agent instructions** also guide the agent to prefer the shared team number for general team notifications via `send_internal_sms`, so the agent's own messages also go to the shared thread.
+
+**Phase 2 (AI SMS conversations)** is now implemented — see `ai_sms_handler.py` and the [Two SMS Modalities](#two-sms-modalities) section above.
+
 ### Background Runner (`triggers/background_runner.py`)
 
 Core function shared by all triggers:
@@ -377,7 +429,7 @@ Core function shared by all triggers:
 3. Builds `SerniaDeps` with system identity (`system:sernia-ai`, `emilio@serniacapital.com`)
 4. Runs agent with synthetic prompt + `trigger_instructions` for instruction injection
 5. If `[NO_ACTION_NEEDED]` → silent return with enhanced Logfire logging (prompt preview + agent output). Workspace changes still committed.
-6. Otherwise → persists conversation, sends push notification (approval or alert)
+6. Otherwise → persists conversation, sends push notification + SMS to shared team number (both always fire via `asyncio.create_task`)
 
 ---
 
@@ -395,7 +447,9 @@ Core function shared by all triggers:
 | 7. Error Handling | Done | Tool errors logged but don't break conversation. Logfire alerts. |
 | 8. Push Notifications | Done | W3C Web Push, VAPID, iOS PWA, approval + alert types |
 | 9. Triggers | Done | SMS trigger (webhook), email trigger (APScheduler), background runner, shared conversation access |
-| 10. sernia.ai domain | Not started | Railway/Cloudflare/Clerk setup |
+| 10. SMS Team Notifications | Done | SMS to shared team number alongside push, deeplinks, agent shared-number preference |
+| 11. AI SMS Conversations | Done | Direct SMS ↔ agent modality, internal-only gate, post-approval SMS reply, read-only web chat view |
+| 12. sernia.ai domain | Not started | Railway/Cloudflare/Clerk setup |
 
 ### Remaining Cleanup
 
@@ -408,9 +462,11 @@ Core function shared by all triggers:
 
 ### Near-Term
 
+- **SMS → web chat compose**: Allow typing in web chat to reply to AI SMS conversations (currently team tells agent what to do via the SMS thread itself)
+- **Auto-SMS-reply after web chat approval for team SMS**: Only AI SMS conversations (Type 2) get post-approval SMS. Team SMS triggers (Type 1) stay web-chat-only.
+- **Group SMS threads**: Only 1:1 between AI phone and a team member currently supported
 - **Trigger debouncing (advanced)**: Per-key rate limiting (2 min) is implemented. Future: batch multiple events from the same contact within the window into a single agent run with combined context.
 - **Conversation dedup**: Before creating a new trigger conversation, check if there's a recent one about the same contact. Append if within time window.
-- **Contact name in push notifications**: Look up contact name before sending push, so notification says "SMS from John Doe" instead of "SMS from +14155550100"
 - **Notification badge/counter**: Show unread trigger conversation count in sidebar header
 
 ### Medium-Term
@@ -449,7 +505,7 @@ Core function shared by all triggers:
 |------|----------|---------|
 | Conversation persistence | `api/src/ai_demos/models.py` | `save_agent_conversation()`, `get_conversation_messages()`, etc. |
 | HITL utilities | `api/src/ai_demos/hitl_utils.py` | `resume_with_approvals()`, `extract_pending_approvals()` |
-| OpenPhone webhook | `api/src/open_phone/routes.py` | Extended with SMS trigger (alongside Twilio escalation) |
+| OpenPhone webhook | `api/src/open_phone/routes.py` | Extended with team SMS trigger + AI SMS handler (alongside Twilio escalation) |
 | Gmail API | `api/src/google/gmail/service.py` | `send_email()` via delegated credentials |
 | Calendar API | `api/src/google/calendar/service.py` | `create_calendar_event()` |
 | APScheduler | `api/src/apscheduler_service/service.py` | `get_scheduler()` for email trigger jobs |

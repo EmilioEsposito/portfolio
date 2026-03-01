@@ -18,7 +18,7 @@ from api.src.sernia_ai.config import (
     GENERAL_EMAIL_CHECK_INTERVAL_MINUTES,
     ZILLOW_EMAIL_CHECK_INTERVAL_HOURS,
 )
-from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
+from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
 
 def _lookback_gmail(interval_minutes: int) -> str:

@@ -1,9 +1,9 @@
 """
-SMS trigger for the Sernia AI agent.
+Team SMS event trigger for the Sernia AI agent.
 
-Called from the OpenPhone webhook handler after an inbound SMS is persisted.
-Runs the Sernia agent in a background task to analyze the message and decide
-whether the team needs to be alerted.
+Called from the OpenPhone webhook handler when an inbound SMS arrives at the
+shared team number. Runs the Sernia agent in a background task to analyze the
+message and decide whether the team needs to be alerted.
 
 Coexists with the existing Twilio escalation logic in open_phone/escalate.py.
 """
@@ -11,12 +11,12 @@ from textwrap import dedent
 
 import logfire
 
-from api.src.sernia_ai.triggers.background_runner import run_agent_for_trigger
+from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
 
-async def handle_inbound_sms(event_data: dict) -> None:
+async def handle_team_sms_event(event_data: dict) -> None:
     """
-    Process an inbound SMS via the Sernia AI agent.
+    Process an inbound SMS to the shared team number via the Sernia AI agent.
 
     Called as a FastAPI background task from the OpenPhone webhook handler.
     Runs alongside existing Twilio escalation — both fire independently.
@@ -30,11 +30,11 @@ async def handle_inbound_sms(event_data: dict) -> None:
     event_id = event_data.get("event_id", "")
 
     if not from_number or not message_text:
-        logfire.info("sms_trigger: skipping event with missing data", event_id=event_id)
+        logfire.info("team_sms_event: skipping event with missing data", event_id=event_id)
         return
 
     logfire.info(
-        "sms_trigger: processing inbound SMS",
+        "team_sms_event: processing inbound SMS",
         event_id=event_id,
         from_number=from_number,
         message_length=len(message_text),

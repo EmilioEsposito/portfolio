@@ -12,9 +12,9 @@ from api.src.sernia_ai.config import (
 )
 
 
-def register_sernia_trigger_jobs() -> None:
+def register_scheduled_triggers() -> None:
     """Register all Sernia AI scheduled trigger jobs with APScheduler."""
-    from api.src.sernia_ai.triggers.email_trigger import (
+    from api.src.sernia_ai.triggers.email_scheduled_trigger import (
         check_general_emails,
         check_zillow_emails,
     )
