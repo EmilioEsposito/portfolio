@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import pytz
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 from pydantic_ai import FunctionToolset, RunContext
 
@@ -376,23 +377,38 @@ async def read_google_sheet(
     else:
         range_str = ""
 
-    if range_str:
-        result = (
-            service.spreadsheets()
-            .values()
-            .get(spreadsheetId=file_id, range=range_str)
-            .execute()
-        )
-    else:
-        # Get metadata to find first sheet name, then read it
-        meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
-        first_sheet = meta["sheets"][0]["properties"]["title"]
-        result = (
-            service.spreadsheets()
-            .values()
-            .get(spreadsheetId=file_id, range=first_sheet)
-            .execute()
-        )
+    try:
+        if range_str:
+            result = (
+                service.spreadsheets()
+                .values()
+                .get(spreadsheetId=file_id, range=range_str)
+                .execute()
+            )
+        else:
+            # Get metadata to find first sheet name, then read it
+            meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+            first_sheet = meta["sheets"][0]["properties"]["title"]
+            result = (
+                service.spreadsheets()
+                .values()
+                .get(spreadsheetId=file_id, range=first_sheet)
+                .execute()
+            )
+    except HttpError as e:
+        # For invalid range/sheet name errors, fetch available sheet names
+        # so the agent can retry with the correct name instead of guessing.
+        if e.resp.status in (400, 404):
+            try:
+                meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+                available = [s["properties"]["title"] for s in meta["sheets"]]
+                return (
+                    f"Error: {e._get_reason()}. "
+                    f"Available sheets in this spreadsheet: {', '.join(available)}"
+                )
+            except Exception:
+                pass
+        raise  # Re-raise for other HTTP errors (500, auth, etc.)
 
     rows = result.get("values", [])
     if not rows:

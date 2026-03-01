@@ -171,7 +171,6 @@ async def chat_sernia(
             conversation_id=conversation_id,
             agent_name=AGENT_NAME,
             clerk_user_id=clerk_user_id,
-            session=session,
         )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
@@ -294,7 +293,6 @@ async def approve_conversation(
             conversation_id=conversation_id,
             agent_name=AGENT_NAME,
             clerk_user_id=clerk_user_id,
-            session=session,
         )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 

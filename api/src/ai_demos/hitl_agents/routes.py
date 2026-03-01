@@ -138,7 +138,6 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
         conversation_id=conversation_id,
         agent_name=hitl_sms_agent.name,
         clerk_user_id=clerk_user_id,
-        session=session,
     )
 
     # Backend DB is source of truth for history
@@ -267,7 +266,6 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
             conversation_id=conversation_id,
             agent_name=hitl_sms_agent.name,
             clerk_user_id=clerk_user_id,
-            session=session,
         )
 
         # Check if there are more pending approvals
