@@ -5,6 +5,7 @@ Includes memory system (workspace file tools + dynamic instructions),
 HITL approval flow, and core toolsets (OpenPhone, Gmail, Calendar, ClickUp, DB search).
 """
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
+from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 from api.src.sernia_ai.config import (
@@ -21,6 +22,7 @@ from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
 from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
 from api.src.sernia_ai.tools.code_tools import code_toolset
+from api.src.sernia_ai.tools.duckdb_tools import duckdb_toolset
 from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
 
 
@@ -55,6 +57,11 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, DeferredToolRequests],  # HITL foundation
+    model_settings=AnthropicModelSettings(
+        anthropic_cache_instructions=True,
+        anthropic_cache_tool_definitions=True,
+        anthropic_cache_messages=True,
+    ),
     builtin_tools=_build_builtin_tools(),
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset),
@@ -63,6 +70,7 @@ sernia_agent = Agent(
         ErrorLoggingToolset(clickup_toolset),
         ErrorLoggingToolset(db_search_toolset),
         ErrorLoggingToolset(code_toolset),
+        ErrorLoggingToolset(duckdb_toolset),
     ],
     history_processors=[summarize_tool_results, compact_history],
     instrument=True,

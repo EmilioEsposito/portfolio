@@ -200,7 +200,16 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionFactory() as session:
         try:
             yield session
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception as commit_err:
+                # Connection may have gone stale during long-running streaming
+                # responses. If persist_agent_run_result already saved via its
+                # own fresh session, this is harmless. Log and suppress.
+                logfire.warning(
+                    "Session commit failed (connection likely stale)",
+                    error=str(commit_err),
+                )
         except Exception as e:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")

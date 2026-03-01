@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import pytz
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 from pydantic_ai import FunctionToolset, RunContext
 
@@ -376,27 +377,69 @@ async def read_google_sheet(
     else:
         range_str = ""
 
-    if range_str:
-        result = (
-            service.spreadsheets()
-            .values()
-            .get(spreadsheetId=file_id, range=range_str)
-            .execute()
-        )
-    else:
-        # Get metadata to find first sheet name, then read it
-        meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
-        first_sheet = meta["sheets"][0]["properties"]["title"]
-        result = (
-            service.spreadsheets()
-            .values()
-            .get(spreadsheetId=file_id, range=first_sheet)
-            .execute()
-        )
+    try:
+        if range_str:
+            result = (
+                service.spreadsheets()
+                .values()
+                .get(spreadsheetId=file_id, range=range_str)
+                .execute()
+            )
+        else:
+            # Get metadata to find first sheet name, then read it
+            meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+            first_sheet = meta["sheets"][0]["properties"]["title"]
+            result = (
+                service.spreadsheets()
+                .values()
+                .get(spreadsheetId=file_id, range=first_sheet)
+                .execute()
+            )
+    except HttpError as e:
+        # For invalid range/sheet name errors, fetch available sheet names
+        # so the agent can retry with the correct name instead of guessing.
+        if e.resp.status in (400, 404):
+            try:
+                meta = service.spreadsheets().get(spreadsheetId=file_id).execute()
+                available = [s["properties"]["title"] for s in meta["sheets"]]
+                return (
+                    f"Error: {e._get_reason()}. "
+                    f"Available sheets in this spreadsheet: {', '.join(available)}"
+                )
+            except Exception:
+                pass
+        raise  # Re-raise for other HTTP errors (500, auth, etc.)
 
     rows = result.get("values", [])
     if not rows:
         return "Sheet is empty."
+
+    # Export CSV for DuckDB analysis (best-effort, >5 rows threshold)
+    dataset_info = ""
+    if len(rows) > 5 and ctx.deps.conversation_id:
+        from api.src.sernia_ai.tools.data_export import write_dataset, _sanitize_name
+        ds_name = _sanitize_name(sheet_name or "sheet")
+        try:
+            _, rows_written = write_dataset(
+                ctx.deps.conversation_id, ds_name, headers=rows[0], rows=rows[1:]
+            )
+            # Build a sample row for context
+            sample = rows[1] if len(rows) > 1 else []
+            sample_padded = sample + [""] * (len(rows[0]) - len(sample))
+            sample_pairs = ", ".join(
+                f"{h}={v!r}" for h, v in zip(rows[0][:6], sample_padded[:6])
+            )
+            if len(rows[0]) > 6:
+                sample_pairs += ", ..."
+            dataset_info = (
+                f"[Dataset saved as '{ds_name}' ({rows_written} rows, "
+                f"{len(rows[0])} cols). Use load_dataset(\"{ds_name}\") then "
+                f"run_sql() for filtering/aggregation.]\n"
+                f"[Columns: {', '.join(rows[0])}]\n"
+                f"[Sample: {sample_pairs}]\n\n"
+            )
+        except Exception:
+            pass
 
     # Format as a readable table
     lines = []
@@ -414,7 +457,7 @@ async def read_google_sheet(
     text = "\n".join(lines)
     if len(text) > _DOC_CONTENT_CAP:
         text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"
-    return text
+    return dataset_info + text
 
 
 @google_toolset.tool

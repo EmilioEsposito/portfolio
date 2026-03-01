@@ -199,7 +199,6 @@ async def persist_agent_run_result(
     agent_name: str,
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
-    session: AsyncSession | None = None,
 ) -> None:
     """
     Convenience function to persist an agent run result to the database.
@@ -207,6 +206,10 @@ async def persist_agent_run_result(
 
     Uses result.all_messages() which includes the full conversation.
     This replaces the existing conversation in DB (upsert behavior).
+
+    IMPORTANT: Always creates a fresh DB session. Route sessions can go stale
+    during long-running agent calls (Neon idle timeout), so reusing them risks
+    InterfaceError on commit.
 
     IMPORTANT: This function uses asyncio.shield to protect against cancellation.
     When called from a streaming on_complete callback, client disconnection can
@@ -218,7 +221,6 @@ async def persist_agent_run_result(
         agent_name: Name of the agent
         clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
         metadata: Optional metadata to store
-        session: Optional existing session (uses provide_session if not provided)
     """
     logfire.info(f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}")
     if not conversation_id:
@@ -228,7 +230,7 @@ async def persist_agent_run_result(
     async def _do_persist():
         """Inner function that does the actual persistence."""
         try:
-            async with provide_session(session) as s:
+            async with provide_session() as s:
                 all_messages = result.all_messages()
                 logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
 

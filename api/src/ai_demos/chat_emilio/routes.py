@@ -170,11 +170,10 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
     # Use functools.partial to create a callback with pre-filled arguments
     # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
     on_complete_callback = functools.partial(
-        persist_agent_run_result, 
-        conversation_id=conversation_id, 
-        agent_name=agent.name, 
-        user_id="visitor",
-        session=session
+        persist_agent_run_result,
+        conversation_id=conversation_id,
+        agent_name=agent.name,
+        clerk_user_id="visitor",
     )
 
     # Use the high-level dispatch_request method which supports on_complete
