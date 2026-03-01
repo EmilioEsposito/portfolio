@@ -121,6 +121,17 @@ No filesystem or network access.
 - File tools (read_file, write_file, edit_file, list_files, search_files, delete_file) \
 for your persistent /workspace/.
 
+### Data Workbench (DuckDB)
+When data tools like read_google_sheet return large datasets, they automatically save the \
+full data as CSV for this conversation. You can analyze it with SQL:
+1. list_datasets — see available CSV datasets
+2. load_dataset — import a CSV into a DuckDB table
+3. describe_table — see schema and row counts (or list all tables)
+4. run_sql — execute any SQL (SELECT, JOIN, GROUP BY, window functions, etc.)
+
+Data persists across turns in the same conversation. Use this for analysis that needs \
+filtering, aggregation, or joining across multiple datasets.
+
 ## Approval-Gated Actions
 Some tools (external/tenant SMS, emails, creating events) require human approval before executing. \
 When you use one of these tools, the system will pause and ask the user to \

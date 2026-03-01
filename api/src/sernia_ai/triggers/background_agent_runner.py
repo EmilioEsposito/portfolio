@@ -13,6 +13,7 @@ import time
 import uuid
 
 import logfire
+from pydantic_ai import capture_run_messages
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import is_sernia_ai_enabled
@@ -111,15 +112,29 @@ async def run_agent_for_trigger(
             trigger_instructions=trigger_instructions or f"Trigger source: {trigger_source}",
         )
 
-        try:
-            result = await sernia_agent.run(trigger_prompt, deps=deps)
-        except Exception:
-            logfire.exception(
-                "trigger agent run failed",
-                trigger_source=trigger_source,
-                conversation_id=conv_id,
-            )
-            return None
+        with capture_run_messages() as captured_messages:
+            try:
+                result = await sernia_agent.run(trigger_prompt, deps=deps)
+            except Exception:
+                logfire.exception(
+                    "trigger agent run failed",
+                    trigger_source=trigger_source,
+                    conversation_id=conv_id,
+                )
+                if captured_messages:
+                    try:
+                        await save_agent_conversation(
+                            session=session,
+                            conversation_id=conv_id,
+                            agent_name=AGENT_NAME,
+                            messages=captured_messages,
+                            clerk_user_id=TRIGGER_BOT_ID,
+                            metadata={**trigger_metadata, "partial": True, "error": True},
+                        )
+                        logfire.info("partial trigger conversation saved", conversation_id=conv_id)
+                    except Exception:
+                        logfire.exception("failed to save partial trigger conversation")
+                return None
 
         # Commit any workspace changes (memory updates, notes)
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))

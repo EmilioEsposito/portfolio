@@ -171,6 +171,11 @@ async def lifespan(app: FastAPI):
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
             await initialize_workspace(WORKSPACE_PATH)
+
+            # Clean up stale DuckDB/CSV data from previous conversations
+            from api.src.sernia_ai.tools.duckdb_tools import cleanup_stale_data
+            cleanup_stale_data(max_age_hours=24)
+
             # Skip DB connection test in local dev to speed up hot reloads.
             # Each test opens a fresh TCP+TLS connection to Neon (~1-2s each, run
             # sequentially for sync + async engines = ~3-5s blocked startup).

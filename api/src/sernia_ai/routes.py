@@ -11,6 +11,7 @@ import functools
 from typing import Literal
 
 import logfire
+from pydantic_ai import capture_run_messages
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from starlette.responses import Response
@@ -32,6 +33,7 @@ from api.src.ai_demos.hitl_utils import (
 )
 from api.src.ai_demos.models import (
     persist_agent_run_result,
+    save_agent_conversation,
     get_agent_conversation,
     list_user_conversations,
     get_conversation_messages,
@@ -256,6 +258,7 @@ async def approve_conversation(
     clerk_user_id = user.id
     user_name = _display_name(user)
 
+    captured_messages = None
     try:
         decisions = [
             ApprovalDecision(
@@ -277,14 +280,15 @@ async def approve_conversation(
             workspace_path=WORKSPACE_PATH,
         )
 
-        result = await resume_with_approvals(
-            agent=sernia_agent,
-            conversation_id=conversation_id,
-            decisions=decisions,
-            deps=deps,
-            clerk_user_id=None,  # Shared team access
-            session=session,
-        )
+        with capture_run_messages() as captured_messages:
+            result = await resume_with_approvals(
+                agent=sernia_agent,
+                conversation_id=conversation_id,
+                decisions=decisions,
+                deps=deps,
+                clerk_user_id=None,  # Shared team access
+                session=session,
+            )
 
         # Persist the approval result (tool outputs + agent follow-up) to DB
         # so that subsequent messages have the full conversation history.
@@ -336,6 +340,18 @@ async def approve_conversation(
             clerk_user_id=clerk_user_id,
             error_type=type(e).__name__
         )
+        if captured_messages:
+            try:
+                await save_agent_conversation(
+                    session=session,
+                    conversation_id=conversation_id,
+                    agent_name=AGENT_NAME,
+                    messages=captured_messages,
+                    clerk_user_id=clerk_user_id,
+                    metadata={"partial": True, "error": True},
+                )
+            except Exception:
+                logfire.exception("failed to save partial approval conversation")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -62,6 +62,7 @@ dependencies = [
     "fastmcp>=2.0.0",
     "rapidfuzz>=3.0.0",
     "pywebpush>=2.3.0",
+    "duckdb>=1.2.0",
 ]
 
 [dependency-groups]
