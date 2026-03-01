@@ -20,6 +20,7 @@ import { SidebarProvider, SidebarInset } from "~/components/ui/sidebar";
 import { AppSidebar } from "~/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
+import { EnvBanner } from "~/components/env-banner";
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -83,6 +84,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
           <AppSidebar />
           <SidebarInset>
             <Navbar />
+            <EnvBanner />
             <Outlet />
           </SidebarInset>
         </SidebarProvider>

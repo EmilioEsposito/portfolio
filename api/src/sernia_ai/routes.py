@@ -17,8 +17,12 @@ from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from clerk_backend_api import User
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals,
@@ -28,6 +32,7 @@ from api.src.ai_demos.hitl_utils import (
 )
 from api.src.ai_demos.models import (
     persist_agent_run_result,
+    get_agent_conversation,
     list_user_conversations,
     get_conversation_messages,
     delete_conversation,
@@ -129,8 +134,9 @@ async def chat_sernia(
     frontend_messages = request_json.get("messages", [])
 
     # Load message history from DB (authoritative source)
+    # clerk_user_id=None for shared team access — all Sernia users see all conversations
     backend_message_history = await get_conversation_messages(
-        conversation_id, clerk_user_id, session=session
+        conversation_id, clerk_user_id=None, session=session
     )
 
     logfire.info(
@@ -277,7 +283,7 @@ async def approve_conversation(
             conversation_id=conversation_id,
             decisions=decisions,
             deps=deps,
-            clerk_user_id=clerk_user_id,
+            clerk_user_id=None,  # Shared team access
             session=session,
         )
 
@@ -291,6 +297,23 @@ async def approve_conversation(
             session=session,
         )
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+
+        # If this is an SMS conversation, send the agent's response back via SMS
+        conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+        if (
+            conv
+            and conv.modality == "sms"
+            and isinstance(result.output, str)
+            and result.output.strip()
+            and conv.metadata_
+            and conv.metadata_.get("trigger_phone")
+        ):
+            asyncio.create_task(
+                _send_sms_reply(
+                    to_phone=conv.metadata_["trigger_phone"],
+                    message=result.output,
+                )
+            )
 
         pending = extract_pending_approvals(result)
         tool_results = extract_tool_results(result)
@@ -325,7 +348,7 @@ async def get_conversation(
     session: DBSession = None,
 ):
     """Get conversation details including pending approval info."""
-    conv = await get_conversation_with_pending(conversation_id, user.id, session=session)
+    conv = await get_conversation_with_pending(conversation_id, clerk_user_id=None, session=session)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -348,7 +371,7 @@ async def get_conversation_messages_endpoint(
 ):
     """Get conversation messages in Vercel AI SDK format."""
     pydantic_messages = await get_conversation_messages(
-        conversation_id, user.id, session=session
+        conversation_id, clerk_user_id=None, session=session
     )
 
     if not pydantic_messages:
@@ -369,10 +392,10 @@ async def list_pending_workflows(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """List Sernia conversations with pending approvals."""
+    """List Sernia conversations with pending approvals (team-wide)."""
     pending = await list_pending_conversations(
         agent_name=AGENT_NAME,
-        clerk_user_id=user.id,
+        clerk_user_id=None,
         session=session,
     )
     return {"conversations": pending, "count": len(pending)}
@@ -383,9 +406,9 @@ async def get_conversation_history(
     user: SerniaUser = Depends(_get_sernia_user),
     limit: int = 20,
 ):
-    """List recent conversations for the authenticated user."""
+    """List recent conversations for all Sernia users (shared team context)."""
     conversations = await list_user_conversations(
-        clerk_user_id=user.id,
+        clerk_user_id=None,
         agent_name=AGENT_NAME,
         limit=limit,
     )
@@ -400,9 +423,9 @@ async def delete_conversation_endpoint(
     conversation_id: str,
     user: SerniaUser = Depends(_get_sernia_user),
 ):
-    """Delete a conversation."""
+    """Delete a conversation (any Sernia user can delete any Sernia conversation)."""
     try:
-        await delete_conversation(conversation_id, user.id)
+        await delete_conversation(conversation_id, clerk_user_id=None)
         return {"success": True, "conversation_id": conversation_id}
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -460,6 +483,69 @@ async def get_system_instructions(
             "modality": modality,
         },
     }
+
+
+@router.get("/admin/settings")
+async def get_admin_settings(
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """Return current app settings."""
+    result = await session.execute(
+        select(AppSetting).where(AppSetting.key == "triggers_enabled")
+    )
+    row = result.scalar_one_or_none()
+    return {
+        "triggers_enabled": row.value if row else True,
+    }
+
+
+class _SettingsUpdateRequest(BaseModel):
+    triggers_enabled: bool | None = None
+
+
+@router.patch("/admin/settings")
+async def update_admin_settings(
+    body: _SettingsUpdateRequest,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """Update app settings (upsert)."""
+    updated = {}
+    if body.triggers_enabled is not None:
+        stmt = pg_insert(AppSetting).values(
+            key="triggers_enabled",
+            value=body.triggers_enabled,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": body.triggers_enabled},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        updated["triggers_enabled"] = body.triggers_enabled
+
+    return {"updated": updated}
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+
+async def _send_sms_reply(to_phone: str, message: str) -> None:
+    """Send an SMS reply from the AI phone number. Never raises."""
+    from api.src.open_phone.service import send_message
+    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+
+    try:
+        await send_message(
+            message=message,
+            to_phone_number=to_phone,
+            from_phone_number=QUO_SERNIA_AI_PHONE_ID,
+        )
+        logfire.info("post-approval SMS reply sent", to_phone=to_phone)
+    except Exception:
+        logfire.exception("post-approval SMS reply failed", to_phone=to_phone)
 
 
 # =============================================================================

@@ -23,6 +23,11 @@ managing tasks, and keeping track of important context across conversations.
 
 You are helpful, concise, and business-oriented.
 
+## Team Context
+Emilio Esposito is the manager and acting CEO of Sernia Capital LLC. He handles \
+all approvals and high-level decisions. When in doubt about priorities or \
+escalation, default to alerting Emilio.
+
 ## Memory System
 You have a persistent workspace with files that survive across conversations. \
 Your long-term memory (MEMORY.md) is injected at the start of every conversation. \
@@ -46,9 +51,17 @@ If unsure how to resolve, ask the user.
 ## Your Tools
 
 ### Quo / OpenPhone (messaging, contacts, calls)
-- **send_message**: Send an SMS/MMS (requires approval). Provide the recipient \
-phone number and message content — the system verifies the recipient is a Quo \
-contact and selects the correct sending line automatically.
+- **send_internal_sms**: Send an SMS to Sernia Capital team members. No approval \
+needed. Pass one or more phone numbers for group texts. The system verifies \
+ALL recipients are Sernia Capital LLC contacts — if any are external, it blocks \
+and you must use send_external_sms instead. \
+**Prefer sending to the shared team number** for general team notifications — \
+this ensures the whole team sees the message in one thread. Only message \
+individual members when the message is specifically for them.
+- **send_external_sms**: Send an SMS to external contacts (requires approval). \
+Pass one or more phone numbers for group texts. The system verifies all recipients \
+exist as Quo contacts and rejects messages that include any Sernia Capital LLC \
+contacts — internal numbers must never be exposed in external threads.
 - **search_contacts**: Fuzzy-search Quo contacts by name, phone number, or \
 company. Tolerates typos. Use this to find contacts before messaging or to \
 answer questions about tenants/contacts.
@@ -101,10 +114,11 @@ No filesystem or network access.
 for your persistent /workspace/.
 
 ## Approval-Gated Actions
-Some tools (sending SMS, emails, creating events) require human approval before executing. \
+Some tools (external SMS, emails, creating events) require human approval before executing. \
 When you use one of these tools, the system will pause and ask the user to \
 approve or deny. Do NOT ask the user for confirmation before calling the tool — \
-the approval system handles that automatically. Just call the tool naturally.
+the approval system handles that automatically. Just call the tool naturally. \
+Internal SMS (send_internal_sms) does NOT require approval.
 """
 
 # Files to hide from the filetree (internal plumbing)
@@ -186,9 +200,40 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     return guidance.get(ctx.deps.modality, "")
 
 
+# Marker the agent uses to indicate no human action needed (trigger processing only)
+SILENT_MARKER = "[NO_ACTION_NEEDED]"
+
+
+def inject_trigger_guidance(ctx: RunContext[SerniaDeps]) -> str:
+    if not ctx.deps.trigger_instructions:
+        return ""
+    return f"""## Trigger Event Processing
+
+You are processing an automated trigger event, not a direct user message. \
+The team will see your response in web chat.
+
+{ctx.deps.trigger_instructions}
+
+**Decision framework:**
+- If this needs human attention (reply needed, action required, important update, \
+new lead, maintenance request, question needing a response): Provide a concise \
+analysis with context and recommended action(s). The team will review in web chat.
+- If this is routine/noise (automated message, read receipt, simple "ok thanks", \
+"got it", marketing email, tool notification): Respond with exactly \
+`{SILENT_MARKER}` and nothing else. You may still update workspace memory/notes \
+for routine events if there is useful information to record.
+
+When creating an analysis for the team, structure it as:
+1. **What happened** — who, what, when (1-2 sentences)
+2. **Context** — relevant info from memory, recent history (if useful)
+3. **Recommended action** — what should the team do next
+"""
+
+
 DYNAMIC_INSTRUCTIONS = [
     inject_context,
     inject_memory,
     inject_filetree,
     inject_modality_guidance,
+    inject_trigger_guidance,
 ]

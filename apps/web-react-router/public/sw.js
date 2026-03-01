@@ -13,13 +13,18 @@ self.addEventListener("push", (event) => {
 
   const { title = "Sernia Capital", body = "", data = {} } = payload;
 
+  // Approval notifications persist until acted on; alerts auto-dismiss
+  const isApproval = data.type === "approval";
+  const tag = data.conversation_id || "sernia-default";
+
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: "/favicon.png",
       badge: "/favicon.png",
-      tag: data.conversation_id || "sernia-default",
+      tag: isApproval ? `approval-${tag}` : `alert-${tag}`,
       data,
+      requireInteraction: isApproval,
     })
   );
 });

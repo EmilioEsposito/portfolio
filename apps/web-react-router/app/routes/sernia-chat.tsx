@@ -31,7 +31,13 @@ import {
   BellOff,
   Share,
   Download,
+  Phone,
+  Mail,
+  Settings,
+  Upload,
 } from "lucide-react";
+import { Switch } from "~/components/ui/switch";
+import { Label } from "~/components/ui/label";
 import { Badge } from "~/components/ui/badge";
 import {
   Sheet,
@@ -47,6 +53,12 @@ import {
   type PendingApproval,
 } from "~/components/chat/tool-cards";
 import { processMessage } from "~/components/chat/process-message";
+import { useFileAttachments } from "~/hooks/use-file-attachments";
+import {
+  FileAttachmentButton,
+  FilePreviewStrip,
+} from "~/components/chat/file-attachment-area";
+import { FileMessageDisplay } from "~/components/chat/file-message-display";
 
 const API_BASE = "/api/sernia-ai";
 
@@ -78,8 +90,11 @@ const suggestedPrompts = [
 
 interface ConversationSummary {
   conversation_id: string;
+  modality: string;
   preview: string;
   has_pending: boolean;
+  trigger_source: string | null;
+  trigger_contact_name: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -93,11 +108,13 @@ function ChatView({
   initialMessages,
   initialPending,
   getToken,
+  readOnly = false,
 }: {
   conversationId: string;
   initialMessages: any[];
   initialPending: PendingApproval | null;
   getToken: () => Promise<string | null>;
+  readOnly?: boolean;
 }) {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(initialPending);
@@ -106,6 +123,7 @@ function ChatView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
+  const attachment = useFileAttachments();
 
   // Transport is created once per mount (conversationId is stable for this instance)
   const transport = useRef(
@@ -186,10 +204,23 @@ function ChatView({
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (input.trim() && status !== "submitted" && status !== "streaming") {
+    const hasContent = input.trim() || attachment.hasFiles;
+    if (hasContent && status !== "submitted" && status !== "streaming") {
+      const parts: any[] = [
+        ...attachment.files.map((f) => ({
+          type: "file",
+          mediaType: f.mediaType,
+          url: f.url,
+          filename: f.filename,
+        })),
+      ];
+      if (input.trim()) {
+        parts.push({ type: "text", text: input });
+      }
       setPendingApproval(null);
-      sendMessage({ role: "user", parts: [{ type: "text", text: input }] });
+      sendMessage({ role: "user", parts });
       setInput("");
+      attachment.clearFiles();
     }
   };
 
@@ -264,8 +295,17 @@ function ChatView({
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4 relative"
+        {...attachment.dropTargetProps}
       >
+        {attachment.isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 border-2 border-dashed border-primary rounded-lg m-2">
+            <div className="flex flex-col items-center gap-2 text-primary">
+              <Upload className="w-8 h-8" />
+              <p className="text-sm font-medium">Drop files here</p>
+            </div>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="mx-auto w-full max-w-3xl px-4">
             <div className="flex flex-col items-center gap-4 py-8">
@@ -312,11 +352,20 @@ function ChatView({
                     )}
                   >
                     {message.role === "user" ? (
-                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
-                        <p className="text-sm whitespace-pre-wrap">
-                          {segments[0]?.type === "text" ? segments[0].content : ""}
-                        </p>
-                      </div>
+                      <>
+                        <FileMessageDisplay
+                          files={segments.filter((s) => s.type === "file") as any}
+                        />
+                        {segments.some((s) => s.type === "text") && (
+                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
+                            <p className="text-sm whitespace-pre-wrap">
+                              {segments.find((s) => s.type === "text")?.type === "text"
+                                ? (segments.find((s) => s.type === "text") as any).content
+                                : ""}
+                            </p>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <>
                         {segments.map((seg, i) =>
@@ -372,7 +421,23 @@ function ChatView({
         )}
       </div>
 
-      {/* Input Area */}
+      {/* Hidden file input */}
+      <input
+        ref={attachment.fileInputRef}
+        type="file"
+        accept={attachment.acceptString}
+        multiple
+        className="hidden"
+        onChange={attachment.handleFileInputChange}
+      />
+
+      {/* Input Area — hidden for read-only SMS conversations */}
+      {readOnly ? (
+        <div className="flex items-center justify-center px-4 py-3 border-t text-sm text-muted-foreground">
+          <Phone className="w-4 h-4 mr-2" />
+          SMS conversation — reply via text message
+        </div>
+      ) : (
       <form
         onSubmit={handleSubmit}
         className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
@@ -395,7 +460,15 @@ function ChatView({
                 </Button>
               ))}
             </div>
+            <FilePreviewStrip
+              files={attachment.files}
+              onRemove={attachment.removeFile}
+            />
             <div className="flex gap-2 items-end">
+              <FileAttachmentButton
+                onClick={attachment.openFilePicker}
+                disabled={status === "submitted" || status === "streaming"}
+              />
               <Textarea
                 ref={textareaRef}
                 value={input}
@@ -406,8 +479,9 @@ function ChatView({
                     handleSubmit();
                   }
                 }}
+                onPaste={attachment.handlePaste}
                 placeholder="Ask Sernia AI anything..."
-                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                 rows={1}
                 disabled={
                   status === "submitted" || status === "streaming"
@@ -417,7 +491,7 @@ function ChatView({
                 type="submit"
                 size="icon"
                 disabled={
-                  !input.trim() ||
+                  (!input.trim() && !attachment.hasFiles) ||
                   status === "submitted" ||
                   status === "streaming"
                 }
@@ -428,57 +502,73 @@ function ChatView({
             </div>
           </div>
         ) : (
-          <div className="flex gap-2 items-end w-full">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              placeholder={
-                pendingApproval
-                  ? "Approve or deny the action above first..."
-                  : "Ask Sernia AI anything..."
-              }
-              className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
-              rows={1}
-              disabled={
-                status === "submitted" ||
-                status === "streaming" ||
-                !!pendingApproval
-              }
+          <div className="flex flex-col gap-2 w-full">
+            <FilePreviewStrip
+              files={attachment.files}
+              onRemove={attachment.removeFile}
             />
-            {status === "streaming" ? (
-              <Button
-                type="button"
-                onClick={stop}
-                size="icon"
-                variant="outline"
-                className="h-9 w-9 shrink-0 rounded-lg"
-              >
-                <StopCircle className="w-4 h-4" />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                size="icon"
+            <div className="flex gap-2 items-end">
+              <FileAttachmentButton
+                onClick={attachment.openFilePicker}
                 disabled={
-                  !input.trim() ||
                   status === "submitted" ||
+                  status === "streaming" ||
                   !!pendingApproval
                 }
-                className="h-9 w-9 shrink-0 rounded-lg"
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            )}
+              />
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                onPaste={attachment.handlePaste}
+                placeholder={
+                  pendingApproval
+                    ? "Approve or deny the action above first..."
+                    : "Ask Sernia AI anything..."
+                }
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
+                rows={1}
+                disabled={
+                  status === "submitted" ||
+                  status === "streaming" ||
+                  !!pendingApproval
+                }
+              />
+              {status === "streaming" ? (
+                <Button
+                  type="button"
+                  onClick={stop}
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 shrink-0 rounded-lg"
+                >
+                  <StopCircle className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={
+                    (!input.trim() && !attachment.hasFiles) ||
+                    status === "submitted" ||
+                    !!pendingApproval
+                  }
+                  className="h-9 w-9 shrink-0 rounded-lg"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </form>
+      )}
     </>
   );
 }
@@ -630,6 +720,114 @@ function SystemInstructionsView({
 }
 
 // ---------------------------------------------------------------------------
+// Admin Settings view
+// ---------------------------------------------------------------------------
+
+function SettingsView({
+  getToken,
+}: {
+  getToken: () => Promise<string | null>;
+}) {
+  const [triggersEnabled, setTriggersEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_BASE}/admin/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const data = await res.json();
+      setTriggersEnabled(data.triggers_enabled);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const updateSetting = useCallback(
+    async (value: boolean) => {
+      setSaving(true);
+      setError(null);
+      const prev = triggersEnabled;
+      setTriggersEnabled(value); // optimistic
+      try {
+        const token = await getToken();
+        const res = await fetch(`${API_BASE}/admin/settings`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ triggers_enabled: value }),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      } catch (err) {
+        setTriggersEnabled(prev); // revert on error
+        setError(err instanceof Error ? err.message : "Failed to save");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [getToken, triggersEnabled]
+  );
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold">Settings</h2>
+          <p className="text-sm text-muted-foreground">
+            Runtime configuration for Sernia AI.
+          </p>
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="triggers-toggle" className="text-sm font-medium">
+                  Triggers Enabled
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When off, SMS and email triggers will not run the agent.
+                </p>
+              </div>
+              <Switch
+                id="triggers-toggle"
+                checked={triggersEnabled ?? false}
+                onCheckedChange={updateSetting}
+                disabled={saving}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Outer page component — manages conversation selection & history
 // ---------------------------------------------------------------------------
 
@@ -651,6 +849,7 @@ export default function SerniaChatPage() {
   );
   const [loadedPending, setLoadedPending] =
     useState<PendingApproval | null>(null);
+  const [conversationModality, setConversationModality] = useState<string>("web_chat");
 
   const [conversationHistory, setConversationHistory] = useState<
     ConversationSummary[]
@@ -691,7 +890,7 @@ export default function SerniaChatPage() {
 
   // Load conversation messages from API
   const loadConversation = useCallback(
-    async (convId: string, opts?: { updateUrl?: boolean }) => {
+    async (convId: string, opts?: { updateUrl?: boolean; modality?: string }) => {
       if (!isSignedIn) return;
       setLoadedMessages(null); // triggers loading state
 
@@ -713,6 +912,9 @@ export default function SerniaChatPage() {
         setLoadedPending(convertPendingFromApi(data.pending));
         setConversationId(convId);
         setLoadedMessages(data.messages || []);
+        setConversationModality(
+          opts?.modality || (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat")
+        );
         setHistoryOpen(false);
 
         if (opts?.updateUrl !== false) {
@@ -770,6 +972,7 @@ export default function SerniaChatPage() {
     setConversationId(newId);
     setLoadedMessages([]);
     setLoadedPending(null);
+    setConversationModality("web_chat");
     setHistoryOpen(false);
     navigate("/sernia-chat", { replace: true });
   };
@@ -853,7 +1056,7 @@ export default function SerniaChatPage() {
                       >
                         <button
                           onClick={() =>
-                            loadConversation(conv.conversation_id)
+                            loadConversation(conv.conversation_id, { modality: conv.modality })
                           }
                           className="flex-1 text-left min-w-0"
                         >
@@ -871,8 +1074,14 @@ export default function SerniaChatPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                            <Clock className="w-3 h-3" />
-                            {formatDate(conv.updated_at)}
+                            {conv.trigger_source === "sms" ? (
+                              <Phone className="w-3 h-3" />
+                            ) : conv.trigger_source === "email" || conv.trigger_source === "zillow_email" ? (
+                              <Mail className={cn("w-3 h-3", conv.trigger_source === "zillow_email" && "text-blue-500")} />
+                            ) : (
+                              <Clock className="w-3 h-3" />
+                            )}
+                            {conv.trigger_contact_name || formatDate(conv.updated_at)}
                           </div>
                         </button>
                         <Button
@@ -896,6 +1105,7 @@ export default function SerniaChatPage() {
               <TabsList>
                 <TabsTrigger value="chat">Chat</TabsTrigger>
                 <TabsTrigger value="instructions">Instructions</TabsTrigger>
+                <TabsTrigger value="settings">Settings</TabsTrigger>
               </TabsList>
             )}
           </div>
@@ -968,16 +1178,25 @@ export default function SerniaChatPage() {
             initialMessages={loadedMessages}
             initialPending={loadedPending}
             getToken={getToken}
+            readOnly={conversationModality === "sms"}
           />
         </TabsContent>
 
         {isAdmin && (
-          <TabsContent
-            value="instructions"
-            className="flex-1 flex flex-col min-h-0 mt-0"
-          >
-            <SystemInstructionsView getToken={getToken} />
-          </TabsContent>
+          <>
+            <TabsContent
+              value="instructions"
+              className="flex-1 flex flex-col min-h-0 mt-0"
+            >
+              <SystemInstructionsView getToken={getToken} />
+            </TabsContent>
+            <TabsContent
+              value="settings"
+              className="flex-1 flex flex-col min-h-0 mt-0"
+            >
+              <SettingsView getToken={getToken} />
+            </TabsContent>
+          </>
         )}
       </Tabs>
     </AuthGuard>

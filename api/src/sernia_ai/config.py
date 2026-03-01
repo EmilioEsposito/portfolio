@@ -45,6 +45,31 @@ WORKSPACE_PATH = Path(
 CLICKUP_TEAM_ID = "90131316997"
 DEFAULT_CLICKUP_VIEW_ID = "2ky3xg85-573"  # Peppino View
 
+# Trigger bot identity — used when the agent runs autonomously via APScheduler
+# jobs (email checks, Zillow checks) or webhooks (inbound SMS).
+# Not a real Clerk user; conversations use shared team access (clerk_user_id=None queries).
+TRIGGER_BOT_ID = "system:sernia-ai"
+TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
+# Google API delegation requires impersonating a real Google Workspace user.
+GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
+
+# Trigger schedule intervals — used by both the APScheduler cron/interval
+# config and the email search lookback window in trigger prompts.
+GENERAL_EMAIL_CHECK_INTERVAL_MINUTES = 180  # 3 hours
+ZILLOW_EMAIL_CHECK_INTERVAL_HOURS = 3 # starts at 8am ET (13:00 UTC), ends at 5pm ET (22:00 UTC)
+
+# Shared team contact ID in OpenPhone (Quo).
+# Phone number is looked up at runtime via the API — not hardcoded.
+QUO_SHARED_TEAM_CONTACT_ID = "699b78b18371c26349b453ab"
+
+# Frontend base URL — environment-aware absolute URLs for deeplinks in SMS.
+_RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
+FRONTEND_BASE_URL = (
+    "https://eesposito.com" if _RAILWAY_ENV == "production"
+    else "https://dev.eesposito.com" if _RAILWAY_ENV == "development"
+    else "http://localhost:5173"
+)
+
 # Quo (OpenPhone) phone IDs
 # Sernia AI: internal-only line for messaging the team and shared number.
 QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
@@ -52,3 +77,6 @@ QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
 QUO_SHARED_EXTERNAL_PHONE_ID = "PNpTZEJ7la"
 # Company name used to distinguish internal vs external contacts.
 QUO_INTERNAL_COMPANY = "Sernia Capital LLC"
+
+# AI SMS conversation: max messages to fetch from OpenPhone for initial bootstrap
+SMS_CONVERSATION_MAX_MESSAGES = 20

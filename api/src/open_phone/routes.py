@@ -12,17 +12,55 @@ from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
 from api.src.open_phone.escalate import analyze_for_twilio_escalation
+from api.src.sernia_ai.triggers.team_sms_event_trigger import handle_team_sms_event
+from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
+from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 from api.src.utils.password import verify_admin_password
 from datetime import datetime, date
 from sqlalchemy.exc import IntegrityError
 from pprint import pprint
 import time
 import requests
+import httpx as _httpx
 import pytest
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
 import re
+
+
+# ---------------------------------------------------------------------------
+# Cached AI phone number lookup (circular trigger guard)
+# ---------------------------------------------------------------------------
+_ai_phone_number: str | None = None
+
+
+async def _get_ai_phone_number() -> str | None:
+    """Look up the AI phone's actual number via OpenPhone API, caching at module level."""
+    global _ai_phone_number
+    if _ai_phone_number is not None:
+        return _ai_phone_number
+
+    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    if not api_key:
+        return None
+
+    try:
+        async with _httpx.AsyncClient(
+            base_url="https://api.openphone.com",
+            headers={"Authorization": api_key},
+            timeout=15,
+        ) as client:
+            resp = await client.get(f"/v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}")
+            resp.raise_for_status()
+            phone = resp.json().get("data", {}).get("phoneNumber")
+            if phone:
+                _ai_phone_number = phone
+                logfire.info("cached AI phone number for circular trigger guard")
+                return _ai_phone_number
+    except Exception:
+        logfire.exception("failed to look up AI phone number")
+    return None
 
 
 router = APIRouter(
@@ -163,14 +201,25 @@ async def webhook(
             and sernia_contact.phone_number in event_data["to_number"]
         ):
             # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
-            if await contains_emoji(event_data["message_text"][:3]):
+            ai_phone = await _get_ai_phone_number()
+            if ai_phone and event_data.get("from_number") == ai_phone:
+                logfire.info("Ignoring message from AI phone (circular trigger guard)")
+            elif await contains_emoji(event_data["message_text"][:3]):
                 logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
             else:
                 # Run analysis in the background
                 logfire.info(f"AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+                # Sernia AI trigger (runs alongside Twilio escalation)
+                background_tasks.add_task(handle_team_sms_event, event_data)
+        # AI SMS conversation: messages to the AI's phone number directly
+        elif (
+            payload.type == "message.received"
+            and event_data.get("phone_number_id") == QUO_SERNIA_AI_PHONE_ID
+        ):
+            background_tasks.add_task(handle_ai_sms_event, event_data)
         else:
-            logfire.info(f"AI Assessment Skipped. to_number: {event_data['to_number']} payload_type: {payload.type}")
+            logfire.info(f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}")
 
         # check if event_id is already in the database
         result = await session.execute(

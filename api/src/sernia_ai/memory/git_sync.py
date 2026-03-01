@@ -92,12 +92,37 @@ async def ensure_repo(workspace_path: Path) -> None:
         # Already a git repo - just pull latest
         logfire.info("git_sync: Existing repo, pulling latest")
         await _configure_repo(workspace_path, pat)
+
+        # If a previous merge left unresolved conflicts, resolve them first
+        rc_status, status_out, _ = await _run_git("status", "--porcelain", cwd=workspace_path)
+        if "U " in (status_out or "") or " U" in (status_out or ""):
+            logfire.warn("git_sync: found unmerged files on startup, committing as-is to unblock")
+            await _run_git("add", "-A", cwd=workspace_path)
+            await _run_git("commit", "-m", "agent: commit unmerged files on startup", cwd=workspace_path)
+
         rc, stdout, stderr = await _run_git(
             "pull", "--rebase=false", "origin", "main",
             cwd=workspace_path, pat=pat,
         )
+        if rc != 0 and "unrelated histories" in stderr:
+            logfire.warn("git_sync: unrelated histories on startup, retrying with --allow-unrelated-histories")
+            rc, stdout, stderr = await _run_git(
+                "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
+                "origin", "main",
+                cwd=workspace_path, pat=pat,
+            )
+            # The merge may leave conflicts — commit them as-is to unblock
+            if rc != 0 or "CONFLICT" in (stdout or ""):
+                logfire.warn("git_sync: conflicts after unrelated-histories merge, committing as-is")
+                await _run_git("add", "-A", cwd=workspace_path)
+                await _run_git(
+                    "commit", "-m", "agent: commit conflicted files from unrelated-histories merge",
+                    cwd=workspace_path,
+                )
+                rc = 0  # resolved
+
         if rc != 0:
-            logfire.warn(f"git_sync: pull failed (non-fatal): {stderr}")
+            logfire.error(f"git_sync: pull failed (non-fatal): {stderr}")
         return
 
     # Check if directory has existing files (besides .git)
@@ -176,19 +201,43 @@ async def commit_and_push(workspace_path: Path) -> None:
                 cwd=workspace_path, pat=pat,
             )
             if rc != 0:
-                logfire.warn(f"git_sync: pull before push failed: {stderr}")
-                # If merge conflict, stage and commit the conflicted state
-                # The agent will see conflict markers on next run
-                rc_status, status_out, _ = await _run_git(
-                    "status", "--porcelain", cwd=workspace_path,
-                )
-                if "U" in (status_out or ""):
-                    logfire.warn("git_sync: merge conflicts detected, committing conflicted files")
+                if "unmerged files" in stderr:
+                    # Leftover conflicts from a previous merge — commit as-is to unblock
+                    logfire.warn("git_sync: unmerged files detected, committing as-is to unblock")
                     await _run_git("add", "-A", cwd=workspace_path)
                     await _run_git(
-                        "commit", "-m", "agent: merge conflict (auto-committed with markers)",
+                        "commit", "--allow-empty", "-m", "agent: commit unmerged files",
                         cwd=workspace_path,
                     )
+                    # Retry the pull now that the index is clean
+                    rc, _, stderr = await _run_git(
+                        "pull", "--rebase=false", "origin", "main",
+                        cwd=workspace_path, pat=pat,
+                    )
+
+                if rc != 0 and "unrelated histories" in stderr:
+                    # Local repo diverged — retry with --allow-unrelated-histories
+                    logfire.warn("git_sync: unrelated histories, retrying pull")
+                    rc, _, stderr = await _run_git(
+                        "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
+                        "origin", "main",
+                        cwd=workspace_path, pat=pat,
+                    )
+                    # If merge created conflicts, commit them as-is
+                    rc_status, status_out, _ = await _run_git(
+                        "status", "--porcelain", cwd=workspace_path,
+                    )
+                    if "U" in (status_out or ""):
+                        logfire.warn("git_sync: conflicts after merge, committing as-is")
+                        await _run_git("add", "-A", cwd=workspace_path)
+                        await _run_git(
+                            "commit", "-m", "agent: commit conflicted files from merge",
+                            cwd=workspace_path,
+                        )
+                        rc = 0  # resolved
+
+                if rc != 0:
+                    logfire.error(f"git_sync: pull before push failed: {stderr}")
 
             # Re-check for changes after pull
             rc, stdout, _ = await _run_git("status", "--porcelain", cwd=workspace_path)
@@ -251,5 +300,5 @@ async def commit_and_push(workspace_path: Path) -> None:
             else:
                 logfire.info(f"git_sync: pushed successfully")
 
-        except Exception as e:
-            logfire.error(f"git_sync: commit_and_push error: {e}")
+        except Exception:
+            logfire.exception("git_sync: commit_and_push error")

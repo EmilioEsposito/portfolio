@@ -543,12 +543,13 @@ def register_zillow_apscheduler_jobs():
     - zillow_email_new_unreplied_scheduled: runs at 8am, 12pm, 5pm ET
     - zillow_email_threads_ai_scheduled: runs at 8am and 5pm ET
     """
-    from api.src.apscheduler_service.service import get_scheduler
+    from api.src.apscheduler_service.service import get_scheduler, upsert_job
 
     scheduler = get_scheduler()
 
     # New unreplied emails check - runs at 8am, 12pm, and 5pm ET
-    scheduler.add_job(
+    upsert_job(
+        scheduler,
         func=check_unreplied_emails,
         trigger="cron",
         hour="13,18,23",  # 8am, 12pm, 5pm ET = 13:00, 18:00, 23:00 UTC
@@ -558,18 +559,17 @@ def register_zillow_apscheduler_jobs():
             "target_slugs": ["sernia"],
         },
         id="zillow_email_new_unreplied_scheduled",
-        replace_existing=True,
         name="Zillow New Unreplied Emails Check",
     )
 
     # AI thread analysis - runs at 8am and 5pm ET
-    scheduler.add_job(
+    upsert_job(
+        scheduler,
         func=check_email_threads,
         trigger="cron",
         hour="13,22",  # 8am and 5pm ET = 13:00 and 22:00 UTC
         minute=0,
         id="zillow_email_threads_ai_scheduled",
-        replace_existing=True,
         name="Zillow Email Threads AI Analysis",
     )
 

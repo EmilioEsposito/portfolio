@@ -5,7 +5,7 @@ FastAPI routes for Google Pub/Sub webhook endpoints.
 from fastapi import APIRouter, HTTPException, Request, Response
 import logfire
 import json
-import traceback
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
@@ -89,17 +89,15 @@ async def handle_gmail_notifications(
                     }
                 )
             
-        except Exception as e:
-            logfire.error(f"Failed to process notification: {str(e)}")
-            logfire.error(f"Full traceback:\n{traceback.format_exc()}")
+        except Exception:
+            logfire.exception("Failed to process notification")
             return Response(
                 status_code=500,
                 content=f"Failed to process notification (unhandled error1): {str(e)}"
             )
         
     except Exception as e:
-        logfire.error(f"Unhandled error in Gmail notification handler: {str(e)}")
-        logfire.error(f"Full traceback:\n{traceback.format_exc()}")
+        logfire.exception("Unhandled error in Gmail notification handler")
         return Response(
             status_code=500,
             content=f"Failed to process Gmail notification (unhandled error2): {str(e)}"

@@ -7,7 +7,14 @@ import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
-import { Bot, Zap, StopCircle } from "lucide-react";
+import { Bot, Zap, StopCircle, Upload } from "lucide-react";
+import { useFileAttachments } from "~/hooks/use-file-attachments";
+import {
+  FileAttachmentButton,
+  FilePreviewStrip,
+} from "~/components/chat/file-attachment-area";
+import { FileMessageDisplay } from "~/components/chat/file-message-display";
+import type { FileSegment } from "~/components/chat/process-message";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -86,6 +93,7 @@ const ToolInvocationDisplay = ({
 export default function ChatEmilioPage() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const attachment = useFileAttachments();
 
   const {
     messages,
@@ -142,9 +150,22 @@ export default function ChatEmilioPage() {
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (input.trim() && status !== "submitted" && status !== "streaming") {
-      sendMessage({ role: "user", parts: [{ type: "text", text: input }] });
+    const hasContent = input.trim() || attachment.hasFiles;
+    if (hasContent && status !== "submitted" && status !== "streaming") {
+      const parts: any[] = [
+        ...attachment.files.map((f) => ({
+          type: "file",
+          mediaType: f.mediaType,
+          url: f.url,
+          filename: f.filename,
+        })),
+      ];
+      if (input.trim()) {
+        parts.push({ type: "text", text: input });
+      }
+      sendMessage({ role: "user", parts });
       setInput("");
+      attachment.clearFiles();
     }
   };
 
@@ -154,11 +175,30 @@ export default function ChatEmilioPage() {
 
   return (
     <div className="flex flex-col min-w-0 h-[calc(100dvh-52px)] bg-background">
+      {/* Hidden file input */}
+      <input
+        ref={attachment.fileInputRef}
+        type="file"
+        accept={attachment.acceptString}
+        multiple
+        className="hidden"
+        onChange={attachment.handleFileInputChange}
+      />
+
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4 relative"
+        {...attachment.dropTargetProps}
       >
+        {attachment.isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 border-2 border-dashed border-primary rounded-lg m-2">
+            <div className="flex flex-col items-center gap-2 text-primary">
+              <Upload className="w-8 h-8" />
+              <p className="text-sm font-medium">Drop files here</p>
+            </div>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="mx-auto w-full max-w-3xl px-4">
             <div className="flex flex-col items-center gap-4 py-4">
@@ -209,11 +249,24 @@ export default function ChatEmilioPage() {
             {messages.map((message, index) => {
               // Extract text content
               let textContent = "";
+              const fileSegments: FileSegment[] = [];
               if (message.parts && Array.isArray(message.parts)) {
                 const textParts = message.parts.filter(
                   (part: any) => part.type === "text"
                 );
                 textContent = textParts.map((p: any) => p.text).join("");
+
+                // Extract file parts
+                for (const part of message.parts) {
+                  if (part.type === "file") {
+                    fileSegments.push({
+                      type: "file",
+                      mediaType: part.mediaType || part.mimeType || "",
+                      filename: part.filename,
+                      url: part.url || "",
+                    });
+                  }
+                }
               }
 
               // Extract tool invocations
@@ -255,9 +308,14 @@ export default function ChatEmilioPage() {
                     message.role === "user" && "items-end"
                   )}>
                     {message.role === "user" ? (
-                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
-                        <p className="text-sm whitespace-pre-wrap">{textContent}</p>
-                      </div>
+                      <>
+                        <FileMessageDisplay files={fileSegments} />
+                        {textContent && (
+                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
+                            <p className="text-sm whitespace-pre-wrap">{textContent}</p>
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <>
                         {/* Tool invocations */}
@@ -328,7 +386,15 @@ export default function ChatEmilioPage() {
                 </Button>
               ))}
             </div>
+            <FilePreviewStrip
+              files={attachment.files}
+              onRemove={attachment.removeFile}
+            />
             <div className="flex gap-2 items-end">
+              <FileAttachmentButton
+                onClick={attachment.openFilePicker}
+                disabled={status === "submitted" || status === "streaming"}
+              />
               <Textarea
                 ref={textareaRef}
                 value={input}
@@ -339,8 +405,9 @@ export default function ChatEmilioPage() {
                     handleSubmit();
                   }
                 }}
+                onPaste={attachment.handlePaste}
                 placeholder="Send a message..."
-                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                 rows={1}
                 disabled={status === "submitted" || status === "streaming"}
               />
@@ -358,7 +425,7 @@ export default function ChatEmilioPage() {
                 <Button
                   type="submit"
                   size="icon"
-                  disabled={!input.trim() || status === "submitted"}
+                  disabled={(!input.trim() && !attachment.hasFiles) || status === "submitted"}
                   className="h-9 w-9 shrink-0 rounded-lg"
                 >
                   <svg
@@ -375,49 +442,60 @@ export default function ChatEmilioPage() {
           </div>
         ) : (
           // Has messages: Show only input
-          <div className="flex gap-2 items-end w-full">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              placeholder="Send a message..."
-              className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
-              rows={3}
-              disabled={status === "submitted" || status === "streaming"}
+          <div className="flex flex-col gap-2 w-full">
+            <FilePreviewStrip
+              files={attachment.files}
+              onRemove={attachment.removeFile}
             />
-            {status === "streaming" ? (
-              <Button
-                type="button"
-                onClick={stop}
-                size="icon"
-                variant="outline"
-                className="h-9 w-9 shrink-0 rounded-lg"
-              >
-                <StopCircle className="w-4 h-4" />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                size="icon"
-                disabled={!input.trim() || status === "submitted"}
-                className="h-9 w-9 shrink-0 rounded-lg"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="w-5 h-5"
+            <div className="flex gap-2 items-end">
+              <FileAttachmentButton
+                onClick={attachment.openFilePicker}
+                disabled={status === "submitted" || status === "streaming"}
+              />
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                onPaste={attachment.handlePaste}
+                placeholder="Send a message..."
+                className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none rounded-xl text-base bg-muted"
+                rows={3}
+                disabled={status === "submitted" || status === "streaming"}
+              />
+              {status === "streaming" ? (
+                <Button
+                  type="button"
+                  onClick={stop}
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 shrink-0 rounded-lg"
                 >
-                  <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-                </svg>
-              </Button>
-            )}
+                  <StopCircle className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon"
+                  disabled={(!input.trim() && !attachment.hasFiles) || status === "submitted"}
+                  className="h-9 w-9 shrink-0 rounded-lg"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="w-5 h-5"
+                  >
+                    <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+                  </svg>
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </form>

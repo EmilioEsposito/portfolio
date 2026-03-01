@@ -8,7 +8,8 @@ verbose descriptions to save tokens, and exposes a curated set of MCP tools
 The native ``sendMessage_v1`` and ``listContacts_v1`` are filtered out and
 replaced by custom tools:
 
-- ``send_message``: deterministic guards (contact must exist, correct from-phone).
+- ``send_internal_sms``: deterministic gate — all recipients must be internal.
+- ``send_external_sms``: deterministic gate — ALL recipients must be external (no internal numbers in external threads).
 - ``search_contacts``: fuzzy search against a TTL-cached contact list (avoids
   dumping 50-item pages into the context window).
 """
@@ -47,7 +48,7 @@ _MCP_WRITE_TOOLS = frozenset({
 })
 
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
-# sendMessage_v1 → custom send_message; listContacts_v1 → custom search_contacts.
+# sendMessage_v1 → custom send_internal_sms / send_external_sms; listContacts_v1 → custom search_contacts.
 _KEEP_TOOLS = frozenset({
     # Messages (read-only — send is custom)
     "listMessages_v1",
@@ -160,7 +161,7 @@ def _invalidate_contact_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Contact-lookup helper (used by send_message guard)
+# Contact-lookup helper (used by SMS tool guards)
 # ---------------------------------------------------------------------------
 
 async def _find_contact_by_phone(
@@ -214,7 +215,7 @@ def _build_quo_toolset():
         approval_required_func=lambda _ctx, tool_def, _args: tool_def.name in _MCP_WRITE_TOOLS,
     )
 
-    # --- Custom tools (search_contacts + send_message) ---
+    # --- Custom tools (search_contacts + SMS tools) ---
     custom_toolset = FunctionToolset[SerniaDeps]()
 
     @custom_toolset.tool
@@ -233,81 +234,211 @@ def _build_quo_toolset():
         contacts = await _get_all_contacts(client)
         return fuzzy_filter_json(contacts, query, top_n=5)
 
-    @custom_toolset.tool(requires_approval=True)
-    async def send_message(
-        ctx: RunContext[SerniaDeps],
-        to: str,
-        message: str,
-    ) -> str:
-        """Send an SMS/MMS message via Quo (OpenPhone).
+    # ------------------------------------------------------------------
+    # Shared SMS helpers
+    # ------------------------------------------------------------------
 
-        Before sending, the system verifies the recipient exists as a Quo
-        contact and automatically selects the correct sending phone line.
+    async def _resolve_recipients(
+        tool_name: str,
+        to: list[str],
+        conversation_id: str,
+    ) -> list[dict] | str:
+        """Look up each phone number in Quo contacts.
 
-        Args:
-            to: Recipient phone number in E.164 format (e.g. +14125551234).
-            message: The text message body to send.
+        Returns a list of contact dicts on success, or an error string if any
+        number is not found or the API call fails.
         """
-        logfire.info("send_message called", to=to, message_length=len(message))
+        contacts: list[dict] = []
+        for phone in to:
+            try:
+                contact = await _find_contact_by_phone(client, phone)
+            except httpx.HTTPStatusError as exc:
+                log_tool_error(tool_name, exc, conversation_id=conversation_id)
+                return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
+            except httpx.HTTPError as exc:
+                log_tool_error(tool_name, exc, conversation_id=conversation_id)
+                return f"Error looking up contact for {phone}: {exc}"
 
-        # Guard 1: recipient must be a Quo contact.
-        try:
-            contact = await _find_contact_by_phone(client, to)
-        except httpx.HTTPStatusError as exc:
-            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
-            return f"Error looking up contact: HTTP {exc.response.status_code}"
-        except httpx.HTTPError as exc:
-            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
-            return f"Error looking up contact: {exc}"
+            if contact is None:
+                logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
+                return (
+                    f"Blocked: {phone} is not a Quo contact. "
+                    "Messages can only be sent to numbers stored in Quo."
+                )
+            contacts.append(contact)
+        return contacts
 
-        if contact is None:
-            logfire.warn("send_message blocked: recipient not in Quo", to=to)
-            return (
-                f"Blocked: {to} is not a Quo contact. "
-                "Messages can only be sent to numbers stored in Quo."
-            )
-
-        # Guard 2: pick the correct from-phone based on company.
-        company = contact.get("defaultFields", {}).get("company") or ""
-        is_internal = company == QUO_INTERNAL_COMPANY
-        from_phone_id = QUO_SERNIA_AI_PHONE_ID if is_internal else QUO_SHARED_EXTERNAL_PHONE_ID
-
+    def _contact_display_name(contact: dict, phone: str) -> str:
         first = contact.get("defaultFields", {}).get("firstName") or ""
         last = contact.get("defaultFields", {}).get("lastName") or ""
-        contact_name = f"{first} {last}".strip() or to
-        line_name = "Sernia AI" if is_internal else "Sernia Capital Team"
+        return f"{first} {last}".strip() or phone
 
-        logfire.info(
-            "send_message sending",
-            to=to,
-            contact_name=contact_name,
-            company=company,
-            from_phone_id=from_phone_id,
-            line_name=line_name,
-        )
+    def _is_internal_contact(contact: dict) -> bool:
+        company = contact.get("defaultFields", {}).get("company") or ""
+        return company == QUO_INTERNAL_COMPANY
 
-        # Send via OpenPhone API.
+    async def _send_sms(
+        tool_name: str,
+        to: list[str],
+        message: str,
+        from_phone_id: str,
+        line_name: str,
+        conversation_id: str,
+    ) -> str:
+        """Send the SMS via OpenPhone API and return a result string."""
         try:
             resp = await client.post(
                 "/v1/messages",
-                json={"content": message, "from": from_phone_id, "to": [to]},
+                json={"content": message, "from": from_phone_id, "to": to},
             )
         except httpx.HTTPError as exc:
-            log_tool_error("send_message", exc, conversation_id=ctx.deps.conversation_id)
+            log_tool_error(tool_name, exc, conversation_id=conversation_id)
             return f"Error sending message: {exc}"
 
         if resp.status_code in (200, 201, 202):
-            logfire.info("send_message success", to=to, contact_name=contact_name)
-            return f"Message sent to {contact_name} from {line_name}."
+            logfire.info(f"{tool_name} success", to=to)
+            recipient_label = ", ".join(to) if len(to) > 1 else to[0]
+            return f"Message sent to {recipient_label} from {line_name}."
 
         logfire.error(
             "sernia tool error: {tool_name}",
-            tool_name="send_message",
+            tool_name=tool_name,
             status=resp.status_code,
             body=resp.text[:500],
-            conversation_id=ctx.deps.conversation_id
+            conversation_id=conversation_id,
         )
         return f"Failed to send message (HTTP {resp.status_code}): {resp.text}"
+
+    # ------------------------------------------------------------------
+    # send_internal_sms — no HITL, internal contacts only
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool
+    async def send_internal_sms(
+        ctx: RunContext[SerniaDeps],
+        to: list[str],
+        message: str,
+    ) -> str:
+        """Send an SMS to Sernia Capital team members (internal only, no approval needed).
+
+        Use this tool ONLY when ALL recipients are Sernia Capital LLC employees.
+        The system verifies every recipient is an internal contact. If any
+        recipient is external, the tool blocks and you must use
+        send_external_sms instead.
+
+        Supports group texts — pass multiple phone numbers.
+
+        Args:
+            to: Recipient phone numbers in E.164 format (e.g. ["+14125551234"]).
+            message: The text message body to send.
+        """
+        logfire.info("send_internal_sms called", to=to, message_length=len(message))
+
+        # Gate: resolve all recipients.
+        result = await _resolve_recipients(
+            "send_internal_sms", to, ctx.deps.conversation_id,
+        )
+        if isinstance(result, str):
+            return result
+        contacts = result
+
+        # Gate: ALL must be internal.
+        for contact, phone in zip(contacts, to):
+            if not _is_internal_contact(contact):
+                name = _contact_display_name(contact, phone)
+                company = contact.get("defaultFields", {}).get("company") or "(none)"
+                logfire.warn(
+                    "send_internal_sms blocked: external recipient",
+                    to=phone,
+                    company=company,
+                )
+                return (
+                    f"Blocked: {name} ({phone}) is not a Sernia Capital LLC contact "
+                    f"(company={company!r}). Use send_external_sms for external recipients."
+                )
+
+        names = [_contact_display_name(c, p) for c, p in zip(contacts, to)]
+        logfire.info(
+            "send_internal_sms sending",
+            to=to,
+            names=names,
+            from_phone_id=QUO_SERNIA_AI_PHONE_ID,
+        )
+
+        return await _send_sms(
+            "send_internal_sms",
+            to,
+            message,
+            QUO_SERNIA_AI_PHONE_ID,
+            "Sernia AI",
+            ctx.deps.conversation_id,
+        )
+
+    # ------------------------------------------------------------------
+    # send_external_sms — requires HITL, external contacts
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool(requires_approval=True)
+    async def send_external_sms(
+        ctx: RunContext[SerniaDeps],
+        to: list[str],
+        message: str,
+    ) -> str:
+        """Send an SMS to external contacts (requires approval).
+
+        Use this tool when ALL recipients are external (not Sernia Capital LLC).
+        The system rejects any message that includes a Sernia Capital LLC
+        contact — internal numbers must never be exposed in external threads.
+        Use send_internal_sms for internal-only messages.
+
+        Supports group texts — pass multiple phone numbers.
+
+        Args:
+            to: Recipient phone numbers in E.164 format (e.g. ["+14125551234"]).
+            message: The text message body to send.
+        """
+        logfire.info("send_external_sms called", to=to, message_length=len(message))
+
+        # Gate: resolve all recipients.
+        result = await _resolve_recipients(
+            "send_external_sms", to, ctx.deps.conversation_id,
+        )
+        if isinstance(result, str):
+            return result
+        contacts = result
+
+        # Gate: NO internal contacts allowed — protects internal phone numbers.
+        for contact, phone in zip(contacts, to):
+            if _is_internal_contact(contact):
+                name = _contact_display_name(contact, phone)
+                logfire.warn(
+                    "send_external_sms blocked: internal recipient in external thread",
+                    to=phone,
+                    name=name,
+                )
+                return (
+                    f"Blocked: {name} ({phone}) is a Sernia Capital LLC contact. "
+                    "External messages must NOT include internal team members — "
+                    "this would expose internal phone numbers. "
+                    "Use send_internal_sms for internal recipients."
+                )
+
+        names = [_contact_display_name(c, p) for c, p in zip(contacts, to)]
+        logfire.info(
+            "send_external_sms sending",
+            to=to,
+            names=names,
+            from_phone_id=QUO_SHARED_EXTERNAL_PHONE_ID,
+        )
+
+        return await _send_sms(
+            "send_external_sms",
+            to,
+            message,
+            QUO_SHARED_EXTERNAL_PHONE_ID,
+            "Sernia Capital Team",
+            ctx.deps.conversation_id,
+        )
 
     return CombinedToolset(toolsets=[mcp_toolset, custom_toolset])
 

@@ -16,7 +16,14 @@ export interface ToolSegment {
   result: any;
 }
 
-export type MessageSegment = TextSegment | ToolSegment;
+export interface FileSegment {
+  type: "file";
+  mediaType: string;
+  filename?: string;
+  url: string;
+}
+
+export type MessageSegment = TextSegment | ToolSegment | FileSegment;
 
 function isToolPart(part: any): boolean {
   return (
@@ -98,6 +105,14 @@ export function processMessage(message: any): {
   for (const part of message.parts) {
     if (part.type === "text") {
       pendingText += part.text;
+    } else if (part.type === "file") {
+      flushText();
+      segments.push({
+        type: "file",
+        mediaType: part.mediaType || part.mimeType || "",
+        filename: part.filename,
+        url: part.url || "",
+      });
     } else if (isCompletedTool(part)) {
       flushText();
       segments.push(parseToolPart(part));

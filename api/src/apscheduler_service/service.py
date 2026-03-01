@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.job import Job
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.events import EVENT_JOB_ERROR
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
@@ -102,6 +103,23 @@ def get_scheduler() -> AsyncIOScheduler:
         _scheduler = scheduler
         return _scheduler
 
+def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
+    """Add a job, cleanly replacing any existing job with the same ID.
+
+    Unlike ``replace_existing=True`` (which does INSERT → duplicate-key error →
+    UPDATE), this removes the old job first so the INSERT always succeeds and
+    Logfire doesn't record a spurious error-level DB span on every deploy.
+    """
+    job_id = kwargs.get("id")
+    if job_id:
+        try:
+            scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
+    kwargs.pop("replace_existing", None)
+    scheduler.add_job(**kwargs)
+
+
 # Note: APScheduler's internal logging (e.g., misfire warnings) is captured by
 # logging.getLogger().addHandler(...) configured in api.src.utils.logfire_config
 
@@ -113,8 +131,11 @@ async def handle_job_error(event):
     exception = event.exception
     traceback_str = event.traceback
 
-    logfire.error(f"Job {job_id} raised an exception: {exception}")
-    logfire.error(f"Traceback: {traceback_str}")
+    logfire.exception(
+        f"Job {job_id} raised an exception",
+        job_id=job_id,
+        _exc_info=(type(exception), exception, exception.__traceback__) if exception else None,
+    )
 
     credentials = None
     logfire.info(f"Attempting to get delegated credentials for job {job_id} error email.")
@@ -127,8 +148,8 @@ async def handle_job_error(event):
             scopes=["https://mail.google.com"],
         )
         logfire.info(f"Successfully got credentials for job {job_id} error email.")
-    except Exception as e:
-        logfire.error(f"Failed to get delegated credentials for job {job_id} error email: {e}")
+    except Exception:
+        logfire.exception(f"Failed to get delegated credentials for job {job_id} error email")
         logfire.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
         return # Stop if we can't get credentials
 
@@ -150,8 +171,8 @@ async def handle_job_error(event):
         await asyncio.sleep(3) 
         logfire.info(f"Short delay completed in handle_job_error for job {job_id}.")
 
-    except Exception as e:
-        logfire.error(f"Failed to send error notification email for job {job_id}: {e}")
+    except Exception:
+        logfire.exception(f"Failed to send error notification email for job {job_id}")
     logfire.info(f"--- handle_job_error END for job {job_id} ---")
 
 # Synchronous wrapper for the async error handler
@@ -273,13 +294,13 @@ async def schedule_email(
 
 def register_hello_apscheduler_jobs():
     scheduler = get_scheduler()
-    scheduler.add_job(
+    upsert_job(
+        scheduler,
         func=run_hello_world,
         trigger="date",
         kwargs={"name": "Emilio"},
         id="hello_world_apscheduler_job",
         run_date=datetime.now() + timedelta(seconds=30),
-        replace_existing=True,
     )
 
 
