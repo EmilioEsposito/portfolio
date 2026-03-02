@@ -159,7 +159,7 @@ async def _apscheduler_startup_async() -> None:
             # Register production scheduled jobs (moved from DBOS)
             register_clickup_apscheduler_jobs()
             register_zillow_apscheduler_jobs()
-            register_scheduled_triggers()
+            # register_scheduled_triggers()
         logfire.info("APScheduler background startup completed successfully.")
     except Exception as e:
         logfire.exception(f"APScheduler background startup failed: {e}")
