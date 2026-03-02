@@ -186,8 +186,9 @@ async def webhook(
 ):
     try:
         # Extract event data
+        logfire.info(f"OpenPhone webhook received. type={payload.type} event_id={payload.id} ")
+        
         event_data = extract_event_data(payload)
-        logfire.info(f"OpenPhone webhook received. event_id: {event_data['event_id']}")
 
         sernia_contact = await get_contact_by_slug("sernia")
 
