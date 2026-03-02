@@ -139,9 +139,9 @@ async def test_query_calendar_events():
 
 @pytest.mark.asyncio
 async def test_create_calendar_event():
-    service = await get_calendar_service(user_email="emilio@serniacapital.com")
+    service = await get_calendar_service(user_email="all@serniacapital.com")
     et_tz = pytz.timezone("US/Eastern")
-    start_time = datetime.datetime(year=2026, month=5, day=30, hour=12).astimezone(
+    start_time = datetime.datetime(year=2026, month=3, day=29, hour=12).astimezone(
         et_tz
     )
     end_time = start_time + datetime.timedelta(hours=1)
@@ -149,14 +149,14 @@ async def test_create_calendar_event():
     end_time_str = end_time.isoformat()
 
     event = {
-        "summary": "Test Event Future",
+        "summary": "Test Event3",
         "description": "This is a test event",
         "organizer": {
-            "email": "emilio@serniacapital.com",
+            "email": "all@serniacapital.com",
         },
         "attendees": [
             {
-                "email": "emilio+listings@serniacapital.com", 
+                "email": "emilio@serniacapital.com", 
             },
         ],
         "start": {
