@@ -108,9 +108,9 @@ keyword, filter by status or assignee, or combine filters with a text search.
 
 ### Calendar Management
 - **create_calendar_event**: Create a Google Calendar event (requires approval). \
-Default timezone is US/Eastern. The requesting user is automatically added as an \
-attendee — no need to include yourself. Reminders default to email 1 day before + popup 1 hour \
-before, but can be customized.
+Default timezone is US/Eastern. Always include all attendees explicitly, including the \
+requesting user if they should be invited. Reminders default to email 1 day before + popup \
+1 hour before, but can be customized.
 
 ### Code Execution
 - **run_python**: Execute Python code in a secure sandbox (Monty). Use for math, \
@@ -182,7 +182,8 @@ def format_current_datetime(now: datetime | None = None) -> str:
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
     return (
         f"Current Date and Time: {format_current_datetime()}. "
-        f"Speaking with {ctx.deps.user_name} via {ctx.deps.modality}."
+        f"Speaking with {ctx.deps.user_name} ({ctx.deps.user_email}) via {ctx.deps.modality}. "
+        f"When creating calendar events, always include {ctx.deps.user_email} as an attendee unless told otherwise."
     )
 
 
