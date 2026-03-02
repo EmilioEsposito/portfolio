@@ -16,10 +16,12 @@ from googleapiclient.http import MediaIoBaseDownload
 from pydantic_ai import FunctionToolset, RunContext
 
 from api.src.google.calendar.service import (
+    CalendarEventInput,
     create_calendar_event as _create_calendar_event,
     get_calendar_service,
 )
 from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.sernia_ai.config import CALENDAR_ORGANIZER_EMAIL
 from api.src.google.gmail.service import (
     extract_email_body,
     get_email_content,
@@ -233,36 +235,26 @@ async def list_calendar_events(
 @google_toolset.tool(requires_approval=True)
 async def create_calendar_event(
     ctx: RunContext[SerniaDeps],
-    summary: str,
-    start_iso: str,
-    end_iso: str,
-    description: str | None = None,
-    attendees: list[str] | None = None,
+    event: CalendarEventInput,
 ) -> str:
     """Create a Google Calendar event.
 
-    Args:
-        summary: Event title/summary.
-        start_iso: Start time in ISO 8601 format (e.g. 2025-06-15T10:00:00-04:00).
-        end_iso: End time in ISO 8601 format.
-        description: Optional event description.
-        attendees: Optional list of attendee email addresses.
+    The requesting user is automatically added as an attendee.
+    Reminders (email 1 day before, popup 1 hour before) are pre-configured.
+    Default timezone is US/Eastern.
     """
-    service = await get_calendar_service(user_email=ctx.deps.user_email)
+    # Use the shared mailbox as organizer so attendees receive email invites
+    service = await get_calendar_service(user_email=CALENDAR_ORGANIZER_EMAIL)
 
-    event_body: dict = {
-        "summary": summary,
-        "start": {"dateTime": start_iso},
-        "end": {"dateTime": end_iso},
-    }
-    if description:
-        event_body["description"] = description
-    if attendees:
-        event_body["attendees"] = [{"email": email} for email in attendees]
+    # Always include the requesting user as an attendee (deduplicated)
+    all_attendees = sorted({ctx.deps.user_email, *(event.attendees or [])})
+    event = event.model_copy(update={"attendees": all_attendees})
 
-    result = await _create_calendar_event(service, event_body)
+    result = await _create_calendar_event(
+        service, event, organizer_email=CALENDAR_ORGANIZER_EMAIL, overwrite=True
+    )
     event_link = result.get("htmlLink", "")
-    return f"Calendar event created: {summary}\nLink: {event_link}"
+    return f"Calendar event created: {event.summary}\nLink: {event_link}"
 
 
 # =============================================================================
