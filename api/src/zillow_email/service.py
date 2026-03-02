@@ -449,6 +449,8 @@ async def check_email_threads(overwrite_calendar_events=False):
 
                     first_name_aux = 'Lead ' + str(thread_info.building_number) + "-" + unit_number_padded + " " + thread_info.lead_first_name
 
+                    notes: list[str] = []
+
                     try:
                         if thread_info.lead_phone_number:
                             contact_create = ContactCreate(
@@ -464,9 +466,11 @@ async def check_email_threads(overwrite_calendar_events=False):
                             openphone_contact = openphone_contact_response.json()
                             logfire.info(f"Created/updated OpenPhone contact: {openphone_contact}")
                         else:
-                            logfire.error(f"No phone number found for lead: {first_name_aux}")
+                            logfire.warn(f"No phone number found for lead: {first_name_aux}")
+                            notes.append("No phone number found for lead — contact not created in OpenPhone.")
                     except Exception as e:
                         logfire.error(f"Error creating OpenPhone contact: {e}")
+                        notes.append(f"Failed to create OpenPhone contact: {e}")
 
                     try:
                         if thread_info.appointment_date and thread_info.appointment_time:
@@ -489,9 +493,6 @@ async def check_email_threads(overwrite_calendar_events=False):
                             # Localize the naive datetime to Eastern Time
                             start_datetime_aware = eastern_tz.localize(parsed_datetime)
                             end_datetime_aware = start_datetime_aware + timedelta(minutes=30) # Assuming 30-minute appointments
-
-                            start_time_iso = start_datetime_aware.isoformat()
-                            end_time_iso = end_datetime_aware.isoformat()
 
                             event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
                             if non_prod_env:
@@ -524,9 +525,23 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 logfire.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
                         else:
                             logfire.warn(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
+                            notes.append("Missing appointment date/time — calendar event not created.")
                     except Exception as e:
                         logfire.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
                         logfire.error(f"Thread Info for calendar event creation: {thread_info}")
+                        notes.append(f"Failed to create calendar event: {e}")
+
+                    # Notify the team about appointment processing issues
+                    if notes:
+                        issue_msg = f"⚠️ Zillow lead {first_name_aux} — appointment detected but:\n"
+                        issue_msg += "\n".join(f"• {n}" for n in notes)
+                        if non_prod_env:
+                            issue_msg = f"ENV: {non_prod_env}\n\n{issue_msg}"
+                        await send_message(
+                            message=issue_msg,
+                            to_phone_number=target_phone_number,
+                            from_phone_number="+14129101500",
+                        )
 
 
 @pytest.mark.asyncio
