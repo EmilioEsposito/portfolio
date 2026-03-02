@@ -107,7 +107,10 @@ keyword, filter by status or assignee, or combine filters with a text search.
 - **read_drive_pdf**: Extract text from a PDF stored in Google Drive.
 
 ### Calendar Management
-- **create_calendar_event**: Create a Google Calendar event (requires approval).
+- **create_calendar_event**: Create a Google Calendar event (requires approval). \
+Default timezone is US/Eastern. The requesting user is automatically added as an \
+attendee — no need to include yourself. Reminders default to email 1 day before + popup 1 hour \
+before, but can be customized.
 
 ### Code Execution
 - **run_python**: Execute Python code in a secure sandbox (Monty). Use for math, \
@@ -171,7 +174,8 @@ def format_current_datetime(now: datetime | None = None) -> str:
     now_utc = now_et.astimezone(utc)
     return (
         f"{now_et.strftime('%A, %B %d, %Y at %I:%M %p')} ET "
-        f"({now_utc.strftime('%I:%M %p')} UTC)"
+        f"({now_utc.strftime('%I:%M %p')} UTC) | "
+        f"ISO 8601: {now_et.isoformat()}"
     )
 
 

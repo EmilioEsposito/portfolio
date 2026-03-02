@@ -80,3 +80,8 @@ QUO_INTERNAL_COMPANY = "Sernia Capital LLC"
 
 # AI SMS conversation: max messages to fetch from OpenPhone for initial bootstrap
 SMS_CONVERSATION_MAX_MESSAGES = 20
+
+# Google Calendar: organizer email for events created by the agent.
+# Using the shared mailbox ensures attendees receive email invites
+# (self-organized events via delegation don't trigger notifications).
+CALENDAR_ORGANIZER_EMAIL = "all@serniacapital.com"
