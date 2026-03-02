@@ -12,7 +12,13 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 import openai
 import pytz
-from api.src.google.calendar.service import create_calendar_event, get_calendar_service
+from api.src.google.calendar.service import (
+    CalendarEventInput,
+    CalendarReminder,
+    ReminderMethod,
+    create_calendar_event,
+    get_calendar_service,
+)
 from bs4 import BeautifulSoup
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
@@ -499,26 +505,20 @@ async def check_email_threads(overwrite_calendar_events=False):
 
                             calendar_service = await get_calendar_service(user_email=target_contact.email) # TODO: make user_email dynamic or from config
 
-                            event_body = {
-                                "summary": event_summary,
-                                "description": event_description,
-                                "start": {"dateTime": start_time_iso, "timeZone": "America/New_York"},
-                                "end": {"dateTime": end_time_iso, "timeZone": "America/New_York"},
-                                "attendees": [
-                                    {"email": "emilio+listings@serniacapital.com"} 
-                                    # Potentially add lead's email if available and desired?
+                            event_input = CalendarEventInput(
+                                summary=event_summary,
+                                description=event_description,
+                                start=start_datetime_aware,
+                                end=end_datetime_aware,
+                                attendees=["emilio@serniacapital.com", "anna@serniacapital.com", "jackie@serniacapital.com"],
+                                reminders=[
+                                    CalendarReminder(method=ReminderMethod.EMAIL, minutes=24 * 60),
+                                    CalendarReminder(method=ReminderMethod.POPUP, minutes=120),
                                 ],
-                                "reminders": {
-                                    "useDefault": False,
-                                    "overrides": [
-                                        {"method": "email", "minutes": 24 * 60}, # 1 day before
-                                        {"method": "popup", "minutes": 120}, # 2 hours before
-                                    ],
-                                }
-                            }
+                            )
 
                             if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in ["production", "local"]:
-                                created_event = await create_calendar_event(calendar_service, event_body, overwrite=overwrite_calendar_events)
+                                created_event = await create_calendar_event(calendar_service, event_input, overwrite=overwrite_calendar_events)
                                 logfire.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
                             else:
                                 logfire.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
