@@ -1,7 +1,23 @@
 import type { Route } from "./+types/sernia-admin";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@clerk/react-router";
+import type {
+  ColumnDef,
+  Column,
+  FilterFn,
+  SortingState,
+  ColumnFiltersState,
+} from "@tanstack/react-table";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getFacetedRowModel,
+  getFacetedUniqueValues,
+  flexRender,
+} from "@tanstack/react-table";
 import { AuthGuard } from "~/components/auth-guard";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -20,6 +36,20 @@ import {
   SheetHeader,
   SheetTitle,
 } from "~/components/ui/sheet";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "~/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "~/components/ui/command";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
 import { ToolResultCard } from "~/components/chat/tool-cards";
@@ -37,6 +67,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
+  Check,
+  Filter,
+  FilterX,
+  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 
 const API_BASE = "/api/sernia-ai";
@@ -68,16 +104,49 @@ interface ConversationSummary {
   updated_at: string | null;
 }
 
-const MODALITY_OPTIONS: {
-  value: string | null;
-  label: string;
-  icon?: typeof MessageSquare;
-}[] = [
-  { value: null, label: "All" },
-  { value: "web_chat", label: "Web Chat", icon: MessageSquare },
-  { value: "sms", label: "SMS", icon: Phone },
-  { value: "email", label: "Email", icon: Mail },
-];
+// ---------------------------------------------------------------------------
+// TanStack Table filter helpers
+// ---------------------------------------------------------------------------
+
+const FACETED_COLUMNS = new Set(["modality", "contact", "user_email"]);
+
+const facetedFilterFn: FilterFn<ConversationSummary> = (
+  row,
+  columnId,
+  filterValue: string[]
+) => {
+  if (!filterValue || filterValue.length === 0) return true;
+  const cellValue = String(row.getValue(columnId) ?? "");
+  return filterValue.includes(cellValue);
+};
+
+const dateRangeFilterFn: FilterFn<ConversationSummary> = (
+  row,
+  columnId,
+  filterValue: [string, string]
+) => {
+  if (!filterValue) return true;
+  const [start, end] = filterValue;
+  const cellValue = row.getValue(columnId) as string | null;
+  if (!cellValue) return false;
+  const date = cellValue.slice(0, 10); // YYYY-MM-DD
+  if (start && date < start) return false;
+  if (end && date > end) return false;
+  return true;
+};
+
+const RESPONSIVE_CLASSES: Record<string, string> = {
+  conversation_id: "hidden md:table-cell",
+  modality: "hidden sm:table-cell",
+  contact: "hidden md:table-cell",
+  user_email: "hidden lg:table-cell",
+  estimated_tokens: "hidden lg:table-cell",
+  has_pending: "hidden sm:table-cell",
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function modalityIcon(modality: string) {
   switch (modality) {
@@ -304,11 +373,13 @@ export default function SerniaAdminPage() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filters
-  const [modalityFilter, setModalityFilter] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+
+  // TanStack Table state
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "updated_at", desc: true },
+  ]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   // Detail drawer
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -325,7 +396,6 @@ export default function SerniaAdminPage() {
         limit: String(PAGE_SIZE),
         offset: String(page * PAGE_SIZE),
       });
-      if (modalityFilter) params.set("modality", modalityFilter);
 
       const res = await fetch(
         `${API_BASE}/conversations/history?${params}`,
@@ -339,32 +409,153 @@ export default function SerniaAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [getToken, page, modalityFilter]);
+  }, [getToken, page]);
 
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
-
-  // Reset page when filter changes
-  useEffect(() => {
-    setPage(0);
-  }, [modalityFilter]);
 
   const handleDelete = () => {
     setSelectedId(null);
     fetchConversations();
   };
 
-  // Client-side search filter
-  const filtered = search.trim()
-    ? conversations.filter(
-        (c) =>
-          c.preview.toLowerCase().includes(search.toLowerCase()) ||
-          c.contact_identifier?.toLowerCase().includes(search.toLowerCase()) ||
-          c.user_email?.toLowerCase().includes(search.toLowerCase()) ||
-          c.trigger_contact_name?.toLowerCase().includes(search.toLowerCase())
-      )
-    : conversations;
+  // Column definitions
+  const columns = useMemo(
+    (): ColumnDef<ConversationSummary>[] => [
+      {
+        accessorKey: "preview",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Preview" />
+        ),
+        cell: ({ row }) => (
+          <p className="truncate text-sm max-w-[300px]">
+            {row.getValue("preview") || "Empty conversation"}
+          </p>
+        ),
+        filterFn: "includesString",
+        enableSorting: true,
+      },
+      {
+        accessorKey: "conversation_id",
+        header: ({ column }) => <ColumnHeader column={column} title="ID" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs text-muted-foreground truncate block max-w-[120px]">
+            {(row.getValue("conversation_id") as string).slice(0, 8)}
+          </span>
+        ),
+        filterFn: "includesString",
+        enableSorting: true,
+      },
+      {
+        accessorKey: "modality",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Source" />
+        ),
+        cell: ({ row }) => {
+          const modality = row.getValue("modality") as string;
+          return (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              {modalityIcon(modality)}
+              <span className="text-xs capitalize">
+                {modality.replace("_", " ")}
+              </span>
+            </div>
+          );
+        },
+        filterFn: facetedFilterFn,
+        enableSorting: true,
+      },
+      {
+        id: "contact",
+        accessorFn: (row) =>
+          row.trigger_contact_name || row.contact_identifier || "",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Contact" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
+            {row.getValue("contact") || "—"}
+          </span>
+        ),
+        filterFn: facetedFilterFn,
+        enableSorting: true,
+      },
+      {
+        accessorKey: "user_email",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="User" />
+        ),
+        cell: ({ row }) => {
+          const email = row.getValue("user_email") as string | null;
+          return (
+            <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
+              {email ? email.split("@")[0] : "—"}
+            </span>
+          );
+        },
+        filterFn: facetedFilterFn,
+        enableSorting: true,
+      },
+      {
+        accessorKey: "estimated_tokens",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Tokens" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground font-mono text-right block">
+            {formatTokens(row.getValue("estimated_tokens") as number)}
+          </span>
+        ),
+        enableSorting: true,
+        enableColumnFilter: false,
+      },
+      {
+        accessorKey: "has_pending",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) =>
+          row.getValue("has_pending") ? (
+            <Badge
+              variant="outline"
+              className="text-xs text-amber-600 border-amber-300"
+            >
+              Pending
+            </Badge>
+          ) : null,
+        enableSorting: true,
+        enableColumnFilter: false,
+      },
+      {
+        accessorKey: "updated_at",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Updated" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {formatDateTime(row.getValue("updated_at") as string | null)}
+          </span>
+        ),
+        filterFn: dateRangeFilterFn,
+        enableSorting: true,
+      },
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: conversations,
+    columns,
+    state: { sorting, columnFilters },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
+  });
 
   return (
     <AuthGuard
@@ -400,30 +591,6 @@ export default function SerniaAdminPage() {
           </Button>
         </div>
 
-        {/* Filter bar */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b">
-          <div className="flex gap-1">
-            {MODALITY_OPTIONS.map((opt) => (
-              <Button
-                key={opt.label}
-                variant={modalityFilter === opt.value ? "default" : "outline"}
-                size="sm"
-                className="text-xs h-8 gap-1.5"
-                onClick={() => setModalityFilter(opt.value)}
-              >
-                {opt.icon && <opt.icon className="w-3.5 h-3.5" />}
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search preview, contact, user..."
-            className="h-8 text-xs max-w-[260px]"
-          />
-        </div>
-
         {/* Error */}
         {error && (
           <div className="mx-4 mt-2 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 p-3 text-sm text-red-700 dark:text-red-400">
@@ -437,86 +604,66 @@ export default function SerniaAdminPage() {
             <div className="flex justify-center py-16">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
-          ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-16">
-              No conversations found
-            </p>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[40%]">Preview</TableHead>
-                  <TableHead className="hidden sm:table-cell">Source</TableHead>
-                  <TableHead className="hidden md:table-cell">
-                    Contact
-                  </TableHead>
-                  <TableHead className="hidden lg:table-cell">User</TableHead>
-                  <TableHead className="hidden lg:table-cell text-right">
-                    Tokens
-                  </TableHead>
-                  <TableHead className="hidden sm:table-cell">Status</TableHead>
-                  <TableHead>Updated</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((conv) => (
-                  <TableRow
-                    key={conv.conversation_id}
-                    className={cn(
-                      "cursor-pointer",
-                      conv.conversation_id === selectedId && "bg-muted"
-                    )}
-                    onClick={() => setSelectedId(conv.conversation_id)}
-                  >
-                    <TableCell className="max-w-0">
-                      <p className="truncate text-sm">
-                        {conv.preview || "Empty conversation"}
-                      </p>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {modalityIcon(conv.modality)}
-                        <span className="text-xs capitalize">
-                          {conv.modality.replace("_", " ")}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-                        {conv.trigger_contact_name ||
-                          conv.contact_identifier ||
-                          "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-                        {conv.user_email
-                          ? conv.user_email.split("@")[0]
-                          : "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell text-right">
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {formatTokens(conv.estimated_tokens)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      {conv.has_pending && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs text-amber-600 border-amber-300"
-                        >
-                          Pending
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDateTime(conv.updated_at)}
-                      </span>
-                    </TableCell>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className={RESPONSIVE_CLASSES[header.id] ?? ""}
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    ))}
                   </TableRow>
                 ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.length ? (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      className={cn(
+                        "cursor-pointer",
+                        row.original.conversation_id === selectedId &&
+                          "bg-muted"
+                      )}
+                      onClick={() =>
+                        setSelectedId(row.original.conversation_id)
+                      }
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={
+                            RESPONSIVE_CLASSES[cell.column.id] ?? ""
+                          }
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columns.length}
+                      className="h-24 text-center text-muted-foreground"
+                    >
+                      No conversations found
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}
@@ -611,5 +758,223 @@ export default function SerniaAdminPage() {
         </SheetContent>
       </Sheet>
     </AuthGuard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Column Header with Sort + Filter
+// ---------------------------------------------------------------------------
+
+function ColumnHeader({
+  column,
+  title,
+}: {
+  column: Column<ConversationSummary, unknown>;
+  title: string;
+}) {
+  const isFiltered = column.getIsFiltered();
+  const canSort = column.getCanSort();
+  const canFilter = column.getCanFilter();
+  const isFaceted = FACETED_COLUMNS.has(column.id);
+  const isDate = column.id === "updated_at";
+
+  return (
+    <div className="flex items-center space-x-1 justify-between pr-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-3 h-8 p-1 data-[state=open]:bg-accent text-left justify-start grow truncate text-xs"
+        onClick={() =>
+          canSort && column.toggleSorting(column.getIsSorted() === "asc")
+        }
+        disabled={!canSort}
+      >
+        <span className="truncate">{title}</span>
+        {canSort &&
+          (column.getIsSorted() === "desc" ? (
+            <ArrowDown className="ml-1 h-3 w-3" />
+          ) : column.getIsSorted() === "asc" ? (
+            <ArrowUp className="ml-1 h-3 w-3" />
+          ) : (
+            <ArrowUpDown className="ml-1 h-3 w-3 opacity-30" />
+          ))}
+      </Button>
+
+      {canFilter && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              className={cn("h-5 w-5 p-1", isFiltered && "text-primary")}
+            >
+              {isFiltered ? (
+                <FilterX className="h-3 w-3" />
+              ) : (
+                <Filter className="h-3 w-3" />
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className={cn("p-0", isDate ? "w-56" : "w-48")}
+            align="start"
+          >
+            {isFaceted ? (
+              <FacetedFilter column={column} title={title} />
+            ) : isDate ? (
+              <DateRangeFilter column={column} />
+            ) : (
+              <div className="p-2">
+                <Input
+                  type="text"
+                  value={(column.getFilterValue() as string) ?? ""}
+                  onChange={(e) => column.setFilterValue(e.target.value)}
+                  placeholder={`Filter ${title}...`}
+                  className="h-8 text-sm p-1 w-full"
+                />
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Faceted Multi-Select Filter
+// ---------------------------------------------------------------------------
+
+function FacetedFilter({
+  column,
+  title,
+}: {
+  column: Column<ConversationSummary, unknown>;
+  title: string;
+}) {
+  const facets = column.getFacetedUniqueValues();
+  const selectedValues = new Set(
+    column.getFilterValue() as string[] | undefined
+  );
+
+  const sortedOptions = useMemo(() => {
+    return Array.from(facets.keys()).sort();
+  }, [facets]);
+
+  const toggleValue = (value: string) => {
+    const next = new Set(selectedValues);
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+    column.setFilterValue(next.size > 0 ? Array.from(next) : undefined);
+  };
+
+  return (
+    <Command>
+      <CommandInput
+        placeholder={`Search ${title}...`}
+        className="h-8 text-sm"
+      />
+      <CommandList className="max-h-48">
+        <CommandEmpty>No values found.</CommandEmpty>
+        <CommandGroup>
+          {sortedOptions.map((value) => {
+            const isSelected = selectedValues.has(value);
+            const count = facets.get(value);
+            return (
+              <CommandItem
+                key={value}
+                onSelect={() => toggleValue(value)}
+                className="cursor-pointer"
+              >
+                <div
+                  className={cn(
+                    "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                    isSelected
+                      ? "bg-primary text-primary-foreground"
+                      : "[&_svg]:invisible"
+                  )}
+                >
+                  <Check className="h-3 w-3" />
+                </div>
+                <span>{value}</span>
+                {count != null && (
+                  <span className="ml-auto text-muted-foreground font-mono text-xs">
+                    {count}
+                  </span>
+                )}
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
+        {selectedValues.size > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup>
+              <CommandItem
+                onSelect={() => column.setFilterValue(undefined)}
+                className="justify-center text-center cursor-pointer"
+              >
+                Clear filters
+              </CommandItem>
+            </CommandGroup>
+          </>
+        )}
+      </CommandList>
+    </Command>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Date Range Filter
+// ---------------------------------------------------------------------------
+
+function DateRangeFilter({
+  column,
+}: {
+  column: Column<ConversationSummary, unknown>;
+}) {
+  const filterValue = column.getFilterValue() as
+    | [string, string]
+    | undefined;
+  const start = filterValue?.[0] ?? "";
+  const end = filterValue?.[1] ?? "";
+
+  const setRange = (s: string, e: string) => {
+    column.setFilterValue(s || e ? [s, e] : undefined);
+  };
+
+  return (
+    <div className="p-2 space-y-2">
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">From</label>
+        <Input
+          type="date"
+          value={start}
+          onChange={(e) => setRange(e.target.value, end)}
+          className="h-8 text-sm"
+        />
+      </div>
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">To</label>
+        <Input
+          type="date"
+          value={end}
+          onChange={(e) => setRange(start, e.target.value)}
+          className="h-8 text-sm"
+        />
+      </div>
+      {(start || end) && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full h-7 text-xs"
+          onClick={() => column.setFilterValue(undefined)}
+        >
+          Clear
+        </Button>
+      )}
+    </div>
   );
 }
