@@ -10,9 +10,9 @@ Only internal contacts (Sernia Capital LLC) are allowed; unknown numbers are
 silently ignored.
 
 Flow:
-  1. Verify sender is an internal contact (OpenPhone API lookup)
+  1. Verify sender is an internal contact (Quo API lookup)
   2. Derive deterministic conversation_id from sender's phone number
-  3. Load conversation history (DB if exists, else bootstrap from OpenPhone)
+  3. Load conversation history (DB if exists, else bootstrap from Quo)
   4. Run sernia_agent with modality="sms"
   5. Send agent's text response back via SMS, or handle HITL pause
 """
@@ -57,7 +57,7 @@ from api.src.ai_demos.models import (
     get_conversation_messages,
     save_agent_conversation,
 )
-from api.src.open_phone.service import send_message
+from api.src.open_phone.service import send_message, find_contacts_by_phone
 
 
 # ---------------------------------------------------------------------------
@@ -95,35 +95,22 @@ def _digits_only(phone: str) -> str:
 async def _verify_internal_contact(phone: str) -> dict | None:
     """Check if phone belongs to a Sernia Capital LLC contact.
 
-    Returns the contact dict (with name fields) or None if external/unknown.
+    Multiple contacts can share the same phone number.  Returns the first
+    internal match, or None if no match is internal.
+    Uses the centralized paginated contact lookup from open_phone.service.
     """
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
-    if not api_key:
-        logfire.error("OPEN_PHONE_API_KEY not set — cannot verify contact")
-        return None
-
     try:
-        async with httpx.AsyncClient(
-            base_url="https://api.openphone.com",
-            headers={"Authorization": api_key},
-            timeout=15,
-        ) as client:
-            resp = await client.get(
-                "/v1/contacts",
-                params={"phoneNumbers[]": phone},
-            )
-            resp.raise_for_status()
-            contacts = resp.json().get("data", [])
-            if not contacts:
-                return None
+        contacts = await find_contacts_by_phone(phone)
+        if not contacts:
+            return None
 
-            contact = contacts[0]
+        for contact in contacts:
             company = (
                 contact.get("defaultFields", {}).get("company", "") or ""
             )
             if company.strip().lower() == QUO_INTERNAL_COMPANY.lower():
                 return contact
-            return None
+        return None
     except Exception:
         logfire.exception(
             "ai_sms_event: failed to verify contact", phone=phone
@@ -132,7 +119,7 @@ async def _verify_internal_contact(phone: str) -> dict | None:
 
 
 def _contact_display_name(contact: dict) -> str:
-    """Extract a display name from an OpenPhone contact dict."""
+    """Extract a display name from a Quo contact dict."""
     fields = contact.get("defaultFields", {})
     first = fields.get("firstName", "") or ""
     last = fields.get("lastName", "") or ""
@@ -143,7 +130,7 @@ def _contact_display_name(contact: dict) -> str:
 async def _fetch_sms_thread(
     from_phone: str,
 ) -> list[ModelMessage]:
-    """Fetch recent SMS messages from OpenPhone and convert to PydanticAI format.
+    """Fetch recent SMS messages from Quo and convert to PydanticAI format.
 
     Calls GET /v1/messages with the AI phone number ID and the sender's number.
     Returns messages in chronological order (oldest first).
@@ -177,9 +164,9 @@ async def _fetch_sms_thread(
 
 
 def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
-    """Convert OpenPhone message dicts to PydanticAI ModelMessage list.
+    """Convert Quo message dicts to PydanticAI ModelMessage list.
 
-    OpenPhone returns newest-first; we reverse for chronological order.
+    Quo returns newest-first; we reverse for chronological order.
     Incoming (direction="incoming") → ModelRequest with UserPromptPart
     Outgoing (direction="outgoing") → ModelResponse with TextPart
     """
@@ -222,7 +209,7 @@ async def _send_sms_reply(to_phone: str, message: str) -> None:
 async def handle_ai_sms_event(event_data: dict) -> None:
     """Process an inbound SMS to the AI's phone number.
 
-    Called as a FastAPI background task from the OpenPhone webhook handler.
+    Called as a FastAPI background task from the Quo webhook handler.
     This is a direct conversation — the AI responds natively via SMS.
 
     Args:
@@ -278,10 +265,10 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         )
 
         if not history:
-            # Bootstrap from OpenPhone SMS thread
+            # Bootstrap from Quo SMS thread
             history = await _fetch_sms_thread(from_number)
             logfire.info(
-                "ai_sms_event: bootstrapped from OpenPhone",
+                "ai_sms_event: bootstrapped from Quo",
                 from_number=from_number,
                 message_count=len(history),
             )

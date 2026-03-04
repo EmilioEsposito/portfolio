@@ -1,5 +1,5 @@
 """
-Unit tests for the cross-unit group SMS gate in openphone_tools.
+Unit tests for the cross-unit group SMS gate in quo_tools.
 
 These are pure unit tests — no API calls, no live marker.
 
@@ -8,7 +8,7 @@ real SMS to external contacts (tenants, vendors, etc.) from tests. See
 CLAUDE.md "SMS test safety" for details.
 """
 
-from api.src.sernia_ai.tools.openphone_tools import (
+from api.src.sernia_ai.tools.quo_tools import (
     _filter_tenants_by_property_unit,
     _get_contact_unit,
 )

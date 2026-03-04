@@ -54,7 +54,7 @@ api/src/sernia_ai/
 ├── routes.py                # FastAPI routes (chat, conversations, approvals, admin)
 │
 ├── tools/
-│   ├── openphone_tools.py   # FastMCP OpenAPI bridge + custom SMS tools, search_contacts
+│   ├── quo_tools.py         # FastMCP OpenAPI bridge + custom SMS tools, search_contacts
 │   ├── google_tools.py      # Gmail, Calendar, Drive, Docs, Sheets, PDFs
 │   ├── clickup_tools.py     # List browsing, task search, CRUD
 │   ├── db_search_tools.py   # Search conversations + SMS history

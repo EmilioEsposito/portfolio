@@ -24,10 +24,10 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=False)
 
-from api.src.sernia_ai.tools.openphone_tools import (
-    _find_contact_by_phone,
-    _get_all_contacts,
-    _invalidate_contact_cache,
+from api.src.open_phone.service import (
+    find_contact_by_phone,
+    get_all_contacts,
+    invalidate_contact_cache,
 )
 from api.src.utils.fuzzy_json import fuzzy_filter
 
@@ -43,7 +43,7 @@ pytestmark = [
 @pytest_asyncio.fixture
 async def quo_client():
     """Async httpx client configured for the OpenPhone API."""
-    _invalidate_contact_cache()
+    invalidate_contact_cache()
     async with httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": os.environ["OPEN_PHONE_API_KEY"]},
@@ -58,7 +58,7 @@ async def quo_client():
 @pytest.mark.asyncio
 async def test_get_all_contacts_loads_all_pages(quo_client: httpx.AsyncClient):
     """Cache should load ALL contacts across pages (>50)."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     print(f"\nLoaded {len(contacts)} contacts")
     assert len(contacts) > 50, "Expected >50 contacts (pagination test)"
 
@@ -66,8 +66,8 @@ async def test_get_all_contacts_loads_all_pages(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_cache_reuses_on_second_call(quo_client: httpx.AsyncClient):
     """Second call should return cached data without hitting the API."""
-    first = await _get_all_contacts(quo_client)
-    second = await _get_all_contacts(quo_client)
+    first = await get_all_contacts(quo_client)
+    second = await get_all_contacts(quo_client)
     assert first is second, "Expected same list object (cache hit)"
 
 
@@ -77,7 +77,7 @@ async def test_cache_reuses_on_second_call(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_search_exact_name(quo_client: httpx.AsyncClient):
     """Exact first name should return a match."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     for c in contacts:
         name = c.get("defaultFields", {}).get("firstName")
         if name and len(name) > 2:
@@ -93,7 +93,7 @@ async def test_search_exact_name(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_search_typo_tolerance(quo_client: httpx.AsyncClient):
     """A query with a typo should still return the correct contact."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     for c in contacts:
         first = (c.get("defaultFields", {}).get("firstName") or "").strip()
         if len(first) >= 5:
@@ -110,7 +110,7 @@ async def test_search_typo_tolerance(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_search_by_phone_digits(quo_client: httpx.AsyncClient):
     """Searching by partial phone digits should match."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     for c in contacts:
         phones = c.get("defaultFields", {}).get("phoneNumbers", [])
         if phones and phones[0].get("value"):
@@ -126,7 +126,7 @@ async def test_search_by_phone_digits(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_search_by_company(quo_client: httpx.AsyncClient):
     """Searching by company name should return matching contacts."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     results = fuzzy_filter(contacts, "Sernia Capital", top_n=10)
     print(f"\nSearch 'Sernia Capital' → {len(results)} results")
     for contact, score in results[:5]:
@@ -139,7 +139,7 @@ async def test_search_by_company(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_search_no_results(quo_client: httpx.AsyncClient):
     """A nonsense query should return no results."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     results = fuzzy_filter(contacts, "zzxqwplmk")
     assert len(results) == 0
 
@@ -174,13 +174,13 @@ def test_fuzzy_filter_top_n():
     assert len(results) == 3
 
 
-# ---- _find_contact_by_phone (uses cache) ----
+# ---- find_contact_by_phone (uses cache) ----
 
 
 @pytest.mark.asyncio
 async def test_find_contact_known_number(quo_client: httpx.AsyncClient):
     """Look up a known contact by E.164 phone number."""
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     target_phone = None
     target_name = None
     for c in contacts:
@@ -192,7 +192,7 @@ async def test_find_contact_known_number(quo_client: httpx.AsyncClient):
             break
 
     assert target_phone, "No contacts with phone numbers found"
-    contact = await _find_contact_by_phone(quo_client, target_phone)
+    contact = await find_contact_by_phone(target_phone, quo_client)
     assert contact is not None
     found_name = (
         f"{contact['defaultFields'].get('firstName', '')} "
@@ -204,7 +204,7 @@ async def test_find_contact_known_number(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_find_contact_nonexistent_number(quo_client: httpx.AsyncClient):
     """A phone number not in contacts should return None."""
-    contact = await _find_contact_by_phone(quo_client, "+19999999999")
+    contact = await find_contact_by_phone("+19999999999", quo_client)
     assert contact is None
 
 
@@ -247,7 +247,7 @@ async def test_internal_contacts_have_sernia_company(quo_client: httpx.AsyncClie
     """Contacts with company='Sernia Capital LLC' should be classifiable as internal."""
     from api.src.sernia_ai.config import QUO_INTERNAL_COMPANY
 
-    contacts = await _get_all_contacts(quo_client)
+    contacts = await get_all_contacts(quo_client)
     internal = [
         c for c in contacts
         if (c.get("defaultFields", {}).get("company") or "") == QUO_INTERNAL_COMPANY

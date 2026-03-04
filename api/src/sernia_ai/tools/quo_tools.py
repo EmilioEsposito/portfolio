@@ -1,7 +1,11 @@
 """
-OpenPhone (Quo) tools — full API via FastMCP OpenAPI bridge + guarded send.
+Quo (formerly OpenPhone) tools — full API via FastMCP OpenAPI bridge + guarded send.
 
-Fetches the public OpenPhone spec, patches known schema issues, trims
+NOTE: This module was renamed from ``openphone_tools.py`` to ``quo_tools.py``
+to reflect Quo's rebrand.  The underlying ``api/src/open_phone/`` service
+module still uses the old name — that migration is tracked separately.
+
+Fetches the public Quo OpenAPI spec, patches known schema issues, trims
 verbose descriptions to save tokens, and exposes a curated set of MCP tools
 (messages, contacts, calls, recordings, transcripts, conversations).
 
@@ -19,6 +23,11 @@ import os
 import time
 
 import httpx
+from api.src.open_phone.service import (
+    get_all_contacts,
+    find_contact_by_phone,
+    invalidate_contact_cache,
+)
 import logfire
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
@@ -74,7 +83,7 @@ _KEEP_TOOLS = frozenset({
 # ---------------------------------------------------------------------------
 
 def _fetch_and_patch_spec() -> dict:
-    """Fetch the OpenPhone OpenAPI spec, patch schema issues, and trim for tokens."""
+    """Fetch the Quo (OpenPhone) OpenAPI spec, patch schema issues, and trim for tokens."""
     resp = httpx.get(OPENPHONE_SPEC_URL, follow_redirects=True, timeout=30)
     resp.raise_for_status()
     spec = resp.json()
@@ -118,67 +127,13 @@ def _strip_examples(obj: dict | list | str, _depth: int = 0) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TTL-cached contact store
+# Contact helpers — delegated to central open_phone.service
 # ---------------------------------------------------------------------------
 
-_CONTACT_CACHE_TTL = 300  # 5 minutes
-_contact_cache: list[dict] = []
-_cache_ts: float = 0
-
-
-async def _get_all_contacts(client: httpx.AsyncClient) -> list[dict]:
-    """Return all Quo contacts, fetching from API at most once per TTL window."""
-    global _contact_cache, _cache_ts
-
-    if _contact_cache and (time.monotonic() - _cache_ts) < _CONTACT_CACHE_TTL:
-        return _contact_cache
-
-    contacts: list[dict] = []
-    page_token: str | None = None
-    while True:
-        params: dict = {"maxResults": 50}
-        if page_token:
-            params["pageToken"] = page_token
-        resp = await client.get("/v1/contacts", params=params)
-        resp.raise_for_status()
-        data = resp.json()
-        contacts.extend(data.get("data", []))
-        page_token = data.get("nextPageToken")
-        if not page_token:
-            break
-
-    _contact_cache = contacts
-    _cache_ts = time.monotonic()
-    logfire.info("contact cache refreshed", count=len(contacts))
-    return contacts
-
-
-def _invalidate_contact_cache() -> None:
-    """Force a cache refresh on next access (e.g. after contact create/update)."""
-    global _cache_ts
-    _cache_ts = 0
-
-
-
-# ---------------------------------------------------------------------------
-# Contact-lookup helper (used by SMS tool guards)
-# ---------------------------------------------------------------------------
-
-async def _find_contact_by_phone(
-    client: httpx.AsyncClient,
-    phone: str,
-) -> dict | None:
-    """Look up a Quo contact by phone number using the cached contact list."""
-    contacts = await _get_all_contacts(client)
-    for contact in contacts:
-        for pn in contact.get("defaultFields", {}).get("phoneNumbers", []):
-            if pn.get("value") == phone:
-                return contact
-    return None
 
 
 def _get_contact_unit(contact: dict) -> tuple[str, str] | None:
-    """Extract (property, unit) from an OpenPhone contact's custom fields.
+    """Extract (property, unit) from a Quo contact's custom fields.
 
     Returns None if either field is missing (non-tenant contact).
     """
@@ -235,10 +190,10 @@ def _filter_tenants_by_property_unit(
 # Build the toolset
 # ---------------------------------------------------------------------------
 
-def _build_openphone_client() -> httpx.AsyncClient:
+def _build_quo_client() -> httpx.AsyncClient:
     api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
     if not api_key:
-        logfire.warn("OPEN_PHONE_API_KEY not set — OpenPhone tools will fail at runtime")
+        logfire.warn("OPEN_PHONE_API_KEY not set — Quo tools will fail at runtime")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
@@ -248,13 +203,13 @@ def _build_openphone_client() -> httpx.AsyncClient:
 
 def _build_quo_toolset():
     spec = _fetch_and_patch_spec()
-    client = _build_openphone_client()
+    client = _build_quo_client()
 
     # --- MCP toolset (read ops + contact writes) ---
     mcp_server = FastMCP.from_openapi(
         openapi_spec=spec,
         client=client,
-        name="openphone",
+        name="quo",
         route_maps=[RouteMap(pattern=r"^/v1/webhooks", mcp_type=MCPType.EXCLUDE)],
     )
     mcp_base = FastMCPToolset(mcp_server)
@@ -285,7 +240,7 @@ def _build_quo_toolset():
         Args:
             query: Search term — a name, phone number, or company name.
         """
-        contacts = await _get_all_contacts(client)
+        contacts = await get_all_contacts(client)
         return fuzzy_filter_json(contacts, query, top_n=5)
 
     # ------------------------------------------------------------------
@@ -305,7 +260,7 @@ def _build_quo_toolset():
         contacts: list[dict] = []
         for phone in to:
             try:
-                contact = await _find_contact_by_phone(client, phone)
+                contact = await find_contact_by_phone(phone, client)
             except httpx.HTTPStatusError as exc:
                 log_tool_error(tool_name, exc, conversation_id=conversation_id)
                 return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
@@ -335,7 +290,7 @@ def _build_quo_toolset():
         line_name: str,
         conversation_id: str,
     ) -> str:
-        """Send the SMS via OpenPhone API and return a result string."""
+        """Send the SMS via Quo API and return a result string."""
         try:
             resp = await client.post(
                 "/v1/messages",
@@ -547,7 +502,7 @@ def _build_quo_toolset():
             message_length=len(message),
         )
 
-        contacts = await _get_all_contacts(client)
+        contacts = await get_all_contacts(client)
         grouped = _filter_tenants_by_property_unit(contacts, properties, units)
 
         if not grouped:

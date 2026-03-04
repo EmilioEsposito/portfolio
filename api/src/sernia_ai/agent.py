@@ -2,7 +2,7 @@
 Main Sernia AI agent definition.
 
 Includes memory system (workspace file tools + dynamic instructions),
-HITL approval flow, and core toolsets (OpenPhone, Gmail, Calendar, ClickUp, DB search).
+HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search).
 """
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai.models.anthropic import AnthropicModelSettings
@@ -17,7 +17,7 @@ from api.src.sernia_ai.config import (
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
 from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
-from api.src.sernia_ai.tools.openphone_tools import quo_toolset
+from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
 from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
