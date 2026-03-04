@@ -5,7 +5,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.models import OAuthCredential
 from fastapi import HTTPException
 from typing import Optional, List
-from clerk_backend_api import ResponseBody
+from clerk_backend_api import OAuthAccessToken
 import pytest
 from typing import Union
 import pytz
@@ -13,7 +13,7 @@ async def save_oauth_credentials(
     session: AsyncSession,
     user_id: str,
     provider: str,
-    creds_response: Union[ResponseBody, dict] = None,
+    creds_response: Union[OAuthAccessToken, dict] = None,
     creds_dict: Union[dict, None] = None
 ) -> OAuthCredential:
     """

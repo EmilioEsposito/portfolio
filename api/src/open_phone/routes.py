@@ -134,7 +134,7 @@ async def verify_open_phone_signature(request: Request):
 def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
     """Extract relevant fields from the event data based on event type"""
     # Convert the payload to dict first
-    payload_dict = payload.dict()
+    payload_dict = payload.model_dump()
     
     # Convert any datetime objects to ISO format strings in the payload_dict
     def convert_datetime_to_str(obj):
