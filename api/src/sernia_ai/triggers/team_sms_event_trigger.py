@@ -63,8 +63,8 @@ async def handle_team_sms_event(event_data: dict) -> None:
         4. Decide: create a new task, update an existing one, or skip.
         5. If creating/updating, call `get_maintenance_field_options` first to get
            the correct field IDs and dropdown option UUIDs.
-        6a. If creating a new task, use the NoAction output tool (he will be notified automatically)
-        6b. If updating, text Peppino to notify him of the update.
+        6a. If creating a new task, text both Emilio and Peppino directly (not the shared team number) with a brief summary.
+        6b. If updating an existing task, text both Emilio and Peppino directly (not the shared team number) to notify them.
 
 
         After your assessment, always use the NoAction output tool.""")

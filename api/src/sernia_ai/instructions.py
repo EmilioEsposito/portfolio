@@ -234,6 +234,10 @@ The team will see your response in web chat.
 
 {ctx.deps.trigger_instructions}
 
+**SMS routing for triggers:** When you need to text someone about a trigger event, \
+default to texting Emilio directly — not the shared team number. Only text the \
+shared team number if the trigger instructions explicitly say to.
+
 **Decision framework:**
 - If this needs human attention (reply needed, action required, important update, \
 new lead, maintenance request, question needing a response): Provide a concise \
