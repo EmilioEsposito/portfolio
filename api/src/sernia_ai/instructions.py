@@ -224,10 +224,6 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     return guidance.get(ctx.deps.modality, "")
 
 
-# Marker the agent uses to indicate no human action needed (trigger processing only)
-SILENT_MARKER = "[NO_ACTION_NEEDED]"
-
-
 def inject_trigger_guidance(ctx: RunContext[SerniaDeps]) -> str:
     if not ctx.deps.trigger_instructions:
         return ""
@@ -243,9 +239,9 @@ The team will see your response in web chat.
 new lead, maintenance request, question needing a response): Provide a concise \
 analysis with context and recommended action(s). The team will review in web chat.
 - If this is routine/noise (automated message, read receipt, simple "ok thanks", \
-"got it", marketing email, tool notification): Respond with exactly \
-`{SILENT_MARKER}` and nothing else. You may still update workspace memory/notes \
-for routine events if there is useful information to record.
+"got it", marketing email, tool notification): Use the `NoAction` output tool \
+with a brief reason. You may still update workspace memory/notes for routine \
+events if there is useful information to record before using NoAction.
 
 When creating an analysis for the team, structure it as:
 1. **What happened** — who, what, when (1-2 sentences)

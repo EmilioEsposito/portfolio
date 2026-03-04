@@ -34,17 +34,17 @@ class TestSmoke:
     def test_background_agent_runner_imports(self):
         from api.src.sernia_ai.triggers.background_agent_runner import (
             run_agent_for_trigger,
-            SILENT_MARKER,
             RATE_LIMIT_SECONDS,
             _is_rate_limited,
         )
+        from api.src.sernia_ai.agent import NoAction
         from api.src.sernia_ai.config import TRIGGER_BOT_ID
 
         assert callable(run_agent_for_trigger)
-        assert "[NO_ACTION_NEEDED]" in SILENT_MARKER
         assert RATE_LIMIT_SECONDS == 120
         assert callable(_is_rate_limited)
         assert TRIGGER_BOT_ID == "system:sernia-ai"
+        assert NoAction(reason="test").reason == "test"
 
     def test_team_sms_event_trigger_imports(self):
         from api.src.sernia_ai.triggers.team_sms_event_trigger import handle_team_sms_event
@@ -65,12 +65,10 @@ class TestSmoke:
 
         assert callable(register_scheduled_triggers)
 
-    def test_silent_marker_in_instructions(self):
-        """SILENT_MARKER from instructions.py matches what background_agent_runner uses."""
-        from api.src.sernia_ai.instructions import SILENT_MARKER as instr_marker
-        from api.src.sernia_ai.triggers.background_agent_runner import SILENT_MARKER as runner_marker
-
-        assert instr_marker == runner_marker
+    def test_noaction_model_in_agent_output_type(self):
+        """NoAction is included in the agent's output_type union."""
+        from api.src.sernia_ai.agent import sernia_agent, NoAction
+        assert NoAction in sernia_agent.output_type
 
     def test_trigger_instructions_field_on_deps(self):
         """SerniaDeps should have the trigger_instructions field."""
@@ -189,9 +187,10 @@ class TestBackgroundAgentRunner:
 
     @pytest.mark.asyncio
     async def test_silent_processing_returns_none(self):
-        """When agent returns SILENT_MARKER, no conversation should be created."""
+        """When agent returns NoAction, conversation is saved but returns None."""
+        from api.src.sernia_ai.agent import NoAction
         mock_result = MagicMock()
-        mock_result.output = "[NO_ACTION_NEEDED]"
+        mock_result.output = NoAction(reason="routine ack")
 
         with (
             patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
@@ -215,7 +214,7 @@ class TestBackgroundAgentRunner:
             )
 
             assert conv_id is None
-            mock_save.assert_not_called()
+            mock_save.assert_called_once()  # always persisted for history
 
     @pytest.mark.asyncio
     async def test_handles_agent_error_gracefully(self):
@@ -312,7 +311,6 @@ class TestRateLimiter:
             patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.notify_trigger_alert"),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_team_sms"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
         ):
@@ -504,7 +502,7 @@ class TestInjectTriggerGuidance:
         result = inject_trigger_guidance(ctx)  # type: ignore
         assert "Trigger Event Processing" in result
         assert "inbound SMS trigger" in result
-        assert "[NO_ACTION_NEEDED]" in result
+        assert "NoAction" in result
 
 
 class TestNotifyTeamSms:

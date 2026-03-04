@@ -63,7 +63,7 @@ async def check_general_emails() -> None:
         - Emails already replied to
         - Zillow emails (handled by a separate check)
 
-        If no emails need attention, respond with [NO_ACTION_NEEDED].
+        If no emails need attention, no action is needed.
         If multiple emails need attention, prioritize the most urgent ones.""")
 
     trigger_instructions = dedent("""\
@@ -115,7 +115,7 @@ async def check_zillow_emails() -> None:
              creating a calendar event
            - Has the lead gone cold? → Note it but no action needed
 
-        If no Zillow emails need attention, respond with [NO_ACTION_NEEDED].
+        If no Zillow emails need attention, no action is needed.
         If you find actionable items, provide a concise analysis for each thread.""")
 
     trigger_instructions = dedent("""\

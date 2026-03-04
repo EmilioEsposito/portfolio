@@ -4,9 +4,15 @@ Main Sernia AI agent definition.
 Includes memory system (workspace file tools + dynamic instructions),
 HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search).
 """
+from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
+
+
+class NoAction(BaseModel):
+    """Agent decided no human action is needed."""
+    reason: str
 
 from api.src.sernia_ai.config import (
     MAIN_AGENT_MODEL,
@@ -56,7 +62,7 @@ sernia_agent = Agent(
     MAIN_AGENT_MODEL,
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
-    output_type=[str, DeferredToolRequests],  # HITL foundation
+    output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
     model_settings=AnthropicModelSettings(
         anthropic_cache_instructions=True,
         anthropic_cache_tool_definitions=True,

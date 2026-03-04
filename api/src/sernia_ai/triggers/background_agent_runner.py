@@ -26,9 +26,9 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.instructions import SILENT_MARKER
+from api.src.sernia_ai.agent import NoAction
 from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.service import notify_pending_approval, notify_team_sms, notify_trigger_alert
+from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert
 from api.src.ai_demos.models import save_agent_conversation
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 
@@ -139,19 +139,7 @@ async def run_agent_for_trigger(
         # Commit any workspace changes (memory updates, notes)
         asyncio.create_task(commit_and_push(WORKSPACE_PATH))
 
-        # Check if the agent decided no action is needed
-        output_text = result.output if isinstance(result.output, str) else ""
-        if SILENT_MARKER in output_text:
-            logfire.info(
-                "trigger processed silently — no action needed",
-                trigger_source=trigger_source,
-                conversation_id=conv_id,
-                prompt_preview=trigger_prompt[:300],
-                agent_output=output_text[:500],
-            )
-            return None
-
-        # Agent wants human attention — persist the conversation
+        # persist the conversation
         try:
             await save_agent_conversation(
                 session=session,
@@ -169,31 +157,26 @@ async def run_agent_for_trigger(
             )
             return None
 
-        # Send push notification + SMS to shared team number
+        # Check if the agent decided no action is needed
+        if isinstance(result.output, NoAction):
+            logfire.info(
+                "trigger processed silently — no action needed",
+                trigger_source=trigger_source,
+                conversation_id=conv_id,
+                reason=result.output.reason,
+                prompt_preview=trigger_prompt[:300],
+            )
+            return None
+
+        # Send push notification (SMS notification removed — will move to agent level)
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
-            sms_title = f"Approval Needed: {first['tool_name'].replace('_', ' ').title()}"
-            # Build concise body from tool args
-            sms_body_parts = []
-            if first.get("args"):
-                for key in ("to", "recipient", "name", "subject", "task_name"):
-                    if key in first["args"]:
-                        sms_body_parts.append(f"{key}: {first['args'][key]}")
-            sms_body = ", ".join(sms_body_parts) if sms_body_parts else "Action requires your approval"
-
             asyncio.create_task(
                 notify_pending_approval(
                     conversation_id=conv_id,
                     tool_name=first["tool_name"],
                     tool_args=first.get("args"),
-                )
-            )
-            asyncio.create_task(
-                notify_team_sms(
-                    title=sms_title,
-                    body=sms_body,
-                    conversation_id=conv_id,
                 )
             )
         else:
@@ -205,13 +188,6 @@ async def run_agent_for_trigger(
                     trigger_source=trigger_source,
                     title=alert_title,
                     body=alert_body,
-                )
-            )
-            asyncio.create_task(
-                notify_team_sms(
-                    title=alert_title,
-                    body=alert_body,
-                    conversation_id=conv_id,
                 )
             )
 

@@ -111,7 +111,7 @@ sernia_agent = Agent(
     MAIN_AGENT_MODEL,
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
-    output_type=[str, DeferredToolRequests],
+    output_type=[str, NoAction, DeferredToolRequests],
     builtin_tools=[WebSearchTool(...), WebFetchTool(...)],
     toolsets=[filesystem_toolset, quo_toolset, google_toolset,
              clickup_toolset, db_search_toolset, code_toolset],
@@ -333,12 +333,11 @@ SMS webhook / Email scheduler
     ↓
 Background agent processing (full tool access)
     ↓
-Agent decides: ─── routine ──→ [NO_ACTION_NEEDED] → silent (log only, may update memory)
+Agent decides: ─── routine ──→ NoAction output → silent (log only, may update memory)
     │
     └── needs attention ──→ Create web chat conversation
                                 ↓
-                           Push notification + SMS to shared team number
-                           (belt and suspenders — both always fire)
+                           Push notification
                                 ↓
                            Employee opens notification or SMS deeplink → web chat
                                 ↓
@@ -360,7 +359,7 @@ There are two distinct SMS-triggered flows, routed by which phone number receive
 
 - **Team SMS trigger**: All SMS replies require HITL approval — no auto-responding, even for simple acks. Agent monitors, analyzes, and alerts team via web chat.
 - **AI SMS conversation**: Always responds — this is a direct conversation. Internal contacts only (gated on `QUO_INTERNAL_COMPANY`). HITL tools still pause for approval; post-approval, the result is sent back as SMS.
-- **Agent uses `[NO_ACTION_NEEDED]` marker** for silent processing (team SMS trigger only — routine messages). Silent runs are logged to Logfire with the trigger prompt preview and agent output for auditability.
+- **Agent uses `NoAction` structured output** for silent processing (routine messages). Silent runs are logged to Logfire with the reason and trigger prompt preview for auditability.
 - **Per-key rate limiting (2 min cooldown)** — event-based triggers are rate-limited to prevent the same key (e.g. phone number) from firing more than once every 2 minutes. In-memory dict (`_trigger_cooldowns`), resets on restart. Rate-limited triggers are logged and skipped before the agent runs.
 - **Triggers coexist with existing systems** — Twilio escalation runs alongside team SMS trigger
 - **Zillow email processing subsumed** into Sernia AI agent (was separate APScheduler jobs)
@@ -428,8 +427,8 @@ Core function shared by all triggers:
 2. Creates its own `AsyncSession` (not from FastAPI DI — runs outside HTTP context)
 3. Builds `SerniaDeps` with system identity (`system:sernia-ai`, `emilio@serniacapital.com`)
 4. Runs agent with synthetic prompt + `trigger_instructions` for instruction injection
-5. If `[NO_ACTION_NEEDED]` → silent return with enhanced Logfire logging (prompt preview + agent output). Workspace changes still committed.
-6. Otherwise → persists conversation, sends push notification + SMS to shared team number (both always fire via `asyncio.create_task`)
+5. If `NoAction` output → silent return with Logfire logging (reason + prompt preview). Workspace changes still committed.
+6. Otherwise → persists conversation, sends push notification via `asyncio.create_task`
 
 ---
 
@@ -496,7 +495,7 @@ Core function shared by all triggers:
 | `builtin_tools=[WebSearchTool(), WebFetchTool()]` | Web research with domain filtering (Anthropic-only) |
 | `history_processors=[fn]` | Token-aware compaction before each model call |
 | `FastMCPToolset` | Bridge OpenAPI specs into PydanticAI toolsets (OpenPhone) |
-| `output_type=[str, DeferredToolRequests]` | HITL approval flow |
+| `output_type=[str, NoAction, DeferredToolRequests]` | HITL approval flow + silent triggers |
 | `RunContext[SerniaDeps]` | Access deps in tools and instructions |
 
 ### Existing Code Reused
