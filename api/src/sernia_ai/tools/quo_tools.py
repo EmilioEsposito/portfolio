@@ -1,7 +1,11 @@
 """
-OpenPhone (Quo) tools — full API via FastMCP OpenAPI bridge + guarded send.
+Quo (formerly OpenPhone) tools — full API via FastMCP OpenAPI bridge + guarded send.
 
-Fetches the public OpenPhone spec, patches known schema issues, trims
+NOTE: This module was renamed from ``openphone_tools.py`` to ``quo_tools.py``
+to reflect Quo's rebrand.  The underlying ``api/src/open_phone/`` service
+module still uses the old name — that migration is tracked separately.
+
+Fetches the public Quo OpenAPI spec, patches known schema issues, trims
 verbose descriptions to save tokens, and exposes a curated set of MCP tools
 (messages, contacts, calls, recordings, transcripts, conversations).
 
@@ -79,7 +83,7 @@ _KEEP_TOOLS = frozenset({
 # ---------------------------------------------------------------------------
 
 def _fetch_and_patch_spec() -> dict:
-    """Fetch the OpenPhone OpenAPI spec, patch schema issues, and trim for tokens."""
+    """Fetch the Quo (OpenPhone) OpenAPI spec, patch schema issues, and trim for tokens."""
     resp = httpx.get(OPENPHONE_SPEC_URL, follow_redirects=True, timeout=30)
     resp.raise_for_status()
     spec = resp.json()
@@ -129,7 +133,7 @@ def _strip_examples(obj: dict | list | str, _depth: int = 0) -> None:
 
 
 def _get_contact_unit(contact: dict) -> tuple[str, str] | None:
-    """Extract (property, unit) from an OpenPhone contact's custom fields.
+    """Extract (property, unit) from a Quo contact's custom fields.
 
     Returns None if either field is missing (non-tenant contact).
     """
@@ -186,10 +190,10 @@ def _filter_tenants_by_property_unit(
 # Build the toolset
 # ---------------------------------------------------------------------------
 
-def _build_openphone_client() -> httpx.AsyncClient:
+def _build_quo_client() -> httpx.AsyncClient:
     api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
     if not api_key:
-        logfire.warn("OPEN_PHONE_API_KEY not set — OpenPhone tools will fail at runtime")
+        logfire.warn("OPEN_PHONE_API_KEY not set — Quo tools will fail at runtime")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
@@ -199,13 +203,13 @@ def _build_openphone_client() -> httpx.AsyncClient:
 
 def _build_quo_toolset():
     spec = _fetch_and_patch_spec()
-    client = _build_openphone_client()
+    client = _build_quo_client()
 
     # --- MCP toolset (read ops + contact writes) ---
     mcp_server = FastMCP.from_openapi(
         openapi_spec=spec,
         client=client,
-        name="openphone",
+        name="quo",
         route_maps=[RouteMap(pattern=r"^/v1/webhooks", mcp_type=MCPType.EXCLUDE)],
     )
     mcp_base = FastMCPToolset(mcp_server)
@@ -286,7 +290,7 @@ def _build_quo_toolset():
         line_name: str,
         conversation_id: str,
     ) -> str:
-        """Send the SMS via OpenPhone API and return a result string."""
+        """Send the SMS via Quo API and return a result string."""
         try:
             resp = await client.post(
                 "/v1/messages",

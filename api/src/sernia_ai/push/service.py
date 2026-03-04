@@ -205,14 +205,14 @@ async def notify_trigger_alert(
 
 
 # ---------------------------------------------------------------------------
-# SMS team notification (shared OpenPhone number)
+# SMS team notification (shared Quo number)
 # ---------------------------------------------------------------------------
 
 _shared_team_phone: str | None = None
 
 
 async def _get_shared_team_phone() -> str | None:
-    """Look up the shared team phone number from OpenPhone, caching at module level."""
+    """Look up the shared team phone number from Quo, caching at module level."""
     global _shared_team_phone
     if _shared_team_phone is not None:
         return _shared_team_phone
@@ -249,7 +249,7 @@ async def notify_team_sms(
     body: str,
     conversation_id: str,
 ) -> None:
-    """Send an SMS to the shared team number with a deeplink to the web chat conversation.
+    """Send an SMS to the shared Quo team number with a deeplink to the web chat conversation.
 
     Failures are logged but never re-raised — SMS should not block trigger flow.
     """

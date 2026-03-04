@@ -2,7 +2,7 @@
 
 Agent tools for the Sernia AI assistant. Each module exposes a toolset consumed by the main agent.
 
-## OpenPhone / Quo (`openphone_tools.py`)
+## Quo (`quo_tools.py`)
 
 SMS and contact management via the OpenPhone API, bridged through FastMCP.
 

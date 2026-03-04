@@ -77,17 +77,32 @@ def invalidate_contact_cache() -> None:
     _cache_ts = 0
 
 
+async def find_contacts_by_phone(
+    phone: str,
+    client: httpx.AsyncClient | None = None,
+) -> list[dict]:
+    """Look up all OpenPhone contacts matching a phone number (uses cached contact list).
+
+    Multiple contacts can share the same phone number (e.g. an internal and
+    external record for the same person).  Returns all matches.
+    """
+    contacts = await get_all_contacts(client)
+    matches: list[dict] = []
+    for contact in contacts:
+        for pn in contact.get("defaultFields", {}).get("phoneNumbers", []):
+            if pn.get("value") == phone:
+                matches.append(contact)
+                break
+    return matches
+
+
 async def find_contact_by_phone(
     phone: str,
     client: httpx.AsyncClient | None = None,
 ) -> dict | None:
-    """Look up an OpenPhone contact by phone number (uses cached contact list)."""
-    contacts = await get_all_contacts(client)
-    for contact in contacts:
-        for pn in contact.get("defaultFields", {}).get("phoneNumbers", []):
-            if pn.get("value") == phone:
-                return contact
-    return None
+    """Convenience wrapper — returns the first matching contact or None."""
+    matches = await find_contacts_by_phone(phone, client)
+    return matches[0] if matches else None
 
 
 async def send_message(

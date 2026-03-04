@@ -744,9 +744,9 @@ class TestVerifyInternalContact:
         }
 
         with patch(
-            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contact_by_phone",
+            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contacts_by_phone",
             new_callable=AsyncMock,
-            return_value=fake_contact,
+            return_value=[fake_contact],
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import _verify_internal_contact
 
@@ -765,9 +765,9 @@ class TestVerifyInternalContact:
         }
 
         with patch(
-            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contact_by_phone",
+            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contacts_by_phone",
             new_callable=AsyncMock,
-            return_value=fake_contact,
+            return_value=[fake_contact],
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import _verify_internal_contact
 
@@ -777,14 +777,43 @@ class TestVerifyInternalContact:
     @pytest.mark.asyncio
     async def test_returns_none_for_unknown(self):
         with patch(
-            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contact_by_phone",
+            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contacts_by_phone",
             new_callable=AsyncMock,
-            return_value=None,
+            return_value=[],
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import _verify_internal_contact
 
             contact = await _verify_internal_contact("+14155550100")
             assert contact is None
+
+    @pytest.mark.asyncio
+    async def test_returns_internal_when_mixed_contacts(self):
+        """When multiple contacts share a phone, return the internal one."""
+        external_contact = {
+            "defaultFields": {
+                "company": "Tenant Corp",
+                "firstName": "Jane",
+                "phoneNumbers": [{"value": "+14155550100"}],
+            },
+        }
+        internal_contact = {
+            "defaultFields": {
+                "company": "Sernia Capital LLC",
+                "firstName": "John",
+                "phoneNumbers": [{"value": "+14155550100"}],
+            },
+        }
+
+        with patch(
+            "api.src.sernia_ai.triggers.ai_sms_event_trigger.find_contacts_by_phone",
+            new_callable=AsyncMock,
+            return_value=[external_contact, internal_contact],
+        ):
+            from api.src.sernia_ai.triggers.ai_sms_event_trigger import _verify_internal_contact
+
+            contact = await _verify_internal_contact("+14155550100")
+            assert contact is not None
+            assert contact["defaultFields"]["firstName"] == "John"
 
 
 class TestHandleAiSmsEvent:
@@ -998,7 +1027,7 @@ class TestUniversalKillSwitch:
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
                 new_callable=AsyncMock, return_value=False,
             ),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact", new_callable=AsyncMock, return_value=None) as mock_verify,
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact", new_callable=AsyncMock) as mock_verify,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
@@ -1009,8 +1038,8 @@ class TestUniversalKillSwitch:
                 "event_id": "evt_disabled",
             })
 
-            # Kill switch is currently commented out, so verify IS called
-            # but returns None → agent should still not be called
+            # Kill switch blocks before contact verification
+            mock_verify.assert_not_called()
             mock_agent.run.assert_not_called()
 
     @pytest.mark.asyncio

@@ -25,7 +25,7 @@ db_search_toolset = FunctionToolset()
 async def _resolve_contact_phones(contact_name: str) -> tuple[str, list[str]]:
     """Fuzzy-match a contact name to a display name and list of E.164 phone numbers.
 
-    Uses the TTL-cached contact list from openphone_tools.
+    Uses the TTL-cached contact list from open_phone.service.
 
     Returns:
         (display_name, ["+14155550100", ...])
@@ -140,13 +140,12 @@ def _build_date_filters(after: str | None, before: str | None) -> list:
 
 async def _get_contact_map() -> dict[str, str]:
     """Fetch all contacts and build a phone→name map for enrichment."""
-    from api.src.sernia_ai.tools.openphone_tools import (
-        _get_all_contacts,
-        _build_openphone_client,
-    )
-    client = _build_openphone_client()
+    from api.src.open_phone.service import get_all_contacts
+    from api.src.sernia_ai.tools.quo_tools import _build_quo_client
+
+    client = _build_quo_client()
     try:
-        contacts = await _get_all_contacts(client)
+        contacts = await get_all_contacts(client)
     except Exception:
         logfire.warning("Failed to fetch contacts for phone enrichment")
         return {}
