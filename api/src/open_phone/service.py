@@ -14,6 +14,82 @@ from api.src.contact.models import Contact
 import pytest
 from sqlalchemy import select
 
+# ---------------------------------------------------------------------------
+# TTL-cached contact store (central — used by tools + triggers)
+# ---------------------------------------------------------------------------
+
+_CONTACT_CACHE_TTL = 300  # 5 minutes
+_contact_cache: list[dict] = []
+_cache_ts: float = 0.0
+
+
+def _openphone_client() -> httpx.AsyncClient:
+    """Create a configured AsyncClient for the OpenPhone API."""
+    api_key = os.getenv("OPEN_PHONE_API_KEY", "")
+    return httpx.AsyncClient(
+        base_url="https://api.openphone.com",
+        headers={"Authorization": api_key},
+        timeout=15,
+    )
+
+
+async def get_all_contacts(client: httpx.AsyncClient | None = None) -> list[dict]:
+    """Return all OpenPhone contacts, fetching from API at most once per TTL window.
+
+    If *client* is None, a temporary client is created for the request.
+    """
+    global _contact_cache, _cache_ts
+
+    if _contact_cache and (time.monotonic() - _cache_ts) < _CONTACT_CACHE_TTL:
+        return _contact_cache
+
+    async def _fetch(c: httpx.AsyncClient) -> list[dict]:
+        contacts: list[dict] = []
+        page_token: str | None = None
+        while True:
+            params: dict = {"maxResults": 50}
+            if page_token:
+                params["pageToken"] = page_token
+            resp = await c.get("/v1/contacts", params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            contacts.extend(data.get("data", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+        return contacts
+
+    if client is not None:
+        all_contacts = await _fetch(client)
+    else:
+        async with _openphone_client() as c:
+            all_contacts = await _fetch(c)
+
+    _contact_cache = all_contacts
+    _cache_ts = time.monotonic()
+    logfire.info("openphone contact cache refreshed", count=len(all_contacts))
+    return all_contacts
+
+
+def invalidate_contact_cache() -> None:
+    """Force a cache refresh on next access (e.g. after contact create/update)."""
+    global _cache_ts
+    _cache_ts = 0
+
+
+async def find_contact_by_phone(
+    phone: str,
+    client: httpx.AsyncClient | None = None,
+) -> dict | None:
+    """Look up an OpenPhone contact by phone number (uses cached contact list)."""
+    contacts = await get_all_contacts(client)
+    for contact in contacts:
+        for pn in contact.get("defaultFields", {}).get("phoneNumbers", []):
+            if pn.get("value") == phone:
+                return contact
+    return None
+
+
 async def send_message(
     message: str,
     to_phone_number: str,

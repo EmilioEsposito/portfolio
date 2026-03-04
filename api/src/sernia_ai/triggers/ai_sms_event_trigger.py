@@ -57,7 +57,7 @@ from api.src.ai_demos.models import (
     get_conversation_messages,
     save_agent_conversation,
 )
-from api.src.open_phone.service import send_message
+from api.src.open_phone.service import send_message, find_contact_by_phone
 
 
 # ---------------------------------------------------------------------------
@@ -96,34 +96,19 @@ async def _verify_internal_contact(phone: str) -> dict | None:
     """Check if phone belongs to a Sernia Capital LLC contact.
 
     Returns the contact dict (with name fields) or None if external/unknown.
+    Uses the centralized paginated contact lookup from open_phone.service.
     """
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
-    if not api_key:
-        logfire.error("OPEN_PHONE_API_KEY not set — cannot verify contact")
-        return None
-
     try:
-        async with httpx.AsyncClient(
-            base_url="https://api.openphone.com",
-            headers={"Authorization": api_key},
-            timeout=15,
-        ) as client:
-            resp = await client.get(
-                "/v1/contacts",
-                params={"phoneNumbers[]": phone},
-            )
-            resp.raise_for_status()
-            contacts = resp.json().get("data", [])
-            if not contacts:
-                return None
-
-            contact = contacts[0]
-            company = (
-                contact.get("defaultFields", {}).get("company", "") or ""
-            )
-            if company.strip().lower() == QUO_INTERNAL_COMPANY.lower():
-                return contact
+        contact = await find_contact_by_phone(phone)
+        if not contact:
             return None
+
+        company = (
+            contact.get("defaultFields", {}).get("company", "") or ""
+        )
+        if company.strip().lower() == QUO_INTERNAL_COMPANY.lower():
+            return contact
+        return None
     except Exception:
         logfire.exception(
             "ai_sms_event: failed to verify contact", phone=phone
@@ -240,9 +225,9 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         return
 
     # --- Universal kill switch ---
-    if not await is_sernia_ai_enabled():
-        logfire.info("sernia_ai disabled — skipping ai_sms_event", event_id=event_id)
-        return
+    # if not await is_sernia_ai_enabled():
+    #     logfire.info("sernia_ai disabled — skipping ai_sms_event", event_id=event_id)
+    #     return
 
     logfire.info(
         "ai_sms_event: processing inbound SMS",

@@ -215,16 +215,10 @@ class TestResolveContactPhones:
 
     @pytest.mark.asyncio
     async def test_fuzzy_match_by_unit_number(self):
-        mock_client = AsyncMock()
-        mock_client.aclose = AsyncMock()
-
         with patch(
-            "api.src.sernia_ai.tools.openphone_tools._get_all_contacts",
+            "api.src.open_phone.service.get_all_contacts",
             new_callable=AsyncMock,
             return_value=FAKE_CONTACTS,
-        ), patch(
-            "api.src.sernia_ai.tools.openphone_tools._build_openphone_client",
-            return_value=mock_client,
         ):
             name, phones = await _resolve_contact_phones("Unit 203")
 
@@ -233,16 +227,10 @@ class TestResolveContactPhones:
 
     @pytest.mark.asyncio
     async def test_fuzzy_match_by_first_name(self):
-        mock_client = AsyncMock()
-        mock_client.aclose = AsyncMock()
-
         with patch(
-            "api.src.sernia_ai.tools.openphone_tools._get_all_contacts",
+            "api.src.open_phone.service.get_all_contacts",
             new_callable=AsyncMock,
             return_value=FAKE_CONTACTS,
-        ), patch(
-            "api.src.sernia_ai.tools.openphone_tools._build_openphone_client",
-            return_value=mock_client,
         ):
             name, phones = await _resolve_contact_phones("Maria")
 
@@ -253,16 +241,10 @@ class TestResolveContactPhones:
 
     @pytest.mark.asyncio
     async def test_no_match_raises(self):
-        mock_client = AsyncMock()
-        mock_client.aclose = AsyncMock()
-
         with patch(
-            "api.src.sernia_ai.tools.openphone_tools._get_all_contacts",
+            "api.src.open_phone.service.get_all_contacts",
             new_callable=AsyncMock,
             return_value=[],  # empty contacts — nothing to match
-        ), patch(
-            "api.src.sernia_ai.tools.openphone_tools._build_openphone_client",
-            return_value=mock_client,
         ):
             with pytest.raises(ValueError, match="No contact found"):
                 await _resolve_contact_phones("zzzznonexistent")

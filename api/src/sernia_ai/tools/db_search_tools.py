@@ -33,16 +33,9 @@ async def _resolve_contact_phones(contact_name: str) -> tuple[str, list[str]]:
     Raises:
         ValueError: If no matching contact found.
     """
-    from api.src.sernia_ai.tools.openphone_tools import (
-        _get_all_contacts,
-        _build_openphone_client,
-    )
+    from api.src.open_phone.service import get_all_contacts
 
-    client = _build_openphone_client()
-    try:
-        contacts = await _get_all_contacts(client)
-    finally:
-        await client.aclose()
+    contacts = await get_all_contacts()
 
     matches = fuzzy_filter(contacts, contact_name, top_n=1, threshold=50)
     if not matches:
