@@ -116,6 +116,9 @@ export function ToolApprovalCard({
 
   const isDisabled = processing || isProcessing;
 
+  // Tools that use the To + editable Message layout
+  const hasMessageArg = messageArgValue !== "";
+
   return (
     <Card className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
       <CardHeader className="pb-2">
@@ -130,70 +133,82 @@ export function ToolApprovalCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* Recipient */}
-        {pending.args?.to && (
-          <div className="text-sm">
-            <Label className="text-muted-foreground text-xs">To</Label>
-            <p className="font-mono">{pending.args.to}</p>
-          </div>
-        )}
-        {!pending.args?.to && (
-          <div className="text-sm">
-            <Label className="text-muted-foreground text-xs">To</Label>
-            <p className="font-mono text-muted-foreground">
-              Default (Emilio)
-            </p>
-          </div>
-        )}
-
-        {/* Message - editable */}
-        <div className="text-sm">
-          <div className="flex items-center justify-between mb-1">
-            <Label className="text-muted-foreground text-xs">Message</Label>
-            {!isEditing && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => setIsEditing(true)}
-                disabled={isDisabled}
-              >
-                <Edit3 className="w-3 h-3 mr-1" />
-                Edit
-              </Button>
+        {hasMessageArg ? (
+          <>
+            {/* Recipient */}
+            {pending.args?.to && (
+              <div className="text-sm">
+                <Label className="text-muted-foreground text-xs">To</Label>
+                <p className="font-mono">{pending.args.to}</p>
+              </div>
             )}
-          </div>
-          {isEditing ? (
-            <div className="space-y-2">
-              <Textarea
-                value={editedBody}
-                onChange={(e) => setEditedBody(e.target.value)}
-                className="min-h-[80px] bg-background"
-                disabled={isDisabled}
-              />
-              {editedBody !== messageArgValue && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Modified - will override AI's suggestion
+            {!pending.args?.to && (
+              <div className="text-sm">
+                <Label className="text-muted-foreground text-xs">To</Label>
+                <p className="font-mono text-muted-foreground">
+                  Default (Emilio)
+                </p>
+              </div>
+            )}
+
+            {/* Message - editable */}
+            <div className="text-sm">
+              <div className="flex items-center justify-between mb-1">
+                <Label className="text-muted-foreground text-xs">Message</Label>
+                {!isEditing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setIsEditing(true)}
+                    disabled={isDisabled}
+                  >
+                    <Edit3 className="w-3 h-3 mr-1" />
+                    Edit
+                  </Button>
+                )}
+              </div>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={editedBody}
+                    onChange={(e) => setEditedBody(e.target.value)}
+                    className="min-h-[80px] bg-background"
+                    disabled={isDisabled}
+                  />
+                  {editedBody !== messageArgValue && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Modified - will override AI's suggestion
+                    </p>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setIsEditing(false);
+                      setEditedBody(messageArgValue);
+                    }}
+                    disabled={isDisabled}
+                  >
+                    Cancel edit
+                  </Button>
+                </div>
+              ) : (
+                <p className="p-2 bg-background rounded border whitespace-pre-wrap">
+                  {messageArgValue}
                 </p>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setIsEditing(false);
-                  setEditedBody(messageArgValue);
-                }}
-                disabled={isDisabled}
-              >
-                Cancel edit
-              </Button>
             </div>
-          ) : (
-            <p className="p-2 bg-background rounded border whitespace-pre-wrap">
-              {messageArgValue || "(No message body)"}
-            </p>
-          )}
-        </div>
+          </>
+        ) : (
+          /* Generic tool args — show as JSON */
+          <div className="text-sm">
+            <Label className="text-muted-foreground text-xs">Arguments</Label>
+            <pre className="p-2 bg-background rounded border whitespace-pre-wrap text-xs font-mono overflow-x-auto mt-1">
+              {JSON.stringify(pending.args, null, 2)}
+            </pre>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-2 pt-2">
@@ -208,7 +223,7 @@ export function ToolApprovalCard({
             ) : (
               <CheckCircle2 className="w-4 h-4" />
             )}
-            {processing ? "Sending..." : "Approve & Send"}
+            {processing ? "Processing..." : "Approve"}
           </Button>
           <Button
             size="sm"

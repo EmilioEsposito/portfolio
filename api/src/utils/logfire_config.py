@@ -119,6 +119,7 @@ def ensure_logfire_configured(
             service_name=service_name,
             environment=env_name,
             send_to_logfire=True,
+            distributed_tracing=False,
             sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sqlalchemy_sys_traces),
         )
 

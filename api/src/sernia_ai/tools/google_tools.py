@@ -239,16 +239,12 @@ async def create_calendar_event(
 ) -> str:
     """Create a Google Calendar event.
 
-    The requesting user is automatically added as an attendee.
-    Reminders (email 1 day before, popup 1 hour before) are pre-configured.
+    Always include all attendees explicitly — no one is auto-added.
+    Reminders default to email 1 day before + popup 1 hour before.
     Default timezone is US/Eastern.
     """
     # Use the shared mailbox as organizer so attendees receive email invites
     service = await get_calendar_service(user_email=CALENDAR_ORGANIZER_EMAIL)
-
-    # Always include the requesting user as an attendee (deduplicated)
-    all_attendees = sorted({ctx.deps.user_email, *(event.attendees or [])})
-    event = event.model_copy(update={"attendees": all_attendees})
 
     result = await _create_calendar_event(
         service, event, organizer_email=CALENDAR_ORGANIZER_EMAIL, overwrite=True
