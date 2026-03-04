@@ -8,7 +8,7 @@ The OpenPhone webhook routes inbound SMS to one of two handlers based on which p
 
 | Modality | Handler | Phone Number | Purpose |
 |----------|---------|-------------|---------|
-| **Team SMS event trigger** | `team_sms_event_trigger.py` | Shared team number (`sernia` contact) | Monitor, analyze, alert team via web chat |
+| **Team SMS event trigger** | `team_sms_event_trigger.py` | Shared team number (`sernia` contact) | Assess for ClickUp maintenance tasks (silent — no team notification) |
 | **AI SMS event trigger** | `ai_sms_event_trigger.py` | AI's direct line (`QUO_SERNIA_AI_PHONE_ID`) | Direct conversation — AI responds natively via SMS |
 
 ### Webhook Routing
@@ -34,7 +34,7 @@ flowchart TD
 
 ## Team SMS Event Trigger Flow
 
-The team SMS event trigger monitors incoming messages and decides whether the team needs to be alerted. The agent runs with full tool access and either handles the event silently or creates a web chat conversation.
+The team SMS event trigger assesses each inbound message for potential ClickUp maintenance task creation. It does NOT notify the team — Twilio escalation handles that. The agent always uses `NoAction` output so no web chat conversation is created.
 
 ```mermaid
 flowchart TD
@@ -48,12 +48,11 @@ flowchart TD
     RATE -->|Yes| SKIP3["Skip (rate limited)"]
     RATE -->|No| AGENT["Run sernia_agent<br/>with trigger prompt"]
 
-    AGENT --> SILENT{"Output contains<br/>[NO_ACTION_NEEDED]?"}
-    SILENT -->|Yes| LOG["Log silently<br/>(may update workspace)"]
-    SILENT -->|No| SAVE["models.save_agent_conversation()"]
-    SAVE --> HITL{"Pending<br/>approvals?"}
-    HITL -->|Yes| NOTIFY_A["push/service.notify_pending_approval()<br/>push/service.notify_team_sms()"]
-    HITL -->|No| NOTIFY_T["push/service.notify_trigger_alert()<br/>push/service.notify_team_sms()"]
+    AGENT --> CLICKUP{"Maintenance<br/>issue?"}
+    CLICKUP -->|Yes| CREATE["create_task / update_task<br/>in maintenance list"]
+    CLICKUP -->|No| NOOP["No action"]
+    CREATE --> SILENT["Always: NoAction output<br/>(Twilio handles team alerts)"]
+    NOOP --> SILENT
 ```
 
 ## AI SMS Event Trigger Flow
@@ -107,6 +106,16 @@ sequenceDiagram
     API->>Web: Return result (tool outputs + agent text)
 ```
 
+## SMS Scheduled Trigger Flow (BETA: Currently disabled)
+
+A scheduled job reviews the shared team SMS inbox for threads needing attention:
+
+| Job | Interval | Scope |
+|-----|----------|-------|
+| `team_sms_scheduled_trigger.check_team_sms_inbox()` | 3 hours (8am-5pm ET) | Recent inbound SMS to shared team number — flags unanswered threads |
+
+Pre-fetches messages from the `open_phone_events` DB table (1.5x lookback for overlap), groups by sender, then runs the agent to identify threads where the team hasn't responded but should have. Complements the event trigger which handles ClickUp task creation in real-time.
+
 ## Email Scheduled Trigger Flow
 
 Two scheduled jobs via APScheduler poll the Gmail inbox:
@@ -116,7 +125,7 @@ Two scheduled jobs via APScheduler poll the Gmail inbox:
 | `email_scheduled_trigger.check_general_emails()` | 3 hours | Unread inbox (excludes Zillow, promotions) |
 | `email_scheduled_trigger.check_zillow_emails()` | 3 hours (8am-5pm ET) | Zillow leads with qualification criteria |
 
-Both use `background_agent_runner.run_agent_for_trigger()` with the same silent/alert pattern as the team SMS event trigger.
+Both use `background_agent_runner.run_agent_for_trigger()` with the same silent/alert pattern. When the agent uses the `NoAction` structured output, the runner persists the conversation but skips push notifications. When the agent outputs a normal string, the runner sends a push notification for team review.
 
 ## Universal Kill Switch (`is_sernia_ai_enabled`)
 
@@ -124,10 +133,11 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 
 | Path | Gated? | Why |
 |------|--------|-----|
-| Team SMS event trigger | Yes | Automated — webhook-driven |
+| Team SMS event trigger | Yes | Automated — webhook-driven (ClickUp only, silent) |
 | AI SMS event trigger | Yes | Automated — webhook-driven |
 | General email trigger | Yes | Automated — scheduler-driven |
 | Zillow email trigger | Yes | Automated — scheduler-driven |
+| SMS inbox scheduled trigger | Yes | Automated — scheduler-driven |
 | Web chat (`/chat`) | **No** | User-initiated, intentional |
 | HITL approvals (`/approve`) | **No** | User-initiated, write actions already behind HITL |
 
@@ -159,11 +169,12 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 
 | File | Purpose |
 |------|---------|
-| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, silent/alert routing, push + SMS notifications |
-| `team_sms_event_trigger.py` | Team SMS event trigger: builds prompt from inbound SMS, calls `run_agent_for_trigger()` |
+| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction`/alert routing, push notifications |
+| `team_sms_event_trigger.py` | Team SMS event trigger: assesses inbound SMS for ClickUp maintenance tasks (always silent) |
+| `team_sms_scheduled_trigger.py` | SMS scheduled trigger: periodic inbox review for unanswered threads needing team attention |
 | `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply |
 | `email_scheduled_trigger.py` | Email scheduled triggers: `check_general_emails()` and `check_zillow_emails()` with Gmail search prompts |
-| `register_scheduled_triggers.py` | Registers APScheduler jobs for email scheduled triggers |
+| `register_scheduled_triggers.py` | Registers APScheduler jobs for email and SMS scheduled triggers |
 
 ## Config (`config.py`)
 
@@ -176,3 +187,5 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
 | `GENERAL_EMAIL_CHECK_INTERVAL_MINUTES` | Email check frequency (180 min) |
 | `ZILLOW_EMAIL_CHECK_INTERVAL_HOURS` | Zillow email check frequency (3 hours) |
+| `CLICKUP_MAINTENANCE_LIST_ID` | ClickUp list ID for maintenance tasks created by SMS trigger |
+| `SMS_INBOX_CHECK_INTERVAL_HOURS` | SMS inbox review frequency (3 hours) |

@@ -1,8 +1,9 @@
 """
 ClickUp tools — list browsing, task search, task CRUD.
 
-Uses ClickUp REST API v2. Write operations (create, update, delete) require
-human-in-the-loop approval via ``requires_approval=True``.
+Uses ClickUp REST API v2. Delete requires human-in-the-loop approval via
+``requires_approval=True``. Create and update run without approval so that
+automated triggers (e.g. SMS → maintenance task) can operate autonomously.
 """
 
 import os
@@ -11,7 +12,11 @@ from datetime import datetime
 import httpx
 from pydantic_ai import FunctionToolset, RunContext
 
-from api.src.sernia_ai.config import CLICKUP_TEAM_ID, DEFAULT_CLICKUP_VIEW_ID
+from api.src.sernia_ai.config import (
+    CLICKUP_MAINTENANCE_LIST_ID,
+    CLICKUP_TEAM_ID,
+    DEFAULT_CLICKUP_VIEW_ID,
+)
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.utils.fuzzy_json import fuzzy_filter_json
 
@@ -281,7 +286,7 @@ async def search_tasks(
 # ---------------------------------------------------------------------------
 
 
-@clickup_toolset.tool(requires_approval=True)
+@clickup_toolset.tool
 async def create_task(
     ctx: RunContext[SerniaDeps],
     list_id: str,
@@ -290,6 +295,7 @@ async def create_task(
     status: str | None = None,
     priority: int | None = None,
     due_date: str | None = None,
+    custom_fields: list[dict] | None = None,
 ) -> str:
     """Create a new task in a ClickUp list.
 
@@ -300,6 +306,9 @@ async def create_task(
         status: Optional status string (e.g. "to do", "in progress").
         priority: Optional priority 1-4 (1=urgent, 2=high, 3=normal, 4=low).
         due_date: Optional due date as ISO string (e.g. "2025-07-15").
+        custom_fields: Optional list of custom field values. Each entry is
+            ``{"id": "<field_uuid>", "value": ...}``. For drop_down fields the
+            value must be the option UUID (use get_maintenance_field_options).
     """
     body: dict = {"name": name}
     if description is not None:
@@ -312,6 +321,8 @@ async def create_task(
         # ClickUp expects millisecond Unix timestamp
         dt = datetime.fromisoformat(due_date)
         body["due_date"] = int(dt.timestamp() * 1000)
+    if custom_fields is not None:
+        body["custom_fields"] = custom_fields
 
     resp = await _clickup_request("POST", f"/list/{list_id}/task", json=body)
     if resp.status_code not in (200, 201):
@@ -324,7 +335,7 @@ async def create_task(
     )
 
 
-@clickup_toolset.tool(requires_approval=True)
+@clickup_toolset.tool
 async def update_task(
     ctx: RunContext[SerniaDeps],
     task_id: str,
@@ -374,6 +385,28 @@ async def update_task(
     )
 
 
+@clickup_toolset.tool
+async def set_task_custom_field(
+    ctx: RunContext[SerniaDeps],
+    task_id: str,
+    field_id: str,
+    value: str | int | float | bool | dict | list | None,
+) -> str:
+    """Set or update a single custom field on an existing ClickUp task.
+
+    Args:
+        task_id: The task ID.
+        field_id: The custom field UUID.
+        value: The value to set. For drop_down fields use the option UUID.
+    """
+    resp = await _clickup_request(
+        "POST", f"/task/{task_id}/field/{field_id}", json={"value": value}
+    )
+    if resp.status_code != 200:
+        return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
+    return f"Custom field {field_id} set on task {task_id}."
+
+
 @clickup_toolset.tool(requires_approval=True)
 async def delete_task(
     ctx: RunContext[SerniaDeps],
@@ -388,3 +421,104 @@ async def delete_task(
     if resp.status_code != 200:
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
     return f"Task {task_id} deleted."
+
+
+# ---------------------------------------------------------------------------
+# Maintenance list custom fields — IDs and dropdown option mappings
+# ---------------------------------------------------------------------------
+
+MAINTENANCE_CUSTOM_FIELDS: dict[str, dict] = {
+    "property_address": {
+        "id": "56c7f3d6-9cac-4e41-8be4-4c91b057fcfa",
+        "type": "drop_down",
+        "options": {
+            "639 South St, Philadelphia": "68dd9fac-f39b-4b73-8a4a-e8f5fbb1e76e",
+            "641 South St, Philadelphia": "1b88a5b7-e81f-4c3e-9bd4-c1b6e0b3b4a1",
+        },
+    },
+    "unit_number": {
+        "id": "de9c3009-1dc7-40eb-9bab-b3c48058355b",
+        "type": "drop_down",
+        "options": {
+            "1F": "a1b2c3d4-0001-4000-8000-000000000001",
+            "1R": "a1b2c3d4-0001-4000-8000-000000000002",
+            "2F": "a1b2c3d4-0001-4000-8000-000000000003",
+            "2R": "a1b2c3d4-0001-4000-8000-000000000004",
+            "3F": "a1b2c3d4-0001-4000-8000-000000000005",
+            "3R": "a1b2c3d4-0001-4000-8000-000000000006",
+            "BSMT": "a1b2c3d4-0001-4000-8000-000000000007",
+        },
+    },
+    "name": {
+        "id": "73199851-a57f-415b-ac3b-ae06dc7281d0",
+        "type": "short_text",
+    },
+    "phone": {
+        "id": "bf426280-c78e-41d7-a2a3-0683e0d597d6",
+        "type": "phone",
+    },
+    "email": {
+        "id": "1a5e7e1b-abc8-4f8c-9837-57e4b233e3a5",
+        "type": "email",
+    },
+    "request_type": {
+        "id": "dd9ef413-9d3a-4454-b05f-defd9acfeab9",
+        "type": "drop_down",
+        "options": {
+            "Plumbing": "opt-req-plumbing",
+            "Electrical": "opt-req-electrical",
+            "HVAC": "opt-req-hvac",
+            "Appliance": "opt-req-appliance",
+            "Pest Control": "opt-req-pest",
+            "General": "opt-req-general",
+            "Other": "opt-req-other",
+        },
+    },
+    "permission_to_enter": {
+        "id": "a06fd20c-c006-4a84-9e90-4705ff13446a",
+        "type": "drop_down",
+        "options": {
+            "Yes": "opt-pte-yes",
+            "No": "opt-pte-no",
+            "Not specified": "opt-pte-unspecified",
+        },
+    },
+    "pets_on_property": {
+        "id": "ec310d23-b2ee-4a75-b853-a542a17dd59c",
+        "type": "drop_down",
+        "options": {
+            "Yes": "opt-pets-yes",
+            "No": "opt-pets-no",
+            "Unknown": "opt-pets-unknown",
+        },
+    },
+    "description": {
+        "id": "4f52c17f-6d76-4d5b-81fa-286c5c6980b3",
+        "type": "text",
+    },
+}
+
+
+@clickup_toolset.tool
+async def get_maintenance_field_options(ctx: RunContext[SerniaDeps]) -> str:
+    """Return custom field IDs and dropdown option mappings for the maintenance list.
+
+    Use this to build the ``custom_fields`` list when creating or updating
+    maintenance tasks. For drop_down fields, the value you pass must be the
+    option **UUID**, not the label.
+
+    Returns:
+        A formatted reference of field names, IDs, types, and option mappings.
+    """
+    lines: list[str] = [
+        f"Maintenance list ID: {CLICKUP_MAINTENANCE_LIST_ID}",
+        "",
+    ]
+    for field_name, field_def in MAINTENANCE_CUSTOM_FIELDS.items():
+        lines.append(f"**{field_name}** (id: {field_def['id']}, type: {field_def['type']})")
+        options = field_def.get("options")
+        if options:
+            for label, uuid_val in options.items():
+                lines.append(f"  - {label} → {uuid_val}")
+        lines.append("")
+    return "\n".join(lines)

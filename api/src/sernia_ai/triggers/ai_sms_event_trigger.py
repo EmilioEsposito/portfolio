@@ -35,7 +35,7 @@ from pydantic_ai.messages import (
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.agent import sernia_agent
+from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
     GOOGLE_DELEGATION_EMAIL,
@@ -340,6 +340,12 @@ async def handle_ai_sms_event(event_data: dict) -> None:
                 "ai_sms_event: HITL pause — awaiting approval",
                 conversation_id=conv_id,
                 tool_name=first["tool_name"],
+            )
+        elif isinstance(result.output, NoAction):
+            logfire.info(
+                "ai_sms_event: NoAction — no SMS reply",
+                conversation_id=conv_id,
+                reason=result.output.reason,
             )
         else:
             # Send agent's text response back via SMS
