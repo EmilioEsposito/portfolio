@@ -150,6 +150,75 @@ async def notify_all_sernia_users(
             logfire.info("cleaned up expired web push subs", count=len(expired_endpoints))
 
 
+async def notify_user_push(
+    clerk_user_id: str,
+    title: str,
+    body: str,
+    data: dict | None = None,
+) -> None:
+    """Send a push notification to a specific user's subscriptions only."""
+    if not _vapid:
+        logfire.warn("VAPID private key not loaded — skipping push notification")
+        return
+
+    if not clerk_user_id:
+        logfire.warn("notify_user_push called with empty clerk_user_id — skipping")
+        return
+
+    # Prefix title with environment name when not in production
+    if _RAILWAY_ENV != "production":
+        env_label = _RAILWAY_ENV.upper() if _RAILWAY_ENV else "LOCAL"
+        title = f"[{env_label}] {title}"
+
+    payload = json.dumps({"title": title, "body": body, "data": data or {}})
+    expired_endpoints: list[str] = []
+
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(WebPushSubscription).where(
+                WebPushSubscription.clerk_user_id == clerk_user_id
+            )
+        )
+        subs = result.scalars().all()
+
+        if not subs:
+            logfire.warn("web push: no subscriptions for user — notification not delivered", clerk_user_id=clerk_user_id, title=title)
+            return
+
+        logfire.info("web push sending (user-targeted)", sub_count=len(subs), title=title, clerk_user_id=clerk_user_id)
+
+        for sub in subs:
+            subscription_info = {
+                "endpoint": sub.endpoint,
+                "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
+            }
+            try:
+                resp = await asyncio.to_thread(_send_push, subscription_info, payload)
+                logfire.info(
+                    "web push sent",
+                    endpoint=sub.endpoint[:60],
+                    status=getattr(resp, "status_code", "ok"),
+                )
+            except WebPushException as e:
+                if "410" in str(e) or "404" in str(e):
+                    expired_endpoints.append(sub.endpoint)
+                    logfire.info("web push subscription expired", endpoint=sub.endpoint[:40])
+                else:
+                    logfire.exception("web push send error", endpoint=sub.endpoint[:40])
+            except Exception:
+                logfire.exception("web push unexpected error", endpoint=sub.endpoint[:40])
+
+        # Clean up expired subscriptions
+        if expired_endpoints:
+            await session.execute(
+                delete(WebPushSubscription).where(
+                    WebPushSubscription.endpoint.in_(expired_endpoints)
+                )
+            )
+            await session.commit()
+            logfire.info("cleaned up expired web push subs", count=len(expired_endpoints))
+
+
 async def notify_pending_approval(
     conversation_id: str,
     tool_name: str,

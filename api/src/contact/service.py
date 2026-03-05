@@ -145,6 +145,18 @@ async def get_contact_by_slug(slug: str) -> Optional[Contact]:
             logfire.error(f"Contact with slug: {slug} not found.")
         return contact
 
+async def get_clerk_user_id_by_slug(slug: str) -> Optional[str]:
+    """Look up a contact's clerk_user_id by slug (contacts → users join)."""
+    async with AsyncSessionFactory() as session:
+        result = await session.execute(
+            select(User.clerk_user_id)
+            .join(Contact, Contact.user_id == User.id)
+            .where(Contact.slug == slug.lower())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
 async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Contact]:
     logfire.info(f"Attempting to get all contacts with skip: {skip}, limit: {limit}")
     query = select(Contact).offset(skip).limit(limit)

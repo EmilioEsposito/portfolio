@@ -91,3 +91,6 @@ SMS_INBOX_CHECK_INTERVAL_HOURS = 3
 # Using the shared mailbox ensures attendees receive email invites
 # (self-organized events via delegation don't trigger notifications).
 CALENDAR_ORGANIZER_EMAIL = "all@serniacapital.com"
+
+# Contact slug for Emilio — used to look up clerk_user_id for targeted push notifications.
+EMILIO_CONTACT_SLUG = "emilio"

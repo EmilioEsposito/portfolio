@@ -28,7 +28,7 @@ from api.src.sernia_ai.config import (
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.agent import NoAction
 from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert
+from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert, notify_user_push
 from api.src.ai_demos.models import save_agent_conversation
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 
@@ -63,6 +63,7 @@ async def run_agent_for_trigger(
     notification_title: str = "",
     notification_body: str = "",
     rate_limit_key: str | None = None,
+    notify_clerk_user_id: str | None = None,
 ) -> str | None:
     """
     Run the Sernia agent in background for a trigger event.
@@ -77,6 +78,8 @@ async def run_agent_for_trigger(
         rate_limit_key: Cooldown key (e.g. phone number for SMS). When provided,
             the trigger is skipped if the same key fired within the last 2 minutes.
             Falls back to trigger_source if not provided.
+        notify_clerk_user_id: When set, send push notifications only to this user
+            instead of all Sernia users. Used for targeted triggers like Zillow drafts.
 
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
@@ -179,6 +182,23 @@ async def run_agent_for_trigger(
                     tool_args=first.get("args"),
                 )
             )
+        elif notify_clerk_user_id:
+            # Targeted push — only notify a specific user (e.g. Emilio for Zillow drafts)
+            alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
+            alert_body = notification_body or "New event needs your attention"
+            asyncio.create_task(
+                notify_user_push(
+                    clerk_user_id=notify_clerk_user_id,
+                    title=alert_title,
+                    body=alert_body,
+                    data={
+                        "url": f"/sernia-chat?id={conv_id}",
+                        "conversation_id": conv_id,
+                        "type": "alert",
+                        "trigger_source": trigger_source,
+                    },
+                )
+            )
         else:
             alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
             alert_body = notification_body or "New event needs your attention"
@@ -196,5 +216,6 @@ async def run_agent_for_trigger(
             trigger_source=trigger_source,
             conversation_id=conv_id,
             has_pending=bool(pending),
+            notify_target=notify_clerk_user_id or "all_sernia_users",
         )
         return conv_id
