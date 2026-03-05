@@ -11,7 +11,7 @@ router = APIRouter(prefix="/push", tags=["push"])
 
 @router.post("/register", status_code=201)
 async def register_push_token(
-    token_body: Annotated[dict, Body(embed=True, example={"token": "ExponentPushToken[...token..."})],
+    token_body: Annotated[dict, Body(embed=True, examples=[{"token": "ExponentPushToken[...token..."}])],
     user: AuthUser,
     db: DBSession
 ):
