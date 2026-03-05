@@ -4,6 +4,7 @@ Database operations for Gmail-related functionality.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 import pytz
 from typing import Dict, Any, Optional
@@ -113,12 +114,24 @@ async def save_email_message(
             
             # Add to session and commit
             session.add(email_msg)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                # Race condition: another request inserted the same message
+                # between our check and insert. Roll back and return the
+                # existing row instead.
+                await session.rollback()
+                logfire.info(
+                    f"Email message {message_id} inserted by concurrent request, "
+                    "fetching existing row"
+                )
+                existing = await get_email_by_message_id(session, message_id)
+                return existing
             await session.refresh(email_msg)
-            
+
             logfire.info(f"Successfully saved new email message {email_msg.message_id}")
             return email_msg
-        
+
     except Exception as e:
         logfire.exception(f"Failed to save email message: {str(e)}")
         await session.rollback()
