@@ -28,10 +28,19 @@ from api.src.open_phone.service import (
     find_contact_by_phone,
     invalidate_contact_cache,
 )
+import re
+
 import logfire
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 from pydantic_ai import FunctionToolset, RunContext
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.toolsets import CombinedToolset
 from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
@@ -187,6 +196,65 @@ def _filter_tenants_by_property_unit(
 
 
 # ---------------------------------------------------------------------------
+# SMS conversation seeding — inject hidden context for reply handling
+# ---------------------------------------------------------------------------
+
+
+async def _seed_sms_conversation(
+    session,
+    phone: str,
+    outbound_text: str,
+    context: str,
+) -> None:
+    """Seed the recipient's ai_sms_from_ conversation with hidden context.
+
+    Creates or appends to the conversation so that when the recipient
+    replies via SMS, the AI agent has context about why the message was sent.
+    """
+    from api.src.ai_demos.models import (
+        get_conversation_messages,
+        save_agent_conversation,
+    )
+    from api.src.sernia_ai.config import AGENT_NAME, TRIGGER_BOT_ID
+
+    digits = re.sub(r"\D", "", phone)
+    conv_id = f"ai_sms_from_{digits}"
+
+    # Load existing conversation (if any) so we append, not overwrite
+    existing = await get_conversation_messages(
+        conv_id, clerk_user_id=None, session=session,
+    )
+
+    seed: list[ModelMessage] = [
+        ModelRequest(parts=[
+            UserPromptPart(content=f"[Context — not visible to SMS recipient: {context}]"),
+        ]),
+        ModelResponse(parts=[
+            TextPart(content=outbound_text),
+        ]),
+    ]
+
+    messages = existing + seed
+
+    await save_agent_conversation(
+        session=session,
+        conversation_id=conv_id,
+        agent_name=AGENT_NAME,
+        messages=messages,
+        clerk_user_id=TRIGGER_BOT_ID,
+        metadata={"trigger_source": "ai_sms", "seeded_from_tool": True},
+        modality="sms",
+        contact_identifier=phone,
+    )
+    logfire.info(
+        "sms conversation seeded with context",
+        conv_id=conv_id,
+        phone=phone,
+        context_length=len(context),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Build the toolset
 # ---------------------------------------------------------------------------
 
@@ -247,35 +315,32 @@ def _build_quo_toolset():
     # Shared SMS helpers
     # ------------------------------------------------------------------
 
-    async def _resolve_recipients(
+    async def _resolve_recipient(
         tool_name: str,
-        to: list[str],
+        phone: str,
         conversation_id: str,
-    ) -> list[dict] | str:
-        """Look up each phone number in Quo contacts.
+    ) -> dict | str:
+        """Look up a phone number in Quo contacts.
 
-        Returns a list of contact dicts on success, or an error string if any
-        number is not found or the API call fails.
+        Returns a contact dict on success, or an error string if the number
+        is not found or the API call fails.
         """
-        contacts: list[dict] = []
-        for phone in to:
-            try:
-                contact = await find_contact_by_phone(phone, client)
-            except httpx.HTTPStatusError as exc:
-                log_tool_error(tool_name, exc, conversation_id=conversation_id)
-                return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
-            except httpx.HTTPError as exc:
-                log_tool_error(tool_name, exc, conversation_id=conversation_id)
-                return f"Error looking up contact for {phone}: {exc}"
+        try:
+            contact = await find_contact_by_phone(phone, client)
+        except httpx.HTTPStatusError as exc:
+            log_tool_error(tool_name, exc, conversation_id=conversation_id)
+            return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
+        except httpx.HTTPError as exc:
+            log_tool_error(tool_name, exc, conversation_id=conversation_id)
+            return f"Error looking up contact for {phone}: {exc}"
 
-            if contact is None:
-                logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
-                return (
-                    f"Blocked: {phone} is not a Quo contact. "
-                    "Messages can only be sent to numbers stored in Quo."
-                )
-            contacts.append(contact)
-        return contacts
+        if contact is None:
+            logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
+            return (
+                f"Blocked: {phone} is not a Quo contact. "
+                "Messages can only be sent to numbers stored in Quo."
+            )
+        return contact
 
     def _contact_display_name(contact: dict, phone: str) -> str:
         first = contact.get("defaultFields", {}).get("firstName") or ""
@@ -284,26 +349,25 @@ def _build_quo_toolset():
 
     async def _send_sms(
         tool_name: str,
-        to: list[str],
+        phone: str,
         message: str,
         from_phone_id: str,
         line_name: str,
         conversation_id: str,
     ) -> str:
-        """Send the SMS via Quo API and return a result string."""
+        """Send a single SMS via Quo API and return a result string."""
         try:
             resp = await client.post(
                 "/v1/messages",
-                json={"content": message, "from": from_phone_id, "to": to},
+                json={"content": message, "from": from_phone_id, "to": [phone]},
             )
         except httpx.HTTPError as exc:
             log_tool_error(tool_name, exc, conversation_id=conversation_id)
             return f"Error sending message: {exc}"
 
         if resp.status_code in (200, 201, 202):
-            logfire.info(f"{tool_name} success", to=to)
-            recipient_label = ", ".join(to) if len(to) > 1 else to[0]
-            return f"Message sent to {recipient_label} from {line_name}."
+            logfire.info(f"{tool_name} success", to=phone)
+            return f"Message sent to {phone} from {line_name}."
 
         logfire.error(
             "sernia tool error: {tool_name}",
@@ -321,56 +385,56 @@ def _build_quo_toolset():
     @custom_toolset.tool
     async def send_internal_sms(
         ctx: RunContext[SerniaDeps],
-        to: list[str],
+        to: str,
         message: str,
+        context: str = "",
     ) -> str:
-        """Send an SMS to Sernia Capital team members (internal only, no approval needed).
+        """Send an SMS to a Sernia Capital team member (internal only, no approval needed).
 
-        Use this tool ONLY when ALL recipients are Sernia Capital LLC employees.
-        The system verifies every recipient is an internal contact. If any
-        recipient is external, the tool blocks and you must use
-        send_external_sms instead.
-
-        Supports group texts — pass multiple phone numbers.
+        The recipient must be a Sernia Capital LLC employee. If the recipient is
+        external, the tool blocks and you must use send_external_sms instead.
+        To message multiple people, call this tool once per recipient.
 
         Args:
-            to: Recipient phone numbers in E.164 format (e.g. ["+14125551234"]).
+            to: Recipient phone number in E.164 format (e.g. "+14125551234").
             message: The text message body to send.
+            context: Optional hidden context about why this message is being sent.
+                Not included in the SMS — saved to the recipient's conversation
+                history so the AI has context if they reply later.
         """
         logfire.info("send_internal_sms called", to=to, message_length=len(message))
 
-        # Gate: resolve all recipients.
-        result = await _resolve_recipients(
+        # Gate: resolve recipient.
+        result = await _resolve_recipient(
             "send_internal_sms", to, ctx.deps.conversation_id,
         )
         if isinstance(result, str):
             return result
-        contacts = result
+        contact = result
 
-        # Gate: ALL must be internal.
-        for contact, phone in zip(contacts, to):
-            if not _is_internal_contact(contact):
-                name = _contact_display_name(contact, phone)
-                company = contact.get("defaultFields", {}).get("company") or "(none)"
-                logfire.warn(
-                    "send_internal_sms blocked: external recipient",
-                    to=phone,
-                    company=company,
-                )
-                return (
-                    f"Blocked: {name} ({phone}) is not a Sernia Capital LLC contact "
-                    f"(company={company!r}). Use send_external_sms for external recipients."
-                )
+        # Gate: must be internal.
+        if not _is_internal_contact(contact):
+            name = _contact_display_name(contact, to)
+            company = contact.get("defaultFields", {}).get("company") or "(none)"
+            logfire.warn(
+                "send_internal_sms blocked: external recipient",
+                to=to,
+                company=company,
+            )
+            return (
+                f"Blocked: {name} ({to}) is not a Sernia Capital LLC contact "
+                f"(company={company!r}). Use send_external_sms for external recipients."
+            )
 
-        names = [_contact_display_name(c, p) for c, p in zip(contacts, to)]
+        name = _contact_display_name(contact, to)
         logfire.info(
             "send_internal_sms sending",
             to=to,
-            names=names,
+            name=name,
             from_phone_id=QUO_SERNIA_AI_PHONE_ID,
         )
 
-        return await _send_sms(
+        send_result = await _send_sms(
             "send_internal_sms",
             to,
             message,
@@ -379,6 +443,20 @@ def _build_quo_toolset():
             ctx.deps.conversation_id,
         )
 
+        # Seed recipient's AI SMS conversation with hidden context
+        if context and "Failed" not in send_result:
+            try:
+                await _seed_sms_conversation(
+                    ctx.deps.db_session, to, message, context,
+                )
+            except Exception:
+                logfire.exception(
+                    "send_internal_sms: failed to seed conversation",
+                    to=to,
+                )
+
+        return send_result
+
     # ------------------------------------------------------------------
     # send_external_sms — requires HITL, external contacts
     # ------------------------------------------------------------------
@@ -386,85 +464,57 @@ def _build_quo_toolset():
     @custom_toolset.tool(requires_approval=True)
     async def send_external_sms(
         ctx: RunContext[SerniaDeps],
-        to: list[str],
+        to: str,
         message: str,
+        context: str = "",
     ) -> str:
-        """Send an SMS to external contacts (requires approval).
+        """Send an SMS to an external contact (requires approval).
 
-        Use this tool when ALL recipients are external (not Sernia Capital LLC).
-        The system rejects any message that includes a Sernia Capital LLC
-        contact — internal numbers must never be exposed in external threads.
-        Use send_internal_sms for internal-only messages.
-
-        Supports group texts — pass multiple phone numbers. However, group
-        texts to tenants in DIFFERENT units are blocked to prevent sharing
-        contact info between unrelated tenants. Same-unit groups (e.g.
-        roommates) are allowed.
+        The recipient must be external (not Sernia Capital LLC). If the
+        recipient is internal, the tool blocks — use send_internal_sms instead.
+        To message multiple people, call this tool once per recipient.
 
         Args:
-            to: Recipient phone numbers in E.164 format (e.g. ["+14125551234"]).
+            to: Recipient phone number in E.164 format (e.g. "+14125551234").
             message: The text message body to send.
+            context: Optional hidden context about why this message is being sent.
+                Not included in the SMS — saved to the recipient's conversation
+                history so the AI has context if they reply later.
         """
         logfire.info("send_external_sms called", to=to, message_length=len(message))
 
-        # Gate: resolve all recipients.
-        result = await _resolve_recipients(
+        # Gate: resolve recipient.
+        result = await _resolve_recipient(
             "send_external_sms", to, ctx.deps.conversation_id,
         )
         if isinstance(result, str):
             return result
-        contacts = result
+        contact = result
 
-        # Gate: NO internal contacts allowed — protects internal phone numbers.
-        for contact, phone in zip(contacts, to):
-            if _is_internal_contact(contact):
-                name = _contact_display_name(contact, phone)
-                logfire.warn(
-                    "send_external_sms blocked: internal recipient in external thread",
-                    to=phone,
-                    name=name,
-                )
-                return (
-                    f"Blocked: {name} ({phone}) is a Sernia Capital LLC contact. "
-                    "External messages must NOT include internal team members — "
-                    "this would expose internal phone numbers. "
-                    "Use send_internal_sms for internal recipients."
-                )
+        # Gate: NO internal contacts — protects internal phone numbers.
+        if _is_internal_contact(contact):
+            name = _contact_display_name(contact, to)
+            logfire.warn(
+                "send_external_sms blocked: internal recipient in external thread",
+                to=to,
+                name=name,
+            )
+            return (
+                f"Blocked: {name} ({to}) is a Sernia Capital LLC contact. "
+                "External messages must NOT include internal team members — "
+                "this would expose internal phone numbers. "
+                "Use send_internal_sms for internal recipients."
+            )
 
-        # Gate: recipients with unit info must all share the same unit.
-        if len(contacts) > 1:
-            units: dict[str, tuple[str, str]] = {}
-            for contact, phone in zip(contacts, to):
-                cu = _get_contact_unit(contact)
-                if cu is not None:
-                    units[phone] = cu
-
-            if units:
-                unique_units = set(units.values())
-                if len(unique_units) > 1:
-                    details = ", ".join(
-                        f"{_contact_display_name(c, p)} → {units[p][0]} Unit {units[p][1]}"
-                        for c, p in zip(contacts, to) if p in units
-                    )
-                    logfire.warn(
-                        "send_external_sms blocked: cross-unit group text",
-                        to=to, units=str(unique_units),
-                    )
-                    return (
-                        f"Blocked: recipients span multiple units ({details}). "
-                        "Tenants in different units must NEVER be on the same group SMS. "
-                        "Send separate messages per unit."
-                    )
-
-        names = [_contact_display_name(c, p) for c, p in zip(contacts, to)]
+        name = _contact_display_name(contact, to)
         logfire.info(
             "send_external_sms sending",
             to=to,
-            names=names,
+            name=name,
             from_phone_id=QUO_SHARED_EXTERNAL_PHONE_ID,
         )
 
-        return await _send_sms(
+        send_result = await _send_sms(
             "send_external_sms",
             to,
             message,
@@ -472,6 +522,20 @@ def _build_quo_toolset():
             "Sernia Capital Team",
             ctx.deps.conversation_id,
         )
+
+        # Seed recipient's AI SMS conversation with hidden context
+        if context and "Failed" not in send_result:
+            try:
+                await _seed_sms_conversation(
+                    ctx.deps.db_session, to, message, context,
+                )
+            except Exception:
+                logfire.exception(
+                    "send_external_sms: failed to seed conversation",
+                    to=to,
+                )
+
+        return send_result
 
     # ------------------------------------------------------------------
     # mass_text_tenants — per-unit sharding, requires HITL
@@ -525,22 +589,27 @@ def _build_quo_toolset():
                 failures.append(f"{prop} Unit {unit}: no phone numbers")
                 continue
 
-            result = await _send_sms(
-                "mass_text_tenants",
-                phones,
-                message,
-                QUO_SHARED_EXTERNAL_PHONE_ID,
-                "Sernia Capital Team",
-                ctx.deps.conversation_id,
-            )
+            # Send to each tenant in the unit individually
+            unit_sent = 0
+            for phone in phones:
+                result = await _send_sms(
+                    "mass_text_tenants",
+                    phone,
+                    message,
+                    QUO_SHARED_EXTERNAL_PHONE_ID,
+                    "Sernia Capital Team",
+                    ctx.deps.conversation_id,
+                )
+                if result.startswith("Message sent"):
+                    unit_sent += 1
+                else:
+                    failures.append(f"{prop} Unit {unit} ({phone}): {result}")
 
-            if result.startswith("Message sent"):
+            if unit_sent:
                 recipient_desc = ", ".join(names)
                 results.append(
-                    f"{prop} Unit {unit} ({len(phones)} recipient{'s' if len(phones) != 1 else ''}: {recipient_desc})"
+                    f"{prop} Unit {unit} ({unit_sent} recipient{'s' if unit_sent != 1 else ''}: {recipient_desc})"
                 )
-            else:
-                failures.append(f"{prop} Unit {unit}: {result}")
 
         parts: list[str] = []
         if results:

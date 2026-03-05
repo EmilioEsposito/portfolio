@@ -191,6 +191,63 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
     return result
 
 
+def _extract_text_contents(messages: list[ModelMessage]) -> set[str]:
+    """Extract all text content strings from a message list for dedup."""
+    texts: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                    texts.add(part.content.strip())
+        elif isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, TextPart):
+                    texts.add(part.content.strip())
+    return texts
+
+
+def _merge_sms_into_history(
+    db_history: list[ModelMessage],
+    sms_thread: list[ModelMessage],
+) -> list[ModelMessage]:
+    """Merge SMS thread messages into DB conversation history.
+
+    DB history preserves tool call context from prior agent runs.
+    SMS thread captures messages sent from any conversation (including
+    web chat tool calls). Prepends any SMS messages whose text content
+    is missing from the DB history.
+    """
+    if not sms_thread:
+        return db_history
+    if not db_history:
+        return sms_thread
+
+    # Find text contents already in DB history
+    db_texts = _extract_text_contents(db_history)
+
+    # Collect SMS messages not present in DB
+    missing: list[ModelMessage] = []
+    for msg in sms_thread:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart) and isinstance(part.content, str):
+                    if part.content.strip() not in db_texts:
+                        missing.append(msg)
+                        break
+        elif isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, TextPart):
+                    if part.content.strip() not in db_texts:
+                        missing.append(msg)
+                        break
+
+    if not missing:
+        return db_history
+
+    # Prepend missing SMS messages before DB history
+    return missing + db_history
+
+
 async def _send_sms_reply(to_phone: str, message: str) -> None:
     """Send an SMS reply from the AI phone number. Never raises."""
     try:
@@ -257,20 +314,33 @@ async def handle_ai_sms_event(event_data: dict) -> None:
     contact_name = _contact_display_name(contact)
     conv_id = f"ai_sms_from_{_digits_only(from_number)}"
 
-    # Load conversation history
+    # Load conversation history — always fetch SMS thread from Quo and
+    # merge with DB history so the agent has full context even when
+    # messages were sent from other conversations (e.g. web chat tool calls).
     async with AsyncSessionFactory() as session:
-        # Try DB first (preserves tool context from prior runs)
-        history = await get_conversation_messages(
+        db_history = await get_conversation_messages(
             conv_id, clerk_user_id=None, session=session
         )
+        sms_thread = await _fetch_sms_thread(from_number)
 
-        if not history:
-            # Bootstrap from Quo SMS thread
-            history = await _fetch_sms_thread(from_number)
-            logfire.info(
-                "ai_sms_event: bootstrapped from Quo",
-                from_number=from_number,
-                message_count=len(history),
+        history = _merge_sms_into_history(db_history, sms_thread)
+        logfire.info(
+            "ai_sms_event: history loaded",
+            from_number=from_number,
+            db_messages=len(db_history),
+            sms_messages=len(sms_thread),
+            merged_messages=len(history),
+        )
+
+        # If still no history, the Quo API may not have indexed recent
+        # messages yet. Hint the agent to look up SMS history.
+        sms_context_hint = ""
+        if len(history) <= 1:
+            sms_context_hint = (
+                " [System: No prior conversation history found. This person may "
+                "be replying to a message you sent from another conversation. "
+                "Use `get_contact_sms_history` to check recent SMS thread before "
+                "replying.]"
             )
 
         deps = SerniaDeps(
@@ -285,7 +355,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
 
         try:
             result = await sernia_agent.run(
-                message_text, message_history=history, deps=deps
+                message_text + sms_context_hint, message_history=history, deps=deps
             )
         except Exception:
             logfire.exception(

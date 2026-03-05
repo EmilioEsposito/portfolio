@@ -950,9 +950,9 @@ class TestHandleAiSmsEvent:
                 "event_id": "evt_followup",
             })
 
-            # Should NOT have bootstrapped from OpenPhone
-            mock_fetch.assert_not_called()
-            # Agent should have received existing history
+            # Should have fetched SMS thread for merging (always fetched now)
+            mock_fetch.assert_called_once()
+            # Agent should have received existing DB history (SMS thread was empty)
             agent_call = mock_agent.run.call_args
             assert agent_call[1]["message_history"] == existing_history
 

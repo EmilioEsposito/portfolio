@@ -59,6 +59,15 @@ flowchart TD
 
 The AI SMS event trigger treats the SMS thread as a direct conversation. Only internal contacts (Sernia Capital LLC) are allowed. The agent responds natively via SMS.
 
+### History Loading
+
+The trigger always fetches from **both** sources and merges them:
+
+1. **DB history** — `get_conversation_messages()` preserves full tool call context from prior agent runs
+2. **Quo SMS thread** — `_fetch_sms_thread()` via `GET /v1/messages` captures messages sent from any conversation (e.g. web chat tool calls, context-seeded messages)
+
+`_merge_sms_into_history()` deduplicates by text content — any SMS messages whose text is missing from DB history are prepended. This ensures the agent sees the full picture even when messages were sent outside the AI SMS conversation (e.g. via `send_internal_sms` from web chat). If both sources return empty (e.g. Quo API hasn't indexed recent messages yet), a hint is injected telling the agent to use `get_contact_sms_history`.
+
 ```mermaid
 flowchart TD
     IN["ai_sms_event_trigger.handle_ai_sms_event()"] --> VALIDATE{"from_number and<br/>message_text present?"}
@@ -67,23 +76,26 @@ flowchart TD
     ENABLED -->|No| SKIP2a["Skip (disabled)"]
     ENABLED -->|Yes| RATE{"ai_sms_event_trigger._is_ai_sms_rate_limited()<br/>(10 per 10 min sliding window)"}
     RATE -->|Yes| SKIP2["Skip (rate limited)"]
-    RATE -->|No| CONTACT["ai_sms_event_trigger._verify_internal_contact()<br/>OpenPhone API lookup"]
+    RATE -->|No| CONTACT["ai_sms_event_trigger._verify_internal_contact()<br/>Quo API lookup"]
 
     CONTACT --> GATE{"Sernia Capital<br/>LLC contact?"}
     GATE -->|No| IGNORE["Silently ignore<br/>(external/unknown)"]
     GATE -->|Yes| CONV_ID["Derive conv_id:<br/>ai_sms_from_{digits}"]
 
-    CONV_ID --> HISTORY{"Conversation<br/>exists in DB?"}
-    HISTORY -->|Yes| LOAD_DB["models.get_conversation_messages()<br/>(preserves tool context)"]
-    HISTORY -->|No| BOOTSTRAP["ai_sms_event_trigger._fetch_sms_thread()<br/>GET /v1/messages (last 20)"]
+    CONV_ID --> FETCH["Fetch both sources in parallel"]
+    FETCH --> DB["DB: get_conversation_messages()"]
+    FETCH --> QUO["Quo: _fetch_sms_thread()<br/>GET /v1/messages (last 20)"]
+    DB --> MERGE["_merge_sms_into_history()<br/>(dedup by text content)"]
+    QUO --> MERGE
 
-    LOAD_DB --> AGENT["Run sernia_agent<br/>modality=sms"]
-    BOOTSTRAP --> AGENT
+    MERGE --> AGENT["Run sernia_agent<br/>modality=sms"]
 
     AGENT --> SAVE["models.save_agent_conversation()<br/>(modality=sms, upsert)"]
     SAVE --> RESULT{"Pending<br/>approvals?"}
     RESULT -->|Yes| HITL["push/service.notify_pending_approval()<br/>push/service.notify_team_sms()"]
-    RESULT -->|No| REPLY["ai_sms_event_trigger._send_sms_reply()"]
+    RESULT -->|No| CHECK{"NoAction?"}
+    CHECK -->|Yes| LOG["Log reason, no SMS reply"]
+    CHECK -->|No| REPLY["ai_sms_event_trigger._send_sms_reply()"]
 ```
 
 ### Post-Approval SMS Reply
