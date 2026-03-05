@@ -124,7 +124,7 @@ async def verify_open_phone_signature(request: Request):
     computed_digest = base64.b64encode(hmac_object.digest()).decode()
 
     # Make sure the computed digest matches the digest in the openphone header.
-    if provided_digest == computed_digest:
+    if hmac.compare_digest(provided_digest, computed_digest):
         logfire.info("signature verification succeeded")
         return True
     else:

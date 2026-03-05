@@ -196,16 +196,17 @@ async def schedule_sms(
     run_date: datetime,
 ):
     scheduler = get_scheduler()
-    sernia_contact = await get_contact_by_slug("sernia")
-    phone_numbers = {
-        "EMILIO": "+14123703550",
-        "JACKIE": "+14123703505",
-        "PEPPINO": "+14126800593",
-        "ANNA": "+14124172322",
-        "SERNIA": sernia_contact.phone_number,
+    slug_map = {
+        "EMILIO": "emilio",
+        "JACKIE": "jackie",
+        "PEPPINO": "peppino",
+        "ANNA": "anna",
+        "SERNIA": "sernia",
     }
-
-    to_phone_number = phone_numbers[recipient]
+    contact = await get_contact_by_slug(slug_map[recipient])
+    if not contact or not contact.phone_number:
+        raise ValueError(f"Contact '{slug_map[recipient]}' not found or has no phone number")
+    to_phone_number = contact.phone_number
 
     is_scheduled = False
     try:

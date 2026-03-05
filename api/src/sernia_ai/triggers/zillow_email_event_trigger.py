@@ -1,0 +1,150 @@
+"""
+Zillow email event trigger for the Sernia AI agent.
+
+Fires in real-time when a new Zillow email arrives via Gmail Pub/Sub.
+The agent drafts a response (Phase 1: no email sent) and sends a push
+notification to Emilio for review.
+
+Naming convention: all public symbols use the ``zillow_email_event`` root.
+"""
+
+from textwrap import dedent
+
+import logfire
+
+from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG
+from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+# Module-level cache for Emilio's clerk_user_id (looked up once from DB).
+_emilio_clerk_user_id: str | None = None
+
+
+async def _get_emilio_clerk_user_id() -> str | None:
+    """Look up Emilio's clerk_user_id via contact slug, caching at module level."""
+    global _emilio_clerk_user_id
+    if _emilio_clerk_user_id is not None:
+        return _emilio_clerk_user_id
+
+    try:
+        from api.src.contact.service import get_clerk_user_id_by_slug
+
+        clerk_id = await get_clerk_user_id_by_slug(EMILIO_CONTACT_SLUG)
+        if clerk_id:
+            _emilio_clerk_user_id = clerk_id
+            logfire.info("zillow_email_event: cached emilio clerk_user_id", clerk_user_id=clerk_id)
+            return clerk_id
+        logfire.warn("zillow_email_event: no user found for contact slug", slug=EMILIO_CONTACT_SLUG)
+    except Exception:
+        logfire.exception("zillow_email_event: failed to look up emilio clerk_user_id")
+    return None
+
+
+def is_zillow_email(from_address: str) -> bool:
+    """Return True if the sender is a Zillow email address."""
+    if not from_address:
+        return False
+    addr = from_address.lower()
+    return addr.endswith("@zillow.com") or "@" in addr and addr.split("@", 1)[1].endswith(".zillow.com")
+
+
+async def handle_zillow_email_event(
+    *,
+    thread_id: str,
+    subject: str,
+    from_address: str,
+    body_text: str | None,
+) -> str | None:
+    """
+    Process a newly arrived Zillow email in real-time.
+
+    Called from the Gmail Pub/Sub webhook after the email is saved to the DB.
+    The agent reads the full thread via its email tools, drafts a reply,
+    and we push-notify Emilio with the result.
+
+    Returns the conversation_id if a draft was created, None otherwise.
+    """
+    logfire.info(
+        "zillow_email_event: handling",
+        thread_id=thread_id,
+        subject=subject,
+        from_address=from_address,
+    )
+
+    # Build a snippet of the email body for the trigger prompt
+    body_snippet = ""
+    if body_text:
+        body_snippet = body_text[:500].strip()
+        if len(body_text) > 500:
+            body_snippet += "..."
+
+    trigger_prompt = dedent(f"""\
+        A new Zillow email just arrived. Draft a reply if appropriate.
+
+        **Email details:**
+        - Thread ID (Gmail): {thread_id}
+        - Subject: {subject}
+        - From: {from_address}
+        - Body preview: {body_snippet}
+
+        **Steps:**
+        1. Read the detailed Zillow auto-reply guide from your workspace:
+           read_file("/workspace/areas/zillow_auto_reply.md")
+        2. Search for the full email thread to understand context:
+           search_emails("rfc822msgid:{thread_id}") or search by subject
+        3. Read each email in the thread to understand the conversation state
+        4. Apply the qualification criteria and reply rules from the guide
+        5. If a reply is warranted, draft it following the guide's format:
+           - Thread context (subject, lead name, property)
+           - Lead summary (credit score, pets, move-in date)
+           - Draft reply text
+           - Brief reasoning
+        6. If proposing tour times, check the availability schedule in the guide
+           and exclude any slots that are in the past or within 24 hours of now.
+        7. If no reply is needed, explain why and use NoAction.
+
+        Remember: This is Phase 1 (training). Draft only. Do NOT call send_email.""")
+
+    trigger_instructions = dedent("""\
+        This is a real-time Zillow email event trigger. A new email from Zillow
+        just arrived and was saved to the database.
+
+        Your job: read the full guide at /workspace/areas/zillow_auto_reply.md,
+        then analyze the email thread and draft a response if appropriate.
+
+        IMPORTANT:
+        - Do NOT send any emails. This is Phase 1 (training/review).
+        - Your draft will be sent to Emilio as a push notification for review.
+        - Follow the guide's format, qualification criteria, and time slot rules.
+        - Always read the guide first; it contains the latest availability schedule.""")
+
+    trigger_metadata = {
+        "trigger_source": "zillow_email_event",
+        "trigger_type": "email_event",
+        "thread_id": thread_id,
+        "subject": subject,
+        "from_address": from_address,
+    }
+
+    emilio_clerk_id = await _get_emilio_clerk_user_id()
+
+    conversation_id = await run_agent_for_trigger(
+        trigger_source="zillow_email_event",
+        trigger_prompt=trigger_prompt,
+        trigger_metadata=trigger_metadata,
+        trigger_instructions=trigger_instructions,
+        notification_title="Zillow Draft Ready",
+        notification_body=f"Re: {subject[:80]}",
+        rate_limit_key=f"thread:{thread_id}",
+        notify_clerk_user_id=emilio_clerk_id,
+    )
+
+    logfire.info(
+        "zillow_email_event: completed",
+        thread_id=thread_id,
+        subject=subject,
+        conversation_id=conversation_id,
+        draft_created=conversation_id is not None,
+        notify_target=emilio_clerk_id or "none (fallback to broadcast)",
+    )
+
+    return conversation_id

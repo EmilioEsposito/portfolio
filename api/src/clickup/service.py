@@ -151,6 +151,7 @@ def register_clickup_apscheduler_jobs():
 # def register_clickup_dbos_jobs():
 #     logfire.info("ClickUp DBOS jobs registered.")
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_get_peppino_view_tasks():
     await get_peppino_view_tasks()

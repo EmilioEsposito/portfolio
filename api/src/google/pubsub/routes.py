@@ -2,6 +2,9 @@
 FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
+import asyncio
+import os
+
 from fastapi import APIRouter, HTTPException, Request, Response
 import logfire
 import json
@@ -36,7 +39,10 @@ async def handle_gmail_notifications(
         
         # Verify the request is from Google Pub/Sub
         logfire.info("Verifying Pub/Sub token...")
-        expected_audience = f"https://{request.headers.get('host', '')}/api/google/pubsub/gmail/notifications"
+        expected_audience = os.environ.get(
+            "PUBSUB_AUDIENCE_URL",
+            "https://eesposito-fastapi.up.railway.app/api/google/pubsub/gmail/notifications",
+        )
         await verify_pubsub_token(request.headers.get("authorization", ""), expected_audience)
         logfire.info("✓ Token verified")
         
@@ -184,6 +190,19 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                         f"Successfully processed and saved message: "
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
+
+                    # Fire Zillow email event trigger for real-time draft generation
+                    from_addr = processed_email_message.get("from_address", "")
+                    if from_addr and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()):
+                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+                        asyncio.create_task(
+                            handle_zillow_email_event(
+                                thread_id=processed_email_message.get("thread_id", ""),
+                                subject=processed_email_message.get("subject", ""),
+                                from_address=from_addr,
+                                body_text=processed_email_message.get("body_text"),
+                            )
+                        )
                 else:
                     failed_email_ids.append(email_message_id)
                     logfire.error(f"Failed to save message {email_message_id}")

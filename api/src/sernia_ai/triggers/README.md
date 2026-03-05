@@ -128,6 +128,44 @@ A scheduled job reviews the shared team SMS inbox for threads needing attention:
 
 Pre-fetches messages from the `open_phone_events` DB table (1.5x lookback for overlap), groups by sender, then runs the agent to identify threads where the team hasn't responded but should have. Complements the event trigger which handles ClickUp task creation in real-time.
 
+## Zillow Email Event Trigger Flow
+
+Real-time Zillow lead processing. When a new email arrives via Gmail Pub/Sub and is from `zillow.com`, the trigger fires immediately (not on a schedule).
+
+**Phase 1 (Training):** Agent drafts a reply but does NOT send it. Emilio receives a targeted push notification to review the draft in web chat. The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
+
+**Phase 2 (planned):** Agent calls `send_email` (already approval-gated via HITL). Emilio approves/denies in web chat.
+
+```mermaid
+flowchart TD
+    PUBSUB["google/pubsub/routes.py<br/>handle_gmail_notifications()"] --> SAVE["save_email_message()"]
+    SAVE --> CHECK{"is_zillow_email()<br/>(from_address)"}
+    CHECK -->|No| DONE["Normal email processing"]
+    CHECK -->|Yes| FIRE["asyncio.create_task()<br/>handle_zillow_email_event()"]
+
+    FIRE --> RUNNER["background_agent_runner.<br/>run_agent_for_trigger()"]
+    RUNNER --> ENABLED{"Triggers<br/>enabled?"}
+    ENABLED -->|No| SKIP["Skip (disabled)"]
+    ENABLED -->|Yes| RATE{"Rate limited?<br/>(2 min per thread_id)"}
+    RATE -->|Yes| SKIP2["Skip"]
+    RATE -->|No| AGENT["Run sernia_agent<br/>with trigger prompt"]
+
+    AGENT --> GUIDE["Agent reads<br/>areas/zillow_auto_reply.md"]
+    GUIDE --> THREAD["Agent reads full<br/>email thread via search_emails"]
+    THREAD --> DECIDE{"Reply<br/>warranted?"}
+    DECIDE -->|No| NOACTION["NoAction + reason"]
+    DECIDE -->|Yes| DRAFT["Draft reply in<br/>conversation output"]
+    DRAFT --> PUSH["notify_user_push()<br/>(Emilio only)"]
+    PUSH --> REVIEW["Emilio reviews in<br/>web chat"]
+```
+
+### Key design choices
+
+- **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
+- **Emilio-only notifications** — looks up Emilio's `clerk_user_id` from DB via contact slug `"emilio"` (cached at module level), then uses `notify_clerk_user_id` parameter in `run_agent_for_trigger()` to send push only to Emilio's subscriptions via `notify_user_push()`.
+- **Rate limiting** — keyed by `thread:{thread_id}` so the same thread doesn't fire multiple triggers within 2 minutes.
+- **Coexists with scheduled check** — `check_zillow_emails()` still runs every 3 hours as a safety net, catching anything the event trigger misses (e.g., server downtime).
+
 ## Email Scheduled Trigger Flow
 
 Two scheduled jobs via APScheduler poll the Gmail inbox:
@@ -147,8 +185,9 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 |------|--------|-----|
 | Team SMS event trigger | Yes | Automated — webhook-driven (ClickUp only, silent) |
 | AI SMS event trigger | Yes | Automated — webhook-driven |
+| Zillow email event trigger | Yes | Automated — webhook-driven (Pub/Sub → real-time) |
 | General email trigger | Yes | Automated — scheduler-driven |
-| Zillow email trigger | Yes | Automated — scheduler-driven |
+| Zillow email scheduled trigger | Yes | Automated — scheduler-driven (safety net) |
 | SMS inbox scheduled trigger | Yes | Automated — scheduler-driven |
 | Web chat (`/chat`) | **No** | User-initiated, intentional |
 | HITL approvals (`/approve`) | **No** | User-initiated, write actions already behind HITL |
@@ -181,7 +220,8 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 
 | File | Purpose |
 |------|---------|
-| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction`/alert routing, push notifications |
+| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction`/alert routing, push notifications (supports `notify_clerk_user_id` for targeted push) |
+| `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
 | `team_sms_event_trigger.py` | Team SMS event trigger: assesses inbound SMS for ClickUp maintenance tasks (always silent) |
 | `team_sms_scheduled_trigger.py` | SMS scheduled trigger: periodic inbox review for unanswered threads needing team attention |
 | `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply |
@@ -199,5 +239,6 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
 | `GENERAL_EMAIL_CHECK_INTERVAL_MINUTES` | Email check frequency (180 min) |
 | `ZILLOW_EMAIL_CHECK_INTERVAL_HOURS` | Zillow email check frequency (3 hours) |
+| `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |
 | `CLICKUP_MAINTENANCE_LIST_ID` | ClickUp list ID for maintenance tasks created by SMS trigger |
 | `SMS_INBOX_CHECK_INTERVAL_HOURS` | SMS inbox review frequency (3 hours) |

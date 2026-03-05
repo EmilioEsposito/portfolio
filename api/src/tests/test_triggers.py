@@ -16,11 +16,14 @@ def _clear_trigger_cooldowns():
     """Reset the in-memory rate-limit cooldowns between tests."""
     from api.src.sernia_ai.triggers.background_agent_runner import _trigger_cooldowns
     from api.src.sernia_ai.triggers.ai_sms_event_trigger import _ai_sms_call_timestamps
+    import api.src.sernia_ai.triggers.zillow_email_event_trigger as zillow_mod
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
+    zillow_mod._emilio_clerk_user_id = None
     yield
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
+    zillow_mod._emilio_clerk_user_id = None
 
 
 # =========================================================================
@@ -96,6 +99,34 @@ class TestSmoke:
         from api.src.sernia_ai.push.service import notify_team_sms
 
         assert callable(notify_team_sms)
+
+    def test_zillow_email_event_trigger_imports(self):
+        from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+            is_zillow_email,
+            handle_zillow_email_event,
+            _get_emilio_clerk_user_id,
+        )
+        assert callable(is_zillow_email)
+        assert callable(handle_zillow_email_event)
+        assert callable(_get_emilio_clerk_user_id)
+
+    def test_notify_user_push_imports(self):
+        from api.src.sernia_ai.push.service import notify_user_push
+        assert callable(notify_user_push)
+
+    def test_config_has_emilio_contact_slug(self):
+        from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG
+        assert EMILIO_CONTACT_SLUG == "emilio"
+
+    def test_get_clerk_user_id_by_slug_imports(self):
+        from api.src.contact.service import get_clerk_user_id_by_slug
+        assert callable(get_clerk_user_id_by_slug)
+
+    def test_background_runner_has_notify_clerk_user_id_param(self):
+        import inspect
+        from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+        sig = inspect.signature(run_agent_for_trigger)
+        assert "notify_clerk_user_id" in sig.parameters
 
     def test_config_has_shared_team_contact_id(self):
         """Config should have QUO_SHARED_TEAM_CONTACT_ID and FRONTEND_BASE_URL."""
@@ -1007,6 +1038,326 @@ class TestHandleAiSmsEvent:
 
             # Should NOT have sent SMS reply (waiting for approval)
             mock_reply.assert_not_called()
+
+
+# =========================================================================
+# Zillow Email Event Trigger Tests
+# =========================================================================
+
+
+class TestIsZillowEmail:
+    """Test the is_zillow_email helper."""
+
+    def test_zillow_from_address(self):
+        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        assert is_zillow_email("noreply@zillow.com") is True
+        assert is_zillow_email("leads@messaging.zillow.com") is True
+        assert is_zillow_email("NOREPLY@ZILLOW.COM") is True
+
+    def test_non_zillow_from_address(self):
+        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        assert is_zillow_email("tenant@gmail.com") is False
+        assert is_zillow_email("zillow-impersonator@evil.com") is False
+        assert is_zillow_email("user@notzillow.com") is False
+
+    def test_empty_and_none(self):
+        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        assert is_zillow_email("") is False
+        # is_zillow_email requires str, but guard handles falsy
+        assert is_zillow_email("") is False
+
+
+class TestGetEmilioClerkUserId:
+    """Test the cached DB lookup for Emilio's clerk_user_id."""
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_value(self):
+        """After first lookup, should return cached value without DB call."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+        mod._emilio_clerk_user_id = "user_cached_123"
+
+        result = await mod._get_emilio_clerk_user_id()
+        assert result == "user_cached_123"
+
+    @pytest.mark.asyncio
+    async def test_looks_up_from_db(self):
+        """Should query contacts→users join and cache the result."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        with patch(
+            "api.src.contact.service.get_clerk_user_id_by_slug",
+            new_callable=AsyncMock,
+            return_value="user_2abc123",
+        ) as mock_lookup:
+            result = await mod._get_emilio_clerk_user_id()
+
+            assert result == "user_2abc123"
+            assert mod._emilio_clerk_user_id == "user_2abc123"
+            mock_lookup.assert_called_once_with("emilio")
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_not_found(self):
+        """Should return None if no matching contact/user in DB."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        with patch(
+            "api.src.contact.service.get_clerk_user_id_by_slug",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await mod._get_emilio_clerk_user_id()
+            assert result is None
+            assert mod._emilio_clerk_user_id is None  # not cached
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_db_error(self):
+        """Should return None and not crash if DB lookup fails."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        with patch(
+            "api.src.contact.service.get_clerk_user_id_by_slug",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("DB connection failed"),
+        ):
+            result = await mod._get_emilio_clerk_user_id()
+            assert result is None
+
+
+class TestHandleZillowEmailEvent:
+    """Test the main handle_zillow_email_event handler."""
+
+    @pytest.mark.asyncio
+    async def test_calls_runner_with_zillow_email_event_source(self):
+        """Should call run_agent_for_trigger with correct source and metadata."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value="user_emilio_123"),
+        ):
+            mock_run.return_value = "conv-zillow-1"
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            result = await handle_zillow_email_event(
+                thread_id="thread_abc123",
+                subject="Rental Inquiry - 320 S Mathilda",
+                from_address="noreply@zillow.com",
+                body_text="Hi, I'm interested in the 1BR unit.",
+            )
+
+            assert result == "conv-zillow-1"
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args[1]
+            assert call_kwargs["trigger_source"] == "zillow_email_event"
+            assert call_kwargs["notification_title"] == "Zillow Draft Ready"
+            assert "320 S Mathilda" in call_kwargs["notification_body"]
+            assert call_kwargs["rate_limit_key"] == "thread:thread_abc123"
+            assert call_kwargs["notify_clerk_user_id"] == "user_emilio_123"
+
+            # Metadata should include thread context
+            meta = call_kwargs["trigger_metadata"]
+            assert meta["trigger_source"] == "zillow_email_event"
+            assert meta["trigger_type"] == "email_event"
+            assert meta["thread_id"] == "thread_abc123"
+            assert meta["subject"] == "Rental Inquiry - 320 S Mathilda"
+            assert meta["from_address"] == "noreply@zillow.com"
+
+    @pytest.mark.asyncio
+    async def test_includes_body_snippet_in_prompt(self):
+        """Trigger prompt should include a preview of the email body."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value=None),
+        ):
+            mock_run.return_value = None
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            await handle_zillow_email_event(
+                thread_id="thread_xyz",
+                subject="Inquiry",
+                from_address="noreply@zillow.com",
+                body_text="I have great credit and want to move in July.",
+            )
+
+            call_kwargs = mock_run.call_args[1]
+            assert "great credit" in call_kwargs["trigger_prompt"]
+
+    @pytest.mark.asyncio
+    async def test_handles_none_body_text(self):
+        """Should not crash when body_text is None."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value=None),
+        ):
+            mock_run.return_value = None
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            await handle_zillow_email_event(
+                thread_id="thread_null",
+                subject="Test",
+                from_address="noreply@zillow.com",
+                body_text=None,
+            )
+
+            mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_agent_takes_no_action(self):
+        """When run_agent_for_trigger returns None (NoAction), should return None."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value="user_emilio"),
+        ):
+            mock_run.return_value = None
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            result = await handle_zillow_email_event(
+                thread_id="thread_cold",
+                subject="Re: Tour - 320 S Mathilda",
+                from_address="noreply@zillow.com",
+                body_text="Thanks, we'll let you know.",
+            )
+
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_passes_none_notify_when_no_emilio_user(self):
+        """If Emilio clerk_user_id can't be found, should pass None (falls back to generic push)."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value=None),
+        ):
+            mock_run.return_value = "conv-fallback"
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            await handle_zillow_email_event(
+                thread_id="thread_fb",
+                subject="Inquiry",
+                from_address="noreply@zillow.com",
+                body_text="Hello",
+            )
+
+            call_kwargs = mock_run.call_args[1]
+            assert call_kwargs["notify_clerk_user_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_trigger_instructions_reference_guide(self):
+        """Trigger instructions should point agent to zillow_auto_reply.md."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value=None),
+        ):
+            mock_run.return_value = None
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+
+            await handle_zillow_email_event(
+                thread_id="t1",
+                subject="Test",
+                from_address="noreply@zillow.com",
+                body_text="Test body",
+            )
+
+            call_kwargs = mock_run.call_args[1]
+            assert "zillow_auto_reply.md" in call_kwargs["trigger_instructions"]
+            assert "Phase 1" in call_kwargs["trigger_instructions"]
+            assert "Do NOT send any emails" in call_kwargs["trigger_instructions"]
+
+
+class TestBackgroundRunnerTargetedPush:
+    """Test the notify_clerk_user_id parameter in run_agent_for_trigger."""
+
+    @pytest.mark.asyncio
+    async def test_targeted_push_when_clerk_user_id_set(self):
+        """When notify_clerk_user_id is set, should call notify_user_push instead of notify_trigger_alert."""
+        mock_result = MagicMock()
+        mock_result.output = "Draft reply ready for review."
+        mock_result.all_messages.return_value = []
+
+        with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_sf,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_user_push") as mock_user_push,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_trigger_alert") as mock_alert,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
+        ):
+            mock_session = AsyncMock()
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_agent.run = AsyncMock(return_value=mock_result)
+
+            from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+            conv_id = await run_agent_for_trigger(
+                trigger_source="zillow_email_event",
+                trigger_prompt="Draft a reply",
+                trigger_metadata={"trigger_source": "zillow_email_event"},
+                notification_title="Zillow Draft Ready",
+                notification_body="Re: Inquiry",
+                notify_clerk_user_id="user_emilio_456",
+            )
+
+            assert conv_id is not None
+            # Should use targeted push, not broadcast
+            mock_user_push.assert_called_once()
+            push_kwargs = mock_user_push.call_args[1]
+            assert push_kwargs["clerk_user_id"] == "user_emilio_456"
+            assert push_kwargs["title"] == "Zillow Draft Ready"
+            assert push_kwargs["body"] == "Re: Inquiry"
+            assert push_kwargs["data"]["conversation_id"] == conv_id
+            # Should NOT have called the broadcast alert
+            mock_alert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_broadcast_push_when_no_clerk_user_id(self):
+        """When notify_clerk_user_id is None, should fall back to notify_trigger_alert."""
+        mock_result = MagicMock()
+        mock_result.output = "Email needs attention."
+        mock_result.all_messages.return_value = []
+
+        with (
+            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                  new_callable=AsyncMock, return_value=True),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_sf,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_user_push") as mock_user_push,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_trigger_alert") as mock_alert,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
+            patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
+        ):
+            mock_session = AsyncMock()
+            mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_sf.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_agent.run = AsyncMock(return_value=mock_result)
+
+            from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+            await run_agent_for_trigger(
+                trigger_source="email",
+                trigger_prompt="Check emails",
+                trigger_metadata={"trigger_source": "email"},
+                notification_title="Email alert",
+                notify_clerk_user_id=None,
+            )
+
+            mock_alert.assert_called_once()
+            mock_user_push.assert_not_called()
 
 
 # =========================================================================

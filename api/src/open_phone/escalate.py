@@ -18,6 +18,7 @@ import random
 from openai import OpenAI
 from pydantic import BaseModel
 from pprint import pprint
+from api.src.contact.service import get_contact_by_slug
 
 
 # --- Twilio Configuration ---
@@ -186,12 +187,17 @@ async def analyze_for_twilio_escalation(
     escalate_from_number = ""
 
     if len(escalate_to_numbers) == 0:
-        escalate_to_numbers = [
-            "+14123703550",
-            "+14126800593",
-            # "+14124172322",
-            # "+14123703505",
-        ]
+        # Look up escalation contacts from DB instead of hardcoding phone numbers
+        escalation_slugs = ["emilio", "peppino"]
+        for slug in escalation_slugs:
+            contact = await get_contact_by_slug(slug)
+            if contact and contact.phone_number:
+                escalate_to_numbers.append(contact.phone_number)
+            else:
+                logfire.error(f"Escalation contact '{slug}' not found or has no phone number")
+        if not escalate_to_numbers:
+            logfire.error("No escalation contacts found, cannot escalate")
+            return 0
 
     # # 320-09 Escalation between 8pm and 7am
     # unit32009_numbers = ["+14124786168", "+14122280772"]

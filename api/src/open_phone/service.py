@@ -243,6 +243,7 @@ async def test_upsert_openphone_contact():
     assert response.status_code == 201 or response.status_code == 200
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_send_message():
     response = await send_message(
