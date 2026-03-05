@@ -274,7 +274,12 @@ app.add_middleware(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # TODO: Restrict in production? ["https://eesposito.com", etc] ?
+    allow_origins=[
+        "https://eesposito.com",
+        "https://dev.eesposito.com",
+    ],
+    # Railway PR environments + localhost on any port (for worktrees)
+    allow_origin_regex=r"https://.*\.up\.railway\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

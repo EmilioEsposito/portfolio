@@ -3,6 +3,7 @@ FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
 import asyncio
+import os
 
 from fastapi import APIRouter, HTTPException, Request, Response
 import logfire
@@ -38,7 +39,10 @@ async def handle_gmail_notifications(
         
         # Verify the request is from Google Pub/Sub
         logfire.info("Verifying Pub/Sub token...")
-        expected_audience = f"https://{request.headers.get('host', '')}/api/google/pubsub/gmail/notifications"
+        expected_audience = os.environ.get(
+            "PUBSUB_AUDIENCE_URL",
+            "https://eesposito-fastapi.up.railway.app/api/google/pubsub/gmail/notifications",
+        )
         await verify_pubsub_token(request.headers.get("authorization", ""), expected_audience)
         logfire.info("✓ Token verified")
         
