@@ -10,30 +10,31 @@ SMS and contact management via the OpenPhone API, bridged through FastMCP.
 
 | Tool | Line | Approval | Description |
 |------|------|----------|-------------|
-| `send_internal_sms` | Sernia AI | No | Team-only messages. All recipients must be "Sernia Capital LLC" contacts. |
-| `send_external_sms` | Shared External | Yes (HITL) | Tenant/vendor messages. All recipients must be external contacts. |
-| `mass_text_tenants` | Shared External | Yes (HITL) | Send the same message to all tenants in one or more properties, with optional unit filter. Auto-groups by unit. |
+| `send_internal_sms` | Sernia AI | No | Team-only messages. Single phone number per call. Recipient must be a "Sernia Capital LLC" contact. Supports optional `context` param for reply context seeding. |
+| `send_external_sms` | Shared External | Yes (HITL) | Tenant/vendor messages. Single phone number per call. Recipient must be an external contact. Supports optional `context` param for reply context seeding. |
+| `mass_text_tenants` | Shared External | Yes (HITL) | Send the same message to all tenants in one or more properties, with optional unit filter. Auto-groups by unit and sends one SMS per unit. |
 
 ### Deterministic Gates
 
 Every SMS goes through a chain of gates before sending:
 
-1. **Contact resolution** — Every recipient must exist as a Quo contact. Unknown numbers are blocked.
+1. **Contact resolution** — The recipient must exist as a Quo contact. Unknown numbers are blocked.
 2. **Internal/external separation** — `send_internal_sms` blocks external contacts; `send_external_sms` blocks internal contacts. This prevents exposing internal phone numbers in tenant threads.
-3. **Unit isolation** (external only) — If multiple recipients have Property + Unit # custom fields, they must all share the same `(Property, Unit #)`. Cross-unit group texts are blocked to prevent sharing contact info between unrelated tenants.
+
+### Hidden Context Seeding
+
+Both `send_internal_sms` and `send_external_sms` accept an optional `context` parameter. This context is **not** included in the SMS — it's saved to the recipient's `ai_sms_from_{digits}` conversation in the DB as a `ModelRequest`/`ModelResponse` pair. When the recipient replies via SMS, the AI SMS event trigger loads this conversation history, giving the agent context about why the original message was sent.
+
+Example: The agent texts Anna "Is the faucet fixed?" with `context="Emilio asked to follow up on maintenance ticket"`. When Anna replies, the agent sees the hidden context and knows to update Emilio.
 
 ### Mass-Texting Pattern (Per-Unit Sharding)
 
-OpenPhone sends multi-recipient messages as **group texts** — all recipients see each other's numbers and replies. This is fine for roommates in the same unit but a privacy violation across units.
+> **Note:** The Quo (OpenPhone) API currently only supports 1 recipient per `POST /v1/messages` call. `mass_text_tenants` loops internally to send one SMS per unit. If the API expands to support multiple recipients in the future, the per-unit sharding logic (grouping by `(Property, Unit #)`) would become relevant for privacy — roommates in the same unit could share a group text, while different units must be isolated to prevent sharing contact info.
 
 **Use `mass_text_tenants`** for building-wide notices. It automatically:
 1. Finds matching tenants from the cached contact list by `(Property, Unit #)`
 2. Skips internal contacts and contacts without phone numbers
 3. Groups by unit and sends one SMS per unit group
-
-Same-unit roommates share a group text. Different units get separate messages.
-
-The `send_external_sms` unit-isolation gate also enforces this for ad-hoc messages — if the agent tries to send cross-unit, it gets a blocking error.
 
 ### Contact Custom Fields
 
