@@ -23,11 +23,9 @@ ENV VIRTUAL_ENV=$VENV_PATH
 ENV PATH="$VENV_PATH/bin:$PATH"
 
 # Copy project files
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock* README.md ./
 COPY api/ ./api/
 COPY alembic.ini ./
-
-# PYTHONPATH handled by editable install via uv sync
 
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
