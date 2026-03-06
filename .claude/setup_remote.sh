@@ -76,7 +76,8 @@ if [ -f "$PG_HBA" ]; then
   sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' "$PG_HBA" 2>/dev/null || true
   sed -i 's/local   all             all                                     peer/local   all             all                                     trust/' "$PG_HBA" 2>/dev/null || true
   sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' "$PG_HBA" 2>/dev/null || true
-  chown claude:claude "$PG_HBA" 2>/dev/null || true
+  # Make readable by PostgreSQL process regardless of which user we're running as
+  chmod 644 "$PG_HBA" 2>/dev/null || true
 fi
 
 echo "Starting PostgreSQL..."
