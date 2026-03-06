@@ -27,7 +27,7 @@ COPY pyproject.toml uv.lock* ./
 COPY api/ ./api/
 COPY alembic.ini ./
 
-ENV PYTHONPATH=/app
+# PYTHONPATH handled by editable install via uv sync
 
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here

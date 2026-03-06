@@ -37,12 +37,7 @@ source .venv/bin/activate
 uv sync -p python3.11
 echo "✓ Python dependencies installed"
 
-echo "Step 3: Configuring PYTHONPATH..."
-if [ -n "$CLAUDE_ENV_FILE" ]; then
-  echo "export PYTHONPATH=\"$PROJECT_DIR:\$PYTHONPATH\"" >> "$CLAUDE_ENV_FILE"
-  echo "✓ PYTHONPATH persisted to session"
-fi
-export PYTHONPATH="$PROJECT_DIR:$PYTHONPATH"
+echo "Step 3: PYTHONPATH — handled by editable install via uv sync"
 
 # =============================================================================
 # DATABASE

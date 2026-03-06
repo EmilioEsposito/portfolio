@@ -97,9 +97,7 @@ echo ">>> Skipping PostgreSQL setup and migrations (commented out for faster sta
 # =====================================
 # Environment Configuration
 # =====================================
-echo ">>> Configuring PYTHONPATH..."
-export PYTHONPATH=$(pwd):$PYTHONPATH
-echo "✓ PYTHONPATH set to: $PYTHONPATH"
+echo ">>> PYTHONPATH — handled by editable install via uv sync"
 
 echo ""
 echo "✅ Cursor agent install script finished successfully!"
