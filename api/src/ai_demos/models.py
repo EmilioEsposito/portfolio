@@ -109,8 +109,67 @@ async def get_conversation_messages(
             s, conversation_id, clerk_user_id, retries=retries, retry_delay=retry_delay
         )
         if conversation and conversation.messages:
-            return ModelMessagesTypeAdapter.validate_python(conversation.messages)
+            messages = ModelMessagesTypeAdapter.validate_python(conversation.messages)
+            return _repair_orphaned_tool_calls(messages, conversation_id)
         return []
+
+
+def _repair_orphaned_tool_calls(
+    messages: list[ModelMessage],
+    conversation_id: str = "",
+) -> list[ModelMessage]:
+    """Inject synthetic ToolReturnParts for any ToolCallParts missing a response.
+
+    When an approval-gated tool call is saved to the DB but the ToolReturnPart
+    never arrives (timeout, crash, client disconnect), the conversation becomes
+    permanently broken — the Anthropic API rejects histories where tool_use
+    blocks have no matching tool_result.
+
+    This function walks the message list and, for every ModelResponse containing
+    orphaned ToolCallParts, inserts a ModelRequest with synthetic ToolReturnParts
+    immediately after it. The repair is idempotent.
+    """
+    # Collect all returned tool_call_ids
+    returned_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    returned_ids.add(part.tool_call_id)
+
+    # Walk messages and build repaired list
+    repaired: list[ModelMessage] = []
+    patched = False
+    for msg in messages:
+        repaired.append(msg)
+        if isinstance(msg, ModelResponse):
+            orphans = [
+                part for part in msg.parts
+                if isinstance(part, ToolCallPart) and part.tool_call_id not in returned_ids
+            ]
+            if orphans:
+                # Check that the NEXT message doesn't already contain these returns
+                # (shouldn't happen, but be safe)
+                synthetic_parts = [
+                    ToolReturnPart(
+                        tool_name=tc.tool_name,
+                        content="[Tool call was interrupted — approval timed out or session ended.]",
+                        tool_call_id=tc.tool_call_id,
+                    )
+                    for tc in orphans
+                ]
+                repaired.append(ModelRequest(parts=synthetic_parts))
+                # Mark these as returned so we don't double-patch
+                returned_ids.update(tc.tool_call_id for tc in orphans)
+                patched = True
+
+    if patched:
+        logfire.warn(
+            "repaired orphaned tool calls in conversation history",
+            conversation_id=conversation_id,
+        )
+
+    return repaired
 
 async def _get_user_email_from_clerk(user_id: str) -> str | None:
     """Look up user email from Clerk given a user ID."""

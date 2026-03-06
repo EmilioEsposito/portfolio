@@ -9,6 +9,7 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
 fi
 
 echo "=== Claude Code Remote Setup ==="
+echo "Started: $(date -Iseconds)"
 
 # Create a flag file to confirm the hook ran (useful for debugging)
 HOOK_FLAG_FILE="/tmp/.claude_remote_setup_ran"
@@ -132,6 +133,7 @@ fi
 # =============================================================================
 echo ""
 echo "=== Remote Setup Complete ==="
+echo "Finished: $(date -Iseconds)"
 echo ""
 echo "IMPORTANT: No .env file is needed in this remote environment."
 echo "All required environment variables (DATABASE_URL, DATABASE_REQUIRE_SSL, etc.)"
