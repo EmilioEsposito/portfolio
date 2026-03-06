@@ -13,7 +13,6 @@ echo "=== Claude Code Remote Setup ==="
 # Create a flag file to confirm the hook ran (useful for debugging)
 HOOK_FLAG_FILE="/tmp/.claude_remote_setup_ran"
 echo "$(date -Iseconds)" > "$HOOK_FLAG_FILE"
-echo "✓ Hook execution flag created at $HOOK_FLAG_FILE"
 
 # Get the project directory (where this script lives is .claude/, go up one level)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,21 +22,24 @@ cd "$PROJECT_DIR"
 echo "Project directory: $PROJECT_DIR"
 
 # =============================================================================
+# START PNPM INSTALL IN BACKGROUND (slow — ~30s of network downloads)
+# =============================================================================
+echo ""
+echo "--- Starting pnpm install in background ---"
+pnpm install > /tmp/pnpm_install.log 2>&1 &
+PNPM_PID=$!
+
+# =============================================================================
 # PYTHON ENVIRONMENT
 # =============================================================================
 echo ""
 echo "--- Python Environment Setup ---"
 
-echo "Step 1: Creating Python virtual environment..."
+echo "Creating Python venv and installing dependencies..."
 uv venv
-echo "✓ Virtual environment created"
-
-echo "Step 2: Installing Python dependencies..."
 source .venv/bin/activate
 uv sync -p python3.11
-echo "✓ Python dependencies installed"
-
-echo "Step 3: PYTHONPATH — handled by editable install via uv sync"
+echo "PYTHONPATH is handled by editable install via uv sync"
 
 # =============================================================================
 # DATABASE
@@ -46,80 +48,83 @@ echo ""
 echo "--- Database Setup ---"
 
 # Fix SSL certificate permissions (required for PostgreSQL to start)
-echo "Step 4: Fixing SSL certificate permissions..."
-if [ -f /etc/ssl/private/ssl-cert-snakeoil.key ]; then
-  chmod 600 /etc/ssl/private/ssl-cert-snakeoil.key 2>/dev/null || true
-  echo "✓ SSL key permissions fixed"
+# The cloud image may have the key at different paths — fix both
+echo "Fixing SSL certificate permissions..."
+for key_path in /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl-cert-snakeoil.key; do
+  if [ -f "$key_path" ]; then
+    chmod 600 "$key_path" 2>/dev/null || true
+    echo "  Fixed: $key_path"
+  fi
+done
+
+# Also fix the PostgreSQL SSL config to point to the correct key location
+PG_CONF="/etc/postgresql/16/main/postgresql.conf"
+if [ -f "$PG_CONF" ]; then
+  # If the key is at the non-standard path, update PostgreSQL config to match
+  if [ -f /etc/ssl-cert-snakeoil.key ] && ! [ -f /etc/ssl/private/ssl-cert-snakeoil.key ]; then
+    sed -i "s|ssl_key_file = '/etc/ssl/private/ssl-cert-snakeoil.key'|ssl_key_file = '/etc/ssl-cert-snakeoil.key'|" "$PG_CONF" 2>/dev/null || true
+  fi
+  # Alternatively, just disable SSL for local-only PostgreSQL (simplest fix)
+  sed -i 's/^ssl = on/ssl = off/' "$PG_CONF" 2>/dev/null || true
 fi
 
 # Configure pg_hba.conf for trust authentication (needed because sudo is broken
 # in this cloud environment and PostgreSQL runs as the 'claude' user)
-echo "Step 5: Configuring PostgreSQL authentication..."
+echo "Configuring PostgreSQL authentication..."
 PG_HBA="/etc/postgresql/16/main/pg_hba.conf"
 if [ -f "$PG_HBA" ]; then
-  # Change local authentication from peer to trust
   sed -i 's/local   all             postgres                                peer/local   all             postgres                                trust/' "$PG_HBA" 2>/dev/null || true
   sed -i 's/local   all             all                                     peer/local   all             all                                     trust/' "$PG_HBA" 2>/dev/null || true
-  # Change host authentication from scram-sha-256 to trust for local connections
   sed -i 's/host    all             all             127.0.0.1\/32            scram-sha-256/host    all             all             127.0.0.1\/32            trust/' "$PG_HBA" 2>/dev/null || true
-  # Fix ownership so PostgreSQL (running as 'claude') can read it
   chown claude:claude "$PG_HBA" 2>/dev/null || true
-  echo "✓ PostgreSQL authentication configured for trust mode"
 fi
 
-echo "Step 6: Starting PostgreSQL service..."
+echo "Starting PostgreSQL..."
 service postgresql start 2>/dev/null || true
 sleep 2
 if pg_isready -h localhost -p 5432 >/dev/null 2>&1; then
-  echo "✓ PostgreSQL service started"
+  echo "PostgreSQL is ready"
 else
-  echo "⚠ PostgreSQL may have failed to start, check logs"
+  echo "WARNING: PostgreSQL may have failed to start"
 fi
 
-echo "Step 7: Creating portfolio user..."
-psql -U postgres -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>/dev/null && echo "✓ User created" || echo "⚠ User may already exist"
+echo "Creating portfolio user and database..."
+psql -U postgres -c "CREATE USER portfolio WITH PASSWORD 'portfolio' SUPERUSER;" 2>/dev/null || true
+psql -U postgres -c "CREATE DATABASE portfolio OWNER portfolio;" 2>/dev/null || true
 
-echo "Step 8: Creating portfolio database..."
-psql -U postgres -c "CREATE DATABASE portfolio OWNER portfolio;" 2>/dev/null && echo "✓ Database created" || echo "⚠ Database may already exist"
-
-# Persist DATABASE_URL environment variables for the session
-# These match docker-compose.yml: postgresql://portfolio:portfolio@localhost:5432/portfolio
+# Persist environment variables for the session via CLAUDE_ENV_FILE
+# These are available to ALL subsequent Bash tool calls — no .env file needed
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-  echo "Step 9: Persisting database environment variables..."
   echo 'export DATABASE_URL="postgresql://portfolio:portfolio@localhost:5432/portfolio"' >> "$CLAUDE_ENV_FILE"
   echo 'export DATABASE_URL_UNPOOLED="postgresql://portfolio:portfolio@localhost:5432/portfolio"' >> "$CLAUDE_ENV_FILE"
   echo 'export DATABASE_REQUIRE_SSL="false"' >> "$CLAUDE_ENV_FILE"
-  echo "✓ Environment variables persisted to session"
+  echo "Environment variables persisted to session via CLAUDE_ENV_FILE"
 fi
 
-# Set for current script execution
+# Set for current script execution (needed for alembic/seed below)
 export DATABASE_URL="postgresql://portfolio:portfolio@localhost:5432/portfolio"
 export DATABASE_URL_UNPOOLED="postgresql://portfolio:portfolio@localhost:5432/portfolio"
 export DATABASE_REQUIRE_SSL="false"
 
-echo "Step 10: Running database migrations..."
-# Run alembic from project root where alembic.ini is located
-alembic upgrade head 2>/dev/null || echo "⚠ Migrations may have issues, but continuing..."
-echo "✓ Migrations complete"
+echo "Running database migrations..."
+alembic upgrade head 2>/dev/null || echo "WARNING: Migrations may have issues, but continuing..."
 
-echo "Step 11: Seeding database..."
-# Seed script reads from environment variables: EMILIO_EMAIL, EMILIO_PHONE, SERNIA_EMAIL, SERNIA_PHONE
-uv run python api/seed_db.py
-echo "✓ Database seeded"
+echo "Seeding database..."
+uv run python api/seed_db.py 2>/dev/null
+echo "Database ready"
 
 # =============================================================================
-# REACT ROUTER (Frontend)
+# WAIT FOR PNPM INSTALL (started earlier in background)
 # =============================================================================
 echo ""
-echo "--- React Router Setup ---"
-
-echo "Step 12: Installing pnpm dependencies..."
-pnpm install
-echo "✓ pnpm dependencies installed"
-
-echo "Step 13: Building React Router app..."
-pnpm build
-echo "✓ React Router app built"
+echo "--- Waiting for pnpm install to finish ---"
+wait $PNPM_PID
+PNPM_EXIT=$?
+if [ $PNPM_EXIT -eq 0 ]; then
+  echo "pnpm dependencies installed"
+else
+  echo "WARNING: pnpm install failed (exit $PNPM_EXIT). Check /tmp/pnpm_install.log"
+fi
 
 # =============================================================================
 # SUMMARY
@@ -129,13 +134,12 @@ echo "=== Remote Setup Complete ==="
 echo ""
 echo "IMPORTANT: No .env file is needed in this remote environment."
 echo "All required environment variables (DATABASE_URL, DATABASE_REQUIRE_SSL, etc.)"
-echo "have been persisted to the session via CLAUDE_ENV_FILE."
-echo "The fastapi-dev script will skip .env if it does not exist."
+echo "have been persisted to the session via CLAUDE_ENV_FILE and are available to"
+echo "all subsequent Bash commands automatically."
 echo ""
 echo "Available commands:"
 echo "  pnpm dev              - Start React Router dev server (port 5173)"
 echo "  pnpm fastapi-dev      - Start FastAPI dev server (port 8000)"
 echo "  pnpm dev-with-fastapi - Start both servers"
-echo "  python api/seed_db.py - Seed the database (interactive)"
 echo ""
 exit 0
