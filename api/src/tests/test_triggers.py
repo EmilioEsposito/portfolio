@@ -1268,9 +1268,11 @@ class TestHandleZillowEmailEvent:
             )
 
             call_kwargs = mock_run.call_args[1]
-            assert "zillow_auto_reply.md" in call_kwargs["trigger_instructions"]
-            assert "Phase 1" in call_kwargs["trigger_instructions"]
-            assert "Do NOT send any emails" in call_kwargs["trigger_instructions"]
+            instructions = call_kwargs["trigger_instructions"]
+            assert "zillow_auto_reply.md" in instructions
+            assert "Phase 1" in instructions
+            assert "send_external_email" in instructions  # guardrail: no external email
+            assert "send_internal_email" in instructions  # route: email Emilio
 
 
 class TestBackgroundRunnerTargetedPush:

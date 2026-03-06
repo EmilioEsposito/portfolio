@@ -21,7 +21,9 @@ from api.src.google.calendar.service import (
     get_calendar_service,
 )
 from api.src.google.common.service_account_auth import get_delegated_credentials
-from api.src.sernia_ai.config import CALENDAR_ORGANIZER_EMAIL
+from pydantic import EmailStr
+
+from api.src.sernia_ai.config import CALENDAR_ORGANIZER_EMAIL, INTERNAL_EMAIL_DOMAIN
 from api.src.google.gmail.service import (
     extract_email_body,
     get_email_content,
@@ -68,31 +70,94 @@ def _get_docs_service(user_email: str):
 
 
 @google_toolset.tool(requires_approval=True)
-async def send_email(
+async def send_external_email(
     ctx: RunContext[SerniaDeps],
-    to: str,
+    to: list[EmailStr],
     subject: str,
     body: str,
 ) -> str:
-    """Send an email via Gmail.
+    """Send an email to external recipients (requires approval).
+
+    May include internal @serniacapital.com addresses (e.g. CC'ing the team),
+    but at least one recipient should be external. For internal-only emails,
+    use send_internal_email (no approval needed).
 
     Args:
-        to: Recipient email address.
+        to: List of recipient email addresses (e.g. ["tenant@gmail.com"]).
         subject: Email subject line.
         body: Plain text email body.
     """
+    import logfire
+
+    logfire.info("send_external_email called", to=to, subject=subject[:80])
+
+    if not to:
+        return "Blocked: no recipients provided."
+
+    to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
         user_email=ctx.deps.user_email,
         scopes=GMAIL_SCOPES,
     )
     result = await _send_email(
-        to=to,
+        to=to_str,
         subject=subject,
         message_text=body,
         sender=ctx.deps.user_email,
         credentials=credentials,
     )
-    return f"Email sent to {to} (message ID: {result.get('id', 'unknown')})."
+    logfire.info("send_external_email success", to=to_str)
+    return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
+
+
+@google_toolset.tool
+async def send_internal_email(
+    ctx: RunContext[SerniaDeps],
+    to: list[EmailStr],
+    subject: str,
+    body: str,
+) -> str:
+    """Send an email to Sernia Capital team members (no approval needed).
+
+    All recipients must be @serniacapital.com addresses. If any recipient is
+    external, the tool blocks — use send_external_email instead.
+
+    Args:
+        to: List of recipient email addresses
+            (e.g. ["emilio@serniacapital.com"] or ["emilio@serniacapital.com", "all@serniacapital.com"]).
+        subject: Email subject line.
+        body: Plain text email body.
+    """
+    import logfire
+
+    logfire.info("send_internal_email called", to=to, subject=subject[:80])
+
+    if not to:
+        return "Blocked: no recipients provided."
+
+    # Gate: all recipients must be internal
+    for addr in to:
+        if not addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}"):
+            logfire.warn("send_internal_email blocked: external recipient", to=addr)
+            return (
+                f"Blocked: {addr} is not a @{INTERNAL_EMAIL_DOMAIN} address. "
+                "Use send_external_email if ANY recipient is external."
+            )
+
+    to_str = ", ".join(addr.strip() for addr in to)
+    credentials = get_delegated_credentials(
+        user_email=ctx.deps.user_email,
+        scopes=GMAIL_SCOPES,
+    )
+    result = await _send_email(
+        to=to_str,
+        subject=subject,
+        message_text=body,
+        sender=ctx.deps.user_email,
+        credentials=credentials,
+    )
+    logfire.info("send_internal_email success", to=to_str)
+    return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
 
 
 @google_toolset.tool

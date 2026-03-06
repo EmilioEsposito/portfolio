@@ -64,6 +64,7 @@ async def run_agent_for_trigger(
     notification_body: str = "",
     rate_limit_key: str | None = None,
     notify_clerk_user_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> str | None:
     """
     Run the Sernia agent in background for a trigger event.
@@ -80,6 +81,9 @@ async def run_agent_for_trigger(
             Falls back to trigger_source if not provided.
         notify_clerk_user_id: When set, send push notifications only to this user
             instead of all Sernia users. Used for targeted triggers like Zillow drafts.
+        conversation_id: Pre-generated conversation ID. When provided, the runner
+            uses this instead of generating a new UUID. Useful when the caller
+            needs to embed a deeplink in the trigger prompt.
 
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
@@ -101,7 +105,7 @@ async def run_agent_for_trigger(
         )
         return None
 
-    conv_id = str(uuid.uuid4())
+    conv_id = conversation_id or str(uuid.uuid4())
 
     async with AsyncSessionFactory() as session:
         deps = SerniaDeps(

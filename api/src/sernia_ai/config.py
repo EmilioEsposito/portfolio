@@ -77,6 +77,8 @@ QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
 QUO_SHARED_EXTERNAL_PHONE_ID = "PNpTZEJ7la"
 # Company name used to distinguish internal vs external contacts.
 QUO_INTERNAL_COMPANY = "Sernia Capital LLC"
+# Internal email domain — emails to this domain bypass HITL approval.
+INTERNAL_EMAIL_DOMAIN = "serniacapital.com"
 
 # AI SMS conversation: max messages to fetch from OpenPhone for initial bootstrap
 SMS_CONVERSATION_MAX_MESSAGES = 20
