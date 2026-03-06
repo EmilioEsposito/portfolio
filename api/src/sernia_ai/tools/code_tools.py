@@ -49,6 +49,11 @@ def _days_between(iso_a: str, iso_b: str) -> str:
     return str((datetime.fromisoformat(iso_b) - datetime.fromisoformat(iso_a)).days)
 
 
+def _hours_between(iso_a: str, iso_b: str) -> str:
+    delta = datetime.fromisoformat(iso_b) - datetime.fromisoformat(iso_a)
+    return str(round(delta.total_seconds() / 3600, 2))
+
+
 def _add_days(iso: str, days: str) -> str:
     return (datetime.fromisoformat(iso) + timedelta(days=int(days))).isoformat()
 
@@ -93,6 +98,7 @@ _EXTERNAL_FUNCTIONS: dict[str, callable] = {
     "parse_date": _parse_date,
     "format_date": _format_date,
     "days_between": _days_between,
+    "hours_between": _hours_between,
     "add_days": _add_days,
     "epoch_to_iso": _epoch_to_iso,
     "iso_to_epoch": _iso_to_epoch,
@@ -130,7 +136,8 @@ async def run_python(
     - now_iso() → current datetime as ISO string
     - parse_date("2025-06-15") → ISO datetime string
     - format_date(iso, "%Y-%m-%d") → formatted string
-    - days_between(iso_a, iso_b) → days as string (b minus a)
+    - days_between(iso_a, iso_b) → integer days as string (b minus a, floored)
+    - hours_between(iso_a, iso_b) → decimal hours as string (b minus a, e.g. "19.6")
     - add_days(iso, "30") → ISO string with days added
     - epoch_to_iso("1719446400000") → ISO string from epoch milliseconds
     - iso_to_epoch(iso) → epoch milliseconds as string
@@ -154,12 +161,26 @@ async def run_python(
             code,
             external_functions=_EXT_FN_NAMES,
         )
+
+        printed: list[str] = []
+
+        def _capture_print(_stream: str, text: str) -> None:
+            printed.append(text)
+
         result = await pydantic_monty.run_monty_async(
             m,
             external_functions=_EXTERNAL_FUNCTIONS,
+            print_callback=_capture_print,
         )
 
-        output = str(result) if result is not None else "(no return value)"
+        # Build output: captured print() lines + final expression value
+        parts: list[str] = []
+        if printed:
+            parts.append("".join(printed).rstrip("\n"))
+        if result is not None:
+            parts.append(str(result))
+        output = "\n".join(parts) if parts else "(no return value)"
+
         if len(output) > _OUTPUT_CAP:
             output = output[:_OUTPUT_CAP] + "\n...(truncated)"
         return output
