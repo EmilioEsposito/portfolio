@@ -83,32 +83,16 @@ async def handle_zillow_email_event(
             body_snippet += "..."
 
     trigger_prompt = dedent(f"""\
-        New Zillow email arrived. Read the guide, then analyze and draft a reply.
+        New Zillow email arrived. Load the zillow-auto-reply skill and follow it.
 
         **Email details:**
         - Thread ID (Gmail): {thread_id}
         - Subject: {subject}
         - From: {from_address}
         - Body preview: {body_snippet}
+        - Conversation deeplink: {deeplink}
 
-        **Steps:**
-        1. read_file("/workspace/areas/zillow_auto_reply.md") — has all criteria, \
-        format, and availability schedule
-        2. Search/read the full email thread for context
-        3. Draft reply or NoAction per the guide's rules""")
-
-    trigger_instructions = dedent(f"""\
-        Zillow email event trigger (Phase 1 — training/review).
-
-        Guide: /workspace/areas/zillow_auto_reply.md (read first — it has \
-        qualification criteria, reply format, and availability schedule).
-
-        Guardrails:
-        - Do NOT send external emails (no send_external_email). Draft only.
-        - Do NOT send SMS (no send_internal_sms, no send_external_sms).
-        - Email your analysis + draft to emilio@serniacapital.com via \
-        send_internal_email (internal only). Include this deeplink: {deeplink}
-        - If no reply warranted, use NoAction.""")
+        Search/read the full email thread for context, then draft or NoAction.""")
 
     trigger_metadata = {
         "trigger_source": "zillow_email_event",
@@ -124,7 +108,6 @@ async def handle_zillow_email_event(
         trigger_source="zillow_email_event",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        trigger_instructions=trigger_instructions,
         notification_title="Zillow Draft Ready",
         notification_body=f"Re: {subject[:80]}",
         rate_limit_key=f"thread:{thread_id}",

@@ -14,6 +14,8 @@ class NoAction(BaseModel):
     """Agent decided no human action is needed."""
     reason: str
 
+from pydantic_ai_skills import SkillsToolset
+
 from api.src.sernia_ai.config import (
     MAIN_AGENT_MODEL,
     WEB_SEARCH_ALLOWED_DOMAINS,
@@ -58,6 +60,9 @@ _sandbox = Sandbox(SandboxConfig(mounts=[
 ]))
 filesystem_toolset = FileSystemToolset(_sandbox)
 
+# Skills toolset — loads SKILL.md files from .workspace/skills/
+skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
+
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
     deps_type=SerniaDeps,
@@ -77,11 +82,18 @@ sernia_agent = Agent(
         ErrorLoggingToolset(db_search_toolset),
         ErrorLoggingToolset(code_toolset),
         ErrorLoggingToolset(duckdb_toolset),
+        skills_toolset,
     ],
     history_processors=[summarize_tool_results, compact_history],
     instrument=True,
     name=AGENT_NAME,
 )
+
+
+@sernia_agent.instructions
+async def inject_skills_instructions(ctx: RunContext[SerniaDeps]) -> str | None:
+    """Inject skill descriptions so the agent knows what skills are available."""
+    return await skills_toolset.get_instructions(ctx)
 
 
 @sernia_agent.tool

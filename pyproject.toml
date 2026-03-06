@@ -54,7 +54,9 @@ dependencies = [
     "pytz>=2025.2",
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.2",
-    "griffe>=1.0.0,<2.0.0",  # pydantic-ai uses old griffe import path; 2.0 split the package
+    "griffe>=1.0.0,<2.0.0", # pydantic-ai uses old griffe import path; 2.0 split the package
+    "markdownify>=1.2.2",
+    "pydantic-ai-skills>=0.5.1",
 ]
 
 [dependency-groups]

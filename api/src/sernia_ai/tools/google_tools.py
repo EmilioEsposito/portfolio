@@ -32,6 +32,29 @@ from api.src.google.gmail.service import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 
+
+def _html_to_markdown(html: str) -> str:
+    """Convert HTML email to clean markdown for LLM consumption.
+
+    Email HTML uses layout tables extensively, so we strip table tags
+    (keeping their text) and remove non-content elements before converting.
+    """
+    import re
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify as md
+
+    # Remove tags whose *content* should be discarded (not just the tag)
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all(["script", "style", "img"]):
+        tag.decompose()
+    cleaned = str(soup)
+
+    # Convert remaining HTML → markdown, stripping layout table tags
+    result = md(cleaned, strip=["table", "tr", "td", "th", "tbody", "thead", "tfoot"])
+    # Collapse excessive blank lines
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
 google_toolset = FunctionToolset()
 
 GMAIL_SCOPES = [
@@ -210,18 +233,9 @@ async def search_emails(
     return "\n\n".join(lines)
 
 
-@google_toolset.tool
-async def read_email(
-    ctx: RunContext[SerniaDeps],
-    message_id: str,
-) -> str:
-    """Read the full content of an email by its Gmail message ID.
-
-    Args:
-        message_id: The Gmail message ID (returned by search_emails).
-    """
+async def _read_email(message_id: str, user_email: str, text_only: bool = True) -> str:
     credentials = get_delegated_credentials(
-        user_email=ctx.deps.user_email,
+        user_email=user_email,
         scopes=GMAIL_SCOPES,
     )
     service = get_gmail_service(credentials)
@@ -237,9 +251,9 @@ async def read_email(
     body = extract_email_body(message)
     content = body.get("text") or body.get("html") or "(no body)"
 
-    # Truncate very long emails
-    if len(content) > 5000:
-        content = content[:5000] + "\n...(truncated)"
+    if text_only and content == body.get("html"):
+        content = _html_to_markdown(content)
+
 
     return (
         f"From: {headers.get('from', '?')}\n"
@@ -249,6 +263,23 @@ async def read_email(
         f"{content}"
     )
 
+@google_toolset.tool
+async def read_email(
+    ctx: RunContext[SerniaDeps],
+    message_id: str,
+) -> str:
+    """Read the full content of an email by its Gmail message ID.
+
+    Args:
+        message_id: The Gmail message ID (returned by search_emails).
+    """
+    result = await _read_email(message_id, ctx.deps.user_email)
+
+    # truncate to 5000 characters
+    if len(result) > 5000:
+        result = result[:5000] + "\n...[TRUNCATED: WARN USER]"
+
+    return result
 
 @google_toolset.tool
 async def list_calendar_events(
