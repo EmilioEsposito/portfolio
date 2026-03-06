@@ -6,6 +6,7 @@ load_dotenv(find_dotenv(".env"), override=True)
 import os
 import logfire
 import threading
+import functools
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -15,6 +16,7 @@ from apscheduler.events import EVENT_JOB_ERROR
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
 import asyncio
+from opentelemetry import context as otel_context
 from api.src.open_phone.service import send_message
 from api.src.google.gmail.service import send_email
 from api.src.push.service import send_push_to_user
@@ -103,12 +105,36 @@ def get_scheduler() -> AsyncIOScheduler:
         _scheduler = scheduler
         return _scheduler
 
+def _new_trace(func):
+    """Wrap an async job function so it runs in a fresh OpenTelemetry trace.
+
+    Without this, APScheduler jobs inherit the lifespan trace and all spans
+    pile up under a single 'LIFESPAN: FastAPI index.py' trace that runs for
+    hours, making individual job runs impossible to find in Logfire.
+    """
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        # Detach from the current (lifespan) trace context so logfire.span
+        # below starts a brand-new root trace.
+        token = otel_context.attach(otel_context.Context())
+        try:
+            with logfire.span("apscheduler job: {job_name}", job_name=func.__qualname__):
+                return await func(*args, **kwargs)
+        finally:
+            otel_context.detach(token)
+
+    return wrapper
+
+
 def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
     """Add a job, cleanly replacing any existing job with the same ID.
 
     Unlike ``replace_existing=True`` (which does INSERT → duplicate-key error →
     UPDATE), this removes the old job first so the INSERT always succeeds and
     Logfire doesn't record a spurious error-level DB span on every deploy.
+
+    Automatically wraps async job functions with _new_trace so each execution
+    gets its own trace in Logfire instead of inheriting the lifespan trace.
     """
     job_id = kwargs.get("id")
     if job_id:
@@ -117,6 +143,10 @@ def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
         except JobLookupError:
             pass
     kwargs.pop("replace_existing", None)
+    # Wrap async functions so each run gets its own trace
+    func = kwargs.get("func")
+    if func and asyncio.iscoroutinefunction(func):
+        kwargs["func"] = _new_trace(func)
     scheduler.add_job(**kwargs)
 
 
