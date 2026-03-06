@@ -49,10 +49,10 @@ GITKEEP_FILES: dict[str, str] = {
     ),
     "skills/.gitkeep": (
         "# Skills — learned procedures and playbooks\n"
-        "# One folder per skill with a SKILL.md and optional resources/.\n"
+        "# One folder per skill with a SKILL.md (auto-injected every conversation).\n"
         "# Example:\n"
+        "#   skills/zillow_auto_reply/SKILL.md\n"
         "#   skills/lease_renewal/SKILL.md\n"
-        "#   skills/maintenance_request/SKILL.md\n"
     ),
 }
 

@@ -1249,8 +1249,8 @@ class TestHandleZillowEmailEvent:
             assert call_kwargs["notify_clerk_user_id"] is None
 
     @pytest.mark.asyncio
-    async def test_trigger_instructions_reference_guide(self):
-        """Trigger instructions should point agent to zillow_auto_reply.md."""
+    async def test_prompt_has_deeplink_and_skill_reference(self):
+        """Trigger prompt should reference the skill and include a deeplink."""
         with (
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
@@ -1268,11 +1268,11 @@ class TestHandleZillowEmailEvent:
             )
 
             call_kwargs = mock_run.call_args[1]
-            instructions = call_kwargs["trigger_instructions"]
-            assert "zillow_auto_reply.md" in instructions
-            assert "Phase 1" in instructions
-            assert "send_external_email" in instructions  # guardrail: no external email
-            assert "send_internal_email" in instructions  # route: email Emilio
+            prompt = call_kwargs["trigger_prompt"]
+            assert "zillow-auto-reply" in prompt  # references the skill
+            assert "sernia-chat?id=" in prompt  # deeplink embedded
+            assert "trigger_instructions" not in call_kwargs  # guardrails live in skill now
+            assert call_kwargs["conversation_id"] is not None
 
 
 class TestBackgroundRunnerTargetedPush:
