@@ -126,8 +126,9 @@ async def run_python(
     core Python (variables, functions, loops, list/dict comprehensions, f-strings,
     slicing, math, dataclasses). No filesystem or network access.
 
-    The last expression in the code is returned as the result.
-    Use print() to include intermediate output.
+    Output: The last expression value AND any print() output are both returned.
+    Use print() for multi-line results (e.g. inside loops). If your code has
+    no final expression, print() is the only way to produce output.
 
     Monty does NOT support import statements. Instead, these helper functions
     are available directly (no imports needed):
