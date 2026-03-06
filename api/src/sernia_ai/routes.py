@@ -395,7 +395,7 @@ async def get_conversation_messages_endpoint(
     pending = extract_pending_approval_from_messages(pydantic_messages)
 
     return {
-        "messages": [msg.model_dump() for msg in vercel_messages],
+        "messages": [msg.model_dump(by_alias=True) for msg in vercel_messages],
         "conversation_id": conversation_id,
         "pending": pending,
     }
