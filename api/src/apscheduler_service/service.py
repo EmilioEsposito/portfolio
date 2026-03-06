@@ -324,6 +324,20 @@ async def schedule_email(
     return is_scheduled
 
 def register_hello_apscheduler_jobs():
+    """Register hello world test job.
+
+    Only runs in local development. In hosted environments (Railway), the
+    SQLAlchemyJobStore has a race condition where APScheduler tries to remove
+    the one-time date-triggered job after execution, but the job is already
+    gone - causing a JobLookupError that triggers Logfire alerts.
+
+    This job is just for testing/demo purposes and doesn't need to run in production.
+    """
+    is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME", "")) > 0
+    if is_hosted:
+        logfire.info("Skipping hello_world_apscheduler_job registration (hosted environment)")
+        return
+
     scheduler = get_scheduler()
     upsert_job(
         scheduler,
