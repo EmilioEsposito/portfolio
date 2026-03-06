@@ -4,6 +4,7 @@ Main Sernia AI agent definition.
 Includes memory system (workspace file tools + dynamic instructions),
 HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search).
 """
+import logfire
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai.models.anthropic import AnthropicModelSettings
@@ -61,7 +62,17 @@ _sandbox = Sandbox(SandboxConfig(mounts=[
 filesystem_toolset = FileSystemToolset(_sandbox)
 
 # Skills toolset — loads SKILL.md files from .workspace/skills/
+# Note: initial discovery may find nothing if workspace hasn't been git-synced yet.
+# Call reload_skills() after workspace init in lifespan to pick up synced skills.
 skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
+
+
+def reload_skills() -> None:
+    """Re-discover skills from disk. Called every agent run so edits take effect immediately."""
+    skills_toolset._skills.clear()
+    for skill_dir in skills_toolset._skill_directories:
+        for skill in skill_dir.get_skills().values():
+            skills_toolset._skills[skill.name] = skill
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
@@ -82,7 +93,7 @@ sernia_agent = Agent(
         ErrorLoggingToolset(db_search_toolset),
         ErrorLoggingToolset(code_toolset),
         ErrorLoggingToolset(duckdb_toolset),
-        skills_toolset,
+        ErrorLoggingToolset(skills_toolset),
     ],
     history_processors=[summarize_tool_results, compact_history],
     instrument=True,
@@ -92,7 +103,12 @@ sernia_agent = Agent(
 
 @sernia_agent.instructions
 async def inject_skills_instructions(ctx: RunContext[SerniaDeps]) -> str | None:
-    """Inject skill descriptions so the agent knows what skills are available."""
+    """Re-discover skills from disk and inject descriptions.
+
+    Runs at the start of every agent run, so skill edits (by the agent or
+    manually) take effect without restarting the server.
+    """
+    reload_skills()
     return await skills_toolset.get_instructions(ctx)
 
 
