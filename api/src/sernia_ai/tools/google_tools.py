@@ -92,12 +92,63 @@ def _get_docs_service(user_email: str):
     return build("docs", "v1", credentials=creds)
 
 
+async def _get_threading_headers(message_id: str, user_email: str) -> dict:
+    """Fetch threading metadata for replying to a message.
+
+    Returns dict with thread_id, in_reply_to, references, or empty dict on failure.
+    Note: thread_id is mailbox-specific — caller must ensure user_email matches
+    the mailbox used for sending, otherwise the Gmail API will 404.
+    """
+    import logfire
+
+    try:
+        service = get_gmail_service(
+            get_delegated_credentials(user_email, GMAIL_SCOPES)
+        )
+        msg = (
+            service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=message_id,
+                format="metadata",
+                metadataHeaders=["Message-ID", "References"],
+            )
+            .execute()
+        )
+
+        headers = {
+            h["name"].lower(): h["value"]
+            for h in msg.get("payload", {}).get("headers", [])
+        }
+        rfc_message_id = headers.get("message-id", "")
+
+        if not rfc_message_id:
+            logfire.warn(
+                "No Message-ID header found for reply", message_id=message_id
+            )
+            return {}
+
+        existing_refs = headers.get("references", "")
+        new_refs = f"{existing_refs} {rfc_message_id}".strip()
+
+        return {
+            "thread_id": msg.get("threadId"),
+            "in_reply_to": rfc_message_id,
+            "references": new_refs,
+        }
+    except Exception as e:
+        logfire.exception("Failed to fetch threading headers", message_id=message_id)
+        return {}
+
+
 @google_toolset.tool(requires_approval=True)
 async def send_external_email(
     ctx: RunContext[SerniaDeps],
     to: list[EmailStr],
     subject: str,
     body: str,
+    reply_to_message_id: str = "",
 ) -> str:
     """Send an email to external recipients (requires approval).
 
@@ -109,6 +160,7 @@ async def send_external_email(
         to: List of recipient email addresses (e.g. ["tenant@gmail.com"]).
         subject: Email subject line.
         body: Plain text email body.
+        reply_to_message_id: Optional Gmail message ID to reply to (threads the email).
     """
     import logfire
 
@@ -116,6 +168,12 @@ async def send_external_email(
 
     if not to:
         return "Blocked: no recipients provided."
+
+    thread_kwargs: dict = {}
+    if reply_to_message_id:
+        thread_kwargs = await _get_threading_headers(
+            reply_to_message_id, "all@serniacapital.com"
+        )
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
@@ -128,6 +186,7 @@ async def send_external_email(
         message_text=body,
         sender=ctx.deps.user_email,
         credentials=credentials,
+        **thread_kwargs,
     )
     logfire.info("send_external_email success", to=to_str)
     return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
@@ -139,6 +198,7 @@ async def send_internal_email(
     to: list[EmailStr],
     subject: str,
     body: str,
+    reply_to_message_id: str = "",
 ) -> str:
     """Send an email to Sernia Capital team members (no approval needed).
 
@@ -150,6 +210,7 @@ async def send_internal_email(
             (e.g. ["emilio@serniacapital.com"] or ["emilio@serniacapital.com", "all@serniacapital.com"]).
         subject: Email subject line.
         body: Plain text email body.
+        reply_to_message_id: Optional Gmail message ID to reply to (threads the email).
     """
     import logfire
 
@@ -167,6 +228,12 @@ async def send_internal_email(
                 "Use send_external_email if ANY recipient is external."
             )
 
+    thread_kwargs: dict = {}
+    if reply_to_message_id:
+        thread_kwargs = await _get_threading_headers(
+            reply_to_message_id, ctx.deps.user_email
+        )
+
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
         user_email=ctx.deps.user_email,
@@ -178,6 +245,7 @@ async def send_internal_email(
         message_text=body,
         sender=ctx.deps.user_email,
         credentials=credentials,
+        **thread_kwargs,
     )
     logfire.info("send_internal_email success", to=to_str)
     return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
@@ -187,16 +255,20 @@ async def send_internal_email(
 async def search_emails(
     ctx: RunContext[SerniaDeps],
     query: str,
+    user_inbox_email: str = None,
     max_results: int = 10,
 ) -> str:
     """Search emails using Gmail search syntax.
 
     Args:
         query: Gmail search query (e.g. "from:john subject:rent", "is:unread", "newer_than:7d").
+        user_inbox_email: Optional email address to search in (default current user's inbox).
         max_results: Maximum number of results to return (default 10).
     """
+    if not user_inbox_email:
+        user_inbox_email = ctx.deps.user_email
     credentials = get_delegated_credentials(
-        user_email=ctx.deps.user_email,
+        user_email=user_inbox_email,
         scopes=GMAIL_SCOPES,
     )
     service = get_gmail_service(credentials)
@@ -228,7 +300,7 @@ async def search_emails(
             f"[{headers.get('date', '?')}] From: {headers.get('from', '?')}\n"
             f"  Subject: {headers.get('subject', '(no subject)')}\n"
             f"  Snippet: {msg.get('snippet', '')}\n"
-            f"  ID: {msg_ref['id']}"
+            f"  ID: {msg_ref['id']}  Thread: {msg_ref.get('threadId', '?')}"
         )
     return "\n\n".join(lines)
 
@@ -255,11 +327,14 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
         content = _html_to_markdown(content)
 
 
+    thread_id = message.get("threadId", "?")
+
     return (
         f"From: {headers.get('from', '?')}\n"
         f"To: {headers.get('to', '?')}\n"
         f"Date: {headers.get('date', '?')}\n"
-        f"Subject: {headers.get('subject', '(no subject)')}\n\n"
+        f"Subject: {headers.get('subject', '(no subject)')}\n"
+        f"Thread ID: {thread_id}\n\n"
         f"{content}"
     )
 

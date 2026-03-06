@@ -76,6 +76,25 @@ def create_message(sender: str, to: str, subject: str, message_text: str):
     return {"raw": encoded_message}
 
 
+def create_reply_message(
+    sender: str,
+    to: str,
+    subject: str,
+    message_text: str,
+    in_reply_to: str,
+    references: str,
+) -> dict:
+    """Create a MIME message with threading headers for replying."""
+    message = MIMEText(message_text)
+    message["to"] = to
+    message["from"] = sender
+    message["subject"] = subject
+    message["In-Reply-To"] = in_reply_to
+    message["References"] = references
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return {"raw": encoded_message}
+
+
 async def send_email(
     to: str,
     subject: str,
@@ -83,6 +102,9 @@ async def send_email(
     sender: Optional[str] = None,
     credentials: Optional[Union[Credentials, service_account.Credentials]] = None,
     credentials_json: Optional[dict] = None,
+    thread_id: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
 ):
     """
     Sends an email using the Gmail API.
@@ -94,6 +116,9 @@ async def send_email(
         sender: Optional email address of the sender. If None, uses the authenticated user's email
         credentials: Optional credentials object (service account or OAuth)
         credentials_json: Optional OAuth credentials as dictionary (for backward compatibility)
+        thread_id: Optional Gmail thread ID to place the message in the same thread
+        in_reply_to: Optional RFC 2822 Message-ID of the email being replied to
+        references: Optional RFC 2822 References header chain
     """
     try:
         # Determine which credentials to use
@@ -124,7 +149,15 @@ async def send_email(
             sender = profile["emailAddress"]
 
         # Create the email message
-        message = create_message(sender, to, subject, message_text)
+        if in_reply_to and references:
+            message = create_reply_message(
+                sender, to, subject, message_text, in_reply_to, references
+            )
+        else:
+            message = create_message(sender, to, subject, message_text)
+
+        if thread_id:
+            message["threadId"] = thread_id
 
         # Send the email
         sent_message = (

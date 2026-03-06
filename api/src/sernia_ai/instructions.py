@@ -89,10 +89,13 @@ answer questions about tenants/contacts.
 
 ### Communication
 - **send_internal_email**: Send an email to Sernia Capital team members \
-(@serniacapital.com only). No approval needed. Takes a list of email addresses.
+(@serniacapital.com only). No approval needed. Takes a list of email addresses. \
+Supports replying to existing threads via reply_to_message_id (the Gmail message ID \
+from search_emails or read_email).
 - **send_external_email**: Send an email to external recipients (requires approval). \
 May include internal @serniacapital.com addresses alongside external ones. \
-Takes a list of email addresses.
+Takes a list of email addresses. Supports replying to existing threads via \
+reply_to_message_id.
 
 ### ClickUp (Task Management)
 - **list_clickup_lists**: List all spaces, folders, and lists in the workspace with IDs.
