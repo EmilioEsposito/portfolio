@@ -198,6 +198,7 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                         asyncio.create_task(
                             handle_zillow_email_event(
                                 thread_id=processed_email_message.get("thread_id", ""),
+                                message_id=processed_email_message.get("message_id", ""),
                                 subject=processed_email_message.get("subject", ""),
                                 from_address=from_addr,
                                 body_text=processed_email_message.get("body_text"),

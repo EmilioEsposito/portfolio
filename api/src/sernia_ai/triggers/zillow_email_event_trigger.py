@@ -51,6 +51,7 @@ def is_zillow_email(from_address: str) -> bool:
 async def handle_zillow_email_event(
     *,
     thread_id: str,
+    message_id: str = "",
     subject: str,
     from_address: str,
     body_text: str | None,
@@ -67,6 +68,7 @@ async def handle_zillow_email_event(
     logfire.info(
         "zillow_email_event: handling",
         thread_id=thread_id,
+        message_id=message_id,
         subject=subject,
         from_address=from_address,
     )
@@ -86,18 +88,22 @@ async def handle_zillow_email_event(
         New Zillow email arrived. Load the zillow-auto-reply skill and follow it.
 
         **Email details:**
+        - Gmail Message ID (all@ inbox): {message_id}
         - Thread ID (Gmail): {thread_id}
         - Subject: {subject}
         - From: {from_address}
         - Body preview: {body_snippet}
         - Conversation deeplink: {deeplink}
 
-        Search/read the full email thread for context, then draft or NoAction.""")
+        Read the email using the Message ID above, then draft or NoAction.
+        When replying, pass reply_to_message_id="{message_id}" to thread correctly.
+        Always search/read from all@serniacapital.com inbox (use user_inbox_email="all@serniacapital.com").""")
 
     trigger_metadata = {
         "trigger_source": "zillow_email_event",
         "trigger_type": "email_event",
         "thread_id": thread_id,
+        "message_id": message_id,
         "subject": subject,
         "from_address": from_address,
     }

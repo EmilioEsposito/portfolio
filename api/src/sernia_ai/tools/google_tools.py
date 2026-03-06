@@ -171,9 +171,21 @@ async def send_external_email(
 
     thread_kwargs: dict = {}
     if reply_to_message_id:
+        # Try all@ first (send mailbox), fall back to user's mailbox
         thread_kwargs = await _get_threading_headers(
             reply_to_message_id, "all@serniacapital.com"
         )
+        if not thread_kwargs and ctx.deps.user_email != "all@serniacapital.com":
+            logfire.info(
+                "reply_to_message_id not found in all@, trying user inbox",
+                message_id=reply_to_message_id,
+                user_email=ctx.deps.user_email,
+            )
+            thread_kwargs = await _get_threading_headers(
+                reply_to_message_id, ctx.deps.user_email
+            )
+            # Drop threadId — it's from user's mailbox, not the send mailbox
+            thread_kwargs.pop("thread_id", None)
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
