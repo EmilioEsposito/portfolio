@@ -11,10 +11,7 @@ touch .env
 # NOTE TO AGENTS: This .env file is not used by codex, it is only used for Emilio's local laptop development. 
 echo "✓ Created .env"
 
-echo "Step 4: Configuring PYTHONPATH"
-echo 'export PYTHONPATH=/workspace/portfolio:$PYTHONPATH' >> ~/.bashrc
-export PYTHONPATH=/workspace/portfolio:$PYTHONPATH
-echo "✓ PYTHONPATH set to: $PYTHONPATH"
+echo "Step 4: PYTHONPATH — handled by editable install via uv sync"
 
 echo "Step 5: Installing and starting PostgreSQL"
 echo "Installing PostgreSQL 16..."
