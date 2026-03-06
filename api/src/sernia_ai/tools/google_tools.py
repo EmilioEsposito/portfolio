@@ -119,7 +119,7 @@ async def send_external_email(
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
-        user_email=ctx.deps.user_email,
+        user_email="all@serniacapital.com",
         scopes=GMAIL_SCOPES,
     )
     result = await _send_email(
