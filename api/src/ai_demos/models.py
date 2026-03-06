@@ -118,16 +118,16 @@ def _repair_orphaned_tool_calls(
     messages: list[ModelMessage],
     conversation_id: str = "",
 ) -> list[ModelMessage]:
-    """Inject synthetic ToolReturnParts for any ToolCallParts missing a response.
+    """Inject synthetic ToolReturnParts for orphaned ToolCallParts mid-conversation.
 
     When an approval-gated tool call is saved to the DB but the ToolReturnPart
     never arrives (timeout, crash, client disconnect), the conversation becomes
     permanently broken — the Anthropic API rejects histories where tool_use
     blocks have no matching tool_result.
 
-    This function walks the message list and, for every ModelResponse containing
-    orphaned ToolCallParts, inserts a ModelRequest with synthetic ToolReturnParts
-    immediately after it. The repair is idempotent.
+    IMPORTANT: Only repairs tool calls that have subsequent messages after them
+    (truly orphaned). Tool calls in the LAST ModelResponse are left alone — those
+    are legitimate pending approvals waiting for user action.
     """
     # Collect all returned tool_call_ids
     returned_ids: set[str] = set()
@@ -137,19 +137,25 @@ def _repair_orphaned_tool_calls(
                 if isinstance(part, ToolReturnPart):
                     returned_ids.add(part.tool_call_id)
 
+    # Find the index of the last ModelResponse
+    last_response_idx = -1
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ModelResponse):
+            last_response_idx = i
+
     # Walk messages and build repaired list
     repaired: list[ModelMessage] = []
     patched = False
-    for msg in messages:
+    for i, msg in enumerate(messages):
         repaired.append(msg)
-        if isinstance(msg, ModelResponse):
+        if isinstance(msg, ModelResponse) and i != last_response_idx:
+            # Only patch non-terminal ModelResponses — terminal ones may be
+            # pending approval and should not be touched.
             orphans = [
                 part for part in msg.parts
                 if isinstance(part, ToolCallPart) and part.tool_call_id not in returned_ids
             ]
             if orphans:
-                # Check that the NEXT message doesn't already contain these returns
-                # (shouldn't happen, but be safe)
                 synthetic_parts = [
                     ToolReturnPart(
                         tool_name=tc.tool_name,
@@ -159,7 +165,6 @@ def _repair_orphaned_tool_calls(
                     for tc in orphans
                 ]
                 repaired.append(ModelRequest(parts=synthetic_parts))
-                # Mark these as returned so we don't double-patch
                 returned_ids.update(tc.tool_call_id for tc in orphans)
                 patched = True
 
