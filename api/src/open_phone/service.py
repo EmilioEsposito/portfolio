@@ -189,26 +189,18 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             "externalId": "api" + contact_create.phone_number[-10:],  # "e" + contact["Phone Number"],   # contact["external_id"]
         }
         
-        response = requests.post(
-            "https://api.openphone.com/v1/contacts", headers=headers, json=data
+        # Check if contact already exists in OpenPhone before creating
+        external_id = data["externalId"]
+        lookup_response = requests.get(
+            "https://api.openphone.com/v1/contacts", headers=headers, params={"externalIds": [external_id]}
         )
+        lookup_results = lookup_response.json().get('data', [])
 
-        if response.status_code == 201:
-            contact.openphone_contact_id = response.json()['data']['id']
-            contact.openphone_json = response.json()['data']
-            final_response = response
-        else:
-            # lookup contact by externalId
-            lookup_response = requests.get(
-                "https://api.openphone.com/v1/contacts", headers=headers, params={"externalIds": [data["externalId"]]}
-            )
-            lookup_results = lookup_response.json()['data']
-            num_results = len(lookup_results)
-            if num_results>1:
-                logfire.warn(f"Multiple contacts found for the same externalId: {data['externalId']}")
+        if lookup_results:
+            # Contact exists — update it
+            if len(lookup_results) > 1:
+                logfire.warn(f"Multiple contacts found for the same externalId: {external_id}")
             contact.openphone_contact_id = lookup_results[0]['id']
-
-            # patch the contact
             patch_response = requests.patch(
                 f"https://api.openphone.com/v1/contacts/{contact.openphone_contact_id}", headers=headers, json=data
             )
@@ -217,6 +209,19 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
                 final_response = patch_response
             else:
                 logfire.error(f"Failed to patch contact: {patch_response.json()}")
+                final_response = patch_response
+        else:
+            # Contact doesn't exist — create it
+            response = requests.post(
+                "https://api.openphone.com/v1/contacts", headers=headers, json=data
+            )
+            if response.status_code == 201:
+                contact.openphone_contact_id = response.json()['data']['id']
+                contact.openphone_json = response.json()['data']
+                final_response = response
+            else:
+                logfire.error(f"Failed to create contact: {response.status_code} {response.json()}")
+                final_response = response
             
         # Use merge instead of upsert
         merged_contact = await db.merge(contact)
