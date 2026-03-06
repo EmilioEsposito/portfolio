@@ -172,6 +172,10 @@ async def lifespan(app: FastAPI):
         try:
             await initialize_workspace(WORKSPACE_PATH)
 
+            # Re-discover skills now that workspace is synced from git
+            from api.src.sernia_ai.agent import reload_skills
+            reload_skills()
+
             # Clean up stale DuckDB/CSV data from previous conversations
             from api.src.sernia_ai.tools.duckdb_tools import cleanup_stale_data
             cleanup_stale_data(max_age_hours=24)

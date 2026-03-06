@@ -182,7 +182,12 @@ async def notify_user_push(
         subs = result.scalars().all()
 
         if not subs:
-            logfire.warn("web push: no subscriptions for user — notification not delivered", clerk_user_id=clerk_user_id, title=title)
+            logfire.info(
+                "web push: no subscriptions for targeted user — falling back to all users",
+                clerk_user_id=clerk_user_id,
+                title=title,
+            )
+            await notify_all_sernia_users(title=title, body=body, data=data)
             return
 
         logfire.info("web push sending (user-targeted)", sub_count=len(subs), title=title, clerk_user_id=clerk_user_id)
