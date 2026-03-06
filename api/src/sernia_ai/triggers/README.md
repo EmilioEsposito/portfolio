@@ -134,7 +134,7 @@ Real-time Zillow lead processing. When a new email arrives via Gmail Pub/Sub and
 
 **Phase 1 (Training):** Agent drafts a reply but does NOT send it. Emilio receives a targeted push notification to review the draft in web chat. The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
 
-**Phase 2 (planned):** Agent calls `send_email` (already approval-gated via HITL). Emilio approves/denies in web chat.
+**Phase 2 (planned):** Agent calls `send_external_email` (already approval-gated via HITL). Emilio approves/denies in web chat.
 
 ```mermaid
 flowchart TD

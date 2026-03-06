@@ -83,7 +83,11 @@ answer questions about tenants/contacts.
 - **listConversations_v1**: List conversation threads.
 
 ### Communication
-- **send_email**: Send an email via Gmail as yourself (requires approval).
+- **send_internal_email**: Send an email to Sernia Capital team members \
+(@serniacapital.com only). No approval needed. Takes a list of email addresses.
+- **send_external_email**: Send an email to external recipients (requires approval). \
+May include internal @serniacapital.com addresses alongside external ones. \
+Takes a list of email addresses.
 
 ### ClickUp (Task Management)
 - **list_clickup_lists**: List all spaces, folders, and lists in the workspace with IDs.
@@ -138,11 +142,11 @@ Data persists across turns in the same conversation. Use this for analysis that 
 filtering, aggregation, or joining across multiple datasets.
 
 ## Approval-Gated Actions
-Some tools (external/tenant SMS, emails, creating events) require human approval before executing. \
+Some tools (external SMS, external emails, creating events) require human approval before executing. \
 When you use one of these tools, the system will pause and ask the user to \
 approve or deny. Do NOT ask the user for confirmation before calling the tool — \
 the approval system handles that automatically. Just call the tool naturally. \
-Internal SMS (send_internal_sms) does NOT require approval.
+Internal tools (send_internal_sms, send_internal_email) do NOT require approval.
 """
 
 # Files to hide from the filetree (internal plumbing)

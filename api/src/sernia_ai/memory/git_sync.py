@@ -69,6 +69,25 @@ async def _configure_repo(workspace: Path, pat: str) -> None:
         await _run_git("remote", "add", "origin", _remote_url(pat), cwd=workspace, pat=pat)
 
 
+async def _commit_and_push_dirty(workspace: Path, pat: str) -> None:
+    """Commit and push any uncommitted workspace changes. Called once at startup."""
+    rc, stdout, _ = await _run_git("status", "--porcelain", cwd=workspace)
+    if rc != 0 or not stdout.strip():
+        return
+
+    logfire.info("git_sync: found uncommitted changes on startup, committing")
+    await _run_git("add", "-A", cwd=workspace)
+    rc, _, _ = await _run_git("diff", "--cached", "--quiet", cwd=workspace)
+    if rc == 0:
+        return  # nothing staged after add (e.g. only untracked .gitignored files)
+    await _run_git("commit", "-m", "agent: commit uncommitted changes from previous run", cwd=workspace)
+    rc, _, stderr = await _run_git("push", "-u", "origin", "main", cwd=workspace, pat=pat)
+    if rc != 0:
+        logfire.error(f"git_sync: startup push failed: {stderr}")
+    else:
+        logfire.info("git_sync: startup push succeeded")
+
+
 async def ensure_repo(workspace_path: Path) -> None:
     """
     Ensure workspace is backed by the git repo. Called once at startup.
@@ -123,6 +142,10 @@ async def ensure_repo(workspace_path: Path) -> None:
 
         if rc != 0:
             logfire.error(f"git_sync: pull failed (non-fatal): {stderr}")
+
+        # Push any uncommitted changes left over from a previous run
+        # (e.g. server crashed before commit_and_push fired).
+        await _commit_and_push_dirty(workspace_path, pat)
         return
 
     # Check if directory has existing files (besides .git)

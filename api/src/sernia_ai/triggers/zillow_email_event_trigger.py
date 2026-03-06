@@ -8,11 +8,12 @@ notification to Emilio for review.
 Naming convention: all public symbols use the ``zillow_email_event`` root.
 """
 
+import uuid
 from textwrap import dedent
 
 import logfire
 
-from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG
+from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG, FRONTEND_BASE_URL
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
 # Module-level cache for Emilio's clerk_user_id (looked up once from DB).
@@ -70,6 +71,10 @@ async def handle_zillow_email_event(
         from_address=from_address,
     )
 
+    # Pre-generate conversation ID so we can embed a deeplink in the prompt
+    conv_id = str(uuid.uuid4())
+    deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={conv_id}"
+
     # Build a snippet of the email body for the trigger prompt
     body_snippet = ""
     if body_text:
@@ -78,7 +83,7 @@ async def handle_zillow_email_event(
             body_snippet += "..."
 
     trigger_prompt = dedent(f"""\
-        A new Zillow email just arrived. Draft a reply if appropriate.
+        New Zillow email arrived. Read the guide, then analyze and draft a reply.
 
         **Email details:**
         - Thread ID (Gmail): {thread_id}
@@ -87,35 +92,23 @@ async def handle_zillow_email_event(
         - Body preview: {body_snippet}
 
         **Steps:**
-        1. Read the detailed Zillow auto-reply guide from your workspace:
-           read_file("/workspace/areas/zillow_auto_reply.md")
-        2. Search for the full email thread to understand context:
-           search_emails("rfc822msgid:{thread_id}") or search by subject
-        3. Read each email in the thread to understand the conversation state
-        4. Apply the qualification criteria and reply rules from the guide
-        5. If a reply is warranted, draft it following the guide's format:
-           - Thread context (subject, lead name, property)
-           - Lead summary (credit score, pets, move-in date)
-           - Draft reply text
-           - Brief reasoning
-        6. If proposing tour times, check the availability schedule in the guide
-           and exclude any slots that are in the past or within 24 hours of now.
-        7. If no reply is needed, explain why and use NoAction.
+        1. read_file("/workspace/areas/zillow_auto_reply.md") — has all criteria, \
+        format, and availability schedule
+        2. Search/read the full email thread for context
+        3. Draft reply or NoAction per the guide's rules""")
 
-        Remember: This is Phase 1 (training). Draft only. Do NOT call send_email.""")
+    trigger_instructions = dedent(f"""\
+        Zillow email event trigger (Phase 1 — training/review).
 
-    trigger_instructions = dedent("""\
-        This is a real-time Zillow email event trigger. A new email from Zillow
-        just arrived and was saved to the database.
+        Guide: /workspace/areas/zillow_auto_reply.md (read first — it has \
+        qualification criteria, reply format, and availability schedule).
 
-        Your job: read the full guide at /workspace/areas/zillow_auto_reply.md,
-        then analyze the email thread and draft a response if appropriate.
-
-        IMPORTANT:
-        - Do NOT send any emails. This is Phase 1 (training/review).
-        - Your draft will be sent to Emilio as a push notification for review.
-        - Follow the guide's format, qualification criteria, and time slot rules.
-        - Always read the guide first; it contains the latest availability schedule.""")
+        Guardrails:
+        - Do NOT send external emails (no send_external_email). Draft only.
+        - Do NOT send SMS (no send_internal_sms, no send_external_sms).
+        - Email your analysis + draft to emilio@serniacapital.com via \
+        send_internal_email (internal only). Include this deeplink: {deeplink}
+        - If no reply warranted, use NoAction.""")
 
     trigger_metadata = {
         "trigger_source": "zillow_email_event",
@@ -136,6 +129,7 @@ async def handle_zillow_email_event(
         notification_body=f"Re: {subject[:80]}",
         rate_limit_key=f"thread:{thread_id}",
         notify_clerk_user_id=emilio_clerk_id,
+        conversation_id=conv_id,
     )
 
     logfire.info(
