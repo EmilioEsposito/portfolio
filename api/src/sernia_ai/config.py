@@ -36,9 +36,9 @@ SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
 # Agent name used for conversation persistence
 AGENT_NAME = "sernia"
 
-# Workspace path: Railway volume mount (/.workspace) or repo-relative fallback.
+# Workspace path: Railway volume mount or module-relative fallback.
 WORKSPACE_PATH = Path(
-    os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parents[3] / ".workspace")
+    os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parent / "workspace")
 )
 
 # ClickUp
@@ -89,10 +89,10 @@ CLICKUP_MAINTENANCE_LIST_ID = "901312027371"
 # Trigger schedule intervals — SMS inbox review
 SMS_INBOX_CHECK_INTERVAL_HOURS = 3
 
-# Google Calendar: organizer email for events created by the agent.
+# Shared external mailbox for outbound email and calendar invites.
 # Using the shared mailbox ensures attendees receive email invites
 # (self-organized events via delegation don't trigger notifications).
-CALENDAR_ORGANIZER_EMAIL = "all@serniacapital.com"
+SHARED_EXTERNAL_EMAIL = "all@serniacapital.com"
 
 # Contact slug for Emilio — used to look up clerk_user_id for targeted push notifications.
 EMILIO_CONTACT_SLUG = "emilio"

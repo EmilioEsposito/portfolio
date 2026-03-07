@@ -3,7 +3,7 @@ FROM python:3.11-slim
 
 RUN echo ">>> Building BACKEND..."
 
-# git is needed by sernia_ai workspace sync (git_sync.py)
+# git is needed by sernia_ai workspace sync (memory/git_sync.py)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 # https://docs.astral.sh/uv/guides/integration/docker/
