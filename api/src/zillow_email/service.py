@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import openai
 import pytz
 from api.src.google.calendar.service import (
+    CalendarAttendee,
     CalendarEventInput,
     CalendarReminder,
     ReminderMethod,
@@ -511,7 +512,11 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 description=event_description,
                                 start=start_datetime_aware,
                                 end=end_datetime_aware,
-                                attendees=["emilio@serniacapital.com", "anna@serniacapital.com", "jackie@serniacapital.com"],
+                                attendees=[
+                                    CalendarAttendee(email="emilio@serniacapital.com"),
+                                    CalendarAttendee(email="anna@serniacapital.com"),
+                                    CalendarAttendee(email="jackie@serniacapital.com"),
+                                ],
                                 reminders=[
                                     CalendarReminder(method=ReminderMethod.EMAIL, minutes=24 * 60),
                                     CalendarReminder(method=ReminderMethod.POPUP, minutes=120),
