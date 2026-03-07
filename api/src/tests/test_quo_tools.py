@@ -5,7 +5,7 @@ These tests hit the real OpenPhone API. They require OPEN_PHONE_API_KEY
 to be set and will be skipped otherwise.
 
 Run with:
-    pytest -m live api/src/tests/test_openphone_tools.py -v -s
+    pytest -m live api/src/tests/test_quo_tools.py -v -s
 
 ⚠️  SMS SAFETY: NEVER add live tests that send real SMS to external contacts
 (tenants, vendors, etc.). External SMS tests must ALWAYS mock the send call.
@@ -15,7 +15,10 @@ internal team numbers. If a dedicated test phone number is provided in the
 future, it will be explicitly configured here.
 """
 
+import json
 import os
+import re
+from pathlib import Path
 
 import httpx
 import pytest
@@ -29,6 +32,11 @@ from api.src.open_phone.service import (
     get_all_contacts,
     invalidate_contact_cache,
 )
+from api.src.sernia_ai.tools.quo_tools import (
+    search_contacts_impl,
+    list_active_threads_impl,
+    get_thread_messages_impl,
+)
 from api.src.utils.fuzzy_json import fuzzy_filter
 
 pytestmark = [
@@ -38,6 +46,20 @@ pytestmark = [
         reason="OPEN_PHONE_API_KEY not set",
     ),
 ]
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _save_fixture(filename: str, content: str) -> None:
+    """Save tool output to the gitignored fixtures directory for inspection."""
+    FIXTURES_DIR.mkdir(exist_ok=True)
+    # Pretty-print JSON files
+    if filename.endswith(".json"):
+        try:
+            content = json.dumps(json.loads(content), indent=4, ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    (FIXTURES_DIR / filename).write_text(content, encoding="utf-8")
 
 
 @pytest_asyncio.fixture
@@ -96,7 +118,8 @@ async def test_search_typo_tolerance(quo_client: httpx.AsyncClient):
     contacts = await get_all_contacts(quo_client)
     for c in contacts:
         first = (c.get("defaultFields", {}).get("firstName") or "").strip()
-        if len(first) >= 5:
+        # Skip names with spaces/numbers (e.g. "Lead 659-03 Murong") — not real names
+        if len(first) >= 5 and " " not in first and first.isalpha():
             # Double a letter to create a typo: "Emilio" → "Emmilio"
             typo = first[:2] + first[1] + first[2:]
             results = fuzzy_filter(contacts, typo)
@@ -258,3 +281,103 @@ async def test_internal_contacts_have_sernia_company(quo_client: httpx.AsyncClie
         name = f"{df.get('firstName', '')} {df.get('lastName', '')}".strip()
         print(f"  {name}")
     assert len(internal) > 0, "Expected at least one internal contact"
+
+
+# ---- Custom retrieval tools (search_contacts, get_recent_threads, get_thread_messages) ----
+
+
+@pytest.mark.asyncio
+async def test_search_contacts_impl_returns_json(quo_client: httpx.AsyncClient):
+    """search_contacts_impl should return a JSON string with matching contacts."""
+    result = await search_contacts_impl(quo_client, "Sernia")
+    _save_fixture("quo_search_contacts.json", result)
+    print(f"\nsearch_contacts_impl('Sernia') → saved to fixtures/quo_search_contacts.json")
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert len(parsed) > 0, "Expected at least one match for 'Sernia'"
+
+
+@pytest.mark.asyncio
+async def test_search_contacts_impl_no_results(quo_client: httpx.AsyncClient):
+    """Nonsense query should return zero matches."""
+    result = await search_contacts_impl(quo_client, "zzxqwplmk99999")
+    parsed = json.loads(result)
+    assert parsed["total_matches"] == 0
+    assert parsed["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_impl_returns_threads(quo_client: httpx.AsyncClient):
+    """list_active_threads_impl should return enriched thread listing."""
+    result = await list_active_threads_impl(quo_client)
+    _save_fixture("quo_active_threads.md", result)
+    print(f"\nlist_active_threads_impl() → saved to fixtures/quo_active_threads.md")
+    assert isinstance(result, str)
+    assert "Active threads" in result or "No active" in result
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_impl_enriches_contact_names(quo_client: httpx.AsyncClient):
+    """Thread listing should show contact names, not just raw phone numbers."""
+    result = await list_active_threads_impl(quo_client)
+    if "No active" in result:
+        pytest.skip("No active threads to test enrichment")
+    # At least one thread should have a name (not just a phone number)
+    assert "(" in result, "Expected enriched names with phone in parentheses"
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_with_known_contact(quo_client: httpx.AsyncClient):
+    """get_thread_messages_impl should return messages for a known contact."""
+    contacts = await get_all_contacts(quo_client)
+    target_phone = None
+    for c in contacts:
+        phones = c.get("defaultFields", {}).get("phoneNumbers", [])
+        company = c.get("defaultFields", {}).get("company", "")
+        if phones and phones[0].get("value") and company != "Sernia Capital LLC":
+            target_phone = phones[0]["value"]
+            break
+
+    if not target_phone:
+        pytest.skip("No external contacts with phone numbers found")
+
+    result = await get_thread_messages_impl(quo_client, target_phone, max_results=5)
+    # Sanitize phone from filename
+    phone_slug = target_phone.replace("+", "").replace("-", "")
+    _save_fixture(f"quo_thread_messages_{phone_slug}.md", result)
+    print(f"\nget_thread_messages_impl('{target_phone}') → saved to fixtures/quo_thread_messages_{phone_slug}.md")
+    assert isinstance(result, str)
+    assert "SMS thread with" in result or "No messages found" in result
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_no_messages(quo_client: httpx.AsyncClient):
+    """A fake phone number should return 'no messages found'."""
+    result = await get_thread_messages_impl(quo_client, "+19999999999", max_results=5)
+    assert "No messages found" in result
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_chronological_order(quo_client: httpx.AsyncClient):
+    """Messages should be returned in chronological order (oldest first)."""
+    result = await list_active_threads_impl(quo_client, max_results=1)
+    if "No active" in result:
+        pytest.skip("No active threads to test message order")
+
+    phones = re.findall(r"\+\d{10,15}", result)
+    if not phones:
+        pytest.skip("Could not extract phone number from thread listing")
+
+    target = phones[0]
+    msg_result = await get_thread_messages_impl(quo_client, target, max_results=10)
+    if "No messages found" in msg_result:
+        pytest.skip("No messages for extracted phone number")
+
+    phone_slug = target.replace("+", "").replace("-", "")
+    _save_fixture(f"quo_thread_messages_{phone_slug}.md", msg_result)
+
+    timestamps = re.findall(r"\[(\d{4}-\d{2}-\d{2}T[\d:.Z+-]+)\]", msg_result)
+    if len(timestamps) >= 2:
+        assert timestamps == sorted(timestamps), (
+            f"Messages not in chronological order: {timestamps}"
+        )

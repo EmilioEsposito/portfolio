@@ -11,6 +11,7 @@ from pydantic_ai import FunctionToolset, RunContext
 from sqlalchemy import cast, select, String, or_, and_
 
 from api.src.ai_demos.models import AgentConversation
+from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.utils.fuzzy_json import fuzzy_filter
@@ -171,18 +172,17 @@ async def search_conversations(
         query: Text to search for in conversation messages (case-insensitive).
         limit: Maximum number of results to return (default 10).
     """
-    session = ctx.deps.db_session
-
-    stmt = (
-        select(AgentConversation)
-        .where(
-            cast(AgentConversation.messages, String).ilike(f"%{query}%"),
+    async with AsyncSessionFactory() as session:
+        stmt = (
+            select(AgentConversation)
+            .where(
+                cast(AgentConversation.messages, String).ilike(f"%{query}%"),
+            )
+            .order_by(AgentConversation.updated_at.desc())
+            .limit(limit)
         )
-        .order_by(AgentConversation.updated_at.desc())
-        .limit(limit)
-    )
-    result = await session.execute(stmt)
-    conversations = result.scalars().all()
+        result = await session.execute(stmt)
+        conversations = result.scalars().all()
 
     if not conversations:
         return f"No conversations found matching '{query}'."
@@ -250,8 +250,6 @@ async def search_sms_history(
         limit: Max matching messages to return (default 5).
                Each match includes ~10 surrounding messages for context.
     """
-    session = ctx.deps.db_session
-
     # Build filters
     filters = [
         OpenPhoneEvent.event_type.like("message.%"),
@@ -269,163 +267,91 @@ async def search_sms_history(
 
     filters.extend(_build_date_filters(after, before))
 
-    # Find matching messages
-    stmt = (
-        select(OpenPhoneEvent)
-        .where(and_(*filters))
-        .order_by(OpenPhoneEvent.event_timestamp.desc())
-        .limit(limit)
-    )
-    result = await session.execute(stmt)
-    matches = result.scalars().all()
-
-    if not matches:
-        contact_note = f" for contact '{contact_name}'" if contact_name else ""
-        return f"No SMS messages found matching '{query}'{contact_note}."
-
-    # Fetch contact map for phone enrichment
-    contact_map = await _get_contact_map()
-
-    # For each match, fetch surrounding context messages
-    sections: list[str] = []
-    seen_ids: set[int] = set()
-
-    for i, match in enumerate(matches, 1):
-        if not match.conversation_id:
-            # No conversation thread — show just the match
-            sections.append(
-                f"=== Match {i} of {len(matches)} ===\n"
-                + _format_sms_event(match, contact_map, is_match=True)
-            )
-            continue
-
-        # Fetch context window around this message
-        context_stmt = (
+    async with AsyncSessionFactory() as session:
+        # Find matching messages
+        stmt = (
             select(OpenPhoneEvent)
-            .where(
-                OpenPhoneEvent.conversation_id == match.conversation_id,
-                OpenPhoneEvent.event_type.like("message.%"),
-            )
-            .order_by(OpenPhoneEvent.event_timestamp.asc())
+            .where(and_(*filters))
+            .order_by(OpenPhoneEvent.event_timestamp.desc())
+            .limit(limit)
         )
-        ctx_result = await session.execute(context_stmt)
-        thread = ctx_result.scalars().all()
+        result = await session.execute(stmt)
+        matches = result.scalars().all()
 
-        # Find the match position and extract a window
-        match_idx = None
-        for j, evt in enumerate(thread):
-            if evt.id == match.id:
-                match_idx = j
-                break
+        if not matches:
+            contact_note = f" for contact '{contact_name}'" if contact_name else ""
+            return f"No SMS messages found matching '{query}'{contact_note}."
 
-        if match_idx is None:
-            match_idx = 0
+        # Fetch contact map for phone enrichment
+        contact_map = await _get_contact_map()
 
-        start = max(0, match_idx - _CONTEXT_RADIUS)
-        end = min(len(thread), match_idx + _CONTEXT_RADIUS + 1)
-        window = thread[start:end]
+        # For each match, fetch surrounding context messages
+        sections: list[str] = []
+        seen_ids: set[int] = set()
 
-        # Skip if we've already shown this context (overlapping windows)
-        window_ids = {evt.id for evt in window}
-        if window_ids & seen_ids:
-            continue
-        seen_ids.update(window_ids)
+        for i, match in enumerate(matches, 1):
+            if not match.conversation_id:
+                # No conversation thread — show just the match
+                sections.append(
+                    f"=== Match {i} of {len(matches)} ===\n"
+                    + _format_sms_event(match, contact_map, is_match=True)
+                )
+                continue
 
-        # Determine conversation partner name
-        partner = contact_display
-        if not partner:
-            # Try to find a non-Sernia phone in the thread
-            for evt in window:
-                for phone in [evt.from_number, evt.to_number]:
-                    name = contact_map.get(phone)
-                    if name and "sernia" not in name.lower():
-                        partner = name
-                        break
-                if partner:
+            # Fetch context window around this message
+            context_stmt = (
+                select(OpenPhoneEvent)
+                .where(
+                    OpenPhoneEvent.conversation_id == match.conversation_id,
+                    OpenPhoneEvent.event_type.like("message.%"),
+                )
+                .order_by(OpenPhoneEvent.event_timestamp.asc())
+            )
+            ctx_result = await session.execute(context_stmt)
+            thread = ctx_result.scalars().all()
+
+            # Find the match position and extract a window
+            match_idx = None
+            for j, evt in enumerate(thread):
+                if evt.id == match.id:
+                    match_idx = j
                     break
 
-        header = f"=== Match {i} of {len(matches)}"
-        if partner:
-            header += f" (conversation with {partner})"
-        header += " ==="
+            if match_idx is None:
+                match_idx = 0
 
-        lines = [header]
-        for evt in window:
-            lines.append(_format_sms_event(evt, contact_map, is_match=(evt.id == match.id)))
-        sections.append("\n".join(lines))
+            start = max(0, match_idx - _CONTEXT_RADIUS)
+            end = min(len(thread), match_idx + _CONTEXT_RADIUS + 1)
+            window = thread[start:end]
+
+            # Skip if we've already shown this context (overlapping windows)
+            window_ids = {evt.id for evt in window}
+            if window_ids & seen_ids:
+                continue
+            seen_ids.update(window_ids)
+
+            # Determine conversation partner name
+            partner = contact_display
+            if not partner:
+                # Try to find a non-Sernia phone in the thread
+                for evt in window:
+                    for phone in [evt.from_number, evt.to_number]:
+                        name = contact_map.get(phone)
+                        if name and "sernia" not in name.lower():
+                            partner = name
+                            break
+                    if partner:
+                        break
+
+            header = f"=== Match {i} of {len(matches)}"
+            if partner:
+                header += f" (conversation with {partner})"
+            header += " ==="
+
+            lines = [header]
+            for evt in window:
+                lines.append(_format_sms_event(evt, contact_map, is_match=(evt.id == match.id)))
+            sections.append("\n".join(lines))
 
     return "\n\n".join(sections)
 
-
-# ---------------------------------------------------------------------------
-# Tool: get_contact_sms_history
-# ---------------------------------------------------------------------------
-
-
-@db_search_toolset.tool
-async def get_contact_sms_history(
-    ctx: RunContext[SerniaDeps],
-    contact_name: str,
-    after: str | None = None,
-    before: str | None = None,
-    limit: int = 50,
-) -> str:
-    """Get recent SMS conversation history for a specific contact.
-
-    Use this to review the full conversation thread with a tenant, vendor,
-    or team member — no keyword needed.
-
-    Args:
-        contact_name: Contact name to look up (fuzzy matched — supports
-                      partial names, building/unit numbers, typos).
-                      Examples: "John", "Unit 203", "Peppino Bldg A".
-        after: Optional — only messages after this date (YYYY-MM-DD).
-        before: Optional — only messages before this date (YYYY-MM-DD).
-        limit: Max messages to return (default 50, most recent).
-    """
-    session = ctx.deps.db_session
-
-    # Resolve contact name to phone numbers
-    try:
-        display_name, phones = await _resolve_contact_phones(contact_name)
-    except ValueError as e:
-        return str(e)
-
-    # Build query
-    filters = [
-        OpenPhoneEvent.event_type.like("message.%"),
-        OpenPhoneEvent.message_text.isnot(None),
-        _build_phone_filter(phones),
-    ]
-    filters.extend(_build_date_filters(after, before))
-
-    stmt = (
-        select(OpenPhoneEvent)
-        .where(and_(*filters))
-        .order_by(OpenPhoneEvent.event_timestamp.desc())
-        .limit(limit)
-    )
-    result = await session.execute(stmt)
-    messages = result.scalars().all()
-
-    if not messages:
-        date_note = ""
-        if after and before:
-            date_note = f" between {after} and {before}"
-        elif after:
-            date_note = f" after {after}"
-        elif before:
-            date_note = f" before {before}"
-        return f"No SMS messages found for {display_name}{date_note}."
-
-    # Reverse for chronological order
-    messages = list(reversed(messages))
-
-    # Fetch contact map for phone enrichment
-    contact_map = await _get_contact_map()
-
-    lines = [f"SMS history with {display_name} — showing {len(messages)} messages\n"]
-    for evt in messages:
-        lines.append(_format_sms_event(evt, contact_map))
-
-    return "\n".join(lines)

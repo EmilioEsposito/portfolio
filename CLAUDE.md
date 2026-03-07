@@ -149,7 +149,7 @@ pnpm dev-with-fastapi     # Both concurrently
 # Testing
 source .venv/bin/activate && pytest -v -s             # All unit tests (excludes live)
 pytest -m live api/src/tests/test_clickup_tools.py    # Live ClickUp API tests (needs keys)
-pytest -m live api/src/tests/test_openphone_tools.py  # Live OpenPhone API tests (needs keys)
+pytest -m live api/src/tests/test_quo_tools.py        # Live Quo (OpenPhone) API tests (needs keys)
 
 # Database migrations
 cd api && uv run alembic upgrade head

@@ -68,8 +68,7 @@ _MCP_WRITE_TOOLS = frozenset({
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
 # sendMessage_v1 → custom send_internal_sms / send_external_sms; listContacts_v1 → custom search_contacts.
 _KEEP_TOOLS = frozenset({
-    # Messages (read-only — send is custom)
-    "listMessages_v1",
+    # Messages (read-only — send is custom, listMessages → custom get_thread_messages)
     "getMessageById_v1",
     # Contacts (search is custom; keep detail + write ops)
     "getContactById_v1",
@@ -82,8 +81,7 @@ _KEEP_TOOLS = frozenset({
     "getCallById_v1",
     "getCallSummary_v1",
     "getCallTranscript_v1",
-    # Conversations
-    "listConversations_v1",
+    # Conversations — listConversations → custom list_active_sms_threads
 })
 
 
@@ -108,11 +106,46 @@ def _fetch_and_patch_spec() -> dict:
                 if isinstance(schema.get("examples"), str):
                     schema["examples"] = [schema["examples"]]
 
+    # Patch: OpenPhone message schema uses `from` as a field name, which is a
+    # Python keyword. Rename to `from_` so Pydantic can parse structured content.
+    _rename_keyword_fields(spec)
+
     # Strip examples and verbose fields from the spec to reduce token usage.
     # These are documentation-only and don't affect API behavior.
     _strip_examples(spec)
 
     return spec
+
+
+_PYTHON_KEYWORDS = frozenset({"from", "import", "class", "return", "global", "pass", "raise", "yield", "del", "assert"})
+
+
+def _rename_keyword_fields(obj: dict | list, _depth: int = 0) -> None:
+    """Rename schema property names that are Python keywords (e.g. 'from' → 'from_').
+
+    FastMCP's json_schema_to_type fails on Python keywords in property names.
+    This patches the OpenAPI spec in-place before it's parsed.
+    """
+    if _depth > 50:
+        return
+    if isinstance(obj, dict):
+        # Patch 'properties' dicts in JSON schemas
+        props = obj.get("properties")
+        if isinstance(props, dict):
+            for kw in _PYTHON_KEYWORDS:
+                if kw in props:
+                    props[f"{kw}_"] = props.pop(kw)
+            # Also fix 'required' list references
+            required = obj.get("required")
+            if isinstance(required, list):
+                obj["required"] = [f"{r}_" if r in _PYTHON_KEYWORDS else r for r in required]
+        for val in obj.values():
+            if isinstance(val, (dict, list)):
+                _rename_keyword_fields(val, _depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                _rename_keyword_fields(item, _depth + 1)
 
 
 def _strip_examples(obj: dict | list | str, _depth: int = 0) -> None:
@@ -196,12 +229,240 @@ def _filter_tenants_by_property_unit(
 
 
 # ---------------------------------------------------------------------------
+# Retrieval tool implementations (standalone for testability)
+# ---------------------------------------------------------------------------
+
+
+def _build_phone_map(contacts: list[dict]) -> dict[str, str]:
+    """Build phone→display_name map from a list of Quo contacts.
+
+    Includes property-unit prefix for tenants (e.g. "659-03 Hailey Trainor"),
+    unless the name already contains the prefix.
+    """
+    phone_map: dict[str, str] = {}
+    for c in contacts:
+        first = c.get("defaultFields", {}).get("firstName", "")
+        last = c.get("defaultFields", {}).get("lastName", "")
+        name = f"{first} {last}".strip() or "Unknown"
+        unit_info = _get_contact_unit(c)
+        if unit_info:
+            prop, unit = unit_info
+            prefix = f"{prop}-{unit}"
+            if prefix not in name:
+                name = f"{prefix} {name}"
+        for pn in c.get("defaultFields", {}).get("phoneNumbers", []):
+            val = pn.get("value")
+            if val:
+                phone_map[val] = name
+    return phone_map
+
+
+def _is_done_conversation(conv: dict) -> bool:
+    """Check if a conversation is marked as done (snoozed 100+ years)."""
+    snoozed = conv.get("snoozedUntil")
+    if not snoozed:
+        return False
+    # OpenPhone marks "done" by snoozing 100 years into the future
+    try:
+        return snoozed[:4] > "2100"
+    except (TypeError, IndexError):
+        return False
+
+
+async def search_contacts_impl(
+    client: httpx.AsyncClient, query: str,
+) -> str:
+    """Core implementation of contact search (no RunContext dependency)."""
+    contacts = await get_all_contacts(client)
+    return fuzzy_filter_json(contacts, query, top_n=5)
+
+
+async def list_active_threads_impl(
+    client: httpx.AsyncClient,
+    max_results: int = 20,
+    updated_after_days: int | None = None,
+) -> str:
+    """Core implementation of active threads listing (no RunContext dependency).
+
+    Mimics the Quo active inbox: returns all non-done conversations, sorted by
+    most recent activity.  An optional ``updated_after_days`` narrows the window.
+    """
+    # Paginate through results to collect enough active threads.
+    # ~95% of conversations are "done" (snoozed 100yr), so we must page past them.
+    active: list[dict] = []
+    page_token: str | None = None
+    max_pages = 5  # safety limit
+
+    for _ in range(max_pages):
+        params: list[tuple[str, str]] = [
+            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
+            ("maxResults", "100"),
+            ("excludeInactive", "true"),
+        ]
+        if updated_after_days is not None:
+            from datetime import datetime, timedelta, timezone
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=updated_after_days)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            params.append(("updatedAfter", cutoff))
+        if page_token:
+            params.append(("pageToken", page_token))
+
+        try:
+            resp = await client.get("/v1/conversations", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            return f"Error fetching conversations: {exc}"
+
+        data = resp.json()
+        for conv in data.get("data", []):
+            if not _is_done_conversation(conv):
+                active.append(conv)
+
+        page_token = data.get("nextPageToken")
+        if not page_token or len(active) >= max_results:
+            break
+
+    # Sort by most recent activity
+    active.sort(key=lambda c: c.get("lastActivityAt", ""), reverse=True)
+    conversations = active[:max_results]
+
+    if not conversations:
+        return "No active conversation threads found."
+
+    contacts = await get_all_contacts(client)
+    phone_map = _build_phone_map(contacts)
+
+    # Fetch last message snippet for each thread in parallel
+    import asyncio
+
+    async def _fetch_snippet(participant_phone: str) -> tuple[str, str] | None:
+        try:
+            resp = await client.get(
+                "/v1/messages",
+                params={
+                    "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                    "participants": participant_phone,
+                    "maxResults": "1",
+                },
+            )
+            resp.raise_for_status()
+            msgs = resp.json().get("data", [])
+            if msgs:
+                direction = msgs[0].get("direction", "")
+                text = msgs[0].get("text") or msgs[0].get("body") or ""
+                return (direction, text)
+        except httpx.HTTPError:
+            pass
+        return None
+
+    # Get the external participant for each conversation (first non-internal phone)
+    snippet_phones = []
+    for conv in conversations:
+        participants = conv.get("participants", [])
+        snippet_phones.append(participants[0] if participants else "")
+
+    snippets = await asyncio.gather(
+        *(_fetch_snippet(p) for p in snippet_phones if p),
+        return_exceptions=True,
+    )
+    # Map phone → snippet
+    snippet_map: dict[str, tuple[str, str]] = {}
+    for phone, result in zip(snippet_phones, snippets):
+        if isinstance(result, tuple):
+            snippet_map[phone] = result
+
+    lines: list[str] = []
+    for conv in conversations:
+        participants = conv.get("participants", [])
+        last_activity = conv.get("lastActivityAt", "?")
+        conv_id = conv.get("id", "?")
+
+        enriched = []
+        for phone in participants:
+            name = phone_map.get(phone, phone)
+            enriched.append(f"{name} ({phone})" if name != phone else phone)
+
+        # Build snippet line
+        snippet_line = ""
+        ext_phone = participants[0] if participants else ""
+        snippet = snippet_map.get(ext_phone)
+        if snippet:
+            direction, text = snippet
+            if text:
+                preview = text[:80] + "..." if len(text) > 80 else text
+                if direction == "outgoing":
+                    snippet_line = f"\n  Snippet: You: {preview}"
+                else:
+                    sender = phone_map.get(ext_phone, ext_phone).split(" (")[0]
+                    snippet_line = f"\n  Snippet: {sender}: {preview}"
+
+        lines.append(
+            f"Thread: {', '.join(enriched)}{snippet_line}\n"
+            f"  Last activity: {last_activity}\n"
+            f"  Conversation ID: {conv_id}"
+        )
+
+    return f"Active threads ({len(conversations)}):\n\n" + "\n\n".join(lines)
+
+
+async def get_thread_messages_impl(
+    client: httpx.AsyncClient, phone_number: str, max_results: int = 20,
+) -> str:
+    """Core implementation of thread message retrieval (no RunContext dependency)."""
+    try:
+        resp = await client.get(
+            "/v1/messages",
+            params={
+                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "participants": phone_number,
+                "maxResults": str(max_results),
+            },
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        return f"Error fetching messages for {phone_number}: {exc}"
+
+    data = resp.json()
+    messages = data.get("data", [])
+    if not messages:
+        return f"No messages found with {phone_number}."
+
+    contacts = await get_all_contacts(client)
+    phone_map = _build_phone_map(contacts)
+
+    # Messages come newest-first; reverse for chronological order
+    messages = list(reversed(messages))
+
+    contact_name = phone_map.get(phone_number, phone_number)
+    lines: list[str] = [f"SMS thread with {contact_name} ({phone_number}) — {len(messages)} messages\n"]
+    for msg in messages:
+        created = msg.get("createdAt", "?")
+        direction = msg.get("direction", "?")
+        text = msg.get("text") or msg.get("body") or "(no text)"
+        sender_phone = msg.get("from_") or msg.get("from", "?")
+
+        if direction == "outgoing":
+            sender_name = "Sernia Capital"
+            recipient_name = contact_name
+        else:
+            sender_name = phone_map.get(sender_phone, sender_phone) if isinstance(sender_phone, str) else "?"
+            recipient_name = "Sernia Capital"
+
+        if len(text) > 500:
+            text = text[:500] + "..."
+
+        lines.append(f"[{created}] {sender_name} → {recipient_name}: {text}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # SMS conversation seeding — inject hidden context for reply handling
 # ---------------------------------------------------------------------------
 
 
 async def _seed_sms_conversation(
-    session,
     phone: str,
     outbound_text: str,
     context: str,
@@ -215,37 +476,39 @@ async def _seed_sms_conversation(
         get_conversation_messages,
         save_agent_conversation,
     )
+    from api.src.database.database import AsyncSessionFactory
     from api.src.sernia_ai.config import AGENT_NAME, TRIGGER_BOT_ID
 
     digits = re.sub(r"\D", "", phone)
     conv_id = f"ai_sms_from_{digits}"
 
-    # Load existing conversation (if any) so we append, not overwrite
-    existing = await get_conversation_messages(
-        conv_id, clerk_user_id=None, session=session,
-    )
+    async with AsyncSessionFactory() as session:
+        # Load existing conversation (if any) so we append, not overwrite
+        existing = await get_conversation_messages(
+            conv_id, clerk_user_id=None, session=session,
+        )
 
-    seed: list[ModelMessage] = [
-        ModelRequest(parts=[
-            UserPromptPart(content=f"[Context — not visible to SMS recipient: {context}]"),
-        ]),
-        ModelResponse(parts=[
-            TextPart(content=outbound_text),
-        ]),
-    ]
+        seed: list[ModelMessage] = [
+            ModelRequest(parts=[
+                UserPromptPart(content=f"[Context — not visible to SMS recipient: {context}]"),
+            ]),
+            ModelResponse(parts=[
+                TextPart(content=outbound_text),
+            ]),
+        ]
 
-    messages = existing + seed
+        messages = existing + seed
 
-    await save_agent_conversation(
-        session=session,
-        conversation_id=conv_id,
-        agent_name=AGENT_NAME,
-        messages=messages,
-        clerk_user_id=TRIGGER_BOT_ID,
-        metadata={"trigger_source": "ai_sms", "seeded_from_tool": True},
-        modality="sms",
-        contact_identifier=phone,
-    )
+        await save_agent_conversation(
+            session=session,
+            conversation_id=conv_id,
+            agent_name=AGENT_NAME,
+            messages=messages,
+            clerk_user_id=TRIGGER_BOT_ID,
+            metadata={"trigger_source": "ai_sms", "seeded_from_tool": True},
+            modality="sms",
+            contact_identifier=phone,
+        )
     logfire.info(
         "sms conversation seeded with context",
         conv_id=conv_id,
@@ -308,8 +571,7 @@ def _build_quo_toolset():
         Args:
             query: Search term — a name, phone number, or company name.
         """
-        contacts = await get_all_contacts(client)
-        return fuzzy_filter_json(contacts, query, top_n=5)
+        return await search_contacts_impl(client, query)
 
     # ------------------------------------------------------------------
     # Shared SMS helpers
@@ -446,9 +708,7 @@ def _build_quo_toolset():
         # Seed recipient's AI SMS conversation with hidden context
         if context and "Failed" not in send_result:
             try:
-                await _seed_sms_conversation(
-                    ctx.deps.db_session, to, message, context,
-                )
+                await _seed_sms_conversation(to, message, context)
             except Exception:
                 logfire.exception(
                     "send_internal_sms: failed to seed conversation",
@@ -526,9 +786,7 @@ def _build_quo_toolset():
         # Seed recipient's AI SMS conversation with hidden context
         if context and "Failed" not in send_result:
             try:
-                await _seed_sms_conversation(
-                    ctx.deps.db_session, to, message, context,
-                )
+                await _seed_sms_conversation(to, message, context)
             except Exception:
                 logfire.exception(
                     "send_external_sms: failed to seed conversation",
@@ -617,6 +875,49 @@ def _build_quo_toolset():
         if failures:
             parts.append(f"Failed: {'; '.join(failures)}.")
         return " ".join(parts)
+
+    # ------------------------------------------------------------------
+    # list_active_sms_threads — mirrors the Quo active inbox
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool
+    async def list_active_sms_threads(
+        ctx: RunContext[SerniaDeps],
+        max_results: int = 20,
+        updated_after_days: int | None = None,
+    ) -> str:
+        """List active SMS conversation threads on the shared team number.
+
+        Mirrors the Quo active inbox — returns all non-done threads, enriched
+        with contact names and sorted by most recent activity.
+
+        Args:
+            max_results: Max threads to return (default 20).
+            updated_after_days: Optional — only include threads updated within
+                this many days. Omit for all active threads (matches Quo inbox).
+        """
+        return await list_active_threads_impl(client, max_results, updated_after_days)
+
+    # ------------------------------------------------------------------
+    # get_thread_messages — enriched listMessages for a phone number
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool
+    async def get_thread_messages(
+        ctx: RunContext[SerniaDeps],
+        phone_number: str,
+        max_results: int = 20,
+    ) -> str:
+        """Get recent SMS messages with a specific phone number on the shared team line.
+
+        Returns messages in chronological order with contact names enriched.
+        Use this to review the conversation thread with a specific contact.
+
+        Args:
+            phone_number: The contact's phone number in E.164 format (e.g. "+14125551234").
+            max_results: Max messages to return (default 20, most recent).
+        """
+        return await get_thread_messages_impl(client, phone_number, max_results)
 
     return CombinedToolset(toolsets=[mcp_toolset, custom_toolset])
 

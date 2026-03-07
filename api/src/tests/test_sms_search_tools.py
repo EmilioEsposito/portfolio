@@ -1,9 +1,10 @@
 """
-Unit tests for SMS search tools (search_sms_history, get_contact_sms_history).
+Unit tests for SMS search tools (search_sms_history).
 
 All database queries and OpenPhone API calls are mocked.
 """
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,7 +14,6 @@ from pydantic_ai import RunContext
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.sernia_ai.tools.db_search_tools import (
     search_sms_history,
-    get_contact_sms_history,
     _resolve_contact_phones,
     _build_contact_map,
     _enrich_phone,
@@ -126,11 +126,15 @@ FAKE_THREAD_2 = [
 
 
 def _make_ctx() -> RunContext:
-    """Build a RunContext mock with a mock db session."""
+    """Build a RunContext mock."""
     ctx = MagicMock(spec=RunContext)
     ctx.deps = MagicMock()
-    ctx.deps.db_session = AsyncMock()
     return ctx
+
+
+# Tools now create their own sessions via AsyncSessionFactory.
+# This helper creates a mock factory that yields a controllable session.
+_SESSION_FACTORY_PATCH = "api.src.sernia_ai.tools.db_search_tools.AsyncSessionFactory"
 
 
 def _mock_execute_returns(session_mock: AsyncMock, rows: list) -> None:
@@ -148,6 +152,17 @@ def _mock_execute_sequence(session_mock: AsyncMock, results_sequence: list[list]
         result_mock.scalars.return_value.all.return_value = rows
         mocks.append(result_mock)
     session_mock.execute = AsyncMock(side_effect=mocks)
+
+
+def _make_mock_session() -> AsyncMock:
+    """Create a fresh mock session for use with the patched factory."""
+    return AsyncMock()
+
+
+@asynccontextmanager
+async def _mock_factory(session):
+    """Async context manager that yields a pre-configured mock session."""
+    yield session
 
 
 CONTACT_PATCH = "api.src.sernia_ai.tools.db_search_tools._get_contact_map"
@@ -262,7 +277,7 @@ class TestSearchSmsHistory:
     async def test_keyword_search_returns_matches_with_context(self):
         """Searching for 'leak' should return the match plus surrounding messages."""
         ctx = _make_ctx()
-        session = ctx.deps.db_session
+        session = _make_mock_session()
         contact_map = _build_contact_map(FAKE_CONTACTS)
 
         # First execute: keyword search returns the match
@@ -272,7 +287,8 @@ class TestSearchSmsHistory:
             FAKE_THREAD,       # full conversation for context
         ])
 
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value=contact_map):
+        with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)), \
+             patch(CONTACT_PATCH, new_callable=AsyncMock, return_value=contact_map):
             result = await search_sms_history(ctx, query="leak")
 
         assert "Match 1 of 1" in result
@@ -286,7 +302,7 @@ class TestSearchSmsHistory:
     async def test_keyword_search_with_contact_filter(self):
         """Searching with contact_name should resolve the contact first."""
         ctx = _make_ctx()
-        session = ctx.deps.db_session
+        session = _make_mock_session()
         contact_map = _build_contact_map(FAKE_CONTACTS)
 
         _mock_execute_sequence(session, [
@@ -294,7 +310,8 @@ class TestSearchSmsHistory:
             FAKE_THREAD,
         ])
 
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value=contact_map), \
+        with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)), \
+             patch(CONTACT_PATCH, new_callable=AsyncMock, return_value=contact_map), \
              patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe (Peppino Bldg A Unit 203)", ["+14155550100"])):
             result = await search_sms_history(ctx, query="leak", contact_name="Unit 203")
 
@@ -305,9 +322,11 @@ class TestSearchSmsHistory:
     async def test_no_results(self):
         """Should return a friendly message when no matches found."""
         ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
+        session = _make_mock_session()
+        _mock_execute_returns(session, [])
 
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}):
+        with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)), \
+             patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}):
             result = await search_sms_history(ctx, query="xyznonexistent")
 
         assert "No SMS messages found" in result
@@ -317,9 +336,11 @@ class TestSearchSmsHistory:
     async def test_no_results_with_contact(self):
         """Should mention the contact in the 'not found' message."""
         ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
+        session = _make_mock_session()
+        _mock_execute_returns(session, [])
 
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}), \
+        with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)), \
+             patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}), \
              patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
             result = await search_sms_history(ctx, query="xyznonexistent", contact_name="John")
 
@@ -339,9 +360,11 @@ class TestSearchSmsHistory:
     async def test_date_filters_passed(self):
         """Date filters should be accepted without error."""
         ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
+        session = _make_mock_session()
+        _mock_execute_returns(session, [])
 
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}):
+        with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)), \
+             patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}):
             result = await search_sms_history(
                 ctx, query="rent", after="2025-06-01", before="2025-06-30"
             )
@@ -352,106 +375,12 @@ class TestSearchSmsHistory:
     async def test_error_handling(self):
         """Database errors propagate (caught by ErrorLoggingToolset wrapper in production)."""
         ctx = _make_ctx()
-        ctx.deps.db_session.execute = AsyncMock(side_effect=RuntimeError("DB connection lost"))
+        session = _make_mock_session()
+        session.execute = AsyncMock(side_effect=RuntimeError("DB connection lost"))
 
         with pytest.raises(RuntimeError, match="DB connection lost"):
-            await search_sms_history(ctx, query="test")
-
-
-# ---------------------------------------------------------------------------
-# get_contact_sms_history Tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetContactSmsHistory:
-    """Tests for the get_contact_sms_history tool."""
-
-    @pytest.mark.asyncio
-    async def test_returns_chronological_history(self):
-        """Should return messages in chronological order (oldest first)."""
-        ctx = _make_ctx()
-        session = ctx.deps.db_session
-        contact_map = _build_contact_map(FAKE_CONTACTS)
-
-        # DB returns newest first (DESC), tool should reverse for display
-        _mock_execute_returns(session, list(reversed(FAKE_THREAD)))
-
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value=contact_map), \
-             patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe (Peppino Bldg A Unit 203)", ["+14155550100"])):
-            result = await get_contact_sms_history(ctx, contact_name="John")
-
-        assert "SMS history with John Doe" in result
-        assert "8 messages" in result
-        # Messages should appear in chronological order
-        lines = result.split("\n")
-        # Find lines with timestamps and verify order
-        ts_lines = [l for l in lines if l.startswith("[")]
-        assert len(ts_lines) == 8
-        # First message should be the earliest
-        assert "maintenance coming today" in ts_lines[0]
-        # Last message should be the latest
-        assert "leak is fully fixed" in ts_lines[-1]
-
-    @pytest.mark.asyncio
-    async def test_contact_not_found(self):
-        """Should return friendly error if contact can't be resolved."""
-        ctx = _make_ctx()
-
-        with patch(RESOLVE_PATCH, new_callable=AsyncMock, side_effect=ValueError("No contact found matching 'zzz'")):
-            result = await get_contact_sms_history(ctx, contact_name="zzz")
-
-        assert "No contact found" in result
-
-    @pytest.mark.asyncio
-    async def test_no_messages_for_contact(self):
-        """Should mention the contact name in empty results."""
-        ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
-
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}), \
-             patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("Bob The Plumber", ["+14155550300"])):
-            result = await get_contact_sms_history(ctx, contact_name="Bob")
-
-        assert "No SMS messages found for Bob The Plumber" in result
-
-    @pytest.mark.asyncio
-    async def test_no_messages_with_date_filter(self):
-        """Should mention date range in empty results."""
-        ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
-
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}), \
-             patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
-            result = await get_contact_sms_history(
-                ctx, contact_name="John", after="2025-07-01"
-            )
-
-        assert "No SMS messages found for John Doe" in result
-        assert "after 2025-07-01" in result
-
-    @pytest.mark.asyncio
-    async def test_date_filter_both(self):
-        """Should mention both dates in empty results."""
-        ctx = _make_ctx()
-        _mock_execute_returns(ctx.deps.db_session, [])
-
-        with patch(CONTACT_PATCH, new_callable=AsyncMock, return_value={}), \
-             patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
-            result = await get_contact_sms_history(
-                ctx, contact_name="John", after="2025-06-01", before="2025-06-30"
-            )
-
-        assert "between 2025-06-01 and 2025-06-30" in result
-
-    @pytest.mark.asyncio
-    async def test_error_handling(self):
-        """Database errors propagate (caught by ErrorLoggingToolset wrapper in production)."""
-        ctx = _make_ctx()
-        ctx.deps.db_session.execute = AsyncMock(side_effect=RuntimeError("DB timeout"))
-
-        with pytest.raises(RuntimeError, match="DB timeout"):
-            with patch(RESOLVE_PATCH, new_callable=AsyncMock, return_value=("John Doe", ["+14155550100"])):
-                await get_contact_sms_history(ctx, contact_name="John")
+            with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)):
+                await search_sms_history(ctx, query="test")
 
 
 # ---------------------------------------------------------------------------
