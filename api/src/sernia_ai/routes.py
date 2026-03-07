@@ -138,7 +138,7 @@ async def chat_sernia(
     # Load message history from DB (authoritative source)
     # clerk_user_id=None for shared team access — all Sernia users see all conversations
     backend_message_history = await get_conversation_messages(
-        conversation_id, clerk_user_id=None, session=session
+        conversation_id, clerk_user_id=None, session=session, include_terminal=True
     )
 
     logfire.info(

@@ -250,7 +250,7 @@ async def test_create_calendar_event():
         description="This is a test event",
         start=start_time,
         end=end_time,
-        attendees=["emilio@serniacapital.com"],
+        attendees=[CalendarAttendee(email="emilio@serniacapital.com")],
     )
     new_event = await create_calendar_event(
         service, event, organizer_email="all@serniacapital.com", overwrite=True

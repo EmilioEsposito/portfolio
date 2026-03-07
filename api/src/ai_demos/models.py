@@ -96,6 +96,7 @@ async def get_conversation_messages(
     session: AsyncSession | None = None,
     retries: int = 3,
     retry_delay: float = 0.5,
+    include_terminal: bool = False,
 ) -> list[ModelMessage]:
     """
     Retrieve conversation messages.
@@ -110,13 +111,14 @@ async def get_conversation_messages(
         )
         if conversation and conversation.messages:
             messages = ModelMessagesTypeAdapter.validate_python(conversation.messages)
-            return _repair_orphaned_tool_calls(messages, conversation_id)
+            return _repair_orphaned_tool_calls(messages, conversation_id, include_terminal=include_terminal)
         return []
 
 
 def _repair_orphaned_tool_calls(
     messages: list[ModelMessage],
     conversation_id: str = "",
+    include_terminal: bool = False,
 ) -> list[ModelMessage]:
     """Inject synthetic ToolReturnParts for orphaned ToolCallParts mid-conversation.
 
@@ -125,9 +127,12 @@ def _repair_orphaned_tool_calls(
     permanently broken — the Anthropic API rejects histories where tool_use
     blocks have no matching tool_result.
 
-    IMPORTANT: Only repairs tool calls that have subsequent messages after them
-    (truly orphaned). Tool calls in the LAST ModelResponse are left alone — those
-    are legitimate pending approvals waiting for user action.
+    Args:
+        include_terminal: When True, also patches the last ModelResponse.
+            Use this in chat flows where the user sends a new message instead
+            of approving — the pending tool call becomes orphaned.
+            When False (default), the last ModelResponse is preserved for
+            the approve flow and GET endpoints.
     """
     # Collect all returned tool_call_ids
     returned_ids: set[str] = set()
@@ -139,9 +144,10 @@ def _repair_orphaned_tool_calls(
 
     # Find the index of the last ModelResponse
     last_response_idx = -1
-    for i, msg in enumerate(messages):
-        if isinstance(msg, ModelResponse):
-            last_response_idx = i
+    if not include_terminal:
+        for i, msg in enumerate(messages):
+            if isinstance(msg, ModelResponse):
+                last_response_idx = i
 
     # Walk messages and build repaired list
     repaired: list[ModelMessage] = []
@@ -149,8 +155,6 @@ def _repair_orphaned_tool_calls(
     for i, msg in enumerate(messages):
         repaired.append(msg)
         if isinstance(msg, ModelResponse) and i != last_response_idx:
-            # Only patch non-terminal ModelResponses — terminal ones may be
-            # pending approval and should not be touched.
             orphans = [
                 part for part in msg.parts
                 if isinstance(part, ToolCallPart) and part.tool_call_id not in returned_ids
