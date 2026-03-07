@@ -75,4 +75,4 @@ scratch/
 *.sqlite
 
 # AI agent workspace (managed by Sernia agent)
-.workspace/
+# api/src/sernia_ai/workspace/

@@ -36,9 +36,9 @@ SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
 # Agent name used for conversation persistence
 AGENT_NAME = "sernia"
 
-# Workspace path: Railway volume mount (/.workspace) or repo-relative fallback.
+# Workspace path: Railway volume mount or module-relative fallback.
 WORKSPACE_PATH = Path(
-    os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parents[3] / ".workspace")
+    os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parent / "workspace")
 )
 
 # ClickUp
