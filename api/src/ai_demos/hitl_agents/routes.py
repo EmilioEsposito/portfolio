@@ -118,7 +118,7 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
     # Load message history from DB (authoritative source)
     # clerk_user_id filter is applied in SQL - returns empty if not found or not owned
     backend_message_history = await get_conversation_messages(
-        conversation_id, clerk_user_id, session=session
+        conversation_id, clerk_user_id, session=session, include_terminal=True
     )
 
     logfire.info(f"Chat conversation_id: {conversation_id}, clerk_user_id: {clerk_user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")

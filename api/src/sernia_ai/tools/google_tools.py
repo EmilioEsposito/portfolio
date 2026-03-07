@@ -421,11 +421,13 @@ async def list_calendar_events(
         start = event["start"].get("dateTime", event["start"].get("date"))
         end = event["end"].get("dateTime", event["end"].get("date"))
         summary = event.get("summary", "(no title)")
+        event_id = event.get("id", "?")
         attendees = event.get("attendees", [])
         attendee_str = ", ".join(a.get("email", "?") for a in attendees) if attendees else "none"
         lines.append(
             f"- {summary}\n"
             f"  Start: {start} | End: {end}\n"
+            f"  Event ID: {event_id}\n"
             f"  Attendees: {attendee_str}"
         )
     return "\n".join(lines)

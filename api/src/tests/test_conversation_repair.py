@@ -131,3 +131,29 @@ class TestRepairOrphanedToolCalls:
         result = _repair_orphaned_tool_calls(msgs)
         # tc2 is in the last ModelResponse — pending approval, don't patch
         assert len(result) == 4
+
+    def test_include_terminal_patches_last_response(self):
+        """With include_terminal=True, even the last ModelResponse gets patched.
+
+        This covers the case where a user sends a new chat message instead of
+        approving — the pending tool call becomes orphaned.
+        """
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="step 1")]),
+            ModelResponse(parts=[
+                ToolCallPart(tool_name="delete_event", args='{}', tool_call_id="tc1"),
+            ]),
+        ]
+        # Default: terminal is preserved
+        result_default = _repair_orphaned_tool_calls(msgs)
+        assert len(result_default) == 2
+
+        # include_terminal=True: terminal gets patched
+        result_terminal = _repair_orphaned_tool_calls(msgs, include_terminal=True)
+        assert len(result_terminal) == 3
+        synthetic = result_terminal[2]
+        assert isinstance(synthetic, ModelRequest)
+        assert len(synthetic.parts) == 1
+        assert isinstance(synthetic.parts[0], ToolReturnPart)
+        assert synthetic.parts[0].tool_call_id == "tc1"
+        assert "interrupted" in synthetic.parts[0].content.lower()
