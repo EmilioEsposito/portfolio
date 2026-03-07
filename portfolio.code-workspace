@@ -5,6 +5,10 @@
 			"path": "."
 		},
 		{
+			"name": "sernia-ai-workspace",
+			"path": "./api/src/sernia_ai/workspace"
+		},
+		{
 			"name": "portfolio-docuform",
 			"path": "../portfolio-docuform"
 		},

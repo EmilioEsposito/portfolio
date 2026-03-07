@@ -383,6 +383,110 @@ async def read_email(
 
     return result
 
+def _strip_quoted_replies(text: str) -> str:
+    """Strip quoted reply blocks from email text.
+
+    In a thread view each message is already shown in full, so re-quoted
+    text (3+ consecutive lines starting with '>') is redundant.
+    Also strips the 'On ... wrote:' attribution line that precedes the block.
+    """
+    import re
+
+    lines = text.split("\n")
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith(">"):
+            # Count consecutive '>' lines
+            start = i
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                i += 1
+            if i - start >= 3:
+                # Also remove the "On ... wrote:" attribution above
+                while result and result[-1].strip() == "":
+                    result.pop()
+                if result and re.search(r"wrote:\s*$", result[-1]):
+                    result.pop()
+                    # Attribution can wrap across two lines (name on one, "wrote:" on next)
+                    if result and re.search(r"^On .+", result[-1]):
+                        result.pop()
+                    # Clean trailing blank lines again
+                    while result and result[-1].strip() == "":
+                        result.pop()
+                result.append("[...quoted reply trimmed...]")
+            else:
+                # Short quote — keep it (could be an inline quote)
+                result.extend(lines[start:i])
+        else:
+            result.append(lines[i])
+            i += 1
+    return "\n".join(result)
+
+
+@google_toolset.tool
+async def read_email_thread(
+    ctx: RunContext[SerniaDeps],
+    thread_id: str,
+    user_inbox_email: UserInboxEmail = None,
+) -> str:
+    """Read all messages in an email thread, in chronological order.
+
+    Use this to understand the full back-and-forth of a conversation.
+    The thread_id is returned by search_emails and read_email.
+    Quoted replies are stripped out, giving a more concise view of the conversation.
+
+    Args:
+        thread_id: The Gmail thread ID.
+    """
+    inbox = user_inbox_email or ctx.deps.user_email
+    credentials = get_delegated_credentials(user_email=inbox, scopes=GMAIL_SCOPES)
+    service = get_gmail_service(credentials)
+
+    thread = (
+        service.users()
+        .threads()
+        .get(userId="me", id=thread_id, format="full")
+        .execute()
+    )
+    messages = thread.get("messages", [])
+    if not messages:
+        return f"Thread {thread_id} has no messages."
+
+    parts: list[str] = []
+    for i, msg in enumerate(messages, 1):
+        headers = {
+            h["name"].lower(): h["value"]
+            for h in msg.get("payload", {}).get("headers", [])
+        }
+        body = extract_email_body(msg)
+        content = body.get("text") or body.get("html") or "(no body)"
+        if content == body.get("html"):
+            content = _html_to_markdown(content)
+
+        # Strip redundant quoted replies (each message already shown in full)
+        content = _strip_quoted_replies(content)
+
+        # Cap individual message body
+        if len(content) > 3000:
+            content = content[:3000] + "\n...[truncated]"
+
+        parts.append(
+            f"--- Message {i}/{len(messages)} ---\n"
+            f"From: {headers.get('from', '?')}\n"
+            f"To: {headers.get('to', '?')}\n"
+            f"Date: {headers.get('date', '?')}\n"
+            f"Subject: {headers.get('subject', '(no subject)')}\n\n"
+            f"{content}"
+        )
+
+    result = "\n\n".join(parts)
+    # Cap total output
+    if len(result) > 15000:
+        result = result[:15000] + "\n\n...[THREAD TRUNCATED — too many messages]"
+    return result
+
+
 @google_toolset.tool
 async def list_calendar_events(
     ctx: RunContext[SerniaDeps],
