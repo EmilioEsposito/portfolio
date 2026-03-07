@@ -443,12 +443,22 @@ async def read_email_thread(
     credentials = get_delegated_credentials(user_email=inbox, scopes=GMAIL_SCOPES)
     service = get_gmail_service(credentials)
 
-    thread = (
-        service.users()
-        .threads()
-        .get(userId="me", id=thread_id, format="full")
-        .execute()
-    )
+    from googleapiclient.errors import HttpError
+    try:
+        thread = (
+            service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="full")
+            .execute()
+        )
+    except HttpError as e:
+        if e.resp.status == 404:
+            return (
+                f"Thread {thread_id} not found in {inbox}. "
+                "Thread IDs are mailbox-specific — try with a different user_inbox_email "
+                "(e.g. emilio@serniacapital.com or all@serniacapital.com)."
+            )
+        raise
     messages = thread.get("messages", [])
     if not messages:
         return f"Thread {thread_id} has no messages."

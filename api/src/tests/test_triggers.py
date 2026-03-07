@@ -54,18 +54,13 @@ class TestSmoke:
 
         assert callable(handle_team_sms_event)
 
-    def test_email_scheduled_trigger_imports(self):
-        from api.src.sernia_ai.triggers.email_scheduled_trigger import (
-            check_general_emails,
-            check_zillow_emails,
+    def test_scheduled_triggers_imports(self):
+        from api.src.sernia_ai.triggers.scheduled_triggers import (
+            run_scheduled_checks,
+            register_scheduled_triggers,
         )
 
-        assert callable(check_general_emails)
-        assert callable(check_zillow_emails)
-
-    def test_register_scheduled_triggers_imports(self):
-        from api.src.sernia_ai.triggers.register_scheduled_triggers import register_scheduled_triggers
-
+        assert callable(run_scheduled_checks)
         assert callable(register_scheduled_triggers)
 
     def test_noaction_model_in_agent_output_type(self):
@@ -457,37 +452,24 @@ class TestTeamSmsEventTrigger:
             mock_run.assert_not_called()
 
 
-class TestEmailScheduledTrigger:
-    """Test email scheduled trigger logic."""
+class TestScheduledTriggers:
+    """Test scheduled trigger logic."""
 
     @pytest.mark.asyncio
-    async def test_general_email_check_calls_runner(self):
-        """check_general_emails should call run_agent_for_trigger."""
-        with patch("api.src.sernia_ai.triggers.email_scheduled_trigger.run_agent_for_trigger") as mock_run:
+    async def test_scheduled_checks_calls_runner(self):
+        """run_scheduled_checks should call run_agent_for_trigger with scheduled-checks skill reference."""
+        with patch("api.src.sernia_ai.triggers.scheduled_triggers.run_agent_for_trigger") as mock_run:
             mock_run.return_value = None
 
-            from api.src.sernia_ai.triggers.email_scheduled_trigger import check_general_emails
+            from api.src.sernia_ai.triggers.scheduled_triggers import run_scheduled_checks
 
-            await check_general_emails()
+            await run_scheduled_checks()
 
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args[1]
-            assert call_kwargs["trigger_source"] == "email"
-
-    @pytest.mark.asyncio
-    async def test_zillow_email_check_calls_runner(self):
-        """check_zillow_emails should call run_agent_for_trigger with Zillow context."""
-        with patch("api.src.sernia_ai.triggers.email_scheduled_trigger.run_agent_for_trigger") as mock_run:
-            mock_run.return_value = None
-
-            from api.src.sernia_ai.triggers.email_scheduled_trigger import check_zillow_emails
-
-            await check_zillow_emails()
-
-            mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args[1]
-            assert call_kwargs["trigger_source"] == "zillow_email"
-            assert "credit score" in call_kwargs["trigger_instructions"].lower()
+            assert call_kwargs["trigger_source"] == "scheduled_check"
+            assert "scheduled-checks" in call_kwargs["trigger_prompt"].lower()
+            assert call_kwargs["rate_limit_key"] == "scheduled_check"
 
 
 class TestInjectTriggerGuidance:

@@ -53,10 +53,8 @@ TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
 # Google API delegation requires impersonating a real Google Workspace user.
 GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
 
-# Trigger schedule intervals — used by both the APScheduler cron/interval
-# config and the email search lookback window in trigger prompts.
-GENERAL_EMAIL_CHECK_INTERVAL_MINUTES = 180  # 3 hours
-ZILLOW_EMAIL_CHECK_INTERVAL_HOURS = 3 # starts at 8am ET (13:00 UTC), ends at 5pm ET (22:00 UTC)
+# Scheduled check interval — runs during business hours (8am-5pm ET).
+SCHEDULED_CHECK_INTERVAL_HOURS = 3
 
 # Shared team contact ID in OpenPhone (Quo).
 # Phone number is looked up at runtime via the API — not hardcoded.
@@ -85,9 +83,6 @@ SMS_CONVERSATION_MAX_MESSAGES = 20
 
 # ClickUp — Maintenance list for task creation from SMS triggers
 CLICKUP_MAINTENANCE_LIST_ID = "901312027371"
-
-# Trigger schedule intervals — SMS inbox review
-SMS_INBOX_CHECK_INTERVAL_HOURS = 3
 
 # Shared external mailbox for outbound email and calendar invites.
 # Using the shared mailbox ensures attendees receive email invites
