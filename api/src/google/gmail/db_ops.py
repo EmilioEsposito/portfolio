@@ -3,8 +3,8 @@ Database operations for Gmail-related functionality.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, func, literal_column
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from datetime import datetime
 import pytz
 from typing import Dict, Any, Optional
@@ -47,90 +47,62 @@ async def save_email_message(
     try:
         message_id = message_data.get('message_id')
         logfire.info(f"Saving email message {message_id} to database")
-        
-        # Check if message already exists
-        existing_msg = await get_email_by_message_id(session, message_id)
-        
+
         # Parse the date and ensure it's timezone aware
         date_str = message_data['date']
         try:
-            # Parse the date string
             received_date = datetime.fromisoformat(date_str)
-            
-            # If the datetime is naive, assume UTC
             if received_date.tzinfo is None:
                 received_date = pytz.UTC.localize(received_date)
             else:
-                # Convert to UTC if it's not already
                 received_date = received_date.astimezone(pytz.UTC)
-                
-            # Remove timezone info before saving to database
-            # This is because the column is TIMESTAMP WITHOUT TIME ZONE
+            # Remove timezone info (column is TIMESTAMP WITHOUT TIME ZONE)
             received_date = received_date.replace(tzinfo=None)
-            
         except ValueError as e:
-            # Fallback to UTC now if date parsing fails
             logfire.warn(f"Failed to parse date {date_str}, using current UTC time: {str(e)}")
             received_date = datetime.now(pytz.UTC).replace(tzinfo=None)
-        
-        if existing_msg:
-            logfire.info(f"Updating existing message {message_id}")
-            
-            # Update raw_payload
-            existing_msg.raw_payload = message_data['raw_payload']
-            
-            # Update label_ids if present in message_data
-            if 'label_ids' in message_data and message_data['label_ids']:
-                existing_msg.label_ids = message_data['label_ids']
-            
-            # Append to history_ids if history_id is provided
-            if history_id:
-                if existing_msg.history_ids is None:
-                    existing_msg.history_ids = [history_id]
-                elif history_id not in existing_msg.history_ids:
-                    existing_msg.history_ids = existing_msg.history_ids + [history_id]
-            
-            await session.commit()
-            await session.refresh(existing_msg)
-            
-            logfire.info(f"Successfully updated email message {message_id}")
-            return existing_msg
-        else:
-            # Create new email message instance
-            email_msg = EmailMessage(
-                message_id=message_id,
-                thread_id=message_data['thread_id'],
-                subject=message_data['subject'],
-                from_address=message_data['from_address'],
-                to_address=message_data['to_address'],
-                received_date=received_date,
-                body_text=message_data['body_text'],
-                body_html=message_data['body_html'],
-                raw_payload=message_data['raw_payload'],
-                first_history_id=history_id,
-                history_ids=[history_id] if history_id else None,
-                label_ids=message_data.get('label_ids')
-            )
-            
-            # Add to session and commit
-            session.add(email_msg)
-            try:
-                await session.commit()
-            except IntegrityError:
-                # Race condition: another request inserted the same message
-                # between our check and insert. Roll back and return the
-                # existing row instead.
-                await session.rollback()
-                logfire.info(
-                    f"Email message {message_id} inserted by concurrent request, "
-                    "fetching existing row"
-                )
-                existing = await get_email_by_message_id(session, message_id)
-                return existing
-            await session.refresh(email_msg)
 
-            logfire.info(f"Successfully saved new email message {email_msg.message_id}")
-            return email_msg
+        # Atomic upsert: insert or update on conflict
+        stmt = pg_insert(EmailMessage).values(
+            message_id=message_id,
+            thread_id=message_data['thread_id'],
+            subject=message_data['subject'],
+            from_address=message_data['from_address'],
+            to_address=message_data['to_address'],
+            received_date=received_date,
+            body_text=message_data['body_text'],
+            body_html=message_data['body_html'],
+            raw_payload=message_data['raw_payload'],
+            first_history_id=history_id,
+            history_ids=[history_id] if history_id else None,
+            label_ids=message_data.get('label_ids'),
+        )
+
+        # On conflict, update mutable fields; first_history_id is preserved
+        update_set = {
+            'raw_payload': stmt.excluded.raw_payload,
+            'label_ids': stmt.excluded.label_ids,
+        }
+        if history_id is not None:
+            empty_int_array = literal_column("ARRAY[]::INTEGER[]")
+            update_set['history_ids'] = func.array_cat(
+                func.coalesce(EmailMessage.history_ids, empty_int_array),
+                func.coalesce(stmt.excluded.history_ids, empty_int_array),
+            )
+
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['message_id'],
+            set_=update_set,
+        )
+
+        await session.execute(stmt)
+        await session.commit()
+
+        # Expire cached ORM objects so the fetch reads the upserted row
+        session.expire_all()
+        email_msg = await get_email_by_message_id(session, message_id)
+        logfire.info(f"Successfully saved email message {message_id}")
+        return email_msg
 
     except Exception as e:
         logfire.exception(f"Failed to save email message: {str(e)}")
