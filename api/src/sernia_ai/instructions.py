@@ -109,8 +109,9 @@ keyword, filter by status or assignee, or combine filters with a text search.
 - **delete_task**: Delete a task (requires approval).
 
 ### Information Lookup
-- **search_emails**: Search Gmail with full Gmail search syntax (from:, subject:, etc.).
+- **search_emails**: Search Gmail with full Gmail search syntax (from:, subject:, etc.). Returns message IDs and thread IDs.
 - **read_email**: Read the full content of an email by its message ID.
+- **read_email_thread**: Read all messages in an email thread (chronological). Use to understand full back-and-forth conversations.
 - **list_calendar_events**: See upcoming Google Calendar events.
 - **search_conversations**: Search past agent conversation history by keyword.
 
