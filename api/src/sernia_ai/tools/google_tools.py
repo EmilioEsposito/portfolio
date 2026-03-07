@@ -8,22 +8,25 @@ All operations delegate as ctx.deps.user_email via service account credentials.
 
 import io
 from datetime import datetime, timedelta
+from typing import Annotated
 
 import pytz
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
-from pydantic_ai import FunctionToolset, RunContext
+from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
 
 from api.src.google.calendar.service import (
     CalendarEventInput,
     create_calendar_event as _create_calendar_event,
+    delete_calendar_event as _delete_calendar_event,
     get_calendar_service,
 )
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from pydantic import EmailStr
+from pydantic.fields import Field
 
-from api.src.sernia_ai.config import CALENDAR_ORGANIZER_EMAIL, INTERNAL_EMAIL_DOMAIN
+from api.src.sernia_ai.config import SHARED_EXTERNAL_EMAIL, INTERNAL_EMAIL_DOMAIN
 from api.src.google.gmail.service import (
     extract_email_body,
     get_email_content,
@@ -31,6 +34,18 @@ from api.src.google.gmail.service import (
     send_email as _send_email,
 )
 from api.src.sernia_ai.deps import SerniaDeps
+
+# Reusable annotated type for tools that accept an inbox/calendar override
+UserInboxEmail = Annotated[
+    EmailStr | None,
+    Field(
+        default=None,
+        description=(
+            "Email address whose mailbox/calendar to use. "
+            "Defaults to the current user. Use 'all@serniacapital.com' for the shared inbox."
+        ),
+    ),
+]
 
 
 def _html_to_markdown(html: str) -> str:
@@ -171,13 +186,13 @@ async def send_external_email(
 
     thread_kwargs: dict = {}
     if reply_to_message_id:
-        # Try all@ first (send mailbox), fall back to user's mailbox
+        # Try shared mailbox first (send mailbox), fall back to user's mailbox
         thread_kwargs = await _get_threading_headers(
-            reply_to_message_id, "all@serniacapital.com"
+            reply_to_message_id, SHARED_EXTERNAL_EMAIL
         )
-        if not thread_kwargs and ctx.deps.user_email != "all@serniacapital.com":
+        if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
             logfire.info(
-                "reply_to_message_id not found in all@, trying user inbox",
+                "reply_to_message_id not found in shared mailbox, trying user inbox",
                 message_id=reply_to_message_id,
                 user_email=ctx.deps.user_email,
             )
@@ -189,7 +204,7 @@ async def send_external_email(
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
-        user_email="all@serniacapital.com",
+        user_email=SHARED_EXTERNAL_EMAIL,
         scopes=GMAIL_SCOPES,
     )
     result = await _send_email(
@@ -267,14 +282,13 @@ async def send_internal_email(
 async def search_emails(
     ctx: RunContext[SerniaDeps],
     query: str,
-    user_inbox_email: str = None,
+    user_inbox_email: UserInboxEmail = None,
     max_results: int = 10,
 ) -> str:
     """Search emails using Gmail search syntax.
 
     Args:
         query: Gmail search query (e.g. "from:john subject:rent", "is:unread", "newer_than:7d").
-        user_inbox_email: Optional email address to search in (default current user's inbox).
         max_results: Maximum number of results to return (default 10).
     """
     if not user_inbox_email:
@@ -354,13 +368,14 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
 async def read_email(
     ctx: RunContext[SerniaDeps],
     message_id: str,
+    user_inbox_email: UserInboxEmail = None,
 ) -> str:
     """Read the full content of an email by its Gmail message ID.
 
     Args:
         message_id: The Gmail message ID (returned by search_emails).
     """
-    result = await _read_email(message_id, ctx.deps.user_email)
+    result = await _read_email(message_id, user_inbox_email or ctx.deps.user_email)
 
     # truncate to 5000 characters
     if len(result) > 5000:
@@ -372,13 +387,14 @@ async def read_email(
 async def list_calendar_events(
     ctx: RunContext[SerniaDeps],
     days_ahead: int = 7,
+    user_inbox_email: UserInboxEmail = None,
 ) -> str:
     """List upcoming calendar events.
 
     Args:
         days_ahead: Number of days ahead to look (default 7).
     """
-    service = await get_calendar_service(user_email=ctx.deps.user_email)
+    service = await get_calendar_service(user_email=user_inbox_email or ctx.deps.user_email)
     et_tz = pytz.timezone("US/Eastern")
     now = datetime.now(tz=et_tz)
     time_max = now + timedelta(days=days_ahead)
@@ -415,25 +431,49 @@ async def list_calendar_events(
     return "\n".join(lines)
 
 
-@google_toolset.tool(requires_approval=True)
+@google_toolset.tool
 async def create_calendar_event(
     ctx: RunContext[SerniaDeps],
     event: CalendarEventInput,
 ) -> str:
-    """Create a Google Calendar event.
+    """Create a Google Calendar event. Requires approval if any attendee is external.
 
     Always include all attendees explicitly — no one is auto-added.
     Reminders default to email 1 day before + popup 1 hour before.
     Default timezone is US/Eastern.
     """
+    has_external = event.attendees and any(
+        not a.email.endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for a in event.attendees
+    )
+    if has_external and not ctx.tool_call_approved:
+        raise ApprovalRequired()
+
     # Use the shared mailbox as organizer so attendees receive email invites
-    service = await get_calendar_service(user_email=CALENDAR_ORGANIZER_EMAIL)
+    service = await get_calendar_service(user_email=SHARED_EXTERNAL_EMAIL)
 
     result = await _create_calendar_event(
-        service, event, organizer_email=CALENDAR_ORGANIZER_EMAIL, overwrite=True
+        service, event, organizer_email=SHARED_EXTERNAL_EMAIL, overwrite=True
     )
     event_link = result.get("htmlLink", "")
     return f"Calendar event created: {event.summary}\nLink: {event_link}"
+
+
+@google_toolset.tool
+async def delete_calendar_event_tool(
+    ctx: RunContext[SerniaDeps],
+    event_id: str,
+) -> str:
+    """Delete a Google Calendar event (always requires approval).
+
+    Args:
+        event_id: The Google Calendar event ID to delete.
+    """
+    if not ctx.tool_call_approved:
+        raise ApprovalRequired()
+
+    service = await get_calendar_service(user_email=SHARED_EXTERNAL_EMAIL)
+    await _delete_calendar_event(service, event_id)
+    return f"Calendar event {event_id} deleted."
 
 
 # =============================================================================

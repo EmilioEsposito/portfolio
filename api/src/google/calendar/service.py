@@ -43,6 +43,13 @@ DEFAULT_REMINDERS = [
 ]
 
 
+class CalendarAttendee(BaseModel):
+    """A single attendee for a calendar event."""
+
+    email: EmailStr = Field(description="Attendee email address.")
+    optional: bool = Field(default=False, description="True to mark as optional attendee.")
+
+
 class CalendarEventInput(BaseModel):
     """Structured input for creating a Google Calendar event."""
 
@@ -56,8 +63,8 @@ class CalendarEventInput(BaseModel):
     description: str | None = Field(
         default=None, description="Event description."
     )
-    attendees: list[EmailStr] | None = Field(
-        default=None, description="Attendee email addresses."
+    attendees: list[CalendarAttendee] | None = Field(
+        default=None, description="Event attendees. Use plain emails for required, or set optional=True.",
     )
     location: str | None = Field(
         default=None, description="Event location."
@@ -66,16 +73,26 @@ class CalendarEventInput(BaseModel):
         default=None,
         description="Custom reminders. Defaults to email 1 day before + popup 1 hour before.",
     )
+    guests_can_see_other_guests: bool = Field(
+        default=True,
+        description="Whether attendees can see the full guest list. Set False to hide it.",
+    )
 
     @field_serializer("start", "end")
     def serialize_datetime(self, dt: datetime.datetime) -> dict:
         return {"dateTime": dt.isoformat()}
 
     @field_serializer("attendees")
-    def serialize_attendees(self, attendees: list[EmailStr] | None) -> list[dict] | None:
+    def serialize_attendees(self, attendees: list[CalendarAttendee] | None) -> list[dict] | None:
         if attendees is None:
             return None
-        return [{"email": email} for email in attendees]
+        result = []
+        for a in attendees:
+            entry: dict = {"email": a.email}
+            if a.optional:
+                entry["optional"] = True
+            result.append(entry)
+        return result
 
     @field_serializer("reminders")
     def serialize_reminders(self, reminders: list[CalendarReminder] | None) -> list[dict]:
@@ -90,6 +107,9 @@ class CalendarEventInput(BaseModel):
             "useDefault": False,
             "overrides": self.serialize_reminders(self.reminders),
         }
+        # Map snake_case field to Google API camelCase key
+        body.pop("guests_can_see_other_guests", None)
+        body["guestsCanSeeOtherGuests"] = self.guests_can_see_other_guests
         if organizer_email:
             body["organizer"] = {"email": organizer_email}
         return body
