@@ -44,7 +44,9 @@ class AgentConversation(Base):
     modality: Mapped[str | None] = mapped_column(String, index=True, nullable=True, server_default="web_chat")
     contact_identifier: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_last_run: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_total: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -216,7 +218,7 @@ async def save_agent_conversation(
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     estimated_tokens: int | None = None,
-    estimated_cost: float | None = None,
+    cost_last_run: float | None = None,
     modality: str | None = None,
     contact_identifier: str | None = None,
 ) -> AgentConversation:
@@ -261,14 +263,23 @@ async def save_agent_conversation(
         messages=messages_json,
         metadata_=metadata,
     )
-    if estimated_tokens is not None:
-        conversation.estimated_tokens = estimated_tokens
-    if estimated_cost is not None:
-        conversation.estimated_cost = estimated_cost
     if modality is not None:
         conversation.modality = modality
     if contact_identifier is not None:
         conversation.contact_identifier = contact_identifier
+
+    # Accumulate tokens, cost, and run_count from existing record
+    if cost_last_run is not None or estimated_tokens is not None:
+        existing = await session.get(AgentConversation, conversation_id)
+        prev_tokens = existing.estimated_tokens if existing else 0
+        prev_cost = existing.cost_total if existing else 0.0
+        prev_count = existing.run_count if existing else 0
+        if estimated_tokens is not None:
+            conversation.estimated_tokens = prev_tokens + estimated_tokens
+        if cost_last_run is not None:
+            conversation.cost_last_run = cost_last_run
+            conversation.cost_total = prev_cost + cost_last_run
+        conversation.run_count = prev_count + 1
 
     # merge returns the persistent instance attached to the session
     conversation = await session.merge(conversation)
@@ -343,7 +354,7 @@ async def persist_agent_run_result(
                     clerk_user_id=clerk_user_id,
                     metadata=metadata,
                     estimated_tokens=total_tokens,
-                    estimated_cost=cost,
+                    cost_last_run=cost,
                 )
             logfire.info(f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}")
         except Exception as e:
@@ -430,7 +441,9 @@ async def list_user_conversations(
                 metadata_,
                 modality,
                 estimated_tokens,
-                estimated_cost,
+                cost_last_run,
+                cost_total,
+                run_count,
                 contact_identifier,
                 COALESCE(
                     NULLIF(LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100), ''),
@@ -487,7 +500,9 @@ async def list_user_conversations(
                 "modality": modality,
                 "preview": row.preview or "",
                 "estimated_tokens": row.estimated_tokens or 0,
-                "estimated_cost": row.estimated_cost,
+                "cost_last_run": row.cost_last_run,
+                "cost_total": row.cost_total or 0,
+                "run_count": row.run_count or 0,
                 "contact_identifier": row.contact_identifier,
                 "participant": _compute_participant(
                     modality=modality,

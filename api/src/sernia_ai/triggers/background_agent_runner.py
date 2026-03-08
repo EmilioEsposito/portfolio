@@ -105,6 +105,16 @@ async def run_agent_for_trigger(
         )
         return None
 
+    # Classify trigger type for dashboard grouping (tags on logfire spans)
+    _trigger_tag = {
+        "sms": "trigger:event",
+        "ai_sms": "trigger:event",
+        "email": "trigger:event",
+        "zillow_email": "trigger:event",
+        "zillow_email_event": "trigger:event",
+        "scheduled_check": "trigger:scheduled",
+    }.get(trigger_source, "trigger:unknown")
+
     conv_id = conversation_id or str(uuid.uuid4())
 
     async with AsyncSessionFactory() as session:
@@ -127,6 +137,7 @@ async def run_agent_for_trigger(
                     "trigger agent run failed",
                     trigger_source=trigger_source,
                     conversation_id=conv_id,
+                    _tags=[_trigger_tag],
                 )
                 if captured_messages:
                     try:
@@ -172,6 +183,7 @@ async def run_agent_for_trigger(
                 conversation_id=conv_id,
                 reason=result.output.reason,
                 prompt_preview=trigger_prompt[:300],
+                _tags=[_trigger_tag],
             )
             return None
 
@@ -221,5 +233,6 @@ async def run_agent_for_trigger(
             conversation_id=conv_id,
             has_pending=bool(pending),
             notify_target=notify_clerk_user_id or "all_sernia_users",
+            _tags=[_trigger_tag],
         )
         return conv_id

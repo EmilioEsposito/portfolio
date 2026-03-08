@@ -96,7 +96,9 @@ interface ConversationSummary {
   modality: string;
   preview: string;
   estimated_tokens: number;
-  estimated_cost: number | null;
+  cost_last_run: number | null;
+  cost_total: number;
+  run_count: number;
   contact_identifier: string | null;
   participant: string;
   has_pending: boolean;
@@ -139,7 +141,7 @@ const dateRangeFilterFn: FilterFn<ConversationSummary> = (
 
 const RESPONSIVE_CLASSES: Record<string, string> = {
   modality: "hidden sm:table-cell",
-  estimated_cost: "hidden lg:table-cell",
+  cost_total: "hidden lg:table-cell",
   has_pending: "hidden sm:table-cell",
 };
 
@@ -512,15 +514,26 @@ export default function SerniaAdminPage() {
         enableSorting: true,
       },
       {
-        accessorKey: "estimated_cost",
+        accessorKey: "cost_total",
         header: ({ column }) => (
-          <ColumnHeader column={column} title="Cost" />
+          <ColumnHeader column={column} title="Cost (all)" />
         ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground font-mono text-right block">
-            {formatCost(row.getValue("estimated_cost") as number | null)}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const total = row.getValue("cost_total") as number;
+          const runs = row.original.run_count;
+          return (
+            <div className="text-right">
+              <span className="text-xs text-muted-foreground font-mono block">
+                {total > 0 ? formatCost(total) : "—"}
+              </span>
+              {runs > 1 && (
+                <span className="text-[10px] text-muted-foreground/60">
+                  {runs} runs
+                </span>
+              )}
+            </div>
+          );
+        },
         enableSorting: true,
         enableColumnFilter: false,
       },
@@ -729,8 +742,12 @@ export default function SerniaAdminPage() {
                 <span className="capitalize">
                   {selectedConv.modality.replace("_", " ")}
                 </span>
-                {selectedConv.estimated_cost != null && (
-                  <span>{formatCost(selectedConv.estimated_cost)}</span>
+                {selectedConv.cost_total > 0 && (
+                  <span>
+                    {formatCost(selectedConv.cost_total)} total
+                    {selectedConv.run_count > 1 &&
+                      ` · ${selectedConv.run_count} runs`}
+                  </span>
                 )}
                 {selectedConv.created_at && (
                   <span>
