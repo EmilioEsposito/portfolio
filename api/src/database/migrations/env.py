@@ -3,6 +3,7 @@ from logging.config import fileConfig
 import re
 from datetime import datetime
 import logging
+import logfire
 
 from alembic import context
 from sqlalchemy.engine import Connection
@@ -36,9 +37,10 @@ for table in Base.metadata.tables:
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up logging. basically.
+# disable_existing_loggers=False preserves the Logfire logging handler
+# that was added when database.py imported logfire_config.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
@@ -132,8 +134,14 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
-    async with engine.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    with logfire.span("alembic upgrade head"):
+        try:
+            async with engine.connect() as connection:
+                await connection.run_sync(do_run_migrations)
+            logfire.info("alembic migrations completed successfully")
+        except Exception:
+            logfire.exception("alembic migration failed")
+            raise
 
     await engine.dispose()
 

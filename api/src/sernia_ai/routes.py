@@ -187,6 +187,8 @@ async def chat_sernia(
         "sernia chat",
         conversation_id=conversation_id,
         clerk_user_id=clerk_user_id,
+        user_name=user_name,
+        user_email=_sernia_email(user),
         frontend_msg_count=len(frontend_messages),
         db_msg_count=len(backend_message_history),
         _tags=["trigger:user"],
