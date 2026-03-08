@@ -739,6 +739,31 @@ class TestSmsToModelMessages:
         assert len(result) == 1
         assert result[0].parts[0].content == "Via content field"
 
+    def test_handles_text_field(self):
+        """OpenPhone API returns SMS content in the 'text' field (primary)."""
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
+
+        # Quo returns newest-first; _sms_to_model_messages reverses to chronological
+        messages = [
+            {"text": "Outgoing via text", "direction": "outgoing"},
+            {"text": "Via text field", "direction": "incoming"},
+        ]
+        result = _sms_to_model_messages(messages)
+
+        assert len(result) == 2
+        assert result[0].parts[0].content == "Via text field"
+        assert result[1].parts[0].content == "Outgoing via text"
+
+    def test_text_field_takes_priority_over_body(self):
+        """'text' field should take priority over 'body' (matching Quo API)."""
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
+
+        messages = [{"text": "from text", "body": "from body", "direction": "incoming"}]
+        result = _sms_to_model_messages(messages)
+
+        assert len(result) == 1
+        assert result[0].parts[0].content == "from text"
+
 
 class TestVerifyInternalContact:
     """Test the internal contact verification."""

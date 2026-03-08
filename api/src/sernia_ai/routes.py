@@ -42,11 +42,49 @@ from api.src.ai_demos.models import (
     get_conversation_with_pending,
     extract_pending_approval_from_messages,
 )
+from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
+    _fetch_sms_thread,
+    _merge_sms_into_history,
+)
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.push.routes import router as push_router
 from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.database.database import DBSession
+
+
+# =============================================================================
+# SMS history merge helper
+# =============================================================================
+
+_SMS_CONV_PREFIX = "ai_sms_from_"
+
+
+async def _merge_sms_if_needed(
+    conversation_id: str,
+    db_messages: list,
+) -> list:
+    """For SMS conversations, merge live Quo messages into DB history.
+
+    Quo is the source of truth for SMS — messages sent manually or from
+    other processes won't be in our DB.  This fetches the live thread
+    and interleaves any missing messages.
+    """
+    if not conversation_id.startswith(_SMS_CONV_PREFIX):
+        return db_messages
+
+    digits = conversation_id[len(_SMS_CONV_PREFIX):]
+    phone = f"+{digits}"
+    try:
+        sms_thread = await _fetch_sms_thread(phone)
+        if sms_thread:
+            return _merge_sms_into_history(db_messages, sms_thread)
+    except Exception:
+        logfire.exception(
+            "Failed to merge SMS thread for web view",
+            conversation_id=conversation_id,
+        )
+    return db_messages
 
 
 # =============================================================================
@@ -139,6 +177,10 @@ async def chat_sernia(
     # clerk_user_id=None for shared team access — all Sernia users see all conversations
     backend_message_history = await get_conversation_messages(
         conversation_id, clerk_user_id=None, session=session, include_terminal=True
+    )
+    # For SMS conversations, merge live Quo messages (source of truth)
+    backend_message_history = await _merge_sms_if_needed(
+        conversation_id, backend_message_history
     )
 
     logfire.info(
@@ -387,6 +429,9 @@ async def get_conversation_messages_endpoint(
     pydantic_messages = await get_conversation_messages(
         conversation_id, clerk_user_id=None, session=session
     )
+
+    # For SMS conversations, merge live Quo messages (source of truth)
+    pydantic_messages = await _merge_sms_if_needed(conversation_id, pydantic_messages)
 
     if not pydantic_messages:
         return {"messages": [], "conversation_id": conversation_id}

@@ -96,7 +96,9 @@ interface ConversationSummary {
   modality: string;
   preview: string;
   estimated_tokens: number;
+  estimated_cost: number | null;
   contact_identifier: string | null;
+  participant: string;
   has_pending: boolean;
   trigger_source: string | null;
   trigger_contact_name: string | null;
@@ -108,7 +110,7 @@ interface ConversationSummary {
 // TanStack Table filter helpers
 // ---------------------------------------------------------------------------
 
-const FACETED_COLUMNS = new Set(["modality", "contact", "user_email"]);
+const FACETED_COLUMNS = new Set(["modality", "participant"]);
 
 const facetedFilterFn: FilterFn<ConversationSummary> = (
   row,
@@ -136,11 +138,8 @@ const dateRangeFilterFn: FilterFn<ConversationSummary> = (
 };
 
 const RESPONSIVE_CLASSES: Record<string, string> = {
-  conversation_id: "hidden md:table-cell",
   modality: "hidden sm:table-cell",
-  contact: "hidden md:table-cell",
-  user_email: "hidden lg:table-cell",
-  estimated_tokens: "hidden lg:table-cell",
+  estimated_cost: "hidden lg:table-cell",
   has_pending: "hidden sm:table-cell",
 };
 
@@ -162,11 +161,34 @@ function modalityIcon(modality: string) {
 function formatDateTime(dateString: string | null) {
   if (!dateString) return "";
   const date = new Date(dateString);
-  return date.toLocaleString(undefined, {
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  if (isToday) {
+    return date.toLocaleString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "America/New_York",
+    }).replace(" ", "").toLowerCase() + " ET";
+  }
+
+  const msPerDay = 86_400_000;
+  const daysDiff = Math.floor((now.getTime() - date.getTime()) / msPerDay);
+  if (daysDiff < 7) {
+    return date.toLocaleString("en-US", {
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "America/New_York",
+    });
+  }
+
+  return date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
+    timeZone: "America/New_York",
   });
 }
 
@@ -174,6 +196,12 @@ function formatTokens(tokens: number) {
   if (tokens === 0) return "—";
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
   return String(tokens);
+}
+
+function formatCost(cost: number | null) {
+  if (cost == null) return "—";
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,25 +452,45 @@ export default function SerniaAdminPage() {
   const columns = useMemo(
     (): ColumnDef<ConversationSummary>[] => [
       {
+        accessorKey: "updated_at",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Time" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {formatDateTime(row.getValue("updated_at") as string | null)}
+          </span>
+        ),
+        filterFn: dateRangeFilterFn,
+        enableSorting: true,
+      },
+      {
+        accessorKey: "participant",
+        header: ({ column }) => (
+          <ColumnHeader column={column} title="Participant" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5 min-w-0 max-w-[200px]">
+            <span className="text-muted-foreground shrink-0">
+              {modalityIcon(row.original.modality)}
+            </span>
+            <span className="text-sm font-medium truncate">
+              {row.getValue("participant") || "—"}
+            </span>
+          </div>
+        ),
+        filterFn: facetedFilterFn,
+        enableSorting: true,
+      },
+      {
         accessorKey: "preview",
         header: ({ column }) => (
           <ColumnHeader column={column} title="Preview" />
         ),
         cell: ({ row }) => (
-          <p className="truncate text-sm max-w-[300px]">
+          <p className="truncate text-sm text-muted-foreground max-w-[300px]">
             {row.getValue("preview") || "Empty conversation"}
           </p>
-        ),
-        filterFn: "includesString",
-        enableSorting: true,
-      },
-      {
-        accessorKey: "conversation_id",
-        header: ({ column }) => <ColumnHeader column={column} title="ID" />,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground truncate block max-w-[120px]">
-            {(row.getValue("conversation_id") as string).slice(0, 8)}
-          </span>
         ),
         filterFn: "includesString",
         enableSorting: true,
@@ -455,42 +503,8 @@ export default function SerniaAdminPage() {
         cell: ({ row }) => {
           const modality = row.getValue("modality") as string;
           return (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              {modalityIcon(modality)}
-              <span className="text-xs capitalize">
-                {modality.replace("_", " ")}
-              </span>
-            </div>
-          );
-        },
-        filterFn: facetedFilterFn,
-        enableSorting: true,
-      },
-      {
-        id: "contact",
-        accessorFn: (row) =>
-          row.trigger_contact_name || row.contact_identifier || "",
-        header: ({ column }) => (
-          <ColumnHeader column={column} title="Contact" />
-        ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-            {row.getValue("contact") || "—"}
-          </span>
-        ),
-        filterFn: facetedFilterFn,
-        enableSorting: true,
-      },
-      {
-        accessorKey: "user_email",
-        header: ({ column }) => (
-          <ColumnHeader column={column} title="User" />
-        ),
-        cell: ({ row }) => {
-          const email = row.getValue("user_email") as string | null;
-          return (
-            <span className="text-xs text-muted-foreground truncate block max-w-[160px]">
-              {email ? email.split("@")[0] : "—"}
+            <span className="text-xs text-muted-foreground capitalize">
+              {modality.replace("_", " ")}
             </span>
           );
         },
@@ -498,13 +512,13 @@ export default function SerniaAdminPage() {
         enableSorting: true,
       },
       {
-        accessorKey: "estimated_tokens",
+        accessorKey: "estimated_cost",
         header: ({ column }) => (
-          <ColumnHeader column={column} title="Tokens" />
+          <ColumnHeader column={column} title="Cost" />
         ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground font-mono text-right block">
-            {formatTokens(row.getValue("estimated_tokens") as number)}
+            {formatCost(row.getValue("estimated_cost") as number | null)}
           </span>
         ),
         enableSorting: true,
@@ -526,19 +540,6 @@ export default function SerniaAdminPage() {
           ) : null,
         enableSorting: true,
         enableColumnFilter: false,
-      },
-      {
-        accessorKey: "updated_at",
-        header: ({ column }) => (
-          <ColumnHeader column={column} title="Updated" />
-        ),
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {formatDateTime(row.getValue("updated_at") as string | null)}
-          </span>
-        ),
-        filterFn: dateRangeFilterFn,
-        enableSorting: true,
       },
     ],
     []
@@ -606,7 +607,7 @@ export default function SerniaAdminPage() {
             </div>
           ) : (
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-background z-10">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
@@ -710,7 +711,7 @@ export default function SerniaAdminPage() {
                 <>
                   {modalityIcon(selectedConv.modality)}
                   <span className="truncate flex-1">
-                    {selectedConv.preview || "Conversation"}
+                    {selectedConv.participant}
                   </span>
                   {selectedConv.has_pending && (
                     <Badge
@@ -725,25 +726,20 @@ export default function SerniaAdminPage() {
             </SheetTitle>
             {selectedConv && (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                {selectedConv.trigger_contact_name && (
-                  <span>Contact: {selectedConv.trigger_contact_name}</span>
-                )}
-                {selectedConv.contact_identifier && (
-                  <span>{selectedConv.contact_identifier}</span>
-                )}
-                {selectedConv.user_email && (
-                  <span>User: {selectedConv.user_email}</span>
-                )}
-                {selectedConv.estimated_tokens > 0 && (
-                  <span>
-                    Tokens: {formatTokens(selectedConv.estimated_tokens)}
-                  </span>
+                <span className="capitalize">
+                  {selectedConv.modality.replace("_", " ")}
+                </span>
+                {selectedConv.estimated_cost != null && (
+                  <span>{formatCost(selectedConv.estimated_cost)}</span>
                 )}
                 {selectedConv.created_at && (
                   <span>
                     Created: {formatDateTime(selectedConv.created_at)}
                   </span>
                 )}
+                <span className="font-mono">
+                  {selectedConv.conversation_id.slice(0, 8)}
+                </span>
               </div>
             )}
           </SheetHeader>

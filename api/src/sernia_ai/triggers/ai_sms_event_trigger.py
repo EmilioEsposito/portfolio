@@ -174,7 +174,7 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
 
     # Reverse to get chronological order
     for msg in reversed(messages):
-        body = msg.get("body") or msg.get("content") or ""
+        body = msg.get("text") or msg.get("body") or msg.get("content") or ""
         if not body.strip():
             continue
 

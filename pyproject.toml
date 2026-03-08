@@ -64,6 +64,7 @@ dependencies = [
     "griffe>=1.0.0,<2.0.0", # pydantic-ai uses old griffe import path; 2.0 split the package
     "markdownify>=1.2.2",
     "pydantic-ai-skills>=0.5.1",
+    "genai-prices>=0.0.50",
 ]
 
 [dependency-groups]
