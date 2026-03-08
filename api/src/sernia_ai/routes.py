@@ -189,6 +189,7 @@ async def chat_sernia(
         clerk_user_id=clerk_user_id,
         frontend_msg_count=len(frontend_messages),
         db_msg_count=len(backend_message_history),
+        _tags=["trigger:user"],
     )
 
     # Only use the LAST message from frontend (the new user input)
