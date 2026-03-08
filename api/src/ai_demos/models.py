@@ -345,6 +345,25 @@ def _sanitize_json(obj: Any) -> Any:
     return obj
 
 
+def _compute_participant(
+    modality: str,
+    user_email: str | None,
+    contact_identifier: str | None,
+    metadata: dict[str, Any],
+) -> str:
+    """Derive a single human-readable participant label from conversation context."""
+    if modality == "sms":
+        return metadata.get("trigger_contact_name") or contact_identifier or "Unknown"
+    if modality in ("email", "zillow_email"):
+        return metadata.get("trigger_contact_name") or metadata.get("from_address") or contact_identifier or "Email"
+    if modality == "scheduled_check":
+        return "Scheduled Check"
+    # web_chat or fallback
+    if user_email:
+        return user_email.split("@")[0]
+    return "Unknown"
+
+
 async def list_user_conversations(
     clerk_user_id: str | None,
     agent_name: str,
@@ -388,6 +407,8 @@ async def list_user_conversations(
                 estimated_tokens,
                 contact_identifier,
                 COALESCE(
+                    NULLIF(LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100), ''),
+                    NULLIF(LEFT(messages -> (json_array_length(messages) - 2) -> 'parts' -> 0 ->> 'content', 100), ''),
                     metadata_ ->> 'trigger_message_preview',
                     LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
                 ) as preview,
@@ -430,16 +451,23 @@ async def list_user_conversations(
 
             # Extract trigger metadata if present
             metadata = row.metadata_ or {}
+            modality = row.modality or "web_chat"
 
             conv_list.append({
                 "conversation_id": row.id,
                 "agent_name": row.agent_name,
                 "clerk_user_id": row.clerk_user_id,
                 "user_email": row.user_email,
-                "modality": row.modality or "web_chat",
+                "modality": modality,
                 "preview": row.preview or "",
                 "estimated_tokens": row.estimated_tokens or 0,
                 "contact_identifier": row.contact_identifier,
+                "participant": _compute_participant(
+                    modality=modality,
+                    user_email=row.user_email,
+                    contact_identifier=row.contact_identifier,
+                    metadata=metadata,
+                ),
                 "pending": pending,
                 "has_pending": has_pending,
                 "trigger_source": metadata.get("trigger_source"),
