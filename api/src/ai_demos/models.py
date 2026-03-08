@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Any
-from sqlalchemy import String, Integer, DateTime, func, JSON, select, desc, Index
+from sqlalchemy import String, Integer, Float, DateTime, func, JSON, select, desc, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -44,6 +44,7 @@ class AgentConversation(Base):
     modality: Mapped[str | None] = mapped_column(String, index=True, nullable=True, server_default="web_chat")
     contact_identifier: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -197,6 +198,16 @@ async def _get_user_email_from_clerk(user_id: str) -> str | None:
     return None
 
 
+def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float | None:
+    """Compute USD cost using genai-prices. Returns None on failure."""
+    try:
+        from genai_prices import Usage as GPUsage, calc_price
+        price = calc_price(GPUsage(input_tokens=input_tokens, output_tokens=output_tokens), model_ref=model_ref)
+        return round(price.total_price, 6) if price else None
+    except Exception:
+        return None
+
+
 async def save_agent_conversation(
     session: AsyncSession,
     conversation_id: str,
@@ -205,6 +216,7 @@ async def save_agent_conversation(
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     estimated_tokens: int | None = None,
+    estimated_cost: float | None = None,
     modality: str | None = None,
     contact_identifier: str | None = None,
 ) -> AgentConversation:
@@ -251,6 +263,8 @@ async def save_agent_conversation(
     )
     if estimated_tokens is not None:
         conversation.estimated_tokens = estimated_tokens
+    if estimated_cost is not None:
+        conversation.estimated_cost = estimated_cost
     if modality is not None:
         conversation.modality = modality
     if contact_identifier is not None:
@@ -303,11 +317,21 @@ async def persist_agent_run_result(
                 all_messages = result.all_messages()
                 logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
 
-                # Extract total token usage for diagnostics
+                # Extract token usage and compute cost
                 total_tokens: int | None = None
+                cost: float | None = None
                 try:
                     usage = result.usage()
                     total_tokens = usage.total_tokens if usage.total_tokens else None
+                    if usage.input_tokens and usage.output_tokens:
+                        # Get model name from the last ModelResponse in messages
+                        model_name: str | None = None
+                        for msg in reversed(all_messages):
+                            if isinstance(msg, ModelResponse) and getattr(msg, "model_name", None):
+                                model_name = msg.model_name
+                                break
+                        if model_name:
+                            cost = _calc_cost(usage.input_tokens, usage.output_tokens, model_name)
                 except Exception:
                     pass
 
@@ -319,6 +343,7 @@ async def persist_agent_run_result(
                     clerk_user_id=clerk_user_id,
                     metadata=metadata,
                     estimated_tokens=total_tokens,
+                    estimated_cost=cost,
                 )
             logfire.info(f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}")
         except Exception as e:
@@ -405,6 +430,7 @@ async def list_user_conversations(
                 metadata_,
                 modality,
                 estimated_tokens,
+                estimated_cost,
                 contact_identifier,
                 COALESCE(
                     NULLIF(LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100), ''),
@@ -461,6 +487,7 @@ async def list_user_conversations(
                 "modality": modality,
                 "preview": row.preview or "",
                 "estimated_tokens": row.estimated_tokens or 0,
+                "estimated_cost": row.estimated_cost,
                 "contact_identifier": row.contact_identifier,
                 "participant": _compute_participant(
                     modality=modality,

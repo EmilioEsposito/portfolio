@@ -96,6 +96,7 @@ interface ConversationSummary {
   modality: string;
   preview: string;
   estimated_tokens: number;
+  estimated_cost: number | null;
   contact_identifier: string | null;
   participant: string;
   has_pending: boolean;
@@ -138,7 +139,7 @@ const dateRangeFilterFn: FilterFn<ConversationSummary> = (
 
 const RESPONSIVE_CLASSES: Record<string, string> = {
   modality: "hidden sm:table-cell",
-  estimated_tokens: "hidden lg:table-cell",
+  estimated_cost: "hidden lg:table-cell",
   has_pending: "hidden sm:table-cell",
 };
 
@@ -195,6 +196,12 @@ function formatTokens(tokens: number) {
   if (tokens === 0) return "—";
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
   return String(tokens);
+}
+
+function formatCost(cost: number | null) {
+  if (cost == null) return "—";
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,13 +512,13 @@ export default function SerniaAdminPage() {
         enableSorting: true,
       },
       {
-        accessorKey: "estimated_tokens",
+        accessorKey: "estimated_cost",
         header: ({ column }) => (
-          <ColumnHeader column={column} title="Tokens" />
+          <ColumnHeader column={column} title="Cost" />
         ),
         cell: ({ row }) => (
           <span className="text-xs text-muted-foreground font-mono text-right block">
-            {formatTokens(row.getValue("estimated_tokens") as number)}
+            {formatCost(row.getValue("estimated_cost") as number | null)}
           </span>
         ),
         enableSorting: true,
@@ -722,10 +729,8 @@ export default function SerniaAdminPage() {
                 <span className="capitalize">
                   {selectedConv.modality.replace("_", " ")}
                 </span>
-                {selectedConv.estimated_tokens > 0 && (
-                  <span>
-                    {formatTokens(selectedConv.estimated_tokens)} tokens
-                  </span>
+                {selectedConv.estimated_cost != null && (
+                  <span>{formatCost(selectedConv.estimated_cost)}</span>
                 )}
                 {selectedConv.created_at && (
                   <span>
