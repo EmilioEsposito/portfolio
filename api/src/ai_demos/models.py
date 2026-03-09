@@ -272,7 +272,7 @@ async def save_agent_conversation(
     if cost_last_run is not None or estimated_tokens is not None:
         existing = await session.get(AgentConversation, conversation_id)
         prev_tokens = existing.estimated_tokens if existing else 0
-        prev_cost = existing.cost_total if existing else 0.0
+        prev_cost = float(existing.cost_total) if existing else 0.0
         prev_count = existing.run_count if existing else 0
         if estimated_tokens is not None:
             conversation.estimated_tokens = prev_tokens + estimated_tokens
