@@ -51,7 +51,8 @@
       "mcp__Railway",
       "mcp__cloudflare-dns",
       "mcp__cloudflare-docs",
-      "mcp__claude-in-chrome"
+      "mcp__claude-in-chrome",
+      "mcp__logfire"
     ],
     "deny": [
       "Bash(rm -rf:*)",

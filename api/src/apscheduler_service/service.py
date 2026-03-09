@@ -129,25 +129,37 @@ def _new_trace(func):
 def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
     """Add a job, cleanly replacing any existing job with the same ID.
 
-    Unlike ``replace_existing=True`` (which does INSERT → duplicate-key error →
-    UPDATE), this removes the old job first so the INSERT always succeeds and
-    Logfire doesn't record a spurious error-level DB span on every deploy.
-
     Automatically wraps async job functions with _new_trace so each execution
     gets its own trace in Logfire instead of inheriting the lifespan trace.
+
+    When the scheduler is already running, we remove-then-add to avoid a
+    spurious INSERT→conflict→UPDATE cycle that creates error-level DB spans
+    in Logfire on every call.
+
+    When the scheduler is NOT running (i.e. during startup), add_job() stores
+    the job in an in-memory pending list — NOT in the DB — so remove+add is
+    broken (the remove hits the DB, but the add doesn't). In that case we use
+    replace_existing=True, which is handled correctly when start() flushes
+    pending jobs.
     """
-    job_id = kwargs.get("id")
-    if job_id:
-        try:
-            scheduler.remove_job(job_id)
-        except JobLookupError:
-            pass
     kwargs.pop("replace_existing", None)
     # Wrap async functions so each run gets its own trace
     func = kwargs.get("func")
     if func and asyncio.iscoroutinefunction(func):
         kwargs["func"] = _new_trace(func)
-    scheduler.add_job(**kwargs)
+
+    job_id = kwargs.get("id")
+    if scheduler.running and job_id:
+        # Scheduler is live: remove first to avoid noisy DB conflict spans
+        try:
+            scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
+        scheduler.add_job(**kwargs)
+    else:
+        # Scheduler not started: add_job goes to _pending_jobs.
+        # replace_existing=True ensures start() handles duplicates gracefully.
+        scheduler.add_job(**kwargs, replace_existing=True)
 
 
 # Note: APScheduler's internal logging (e.g., misfire warnings) is captured by
