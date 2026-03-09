@@ -155,7 +155,6 @@ OpenPhone and Google PubSub webhooks are pointing to the production environment.
 * Native Google Oauth handling - replace with Clerk Oauth
     * app/auth
 
-
 # Cursor Background Agent 
 
 ```bash
@@ -169,4 +168,3 @@ docker run --name cursor-agent-interactive-test --rm -it -v "$(pwd):/app" cursor
 
 
 
-noop-test-20251110
