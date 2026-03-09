@@ -70,7 +70,7 @@ async def run_agent_for_trigger(
     Run the Sernia agent in background for a trigger event.
 
     Args:
-        trigger_source: Origin of the trigger ("sms", "email", "zillow_email").
+        trigger_source: Origin of the trigger ("ai_sms", "email", "zillow_email_event", "scheduled_check").
         trigger_prompt: Synthetic user message describing the event.
         trigger_metadata: Stored in conversation metadata_ JSON for frontend display.
         trigger_instructions: Injected into agent instructions via deps.trigger_instructions.
@@ -107,7 +107,6 @@ async def run_agent_for_trigger(
 
     # Classify trigger type for dashboard grouping (tags on logfire spans)
     _trigger_tag = {
-        "sms": "trigger:event",
         "ai_sms": "trigger:event",
         "email": "trigger:event",
         "zillow_email": "trigger:event",

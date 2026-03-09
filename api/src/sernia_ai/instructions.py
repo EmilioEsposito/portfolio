@@ -89,8 +89,8 @@ by most recent activity. Optionally filter by updated_after_days.
 - **quo_get_thread_messages**: Get recent messages with a specific phone number \
 on the shared team line, enriched with contact names in chronological order. \
 Use this to review a conversation thread with a specific contact.
-- **quo_getContactById_v1**: Get full details for a specific contact by ID.
 - **quo_createContact_v1** / **quo_updateContactById_v1** / **quo_deleteContact_v1**: Manage contacts (require approval).
+- **quo_getContactCustomFields_v1**: Get custom field definitions for contacts.
 - **quo_listCalls_v1** / **quo_getCallById_v1**: Call history and details.
 - **quo_getCallSummary_v1** / **quo_getCallTranscript_v1**: AI call summaries and transcripts.
 
@@ -111,8 +111,12 @@ clickup_list_clickup_lists) or view IDs. Defaults to the main Sernia view.
 - **clickup_search_tasks**: Search tasks across the workspace with filters (status, assignees, \
 tags, due dates, lists, spaces) and optional fuzzy text query. Use this to find tasks by \
 keyword, filter by status or assignee, or combine filters with a text search.
-- **clickup_create_task**: Create a new task in a ClickUp list (requires approval).
-- **clickup_update_task**: Update an existing task's name, status, priority, or due date (requires approval).
+- **clickup_create_task**: Create a new task in a ClickUp list.
+- **clickup_update_task**: Update an existing task's name, status, priority, or due date.
+- **clickup_set_task_custom_field**: Set a custom field value on a task by field ID.
+- **clickup_get_maintenance_field_options**: Get custom field IDs and dropdown option \
+mappings for the maintenance list. Use before creating/updating maintenance tasks \
+to get the correct field_id and option orderindex values.
 - **clickup_delete_task**: Delete a task (requires approval).
 
 ### Information Lookup — prefix: `google_` / `db_`
@@ -132,10 +136,11 @@ thread history, use quo_get_thread_messages instead.
 - **google_read_drive_pdf**: Extract text from a PDF stored in Google Drive.
 
 ### Calendar Management — prefix: `google_`
-- **google_create_calendar_event**: Create a Google Calendar event (requires approval). \
-Default timezone is US/Eastern. Always include all attendees explicitly, including the \
-requesting user if they should be invited. Reminders default to email 1 day before + popup \
-1 hour before, but can be customized.
+- **google_create_calendar_event**: Create a Google Calendar event. Requires approval \
+only when external attendees are included. Default timezone is US/Eastern. Always include \
+all attendees explicitly, including the requesting user if they should be invited. \
+Reminders default to email 1 day before + popup 1 hour before, but can be customized.
+- **google_delete_calendar_event_tool**: Delete a Google Calendar event (requires approval).
 
 ### Code Execution
 - **run_python**: Execute Python code in a secure sandbox (Monty). Use for math, \
@@ -152,19 +157,22 @@ search_files, workspace_delete) for your persistent /workspace/.
 ### Data Workbench (DuckDB)
 When data tools like google_read_google_sheet return large datasets, they automatically save the \
 full data as CSV for this conversation. You can analyze it with SQL:
-1. list_tables — see available tables (or describe a specific one)
-2. load_csv / load_json — import data into a DuckDB table
-3. run_sql — execute any SQL (SELECT, JOIN, GROUP BY, window functions, etc.)
+1. list_datasets — see available CSV datasets for this conversation
+2. load_dataset — import a CSV dataset into a DuckDB table
+3. describe_table — show schema and sample rows for a loaded table
+4. run_sql — execute any SQL (SELECT, JOIN, GROUP BY, window functions, etc.)
 
 Data persists across turns in the same conversation. Use this for analysis that needs \
 filtering, aggregation, or joining across multiple datasets.
 
 ## Approval-Gated Actions
-Some tools (external SMS, external emails, creating events) require human approval before executing. \
-When you use one of these tools, the system will pause and ask the user to \
-approve or deny. Do NOT ask the user for confirmation before calling the tool — \
-the approval system handles that automatically. Just call the tool naturally. \
-Internal tools (quo_send_internal_sms, google_send_internal_email) do NOT require approval.
+Some tools require human approval before executing: external SMS, external emails, \
+mass texts, calendar events with external attendees, calendar deletion, contact \
+writes (create/update/delete), and task deletion. When you use one of these tools, \
+the system will pause and ask the user to approve or deny. Do NOT ask the user for \
+confirmation before calling the tool — the approval system handles that automatically. \
+Just call the tool naturally. Internal tools (quo_send_internal_sms, \
+google_send_internal_email) do NOT require approval.
 """
 
 # Files to hide from the filetree (internal plumbing)

@@ -68,10 +68,7 @@ _MCP_WRITE_TOOLS = frozenset({
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
 # sendMessage_v1 → custom send_internal_sms / send_external_sms; listContacts_v1 → custom search_contacts.
 _KEEP_TOOLS = frozenset({
-    # Messages (read-only — send is custom, listMessages → custom get_thread_messages)
-    "getMessageById_v1",
-    # Contacts (search is custom; keep detail + write ops)
-    "getContactById_v1",
+    # Contacts (search is custom; keep write ops)
     "createContact_v1",
     "updateContactById_v1",
     "deleteContact_v1",
@@ -81,7 +78,6 @@ _KEEP_TOOLS = frozenset({
     "getCallById_v1",
     "getCallSummary_v1",
     "getCallTranscript_v1",
-    # Conversations — listConversations → custom list_active_sms_threads
 })
 
 
@@ -113,6 +109,10 @@ def _fetch_and_patch_spec() -> dict:
     # Strip examples and verbose fields from the spec to reduce token usage.
     # These are documentation-only and don't affect API behavior.
     _strip_examples(spec)
+
+    # Simplify bloated schemas (customFields union, deprecated params) to save
+    # ~1,000+ tokens per LLM call.
+    _simplify_schemas(spec)
 
     return spec
 
@@ -146,6 +146,57 @@ def _rename_keyword_fields(obj: dict | list, _depth: int = 0) -> None:
         for item in obj:
             if isinstance(item, (dict, list)):
                 _rename_keyword_fields(item, _depth + 1)
+
+
+def _simplify_schemas(spec: dict) -> None:
+    """Simplify bloated OpenAPI schemas to reduce token usage.
+
+    - customFields: Replace 5-variant anyOf union with a simple object schema.
+      The full union (string|string[]|bool|datetime|number × nullable) adds ~500
+      tokens per endpoint. The LLM doesn't need type-level detail — just key+value.
+    - listCalls: Remove deprecated ``since`` param (replaced by createdAfter/Before).
+    """
+    # --- Simplify customFields everywhere in the spec ---
+    _simplify_custom_fields(spec)
+
+    # --- Remove deprecated params from listCalls ---
+    calls_path = spec.get("paths", {}).get("/v1/calls", {})
+    for method_val in calls_path.values():
+        if not isinstance(method_val, dict):
+            continue
+        params = method_val.get("parameters", [])
+        method_val["parameters"] = [
+            p for p in params if not p.get("deprecated")
+        ]
+
+
+def _simplify_custom_fields(obj, _depth: int = 0) -> None:
+    """Replace verbose customFields array schema with a compact version."""
+    if _depth > 50:
+        return
+    if isinstance(obj, dict):
+        props = obj.get("properties", {})
+        if "customFields" in props:
+            # Replace the bloated 5-variant anyOf union with a simple schema.
+            props["customFields"] = {
+                "type": "array",
+                "description": "Custom field values. Each item needs a 'key' (field key) and 'value' (string, number, boolean, ISO datetime, string[], or null to clear).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string", "description": "The custom field key."},
+                        "value": {"description": "The field value."},
+                    },
+                    "required": ["key", "value"],
+                },
+            }
+        for val in obj.values():
+            if isinstance(val, (dict, list)):
+                _simplify_custom_fields(val, _depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, (dict, list)):
+                _simplify_custom_fields(item, _depth + 1)
 
 
 def _strip_examples(obj: dict | list | str, _depth: int = 0) -> None:
