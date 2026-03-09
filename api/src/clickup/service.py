@@ -120,17 +120,19 @@ async def get_peppino_view_tasks():
 def register_clickup_apscheduler_jobs():
     """Register ClickUp scheduled jobs with APScheduler.
 
-    Runs at 8am and 5pm ET (13:00 and 21:00 UTC).
+    Runs at 8am and 5pm ET.
     """
     from api.src.apscheduler_service.service import get_scheduler, upsert_job
+    from zoneinfo import ZoneInfo
 
     scheduler = get_scheduler()
     upsert_job(
         scheduler,
         func=get_peppino_view_tasks,
         trigger="cron",
-        hour="13,21",  # 8am and 5pm ET = 13:00 and 21:00 UTC
+        hour="8,17",
         minute=0,
+        timezone=ZoneInfo("America/New_York"),
         id="clickup_peppino_tasks_scheduled",
         name="ClickUp Peppino Tasks Reminder",
     )

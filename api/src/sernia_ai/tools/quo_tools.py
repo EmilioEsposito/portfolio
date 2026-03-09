@@ -669,17 +669,29 @@ def _build_quo_toolset():
         conversation_id: str,
     ) -> str:
         """Send a single SMS via Quo API and return a result string."""
+        payload = {"content": message, "from": from_phone_id, "to": [phone]}
+        logfire.info(
+            "{tool_name} request",
+            tool_name=tool_name,
+            to=phone,
+            from_phone_id=from_phone_id,
+            message_length=len(message),
+            payload=payload,
+        )
         try:
-            resp = await client.post(
-                "/v1/messages",
-                json={"content": message, "from": from_phone_id, "to": [phone]},
-            )
+            resp = await client.post("/v1/messages", json=payload)
         except httpx.HTTPError as exc:
             log_tool_error(tool_name, exc, conversation_id=conversation_id)
             return f"Error sending message: {exc}"
 
         if resp.status_code in (200, 201, 202):
-            logfire.info(f"{tool_name} success", to=phone)
+            logfire.info(
+                "{tool_name} success",
+                tool_name=tool_name,
+                to=phone,
+                status=resp.status_code,
+                response_body=resp.text[:500],
+            )
             return f"Message sent to {phone} from {line_name}."
 
         logfire.error(

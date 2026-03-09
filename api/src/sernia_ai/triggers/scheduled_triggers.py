@@ -25,13 +25,16 @@ def register_scheduled_triggers() -> None:
     """Register Sernia AI scheduled trigger with APScheduler."""
     scheduler = get_scheduler()
 
-    # Business hours: 8am-5pm ET (13:00-22:00 UTC)
+    from zoneinfo import ZoneInfo
+
+    # Business hours: 8am-5pm ET
     upsert_job(
         scheduler,
         func=run_scheduled_checks,
         trigger="cron",
-        hour=f"13-22/{SCHEDULED_CHECK_INTERVAL_HOURS}",
+        hour=f"8-17/{SCHEDULED_CHECK_INTERVAL_HOURS}",
         minute=0,
+        timezone=ZoneInfo("America/New_York"),
         id="sernia_scheduled_checks",
         name="Sernia AI: Scheduled Checks",
     )
