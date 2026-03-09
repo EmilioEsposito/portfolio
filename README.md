@@ -145,7 +145,7 @@ grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env \
 
 ## 3rd Party Stuff
 
-OpenPhone and Google PubSub webhooks are pointing to the production environment. Use `ngrok http 8000` to test the webhooks locally. 
+Quo (fka OpenPhone) and Google PubSub webhooks are pointing to the production environment. Use `ngrok http 8000` to test the webhooks locally. 
 
 
 # Deprecation Candidates
@@ -154,16 +154,6 @@ OpenPhone and Google PubSub webhooks are pointing to the production environment.
 * app/components/google/account-switcher.tsx (replace with Clerk)
 * Native Google Oauth handling - replace with Clerk Oauth
     * app/auth
-
-# Cursor Background Agent 
-
-```bash
-docker build -t cursor-agent-test -f .cursor/Dockerfile .cursor
-```
-
-```bash
-docker run --name cursor-agent-interactive-test --rm -it -v "$(pwd):/app" cursor-agent-test:latest /bin/bash
-```
 
 
 
