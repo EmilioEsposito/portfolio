@@ -153,14 +153,25 @@ async def _apscheduler_startup_async() -> None:
     try:
         with logfire.span("apscheduler_startup"):
             apscheduler = get_scheduler()
-            if not apscheduler.running:
-                apscheduler.start()
             register_hello_apscheduler_jobs()
             # Register production scheduled jobs (moved from DBOS)
             register_clickup_apscheduler_jobs()
             # Legacy Zillow jobs disabled — replaced by Sernia AI triggers below
             # register_zillow_apscheduler_jobs()
             register_scheduled_triggers()
+
+        # Start the scheduler AFTER the span closes and with a clean OTel context.
+        # APScheduler's internal event loop inherits the current trace context —
+        # if started inside a span, all its internal DB polling (job store SELECTs/UPDATEs)
+        # become children of that span forever, producing orphaned spans in Logfire.
+        from opentelemetry import context as otel_context
+        token = otel_context.attach(otel_context.Context())
+        try:
+            if not apscheduler.running:
+                apscheduler.start()
+        finally:
+            otel_context.detach(token)
+
         logfire.info("APScheduler background startup completed successfully.")
     except Exception as e:
         logfire.exception(f"APScheduler background startup failed: {e}")

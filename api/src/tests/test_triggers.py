@@ -49,11 +49,6 @@ class TestSmoke:
         assert TRIGGER_BOT_ID == "system:sernia-ai"
         assert NoAction(reason="test").reason == "test"
 
-    def test_team_sms_event_trigger_imports(self):
-        from api.src.sernia_ai.triggers.team_sms_event_trigger import handle_team_sms_event
-
-        assert callable(handle_team_sms_event)
-
     def test_scheduled_triggers_imports(self):
         from api.src.sernia_ai.triggers.scheduled_triggers import (
             run_scheduled_checks,
@@ -139,12 +134,6 @@ class TestSmoke:
         assert hasattr(AppSetting, "key")
         assert hasattr(AppSetting, "value")
         assert hasattr(AppSetting, "updated_at")
-
-    def test_team_sms_event_trigger_wired_in_webhook(self):
-        """handle_team_sms_event should be imported in open_phone routes."""
-        import api.src.open_phone.routes as routes_module
-
-        assert hasattr(routes_module, "handle_team_sms_event")
 
     def test_circular_trigger_guard_wired(self):
         """_get_ai_phone_number should exist in webhook routing for circular guard."""
@@ -412,44 +401,6 @@ class TestAiSmsRateLimiter:
         # Manually set all timestamps to well in the past
         _ai_sms_call_timestamps[phone] = [time.monotonic() - 700] * AI_SMS_RATE_LIMIT_MAX_CALLS
         assert _is_ai_sms_rate_limited(phone) is False
-
-
-class TestTeamSmsEventTrigger:
-    """Test team SMS event trigger logic."""
-
-    @pytest.mark.asyncio
-    async def test_processes_inbound_message(self):
-        """Valid inbound SMS should call run_agent_for_trigger."""
-        with patch("api.src.sernia_ai.triggers.team_sms_event_trigger.run_agent_for_trigger") as mock_run:
-            mock_run.return_value = "conv-123"
-
-            from api.src.sernia_ai.triggers.team_sms_event_trigger import handle_team_sms_event
-
-            await handle_team_sms_event({
-                "from_number": "+14155550100",
-                "message_text": "The heater is broken",
-                "event_id": "evt_123",
-            })
-
-            mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args[1]
-            assert call_kwargs["trigger_source"] == "sms"
-            assert "+14155550100" in call_kwargs["trigger_prompt"]
-            assert "heater is broken" in call_kwargs["trigger_prompt"]
-            assert call_kwargs["trigger_metadata"]["trigger_phone"] == "+14155550100"
-            assert call_kwargs["rate_limit_key"] == "+14155550100"
-
-    @pytest.mark.asyncio
-    async def test_skips_missing_data(self):
-        """Events with missing from_number or message_text should be skipped."""
-        with patch("api.src.sernia_ai.triggers.team_sms_event_trigger.run_agent_for_trigger") as mock_run:
-            from api.src.sernia_ai.triggers.team_sms_event_trigger import handle_team_sms_event
-
-            await handle_team_sms_event({"event_id": "evt_no_data"})
-            mock_run.assert_not_called()
-
-            await handle_team_sms_event({"from_number": "+1", "event_id": "evt_no_text"})
-            mock_run.assert_not_called()
 
 
 class TestScheduledTriggers:

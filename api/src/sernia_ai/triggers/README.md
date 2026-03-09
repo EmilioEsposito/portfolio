@@ -2,14 +2,16 @@
 
 Event-driven background processing for the Sernia AI agent. Triggers run the agent outside of an HTTP request context — no Clerk user, no streaming — and create web chat conversations when human attention is needed.
 
-## Two SMS Modalities
+## SMS Handling
 
-The OpenPhone webhook routes inbound SMS to one of two handlers based on which phone number received the message:
+The OpenPhone webhook routes inbound SMS based on which phone number received the message:
 
-| Modality | Handler | Phone Number | Purpose |
-|----------|---------|-------------|---------|
-| **Team SMS event trigger** | `team_sms_event_trigger.py` | Shared team number (`sernia` contact) | Assess for ClickUp maintenance tasks (silent — no team notification) |
-| **AI SMS event trigger** | `ai_sms_event_trigger.py` | AI's direct line (`QUO_SERNIA_AI_PHONE_ID`) | Direct conversation — AI responds natively via SMS |
+| Phone Number | Handler | Purpose |
+|-------------|---------|---------|
+| AI's direct line (`QUO_SERNIA_AI_PHONE_ID`) | `ai_sms_event_trigger.py` | Direct conversation — AI responds natively via SMS |
+| Shared team number | Twilio escalation only | `analyze_for_twilio_escalation()` — no AI agent run |
+
+> **Note:** The team SMS event trigger (`team_sms_event_trigger.py`) was removed — it fired too many agent runs (214 events) for marginal value. Team SMS ClickUp task creation will be folded into the scheduled check at a later date.
 
 ### Webhook Routing
 
@@ -21,38 +23,13 @@ flowchart TD
     CIRC -->|Yes| SKIP_C["Skip (AI→team notification)"]
     CIRC -->|No| EMOJI{"Starts with<br/>emoji?"}
     EMOJI -->|Yes| SKIP["Skip (text reaction)"]
-    EMOJI -->|No| PAR["Background tasks (parallel)"]
-    PAR --> TWILIO["escalate.analyze_for_twilio_escalation()"]
-    PAR --> SMS_T["team_sms_event_trigger.handle_team_sms_event()"]
+    EMOJI -->|No| TWILIO["escalate.analyze_for_twilio_escalation()"]
 
     CHECK -->|"to: AI phone number<br/>(QUO_SERNIA_AI_PHONE_ID)"| AI_SMS["ai_sms_event_trigger.handle_ai_sms_event()"]
 
     CHECK -->|"Other"| LOG["Log: AI Assessment Skipped"]
 
     WH --> DB["Save event to DB<br/>(always, regardless of routing)"]
-```
-
-## Team SMS Event Trigger Flow
-
-The team SMS event trigger assesses each inbound message for potential ClickUp maintenance task creation. It does NOT notify the team — Twilio escalation handles that. The agent always uses `NoAction` output so no web chat conversation is created.
-
-```mermaid
-flowchart TD
-    IN["team_sms_event_trigger.handle_team_sms_event()"] --> VALIDATE{"from_number and<br/>message_text present?"}
-    VALIDATE -->|No| SKIP["Skip event"]
-    VALIDATE -->|Yes| RUNNER["background_agent_runner.run_agent_for_trigger()"]
-
-    RUNNER --> ENABLED{"Triggers<br/>enabled?"}
-    ENABLED -->|No| SKIP2["Skip (disabled)"]
-    ENABLED -->|Yes| RATE{"background_agent_runner._is_rate_limited()<br/>(2 min cooldown per phone)"}
-    RATE -->|Yes| SKIP3["Skip (rate limited)"]
-    RATE -->|No| AGENT["Run sernia_agent<br/>with trigger prompt"]
-
-    AGENT --> CLICKUP{"Maintenance<br/>issue?"}
-    CLICKUP -->|Yes| CREATE["create_task / update_task<br/>in maintenance list"]
-    CLICKUP -->|No| NOOP["No action"]
-    CREATE --> SILENT["Always: NoAction output<br/>(Twilio handles team alerts)"]
-    NOOP --> SILENT
 ```
 
 ## AI SMS Event Trigger Flow
@@ -174,7 +151,6 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 
 | Path | Gated? | Why |
 |------|--------|-----|
-| Team SMS event trigger | Yes | Automated — webhook-driven (ClickUp only, silent) |
 | AI SMS event trigger | Yes | Automated — webhook-driven |
 | Zillow email event trigger | Yes | Automated — webhook-driven (Pub/Sub → real-time) |
 | Scheduled checks | Yes | Automated — scheduler-driven (email + SMS inbox checks) |
@@ -187,12 +163,12 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 
 ## Rate Limiting
 
-### Team SMS / Email triggers
+### Background agent runner
 
 Shared in-memory rate limiter in `background_agent_runner.py`:
 
 - **Cooldown**: 2 minutes per key
-- **Key format**: `{trigger_source}:{rate_limit_key}` (e.g., `sms:+14155550100`)
+- **Key format**: `{trigger_source}:{rate_limit_key}` (e.g., `ai_sms:+14155550100`)
 - **Scope**: Per-process, resets on restart
 - **Behavior**: First call within window proceeds, subsequent calls are logged and skipped
 
@@ -211,7 +187,6 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 |------|---------|
 | `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction`/alert routing, push notifications (supports `notify_clerk_user_id` for targeted push) |
 | `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
-| `team_sms_event_trigger.py` | Team SMS event trigger: assesses inbound SMS for ClickUp maintenance tasks (always silent) |
 | `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
 
@@ -226,4 +201,3 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
 | `SCHEDULED_CHECK_INTERVAL_HOURS` | Scheduled check frequency (3 hours, business hours only) |
 | `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |
-| `CLICKUP_MAINTENANCE_LIST_ID` | ClickUp list ID for maintenance tasks created by SMS trigger |

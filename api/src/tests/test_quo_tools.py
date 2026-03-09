@@ -381,3 +381,93 @@ async def test_get_thread_messages_impl_chronological_order(quo_client: httpx.As
         assert timestamps == sorted(timestamps), (
             f"Messages not in chronological order: {timestamps}"
         )
+
+
+# ---- Live SMS length tests ----
+# These send real SMS to an internal number (+14123703550) to test delivery
+# at various message lengths. Run manually and check phone for receipt.
+
+
+INTERNAL_TEST_NUMBER = "+14123703550"
+SERNIA_AI_PHONE_ID = "PNWvNqsFFy"  # Sernia AI line (internal only)
+
+
+@pytest.mark.asyncio
+async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
+    """Send a short SMS (<=160 chars, single segment). Should always deliver."""
+    msg = "[QUO TEST 1/4] Short SMS (160 chars). " + "A" * (160 - 38)
+    assert len(msg) == 160
+    resp = await quo_client.post(
+        "/v1/messages",
+        json={"content": msg, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
+    )
+    print(f"\n160-char SMS: HTTP {resp.status_code} | body: {resp.text[:300]}")
+    _save_fixture("sms_length_160.json", resp.text)
+    assert resp.status_code in (200, 201, 202)
+
+
+@pytest.mark.asyncio
+async def test_send_sms_medium_320_chars(quo_client: httpx.AsyncClient):
+    """Send a medium SMS (~320 chars, 2-3 segments)."""
+    msg = "[QUO TEST 2/4] Medium SMS (320 chars). " + "B" * (320 - 39)
+    assert len(msg) == 320
+    resp = await quo_client.post(
+        "/v1/messages",
+        json={"content": msg, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
+    )
+    print(f"\n320-char SMS: HTTP {resp.status_code} | body: {resp.text[:300]}")
+    _save_fixture("sms_length_320.json", resp.text)
+    assert resp.status_code in (200, 201, 202)
+
+
+@pytest.mark.asyncio
+async def test_send_sms_long_700_chars(quo_client: httpx.AsyncClient):
+    """Send a long SMS (~700 chars, similar to the failing scheduled check).
+
+    The scheduled check message that wasn't delivered was 704 chars with emojis.
+    """
+    prefix = (
+        "[QUO TEST 3/4] Long SMS (700 chars) - reproducing scheduled check length. "
+        "This message is approximately the same length as the morning inbox check "
+        "that was accepted (HTTP 202) but never delivered. "
+    )
+    msg = prefix + "C" * (700 - len(prefix))
+    assert len(msg) == 700
+    resp = await quo_client.post(
+        "/v1/messages",
+        json={"content": msg, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
+    )
+    print(f"\n700-char SMS: HTTP {resp.status_code} | body: {resp.text[:300]}")
+    _save_fixture("sms_length_700.json", resp.text)
+    assert resp.status_code in (200, 201, 202)
+
+
+@pytest.mark.asyncio
+async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient):
+    """Send a long SMS with emojis (~700 chars) matching the exact pattern that failed.
+
+    Emojis use multi-byte encoding (UCS-2) which can reduce the per-segment
+    limit from 160 to 70 chars, potentially causing carrier rejection.
+    """
+    msg = (
+        "[QUO TEST 4/4] Long SMS with emojis (like the real message).\n\n"
+        "\U0001f4e7 Zillow: No new leads in the last 36 hours.\n\n"
+        "\U0001f4e7 Email: One unread email from marketing — looks like spam. "
+        "No action needed.\n\n"
+        "\U0001f4ac SMS: 5 active threads. Key notes:\n"
+        "- 659-03 Hailey Trainor: Active showing coordination. Last message "
+        "from team confirmed Sunday showing was canceled, Tuesday 6pm showing "
+        "is still on. Nothing awaiting a reply.\n"
+        "- Lead 659-03 Johnson: Thread active but no messages visible.\n"
+        "- Other threads (Chris Cafardi, RQM Main Office) are older and appear "
+        "dormant.\n\n"
+        "All clear overall — nothing urgent needs attention right now!"
+    )
+    print(f"\nEmoji SMS length: {len(msg)} chars")
+    resp = await quo_client.post(
+        "/v1/messages",
+        json={"content": msg, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
+    )
+    print(f"Emoji SMS: HTTP {resp.status_code} | body: {resp.text[:300]}")
+    _save_fixture("sms_length_emoji_700.json", resp.text)
+    assert resp.status_code in (200, 201, 202)
