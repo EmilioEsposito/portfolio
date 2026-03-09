@@ -46,3 +46,4 @@ Git-backed persistent workspace at `/workspace/`:
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
+
