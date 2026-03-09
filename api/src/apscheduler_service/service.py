@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.job import Job
-from apscheduler.jobstores.base import JobLookupError
+from apscheduler.jobstores.base import JobLookupError, ConflictingIdError
 from apscheduler.events import EVENT_JOB_ERROR
 from datetime import datetime, timedelta, timezone
 from api.src.push.service import send_push_to_user
@@ -147,7 +147,12 @@ def upsert_job(scheduler: AsyncIOScheduler, **kwargs) -> None:
     func = kwargs.get("func")
     if func and asyncio.iscoroutinefunction(func):
         kwargs["func"] = _new_trace(func)
-    scheduler.add_job(**kwargs)
+    try:
+        scheduler.add_job(**kwargs)
+    except ConflictingIdError:
+        # Race condition with SQLAlchemyJobStore: job reappeared between
+        # remove and add. Fall back to replace_existing which does UPDATE.
+        scheduler.add_job(**kwargs, replace_existing=True)
 
 
 # Note: APScheduler's internal logging (e.g., misfire warnings) is captured by
