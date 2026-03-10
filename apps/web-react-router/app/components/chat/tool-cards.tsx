@@ -133,24 +133,14 @@ export function ToolApprovalCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {hasMessageArg ? (
-          <>
-            {/* Recipient */}
-            {pending.args?.to && (
-              <div className="text-sm">
-                <Label className="text-muted-foreground text-xs">To</Label>
-                <p className="font-mono">{pending.args.to}</p>
-              </div>
-            )}
-            {!pending.args?.to && (
-              <div className="text-sm">
-                <Label className="text-muted-foreground text-xs">To</Label>
-                <p className="font-mono text-muted-foreground">
-                  Default (Emilio)
-                </p>
-              </div>
-            )}
+        {/* All args — collapsible, read-only */}
+        <ToolDetailBox
+          label="Input"
+          content={JSON.stringify(pending.args, null, 2)}
+        />
 
+        {hasMessageArg && (
+          <>
             {/* Message - editable */}
             <div className="text-sm">
               <div className="flex items-center justify-between mb-1">
@@ -200,14 +190,6 @@ export function ToolApprovalCard({
               )}
             </div>
           </>
-        ) : (
-          /* Generic tool args — show as JSON */
-          <div className="text-sm">
-            <Label className="text-muted-foreground text-xs">Arguments</Label>
-            <pre className="p-2 bg-background rounded border whitespace-pre-wrap text-xs font-mono overflow-x-auto mt-1">
-              {JSON.stringify(pending.args, null, 2)}
-            </pre>
-          </div>
         )}
 
         {/* Actions */}
