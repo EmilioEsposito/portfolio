@@ -205,7 +205,7 @@ def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float |
     try:
         from genai_prices import Usage as GPUsage, calc_price
         price = calc_price(GPUsage(input_tokens=input_tokens, output_tokens=output_tokens), model_ref=model_ref)
-        return round(price.total_price, 6) if price else None
+        return float(round(price.total_price, 6)) if price else None
     except Exception:
         return None
 
