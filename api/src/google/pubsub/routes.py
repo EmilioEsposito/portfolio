@@ -160,9 +160,14 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                 "reason": email_changes_result["reason"]
             }
             
-        # We have email messages to process
+        # email_message_ids: ALL messages touched (new + label changes, etc.) — process for DB.
+        # added_message_ids: only genuinely NEW arrivals — gate triggers on this.
         email_message_ids = email_changes_result["email_message_ids"]
-        logfire.info(f"Found {len(email_message_ids)} new messages to process")
+        added_message_ids: set[str] = set(email_changes_result.get("added_message_ids", []))
+        logfire.info(
+            f"Found {len(email_message_ids)} messages to process "
+            f"({len(added_message_ids)} new)"
+        )
         
         processed_email_messages = []
         failed_email_ids = []
@@ -191,9 +196,11 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
 
-                    # Fire Zillow email event trigger for real-time draft generation
+                    # Fire Zillow trigger only for new arrivals (added_message_ids),
+                    # not label changes / read-unread / archiving.
                     from_addr = processed_email_message.get("from_address", "")
-                    if from_addr and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()):
+                    is_new = email_message_id in added_message_ids
+                    if is_new and from_addr and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()):
                         from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
                         asyncio.create_task(
                             handle_zillow_email_event(
