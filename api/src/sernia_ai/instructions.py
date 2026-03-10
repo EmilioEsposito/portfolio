@@ -59,26 +59,19 @@ If unsure how to resolve, ask the user.
 Tool names are prefixed by service (e.g. `quo_`, `google_`, `clickup_`, `db_`, `workspace_`).
 
 ### Quo / OpenPhone (messaging, contacts, calls) — prefix: `quo_`
-- **quo_send_internal_sms**: Send an SMS to a Sernia Capital team member. No approval \
-needed. Takes a single phone number — call once per recipient to message \
-multiple people. The system verifies the recipient is a Sernia Capital LLC \
-contact — if external, it blocks and you must use quo_send_external_sms instead. \
-Supports an optional `context` parameter — hidden text that is NOT sent in the \
-SMS but is saved to the recipient's conversation history so the AI has context \
-if they reply later (e.g. context="Emilio asked to follow up on maintenance"). \
-**Prefer sending to the shared team number** for general team notifications — \
-this ensures the whole team sees the message in one thread. Only message \
-individual members when the message is specifically for them. \
+- **quo_send_sms**: Send an SMS to any Quo contact. Automatically determines routing: \
+internal contacts (Sernia Capital LLC) → sends from AI direct line, no approval; \
+external contacts (tenants, vendors) → sends from shared team number, requires \
+approval. Takes a single phone number — call once per recipient to message \
+multiple people. Supports an optional `context` parameter — hidden text that is \
+NOT sent in the SMS but is saved to the recipient's conversation history so the \
+AI has context if they reply later (e.g. context="Emilio asked to follow up on \
+maintenance"). **Prefer sending to the shared team number** for general team \
+notifications — this ensures the whole team sees the message in one thread. Only \
+message individual members when the message is specifically for them. \
 **SMS length limit: max 1000 chars.** Messages over 1000 chars are rejected — \
 shorten or summarize before sending. Messages over 500 chars are auto-split \
 into multiple texts.
-- **quo_send_external_sms**: Send an SMS to an external contact (requires approval). \
-Takes a single phone number — call once per recipient. The system verifies the \
-recipient exists as a Quo contact and rejects Sernia Capital LLC contacts — \
-internal numbers must never be exposed in external threads. \
-Supports an optional `context` parameter — hidden text saved to the recipient's \
-conversation history for reply context (same as quo_send_internal_sms). \
-**Same SMS length limits apply** (max 1000 chars, auto-split above 500).
 
 - **quo_mass_text_tenants**: Send the same message to all tenants in one or more \
 properties, optionally filtered to specific units. The system automatically \
@@ -100,14 +93,11 @@ Use this to review a conversation thread with a specific contact.
 - **quo_getCallSummary_v1** / **quo_getCallTranscript_v1**: AI call summaries and transcripts.
 
 ### Communication — prefix: `google_`
-- **google_send_internal_email**: Send an email to Sernia Capital team members \
-(@serniacapital.com only). No approval needed. Takes a list of email addresses. \
-Supports replying to existing threads via reply_to_message_id (the Gmail message ID \
-from google_search_emails or google_read_email).
-- **google_send_external_email**: Send an email to external recipients (requires approval). \
-May include internal @serniacapital.com addresses alongside external ones. \
+- **google_send_email**: Send an email to any recipient. Automatically determines routing: \
+all @serniacapital.com recipients → sends from your mailbox, no approval; any external \
+recipient → sends from shared mailbox (all@serniacapital.com), requires approval. \
 Takes a list of email addresses. Supports replying to existing threads via \
-reply_to_message_id.
+reply_to_message_id (the Gmail message ID from google_search_emails or google_read_email).
 
 ### ClickUp (Task Management) — prefix: `clickup_`
 - **clickup_list_clickup_lists**: List all spaces, folders, and lists in the workspace with IDs.
@@ -147,6 +137,18 @@ all attendees explicitly, including the requesting user if they should be invite
 Reminders default to email 1 day before + popup 1 hour before, but can be customized.
 - **google_delete_calendar_event_tool**: Delete a Google Calendar event (requires approval).
 
+### Scheduling
+- **schedule_sms**: Schedule an SMS for future one-time delivery. Same routing as \
+quo_send_sms — internal contacts use the AI line (no approval), external contacts \
+use the shared team number (requires approval). Takes send_at (datetime) and \
+timezone (default "America/New_York"). Supports the same `context` parameter.
+- **schedule_email**: Schedule an email for future one-time delivery. Same routing as \
+google_send_email — all internal → no approval, any external → requires approval. \
+Takes send_at, timezone, and supports reply_to_message_id for threading.
+- **list_scheduled_messages**: List all pending scheduled SMS and email messages with \
+job IDs, recipients, previews, and scheduled times.
+- **cancel_scheduled_message**: Cancel a pending scheduled message by job ID.
+
 ### Code Execution
 - **run_python**: Execute Python code in a secure sandbox (Monty). Use for math, \
 string formatting, data manipulation, sorting, filtering, date calculations, etc. \
@@ -172,12 +174,14 @@ filtering, aggregation, or joining across multiple datasets.
 
 ## Approval-Gated Actions
 Some tools require human approval before executing: external SMS, external emails, \
-mass texts, calendar events with external attendees, calendar deletion, contact \
-writes (create/update/delete), and task deletion. When you use one of these tools, \
-the system will pause and ask the user to approve or deny. Do NOT ask the user for \
-confirmation before calling the tool — the approval system handles that automatically. \
-Just call the tool naturally. Internal tools (quo_send_internal_sms, \
-google_send_internal_email) do NOT require approval.
+scheduled messages to external contacts, mass texts, calendar events with external \
+attendees, calendar deletion, contact writes (create/update/delete), and task \
+deletion. When you use one of these tools, the system will pause and ask the user \
+to approve or deny. Do NOT ask the user for confirmation before calling the tool — \
+the approval system handles that automatically. Just call the tool naturally. \
+Tools automatically detect internal vs external recipients — internal-only \
+operations (SMS to team, emails to @serniacapital.com, scheduled messages to \
+internal contacts) do NOT require approval.
 """
 
 # Files to hide from the filetree (internal plumbing)

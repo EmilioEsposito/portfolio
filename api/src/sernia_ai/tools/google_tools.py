@@ -7,6 +7,7 @@ All operations delegate as ctx.deps.user_email via service account credentials.
 """
 
 import io
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -14,6 +15,7 @@ import pytz
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
+import logfire
 from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
 
 from api.src.google.calendar.service import (
@@ -68,6 +70,42 @@ def _html_to_markdown(html: str) -> str:
     result = md(cleaned, strip=["table", "tr", "td", "th", "tbody", "thead", "tfoot"])
     # Collapse excessive blank lines
     return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+# ---------------------------------------------------------------------------
+# Email core logic — shared by send tools and scheduling tools
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class EmailRouting:
+    """Resolved email routing — determines mailbox and approval requirement."""
+
+    is_internal: bool
+    send_as_email: str  # mailbox to authenticate as for sending
+    sender_display: str  # display "from" address
+
+
+def resolve_email_routing(to: list[str], user_email: str) -> EmailRouting:
+    """Determine email routing based on recipients.
+
+    All @serniacapital.com → internal (user's mailbox, no approval).
+    Any external → external (shared mailbox, requires approval).
+    """
+    all_internal = all(
+        addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to
+    )
+    if all_internal:
+        return EmailRouting(
+            is_internal=True,
+            send_as_email=user_email,
+            sender_display=user_email,
+        )
+    return EmailRouting(
+        is_internal=False,
+        send_as_email=SHARED_EXTERNAL_EMAIL,
+        sender_display=user_email,
+    )
 
 
 google_toolset = FunctionToolset()
@@ -157,124 +195,77 @@ async def _get_threading_headers(message_id: str, user_email: str) -> dict:
         return {}
 
 
-@google_toolset.tool(requires_approval=True)
-async def send_external_email(
+@google_toolset.tool
+async def send_email(
     ctx: RunContext[SerniaDeps],
     to: list[EmailStr],
     subject: str,
     body: str,
     reply_to_message_id: str = "",
 ) -> str:
-    """Send an email to external recipients (requires approval).
+    """Send an email to any recipient.
 
-    May include internal @serniacapital.com addresses (e.g. CC'ing the team),
-    but at least one recipient should be external. For internal-only emails,
-    use send_internal_email (no approval needed).
+    Automatically determines routing based on recipients:
+    - All @serniacapital.com → sends from your mailbox, no approval needed.
+    - Any external recipient → sends from shared mailbox (all@serniacapital.com),
+      requires approval.
 
     Args:
-        to: List of recipient email addresses (e.g. ["tenant@gmail.com"]).
+        to: List of recipient email addresses (e.g. ["tenant@gmail.com"]
+            or ["emilio@serniacapital.com"]).
         subject: Email subject line.
         body: Plain text email body.
         reply_to_message_id: Optional Gmail message ID to reply to (threads the email).
     """
-    import logfire
-
-    logfire.info("send_external_email called", to=to, subject=subject[:80])
+    logfire.info("send_email called", to=to, subject=subject[:80])
 
     if not to:
         return "Blocked: no recipients provided."
 
+    routing = resolve_email_routing(to, ctx.deps.user_email)
+
+    # Conditional approval: external recipients require HITL
+    if not routing.is_internal and not ctx.tool_call_approved:
+        raise ApprovalRequired()
+
+    # Resolve threading
     thread_kwargs: dict = {}
     if reply_to_message_id:
-        # Try shared mailbox first (send mailbox), fall back to user's mailbox
-        thread_kwargs = await _get_threading_headers(
-            reply_to_message_id, SHARED_EXTERNAL_EMAIL
-        )
-        if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
-            logfire.info(
-                "reply_to_message_id not found in shared mailbox, trying user inbox",
-                message_id=reply_to_message_id,
-                user_email=ctx.deps.user_email,
-            )
+        if routing.is_internal:
             thread_kwargs = await _get_threading_headers(
                 reply_to_message_id, ctx.deps.user_email
             )
-            # Drop threadId — it's from user's mailbox, not the send mailbox
-            thread_kwargs.pop("thread_id", None)
-
-    to_str = ", ".join(addr.strip() for addr in to)
-    credentials = get_delegated_credentials(
-        user_email=SHARED_EXTERNAL_EMAIL,
-        scopes=GMAIL_SCOPES,
-    )
-    result = await _send_email(
-        to=to_str,
-        subject=subject,
-        message_text=body,
-        sender=ctx.deps.user_email,
-        credentials=credentials,
-        **thread_kwargs,
-    )
-    logfire.info("send_external_email success", to=to_str)
-    return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
-
-
-@google_toolset.tool
-async def send_internal_email(
-    ctx: RunContext[SerniaDeps],
-    to: list[EmailStr],
-    subject: str,
-    body: str,
-    reply_to_message_id: str = "",
-) -> str:
-    """Send an email to Sernia Capital team members (no approval needed).
-
-    All recipients must be @serniacapital.com addresses. If any recipient is
-    external, the tool blocks — use send_external_email instead.
-
-    Args:
-        to: List of recipient email addresses
-            (e.g. ["emilio@serniacapital.com"] or ["emilio@serniacapital.com", "all@serniacapital.com"]).
-        subject: Email subject line.
-        body: Plain text email body.
-        reply_to_message_id: Optional Gmail message ID to reply to (threads the email).
-    """
-    import logfire
-
-    logfire.info("send_internal_email called", to=to, subject=subject[:80])
-
-    if not to:
-        return "Blocked: no recipients provided."
-
-    # Gate: all recipients must be internal
-    for addr in to:
-        if not addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}"):
-            logfire.warn("send_internal_email blocked: external recipient", to=addr)
-            return (
-                f"Blocked: {addr} is not a @{INTERNAL_EMAIL_DOMAIN} address. "
-                "Use send_external_email if ANY recipient is external."
+        else:
+            # Try shared mailbox first (send mailbox), fall back to user's mailbox
+            thread_kwargs = await _get_threading_headers(
+                reply_to_message_id, SHARED_EXTERNAL_EMAIL
             )
-
-    thread_kwargs: dict = {}
-    if reply_to_message_id:
-        thread_kwargs = await _get_threading_headers(
-            reply_to_message_id, ctx.deps.user_email
-        )
+            if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
+                logfire.info(
+                    "reply_to_message_id not found in shared mailbox, trying user inbox",
+                    message_id=reply_to_message_id,
+                    user_email=ctx.deps.user_email,
+                )
+                thread_kwargs = await _get_threading_headers(
+                    reply_to_message_id, ctx.deps.user_email
+                )
+                # Drop threadId — it's from user's mailbox, not the send mailbox
+                thread_kwargs.pop("thread_id", None)
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
-        user_email=ctx.deps.user_email,
+        user_email=routing.send_as_email,
         scopes=GMAIL_SCOPES,
     )
     result = await _send_email(
         to=to_str,
         subject=subject,
         message_text=body,
-        sender=ctx.deps.user_email,
+        sender=routing.sender_display,
         credentials=credentials,
         **thread_kwargs,
     )
-    logfire.info("send_internal_email success", to=to_str)
+    logfire.info("send_email success", to=to_str, is_internal=routing.is_internal)
     return f"Email sent to {to_str} (message ID: {result.get('id', 'unknown')})."
 
 

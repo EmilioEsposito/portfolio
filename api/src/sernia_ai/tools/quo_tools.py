@@ -12,15 +12,20 @@ verbose descriptions to save tokens, and exposes a curated set of MCP tools
 The native ``sendMessage_v1`` and ``listContacts_v1`` are filtered out and
 replaced by custom tools:
 
-- ``send_internal_sms``: deterministic gate — all recipients must be internal.
-- ``send_external_sms``: deterministic gate — ALL recipients must be external (no internal numbers in external threads).
+- ``send_sms``: unified SMS with conditional approval — internal contacts
+  send from the AI line (no approval), external contacts from the shared
+  team number (requires HITL).
 - ``search_contacts``: fuzzy search against a TTL-cached contact list (avoids
   dumping 50-item pages into the context window).
+
+Core routing and sending logic (``SmsRouting``, ``resolve_sms_routing``,
+``execute_sms``) is exposed at module level for reuse by scheduling tools.
 """
 
 import json
 import os
 import time
+from dataclasses import dataclass
 
 import httpx
 from api.src.open_phone.service import (
@@ -33,7 +38,7 @@ import re
 import logfire
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
-from pydantic_ai import FunctionToolset, RunContext
+from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -68,7 +73,7 @@ _MCP_WRITE_TOOLS = frozenset({
 })
 
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
-# sendMessage_v1 → custom send_internal_sms / send_external_sms; listContacts_v1 → custom search_contacts.
+# sendMessage_v1 → custom send_sms; listContacts_v1 → custom search_contacts.
 _KEEP_TOOLS = frozenset({
     # Contacts (search is custom; keep write ops)
     "createContact_v1",
@@ -279,6 +284,85 @@ def _filter_tenants_by_property_unit(
         grouped[(prop, unit)].append(contact)
 
     return dict(grouped)
+
+
+# ---------------------------------------------------------------------------
+# SMS core logic — shared by send tools and scheduling tools
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SmsRouting:
+    """Resolved SMS routing — determines phone line and approval requirement."""
+
+    contact: dict
+    contact_name: str
+    is_internal: bool
+    from_phone_id: str  # QUO_SERNIA_AI_PHONE_ID or QUO_SHARED_EXTERNAL_PHONE_ID
+    line_name: str  # "Sernia AI" or "Sernia Capital Team"
+
+
+def _contact_display_name(contact: dict, phone: str) -> str:
+    """Build a display name from a Quo contact."""
+    first = contact.get("defaultFields", {}).get("firstName") or ""
+    last = contact.get("defaultFields", {}).get("lastName") or ""
+    return f"{first} {last}".strip() or phone
+
+
+async def resolve_sms_routing(
+    phone: str,
+    client: httpx.AsyncClient,
+    conversation_id: str = "",
+) -> SmsRouting | str:
+    """Resolve a phone number to SMS routing parameters.
+
+    Returns SmsRouting on success, or an error string if the recipient
+    cannot be resolved or is not a Quo contact.
+    """
+    try:
+        contact = await find_contact_by_phone(phone, client)
+    except httpx.HTTPStatusError as exc:
+        log_tool_error("send_sms", exc, conversation_id=conversation_id)
+        return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
+    except httpx.HTTPError as exc:
+        log_tool_error("send_sms", exc, conversation_id=conversation_id)
+        return f"Error looking up contact for {phone}: {exc}"
+
+    if contact is None:
+        logfire.warn("sms blocked: recipient not in Quo", to=phone)
+        return (
+            f"Blocked: {phone} is not a Quo contact. "
+            "Messages can only be sent to numbers stored in Quo."
+        )
+
+    is_internal = _is_internal_contact(contact)
+    return SmsRouting(
+        contact=contact,
+        contact_name=_contact_display_name(contact, phone),
+        is_internal=is_internal,
+        from_phone_id=QUO_SERNIA_AI_PHONE_ID if is_internal else QUO_SHARED_EXTERNAL_PHONE_ID,
+        line_name="Sernia AI" if is_internal else "Sernia Capital Team",
+    )
+
+
+async def execute_sms(
+    client: httpx.AsyncClient,
+    phone: str,
+    message: str,
+    from_phone_id: str,
+    line_name: str,
+    conversation_id: str = "",
+    tool_name: str = "send_sms",
+) -> str:
+    """Send an SMS via Quo API, auto-splitting if over SMS_SPLIT_THRESHOLD.
+
+    Public API — used by send_sms tool and scheduling executor.
+    Delegates to ``_send_sms`` which handles chunking.
+    """
+    return await _send_sms(
+        client, tool_name, phone, message,
+        from_phone_id, line_name, conversation_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -614,41 +698,6 @@ def split_sms(text: str, limit: int = SMS_SPLIT_THRESHOLD) -> list[str]:
     return chunks
 
 
-def _contact_display_name(contact: dict, phone: str) -> str:
-    first = contact.get("defaultFields", {}).get("firstName") or ""
-    last = contact.get("defaultFields", {}).get("lastName") or ""
-    return f"{first} {last}".strip() or phone
-
-
-async def _resolve_recipient(
-    client: httpx.AsyncClient,
-    tool_name: str,
-    phone: str,
-    conversation_id: str,
-) -> dict | str:
-    """Look up a phone number in Quo contacts.
-
-    Returns a contact dict on success, or an error string if the number
-    is not found or the API call fails.
-    """
-    try:
-        contact = await find_contact_by_phone(phone, client)
-    except httpx.HTTPStatusError as exc:
-        log_tool_error(tool_name, exc, conversation_id=conversation_id)
-        return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
-    except httpx.HTTPError as exc:
-        log_tool_error(tool_name, exc, conversation_id=conversation_id)
-        return f"Error looking up contact for {phone}: {exc}"
-
-    if contact is None:
-        logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
-        return (
-            f"Blocked: {phone} is not a Quo contact. "
-            "Messages can only be sent to numbers stored in Quo."
-        )
-    return contact
-
-
 async def _send_single_sms(
     client: httpx.AsyncClient,
     tool_name: str,
@@ -764,20 +813,22 @@ def _build_quo_toolset():
         return await search_contacts_impl(client, query)
 
     # ------------------------------------------------------------------
-    # send_internal_sms — no HITL, internal contacts only
+    # send_sms — unified SMS with conditional approval
     # ------------------------------------------------------------------
 
     @custom_toolset.tool
-    async def send_internal_sms(
+    async def send_sms(
         ctx: RunContext[SerniaDeps],
         to: str,
         message: str,
         context: str = "",
     ) -> str:
-        """Send an SMS to a Sernia Capital team member (internal only, no approval needed).
+        """Send an SMS to any Quo contact.
 
-        The recipient must be a Sernia Capital LLC employee. If the recipient is
-        external, the tool blocks and you must use send_external_sms instead.
+        Automatically determines routing based on the recipient:
+        - Internal (Sernia Capital LLC) → sends from AI direct line, no approval.
+        - External (tenants, vendors) → sends from shared team number, requires approval.
+
         To message multiple people, call this tool once per recipient.
 
         Max 1000 chars — messages over this limit are rejected (shorten/summarize
@@ -790,7 +841,7 @@ def _build_quo_toolset():
                 Not included in the SMS — saved to the recipient's conversation
                 history so the AI has context if they reply later.
         """
-        logfire.info("send_internal_sms called", to=to, message_length=len(message))
+        logfire.info("send_sms called", to=to, message_length=len(message))
 
         # Gate: message length — carriers (e.g. AT&T) reject long messages.
         if len(message) > SMS_MAX_LENGTH:
@@ -799,43 +850,25 @@ def _build_quo_toolset():
                 "Please shorten or summarize the message and try again."
             )
 
-        # Gate: resolve recipient.
-        result = await _resolve_recipient(
-            client, "send_internal_sms", to, ctx.deps.conversation_id,
-        )
-        if isinstance(result, str):
-            return result
-        contact = result
+        routing = await resolve_sms_routing(to, client, ctx.deps.conversation_id)
+        if isinstance(routing, str):
+            return routing
 
-        # Gate: must be internal.
-        if not _is_internal_contact(contact):
-            name = _contact_display_name(contact, to)
-            company = contact.get("defaultFields", {}).get("company") or "(none)"
-            logfire.warn(
-                "send_internal_sms blocked: external recipient",
-                to=to,
-                company=company,
-            )
-            return (
-                f"Blocked: {name} ({to}) is not a Sernia Capital LLC contact "
-                f"(company={company!r}). Use send_external_sms for external recipients."
-            )
+        # Conditional approval: external recipients require HITL
+        if not routing.is_internal and not ctx.tool_call_approved:
+            raise ApprovalRequired()
 
-        name = _contact_display_name(contact, to)
         logfire.info(
-            "send_internal_sms sending",
+            "send_sms sending",
             to=to,
-            name=name,
-            from_phone_id=QUO_SERNIA_AI_PHONE_ID,
+            name=routing.contact_name,
+            is_internal=routing.is_internal,
+            from_phone_id=routing.from_phone_id,
         )
 
-        send_result = await _send_sms(
-            client,
-            "send_internal_sms",
-            to,
-            message,
-            QUO_SERNIA_AI_PHONE_ID,
-            "Sernia AI",
+        send_result = await execute_sms(
+            client, to, message,
+            routing.from_phone_id, routing.line_name,
             ctx.deps.conversation_id,
         )
 
@@ -844,99 +877,7 @@ def _build_quo_toolset():
             try:
                 await _seed_sms_conversation(to, message, context)
             except Exception:
-                logfire.exception(
-                    "send_internal_sms: failed to seed conversation",
-                    to=to,
-                )
-
-        return send_result
-
-    # ------------------------------------------------------------------
-    # send_external_sms — requires HITL, external contacts
-    # ------------------------------------------------------------------
-
-    @custom_toolset.tool(requires_approval=True)
-    async def send_external_sms(
-        ctx: RunContext[SerniaDeps],
-        to: str,
-        message: str,
-        context: str = "",
-    ) -> str:
-        """Send an SMS to an external contact (requires approval).
-
-        The recipient must be external (not Sernia Capital LLC). If the
-        recipient is internal, the tool blocks — use send_internal_sms instead.
-        To message multiple people, call this tool once per recipient.
-
-        Max 1000 chars — messages over this limit are rejected (shorten/summarize
-        and retry). Messages over 500 chars are auto-split into multiple texts.
-
-        Args:
-            to: Recipient phone number in E.164 format (e.g. "+14125551234").
-            message: The text message body to send (max 1000 chars).
-            context: Optional hidden context about why this message is being sent.
-                Not included in the SMS — saved to the recipient's conversation
-                history so the AI has context if they reply later.
-        """
-        logfire.info("send_external_sms called", to=to, message_length=len(message))
-
-        # Gate: message length — carriers (e.g. AT&T) reject long messages.
-        if len(message) > SMS_MAX_LENGTH:
-            return (
-                f"Blocked: message is {len(message)} chars (max {SMS_MAX_LENGTH}). "
-                "Please shorten or summarize the message and try again."
-            )
-
-        # Gate: resolve recipient.
-        result = await _resolve_recipient(
-            client, "send_external_sms", to, ctx.deps.conversation_id,
-        )
-        if isinstance(result, str):
-            return result
-        contact = result
-
-        # Gate: NO internal contacts — protects internal phone numbers.
-        if _is_internal_contact(contact):
-            name = _contact_display_name(contact, to)
-            logfire.warn(
-                "send_external_sms blocked: internal recipient in external thread",
-                to=to,
-                name=name,
-            )
-            return (
-                f"Blocked: {name} ({to}) is a Sernia Capital LLC contact. "
-                "External messages must NOT include internal team members — "
-                "this would expose internal phone numbers. "
-                "Use send_internal_sms for internal recipients."
-            )
-
-        name = _contact_display_name(contact, to)
-        logfire.info(
-            "send_external_sms sending",
-            to=to,
-            name=name,
-            from_phone_id=QUO_SHARED_EXTERNAL_PHONE_ID,
-        )
-
-        send_result = await _send_sms(
-            client,
-            "send_external_sms",
-            to,
-            message,
-            QUO_SHARED_EXTERNAL_PHONE_ID,
-            "Sernia Capital Team",
-            ctx.deps.conversation_id,
-        )
-
-        # Seed recipient's AI SMS conversation with hidden context
-        if context and "Failed" not in send_result:
-            try:
-                await _seed_sms_conversation(to, message, context)
-            except Exception:
-                logfire.exception(
-                    "send_external_sms: failed to seed conversation",
-                    to=to,
-                )
+                logfire.exception("send_sms: failed to seed conversation", to=to)
 
         return send_result
 
@@ -1005,14 +946,14 @@ def _build_quo_toolset():
             # Send to each tenant in the unit individually
             unit_sent = 0
             for phone in phones:
-                result = await _send_sms(
+                result = await execute_sms(
                     client,
-                    "mass_text_tenants",
                     phone,
                     message,
                     QUO_SHARED_EXTERNAL_PHONE_ID,
                     "Sernia Capital Team",
                     ctx.deps.conversation_id,
+                    tool_name="mass_text_tenants",
                 )
                 if result.startswith("Message sent"):
                     unit_sent += 1

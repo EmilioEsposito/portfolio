@@ -10,7 +10,7 @@ Run with:
 ⚠️  SMS SAFETY: NEVER add live tests that send real SMS to external contacts
 (tenants, vendors, etc.). External SMS tests must ALWAYS mock the send call.
 Sending real messages to tenants from tests risks confusion, lease violations,
-and privacy issues. Only send_internal_sms may be tested live against real
+and privacy issues. Only send_sms to internal contacts may be tested live against real
 internal team numbers. If a dedicated test phone number is provided in the
 future, it will be explicitly configured here.
 """
