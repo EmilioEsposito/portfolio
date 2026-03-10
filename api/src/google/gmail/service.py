@@ -189,7 +189,12 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
     Returns:
         Dictionary with:
         - status: "success", "no_messages", or "retry_needed"
-        - email_message_ids: List of message IDs that were added
+        - email_message_ids: ALL message IDs touched in this history window
+          (new arrivals + label changes + read/unread + deletions). Use for
+          DB storage so we capture the full state of every message.
+        - added_message_ids: Subset — only genuinely NEW messages that arrived
+          in the mailbox (Gmail ``messagesAdded``). Use to gate triggers so
+          label changes / starring / archiving don't re-fire agent runs.
         - reason: Explanation string for what happened
     """
     max_retries = 4
@@ -214,26 +219,29 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
             email_message_ids = set()
 
             if "history" in results:
+                added_message_ids: set[str] = set()
                 for history in results["history"]:
                     if "messages" in history:
                         for msg in history["messages"]:
                             email_message_ids.add(msg["id"])
-                    # Look for added messages
                     if "messagesAdded" in history:
                         for msg in history["messagesAdded"]:
                             msg_id = msg["message"]["id"]
                             email_message_ids.add(msg_id)
+                            added_message_ids.add(msg_id)
 
                 if email_message_ids:
                     return {
                         "status": "success",
                         "email_message_ids": list(email_message_ids),
-                        "reason": f"Found {len(email_message_ids)} new messages",
+                        "added_message_ids": list(added_message_ids),
+                        "reason": f"Found {len(email_message_ids)} messages ({len(added_message_ids)} new)",
                     }
                 else:
                     return {
                         "status": "no_messages",
                         "email_message_ids": [],
+                        "added_message_ids": [],
                         "reason": f"History found for ID {history_id}, but no new messages",
                     }
             else:
@@ -260,6 +268,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                 return {
                     "status": "retry_needed",
                     "email_message_ids": [],
+                    "added_message_ids": [],
                     "reason": f"Exception fetching history: {str(e)}",
                 }
 
@@ -267,6 +276,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
     return {
         "status": "retry_needed",
         "email_message_ids": [],
+        "added_message_ids": [],
         "reason": f"Failed to retrieve history after {max_retries} retries",
     }
 
