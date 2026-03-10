@@ -48,6 +48,8 @@ from api.src.sernia_ai.config import (
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
     QUO_SHARED_EXTERNAL_PHONE_ID,
+    SMS_MAX_LENGTH,
+    SMS_SPLIT_THRESHOLD,
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools._logging import log_tool_error
@@ -583,6 +585,143 @@ def _build_quo_client() -> httpx.AsyncClient:
     )
 
 
+def split_sms(text: str, limit: int = SMS_SPLIT_THRESHOLD) -> list[str]:
+    """Split a message into chunks at sentence/newline boundaries."""
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= limit:
+            chunks.append(remaining)
+            break
+        candidate = remaining[:limit]
+        split_idx = -1
+        for match in re.finditer(r'[.!?]\s', candidate):
+            split_idx = match.end()
+        if split_idx == -1:
+            nl = candidate.rfind('\n')
+            if nl > 0:
+                split_idx = nl + 1
+        if split_idx == -1:
+            sp = candidate.rfind(' ')
+            if sp > 0:
+                split_idx = sp + 1
+        if split_idx == -1:
+            split_idx = limit
+        chunks.append(remaining[:split_idx].rstrip())
+        remaining = remaining[split_idx:].lstrip()
+    return chunks
+
+
+def _contact_display_name(contact: dict, phone: str) -> str:
+    first = contact.get("defaultFields", {}).get("firstName") or ""
+    last = contact.get("defaultFields", {}).get("lastName") or ""
+    return f"{first} {last}".strip() or phone
+
+
+async def _resolve_recipient(
+    client: httpx.AsyncClient,
+    tool_name: str,
+    phone: str,
+    conversation_id: str,
+) -> dict | str:
+    """Look up a phone number in Quo contacts.
+
+    Returns a contact dict on success, or an error string if the number
+    is not found or the API call fails.
+    """
+    try:
+        contact = await find_contact_by_phone(phone, client)
+    except httpx.HTTPStatusError as exc:
+        log_tool_error(tool_name, exc, conversation_id=conversation_id)
+        return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
+    except httpx.HTTPError as exc:
+        log_tool_error(tool_name, exc, conversation_id=conversation_id)
+        return f"Error looking up contact for {phone}: {exc}"
+
+    if contact is None:
+        logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
+        return (
+            f"Blocked: {phone} is not a Quo contact. "
+            "Messages can only be sent to numbers stored in Quo."
+        )
+    return contact
+
+
+async def _send_single_sms(
+    client: httpx.AsyncClient,
+    tool_name: str,
+    phone: str,
+    message: str,
+    from_phone_id: str,
+    conversation_id: str,
+) -> tuple[bool, str]:
+    """Send one SMS via Quo API. Returns (success, detail)."""
+    payload = {"content": message, "from": from_phone_id, "to": [phone]}
+    logfire.info(
+        "{tool_name} request",
+        tool_name=tool_name,
+        to=phone,
+        from_phone_id=from_phone_id,
+        message_length=len(message),
+        payload=payload,
+    )
+    try:
+        resp = await client.post("/v1/messages", json=payload)
+    except httpx.HTTPError as exc:
+        log_tool_error(tool_name, exc, conversation_id=conversation_id)
+        return False, f"Error sending message: {exc}"
+
+    if resp.status_code in (200, 201, 202):
+        logfire.info(
+            "{tool_name} success",
+            tool_name=tool_name,
+            to=phone,
+            status=resp.status_code,
+            response_body=resp.text[:500],
+        )
+        return True, ""
+
+    logfire.error(
+        "sernia tool error: {tool_name}",
+        tool_name=tool_name,
+        status=resp.status_code,
+        body=resp.text[:500],
+        conversation_id=conversation_id,
+    )
+    return False, f"Failed to send message (HTTP {resp.status_code}): {resp.text}"
+
+
+async def _send_sms(
+    client: httpx.AsyncClient,
+    tool_name: str,
+    phone: str,
+    message: str,
+    from_phone_id: str,
+    line_name: str,
+    conversation_id: str,
+) -> str:
+    """Send an SMS via Quo API, auto-splitting if over SMS_SPLIT_THRESHOLD."""
+    chunks = split_sms(message)
+    if len(chunks) > 1:
+        logfire.info(
+            "{tool_name} auto-splitting message",
+            tool_name=tool_name,
+            original_length=len(message),
+            chunk_count=len(chunks),
+        )
+    for i, chunk in enumerate(chunks):
+        ok, err = await _send_single_sms(
+            client, tool_name, phone, chunk, from_phone_id, conversation_id,
+        )
+        if not ok:
+            part_info = f" (part {i + 1}/{len(chunks)})" if len(chunks) > 1 else ""
+            return f"{err}{part_info}"
+    parts_note = f" ({len(chunks)} parts)" if len(chunks) > 1 else ""
+    return f"Message sent to {phone} from {line_name}.{parts_note}"
+
+
 def _build_quo_toolset():
     spec = _fetch_and_patch_spec()
     client = _build_quo_client()
@@ -625,85 +764,6 @@ def _build_quo_toolset():
         return await search_contacts_impl(client, query)
 
     # ------------------------------------------------------------------
-    # Shared SMS helpers
-    # ------------------------------------------------------------------
-
-    async def _resolve_recipient(
-        tool_name: str,
-        phone: str,
-        conversation_id: str,
-    ) -> dict | str:
-        """Look up a phone number in Quo contacts.
-
-        Returns a contact dict on success, or an error string if the number
-        is not found or the API call fails.
-        """
-        try:
-            contact = await find_contact_by_phone(phone, client)
-        except httpx.HTTPStatusError as exc:
-            log_tool_error(tool_name, exc, conversation_id=conversation_id)
-            return f"Error looking up contact for {phone}: HTTP {exc.response.status_code}"
-        except httpx.HTTPError as exc:
-            log_tool_error(tool_name, exc, conversation_id=conversation_id)
-            return f"Error looking up contact for {phone}: {exc}"
-
-        if contact is None:
-            logfire.warn(f"{tool_name} blocked: recipient not in Quo", to=phone)
-            return (
-                f"Blocked: {phone} is not a Quo contact. "
-                "Messages can only be sent to numbers stored in Quo."
-            )
-        return contact
-
-    def _contact_display_name(contact: dict, phone: str) -> str:
-        first = contact.get("defaultFields", {}).get("firstName") or ""
-        last = contact.get("defaultFields", {}).get("lastName") or ""
-        return f"{first} {last}".strip() or phone
-
-    async def _send_sms(
-        tool_name: str,
-        phone: str,
-        message: str,
-        from_phone_id: str,
-        line_name: str,
-        conversation_id: str,
-    ) -> str:
-        """Send a single SMS via Quo API and return a result string."""
-        payload = {"content": message, "from": from_phone_id, "to": [phone]}
-        logfire.info(
-            "{tool_name} request",
-            tool_name=tool_name,
-            to=phone,
-            from_phone_id=from_phone_id,
-            message_length=len(message),
-            payload=payload,
-        )
-        try:
-            resp = await client.post("/v1/messages", json=payload)
-        except httpx.HTTPError as exc:
-            log_tool_error(tool_name, exc, conversation_id=conversation_id)
-            return f"Error sending message: {exc}"
-
-        if resp.status_code in (200, 201, 202):
-            logfire.info(
-                "{tool_name} success",
-                tool_name=tool_name,
-                to=phone,
-                status=resp.status_code,
-                response_body=resp.text[:500],
-            )
-            return f"Message sent to {phone} from {line_name}."
-
-        logfire.error(
-            "sernia tool error: {tool_name}",
-            tool_name=tool_name,
-            status=resp.status_code,
-            body=resp.text[:500],
-            conversation_id=conversation_id,
-        )
-        return f"Failed to send message (HTTP {resp.status_code}): {resp.text}"
-
-    # ------------------------------------------------------------------
     # send_internal_sms — no HITL, internal contacts only
     # ------------------------------------------------------------------
 
@@ -720,18 +780,28 @@ def _build_quo_toolset():
         external, the tool blocks and you must use send_external_sms instead.
         To message multiple people, call this tool once per recipient.
 
+        Max 1000 chars — messages over this limit are rejected (shorten/summarize
+        and retry). Messages over 500 chars are auto-split into multiple texts.
+
         Args:
             to: Recipient phone number in E.164 format (e.g. "+14125551234").
-            message: The text message body to send.
+            message: The text message body to send (max 1000 chars).
             context: Optional hidden context about why this message is being sent.
                 Not included in the SMS — saved to the recipient's conversation
                 history so the AI has context if they reply later.
         """
         logfire.info("send_internal_sms called", to=to, message_length=len(message))
 
+        # Gate: message length — carriers (e.g. AT&T) reject long messages.
+        if len(message) > SMS_MAX_LENGTH:
+            return (
+                f"Blocked: message is {len(message)} chars (max {SMS_MAX_LENGTH}). "
+                "Please shorten or summarize the message and try again."
+            )
+
         # Gate: resolve recipient.
         result = await _resolve_recipient(
-            "send_internal_sms", to, ctx.deps.conversation_id,
+            client, "send_internal_sms", to, ctx.deps.conversation_id,
         )
         if isinstance(result, str):
             return result
@@ -760,6 +830,7 @@ def _build_quo_toolset():
         )
 
         send_result = await _send_sms(
+            client,
             "send_internal_sms",
             to,
             message,
@@ -797,18 +868,28 @@ def _build_quo_toolset():
         recipient is internal, the tool blocks — use send_internal_sms instead.
         To message multiple people, call this tool once per recipient.
 
+        Max 1000 chars — messages over this limit are rejected (shorten/summarize
+        and retry). Messages over 500 chars are auto-split into multiple texts.
+
         Args:
             to: Recipient phone number in E.164 format (e.g. "+14125551234").
-            message: The text message body to send.
+            message: The text message body to send (max 1000 chars).
             context: Optional hidden context about why this message is being sent.
                 Not included in the SMS — saved to the recipient's conversation
                 history so the AI has context if they reply later.
         """
         logfire.info("send_external_sms called", to=to, message_length=len(message))
 
+        # Gate: message length — carriers (e.g. AT&T) reject long messages.
+        if len(message) > SMS_MAX_LENGTH:
+            return (
+                f"Blocked: message is {len(message)} chars (max {SMS_MAX_LENGTH}). "
+                "Please shorten or summarize the message and try again."
+            )
+
         # Gate: resolve recipient.
         result = await _resolve_recipient(
-            "send_external_sms", to, ctx.deps.conversation_id,
+            client, "send_external_sms", to, ctx.deps.conversation_id,
         )
         if isinstance(result, str):
             return result
@@ -838,6 +919,7 @@ def _build_quo_toolset():
         )
 
         send_result = await _send_sms(
+            client,
             "send_external_sms",
             to,
             message,
@@ -875,8 +957,11 @@ def _build_quo_toolset():
         by (Property, Unit #), and sends one SMS per unit group. Roommates
         in the same unit share a thread; different units are isolated.
 
+        Max 1000 chars — messages over this limit are rejected (shorten/summarize
+        and retry). Messages over 500 chars are auto-split into multiple texts.
+
         Args:
-            message: The text message body to send to all matching tenants.
+            message: The text message body to send to all matching tenants (max 1000 chars).
             properties: Property names to target (e.g. ["320"] or ["320", "400"]).
             units: Optional unit filter within those properties. None = all units.
         """
@@ -886,6 +971,13 @@ def _build_quo_toolset():
             units=units,
             message_length=len(message),
         )
+
+        # Gate: message length — carriers (e.g. AT&T) reject long messages.
+        if len(message) > SMS_MAX_LENGTH:
+            return (
+                f"Blocked: message is {len(message)} chars (max {SMS_MAX_LENGTH}). "
+                "Please shorten or summarize the message and try again."
+            )
 
         contacts = await get_all_contacts(client)
         grouped = _filter_tenants_by_property_unit(contacts, properties, units)
@@ -914,6 +1006,7 @@ def _build_quo_toolset():
             unit_sent = 0
             for phone in phones:
                 result = await _send_sms(
+                    client,
                     "mass_text_tenants",
                     phone,
                     message,

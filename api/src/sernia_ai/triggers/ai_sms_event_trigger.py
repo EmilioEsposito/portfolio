@@ -249,18 +249,27 @@ def _merge_sms_into_history(
 
 
 async def _send_sms_reply(to_phone: str, message: str) -> None:
-    """Send an SMS reply from the AI phone number. Never raises."""
-    try:
-        await send_message(
-            message=message,
-            to_phone_number=to_phone,
-            from_phone_number=QUO_SERNIA_AI_PHONE_ID,
-        )
-        logfire.info("ai_sms_event: reply sent", to_phone=to_phone)
-    except Exception:
-        logfire.exception(
-            "ai_sms_event: failed to send SMS reply", to_phone=to_phone
-        )
+    """Send an SMS reply from the AI phone number, auto-splitting if long. Never raises."""
+    from api.src.sernia_ai.tools.quo_tools import split_sms
+
+    chunks = split_sms(message)
+    for chunk in chunks:
+        try:
+            await send_message(
+                message=chunk,
+                to_phone_number=to_phone,
+                from_phone_number=QUO_SERNIA_AI_PHONE_ID,
+            )
+        except Exception:
+            logfire.exception(
+                "ai_sms_event: failed to send SMS reply", to_phone=to_phone
+            )
+            return
+    logfire.info(
+        "ai_sms_event: reply sent",
+        to_phone=to_phone,
+        parts=len(chunks),
+    )
 
 
 async def handle_ai_sms_event(event_data: dict) -> None:

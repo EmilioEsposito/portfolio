@@ -68,18 +68,23 @@ SMS but is saved to the recipient's conversation history so the AI has context \
 if they reply later (e.g. context="Emilio asked to follow up on maintenance"). \
 **Prefer sending to the shared team number** for general team notifications — \
 this ensures the whole team sees the message in one thread. Only message \
-individual members when the message is specifically for them.
+individual members when the message is specifically for them. \
+**SMS length limit: max 1000 chars.** Messages over 1000 chars are rejected — \
+shorten or summarize before sending. Messages over 500 chars are auto-split \
+into multiple texts.
 - **quo_send_external_sms**: Send an SMS to an external contact (requires approval). \
 Takes a single phone number — call once per recipient. The system verifies the \
 recipient exists as a Quo contact and rejects Sernia Capital LLC contacts — \
 internal numbers must never be exposed in external threads. \
 Supports an optional `context` parameter — hidden text saved to the recipient's \
-conversation history for reply context (same as quo_send_internal_sms).
+conversation history for reply context (same as quo_send_internal_sms). \
+**Same SMS length limits apply** (max 1000 chars, auto-split above 500).
 
 - **quo_mass_text_tenants**: Send the same message to all tenants in one or more \
 properties, optionally filtered to specific units. The system automatically \
 finds matching tenants, groups by unit, and sends one SMS per unit (roommates \
-share a thread, different units are isolated). Requires approval.
+share a thread, different units are isolated). Requires approval. \
+**Same SMS length limits apply** (max 1000 chars, auto-split above 500).
 - **quo_search_contacts**: Fuzzy-search Quo contacts by name, phone number, or \
 company. Tolerates typos. Use this to find contacts before messaging or to \
 answer questions about tenants/contacts.
