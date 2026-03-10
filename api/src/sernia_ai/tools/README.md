@@ -18,8 +18,13 @@ SMS and contact management via the OpenPhone API, bridged through FastMCP.
 
 Every SMS goes through a chain of gates before sending:
 
-1. **Contact resolution** — The recipient must exist as a Quo contact. Unknown numbers are blocked.
-2. **Internal/external separation** — `send_internal_sms` blocks external contacts; `send_external_sms` blocks internal contacts. This prevents exposing internal phone numbers in tenant threads.
+1. **Message length** — Messages over 1000 chars are rejected at the tool level with feedback telling the LLM to shorten/summarize. This prevents carrier rejections (AT&T rejects around 670 chars).
+2. **Contact resolution** — The recipient must exist as a Quo contact. Unknown numbers are blocked.
+3. **Internal/external separation** — `send_internal_sms` blocks external contacts; `send_external_sms` blocks internal contacts. This prevents exposing internal phone numbers in tenant threads.
+
+### Auto-Splitting
+
+Messages between 500–1000 chars are auto-split into multiple SMS at sentence/newline boundaries by `split_sms()` in `config.py`. The splitting logic tries to break at (in priority order): sentence-ending punctuation, newlines, spaces, then hard cut. This applies to all SMS paths: tool calls, AI SMS replies, and post-approval replies.
 
 ### Hidden Context Seeding
 

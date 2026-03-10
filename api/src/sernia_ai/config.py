@@ -78,6 +78,12 @@ QUO_INTERNAL_COMPANY = "Sernia Capital LLC"
 # Internal email domain — emails to this domain bypass HITL approval.
 INTERNAL_EMAIL_DOMAIN = "serniacapital.com"
 
+# SMS length limits — AT&T rejects messages around 670 chars.
+# Auto-split long messages into chunks at this threshold.
+SMS_SPLIT_THRESHOLD = 500
+# Hard reject at the tool level — LLM must shorten the message.
+SMS_MAX_LENGTH = 1000
+
 # AI SMS conversation: max messages to fetch from OpenPhone for initial bootstrap
 SMS_CONVERSATION_MAX_MESSAGES = 20
 

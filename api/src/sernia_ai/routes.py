@@ -599,19 +599,27 @@ async def update_admin_settings(
 
 
 async def _send_sms_reply(to_phone: str, message: str) -> None:
-    """Send an SMS reply from the AI phone number. Never raises."""
+    """Send an SMS reply from the AI phone number, auto-splitting if long. Never raises."""
     from api.src.open_phone.service import send_message
     from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+    from api.src.sernia_ai.tools.quo_tools import split_sms
 
-    try:
-        await send_message(
-            message=message,
-            to_phone_number=to_phone,
-            from_phone_number=QUO_SERNIA_AI_PHONE_ID,
-        )
-        logfire.info("post-approval SMS reply sent", to_phone=to_phone)
-    except Exception:
-        logfire.exception("post-approval SMS reply failed", to_phone=to_phone)
+    chunks = split_sms(message)
+    for chunk in chunks:
+        try:
+            await send_message(
+                message=chunk,
+                to_phone_number=to_phone,
+                from_phone_number=QUO_SERNIA_AI_PHONE_ID,
+            )
+        except Exception:
+            logfire.exception("post-approval SMS reply failed", to_phone=to_phone)
+            return
+    logfire.info(
+        "post-approval SMS reply sent",
+        to_phone=to_phone,
+        parts=len(chunks),
+    )
 
 
 # =============================================================================

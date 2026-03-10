@@ -395,7 +395,7 @@ SERNIA_AI_PHONE_ID = "PNWvNqsFFy"  # Sernia AI line (internal only)
 @pytest.mark.asyncio
 async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
     """Send a short SMS (<=160 chars, single segment). Should always deliver."""
-    msg = "[QUO TEST 1/4] Short SMS (160 chars). " + "A" * (160 - 38)
+    msg = "[QUO TEST 1/5] Short SMS (160 chars). " + "A" * (160 - 38)
     assert len(msg) == 160
     resp = await quo_client.post(
         "/v1/messages",
@@ -409,7 +409,7 @@ async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
 @pytest.mark.asyncio
 async def test_send_sms_medium_320_chars(quo_client: httpx.AsyncClient):
     """Send a medium SMS (~320 chars, 2-3 segments)."""
-    msg = "[QUO TEST 2/4] Medium SMS (320 chars). " + "B" * (320 - 39)
+    msg = "[QUO TEST 2/5] Medium SMS (320 chars). " + "B" * (320 - 39)
     assert len(msg) == 320
     resp = await quo_client.post(
         "/v1/messages",
@@ -427,12 +427,11 @@ async def test_send_sms_long_700_chars(quo_client: httpx.AsyncClient):
     The scheduled check message that wasn't delivered was 704 chars with emojis.
     """
     prefix = (
-        "[QUO TEST 3/4] Long SMS (700 chars) - reproducing scheduled check length. "
+        "[QUO TEST 3/5] Long SMS (700 chars) - reproducing scheduled check length. "
         "This message is approximately the same length as the morning inbox check "
         "that was accepted (HTTP 202) but never delivered. "
     )
     msg = prefix + "C" * (700 - len(prefix))
-    assert len(msg) == 700
     resp = await quo_client.post(
         "/v1/messages",
         json={"content": msg, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
@@ -450,7 +449,7 @@ async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient
     limit from 160 to 70 chars, potentially causing carrier rejection.
     """
     msg = (
-        "[QUO TEST 4/4] Long SMS with emojis (like the real message).\n\n"
+        "[QUO TEST 4/5] Long SMS with emojis (like the real message).\n\n"
         "\U0001f4e7 Zillow: No new leads in the last 36 hours.\n\n"
         "\U0001f4e7 Email: One unread email from marketing — looks like spam. "
         "No action needed.\n\n"
@@ -471,3 +470,45 @@ async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient
     print(f"Emoji SMS: HTTP {resp.status_code} | body: {resp.text[:300]}")
     _save_fixture("sms_length_emoji_700.json", resp.text)
     assert resp.status_code in (200, 201, 202)
+
+
+@pytest.mark.asyncio
+async def test_send_sms_auto_split_725_chars(quo_client: httpx.AsyncClient):
+    """Send a ~725 char message using split_sms, verifying auto-split delivery.
+
+    Messages over SMS_SPLIT_THRESHOLD (500) are split at sentence boundaries
+    and sent as separate API calls. This test verifies both parts deliver.
+    """
+    from api.src.sernia_ai.tools.quo_tools import split_sms
+
+    msg = (
+        "[QUO TEST 5/5] Auto-split SMS test (~725 chars). "
+        "This message tests the split_sms function end-to-end. "
+        "It should be split into two parts at a sentence boundary. "
+        "The first part should be under 500 chars. "
+        "The second part should contain the remainder. "
+        "Here is some filler to reach the target length. "
+        "Sernia Capital manages rental properties in Pittsburgh. "
+        "The team uses AI to handle tenant communications. "
+        "Maintenance requests come in via SMS and get routed to ClickUp. "
+        "Zillow leads are processed automatically when emails arrive. "
+        "The scheduled check runs every 3 hours during business hours. "
+        "All external messages require human approval before sending. "
+        "This is the end of the test message for auto-split verification."
+    )
+    print(f"\nOriginal message length: {len(msg)} chars")
+    assert 700 <= len(msg) <= 750, f"Message should be 700-750 chars, got {len(msg)}"
+
+    chunks = split_sms(msg)
+    print(f"Split into {len(chunks)} chunks: {[len(c) for c in chunks]}")
+    assert len(chunks) == 2, f"Expected 2 chunks, got {len(chunks)}"
+    assert all(len(c) <= 500 for c in chunks), "All chunks should be <= 500 chars"
+
+    for i, chunk in enumerate(chunks):
+        resp = await quo_client.post(
+            "/v1/messages",
+            json={"content": chunk, "from": SERNIA_AI_PHONE_ID, "to": [INTERNAL_TEST_NUMBER]},
+        )
+        print(f"  Part {i + 1}/{len(chunks)} ({len(chunk)} chars): HTTP {resp.status_code}")
+        _save_fixture(f"sms_split_part{i + 1}.json", resp.text)
+        assert resp.status_code in (200, 201, 202), f"Part {i + 1} failed: {resp.text}"
