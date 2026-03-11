@@ -278,8 +278,12 @@ async def search_emails(
 ) -> str:
     """Search emails using Gmail search syntax.
 
+    Searches across all mail by default (inbox, sent, archived, etc.).
+    Use "in:inbox" in the query to restrict to the inbox only.
+
     Args:
-        query: Gmail search query (e.g. "from:john subject:rent", "is:unread", "newer_than:7d").
+        query: Gmail search query (e.g. "from:john subject:rent", "in:inbox is:unread",
+            "in:inbox newer_than:7d", "in:sent to:tenant@gmail.com").
         max_results: Maximum number of results to return (default 10).
     """
     if not user_email_account:
