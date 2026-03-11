@@ -247,8 +247,8 @@ class TestReadEmailThreadMock:
         assert "THREAD TRUNCATED" in result
 
     @pytest.mark.asyncio
-    async def test_user_inbox_email_passed_to_credentials(self):
-        """user_inbox_email should be forwarded to get_delegated_credentials."""
+    async def test_user_email_account_passed_to_credentials(self):
+        """user_email_account should be forwarded to get_delegated_credentials."""
         thread_data = {
             "messages": [
                 _make_gmail_message(
@@ -267,9 +267,9 @@ class TestReadEmailThreadMock:
         with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials", mock_get_creds), \
              patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
             ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-            await read_email_thread(ctx, thread_id="thread_inbox", user_inbox_email="all@serniacapital.com")
+            await read_email_thread(ctx, thread_id="thread_inbox", user_email_account="all@serniacapital.com")
 
-        # Should use the explicit user_inbox_email, not ctx.deps.user_email
+        # Should use the explicit user_email_account, not ctx.deps.user_email
         mock_get_creds.assert_called_once()
         assert mock_get_creds.call_args[1]["user_email"] == "all@serniacapital.com"
 
@@ -514,7 +514,7 @@ class TestReadEmailThreadLive:
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
         result = await read_email_thread(
             ctx, thread_id=_SAMANTHA_THREAD_ID_ALL,
-            user_inbox_email="all@serniacapital.com",
+            user_email_account="all@serniacapital.com",
         )
 
         # Should still have thread content
