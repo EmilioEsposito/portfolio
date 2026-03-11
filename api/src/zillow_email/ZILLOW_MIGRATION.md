@@ -22,7 +22,7 @@ The key architectural challenge: emails arrive in emilio@serniacapital.com, but 
 This is documented in the `zillow-auto-reply` SKILL.md and in the scheduled trigger prompt.
 
 ### Gmail API vs DB
-Sernia AI reads directly from Gmail API (not the DB). This is simpler and avoids sync lag. The `user_inbox_email` parameter on tools provides the flexibility to target different mailboxes.
+Sernia AI reads directly from Gmail API (not the DB). This is simpler and avoids sync lag. The `user_email_account` parameter on tools provides the flexibility to target different mailboxes.
 
 ## Migration Plan
 

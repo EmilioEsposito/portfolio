@@ -37,14 +37,14 @@ from api.src.google.gmail.service import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 
-# Reusable annotated type for tools that accept an inbox/calendar override
-UserInboxEmail = Annotated[
+# Reusable annotated type for tools that accept an email account override
+UserEmailAccount = Annotated[
     EmailStr | None,
     Field(
         default=None,
         description=(
             "Email address whose mailbox/calendar to use. "
-            "Defaults to the current user. Use 'all@serniacapital.com' for the shared inbox."
+            "Defaults to the current user. Use 'all@serniacapital.com' for the shared account."
         ),
     ),
 ]
@@ -242,7 +242,7 @@ async def send_email(
             )
             if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
                 logfire.info(
-                    "reply_to_message_id not found in shared mailbox, trying user inbox",
+                    "reply_to_message_id not found in shared mailbox, trying user account",
                     message_id=reply_to_message_id,
                     user_email=ctx.deps.user_email,
                 )
@@ -273,19 +273,23 @@ async def send_email(
 async def search_emails(
     ctx: RunContext[SerniaDeps],
     query: str,
-    user_inbox_email: UserInboxEmail = None,
+    user_email_account: UserEmailAccount = None,
     max_results: int = 10,
 ) -> str:
     """Search emails using Gmail search syntax.
 
+    Searches across all mail by default (inbox, sent, archived, etc.).
+    Use "in:inbox" in the query to restrict to the inbox only.
+
     Args:
-        query: Gmail search query (e.g. "from:john subject:rent", "is:unread", "newer_than:7d").
+        query: Gmail search query (e.g. "from:john subject:rent", "in:inbox is:unread",
+            "in:inbox newer_than:7d", "in:sent to:tenant@gmail.com").
         max_results: Maximum number of results to return (default 10).
     """
-    if not user_inbox_email:
-        user_inbox_email = ctx.deps.user_email
+    if not user_email_account:
+        user_email_account = ctx.deps.user_email
     credentials = get_delegated_credentials(
-        user_email=user_inbox_email,
+        user_email=user_email_account,
         scopes=GMAIL_SCOPES,
     )
     service = get_gmail_service(credentials)
@@ -359,14 +363,14 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
 async def read_email(
     ctx: RunContext[SerniaDeps],
     message_id: str,
-    user_inbox_email: UserInboxEmail = None,
+    user_email_account: UserEmailAccount = None,
 ) -> str:
     """Read the full content of an email by its Gmail message ID.
 
     Args:
         message_id: The Gmail message ID (returned by search_emails).
     """
-    result = await _read_email(message_id, user_inbox_email or ctx.deps.user_email)
+    result = await _read_email(message_id, user_email_account or ctx.deps.user_email)
 
     # truncate to 5000 characters
     if len(result) > 5000:
@@ -419,7 +423,7 @@ def _strip_quoted_replies(text: str) -> str:
 async def read_email_thread(
     ctx: RunContext[SerniaDeps],
     thread_id: str,
-    user_inbox_email: UserInboxEmail = None,
+    user_email_account: UserEmailAccount = None,
 ) -> str:
     """Read all messages in an email thread, in chronological order.
 
@@ -430,8 +434,8 @@ async def read_email_thread(
     Args:
         thread_id: The Gmail thread ID.
     """
-    inbox = user_inbox_email or ctx.deps.user_email
-    credentials = get_delegated_credentials(user_email=inbox, scopes=GMAIL_SCOPES)
+    account = user_email_account or ctx.deps.user_email
+    credentials = get_delegated_credentials(user_email=account, scopes=GMAIL_SCOPES)
     service = get_gmail_service(credentials)
 
     from googleapiclient.errors import HttpError
@@ -445,8 +449,8 @@ async def read_email_thread(
     except HttpError as e:
         if e.resp.status == 404:
             return (
-                f"Thread {thread_id} not found in {inbox}. "
-                "Thread IDs are mailbox-specific — try with a different user_inbox_email "
+                f"Thread {thread_id} not found in {account}. "
+                "Thread IDs are mailbox-specific — try with a different user_email_account "
                 "(e.g. emilio@serniacapital.com or all@serniacapital.com)."
             )
         raise
@@ -492,14 +496,14 @@ async def read_email_thread(
 async def list_calendar_events(
     ctx: RunContext[SerniaDeps],
     days_ahead: int = 7,
-    user_inbox_email: UserInboxEmail = None,
+    user_email_account: UserEmailAccount = None,
 ) -> str:
     """List upcoming calendar events.
 
     Args:
         days_ahead: Number of days ahead to look (default 7).
     """
-    service = await get_calendar_service(user_email=user_inbox_email or ctx.deps.user_email)
+    service = await get_calendar_service(user_email=user_email_account or ctx.deps.user_email)
     et_tz = pytz.timezone("US/Eastern")
     now = datetime.now(tz=et_tz)
     time_max = now + timedelta(days=days_ahead)

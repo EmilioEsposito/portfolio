@@ -930,10 +930,12 @@ export default function SerniaChatPage() {
     [isSignedIn, getToken, navigate]
   );
 
-  // Load from URL on mount
+  // Load from URL on mount, or populate URL with new conversation ID
   useEffect(() => {
     if (urlConversationId && isSignedIn) {
       loadConversation(urlConversationId, { updateUrl: false });
+    } else if (!urlConversationId && isSignedIn) {
+      navigate(`/sernia-chat?id=${conversationId}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
@@ -975,7 +977,7 @@ export default function SerniaChatPage() {
     setLoadedPending(null);
     setConversationModality("web_chat");
     setHistoryOpen(false);
-    navigate("/sernia-chat", { replace: true });
+    navigate(`/sernia-chat?id=${newId}`, { replace: true });
   };
 
   const formatDate = (dateString: string | null) => {
