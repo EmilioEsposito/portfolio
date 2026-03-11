@@ -88,7 +88,7 @@ async def handle_zillow_email_event(
         New Zillow email arrived. Load the zillow-auto-reply skill and follow it.
 
         **Email details:**
-        - Gmail Message ID (all@ inbox): {message_id}
+        - Gmail Message ID (all@ account): {message_id}
         - Thread ID (Gmail): {thread_id}
         - Subject: {subject}
         - From: {from_address}
@@ -97,7 +97,7 @@ async def handle_zillow_email_event(
 
         Read the email using the Message ID above, then draft or NoAction.
         When replying, pass reply_to_message_id="{message_id}" to thread correctly.
-        Always search/read from all@serniacapital.com inbox (use user_inbox_email="all@serniacapital.com").""")
+        Always search/read from all@serniacapital.com (use user_email_account="all@serniacapital.com").""")
 
     trigger_metadata = {
         "trigger_source": "zillow_email_event",
