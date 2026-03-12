@@ -296,7 +296,7 @@ function ChatView({
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4 relative"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overscroll-none pt-4 relative"
         {...attachment.dropTargetProps}
       >
         {attachment.isDragging && (
@@ -441,7 +441,8 @@ function ChatView({
       ) : (
       <form
         onSubmit={handleSubmit}
-        className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
+        autoComplete="off"
+        className="shrink-0 flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col gap-4 w-full">
@@ -472,6 +473,8 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
+                name="chat-message"
+                autoComplete="off"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -519,6 +522,8 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
+                name="chat-message"
+                autoComplete="off"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {

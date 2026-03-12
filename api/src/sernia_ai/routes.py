@@ -551,6 +551,78 @@ async def get_system_instructions(
     }
 
 
+@router.get("/conversation/{conversation_id}/instructions")
+async def get_conversation_instructions(
+    conversation_id: str,
+    user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
+):
+    """
+    Return the latest system instructions as they would have been resolved
+    for a specific conversation.
+
+    Reconstructs the dynamic instructions using the conversation's stored
+    metadata (modality, clerk_user_id, trigger_instructions, etc.).
+    """
+    from types import SimpleNamespace
+
+    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+    from api.src.sernia_ai.config import TRIGGER_BOT_ID, TRIGGER_BOT_NAME, GOOGLE_DELEGATION_EMAIL
+
+    conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Reconstruct deps from conversation record
+    modality = conv.modality or "web_chat"
+    metadata = conv.metadata_ or {}
+    trigger_instructions = metadata.get("trigger_instructions")
+
+    # Determine user identity from conversation
+    is_trigger = conv.clerk_user_id == TRIGGER_BOT_ID
+    if is_trigger:
+        resolved_name = TRIGGER_BOT_NAME
+        resolved_email = GOOGLE_DELEGATION_EMAIL
+        user_identifier = TRIGGER_BOT_ID
+    else:
+        resolved_name = _display_name(user)
+        resolved_email = _sernia_email(user)
+        user_identifier = conv.clerk_user_id or user.id
+
+    deps = SerniaDeps(
+        db_session=None,  # type: ignore[arg-type]
+        conversation_id=conversation_id,
+        user_identifier=user_identifier,
+        user_name=resolved_name,
+        user_email=resolved_email,
+        modality=modality,
+        workspace_path=WORKSPACE_PATH,
+        trigger_instructions=trigger_instructions,
+    )
+    fake_ctx = SimpleNamespace(deps=deps)
+
+    sections = [{"label": "Static Instructions", "content": STATIC_INSTRUCTIONS}]
+    for fn in DYNAMIC_INSTRUCTIONS:
+        content = fn(fake_ctx)  # type: ignore[arg-type]
+        sections.append({"label": fn.__name__, "content": content or "(empty)"})
+
+    combined = "\n\n".join(s["content"] for s in sections)
+
+    return {
+        "conversation_id": conversation_id,
+        "sections": sections,
+        "combined": combined,
+        "model": sernia_agent.model.model_name if hasattr(sernia_agent.model, "model_name") else str(sernia_agent.model),
+        "deps": {
+            "user_name": resolved_name,
+            "user_email": resolved_email,
+            "modality": modality,
+            "is_trigger": is_trigger,
+            "trigger_instructions": trigger_instructions,
+        },
+    }
+
+
 @router.get("/admin/settings")
 async def get_admin_settings(
     user: SerniaUser = Depends(_get_sernia_user),

@@ -221,10 +221,14 @@ def format_current_datetime(now: datetime | None = None) -> str:
 
 
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
+    from api.src.sernia_ai.config import FRONTEND_BASE_URL
+
+    deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={ctx.deps.conversation_id}"
     return (
         f"Current Date and Time: {format_current_datetime()}. "
         f"Speaking with {ctx.deps.user_name} ({ctx.deps.user_email}) via {ctx.deps.modality}. "
-        f"When creating calendar events, always include {ctx.deps.user_email} as an attendee unless told otherwise."
+        f"When creating calendar events, always include {ctx.deps.user_email} as an attendee unless told otherwise.\n"
+        f"This conversation's deeplink: {deeplink}"
     )
 
 
