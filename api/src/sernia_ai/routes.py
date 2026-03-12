@@ -10,6 +10,7 @@ import json
 import functools
 from typing import Literal
 
+import anthropic
 import logfire
 from pydantic_ai import capture_run_messages
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -58,6 +59,36 @@ from api.src.database.database import DBSession
 # =============================================================================
 
 _SMS_CONV_PREFIX = "ai_sms_from_"
+
+
+# =============================================================================
+# Error handling helpers
+# =============================================================================
+
+
+def _anthropic_error_response(
+    e: anthropic.APIError,
+    context: str = "request",
+) -> tuple[int, str]:
+    """Map Anthropic API errors to appropriate HTTP status codes and messages.
+
+    Returns (status_code, user_message) tuple.
+    """
+    if isinstance(e, anthropic.APIStatusError):
+        status = getattr(e, "status_code", 500)
+        # 529 = Overloaded, 429 = Rate limited → both are retriable
+        if status in (529, 429):
+            return 503, "The AI service is temporarily overloaded. Please try again in a moment."
+        # 5xx from Anthropic → surface as 502 (bad gateway)
+        if 500 <= status < 600:
+            return 502, "The AI service is temporarily unavailable. Please try again."
+        # 4xx errors (auth, bad request, etc.) → surface as 500 (our misconfiguration)
+        return 500, "An internal error occurred. Please try again."
+    # Connection/timeout errors → surface as 503
+    if isinstance(e, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+        return 503, "Unable to reach the AI service. Please try again."
+    # Fallback
+    return 500, "An internal error occurred. Please try again."
 
 
 async def _merge_sms_if_needed(
@@ -243,6 +274,26 @@ async def chat_sernia(
             deps=deps,
             on_complete=on_complete,
         )
+    except anthropic.APIError as e:
+        # Anthropic API errors (overloaded, rate limited, etc.) — log but don't
+        # treat as internal error, surface with appropriate status code
+        status_code, user_message = _anthropic_error_response(e, "chat")
+        logfire.warn(
+            "sernia chat anthropic API error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__,
+            anthropic_status=getattr(e, "status_code", None),
+        )
+        return Response(
+            content=json.dumps({
+                "error": user_message,
+                "conversation_id": conversation_id or "",
+                "retriable": status_code == 503,
+            }),
+            status_code=status_code,
+            media_type="application/json",
+        )
     except Exception as e:
         logfire.exception(
             "sernia chat dispatch error",
@@ -378,6 +429,30 @@ async def approve_conversation(
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except anthropic.APIError as e:
+        # Anthropic API errors (overloaded, rate limited, etc.) — log as warning,
+        # surface with appropriate status code, don't leak raw error body
+        status_code, user_message = _anthropic_error_response(e, "approve")
+        logfire.warn(
+            "sernia approve anthropic API error",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            error_type=type(e).__name__,
+            anthropic_status=getattr(e, "status_code", None),
+        )
+        if captured_messages:
+            try:
+                await save_agent_conversation(
+                    session=session,
+                    conversation_id=conversation_id,
+                    agent_name=AGENT_NAME,
+                    messages=captured_messages,
+                    clerk_user_id=clerk_user_id,
+                    metadata={"partial": True, "error": True, "anthropic_error": True},
+                )
+            except Exception:
+                logfire.exception("failed to save partial approval conversation")
+        raise HTTPException(status_code=status_code, detail=user_message)
     except Exception as e:
         logfire.exception(
             "sernia approve error",
@@ -397,7 +472,7 @@ async def approve_conversation(
                 )
             except Exception:
                 logfire.exception("failed to save partial approval conversation")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
 @router.get("/conversation/{conversation_id}")
