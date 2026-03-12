@@ -115,6 +115,10 @@ async def run_agent_for_trigger(
     }.get(trigger_source, "trigger:unknown")
 
     conv_id = conversation_id or str(uuid.uuid4())
+    resolved_trigger_instructions = trigger_instructions or f"Trigger source: {trigger_source}"
+
+    # Persist trigger_instructions in metadata so they can be inspected later
+    trigger_metadata["trigger_instructions"] = resolved_trigger_instructions
 
     async with AsyncSessionFactory() as session:
         deps = SerniaDeps(
@@ -125,7 +129,7 @@ async def run_agent_for_trigger(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
-            trigger_instructions=trigger_instructions or f"Trigger source: {trigger_source}",
+            trigger_instructions=resolved_trigger_instructions,
         )
 
         with capture_run_messages() as captured_messages:
