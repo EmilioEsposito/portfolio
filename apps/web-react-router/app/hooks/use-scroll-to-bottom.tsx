@@ -12,7 +12,15 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     const end = endRef.current;
 
     if (container && end) {
-      const observer = new MutationObserver(() => {
+      const observer = new MutationObserver((mutations) => {
+        // Ignore mutations from form/textarea elements (e.g. textarea auto-resize
+        // changes style.height, which shouldn't trigger auto-scroll)
+        const isFromInput = mutations.every((m) => {
+          const target = m.target as HTMLElement;
+          return target.closest?.("form") != null;
+        });
+        if (isFromInput) return;
+
         // Only auto-scroll if user is already near the bottom.
         // This prevents jumping when expanding tool cards, etc.
         const threshold = 80;
