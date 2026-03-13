@@ -26,9 +26,9 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('key', name=op.f('pk_app_settings')),
     )
-    # Seed default: triggers enabled
+    # Seed default: triggers disabled (safe for non-production; enable via admin UI)
     op.execute(
-        "INSERT INTO app_settings (key, value) VALUES ('triggers_enabled', 'true'::jsonb) ON CONFLICT DO NOTHING"
+        "INSERT INTO app_settings (key, value) VALUES ('triggers_enabled', 'false'::jsonb) ON CONFLICT DO NOTHING"
     )
 
 
