@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.models import _IS_PRODUCTION
 from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.ai_demos.hitl_utils import (
@@ -709,7 +710,7 @@ async def get_admin_settings(
     )
     row = result.scalar_one_or_none()
     return {
-        "triggers_enabled": row.value if row else True,
+        "triggers_enabled": row.value if row else _IS_PRODUCTION,
     }
 
 
