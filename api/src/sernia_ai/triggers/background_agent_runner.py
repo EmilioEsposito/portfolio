@@ -134,7 +134,9 @@ async def run_agent_for_trigger(
 
         with capture_run_messages() as captured_messages:
             try:
-                result = await sernia_agent.run(trigger_prompt, deps=deps)
+                result = await sernia_agent.run(
+                    trigger_prompt, deps=deps, metadata={"trigger_source": trigger_source}
+                )
             except Exception:
                 logfire.exception(
                     "trigger agent run failed",

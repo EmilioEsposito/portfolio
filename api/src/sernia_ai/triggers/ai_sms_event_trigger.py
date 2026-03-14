@@ -364,7 +364,10 @@ async def handle_ai_sms_event(event_data: dict) -> None:
 
         try:
             result = await sernia_agent.run(
-                message_text + sms_context_hint, message_history=history, deps=deps
+                message_text + sms_context_hint,
+                message_history=history,
+                deps=deps,
+                metadata={"trigger_source": "ai_sms"},
             )
         except Exception:
             logfire.exception(

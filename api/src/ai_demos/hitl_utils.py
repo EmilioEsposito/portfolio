@@ -96,6 +96,7 @@ async def resume_with_approvals(
     deps: object,
     clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
+    metadata: dict | None = None,
 ) -> AgentRunResult:
     """
     Resume a paused agent with approval decisions. Agent-agnostic.
@@ -127,6 +128,7 @@ async def resume_with_approvals(
         message_history=messages,
         deferred_tool_results=deferred_results,
         deps=deps,
+        metadata=metadata,
     )
 
     return result
