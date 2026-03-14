@@ -274,6 +274,7 @@ async def chat_sernia(
             message_history=backend_message_history if backend_message_history else None,
             deps=deps,
             on_complete=on_complete,
+            metadata={"trigger_source": "api/sernia-ai/chat"},
         )
     except anthropic.APIError as e:
         # Anthropic API errors (overloaded, rate limited, etc.) — log but don't
@@ -385,6 +386,7 @@ async def approve_conversation(
                 deps=deps,
                 clerk_user_id=None,  # Shared team access
                 session=session,
+                metadata={"trigger_source": "api/sernia-ai/approve"},
             )
 
         # Persist the approval result (tool outputs + agent follow-up) to DB
