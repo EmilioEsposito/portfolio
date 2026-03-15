@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
 from api.src.google.gmail.service import process_single_message
-from api.src.database.database import DBSession
+from api.src.database.database import session_context
 from api.src.google.gmail.db_ops import save_email_message, get_email_by_message_id, get_test_session
 from api.src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
 from api.src.google.common.service_account_auth import get_delegated_credentials
@@ -27,7 +27,6 @@ router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 @router.post("/gmail/notifications")
 async def handle_gmail_notifications(
     request: Request,
-    session: DBSession
 ):
     """
     Receives Gmail push notifications from Google Pub/Sub.
@@ -69,8 +68,8 @@ async def handle_gmail_notifications(
             # Decode and process the notification
             pubsub_decoded_json = decode_pubsub_message(pubsub_message_data)
             
-            # Process the notification with the provided session
-            processing_result = await process_gmail_notification(pubsub_decoded_json, session)
+            # Process the notification (uses per-message sessions to avoid pool exhaustion)
+            processing_result = await process_gmail_notification(pubsub_decoded_json)
             
             # Handle response based on processing result
             if processing_result["status"] == "success":
@@ -109,18 +108,22 @@ async def handle_gmail_notifications(
             content=f"Failed to process Gmail notification (unhandled error2): {str(e)}"
         )
 
-async def process_gmail_notification(pubsub_notification_data: dict, session: AsyncSession):
+async def process_gmail_notification(pubsub_notification_data: dict):
     """
     Process a Gmail notification and store messages in the database.
-    
+
+    Uses short-lived per-message sessions instead of a single long-lived session
+    to avoid QueuePool exhaustion during bursts of notifications. Each email save
+    checks out a connection only for the duration of the DB write, not during
+    the slow Gmail API calls.
+
     Args:
         pubsub_notification_data: The decoded notification data from Pub/Sub
             Example: {
                 "emailAddress": "user@example.com",
                 "historyId": "12345"
             }
-        session: SQLAlchemy async session
-    
+
     Returns:
         Dictionary with:
         - status: "success", "no_messages", or "retry_needed"
@@ -186,9 +189,11 @@ async def process_gmail_notification(pubsub_notification_data: dict, session: As
                     continue
                 
                 processed_email_message = await process_single_message(email_message)
-                 
-                # Save to database (will update if message exists)
-                saved_msg = await save_email_message(session, processed_email_message, history_id)
+
+                # Save to database using a short-lived session (will update if message exists).
+                # This avoids holding a pooled connection during slow Gmail API calls.
+                async with session_context() as save_session:
+                    saved_msg = await save_email_message(save_session, processed_email_message, history_id)
                 if saved_msg:
                     processed_email_messages.append(processed_email_message)
                     logfire.info(
@@ -275,14 +280,12 @@ async def test_process_gmail_notification():
         "historyId": 6531598
     }
     
-    # Use the test session for the test
-    async with get_test_session() as session:
-        # Call the function with the test session
-        processing_result = await process_gmail_notification(pubsub_notification_data, session)
+    # Call the function (it creates its own per-message sessions)
+    processing_result = await process_gmail_notification(pubsub_notification_data)
 
-        assert processing_result['status'] in ["success", "no_messages", "retry_needed"]
-        
-        # Log the results
-        for email_msg in processing_result['messages']:
-            print(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
-            assert email_msg['subject'] is not None
+    assert processing_result['status'] in ["success", "no_messages", "retry_needed"]
+
+    # Log the results
+    for email_msg in processing_result['messages']:
+        print(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
+        assert email_msg['subject'] is not None

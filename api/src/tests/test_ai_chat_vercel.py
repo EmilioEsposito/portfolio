@@ -146,29 +146,20 @@ def test_chat_emilio_endpoint_streaming_format(client):
 
 
 def test_chat_emilio_endpoint_empty_messages(client):
-    """Test endpoint handles empty messages gracefully"""
+    """Test endpoint rejects empty messages with 400 to avoid Anthropic API errors."""
     request_body = {
         "trigger": "submit-message",
         "id": str(uuid.uuid4()),
         "messages": []
     }
-    
+
     with client.stream(
         "POST",
         "/api/ai-demos/chat-emilio",
         json=request_body,
         headers={"Accept": "text/event-stream"},
     ) as response:
-        # Should still return 200, but may have error event
-        assert response.status_code == 200
-        
-        events = []
-        for line in response.iter_lines():
-            if line:
-                events.append(line)
-        
-        # Should have some response (even if error)
-        assert len(events) > 0
+        assert response.status_code == 400
 
 
 def test_chat_emilio_endpoint_multiple_messages(client):

@@ -107,8 +107,8 @@ async_connect_args["ssl"] = DATABASE_REQUIRE_SSL
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Disable verbose SQL logging by default
-    pool_size=5,  # Limit concurrent connections
-    max_overflow=10,  # Allow up to 10 additional connections
+    pool_size=10,  # Base concurrent connections (increased from 5 for PubSub + trigger concurrency)
+    max_overflow=20,  # Allow up to 20 additional connections (increased from 10)
     pool_timeout=30,  # Wait up to 30 seconds for a connection
     pool_recycle=300,  # Recycle connections every 5 minutes
     pool_pre_ping=True,  # Verify connection is alive before using
