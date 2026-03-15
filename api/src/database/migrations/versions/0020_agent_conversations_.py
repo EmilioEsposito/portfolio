@@ -33,8 +33,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_agent_conversations_agent_name'), 'agent_conversations', ['agent_name'], unique=False)
     op.create_index(op.f('ix_agent_conversations_id'), 'agent_conversations', ['id'], unique=False)
     op.create_index(op.f('ix_agent_conversations_user_id'), 'agent_conversations', ['user_id'], unique=False)
-    op.drop_index('ix_apscheduler_jobs_next_run_time', table_name='apscheduler_jobs')
-    op.drop_table('apscheduler_jobs')
+    op.execute('DROP INDEX IF EXISTS ix_apscheduler_jobs_next_run_time')
+    op.execute('DROP TABLE IF EXISTS apscheduler_jobs')
     # ### end Alembic commands ###
 
 
