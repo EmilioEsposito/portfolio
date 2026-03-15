@@ -17,6 +17,7 @@ from api.src.sernia_ai.push.models import WebPushSubscription
 
 _VAPID_PRIVATE_KEY_RAW = os.environ.get("VAPID_PRIVATE_KEY", "")
 _RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
+_IS_PRODUCTION = _RAILWAY_ENV == "production"
 VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@serniacapital.com")
 
 # Build a Vapid object at module load so pywebpush doesn't have to parse
@@ -31,7 +32,12 @@ if _VAPID_PRIVATE_KEY_RAW:
         else:
             _vapid = Vapid.from_string(pem)
     except Exception:
-        logfire.exception("Failed to load VAPID private key")
+        # Only log error in production where VAPID should be properly configured.
+        # In non-production, a missing/invalid key is expected (no push capability).
+        if _IS_PRODUCTION:
+            logfire.exception("Failed to load VAPID private key")
+        else:
+            logfire.warn("VAPID key not configured or invalid — web push disabled")
 
 
 async def save_subscription(

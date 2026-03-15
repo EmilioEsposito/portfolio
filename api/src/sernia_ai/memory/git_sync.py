@@ -141,7 +141,7 @@ async def ensure_repo(workspace_path: Path) -> None:
                 rc = 0  # resolved
 
         if rc != 0:
-            logfire.error(f"git_sync: pull failed (non-fatal): {stderr}")
+            logfire.warn(f"git_sync: pull failed (non-fatal): {stderr}")
 
         # Push any uncommitted changes left over from a previous run
         # (e.g. server crashed before commit_and_push fired).
