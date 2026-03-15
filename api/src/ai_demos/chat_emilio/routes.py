@@ -154,6 +154,13 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
     # Read the request JSON to get the conversation ID
     request_json = await request.json()
     conversation_id = request_json.get('id')
+
+    # Validate that there are messages to process — the Anthropic API rejects
+    # requests with an empty messages array ("at least one message is required").
+    messages = request_json.get('messages', [])
+    if not messages:
+        logfire.warn("chat_emilio: empty messages array in request", conversation_id=conversation_id)
+        return Response(status_code=400, content="messages array is empty")
     
     # Log new messages
     if request_json.get('trigger') == 'submit-message':
