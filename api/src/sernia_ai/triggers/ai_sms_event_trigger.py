@@ -52,6 +52,7 @@ from api.src.sernia_ai.push.service import (
     notify_pending_approval,
     notify_team_sms,
 )
+from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 from api.src.ai_demos.models import (
     get_conversation_messages,
@@ -378,7 +379,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             return
 
         # Commit any workspace changes
-        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
         trigger_metadata = {
             "trigger_source": "ai_sms",
@@ -404,19 +405,21 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         if pending:
             # HITL pause — notify team, don't send SMS yet
             first = pending[0]
-            asyncio.create_task(
+            create_logged_task(
                 notify_pending_approval(
                     conversation_id=conv_id,
                     tool_name=first["tool_name"],
                     tool_args=first.get("args"),
-                )
+                ),
+                name="notify_pending_approval",
             )
-            asyncio.create_task(
+            create_logged_task(
                 notify_team_sms(
                     title=f"SMS Approval Needed: {first['tool_name'].replace('_', ' ').title()}",
                     body=f"From {contact_name} ({from_number})",
                     conversation_id=conv_id,
-                )
+                ),
+                name="notify_team_sms",
             )
             logfire.info(
                 "ai_sms_event: HITL pause — awaiting approval",
@@ -435,8 +438,9 @@ async def handle_ai_sms_event(event_data: dict) -> None:
                 result.output if isinstance(result.output, str) else ""
             )
             if output_text:
-                asyncio.create_task(
-                    _send_sms_reply(from_number, output_text)
+                create_logged_task(
+                    _send_sms_reply(from_number, output_text),
+                    name="sms_reply",
                 )
 
         logfire.info(

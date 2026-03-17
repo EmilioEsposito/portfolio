@@ -8,7 +8,6 @@ When the agent decides human attention is needed, it creates a web chat
 conversation and sends a push notification. When the event is routine,
 the agent responds silently (may still update workspace memory).
 """
-import asyncio
 import time
 import uuid
 
@@ -29,6 +28,7 @@ from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.agent import NoAction
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert, notify_user_push
+from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.ai_demos.models import save_agent_conversation
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 
@@ -160,7 +160,7 @@ async def run_agent_for_trigger(
                 return None
 
         # Commit any workspace changes (memory updates, notes)
-        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
         # persist the conversation
         try:
@@ -196,18 +196,19 @@ async def run_agent_for_trigger(
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
-            asyncio.create_task(
+            create_logged_task(
                 notify_pending_approval(
                     conversation_id=conv_id,
                     tool_name=first["tool_name"],
                     tool_args=first.get("args"),
-                )
+                ),
+                name="notify_pending_approval",
             )
         elif notify_clerk_user_id:
             # Targeted push — only notify a specific user (e.g. Emilio for Zillow drafts)
             alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
             alert_body = notification_body or "New event needs your attention"
-            asyncio.create_task(
+            create_logged_task(
                 notify_user_push(
                     clerk_user_id=notify_clerk_user_id,
                     title=alert_title,
@@ -218,18 +219,20 @@ async def run_agent_for_trigger(
                         "type": "alert",
                         "trigger_source": trigger_source,
                     },
-                )
+                ),
+                name="notify_user_push",
             )
         else:
             alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
             alert_body = notification_body or "New event needs your attention"
-            asyncio.create_task(
+            create_logged_task(
                 notify_trigger_alert(
                     conversation_id=conv_id,
                     trigger_source=trigger_source,
                     title=alert_title,
                     body=alert_body,
-                )
+                ),
+                name="notify_trigger_alert",
             )
 
         logfire.info(
