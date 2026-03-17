@@ -94,7 +94,7 @@ async def handle_gmail_notifications(
                     }
                 )
             
-        except Exception:
+        except Exception as e:
             logfire.exception("Failed to process notification")
             return Response(
                 status_code=500,
