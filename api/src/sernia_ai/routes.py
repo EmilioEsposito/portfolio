@@ -51,6 +51,7 @@ from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.push.routes import router as push_router
 from api.src.sernia_ai.push.service import notify_pending_approval
+from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.database.database import DBSession
 
@@ -251,18 +252,19 @@ async def chat_sernia(
             agent_name=AGENT_NAME,
             clerk_user_id=clerk_user_id,
         )
-        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
         # Send push notification if there are pending approvals
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
-            asyncio.create_task(
+            create_logged_task(
                 notify_pending_approval(
                     conversation_id=conversation_id,
                     tool_name=first["tool_name"],
                     tool_args=first.get("args"),
-                )
+                ),
+                name="notify_pending_approval",
             )
 
     on_complete = _on_complete
@@ -397,7 +399,7 @@ async def approve_conversation(
             agent_name=AGENT_NAME,
             clerk_user_id=clerk_user_id,
         )
-        asyncio.create_task(commit_and_push(WORKSPACE_PATH))
+        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
         # If this is an SMS conversation, send the agent's response back via SMS
         conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
@@ -409,11 +411,12 @@ async def approve_conversation(
             and conv.metadata_
             and conv.metadata_.get("trigger_phone")
         ):
-            asyncio.create_task(
+            create_logged_task(
                 _send_sms_reply(
                     to_phone=conv.metadata_["trigger_phone"],
                     message=result.output,
-                )
+                ),
+                name="sms_reply",
             )
 
         pending = extract_pending_approvals(result)
