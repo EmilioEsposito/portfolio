@@ -65,8 +65,8 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # Skills toolset — loads SKILL.md files from .workspace/skills/
 # Note: initial discovery may find nothing if workspace hasn't been git-synced yet.
 # Call reload_skills() after workspace init in lifespan to pick up synced skills.
-# validate=False: workspace is user-editable runtime data — bad SKILL.md files must
-# not crash the app. Errors are logged in reload_skills() instead.
+# validate=False so one bad SKILL.md doesn't block all skills or crash startup.
+# reload_skills() captures the warnings and logs them to Logfire for alerting.
 skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"], validate=False)
 
 
@@ -75,14 +75,32 @@ def reload_skills() -> None:
 
     Non-blocking: invalid SKILL.md files (bad YAML, etc.) are logged to Logfire
     and skipped — the workspace repo must never crash an agent run.
+
+    The library emits warnings.warn() for skipped skills when validate=False.
+    We capture those and re-log as logfire.error() so Logfire alerts fire.
     """
+    import warnings
+
     skills_toolset._skills.clear()
     for skill_dir in skills_toolset._skill_directories:
         try:
-            for skill in skill_dir.get_skills().values():
-                skills_toolset._skills[skill.name] = skill
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                for skill in skill_dir.get_skills().values():
+                    skills_toolset._skills[skill.name] = skill
+            for w in caught:
+                logfire.error(
+                    "Skipped invalid skill: {message}",
+                    message=str(w.message),
+                    category=w.category.__name__,
+                    filename=str(w.filename),
+                    lineno=w.lineno,
+                )
         except Exception:
-            logfire.exception("Failed to reload skills from {path}", path=str(skill_dir._path))
+            logfire.exception(
+                "Failed to reload skills from {path}",
+                path=str(skill_dir._path),
+            )
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
