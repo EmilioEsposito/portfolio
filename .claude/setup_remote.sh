@@ -37,16 +37,52 @@ echo ""
 echo "--- GitHub CLI Setup ---"
 if ! command -v gh &>/dev/null; then
   echo "Installing GitHub CLI..."
-  (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
-    && mkdir -p -m 755 /etc/apt/keyrings \
-    && out=$(mktemp) && wget -nv -O "$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    && cat "$out" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update && apt-get install gh -y
-  echo "GitHub CLI installed: $(gh --version | head -1)"
+  GH_VERSION="2.65.0"
+  GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
+  curl -fsSL -o "/tmp/${GH_ARCHIVE}" "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" \
+    && tar -xzf "/tmp/${GH_ARCHIVE}" -C /tmp \
+    && cp "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf "/tmp/${GH_ARCHIVE}" "/tmp/gh_${GH_VERSION}_linux_amd64"
+  if command -v gh &>/dev/null; then
+    echo "GitHub CLI installed: $(gh --version | head -1)"
+  else
+    echo "WARNING: GitHub CLI installation failed"
+  fi
 else
   echo "GitHub CLI already installed: $(gh --version | head -1)"
+fi
+
+# =============================================================================
+# RAILWAY CLI (requires gh to be installed first — direct URLs are blocked)
+# =============================================================================
+echo ""
+echo "--- Railway CLI Setup ---"
+if ! command -v railway &>/dev/null; then
+  if command -v gh &>/dev/null; then
+    echo "Installing Railway CLI via gh..."
+    RAILWAY_VERSION=$(gh release view --repo railwayapp/cli --json tagName -q .tagName 2>/dev/null)
+    if [ -n "$RAILWAY_VERSION" ]; then
+      gh release download "$RAILWAY_VERSION" --repo railwayapp/cli \
+        --pattern "railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+        --dir /tmp 2>/dev/null \
+        && tar -xzf "/tmp/railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -C /tmp \
+        && cp /tmp/railway /usr/local/bin/railway \
+        && chmod +x /usr/local/bin/railway \
+        && rm -f "/tmp/railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" /tmp/railway
+      if command -v railway &>/dev/null; then
+        echo "Railway CLI installed: $(railway --version)"
+      else
+        echo "WARNING: Railway CLI installation failed"
+      fi
+    else
+      echo "WARNING: Could not determine Railway CLI latest version"
+    fi
+  else
+    echo "WARNING: gh CLI not available, skipping Railway CLI install"
+  fi
+else
+  echo "Railway CLI already installed: $(railway --version)"
 fi
 
 # =============================================================================
