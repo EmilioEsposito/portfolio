@@ -16,7 +16,14 @@ WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "rentometer.com",
     "clickup.com",
     "serniacapital.com",
-    # Add more as needed
+    # Add more as needed,
+    "platform.claude.com",
+    "support.claude.com",
+    "code.claude.com",
+    "developers.openai.com",
+    "docs.openai.com",
+    "support.openai.com",
+    "platform.openai.com",
 ]
 
 # Compaction: trigger at ~85% of context window token estimate.
