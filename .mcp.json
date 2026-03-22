@@ -16,7 +16,9 @@
       "type": "stdio",
       "command": "npx",
       "args": ["@railway/mcp-server"],
-      "env": {}
+      "env": {
+        "RAILWAY_API_TOKEN": "${RAILWAY_API_TOKEN:-}"
+      }
     },
     "logfire": {
       "type": "http",
