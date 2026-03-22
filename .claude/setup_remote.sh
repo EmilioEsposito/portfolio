@@ -37,14 +37,18 @@ echo ""
 echo "--- GitHub CLI Setup ---"
 if ! command -v gh &>/dev/null; then
   echo "Installing GitHub CLI..."
-  (type -p wget >/dev/null || (apt-get update && apt-get install wget -y)) \
-    && mkdir -p -m 755 /etc/apt/keyrings \
-    && out=$(mktemp) && wget -nv -O "$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    && cat "$out" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update && apt-get install gh -y
-  echo "GitHub CLI installed: $(gh --version | head -1)"
+  GH_VERSION="2.65.0"
+  GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
+  curl -fsSL -o "/tmp/${GH_ARCHIVE}" "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" \
+    && tar -xzf "/tmp/${GH_ARCHIVE}" -C /tmp \
+    && cp "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf "/tmp/${GH_ARCHIVE}" "/tmp/gh_${GH_VERSION}_linux_amd64"
+  if command -v gh &>/dev/null; then
+    echo "GitHub CLI installed: $(gh --version | head -1)"
+  else
+    echo "WARNING: GitHub CLI installation failed"
+  fi
 else
   echo "GitHub CLI already installed: $(gh --version | head -1)"
 fi
