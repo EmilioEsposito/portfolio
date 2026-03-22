@@ -54,6 +54,38 @@ else
 fi
 
 # =============================================================================
+# RAILWAY CLI (requires gh to be installed first — direct URLs are blocked)
+# =============================================================================
+echo ""
+echo "--- Railway CLI Setup ---"
+if ! command -v railway &>/dev/null; then
+  if command -v gh &>/dev/null; then
+    echo "Installing Railway CLI via gh..."
+    RAILWAY_VERSION=$(gh release view --repo railwayapp/cli --json tagName -q .tagName 2>/dev/null)
+    if [ -n "$RAILWAY_VERSION" ]; then
+      gh release download "$RAILWAY_VERSION" --repo railwayapp/cli \
+        --pattern "railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+        --dir /tmp 2>/dev/null \
+        && tar -xzf "/tmp/railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -C /tmp \
+        && cp /tmp/railway /usr/local/bin/railway \
+        && chmod +x /usr/local/bin/railway \
+        && rm -f "/tmp/railway-${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" /tmp/railway
+      if command -v railway &>/dev/null; then
+        echo "Railway CLI installed: $(railway --version)"
+      else
+        echo "WARNING: Railway CLI installation failed"
+      fi
+    else
+      echo "WARNING: Could not determine Railway CLI latest version"
+    fi
+  else
+    echo "WARNING: gh CLI not available, skipping Railway CLI install"
+  fi
+else
+  echo "Railway CLI already installed: $(railway --version)"
+fi
+
+# =============================================================================
 # PYTHON ENVIRONMENT
 # =============================================================================
 echo ""
