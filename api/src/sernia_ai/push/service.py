@@ -15,27 +15,52 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.database.database import AsyncSessionFactory, provide_session
 from api.src.sernia_ai.push.models import WebPushSubscription
 
-_VAPID_PRIVATE_KEY_RAW = os.environ.get("VAPID_PRIVATE_KEY", "")
 _RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
 VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@serniacapital.com")
 
-# Build a Vapid object at module load so pywebpush doesn't have to parse
-# the key on every send. Handles PEM strings from .env (with literal \n or
-# real newlines) and raw base64 DER.
+# Lazy-loaded Vapid object.  Reading the env var at module import time is
+# unreliable on Railway (multi-worker startup race), so we defer to first use
+# and retry on subsequent calls if the initial attempt failed.
 _vapid: Vapid | None = None
-if _VAPID_PRIVATE_KEY_RAW:
+_vapid_loaded: bool = False
+
+
+def _get_vapid() -> Vapid | None:
+    """Return the cached Vapid object, loading from env on first call.
+
+    Retries each call if the previous attempt failed — covers the case where
+    the env var wasn't readable at module import but is available later.
+    """
+    global _vapid, _vapid_loaded
+    if _vapid is not None:
+        return _vapid
+    if _vapid_loaded:
+        # Already tried and failed — but retry in case the env var appeared
+        pass
+
+    raw = os.environ.get("VAPID_PRIVATE_KEY", "")
+    if not raw:
+        if not _vapid_loaded:
+            logfire.warn("VAPID_PRIVATE_KEY not set — push notifications disabled")
+        _vapid_loaded = True
+        return None
+
     try:
-        pem = _VAPID_PRIVATE_KEY_RAW.replace("\\n", "\n").strip()
+        pem = raw.replace("\\n", "\n").strip()
         if pem.startswith("-----"):
             _vapid = Vapid.from_pem(pem.encode())
         else:
             _vapid = Vapid.from_string(pem)
+        _vapid_loaded = True
+        logfire.info("VAPID private key loaded successfully")
+        return _vapid
     except Exception:
         logfire.exception(
-            "Failed to load VAPID private key — push notifications disabled. "
-            "Check VAPID_PRIVATE_KEY env var (expected PEM or base64 DER, got {length} chars).",
-            length=len(_VAPID_PRIVATE_KEY_RAW),
+            "Failed to load VAPID private key (got {length} chars). Will retry next call.",
+            length=len(raw),
         )
+        _vapid_loaded = True
+        return None
 
 
 async def save_subscription(
@@ -89,10 +114,13 @@ async def remove_subscription(
 
 def _send_push(subscription_info: dict, payload: str):
     """Synchronous push send — run via asyncio.to_thread."""
+    vapid = _get_vapid()
+    if not vapid:
+        raise RuntimeError("VAPID key not available")
     return webpush(
         subscription_info=subscription_info,
         data=payload,
-        vapid_private_key=_vapid,
+        vapid_private_key=vapid,
         vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
         ttl=86400,  # 24 hours — default 0 means "discard if not delivered immediately"
     )
@@ -104,7 +132,7 @@ async def notify_all_sernia_users(
     data: dict | None = None,
 ) -> None:
     """Send a push notification to all active Sernia subscriptions."""
-    if not _vapid:
+    if not _get_vapid():
         logfire.warn("VAPID private key not loaded — skipping push notification")
         return
 
@@ -161,7 +189,7 @@ async def notify_user_push(
     data: dict | None = None,
 ) -> None:
     """Send a push notification to a specific user's subscriptions only."""
-    if not _vapid:
+    if not _get_vapid():
         logfire.warn("VAPID private key not loaded — skipping push notification")
         return
 
