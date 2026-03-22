@@ -30,8 +30,14 @@ if _VAPID_PRIVATE_KEY_RAW:
             _vapid = Vapid.from_pem(pem.encode())
         else:
             _vapid = Vapid.from_string(pem)
-    except Exception:
-        logfire.exception("Failed to load VAPID private key")
+    except Exception as e:
+        # Log at warning level — missing/invalid VAPID key disables web push
+        # but is not a critical error (graceful degradation)
+        logfire.warn(
+            "VAPID private key invalid or missing — web push disabled",
+            error=str(e),
+            key_length=len(_VAPID_PRIVATE_KEY_RAW),
+        )
 
 
 async def save_subscription(
