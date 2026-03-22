@@ -63,7 +63,8 @@ The `_get_contact_unit()` helper extracts this as a `(property, unit)` tuple, re
 ### Other Tools
 
 - **search_contacts** — Fuzzy search by name, phone, or company against a TTL-cached (5 min) contact list.
-- **MCP-bridged tools** — `createContact_v1`, `updateContactById_v1`, `deleteContact_v1`, `getContactCustomFields_v1`, `listCalls_v1`, `getCallById_v1`, `getCallSummary_v1`, `getCallTranscript_v1`. Contact writes require HITL approval.
+- **update_contact** — Safe read-merge-write contact update. Fetches the full contact first, merges only the provided fields, then sends the complete payload to Quo. Works around Quo's PATCH bug that clears omitted fields. Requires HITL approval.
+- **MCP-bridged tools** — `createContact_v1`, `deleteContact_v1`, `getContactCustomFields_v1`, `listCalls_v1`, `getCallById_v1`, `getCallSummary_v1`, `getCallTranscript_v1`. Contact writes require HITL approval.
 
 ## Scheduling (`scheduling_tools.py`)
 

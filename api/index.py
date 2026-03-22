@@ -54,7 +54,7 @@ with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
     from api.src.sernia_ai.routes import router as sernia_ai_router
 
-from api.src.open_phone import router as open_phone_router
+from api.src.open_phone.routes import router as open_phone_router
 from api.src.cron import router as cron_router
 from api.src.google.common.routes import router as google_router
 from api.src.examples.routes import router as examples_router
