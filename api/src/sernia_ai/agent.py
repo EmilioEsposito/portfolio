@@ -65,15 +65,24 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # Skills toolset — loads SKILL.md files from .workspace/skills/
 # Note: initial discovery may find nothing if workspace hasn't been git-synced yet.
 # Call reload_skills() after workspace init in lifespan to pick up synced skills.
-skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
+# validate=False: workspace is user-editable runtime data — bad SKILL.md files must
+# not crash the app. Errors are logged in reload_skills() instead.
+skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"], validate=False)
 
 
 def reload_skills() -> None:
-    """Re-discover skills from disk. Called every agent run so edits take effect immediately."""
+    """Re-discover skills from disk. Called every agent run so edits take effect immediately.
+
+    Non-blocking: invalid SKILL.md files (bad YAML, etc.) are logged to Logfire
+    and skipped — the workspace repo must never crash an agent run.
+    """
     skills_toolset._skills.clear()
     for skill_dir in skills_toolset._skill_directories:
-        for skill in skill_dir.get_skills().values():
-            skills_toolset._skills[skill.name] = skill
+        try:
+            for skill in skill_dir.get_skills().values():
+                skills_toolset._skills[skill.name] = skill
+        except Exception:
+            logfire.exception("Failed to reload skills from {path}", path=str(skill_dir._path))
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
@@ -109,9 +118,15 @@ async def inject_skills_instructions(ctx: RunContext[SerniaDeps]) -> str | None:
 
     Runs at the start of every agent run, so skill edits (by the agent or
     manually) take effect without restarting the server.
+
+    Non-blocking: errors are logged to Logfire but never crash the agent run.
     """
     reload_skills()
-    return await skills_toolset.get_instructions(ctx)
+    try:
+        return await skills_toolset.get_instructions(ctx)
+    except Exception:
+        logfire.exception("Failed to inject skills instructions")
+        return None
 
 
 @sernia_agent.tool
