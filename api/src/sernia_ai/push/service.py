@@ -31,7 +31,11 @@ if _VAPID_PRIVATE_KEY_RAW:
         else:
             _vapid = Vapid.from_string(pem)
     except Exception:
-        logfire.exception("Failed to load VAPID private key")
+        logfire.exception(
+            "Failed to load VAPID private key — push notifications disabled. "
+            "Check VAPID_PRIVATE_KEY env var (expected PEM or base64 DER, got {length} chars).",
+            length=len(_VAPID_PRIVATE_KEY_RAW),
+        )
 
 
 async def save_subscription(
