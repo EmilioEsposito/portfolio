@@ -39,6 +39,12 @@ self.addEventListener("notificationclick", (event) => {
       // Focus an existing sernia-chat tab if one exists
       for (const client of windowClients) {
         if (client.url.includes("/sernia-chat") && "focus" in client) {
+          // Tell the page to reload conversation data before navigating
+          client.postMessage({
+            type: "notification-click",
+            url,
+            data: event.notification.data,
+          });
           client.navigate(url);
           return client.focus();
         }

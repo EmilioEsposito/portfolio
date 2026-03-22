@@ -69,11 +69,20 @@ skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
 
 
 def reload_skills() -> None:
-    """Re-discover skills from disk. Called every agent run so edits take effect immediately."""
+    """Re-discover skills from disk. Called every agent run so edits take effect immediately.
+
+    Catches errors per-directory so a broken skill file doesn't kill the entire agent run.
+    """
     skills_toolset._skills.clear()
     for skill_dir in skills_toolset._skill_directories:
-        for skill in skill_dir.get_skills().values():
-            skills_toolset._skills[skill.name] = skill
+        try:
+            for skill in skill_dir.get_skills().values():
+                skills_toolset._skills[skill.name] = skill
+        except Exception:
+            logfire.exception(
+                "Failed to load skills from directory — skipping",
+                directory=str(skill_dir._skill_directory),
+            )
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
@@ -109,9 +118,17 @@ async def inject_skills_instructions(ctx: RunContext[SerniaDeps]) -> str | None:
 
     Runs at the start of every agent run, so skill edits (by the agent or
     manually) take effect without restarting the server.
+
+    Workspace skills are runtime-editable and must never block an agent run.
+    Errors are logged as exceptions (triggers Logfire alerts) but swallowed
+    so the agent continues without skills.
     """
-    reload_skills()
-    return await skills_toolset.get_instructions(ctx)
+    try:
+        reload_skills()
+        return await skills_toolset.get_instructions(ctx)
+    except Exception:
+        logfire.exception("inject_skills_instructions failed — agent will run without skills")
+        return None
 
 
 @sernia_agent.tool

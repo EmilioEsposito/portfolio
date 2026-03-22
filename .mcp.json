@@ -20,7 +20,10 @@
     },
     "logfire": {
       "type": "http",
-      "url": "https://logfire-us.pydantic.dev/mcp"
+      "url": "https://logfire-us.pydantic.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LOGFIRE_READ_ONLY_API_KEY:-}"
+      }
     },
     "quo": {
       "type": "http",

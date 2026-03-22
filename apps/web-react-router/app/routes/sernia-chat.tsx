@@ -935,7 +935,8 @@ export default function SerniaChatPage() {
     [isSignedIn, getToken, navigate]
   );
 
-  // Load from URL on mount, or populate URL with new conversation ID
+  // Load from URL on mount or when URL conversation ID changes
+  // (e.g. notification click navigates to a different conversation)
   useEffect(() => {
     if (urlConversationId && isSignedIn) {
       loadConversation(urlConversationId, { updateUrl: false });
@@ -943,7 +944,33 @@ export default function SerniaChatPage() {
       navigate(`/sernia-chat?id=${conversationId}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSignedIn]);
+  }, [isSignedIn, urlConversationId]);
+
+  // Re-fetch conversation when page regains visibility (covers PWA focus,
+  // notification click to same conversation, and tab switching).
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && isSignedIn && conversationId) {
+        loadConversation(conversationId, { updateUrl: false });
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [isSignedIn, conversationId, loadConversation]);
+
+  // Listen for service worker messages (e.g. notification click on same conversation)
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "notification-click" && isSignedIn) {
+        const convId = event.data.data?.conversation_id;
+        if (convId) {
+          loadConversation(convId, { updateUrl: true });
+        }
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", handler);
+    return () => navigator.serviceWorker?.removeEventListener("message", handler);
+  }, [isSignedIn, loadConversation]);
 
   // Delete a conversation
   const deleteConversation = useCallback(
