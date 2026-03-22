@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass
 
 import httpx
+from pydantic import BaseModel, Field
 from api.src.open_phone.service import (
     get_all_contacts,
     find_contact_by_phone,
@@ -66,18 +67,16 @@ OPENPHONE_SPEC_URL = (
 )
 
 # MCP-generated tools that mutate data and require human approval.
+# createContact_v1 / updateContactById_v1 replaced by custom tools with
+# proper Pydantic types, first-class tags, and read-merge-write safety.
 _MCP_WRITE_TOOLS = frozenset({
-    "createContact_v1",
-    "updateContactById_v1",
     "deleteContact_v1",
 })
 
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
-# sendMessage_v1 → custom send_sms; listContacts_v1 → custom search_contacts.
+# Contact create/update/search → custom tools; keep delete + field defs.
 _KEEP_TOOLS = frozenset({
-    # Contacts (search is custom; keep write ops)
-    "createContact_v1",
-    "updateContactById_v1",
+    # Contacts
     "deleteContact_v1",
     "getContactCustomFields_v1",
     # Calls
@@ -655,6 +654,120 @@ async def _seed_sms_conversation(
 
 
 # ---------------------------------------------------------------------------
+# Contact Pydantic models & helpers
+# ---------------------------------------------------------------------------
+
+# Custom field keys — kept in sync with Quo account settings.
+# Run `GET /v1/contact-custom-fields` to refresh.
+_CF_KEY_PROPERTY = "67a69fc2ea4fe3a7edd09276"
+_CF_KEY_UNIT = "67e1f12cd6d6910515ec7ca2"
+_CF_KEY_TAGS = "6827a195fe60ba0130f30b92"
+_CF_KEY_LEASE_START = "68e3c2314fa9b10d97c5e294"
+_CF_KEY_LEASE_END = "68e3c23f4fa9b10d97c5e296"
+_CF_KEY_EXTERNAL_ID = "67a3fe231c0f12583994d994"
+
+
+class PhoneNumber(BaseModel):
+    """A phone number entry on a Quo contact."""
+    name: str = Field(default="Phone Number", description='Label, e.g. "Phone Number", "Work", "mobile".')
+    value: str = Field(description="Phone number in E.164 format, e.g. +14125551234.")
+
+
+class Email(BaseModel):
+    """An email entry on a Quo contact."""
+    name: str = Field(default="Email", description='Label, e.g. "Email", "Work".')
+    value: str = Field(description="Email address.")
+
+
+class CustomField(BaseModel):
+    """A custom field entry. Use getContactCustomFields_v1 to look up keys."""
+    key: str = Field(description="The 24-char hex custom field key.")
+    value: str | list[str] | None = Field(description="Value — string for text/date fields, list of strings for multi-select (e.g. Tags).")
+
+
+def _build_custom_fields(
+    tags: list[str] | None,
+    custom_fields: list[CustomField | dict] | None,
+) -> list[dict]:
+    """Merge first-class tag param with raw custom fields list."""
+    cf_map: dict[str, dict] = {}
+    if custom_fields:
+        for cf in custom_fields:
+            d = cf.model_dump() if isinstance(cf, CustomField) else cf
+            cf_map[d["key"]] = d
+    if tags is not None:
+        cf_map[_CF_KEY_TAGS] = {"key": _CF_KEY_TAGS, "value": tags}
+    return list(cf_map.values())
+
+
+def _build_contact_payload(
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    company: str | None = None,
+    role: str | None = None,
+    phone_numbers: list[PhoneNumber | dict] | None = None,
+    emails: list[Email | dict] | None = None,
+    tags: list[str] | None = None,
+    custom_fields: list[CustomField | dict] | None = None,
+    existing: dict | None = None,
+) -> dict:
+    """Build an API payload for create or update.
+
+    For create (existing=None): builds from scratch.
+    For update (existing=contact dict): merges only provided fields.
+    """
+    if existing:
+        merged = json.loads(json.dumps(existing))  # deep copy
+    else:
+        merged = {"defaultFields": {}, "customFields": []}
+
+    df = merged.setdefault("defaultFields", {})
+
+    # Scalar defaultFields — set if provided (or always for create)
+    for field_name, value in [
+        ("firstName", first_name),
+        ("lastName", last_name),
+        ("company", company),
+        ("role", role),
+    ]:
+        if value is not None:
+            df[field_name] = value
+
+    # List defaultFields — replace when provided
+    if phone_numbers is not None:
+        df["phoneNumbers"] = [
+            pn.model_dump() if isinstance(pn, PhoneNumber) else pn
+            for pn in phone_numbers
+        ]
+    if emails is not None:
+        df["emails"] = [
+            em.model_dump() if isinstance(em, Email) else em
+            for em in emails
+        ]
+
+    # Custom fields — merge by key
+    new_cfs = _build_custom_fields(tags, custom_fields)
+    if new_cfs:
+        existing_cf = {cf["key"]: cf for cf in merged.get("customFields", [])}
+        for cf in new_cfs:
+            existing_cf[cf["key"]] = cf
+        merged["customFields"] = list(existing_cf.values())
+
+    return {
+        "defaultFields": merged["defaultFields"],
+        "customFields": merged.get("customFields", []),
+    }
+
+
+async def _get_contact_by_id(client: httpx.AsyncClient, contact_id: str) -> dict:
+    """Fetch a single contact by ID from Quo. Raises on error."""
+    resp = await client.get(f"/v1/contacts/{contact_id}")
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
+# ---------------------------------------------------------------------------
 # Build the toolset
 # ---------------------------------------------------------------------------
 
@@ -1015,6 +1128,122 @@ def _build_quo_toolset():
             max_results: Max messages to return (default 20, most recent).
         """
         return await get_thread_messages_impl(client, phone_number, max_results)
+
+    # ------------------------------------------------------------------
+    # create_contact — replaces MCP createContact_v1
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool
+    async def create_contact(
+        ctx: RunContext[SerniaDeps],
+        first_name: str,
+        last_name: str,
+        company: str | None = None,
+        role: str | None = None,
+        phone_numbers: list[PhoneNumber] | None = None,
+        emails: list[Email] | None = None,
+        tags: list[str] | None = None,
+        custom_fields: list[CustomField] | None = None,
+    ) -> str:
+        """Create a new Quo contact. Requires approval.
+
+        Args:
+            first_name: Contact's first name.
+            last_name: Contact's last name.
+            company: Company name.
+            role: Role or type (e.g. "Tenant", "Lead", "Vendor").
+            phone_numbers: Phone numbers. Each needs a value in E.164 format (e.g. "+14125551234").
+            emails: Email addresses.
+            tags: Tags to apply (e.g. ["Insurance", "Vendor"]). Maps to the Tags multi-select field.
+            custom_fields: Additional custom fields as [{key, value}] objects.
+                Use getContactCustomFields_v1 to look up field keys.
+        """
+        if not ctx.tool_call_approved:
+            raise ApprovalRequired()
+
+        payload = _build_contact_payload(
+            first_name=first_name,
+            last_name=last_name,
+            company=company,
+            role=role,
+            phone_numbers=phone_numbers,
+            emails=emails,
+            tags=tags,
+            custom_fields=custom_fields,
+        )
+        resp = await client.post("/v1/contacts", json=payload)
+
+        if resp.status_code in (200, 201):
+            invalidate_contact_cache()
+            created = resp.json().get("data", {})
+            return f"Contact created: {first_name} {last_name} (id: {created.get('id', '?')})"
+
+        return f"Failed to create contact (HTTP {resp.status_code}): {resp.text[:500]}"
+
+    # ------------------------------------------------------------------
+    # update_contact — safe read-merge-write (replaces MCP updateContactById_v1)
+    # ------------------------------------------------------------------
+
+    @custom_toolset.tool
+    async def update_contact(
+        ctx: RunContext[SerniaDeps],
+        id: str,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        company: str | None = None,
+        role: str | None = None,
+        phone_numbers: list[PhoneNumber] | None = None,
+        emails: list[Email] | None = None,
+        tags: list[str] | None = None,
+        custom_fields: list[CustomField] | None = None,
+    ) -> str:
+        """Update a Quo contact. Only the fields you provide are changed; all
+        other fields are preserved (safe read-merge-write). Requires approval.
+
+        Args:
+            id: The Quo contact ID to update.
+            first_name: New first name, or omit to keep existing.
+            last_name: New last name, or omit to keep existing.
+            company: New company, or omit to keep existing.
+            role: New role, or omit to keep existing.
+            phone_numbers: Full list of phone numbers. Replaces all when provided.
+            emails: Full list of emails. Replaces all when provided.
+            tags: Tags to set (e.g. ["Insurance"]). Replaces all tags when provided.
+            custom_fields: Additional custom fields as [{key, value}] objects.
+                Only the fields you include are updated; others are preserved.
+        """
+        if not ctx.tool_call_approved:
+            raise ApprovalRequired()
+
+        # Fetch current contact (read-merge-write)
+        try:
+            existing = await _get_contact_by_id(client, id)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return f"Contact {id} not found."
+            raise
+
+        payload = _build_contact_payload(
+            first_name=first_name,
+            last_name=last_name,
+            company=company,
+            role=role,
+            phone_numbers=phone_numbers,
+            emails=emails,
+            tags=tags,
+            custom_fields=custom_fields,
+            existing=existing,
+        )
+        resp = await client.patch(f"/v1/contacts/{id}", json=payload)
+
+        if resp.status_code in (200, 201):
+            invalidate_contact_cache()
+            updated = resp.json().get("data", {})
+            df = updated.get("defaultFields", {})
+            name = f"{df.get('firstName', '')} {df.get('lastName', '')}".strip()
+            return f"Contact updated: {name} ({id})"
+
+        return f"Failed to update contact (HTTP {resp.status_code}): {resp.text[:500]}"
 
     return CombinedToolset(toolsets=[mcp_toolset, custom_toolset])
 

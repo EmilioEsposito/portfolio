@@ -87,7 +87,11 @@ by most recent activity. Optionally filter by updated_after_days.
 - **quo_get_thread_messages**: Get recent messages with a specific phone number \
 on the shared team line, enriched with contact names in chronological order. \
 Use this to review a conversation thread with a specific contact.
-- **quo_createContact_v1** / **quo_updateContactById_v1** / **quo_deleteContact_v1**: Manage contacts (require approval).
+- **quo_create_contact**: Create a new contact with first-class fields for name, \
+phone, email, role, company, and tags. Requires approval.
+- **quo_update_contact**: Update a contact by ID. Only the fields you provide are \
+changed — all other fields are preserved automatically. Requires approval.
+- **quo_deleteContact_v1**: Delete a contact (requires approval).
 - **quo_getContactCustomFields_v1**: Get custom field definitions for contacts.
 - **quo_listCalls_v1** / **quo_getCallById_v1**: Call history and details.
 - **quo_getCallSummary_v1** / **quo_getCallTranscript_v1**: AI call summaries and transcripts.
