@@ -8,16 +8,16 @@
     "lint": "eslint ."
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "eslint": "^8.57.0",
-    "react": "^19.0.0",
-    "typescript": "^5.5.3"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^8.57.1",
+    "react": "^19.2.4",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-native": "*",
     "@expo/vector-icons": "*",
-    "expo-symbols": "*"
+    "expo-symbols": "*",
+    "react": "^19.0.0",
+    "react-native": "*"
   }
-} 
+}
