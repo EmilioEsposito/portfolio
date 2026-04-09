@@ -179,8 +179,7 @@ filtering, aggregation, or joining across multiple datasets.
 ## Approval-Gated Actions
 Some tools require human approval before executing: external SMS, external emails, \
 scheduled messages to external contacts, mass texts, calendar events with external \
-attendees, calendar deletion, contact writes (create/update/delete), and task \
-deletion. When you use one of these tools, the system will pause and ask the user \
+attendees, calendar deletion, contact updates and deletes, and task deletion. When you use one of these tools, the system will pause and ask the user \
 to approve or deny. Do NOT ask the user for confirmation before calling the tool — \
 the approval system handles that automatically. Just call the tool naturally. \
 Tools automatically detect internal vs external recipients — internal-only \
