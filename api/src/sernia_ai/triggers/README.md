@@ -97,7 +97,7 @@ sequenceDiagram
 
 ## Zillow Email Event Trigger Flow
 
-Real-time Zillow lead processing. When a new email arrives via Gmail Pub/Sub and is from `zillow.com`, the trigger fires immediately (not on a schedule).
+Debounced Zillow lead processing. When a new email from `zillow.com` arrives via Gmail Pub/Sub, it is **queued** rather than processed immediately. The first email starts a 10-minute debounce window; any additional Zillow emails within that window are accumulated. After the window closes, the agent fires **once** and sees all batched emails — this lets it assess multiple leads or thread updates in a single run.
 
 **Phase 1 (Training):** Agent drafts a reply but does NOT send it. Emilio receives a targeted push notification to review the draft in web chat. The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
 
@@ -108,17 +108,22 @@ flowchart TD
     PUBSUB["google/pubsub/routes.py<br/>handle_gmail_notifications()"] --> SAVE["save_email_message()"]
     SAVE --> CHECK{"is_zillow_email()<br/>(from_address)"}
     CHECK -->|No| DONE["Normal email processing"]
-    CHECK -->|Yes| FIRE["asyncio.create_task()<br/>handle_zillow_email_event()"]
+    CHECK -->|Yes| QUEUE["queue_zillow_email_event()<br/>(accumulate in pending list)"]
+
+    QUEUE --> PENDING{"Debounce timer<br/>already running?"}
+    PENDING -->|Yes| BATCH["Add to batch,<br/>wait for timer"]
+    PENDING -->|No| TIMER["Start 10-min<br/>debounce timer"]
+
+    TIMER --> SLEEP["asyncio.sleep(600)"]
+    SLEEP --> FIRE["_fire_batched_trigger()<br/>(all accumulated emails)"]
 
     FIRE --> RUNNER["background_agent_runner.<br/>run_agent_for_trigger()"]
     RUNNER --> ENABLED{"Triggers<br/>enabled?"}
     ENABLED -->|No| SKIP["Skip (disabled)"]
-    ENABLED -->|Yes| RATE{"Rate limited?<br/>(2 min per thread_id)"}
-    RATE -->|Yes| SKIP2["Skip"]
-    RATE -->|No| AGENT["Run sernia_agent<br/>with trigger prompt"]
+    ENABLED -->|Yes| AGENT["Run sernia_agent<br/>with batch prompt"]
 
     AGENT --> GUIDE["Agent reads<br/>areas/zillow_auto_reply.md"]
-    GUIDE --> THREAD["Agent reads full<br/>email thread via search_emails"]
+    GUIDE --> THREAD["Agent reads each email<br/>via search_emails"]
     THREAD --> DECIDE{"Reply<br/>warranted?"}
     DECIDE -->|No| NOACTION["NoAction + reason"]
     DECIDE -->|Yes| DRAFT["Draft reply in<br/>conversation output"]
@@ -128,10 +133,10 @@ flowchart TD
 
 ### Key design choices
 
+- **10-minute debounce** — First email starts a fixed window; subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
 - **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
 - **Emilio-only notifications** — looks up Emilio's `clerk_user_id` from DB via contact slug `"emilio"` (cached at module level), then uses `notify_clerk_user_id` parameter in `run_agent_for_trigger()` to send push only to Emilio's subscriptions via `notify_user_push()`.
-- **Rate limiting** — keyed by `thread:{thread_id}` so the same thread doesn't fire multiple triggers within 2 minutes.
-- **Coexists with scheduled check** — `run_scheduled_checks()` still runs every 3 hours as a safety net, catching anything the event trigger misses (e.g., server downtime).
+- **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net, catching anything the event trigger misses (e.g., server downtime).
 
 ## Scheduled Trigger Flow
 

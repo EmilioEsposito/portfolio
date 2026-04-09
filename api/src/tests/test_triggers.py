@@ -93,11 +93,13 @@ class TestSmoke:
     def test_zillow_email_event_trigger_imports(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
             is_zillow_email,
-            handle_zillow_email_event,
+            queue_zillow_email_event,
+            _fire_batched_trigger,
             _get_emilio_clerk_user_id,
         )
         assert callable(is_zillow_email)
-        assert callable(handle_zillow_email_event)
+        assert callable(queue_zillow_email_event)
+        assert callable(_fire_batched_trigger)
         assert callable(_get_emilio_clerk_user_id)
 
     def test_notify_user_push_imports(self):
@@ -1081,12 +1083,12 @@ class TestGetEmilioClerkUserId:
             assert result is None
 
 
-class TestHandleZillowEmailEvent:
-    """Test the main handle_zillow_email_event handler."""
+class TestZillowEmailBatchedTrigger:
+    """Test _fire_batched_trigger (the core trigger logic after debounce)."""
 
     @pytest.mark.asyncio
-    async def test_calls_runner_with_zillow_email_event_source(self):
-        """Should call run_agent_for_trigger with correct source and metadata."""
+    async def test_single_email_calls_runner_with_correct_source(self):
+        """Single-email batch should call run_agent_for_trigger with correct source and metadata."""
         with (
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
@@ -1094,35 +1096,33 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = "conv-zillow-1"
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            result = await handle_zillow_email_event(
-                thread_id="thread_abc123",
-                subject="Rental Inquiry - 320 S Mathilda",
-                from_address="noreply@zillow.com",
-                body_text="Hi, I'm interested in the 1BR unit.",
-            )
+            emails = [{
+                "thread_id": "thread_abc123",
+                "message_id": "msg_1",
+                "subject": "Rental Inquiry - 320 S Mathilda",
+                "from_address": "noreply@zillow.com",
+                "body_text": "Hi, I'm interested in the 1BR unit.",
+            }]
+
+            result = await _fire_batched_trigger(emails)
 
             assert result == "conv-zillow-1"
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args[1]
             assert call_kwargs["trigger_source"] == "zillow_email_event"
-            assert call_kwargs["notification_title"] == "Zillow Draft Ready"
             assert "320 S Mathilda" in call_kwargs["notification_body"]
-            assert call_kwargs["rate_limit_key"] == "thread:thread_abc123"
             assert call_kwargs["notify_clerk_user_id"] == "user_emilio_123"
 
-            # Metadata should include thread context
             meta = call_kwargs["trigger_metadata"]
             assert meta["trigger_source"] == "zillow_email_event"
             assert meta["trigger_type"] == "email_event"
-            assert meta["thread_id"] == "thread_abc123"
-            assert meta["subject"] == "Rental Inquiry - 320 S Mathilda"
-            assert meta["from_address"] == "noreply@zillow.com"
+            assert meta["email_count"] == 1
 
     @pytest.mark.asyncio
     async def test_includes_body_snippet_in_prompt(self):
-        """Trigger prompt should include a preview of the email body."""
+        """Single-email trigger prompt should include a preview of the email body."""
         with (
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
             patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
@@ -1130,14 +1130,15 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = None
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await handle_zillow_email_event(
-                thread_id="thread_xyz",
-                subject="Inquiry",
-                from_address="noreply@zillow.com",
-                body_text="I have great credit and want to move in July.",
-            )
+            await _fire_batched_trigger([{
+                "thread_id": "thread_xyz",
+                "message_id": "msg_2",
+                "subject": "Inquiry",
+                "from_address": "noreply@zillow.com",
+                "body_text": "I have great credit and want to move in July.",
+            }])
 
             call_kwargs = mock_run.call_args[1]
             assert "great credit" in call_kwargs["trigger_prompt"]
@@ -1152,14 +1153,15 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = None
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await handle_zillow_email_event(
-                thread_id="thread_null",
-                subject="Test",
-                from_address="noreply@zillow.com",
-                body_text=None,
-            )
+            await _fire_batched_trigger([{
+                "thread_id": "thread_null",
+                "message_id": "msg_3",
+                "subject": "Test",
+                "from_address": "noreply@zillow.com",
+                "body_text": None,
+            }])
 
             mock_run.assert_called_once()
 
@@ -1173,14 +1175,15 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = None
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            result = await handle_zillow_email_event(
-                thread_id="thread_cold",
-                subject="Re: Tour - 320 S Mathilda",
-                from_address="noreply@zillow.com",
-                body_text="Thanks, we'll let you know.",
-            )
+            result = await _fire_batched_trigger([{
+                "thread_id": "thread_cold",
+                "message_id": "msg_4",
+                "subject": "Re: Tour - 320 S Mathilda",
+                "from_address": "noreply@zillow.com",
+                "body_text": "Thanks, we'll let you know.",
+            }])
 
             assert result is None
 
@@ -1194,14 +1197,15 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = "conv-fallback"
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await handle_zillow_email_event(
-                thread_id="thread_fb",
-                subject="Inquiry",
-                from_address="noreply@zillow.com",
-                body_text="Hello",
-            )
+            await _fire_batched_trigger([{
+                "thread_id": "thread_fb",
+                "message_id": "msg_5",
+                "subject": "Inquiry",
+                "from_address": "noreply@zillow.com",
+                "body_text": "Hello",
+            }])
 
             call_kwargs = mock_run.call_args[1]
             assert call_kwargs["notify_clerk_user_id"] is None
@@ -1216,21 +1220,49 @@ class TestHandleZillowEmailEvent:
         ):
             mock_run.return_value = None
 
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await handle_zillow_email_event(
-                thread_id="t1",
-                subject="Test",
-                from_address="noreply@zillow.com",
-                body_text="Test body",
-            )
+            await _fire_batched_trigger([{
+                "thread_id": "t1",
+                "message_id": "msg_6",
+                "subject": "Test",
+                "from_address": "noreply@zillow.com",
+                "body_text": "Test body",
+            }])
 
             call_kwargs = mock_run.call_args[1]
             prompt = call_kwargs["trigger_prompt"]
             assert "zillow-auto-reply" in prompt  # references the skill
             assert "sernia-chat?id=" in prompt  # deeplink embedded
-            assert "trigger_instructions" not in call_kwargs  # guardrails live in skill now
             assert call_kwargs["conversation_id"] is not None
+
+    @pytest.mark.asyncio
+    async def test_multi_email_batch_prompt(self):
+        """Multi-email batch should list all emails in the prompt."""
+        with (
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run,
+            patch("api.src.sernia_ai.triggers.zillow_email_event_trigger._get_emilio_clerk_user_id",
+                  new_callable=AsyncMock, return_value=None),
+        ):
+            mock_run.return_value = "conv-batch"
+
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
+
+            emails = [
+                {"thread_id": "t1", "message_id": "m1", "subject": "Inquiry A", "from_address": "a@zillow.com", "body_text": "A"},
+                {"thread_id": "t2", "message_id": "m2", "subject": "Inquiry B", "from_address": "b@zillow.com", "body_text": "B"},
+            ]
+
+            result = await _fire_batched_trigger(emails)
+
+            assert result == "conv-batch"
+            call_kwargs = mock_run.call_args[1]
+            prompt = call_kwargs["trigger_prompt"]
+            assert "2 new Zillow email(s)" in prompt
+            assert "Inquiry A" in prompt
+            assert "Inquiry B" in prompt
+            assert call_kwargs["trigger_metadata"]["email_count"] == 2
+            assert "2 email" in call_kwargs["notification_title"]
 
 
 class TestBackgroundRunnerTargetedPush:

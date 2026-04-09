@@ -203,12 +203,14 @@ async def process_gmail_notification(pubsub_notification_data: dict):
 
                     # Fire Zillow trigger only for new arrivals (added_message_ids),
                     # not label changes / read-unread / archiving.
+                    # Uses debounced queue: first email starts a 10-min window,
+                    # additional emails are batched, agent fires once at the end.
                     from_addr = processed_email_message.get("from_address", "")
                     is_new = email_message_id in added_message_ids
                     if is_new and from_addr and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()):
-                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import handle_zillow_email_event
+                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import queue_zillow_email_event
                         asyncio.create_task(
-                            handle_zillow_email_event(
+                            queue_zillow_email_event(
                                 thread_id=processed_email_message.get("thread_id", ""),
                                 message_id=processed_email_message.get("message_id", ""),
                                 subject=processed_email_message.get("subject", ""),
