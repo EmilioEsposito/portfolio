@@ -60,8 +60,9 @@ TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
 # Google API delegation requires impersonating a real Google Workspace user.
 GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
 
-# Scheduled check interval — runs during business hours (8am-5pm ET).
-SCHEDULED_CHECK_INTERVAL_HOURS = 3
+# Scheduled check defaults — overridable via DB-backed schedule_config setting.
+DEFAULT_SCHEDULE_DAYS_OF_WEEK = [0, 1, 2, 3, 4]  # Mon–Fri (APScheduler convention)
+DEFAULT_SCHEDULE_HOURS = [8, 11, 14, 17]  # 8am, 11am, 2pm, 5pm ET
 
 # Shared team contact ID in OpenPhone (Quo).
 # Phone number is looked up at runtime via the API — not hardcoded.

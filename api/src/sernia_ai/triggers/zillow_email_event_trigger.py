@@ -1,13 +1,16 @@
 """
 Zillow email event trigger for the Sernia AI agent.
 
-Fires in real-time when a new Zillow email arrives via Gmail Pub/Sub.
-The agent drafts a response (Phase 1: no email sent) and sends a push
-notification to Emilio for review.
+Fires when new Zillow emails arrive via Gmail Pub/Sub, but **debounced**:
+the first email starts a 10-minute window; any additional Zillow emails
+during that window are accumulated.  The agent fires once at the end of
+the window so it can assess all accumulated emails in a single run.
 
 Naming convention: all public symbols use the ``zillow_email_event`` root.
 """
+from __future__ import annotations
 
+import asyncio
 import uuid
 from textwrap import dedent
 
@@ -15,6 +18,17 @@ import logfire
 
 from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG, FRONTEND_BASE_URL
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+# ---------------------------------------------------------------------------
+# Debounce configuration
+# ---------------------------------------------------------------------------
+DEBOUNCE_SECONDS = 600  # 10 minutes
+
+# Module-level state for the debounce window.
+# _pending_emails accumulates email info dicts; _pending_task is the asyncio
+# task that sleeps for DEBOUNCE_SECONDS and then fires the trigger.
+_pending_emails: list[dict] = []
+_pending_task: asyncio.Task | None = None
 
 # Module-level cache for Emilio's clerk_user_id (looked up once from DB).
 _emilio_clerk_user_id: str | None = None
@@ -48,64 +62,131 @@ def is_zillow_email(from_address: str) -> bool:
     return addr.endswith("@zillow.com") or "@" in addr and addr.split("@", 1)[1].endswith(".zillow.com")
 
 
-async def handle_zillow_email_event(
+# ---------------------------------------------------------------------------
+# Public API — called from pubsub webhook
+# ---------------------------------------------------------------------------
+
+async def queue_zillow_email_event(
     *,
     thread_id: str,
     message_id: str = "",
     subject: str,
     from_address: str,
     body_text: str | None,
-) -> str | None:
+) -> None:
     """
-    Process a newly arrived Zillow email in real-time.
+    Queue a Zillow email for debounced processing.
 
-    Called from the Gmail Pub/Sub webhook after the email is saved to the DB.
-    The agent reads the full thread via its email tools, drafts a reply,
-    and we push-notify Emilio with the result.
-
-    Returns the conversation_id if a draft was created, None otherwise.
+    The first email in a quiet period starts a 10-minute timer.  All
+    subsequent emails within that window are accumulated.  When the timer
+    fires, the agent runs once and sees every email in the batch.
     """
+    global _pending_task
+
+    email_info = {
+        "thread_id": thread_id,
+        "message_id": message_id,
+        "subject": subject,
+        "from_address": from_address,
+        "body_text": body_text,
+    }
+    _pending_emails.append(email_info)
+
+    if _pending_task is not None and not _pending_task.done():
+        logfire.info(
+            "zillow_email_event: batched with pending trigger",
+            pending_count=len(_pending_emails),
+            subject=subject,
+        )
+        return
+
     logfire.info(
-        "zillow_email_event: handling",
-        thread_id=thread_id,
-        message_id=message_id,
+        "zillow_email_event: starting debounce window",
+        debounce_seconds=DEBOUNCE_SECONDS,
         subject=subject,
-        from_address=from_address,
+    )
+    _pending_task = asyncio.create_task(_debounced_fire())
+
+
+async def _debounced_fire() -> None:
+    """Sleep for the debounce window, then fire the trigger with all accumulated emails."""
+    await asyncio.sleep(DEBOUNCE_SECONDS)
+
+    # Snapshot and clear the pending list atomically
+    emails = _pending_emails.copy()
+    _pending_emails.clear()
+
+    if not emails:
+        return
+
+    logfire.info(
+        "zillow_email_event: debounce window closed, firing trigger",
+        email_count=len(emails),
     )
 
-    # Pre-generate conversation ID so we can embed a deeplink in the prompt
+    try:
+        await _fire_batched_trigger(emails)
+    except Exception:
+        logfire.exception("zillow_email_event: batched trigger failed")
+
+
+# ---------------------------------------------------------------------------
+# Trigger execution
+# ---------------------------------------------------------------------------
+
+async def _fire_batched_trigger(emails: list[dict]) -> str | None:
+    """Run the agent once for a batch of Zillow emails."""
     conv_id = str(uuid.uuid4())
     deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={conv_id}"
 
-    # Build a snippet of the email body for the trigger prompt
-    body_snippet = ""
-    if body_text:
-        body_snippet = body_text[:500].strip()
-        if len(body_text) > 500:
-            body_snippet += "..."
+    # Build a summary of all emails in the batch
+    if len(emails) == 1:
+        email = emails[0]
+        body_snippet = ""
+        if email.get("body_text"):
+            body_snippet = email["body_text"][:500].strip()
+            if len(email["body_text"]) > 500:
+                body_snippet += "..."
+        email_details = dedent(f"""\
+            **Email details:**
+            - Gmail Message ID (all@ account): {email['message_id']}
+            - Thread ID (Gmail): {email['thread_id']}
+            - Subject: {email['subject']}
+            - From: {email['from_address']}
+            - Body preview: {body_snippet}""")
+        reply_hint = f'When replying, pass reply_to_message_id="{email["message_id"]}" to thread correctly.'
+    else:
+        lines = []
+        for i, email in enumerate(emails, 1):
+            lines.append(
+                f"{i}. Subject: {email['subject']} | From: {email['from_address']} "
+                f"| Message ID: {email['message_id']} | Thread ID: {email['thread_id']}"
+            )
+        email_details = "**Emails received (oldest first):**\n" + "\n".join(lines)
+        reply_hint = (
+            "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
+        )
+
+    subjects_preview = ", ".join(e["subject"][:50] for e in emails[:3])
+    if len(emails) > 3:
+        subjects_preview += f" (+{len(emails) - 3} more)"
 
     trigger_prompt = dedent(f"""\
-        New Zillow email arrived. Load the zillow-auto-reply skill and follow it.
+        {len(emails)} new Zillow email(s) arrived. Load the zillow-auto-reply skill and follow it.
 
-        **Email details:**
-        - Gmail Message ID (all@ account): {message_id}
-        - Thread ID (Gmail): {thread_id}
-        - Subject: {subject}
-        - From: {from_address}
-        - Body preview: {body_snippet}
+        {email_details}
         - Conversation deeplink: {deeplink}
 
-        Read the email using the Message ID above, then draft or NoAction.
-        When replying, pass reply_to_message_id="{message_id}" to thread correctly.
+        Read each email using its Message ID, then draft replies or NoAction per email.
+        {reply_hint}
         Always search/read from all@serniacapital.com (use user_email_account="all@serniacapital.com").""")
 
     trigger_metadata = {
         "trigger_source": "zillow_email_event",
         "trigger_type": "email_event",
-        "thread_id": thread_id,
-        "message_id": message_id,
-        "subject": subject,
-        "from_address": from_address,
+        "email_count": len(emails),
+        "subjects": [e["subject"] for e in emails],
+        "thread_ids": list({e["thread_id"] for e in emails}),
     }
 
     emilio_clerk_id = await _get_emilio_clerk_user_id()
@@ -114,20 +195,18 @@ async def handle_zillow_email_event(
         trigger_source="zillow_email_event",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        notification_title="Zillow Draft Ready",
-        notification_body=f"Re: {subject[:80]}",
-        rate_limit_key=f"thread:{thread_id}",
+        notification_title=f"Zillow Draft Ready ({len(emails)} email{'s' if len(emails) != 1 else ''})",
+        notification_body=f"Re: {subjects_preview}",
+        rate_limit_key="zillow_batch",
         notify_clerk_user_id=emilio_clerk_id,
         conversation_id=conv_id,
     )
 
     logfire.info(
-        "zillow_email_event: completed",
-        thread_id=thread_id,
-        subject=subject,
+        "zillow_email_event: batched trigger completed",
+        email_count=len(emails),
         conversation_id=conversation_id,
         draft_created=conversation_id is not None,
-        notify_target=emilio_clerk_id or "none (fallback to broadcast)",
     )
 
     return conversation_id

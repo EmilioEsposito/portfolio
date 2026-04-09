@@ -709,18 +709,28 @@ async def get_admin_settings(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """Return current app settings."""
+    """Return current app settings including schedule config."""
+    from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
+
     result = await session.execute(
         select(AppSetting).where(AppSetting.key == "triggers_enabled")
     )
     row = result.scalar_one_or_none()
+    schedule_config = await get_schedule_config()
     return {
         "triggers_enabled": row.value if row else _IS_PRODUCTION,
+        "schedule_config": schedule_config,
     }
+
+
+class _ScheduleConfigPayload(BaseModel):
+    days_of_week: list[int]  # 0=Mon … 6=Sun
+    hours: list[int]  # 0–23, ET
 
 
 class _SettingsUpdateRequest(BaseModel):
     triggers_enabled: bool | None = None
+    schedule_config: _ScheduleConfigPayload | None = None
 
 
 @router.patch("/admin/settings")
@@ -729,7 +739,7 @@ async def update_admin_settings(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """Update app settings (upsert)."""
+    """Update app settings (upsert). Re-registers the scheduled job when schedule changes."""
     updated = {}
     if body.triggers_enabled is not None:
         stmt = pg_insert(AppSetting).values(
@@ -742,6 +752,35 @@ async def update_admin_settings(
         await session.execute(stmt)
         await session.commit()
         updated["triggers_enabled"] = body.triggers_enabled
+
+    if body.schedule_config is not None:
+        # Validate ranges
+        for d in body.schedule_config.days_of_week:
+            if d < 0 or d > 6:
+                raise HTTPException(status_code=422, detail=f"Invalid day_of_week: {d}")
+        for h in body.schedule_config.hours:
+            if h < 0 or h > 23:
+                raise HTTPException(status_code=422, detail=f"Invalid hour: {h}")
+        if not body.schedule_config.hours:
+            raise HTTPException(status_code=422, detail="At least one hour is required")
+        if not body.schedule_config.days_of_week:
+            raise HTTPException(status_code=422, detail="At least one day is required")
+
+        config_dict = body.schedule_config.model_dump()
+        stmt = pg_insert(AppSetting).values(
+            key="schedule_config",
+            value=config_dict,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": config_dict},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        updated["schedule_config"] = config_dict
+
+        # Re-register the APScheduler job with the new config
+        from api.src.sernia_ai.triggers.scheduled_triggers import apply_schedule_from_db
+        await apply_schedule_from_db()
 
     return {"updated": updated}
 

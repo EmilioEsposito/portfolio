@@ -1152,6 +1152,15 @@ export default function SerniaChatPage() {
                 >
                   <LayoutList className="w-4 h-4" />
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => navigate("/sernia-settings")}
+                  title="Schedule & trigger settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </Button>
               </>
             )}
           </div>

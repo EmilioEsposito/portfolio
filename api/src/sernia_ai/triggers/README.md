@@ -97,7 +97,7 @@ sequenceDiagram
 
 ## Zillow Email Event Trigger Flow
 
-Real-time Zillow lead processing. When a new email arrives via Gmail Pub/Sub and is from `zillow.com`, the trigger fires immediately (not on a schedule).
+Debounced Zillow lead processing. When a new email from `zillow.com` arrives via Gmail Pub/Sub, it is **queued** rather than processed immediately. The first email starts a 10-minute debounce window; any additional Zillow emails within that window are accumulated. After the window closes, the agent fires **once** and sees all batched emails — this lets it assess multiple leads or thread updates in a single run.
 
 **Phase 1 (Training):** Agent drafts a reply but does NOT send it. Emilio receives a targeted push notification to review the draft in web chat. The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
 
@@ -108,17 +108,22 @@ flowchart TD
     PUBSUB["google/pubsub/routes.py<br/>handle_gmail_notifications()"] --> SAVE["save_email_message()"]
     SAVE --> CHECK{"is_zillow_email()<br/>(from_address)"}
     CHECK -->|No| DONE["Normal email processing"]
-    CHECK -->|Yes| FIRE["asyncio.create_task()<br/>handle_zillow_email_event()"]
+    CHECK -->|Yes| QUEUE["queue_zillow_email_event()<br/>(accumulate in pending list)"]
+
+    QUEUE --> PENDING{"Debounce timer<br/>already running?"}
+    PENDING -->|Yes| BATCH["Add to batch,<br/>wait for timer"]
+    PENDING -->|No| TIMER["Start 10-min<br/>debounce timer"]
+
+    TIMER --> SLEEP["asyncio.sleep(600)"]
+    SLEEP --> FIRE["_fire_batched_trigger()<br/>(all accumulated emails)"]
 
     FIRE --> RUNNER["background_agent_runner.<br/>run_agent_for_trigger()"]
     RUNNER --> ENABLED{"Triggers<br/>enabled?"}
     ENABLED -->|No| SKIP["Skip (disabled)"]
-    ENABLED -->|Yes| RATE{"Rate limited?<br/>(2 min per thread_id)"}
-    RATE -->|Yes| SKIP2["Skip"]
-    RATE -->|No| AGENT["Run sernia_agent<br/>with trigger prompt"]
+    ENABLED -->|Yes| AGENT["Run sernia_agent<br/>with batch prompt"]
 
     AGENT --> GUIDE["Agent reads<br/>areas/zillow_auto_reply.md"]
-    GUIDE --> THREAD["Agent reads full<br/>email thread via search_emails"]
+    GUIDE --> THREAD["Agent reads each email<br/>via search_emails"]
     THREAD --> DECIDE{"Reply<br/>warranted?"}
     DECIDE -->|No| NOACTION["NoAction + reason"]
     DECIDE -->|Yes| DRAFT["Draft reply in<br/>conversation output"]
@@ -128,10 +133,10 @@ flowchart TD
 
 ### Key design choices
 
+- **10-minute debounce** — First email starts a fixed window; subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
 - **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
 - **Emilio-only notifications** — looks up Emilio's `clerk_user_id` from DB via contact slug `"emilio"` (cached at module level), then uses `notify_clerk_user_id` parameter in `run_agent_for_trigger()` to send push only to Emilio's subscriptions via `notify_user_push()`.
-- **Rate limiting** — keyed by `thread:{thread_id}` so the same thread doesn't fire multiple triggers within 2 minutes.
-- **Coexists with scheduled check** — `run_scheduled_checks()` still runs every 3 hours as a safety net, catching anything the event trigger misses (e.g., server downtime).
+- **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net, catching anything the event trigger misses (e.g., server downtime).
 
 ## Scheduled Trigger Flow
 
@@ -139,9 +144,11 @@ A single scheduled job via APScheduler in `scheduled_triggers.py`:
 
 | Job | Interval | Scope |
 |-----|----------|-------|
-| `run_scheduled_checks()` | 3 hours (8am-5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
+| `run_scheduled_checks()` | Configurable (default: Mon–Fri at 8am, 11am, 2pm, 5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
 
-The trigger is a thin function that provides a lookback window and points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `skills/scheduled-checks/SKILL.md`, not in trigger code.
+The schedule is configurable via the Settings page (`/sernia-settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save.
+
+The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `skills/scheduled-checks/SKILL.md`, not in trigger code.
 
 Uses `background_agent_runner.run_agent_for_trigger()` with the silent/alert pattern. When the agent uses the `NoAction` structured output, the runner persists the conversation but skips push notifications.
 
@@ -199,5 +206,6 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `QUO_SERNIA_AI_PHONE_ID` | AI's phone line (used for SMS replies and team notifications) |
 | `QUO_INTERNAL_COMPANY` | `"Sernia Capital LLC"` — gate for AI SMS contact verification |
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
-| `SCHEDULED_CHECK_INTERVAL_HOURS` | Scheduled check frequency (3 hours, business hours only) |
+| `DEFAULT_SCHEDULE_DAYS_OF_WEEK` | Default days (Mon–Fri) — overridden by `schedule_config` DB setting |
+| `DEFAULT_SCHEDULE_HOURS` | Default hours (`[8,11,14,17]` ET) — overridden by `schedule_config` DB setting |
 | `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |
