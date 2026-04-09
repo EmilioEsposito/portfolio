@@ -73,6 +73,7 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
+  Settings,
 } from "lucide-react";
 
 const API_BASE = "/api/sernia-ai";
@@ -591,6 +592,15 @@ export default function SerniaAdminPage() {
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-semibold">Conversations</h1>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => navigate("/sernia-settings")}
+            title="Schedule & trigger settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
           <Button
             variant="outline"
             size="sm"

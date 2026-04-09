@@ -139,9 +139,11 @@ A single scheduled job via APScheduler in `scheduled_triggers.py`:
 
 | Job | Interval | Scope |
 |-----|----------|-------|
-| `run_scheduled_checks()` | 3 hours (8am-5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
+| `run_scheduled_checks()` | Configurable (default: Mon–Fri at 8am, 11am, 2pm, 5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
 
-The trigger is a thin function that provides a lookback window and points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `skills/scheduled-checks/SKILL.md`, not in trigger code.
+The schedule is configurable via the Settings page (`/sernia-settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save.
+
+The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `skills/scheduled-checks/SKILL.md`, not in trigger code.
 
 Uses `background_agent_runner.run_agent_for_trigger()` with the silent/alert pattern. When the agent uses the `NoAction` structured output, the runner persists the conversation but skips push notifications.
 
@@ -199,5 +201,6 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `QUO_SERNIA_AI_PHONE_ID` | AI's phone line (used for SMS replies and team notifications) |
 | `QUO_INTERNAL_COMPANY` | `"Sernia Capital LLC"` — gate for AI SMS contact verification |
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
-| `SCHEDULED_CHECK_INTERVAL_HOURS` | Scheduled check frequency (3 hours, business hours only) |
+| `DEFAULT_SCHEDULE_DAYS_OF_WEEK` | Default days (Mon–Fri) — overridden by `schedule_config` DB setting |
+| `DEFAULT_SCHEDULE_HOURS` | Default hours (`[8,11,14,17]` ET) — overridden by `schedule_config` DB setting |
 | `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |
