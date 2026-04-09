@@ -164,7 +164,7 @@ async def process_gmail_notification(pubsub_notification_data: dict):
             }
             
         # email_message_ids: ALL messages touched (new + label changes, etc.) — process for DB.
-        # added_message_ids: only genuinely NEW arrivals — gate triggers on this.
+        # added_message_ids: messages Gmail reports as genuinely new (often unreliable/empty).
         email_message_ids = email_changes_result["email_message_ids"]
         added_message_ids: set[str] = set(email_changes_result.get("added_message_ids", []))
         logfire.info(
@@ -201,26 +201,21 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
 
-                    # Fire Zillow trigger only for new arrivals (added_message_ids),
-                    # not label changes / read-unread / archiving.
-                    # Uses debounced queue: first email starts a 10-min window,
-                    # additional emails are batched, agent fires once at the end.
+                    # Queue Zillow emails for debounced trigger processing.
+                    # No is_new gate — added_message_ids is unreliable (often empty),
+                    # and the debounce window deduplicates anyway.
                     from_addr = processed_email_message.get("from_address", "")
-                    is_new = email_message_id in added_message_ids
                     is_zillow = bool(
                         from_addr
                         and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower())
                     )
-                    logfire.info(
-                        "zillow_trigger_gate",
-                        email_message_id=email_message_id,
-                        from_address=from_addr,
-                        is_new=is_new,
-                        is_zillow=is_zillow,
-                        added_message_ids=list(added_message_ids),
-                        subject=processed_email_message.get("subject", ""),
-                    )
-                    if is_new and is_zillow:
+                    if is_zillow:
+                        logfire.info(
+                            "zillow_trigger_gate: queuing",
+                            email_message_id=email_message_id,
+                            from_address=from_addr,
+                            subject=processed_email_message.get("subject", ""),
+                        )
                         from api.src.sernia_ai.triggers.zillow_email_event_trigger import queue_zillow_email_event
                         asyncio.create_task(
                             queue_zillow_email_event(
