@@ -207,7 +207,20 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                     # additional emails are batched, agent fires once at the end.
                     from_addr = processed_email_message.get("from_address", "")
                     is_new = email_message_id in added_message_ids
-                    if is_new and from_addr and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()):
+                    is_zillow = bool(
+                        from_addr
+                        and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower())
+                    )
+                    logfire.info(
+                        "zillow_trigger_gate",
+                        email_message_id=email_message_id,
+                        from_address=from_addr,
+                        is_new=is_new,
+                        is_zillow=is_zillow,
+                        added_message_ids=list(added_message_ids),
+                        subject=processed_email_message.get("subject", ""),
+                    )
+                    if is_new and is_zillow:
                         from api.src.sernia_ai.triggers.zillow_email_event_trigger import queue_zillow_email_event
                         asyncio.create_task(
                             queue_zillow_email_event(
