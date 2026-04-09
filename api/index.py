@@ -158,7 +158,7 @@ async def _apscheduler_startup_async() -> None:
             register_clickup_apscheduler_jobs()
             # Legacy Zillow jobs disabled — replaced by Sernia AI triggers below
             # register_zillow_apscheduler_jobs()
-            register_scheduled_triggers()
+            await register_scheduled_triggers()
 
         # Start the scheduler AFTER the span closes and with a clean OTel context.
         # APScheduler's internal event loop inherits the current trace context —
