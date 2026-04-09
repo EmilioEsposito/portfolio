@@ -1145,7 +1145,7 @@ def _build_quo_toolset():
         tags: list[str] | None = None,
         custom_fields: list[CustomField] | None = None,
     ) -> str:
-        """Create a new Quo contact. Requires approval.
+        """Create a new Quo contact.
 
         Args:
             first_name: Contact's first name.
@@ -1158,8 +1158,6 @@ def _build_quo_toolset():
             custom_fields: Additional custom fields as [{key, value}] objects.
                 Use getContactCustomFields_v1 to look up field keys.
         """
-        if not ctx.tool_call_approved:
-            raise ApprovalRequired()
 
         payload = _build_contact_payload(
             first_name=first_name,
