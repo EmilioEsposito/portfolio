@@ -29,6 +29,7 @@ export interface PendingApproval {
  * Convert pending approvals from API format (snake_case array) to frontend format (camelCase single).
  * API returns: [{tool_call_id, tool_name, args}, ...] or empty array/null
  * Frontend expects: {toolCallId, toolName, args} or null
+ * @deprecated Use convertAllPendingFromApi for multi-approval support
  */
 export function convertPendingFromApi(
   pending: any[] | null
@@ -43,11 +44,56 @@ export function convertPendingFromApi(
 }
 
 /**
- * Tool approval card with edit capability.
- * `apiBase` controls where the approval POST goes (e.g. "/api/ai-demos/hitl-agent" or "/api/sernia-ai").
+ * Convert ALL pending approvals from API format to frontend format.
+ * Returns empty array if none pending.
+ */
+export function convertAllPendingFromApi(
+  pending: any[] | null
+): PendingApproval[] {
+  if (!pending || pending.length === 0) return [];
+  return pending.map((p) => ({
+    toolCallId: p.tool_call_id,
+    toolName: p.tool_name,
+    args: p.args || {},
+  }));
+}
+
+/** Decision state for a single pending approval */
+interface ApprovalItemDecision {
+  approved: boolean | null; // null = undecided
+  editedBody?: string;
+}
+
+/** Get a short summary for a tool call (e.g., recipient for emails/sms) */
+function getToolSummary(p: PendingApproval): string {
+  // For email tools, show recipient
+  if (p.args?.to) {
+    const to = Array.isArray(p.args.to) ? p.args.to.join(", ") : p.args.to;
+    return `To: ${to}`;
+  }
+  // For SMS tools, show phone
+  if (p.args?.phone_number || p.args?.to_phone_number) {
+    return `To: ${p.args.phone_number || p.args.to_phone_number}`;
+  }
+  // For other tools, show tool name
+  return p.toolName;
+}
+
+/** Get the message body from tool args */
+function getMessageFromArgs(args: Record<string, any>): { key: string; value: string } {
+  if (args?.message !== undefined) return { key: "message", value: args.message };
+  if (args?.body !== undefined) return { key: "body", value: args.body };
+  return { key: "", value: "" };
+}
+
+/**
+ * Tool approval card with support for multiple pending approvals.
+ * Shows all pending requests with individual approve/deny controls.
+ * PydanticAI requires results for all deferred tool calls, so all must be decided.
  */
 export function ToolApprovalCard({
   pending,
+  allPending,
   conversationId,
   onApprovalComplete,
   isProcessing,
@@ -55,29 +101,68 @@ export function ToolApprovalCard({
   apiBase,
 }: {
   pending: PendingApproval;
+  allPending?: PendingApproval[];
   conversationId: string;
   onApprovalComplete: (result: any) => void;
   isProcessing: boolean;
   getToken: () => Promise<string | null>;
   apiBase: string;
 }) {
-  const [isEditing, setIsEditing] = useState(false);
-  // Support both "body" and "message" arg names
-  const messageArgKey = pending.args?.message !== undefined ? "message" : "body";
-  const messageArgValue = pending.args?.[messageArgKey] || "";
-  const [editedBody, setEditedBody] = useState(messageArgValue);
-  const [processing, setProcessing] = useState(false);
+  const pendingList = allPending && allPending.length > 0 ? allPending : [pending];
+  const hasMultiple = pendingList.length > 1;
 
-  const handleApproval = async (approved: boolean) => {
+  // Track individual decisions for each pending approval
+  const [decisions, setDecisions] = useState<Record<string, ApprovalItemDecision>>(() => {
+    const initial: Record<string, ApprovalItemDecision> = {};
+    for (const p of pendingList) {
+      initial[p.toolCallId] = { approved: null };
+    }
+    return initial;
+  });
+  const [processing, setProcessing] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(pendingList[0]?.toolCallId || null);
+
+  const setItemDecision = (toolCallId: string, approved: boolean) => {
+    setDecisions((prev) => ({
+      ...prev,
+      [toolCallId]: { ...prev[toolCallId], approved },
+    }));
+  };
+
+  const setItemEditedBody = (toolCallId: string, editedBody: string) => {
+    setDecisions((prev) => ({
+      ...prev,
+      [toolCallId]: { ...prev[toolCallId], editedBody },
+    }));
+  };
+
+  // Check if all items have been decided
+  const allDecided = pendingList.every((p) => decisions[p.toolCallId]?.approved !== null);
+  const decidedCount = pendingList.filter((p) => decisions[p.toolCallId]?.approved !== null).length;
+
+  const handleSubmitAll = async () => {
+    if (!allDecided) return;
+
     setProcessing(true);
     try {
       const token = await getToken();
-      const overrideArgs =
-        isEditing && editedBody !== messageArgValue
-          ? { [messageArgKey]: editedBody }
-          : undefined;
-
       const url = `${apiBase}/conversation/${conversationId}/approve`;
+
+      const decisionList = pendingList.map((p) => {
+        const d = decisions[p.toolCallId];
+        const { key: msgKey, value: originalValue } = getMessageFromArgs(p.args);
+        const overrideArgs =
+          d.editedBody && d.editedBody !== originalValue
+            ? { [msgKey]: d.editedBody }
+            : undefined;
+
+        return {
+          tool_call_id: p.toolCallId,
+          approved: d.approved,
+          override_args: overrideArgs,
+          reason: d.approved ? undefined : "Denied by user",
+        };
+      });
 
       const res = await fetch(url, {
         method: "POST",
@@ -85,16 +170,7 @@ export function ToolApprovalCard({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          decisions: [
-            {
-              tool_call_id: pending.toolCallId,
-              approved,
-              override_args: overrideArgs,
-              reason: approved ? undefined : "Denied by user",
-            },
-          ],
-        }),
+        body: JSON.stringify({ decisions: decisionList }),
       });
 
       if (!res.ok) {
@@ -106,18 +182,30 @@ export function ToolApprovalCard({
       onApprovalComplete(result);
     } catch (err) {
       console.error("Approval error:", err);
-      alert(
-        err instanceof Error ? err.message : "Failed to process approval"
-      );
+      alert(err instanceof Error ? err.message : "Failed to process approval");
     } finally {
       setProcessing(false);
     }
   };
 
-  const isDisabled = processing || isProcessing;
+  // Quick actions for single item or batch
+  const handleQuickApproveAll = () => {
+    const updated: Record<string, ApprovalItemDecision> = {};
+    for (const p of pendingList) {
+      updated[p.toolCallId] = { ...decisions[p.toolCallId], approved: true };
+    }
+    setDecisions(updated);
+  };
 
-  // Tools that use the To + editable Message layout
-  const hasMessageArg = messageArgValue !== "";
+  const handleQuickDenyAll = () => {
+    const updated: Record<string, ApprovalItemDecision> = {};
+    for (const p of pendingList) {
+      updated[p.toolCallId] = { ...decisions[p.toolCallId], approved: false };
+    }
+    setDecisions(updated);
+  };
+
+  const isDisabled = processing || isProcessing;
 
   return (
     <Card className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
@@ -127,21 +215,152 @@ export function ToolApprovalCard({
             <AlertCircle className="w-5 h-5 text-amber-500" />
             <CardTitle className="text-sm font-medium">
               Approval Required
+              {hasMultiple && (
+                <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
+                  ({decidedCount}/{pendingList.length} decided)
+                </span>
+              )}
             </CardTitle>
           </div>
-          <Badge variant="outline">{pending.toolName}</Badge>
+          {!hasMultiple && <Badge variant="outline">{pending.toolName}</Badge>}
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* All args — collapsible, read-only */}
-        <ToolDetailBox
-          label="Input"
-          content={JSON.stringify(pending.args, null, 2)}
-        />
+        {/* Individual approval items */}
+        {pendingList.map((p, idx) => (
+          <ApprovalItem
+            key={p.toolCallId}
+            item={p}
+            index={idx}
+            decision={decisions[p.toolCallId]}
+            isExpanded={expandedId === p.toolCallId}
+            onToggleExpand={() => setExpandedId(expandedId === p.toolCallId ? null : p.toolCallId)}
+            onSetDecision={(approved) => setItemDecision(p.toolCallId, approved)}
+            onSetEditedBody={(body) => setItemEditedBody(p.toolCallId, body)}
+            disabled={isDisabled}
+            showIndex={hasMultiple}
+          />
+        ))}
 
-        {hasMessageArg && (
-          <>
-            {/* Message - editable */}
+        {/* Quick actions and submit */}
+        <div className="flex flex-wrap gap-2 pt-2 border-t">
+          {hasMultiple && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleQuickApproveAll}
+                disabled={isDisabled}
+                className="gap-1 text-xs"
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                Approve All
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleQuickDenyAll}
+                disabled={isDisabled}
+                className="gap-1 text-xs"
+              >
+                <XCircle className="w-3 h-3" />
+                Deny All
+              </Button>
+              <div className="flex-1" />
+            </>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSubmitAll}
+            disabled={isDisabled || !allDecided}
+            className="gap-1"
+          >
+            {processing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}
+            {processing ? "Processing..." : hasMultiple ? "Submit Decisions" : allDecided ? (decisions[pending.toolCallId]?.approved ? "Approve" : "Deny") : "Choose Action"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Individual approval item with expand/collapse */
+function ApprovalItem({
+  item,
+  index,
+  decision,
+  isExpanded,
+  onToggleExpand,
+  onSetDecision,
+  onSetEditedBody,
+  disabled,
+  showIndex,
+}: {
+  item: PendingApproval;
+  index: number;
+  decision: ApprovalItemDecision;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onSetDecision: (approved: boolean) => void;
+  onSetEditedBody: (body: string) => void;
+  disabled: boolean;
+  showIndex: boolean;
+}) {
+  const { key: msgKey, value: msgValue } = getMessageFromArgs(item.args);
+  const hasMessageArg = msgValue !== "";
+  const [isEditing, setIsEditing] = useState(false);
+  const editedBody = decision.editedBody ?? msgValue;
+
+  // Decision indicator
+  const decisionIcon =
+    decision.approved === true ? (
+      <CheckCircle2 className="w-4 h-4 text-green-600" />
+    ) : decision.approved === false ? (
+      <XCircle className="w-4 h-4 text-red-600" />
+    ) : (
+      <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/30" />
+    );
+
+  return (
+    <div className={cn(
+      "rounded-lg border bg-background overflow-hidden",
+      decision.approved === true && "border-green-300",
+      decision.approved === false && "border-red-300",
+      decision.approved === null && "border-border"
+    )}>
+      {/* Header - always visible */}
+      <button
+        onClick={onToggleExpand}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+      >
+        {decisionIcon}
+        <span className="text-xs text-muted-foreground">
+          {isExpanded ? "\u25BC" : "\u25B6"}
+        </span>
+        {showIndex && (
+          <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
+        )}
+        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+          {item.toolName}
+        </Badge>
+        <span className="flex-1 text-xs truncate">{getToolSummary(item)}</span>
+      </button>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="px-3 pb-3 space-y-2 border-t">
+          {/* Full args */}
+          <ToolDetailBox
+            label="Input"
+            content={JSON.stringify(item.args, null, 2)}
+          />
+
+          {/* Editable message */}
+          {hasMessageArg && (
             <div className="text-sm">
               <div className="flex items-center justify-between mb-1">
                 <Label className="text-muted-foreground text-xs">Message</Label>
@@ -151,7 +370,7 @@ export function ToolApprovalCard({
                     size="sm"
                     className="h-6 px-2 text-xs"
                     onClick={() => setIsEditing(true)}
-                    disabled={isDisabled}
+                    disabled={disabled}
                   >
                     <Edit3 className="w-3 h-3 mr-1" />
                     Edit
@@ -162,11 +381,11 @@ export function ToolApprovalCard({
                 <div className="space-y-2">
                   <Textarea
                     value={editedBody}
-                    onChange={(e) => setEditedBody(e.target.value)}
-                    className="min-h-[80px] bg-background"
-                    disabled={isDisabled}
+                    onChange={(e) => onSetEditedBody(e.target.value)}
+                    className="min-h-[80px] bg-background text-sm"
+                    disabled={disabled}
                   />
-                  {editedBody !== messageArgValue && (
+                  {editedBody !== msgValue && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
                       Modified - will override AI's suggestion
                     </p>
@@ -176,50 +395,47 @@ export function ToolApprovalCard({
                     size="sm"
                     onClick={() => {
                       setIsEditing(false);
-                      setEditedBody(messageArgValue);
+                      onSetEditedBody(msgValue);
                     }}
-                    disabled={isDisabled}
+                    disabled={disabled}
                   >
                     Cancel edit
                   </Button>
                 </div>
               ) : (
-                <p className="p-2 bg-background rounded border whitespace-pre-wrap">
-                  {messageArgValue}
+                <p className="p-2 bg-muted/50 rounded border text-sm whitespace-pre-wrap">
+                  {msgValue}
                 </p>
               )}
             </div>
-          </>
-        )}
+          )}
 
-        {/* Actions */}
-        <div className="flex gap-2 pt-2">
-          <Button
-            size="sm"
-            onClick={() => handleApproval(true)}
-            disabled={isDisabled}
-            className="gap-1"
-          >
-            {processing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4" />
-            )}
-            {processing ? "Processing..." : "Approve"}
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => handleApproval(false)}
-            disabled={isDisabled}
-            className="gap-1"
-          >
-            <XCircle className="w-4 h-4" />
-            Deny
-          </Button>
+          {/* Approve/Deny buttons for this item */}
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              variant={decision.approved === true ? "default" : "outline"}
+              onClick={() => onSetDecision(true)}
+              disabled={disabled}
+              className="gap-1 flex-1"
+            >
+              <CheckCircle2 className="w-3 h-3" />
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant={decision.approved === false ? "destructive" : "outline"}
+              onClick={() => onSetDecision(false)}
+              disabled={disabled}
+              className="gap-1 flex-1"
+            >
+              <XCircle className="w-3 h-3" />
+              Deny
+            </Button>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
