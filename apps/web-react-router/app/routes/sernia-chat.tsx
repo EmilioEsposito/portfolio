@@ -125,7 +125,7 @@ function ChatView({
   const [isProcessingApproval] = useState(false);
   const draftKey = `sernia-draft-${conversationId}`;
   const [input, setInput] = useState(
-    () => sessionStorage.getItem(draftKey) || ""
+    () => (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || ""
   );
   // Persist draft to sessionStorage so it survives component remounts
   useEffect(() => {
