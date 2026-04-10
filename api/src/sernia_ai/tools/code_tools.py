@@ -109,8 +109,6 @@ _EXTERNAL_FUNCTIONS: dict[str, callable] = {
     "math_fn": _math_fn,
 }
 
-_EXT_FN_NAMES = list(_EXTERNAL_FUNCTIONS.keys())
-
 
 @code_toolset.tool
 async def run_python(
@@ -158,10 +156,7 @@ async def run_python(
         code: Python code to execute. The return value of the last expression is captured.
     """
     try:
-        m = pydantic_monty.Monty(
-            code,
-            external_functions=_EXT_FN_NAMES,
-        )
+        m = pydantic_monty.Monty(code)
 
         printed: list[str] = []
 
