@@ -123,7 +123,18 @@ function ChatView({
   const [allPendingApprovals, setAllPendingApprovals] =
     useState<PendingApproval[]>(initialAllPending || (initialPending ? [initialPending] : []));
   const [isProcessingApproval] = useState(false);
-  const [input, setInput] = useState("");
+  const draftKey = `sernia-draft-${conversationId}`;
+  const [input, setInput] = useState(
+    () => sessionStorage.getItem(draftKey) || ""
+  );
+  // Persist draft to sessionStorage so it survives component remounts
+  useEffect(() => {
+    if (input) {
+      sessionStorage.setItem(draftKey, input);
+    } else {
+      sessionStorage.removeItem(draftKey);
+    }
+  }, [input, draftKey]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
@@ -813,10 +824,13 @@ export default function SerniaChatPage() {
   }, [historyOpen, fetchHistory]);
 
   // Load conversation messages from API
+  // When silent=true, skip the loading spinner (used for background refreshes)
   const loadConversation = useCallback(
-    async (convId: string, opts?: { updateUrl?: boolean; modality?: string }) => {
+    async (convId: string, opts?: { updateUrl?: boolean; modality?: string; silent?: boolean }) => {
       if (!isSignedIn) return;
-      setLoadedMessages(null); // triggers loading state
+      if (!opts?.silent) {
+        setLoadedMessages(null); // triggers loading state
+      }
 
       try {
         const token = await getToken();
@@ -827,8 +841,10 @@ export default function SerniaChatPage() {
 
         if (!res.ok) {
           console.error("Failed to load conversation");
-          navigate("/sernia-chat", { replace: true });
-          setLoadedMessages([]);
+          if (!opts?.silent) {
+            navigate("/sernia-chat", { replace: true });
+            setLoadedMessages([]);
+          }
           return;
         }
 
@@ -848,8 +864,10 @@ export default function SerniaChatPage() {
         }
       } catch (err) {
         console.error("Failed to load conversation:", err);
-        navigate("/sernia-chat", { replace: true });
-        setLoadedMessages([]);
+        if (!opts?.silent) {
+          navigate("/sernia-chat", { replace: true });
+          setLoadedMessages([]);
+        }
       }
     },
     [isSignedIn, getToken, navigate]
@@ -868,10 +886,12 @@ export default function SerniaChatPage() {
 
   // Re-fetch conversation when page regains visibility (covers PWA focus,
   // notification click to same conversation, and tab switching).
+  // Uses silent mode to refresh messages in the background without showing
+  // the loading spinner or unmounting ChatView (preserves draft input).
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && isSignedIn && conversationId) {
-        loadConversation(conversationId, { updateUrl: false });
+        loadConversation(conversationId, { updateUrl: false, silent: true });
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
