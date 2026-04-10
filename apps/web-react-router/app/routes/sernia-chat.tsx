@@ -51,6 +51,7 @@ import {
   ToolApprovalCard,
   ToolResultCard,
   convertPendingFromApi,
+  convertAllPendingFromApi,
   type PendingApproval,
 } from "~/components/chat/tool-cards";
 import { processMessage } from "~/components/chat/process-message";
@@ -108,17 +109,21 @@ function ChatView({
   conversationId,
   initialMessages,
   initialPending,
+  initialAllPending,
   getToken,
   readOnly = false,
 }: {
   conversationId: string;
   initialMessages: any[];
   initialPending: PendingApproval | null;
+  initialAllPending?: PendingApproval[];
   getToken: () => Promise<string | null>;
   readOnly?: boolean;
 }) {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(initialPending);
+  const [allPendingApprovals, setAllPendingApprovals] =
+    useState<PendingApproval[]>(initialAllPending || (initialPending ? [initialPending] : []));
   const [isProcessingApproval] = useState(false);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,16 +172,23 @@ function ChatView({
     transport,
   });
 
-  // Extract pending approval from latest assistant message
+  // Extract ALL pending approvals from latest assistant message
+  // PydanticAI requires results for all deferred tool calls, so we need to track all of them
   useEffect(() => {
     if (status !== "ready") return;
 
     const lastAssistantMsg = [...messages]
       .reverse()
       .find((m) => m.role === "assistant");
-    if (!lastAssistantMsg) return;
+    if (!lastAssistantMsg) {
+      setPendingApproval(null);
+      setAllPendingApprovals([]);
+      return;
+    }
 
     const parts = (lastAssistantMsg as any).parts || [];
+    const allPending: PendingApproval[] = [];
+
     for (const part of parts) {
       if (!part.type?.startsWith("tool-")) continue;
       const toolName = part.type.replace("tool-", "");
@@ -184,15 +196,21 @@ function ChatView({
         part.state === "input-available" && part.output === undefined;
 
       if (isPending && part.toolCallId && part.input) {
-        setPendingApproval({
+        allPending.push({
           toolCallId: part.toolCallId,
           toolName,
           args: part.input,
         });
-        return;
       }
     }
-    setPendingApproval(null);
+
+    if (allPending.length > 0) {
+      setPendingApproval(allPending[0]); // Display the first one
+      setAllPendingApprovals(allPending); // Track all for API call
+    } else {
+      setPendingApproval(null);
+      setAllPendingApprovals([]);
+    }
   }, [messages, status]);
 
   // Auto-resize textarea
@@ -219,6 +237,7 @@ function ChatView({
         parts.push({ type: "text", text: input });
       }
       setPendingApproval(null);
+      setAllPendingApprovals([]);
       sendMessage({ role: "user", parts });
       setInput("");
       attachment.clearFiles();
@@ -227,12 +246,14 @@ function ChatView({
 
   const handleSuggestedPrompt = (prompt: string) => {
     setPendingApproval(null);
+    setAllPendingApprovals([]);
     sendMessage({ role: "user", parts: [{ type: "text", text: prompt }] });
   };
 
   const handleApprovalComplete = useCallback(
     (result: any) => {
       setPendingApproval(null);
+      setAllPendingApprovals([]);
 
       const decisionMap = new Map<string, boolean>();
       if (result.decisions) {
@@ -393,6 +414,7 @@ function ChatView({
                         {isLastAssistant && pendingApproval && (
                           <ToolApprovalCard
                             pending={pendingApproval}
+                            allPending={allPendingApprovals}
                             conversationId={conversationId}
                             onApprovalComplete={handleApprovalComplete}
                             isProcessing={isProcessingApproval}
@@ -855,6 +877,8 @@ export default function SerniaChatPage() {
   );
   const [loadedPending, setLoadedPending] =
     useState<PendingApproval | null>(null);
+  const [loadedAllPending, setLoadedAllPending] =
+    useState<PendingApproval[]>([]);
   const [conversationModality, setConversationModality] = useState<string>("web_chat");
 
   const [conversationHistory, setConversationHistory] = useState<
@@ -915,7 +939,9 @@ export default function SerniaChatPage() {
         }
 
         const data = await res.json();
-        setLoadedPending(convertPendingFromApi(data.pending));
+        const allPending = convertAllPendingFromApi(data.pending);
+        setLoadedPending(allPending.length > 0 ? allPending[0] : null);
+        setLoadedAllPending(allPending);
         setConversationId(convId);
         setLoadedMessages(data.messages || []);
         setConversationModality(
@@ -1007,6 +1033,7 @@ export default function SerniaChatPage() {
     setConversationId(newId);
     setLoadedMessages([]);
     setLoadedPending(null);
+    setLoadedAllPending([]);
     setConversationModality("web_chat");
     setHistoryOpen(false);
     navigate(`/sernia-chat?id=${newId}`, { replace: true });
@@ -1232,6 +1259,7 @@ export default function SerniaChatPage() {
             conversationId={conversationId}
             initialMessages={loadedMessages}
             initialPending={loadedPending}
+            initialAllPending={loadedAllPending}
             getToken={getToken}
             readOnly={conversationModality === "sms"}
           />

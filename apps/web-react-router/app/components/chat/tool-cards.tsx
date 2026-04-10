@@ -29,6 +29,7 @@ export interface PendingApproval {
  * Convert pending approvals from API format (snake_case array) to frontend format (camelCase single).
  * API returns: [{tool_call_id, tool_name, args}, ...] or empty array/null
  * Frontend expects: {toolCallId, toolName, args} or null
+ * @deprecated Use convertAllPendingFromApi for multi-approval support
  */
 export function convertPendingFromApi(
   pending: any[] | null
@@ -43,11 +44,31 @@ export function convertPendingFromApi(
 }
 
 /**
+ * Convert ALL pending approvals from API format to frontend format.
+ * Returns empty array if none pending.
+ */
+export function convertAllPendingFromApi(
+  pending: any[] | null
+): PendingApproval[] {
+  if (!pending || pending.length === 0) return [];
+  return pending.map((p) => ({
+    toolCallId: p.tool_call_id,
+    toolName: p.tool_name,
+    args: p.args || {},
+  }));
+}
+
+/**
  * Tool approval card with edit capability.
  * `apiBase` controls where the approval POST goes (e.g. "/api/ai-demos/hitl-agent" or "/api/sernia-ai").
+ *
+ * When multiple tool calls are pending (allPending), the card displays the first one
+ * but sends decisions for ALL pending calls when the user approves/denies.
+ * This is required because PydanticAI expects results for all deferred tool calls.
  */
 export function ToolApprovalCard({
   pending,
+  allPending,
   conversationId,
   onApprovalComplete,
   isProcessing,
@@ -55,6 +76,7 @@ export function ToolApprovalCard({
   apiBase,
 }: {
   pending: PendingApproval;
+  allPending?: PendingApproval[];
   conversationId: string;
   onApprovalComplete: (result: any) => void;
   isProcessing: boolean;
@@ -68,6 +90,9 @@ export function ToolApprovalCard({
   const [editedBody, setEditedBody] = useState(messageArgValue);
   const [processing, setProcessing] = useState(false);
 
+  // Use allPending if provided, otherwise just the single pending
+  const pendingList = allPending && allPending.length > 0 ? allPending : [pending];
+
   const handleApproval = async (approved: boolean) => {
     setProcessing(true);
     try {
@@ -79,22 +104,23 @@ export function ToolApprovalCard({
 
       const url = `${apiBase}/conversation/${conversationId}/approve`;
 
+      // Build decisions for ALL pending tool calls
+      // The displayed one gets the user's explicit decision (with optional override_args)
+      // All others get the same approved/denied status
+      const decisions = pendingList.map((p) => ({
+        tool_call_id: p.toolCallId,
+        approved,
+        override_args: p.toolCallId === pending.toolCallId ? overrideArgs : undefined,
+        reason: approved ? undefined : "Denied by user",
+      }));
+
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          decisions: [
-            {
-              tool_call_id: pending.toolCallId,
-              approved,
-              override_args: overrideArgs,
-              reason: approved ? undefined : "Denied by user",
-            },
-          ],
-        }),
+        body: JSON.stringify({ decisions }),
       });
 
       if (!res.ok) {
@@ -118,6 +144,7 @@ export function ToolApprovalCard({
 
   // Tools that use the To + editable Message layout
   const hasMessageArg = messageArgValue !== "";
+  const hasMultiplePending = pendingList.length > 1;
 
   return (
     <Card className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
@@ -127,6 +154,11 @@ export function ToolApprovalCard({
             <AlertCircle className="w-5 h-5 text-amber-500" />
             <CardTitle className="text-sm font-medium">
               Approval Required
+              {hasMultiplePending && (
+                <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
+                  ({pendingList.length} actions)
+                </span>
+              )}
             </CardTitle>
           </div>
           <Badge variant="outline">{pending.toolName}</Badge>
