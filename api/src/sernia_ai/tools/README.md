@@ -91,6 +91,6 @@ One-time scheduled SMS and email delivery via APScheduler date trigger.
 |--------|-------------|
 | `google_tools.py` | Gmail (search, read, send), Calendar (list, create), Drive (search, read docs/sheets/PDFs). Core email routing (`EmailRouting`, `resolve_email_routing`) exported for scheduling. |
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
-| `db_search_tools.py` | Search past agent conversations and SMS history |
+| `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
 | `code_tools.py` | Python sandbox (pydantic-monty) for math, formatting, data manipulation |
 | `_logging.py` | Shared error logging wrapper for tool failures |

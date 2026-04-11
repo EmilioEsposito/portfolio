@@ -124,9 +124,13 @@ to get the correct field_id and option orderindex values.
 - **google_read_email_thread**: Read all messages in an email thread (chronological). Use to understand full back-and-forth conversations.
 - **google_list_calendar_events**: See upcoming Google Calendar events.
 - **db_search_conversations**: Search past agent conversation history by keyword.
+- **db_get_contact_sms_history**: Get chronological SMS history for a contact \
+without needing a keyword. Use this when you need more context beyond the \
+default trimmed window — for example, to review earlier conversations before \
+replying. Supports days_back (default 30) and max_messages (default 50).
 - **db_search_sms_history**: Search SMS messages by keyword across all contacts, \
 with optional contact and date filters. Use for keyword search — for individual \
-thread history, use quo_get_thread_messages instead.
+thread history, use db_get_contact_sms_history or quo_get_thread_messages instead.
 
 ### Google Drive — prefix: `google_`
 - **google_search_drive**: Search Google Drive for files by name or content.
@@ -258,7 +262,10 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     guidance = {
         "sms": (
             "You are communicating via SMS. Keep responses SHORT (1-3 sentences). "
-            "No markdown formatting. Be direct and casual."
+            "No markdown formatting. Be direct and casual. "
+            "NOTE: Your conversation history may be trimmed to only recent messages "
+            "(last 3 days or last 3 exchanges). If you need earlier context, use "
+            "`db_get_contact_sms_history` or `db_search_sms_history`."
         ),
         "email": (
             "You are communicating via email. Use a professional, slightly formal tone. "

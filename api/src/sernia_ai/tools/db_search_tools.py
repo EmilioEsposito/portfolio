@@ -220,6 +220,65 @@ def _extract_snippet(messages: list[dict], query: str, max_len: int = 200) -> st
 
 
 # ---------------------------------------------------------------------------
+# Tool: get_contact_sms_history (chronological thread, no keyword required)
+# ---------------------------------------------------------------------------
+
+
+@db_search_toolset.tool
+async def get_contact_sms_history(
+    ctx: RunContext[SerniaDeps],
+    contact_name: str,
+    days_back: int = 30,
+    max_messages: int = 50,
+) -> str:
+    """Get chronological SMS history for a contact — no keyword needed.
+
+    Returns all messages to/from a contact in chronological order.
+    Use this when you need more conversation context beyond the default
+    trimmed window (e.g. to understand prior discussions before replying).
+    For keyword-based search, use search_sms_history instead.
+
+    Args:
+        contact_name: Contact name (fuzzy matched) or phone number.
+        days_back: How far back to look (default 30 days).
+        max_messages: Maximum messages to return (default 50).
+    """
+    try:
+        display_name, phones = await _resolve_contact_phones(contact_name)
+    except ValueError as e:
+        return str(e)
+
+    after_dt = datetime.now() - timedelta(days=days_back)
+
+    filters = [
+        OpenPhoneEvent.event_type.like("message.%"),
+        OpenPhoneEvent.message_text.isnot(None),
+        _build_phone_filter(phones),
+        OpenPhoneEvent.event_timestamp >= after_dt,
+    ]
+
+    async with AsyncSessionFactory() as session:
+        stmt = (
+            select(OpenPhoneEvent)
+            .where(and_(*filters))
+            .order_by(OpenPhoneEvent.event_timestamp.asc())
+            .limit(max_messages)
+        )
+        result = await session.execute(stmt)
+        events = result.scalars().all()
+
+    if not events:
+        return f"No SMS messages found for '{display_name}' in the last {days_back} days."
+
+    contact_map = await _get_contact_map()
+    lines = [f"SMS history with {display_name} — {len(events)} messages (last {days_back} days)\n"]
+    for evt in events:
+        lines.append(_format_sms_event(evt, contact_map))
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Tool: search_sms_history
 # ---------------------------------------------------------------------------
 
