@@ -730,11 +730,29 @@ class TestSmsToModelMessages:
 class TestSmsTimestampPreservation:
     """Test that _sms_to_model_messages preserves original timestamps."""
 
-    def test_preserves_created_at_timestamp(self):
+    def test_preserves_created_at_timestamp_on_incoming(self):
+        """Incoming SMS: timestamp preserved on UserPromptPart (not ModelRequest, which is always None)."""
         from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
 
         messages = [
             {"body": "Hello", "direction": "incoming", "createdAt": "2025-06-15T10:30:00Z"},
+        ]
+        result = _sms_to_model_messages(messages)
+
+        assert len(result) == 1
+        # ModelRequest.timestamp is always None after serialization;
+        # the real timestamp lives on UserPromptPart.timestamp.
+        part = result[0].parts[0]
+        assert part.timestamp.year == 2025
+        assert part.timestamp.month == 6
+        assert part.timestamp.day == 15
+
+    def test_preserves_created_at_timestamp_on_outgoing(self):
+        """Outgoing SMS: timestamp preserved on ModelResponse.timestamp."""
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
+
+        messages = [
+            {"body": "Hi back", "direction": "outgoing", "createdAt": "2025-06-15T10:31:00Z"},
         ]
         result = _sms_to_model_messages(messages)
 
@@ -760,7 +778,8 @@ class TestTrimSmsHistory:
     def _make_user_msg(self, text: str, days_ago: int = 0) -> ModelRequest:
         from datetime import datetime, timedelta, timezone
         ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
-        return ModelRequest(parts=[UserPromptPart(content=text)], timestamp=ts)
+        # Timestamp must be on UserPromptPart (ModelRequest.timestamp is always None after ser/deser)
+        return ModelRequest(parts=[UserPromptPart(content=text, timestamp=ts)])
 
     def _make_assistant_msg(self, text: str, days_ago: int = 0) -> ModelResponse:
         from datetime import datetime, timedelta, timezone
