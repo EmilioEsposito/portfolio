@@ -186,7 +186,10 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
     Outgoing (direction="outgoing") → ModelResponse with TextPart
 
     Preserves original ``createdAt`` timestamps so history trimming can
-    accurately determine message age.
+    accurately determine message age.  Timestamps are set on
+    ``UserPromptPart.timestamp`` (for requests) and
+    ``ModelResponse.timestamp`` (for responses) — the two places
+    PydanticAI actually persists them through serialization.
     """
     result: list[ModelMessage] = []
 
@@ -198,17 +201,20 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
 
         ts = _parse_timestamp(msg.get("createdAt"))
         direction = msg.get("direction", "")
-        kwargs: dict = {}
-        if ts is not None:
-            kwargs["timestamp"] = ts
 
         if direction == "incoming":
+            part_kwargs: dict = {}
+            if ts is not None:
+                part_kwargs["timestamp"] = ts
             result.append(
-                ModelRequest(parts=[UserPromptPart(content=body)], **kwargs)
+                ModelRequest(parts=[UserPromptPart(content=body, **part_kwargs)])
             )
         elif direction == "outgoing":
+            resp_kwargs: dict = {}
+            if ts is not None:
+                resp_kwargs["timestamp"] = ts
             result.append(
-                ModelResponse(parts=[TextPart(content=body)], **kwargs)
+                ModelResponse(parts=[TextPart(content=body)], **resp_kwargs)
             )
 
     return result
@@ -271,6 +277,23 @@ def _merge_sms_into_history(
     return missing + db_history
 
 
+def _get_message_timestamp(msg: ModelMessage) -> datetime | None:
+    """Extract the effective timestamp from a PydanticAI message.
+
+    PydanticAI stores timestamps in different places depending on message type:
+    - ``ModelRequest``: ``ModelRequest.timestamp`` is always ``None`` after
+      serialization.  The real timestamp lives on ``UserPromptPart.timestamp``.
+    - ``ModelResponse``: ``ModelResponse.timestamp`` is preserved correctly.
+    """
+    if isinstance(msg, ModelResponse):
+        return msg.timestamp
+    if isinstance(msg, ModelRequest):
+        for part in msg.parts:
+            if isinstance(part, UserPromptPart):
+                return getattr(part, "timestamp", None)
+    return None
+
+
 def _trim_sms_history(
     messages: list[ModelMessage],
     min_days: int = SMS_HISTORY_MIN_DAYS,
@@ -296,7 +319,7 @@ def _trim_sms_history(
     # Find the first message (from the start) whose timestamp is within the window.
     time_keep_from = len(messages)  # default: nothing qualifies on time alone
     for i, msg in enumerate(messages):
-        ts = getattr(msg, "timestamp", None)
+        ts = _get_message_timestamp(msg)
         if ts is not None:
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
