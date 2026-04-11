@@ -122,7 +122,8 @@ to get the correct field_id and option orderindex values.
 - **google_search_emails**: Search Gmail with full Gmail search syntax (from:, subject:, etc.). Returns message IDs and thread IDs.
 - **google_read_email**: Read the full content of an email by its message ID.
 - **google_read_email_thread**: Read all messages in an email thread (chronological). Use to understand full back-and-forth conversations.
-- **google_list_calendar_events**: See upcoming Google Calendar events.
+- **google_list_calendar_events**: See calendar events. Always includes today's events. \
+Use days_behind to look at past days too (default 0).
 - **db_search_conversations**: Search past agent conversation history by keyword.
 - **db_search_sms_history**: Search SMS messages by keyword across all contacts, \
 with optional contact and date filters. Use for keyword search — for individual \
