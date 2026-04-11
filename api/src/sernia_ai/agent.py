@@ -65,14 +65,14 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # Skills toolset — loads SKILL.md files from .workspace/skills/
 # Note: initial discovery may find nothing if workspace hasn't been git-synced yet.
 # Call reload_skills() after workspace init in lifespan to pick up synced skills.
-skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"], auto_reload=True)
+skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
 
 
 def reload_skills() -> None:
     """Re-discover skills from disk with per-directory error handling.
 
-    Called during lifespan startup after workspace git-sync.
-    Runtime re-discovery is handled by auto_reload=True on the SkillsToolset.
+    Called during lifespan startup and before every agent run (via decorator).
+    Per-directory try/except ensures a broken SKILL.md never crashes the agent.
     """
     skills_toolset._skills.clear()
     for skill_dir in skills_toolset._skill_directories:
@@ -111,6 +111,20 @@ sernia_agent = Agent(
     instrument=True,
     name=AGENT_NAME,
 )
+
+
+@sernia_agent.instructions
+async def refresh_skills_before_run(ctx: RunContext[SerniaDeps]) -> None:
+    """Re-discover skills from disk before every agent run.
+
+    Only reloads — does NOT return instructions (the toolset's own
+    get_instructions() handles that, avoiding the old duplicate injection).
+    Errors are swallowed so a broken SKILL.md never crashes the agent.
+    """
+    try:
+        reload_skills()
+    except Exception:
+        logfire.exception("refresh_skills_before_run failed — agent will run with stale skills")
 
 
 @sernia_agent.tool
