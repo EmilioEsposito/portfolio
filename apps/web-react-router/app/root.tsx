@@ -82,7 +82,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
         <Toaster />
         <SidebarProvider>
           <AppSidebar />
-          <SidebarInset>
+          <SidebarInset className="min-w-0 overflow-x-hidden">
             <Navbar />
             <EnvBanner />
             <Outlet />
