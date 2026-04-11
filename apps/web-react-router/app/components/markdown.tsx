@@ -11,17 +11,24 @@ const NonMemoizedMarkdown = ({ children }: { children: string }) => {
         // @ts-expect-error
         <pre
           {...props}
-          className={`${className} text-sm max-w-full overflow-x-auto bg-zinc-100 p-3 rounded-lg mt-2 dark:bg-zinc-800`}
+          className={`${className} text-sm w-full overflow-x-auto bg-zinc-100 p-3 rounded-lg mt-2 dark:bg-zinc-800`}
         >
           <code className={match[1]}>{children}</code>
         </pre>
       ) : (
         <code
-          className={`${className} text-sm bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md`}
+          className={`${className} text-sm bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md break-all`}
           {...props}
         >
           {children}
         </code>
+      );
+    },
+    table: ({ node, children, ...props }) => {
+      return (
+        <div className="overflow-x-auto -mx-1">
+          <table {...props}>{children}</table>
+        </div>
       );
     },
     ol: ({ node, children, ...props }) => {
