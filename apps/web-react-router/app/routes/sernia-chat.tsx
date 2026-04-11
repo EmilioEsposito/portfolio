@@ -326,7 +326,7 @@ function ChatView({
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overscroll-none pt-4 relative"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative"
         {...attachment.dropTargetProps}
       >
         {attachment.isDragging && (
@@ -378,7 +378,7 @@ function ChatView({
 
                   <div
                     className={cn(
-                      "flex flex-col gap-2 max-w-[85%] min-w-0",
+                      "flex flex-col gap-2 max-w-[85%] min-w-0 overflow-hidden",
                       message.role === "user" && "items-end"
                     )}
                   >
