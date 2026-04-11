@@ -316,18 +316,27 @@ def _trim_sms_history(
     time_cutoff = now - timedelta(days=min_days)
 
     # --- Time-based cutoff ---
-    # Find the first message (from the start) whose timestamp is within the window.
+    # Scan BACKWARDS to find where recent messages start.  The merge step
+    # may prepend recent SMS messages at the very beginning of the list
+    # (out of chronological order), which would make a forward scan
+    # immediately think "keep everything from index 0".  Scanning
+    # backwards finds the true boundary in the DB-history portion.
     time_keep_from = len(messages)  # default: nothing qualifies on time alone
     ts_found = 0
-    for i, msg in enumerate(messages):
-        ts = _get_message_timestamp(msg)
+    for i in range(len(messages) - 1, -1, -1):
+        ts = _get_message_timestamp(messages[i])
         if ts is not None:
             ts_found += 1
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
-            if ts >= time_cutoff:
-                time_keep_from = i
+            if ts < time_cutoff:
+                # This message is outside the window; keep from the next one
+                time_keep_from = i + 1
                 break
+    else:
+        # Every message with a timestamp was within the window (or no timestamps)
+        if ts_found > 0:
+            time_keep_from = 0  # all messages are recent, keep all
 
     # --- Message-count cutoff ---
     # Identify indices of user-turn starts (ModelRequest with a UserPromptPart
