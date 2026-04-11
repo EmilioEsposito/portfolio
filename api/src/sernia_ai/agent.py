@@ -65,13 +65,14 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # Skills toolset — loads SKILL.md files from .workspace/skills/
 # Note: initial discovery may find nothing if workspace hasn't been git-synced yet.
 # Call reload_skills() after workspace init in lifespan to pick up synced skills.
-skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
+skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"], auto_reload=True)
 
 
 def reload_skills() -> None:
-    """Re-discover skills from disk. Called every agent run so edits take effect immediately.
+    """Re-discover skills from disk with per-directory error handling.
 
-    Catches errors per-directory so a broken skill file doesn't kill the entire agent run.
+    Called during lifespan startup after workspace git-sync.
+    Runtime re-discovery is handled by auto_reload=True on the SkillsToolset.
     """
     skills_toolset._skills.clear()
     for skill_dir in skills_toolset._skill_directories:
@@ -110,25 +111,6 @@ sernia_agent = Agent(
     instrument=True,
     name=AGENT_NAME,
 )
-
-
-@sernia_agent.instructions
-async def inject_skills_instructions(ctx: RunContext[SerniaDeps]) -> str | None:
-    """Re-discover skills from disk and inject descriptions.
-
-    Runs at the start of every agent run, so skill edits (by the agent or
-    manually) take effect without restarting the server.
-
-    Workspace skills are runtime-editable and must never block an agent run.
-    Errors are logged as exceptions (triggers Logfire alerts) but swallowed
-    so the agent continues without skills.
-    """
-    try:
-        reload_skills()
-        return await skills_toolset.get_instructions(ctx)
-    except Exception:
-        logfire.exception("inject_skills_instructions failed — agent will run without skills")
-        return None
 
 
 @sernia_agent.tool
