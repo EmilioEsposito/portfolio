@@ -30,6 +30,13 @@
     "quo": {
       "type": "http",
       "url": "https://mcp.quo.com/sse"
+    },
+    "Neon": {
+      "type": "http",
+      "url": "https://mcp.neon.tech/mcp",
+      "headers": {
+        "Authorization": "Bearer ${NEON_MCP_API_KEY:-}"
+      }
     }
   }
 }
