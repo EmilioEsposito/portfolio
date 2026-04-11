@@ -318,9 +318,11 @@ def _trim_sms_history(
     # --- Time-based cutoff ---
     # Find the first message (from the start) whose timestamp is within the window.
     time_keep_from = len(messages)  # default: nothing qualifies on time alone
+    ts_found = 0
     for i, msg in enumerate(messages):
         ts = _get_message_timestamp(msg)
         if ts is not None:
+            ts_found += 1
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
             if ts >= time_cutoff:
@@ -345,6 +347,16 @@ def _trim_sms_history(
 
     # Whichever window goes further back (smaller index = more history kept)
     keep_from = min(time_keep_from, msg_keep_from)
+
+    logfire.info(
+        "ai_sms_event: trim diagnostics",
+        total_messages=len(messages),
+        timestamps_found=ts_found,
+        time_keep_from=time_keep_from,
+        user_turns=len(user_turn_indices),
+        msg_keep_from=msg_keep_from,
+        keep_from=keep_from,
+    )
 
     if keep_from <= 0:
         return messages, 0
