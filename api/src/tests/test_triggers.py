@@ -605,6 +605,7 @@ class TestAiSmsEventTriggerSmoke:
             _verify_internal_contact,
             _fetch_sms_thread,
             _sms_to_model_messages,
+            _trim_sms_history,
             _send_sms_reply,
             _is_ai_sms_rate_limited,
             AI_SMS_RATE_LIMIT_MAX_CALLS,
@@ -614,6 +615,7 @@ class TestAiSmsEventTriggerSmoke:
         assert callable(_verify_internal_contact)
         assert callable(_fetch_sms_thread)
         assert callable(_sms_to_model_messages)
+        assert callable(_trim_sms_history)
         assert callable(_send_sms_reply)
         assert callable(_is_ai_sms_rate_limited)
         assert AI_SMS_RATE_LIMIT_MAX_CALLS == 10
@@ -623,6 +625,13 @@ class TestAiSmsEventTriggerSmoke:
         from api.src.sernia_ai.config import SMS_CONVERSATION_MAX_MESSAGES
         assert isinstance(SMS_CONVERSATION_MAX_MESSAGES, int)
         assert SMS_CONVERSATION_MAX_MESSAGES > 0
+
+    def test_config_has_sms_history_trimming_constants(self):
+        from api.src.sernia_ai.config import SMS_HISTORY_MIN_DAYS, SMS_HISTORY_MIN_MESSAGES
+        assert isinstance(SMS_HISTORY_MIN_DAYS, int)
+        assert SMS_HISTORY_MIN_DAYS > 0
+        assert isinstance(SMS_HISTORY_MIN_MESSAGES, int)
+        assert SMS_HISTORY_MIN_MESSAGES > 0
 
     def test_ai_sms_event_trigger_wired_in_webhook(self):
         """handle_ai_sms_event should be imported in open_phone routes."""
@@ -716,6 +725,119 @@ class TestSmsToModelMessages:
 
         assert len(result) == 1
         assert result[0].parts[0].content == "from text"
+
+
+class TestSmsTimestampPreservation:
+    """Test that _sms_to_model_messages preserves original timestamps."""
+
+    def test_preserves_created_at_timestamp(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
+
+        messages = [
+            {"body": "Hello", "direction": "incoming", "createdAt": "2025-06-15T10:30:00Z"},
+        ]
+        result = _sms_to_model_messages(messages)
+
+        assert len(result) == 1
+        assert result[0].timestamp.year == 2025
+        assert result[0].timestamp.month == 6
+        assert result[0].timestamp.day == 15
+
+    def test_handles_missing_created_at(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sms_to_model_messages
+
+        messages = [{"body": "Hello", "direction": "incoming"}]
+        result = _sms_to_model_messages(messages)
+
+        # Should still produce a message (with auto-generated timestamp)
+        assert len(result) == 1
+        assert result[0].parts[0].content == "Hello"
+
+
+class TestTrimSmsHistory:
+    """Test _trim_sms_history reduces conversation history to recent window."""
+
+    def _make_user_msg(self, text: str, days_ago: int = 0) -> ModelRequest:
+        from datetime import datetime, timedelta, timezone
+        ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        return ModelRequest(parts=[UserPromptPart(content=text)], timestamp=ts)
+
+    def _make_assistant_msg(self, text: str, days_ago: int = 0) -> ModelResponse:
+        from datetime import datetime, timedelta, timezone
+        ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        return ModelResponse(parts=[TextPart(content=text)], timestamp=ts)
+
+    def test_no_trim_when_few_messages(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _trim_sms_history
+
+        messages = [
+            self._make_user_msg("Hi", days_ago=1),
+            self._make_assistant_msg("Hello!", days_ago=1),
+        ]
+        result, removed = _trim_sms_history(messages, min_days=3, min_messages=3)
+        assert removed == 0
+        assert len(result) == 2
+
+    def test_trims_old_messages_beyond_both_windows(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _trim_sms_history
+
+        # 10 user turns: days 20, 18, 16, 14, 12, 10, 8, 6, 2, 0
+        messages = []
+        for i, days in enumerate([20, 18, 16, 14, 12, 10, 8, 6, 2, 0]):
+            messages.append(self._make_user_msg(f"msg-{i}", days_ago=days))
+            messages.append(self._make_assistant_msg(f"reply-{i}", days_ago=days))
+
+        result, removed = _trim_sms_history(messages, min_days=3, min_messages=3)
+
+        # Last 3 messages are at days 6, 2, 0 — last 3 days covers 2, 0
+        # "Whichever goes further" → 3 messages wins (goes back to day 6)
+        # So we keep messages from index 14 onward (3 user turns * 2 msgs each = 6 messages)
+        assert removed > 0
+        assert len(result) == 6  # last 3 user + assistant pairs
+
+    def test_time_window_wins_when_more_messages_in_period(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _trim_sms_history
+
+        # Many messages in last 3 days, plus old ones
+        messages = [
+            self._make_user_msg("old-1", days_ago=30),
+            self._make_assistant_msg("old-reply-1", days_ago=30),
+            self._make_user_msg("old-2", days_ago=20),
+            self._make_assistant_msg("old-reply-2", days_ago=20),
+        ]
+        # Add 5 turns within last 3 days
+        for i in range(5):
+            messages.append(self._make_user_msg(f"recent-{i}", days_ago=2))
+            messages.append(self._make_assistant_msg(f"recent-reply-{i}", days_ago=2))
+
+        result, removed = _trim_sms_history(messages, min_days=3, min_messages=3)
+
+        # 3-day window has 5 turns (10 msgs) — more than 3-message window
+        # Time window goes further back, so it wins
+        assert removed == 4  # the 4 old messages trimmed
+        assert len(result) == 10  # 5 recent turns
+
+    def test_empty_history_returns_empty(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _trim_sms_history
+
+        result, removed = _trim_sms_history([], min_days=3, min_messages=3)
+        assert result == []
+        assert removed == 0
+
+    def test_all_messages_within_window_no_trim(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _trim_sms_history
+
+        messages = [
+            self._make_user_msg("msg-1", days_ago=2),
+            self._make_assistant_msg("reply-1", days_ago=2),
+            self._make_user_msg("msg-2", days_ago=1),
+            self._make_assistant_msg("reply-2", days_ago=1),
+            self._make_user_msg("msg-3", days_ago=0),
+            self._make_assistant_msg("reply-3", days_ago=0),
+        ]
+        result, removed = _trim_sms_history(messages, min_days=3, min_messages=3)
+        assert removed == 0
+        assert len(result) == 6
 
 
 class TestVerifyInternalContact:

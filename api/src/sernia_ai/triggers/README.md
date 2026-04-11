@@ -43,7 +43,7 @@ The trigger always fetches from **both** sources and merges them:
 1. **DB history** — `get_conversation_messages()` preserves full tool call context from prior agent runs
 2. **Quo SMS thread** — `_fetch_sms_thread()` via `GET /v1/messages` captures messages sent from any conversation (e.g. web chat tool calls, context-seeded messages)
 
-`_merge_sms_into_history()` deduplicates by text content — any SMS messages whose text is missing from DB history are prepended. This ensures the agent sees the full picture even when messages were sent outside the AI SMS conversation (e.g. via `send_internal_sms` from web chat). If both sources return empty (e.g. Quo API hasn't indexed recent messages yet), a hint is injected telling the agent to use `get_contact_sms_history`.
+`_merge_sms_into_history()` deduplicates by text content — any SMS messages whose text is missing from DB history are prepended. After merging, `_trim_sms_history()` reduces the history to the last `SMS_HISTORY_MIN_DAYS` days or last `SMS_HISTORY_MIN_MESSAGES` user exchanges, whichever window goes further back. This significantly reduces token usage for long-running SMS conversations. When history is trimmed, a system hint tells the agent how many messages were omitted and which tools to use for earlier context (`db_get_contact_sms_history`, `db_search_sms_history`). If both sources return empty (e.g. Quo API hasn't indexed recent messages yet), a hint is injected telling the agent to use `db_get_contact_sms_history`.
 
 ```mermaid
 flowchart TD
@@ -65,7 +65,8 @@ flowchart TD
     DB --> MERGE["_merge_sms_into_history()<br/>(dedup by text content)"]
     QUO --> MERGE
 
-    MERGE --> AGENT["Run sernia_agent<br/>modality=sms"]
+    MERGE --> TRIM["_trim_sms_history()<br/>(last 3 days or last 3 exchanges)"]
+    TRIM --> AGENT["Run sernia_agent<br/>modality=sms"]
 
     AGENT --> SAVE["models.save_agent_conversation()<br/>(modality=sms, upsert)"]
     SAVE --> RESULT{"Pending<br/>approvals?"}
@@ -206,6 +207,8 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `QUO_SERNIA_AI_PHONE_ID` | AI's phone line (used for SMS replies and team notifications) |
 | `QUO_INTERNAL_COMPANY` | `"Sernia Capital LLC"` — gate for AI SMS contact verification |
 | `SMS_CONVERSATION_MAX_MESSAGES` | Max messages to fetch from OpenPhone for SMS conversation bootstrap (20) |
+| `SMS_HISTORY_MIN_DAYS` | History trimming: minimum days of history to keep (3) |
+| `SMS_HISTORY_MIN_MESSAGES` | History trimming: minimum user-message turns to keep (3) |
 | `DEFAULT_SCHEDULE_DAYS_OF_WEEK` | Default days (Mon–Fri) — overridden by `schedule_config` DB setting |
 | `DEFAULT_SCHEDULE_HOURS` | Default hours (`[8,11,14,17]` ET) — overridden by `schedule_config` DB setting |
 | `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |

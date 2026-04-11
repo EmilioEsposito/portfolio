@@ -22,6 +22,7 @@ import os
 import re
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import logfire
@@ -30,6 +31,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 
@@ -42,6 +44,8 @@ from api.src.sernia_ai.config import (
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
     SMS_CONVERSATION_MAX_MESSAGES,
+    SMS_HISTORY_MIN_DAYS,
+    SMS_HISTORY_MIN_MESSAGES,
     TRIGGER_BOT_ID,
     TRIGGER_BOT_NAME,
     WORKSPACE_PATH,
@@ -164,12 +168,25 @@ async def _fetch_sms_thread(
         return []
 
 
+def _parse_timestamp(raw: str | None) -> datetime | None:
+    """Parse an ISO 8601 timestamp from the Quo API, returning None on failure."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
 def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
     """Convert Quo message dicts to PydanticAI ModelMessage list.
 
     Quo returns newest-first; we reverse for chronological order.
     Incoming (direction="incoming") → ModelRequest with UserPromptPart
     Outgoing (direction="outgoing") → ModelResponse with TextPart
+
+    Preserves original ``createdAt`` timestamps so history trimming can
+    accurately determine message age.
     """
     result: list[ModelMessage] = []
 
@@ -179,14 +196,19 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
         if not body.strip():
             continue
 
+        ts = _parse_timestamp(msg.get("createdAt"))
         direction = msg.get("direction", "")
+        kwargs: dict = {}
+        if ts is not None:
+            kwargs["timestamp"] = ts
+
         if direction == "incoming":
             result.append(
-                ModelRequest(parts=[UserPromptPart(content=body)])
+                ModelRequest(parts=[UserPromptPart(content=body)], **kwargs)
             )
         elif direction == "outgoing":
             result.append(
-                ModelResponse(parts=[TextPart(content=body)])
+                ModelResponse(parts=[TextPart(content=body)], **kwargs)
             )
 
     return result
@@ -247,6 +269,64 @@ def _merge_sms_into_history(
 
     # Prepend missing SMS messages before DB history
     return missing + db_history
+
+
+def _trim_sms_history(
+    messages: list[ModelMessage],
+    min_days: int = SMS_HISTORY_MIN_DAYS,
+    min_messages: int = SMS_HISTORY_MIN_MESSAGES,
+) -> tuple[list[ModelMessage], int]:
+    """Trim conversation history to reduce token usage on SMS-triggered runs.
+
+    Keeps the **larger** of two windows (whichever goes further back):
+    - All messages from the last ``min_days`` days
+    - The last ``min_messages`` user-message turns (with all associated
+      agent responses and tool calls between them)
+
+    Returns:
+        (trimmed_messages, number_of_messages_removed)
+    """
+    if not messages or len(messages) <= min_messages:
+        return messages, 0
+
+    now = datetime.now(timezone.utc)
+    time_cutoff = now - timedelta(days=min_days)
+
+    # --- Time-based cutoff ---
+    # Find the first message (from the start) whose timestamp is within the window.
+    time_keep_from = len(messages)  # default: nothing qualifies on time alone
+    for i, msg in enumerate(messages):
+        ts = getattr(msg, "timestamp", None)
+        if ts is not None:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts >= time_cutoff:
+                time_keep_from = i
+                break
+
+    # --- Message-count cutoff ---
+    # Identify indices of user-turn starts (ModelRequest with a UserPromptPart
+    # that isn't purely tool-return plumbing).
+    user_turn_indices: list[int] = []
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ModelRequest):
+            has_user_prompt = any(isinstance(p, UserPromptPart) for p in msg.parts)
+            is_pure_tool_return = all(isinstance(p, ToolReturnPart) for p in msg.parts)
+            if has_user_prompt and not is_pure_tool_return:
+                user_turn_indices.append(i)
+
+    if len(user_turn_indices) <= min_messages:
+        msg_keep_from = 0  # not enough turns to trim
+    else:
+        msg_keep_from = user_turn_indices[-min_messages]
+
+    # Whichever window goes further back (smaller index = more history kept)
+    keep_from = min(time_keep_from, msg_keep_from)
+
+    if keep_from <= 0:
+        return messages, 0
+
+    return messages[keep_from:], keep_from
 
 
 async def _send_sms_reply(to_phone: str, message: str) -> None:
@@ -333,24 +413,36 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         )
         sms_thread = await _fetch_sms_thread(from_number)
 
-        history = _merge_sms_into_history(db_history, sms_thread)
+        merged = _merge_sms_into_history(db_history, sms_thread)
+        history, trimmed_count = _trim_sms_history(merged)
         logfire.info(
             "ai_sms_event: history loaded",
             from_number=from_number,
             db_messages=len(db_history),
             sms_messages=len(sms_thread),
-            merged_messages=len(history),
+            merged_messages=len(merged),
+            after_trim=len(history),
+            trimmed=trimmed_count,
         )
 
-        # If still no history, the Quo API may not have indexed recent
-        # messages yet. Hint the agent to look up SMS history.
+        # Build context hints for the agent
         sms_context_hint = ""
         if len(history) <= 1:
+            # Quo API may not have indexed recent messages yet
             sms_context_hint = (
                 " [System: No prior conversation history found. This person may "
                 "be replying to a message you sent from another conversation. "
-                "Use `get_contact_sms_history` to check recent SMS thread before "
-                "replying.]"
+                "Use `db_get_contact_sms_history` to check recent SMS thread "
+                "before replying.]"
+            )
+        elif trimmed_count > 0:
+            sms_context_hint = (
+                f" [System: Conversation history trimmed to reduce context — "
+                f"{trimmed_count} older message(s) omitted. You are seeing the "
+                f"last {SMS_HISTORY_MIN_DAYS} days or last "
+                f"{SMS_HISTORY_MIN_MESSAGES} exchanges (whichever is more). "
+                f"If you need earlier context, use `db_get_contact_sms_history` "
+                f"or `db_search_sms_history`.]"
             )
 
         deps = SerniaDeps(

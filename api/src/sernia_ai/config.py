@@ -95,6 +95,12 @@ SMS_MAX_LENGTH = 1000
 # AI SMS conversation: max messages to fetch from OpenPhone for initial bootstrap
 SMS_CONVERSATION_MAX_MESSAGES = 20
 
+# AI SMS history trimming — reduce context size for SMS-triggered runs.
+# Default window: last N days OR last N user messages, whichever goes further back.
+# The agent is told history was trimmed and can use tools to load more.
+SMS_HISTORY_MIN_DAYS = 3
+SMS_HISTORY_MIN_MESSAGES = 3
+
 # ClickUp — Maintenance list for task creation from SMS triggers
 CLICKUP_MAINTENANCE_LIST_ID = "901312027371"
 

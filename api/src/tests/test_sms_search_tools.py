@@ -13,6 +13,7 @@ from pydantic_ai import RunContext
 
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.sernia_ai.tools.db_search_tools import (
+    get_contact_sms_history,
     search_sms_history,
     _resolve_contact_phones,
     _build_contact_map,
@@ -381,6 +382,78 @@ class TestSearchSmsHistory:
         with pytest.raises(RuntimeError, match="DB connection lost"):
             with patch(_SESSION_FACTORY_PATCH, side_effect=lambda: _mock_factory(session)):
                 await search_sms_history(ctx, query="test")
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_contact_sms_history
+# ---------------------------------------------------------------------------
+
+
+class TestGetContactSmsHistory:
+    """Test the chronological SMS history tool (no keyword needed)."""
+
+    @pytest.mark.asyncio
+    async def test_returns_chronological_history(self):
+        ctx = _make_ctx()
+        session_mock = AsyncMock()
+        _mock_execute_returns(session_mock, FAKE_THREAD[:3])
+
+        @asynccontextmanager
+        async def mock_factory():
+            yield session_mock
+
+        with (
+            patch(_SESSION_FACTORY_PATCH, mock_factory),
+            patch(
+                "api.src.sernia_ai.tools.db_search_tools._resolve_contact_phones",
+                new_callable=AsyncMock,
+                return_value=("John Doe", ["+14155550100"]),
+            ),
+            patch(
+                "api.src.sernia_ai.tools.db_search_tools._get_contact_map",
+                new_callable=AsyncMock,
+                return_value={"+14155550100": "John Doe", "+14155559999": "Sernia Capital"},
+            ),
+        ):
+            result = await get_contact_sms_history(ctx, contact_name="John", days_back=30)
+
+        assert "John Doe" in result
+        assert "3 messages" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_not_found_when_no_messages(self):
+        ctx = _make_ctx()
+        session_mock = AsyncMock()
+        _mock_execute_returns(session_mock, [])
+
+        @asynccontextmanager
+        async def mock_factory():
+            yield session_mock
+
+        with (
+            patch(_SESSION_FACTORY_PATCH, mock_factory),
+            patch(
+                "api.src.sernia_ai.tools.db_search_tools._resolve_contact_phones",
+                new_callable=AsyncMock,
+                return_value=("John Doe", ["+14155550100"]),
+            ),
+        ):
+            result = await get_contact_sms_history(ctx, contact_name="John", days_back=7)
+
+        assert "No SMS messages found" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_unknown_contact(self):
+        ctx = _make_ctx()
+
+        with patch(
+            "api.src.sernia_ai.tools.db_search_tools._resolve_contact_phones",
+            new_callable=AsyncMock,
+            side_effect=ValueError("No contact found matching 'Nobody'"),
+        ):
+            result = await get_contact_sms_history(ctx, contact_name="Nobody")
+
+        assert "No contact found" in result
 
 
 # ---------------------------------------------------------------------------
