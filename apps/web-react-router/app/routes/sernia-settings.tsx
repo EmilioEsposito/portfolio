@@ -7,7 +7,6 @@ import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
 import { Label } from "~/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
-import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
 import {
   Building,
@@ -15,7 +14,10 @@ import {
   ArrowLeft,
   Save,
   RotateCcw,
+  Menu,
 } from "lucide-react";
+import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
+import { ConversationSidebar } from "~/components/sernia/conversation-sidebar";
 
 const API_BASE = "/api/sernia-ai";
 
@@ -62,6 +64,20 @@ interface ScheduleConfig {
 interface Settings {
   triggers_enabled: boolean;
   schedule_config: ScheduleConfig;
+}
+
+function SettingsMobileSidebarToggle() {
+  const { toggleSidebar } = useSidebar();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 shrink-0 md:hidden"
+      onClick={toggleSidebar}
+    >
+      <Menu className="w-4 h-4" />
+    </Button>
+  );
 }
 
 export default function SerniaSettingsPage() {
@@ -174,15 +190,33 @@ export default function SerniaSettingsPage() {
       prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h]
     );
 
+  const handleSelectConversation = useCallback(
+    (convId: string) => {
+      navigate(`/sernia-chat?id=${convId}`);
+    },
+    [navigate]
+  );
+
+  const handleNewConversation = useCallback(() => {
+    navigate("/sernia-chat");
+  }, [navigate]);
+
   return (
     <AuthGuard
       requireDomain="serniacapital.com"
       message="Admin access required"
       icon={<Building className="w-16 h-16 text-muted-foreground" />}
     >
-      <div className="flex flex-col h-[calc(100dvh-52px)] bg-background">
+      <SidebarProvider>
+        <ConversationSidebar
+          onSelectConversation={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+        />
+        <SidebarInset className="min-w-0 overflow-x-hidden">
+      <div className="flex flex-col h-dvh bg-background">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
+          <SettingsMobileSidebarToggle />
           <Button
             variant="ghost"
             size="icon"
@@ -362,6 +396,8 @@ export default function SerniaSettingsPage() {
           )}
         </div>
       </div>
+        </SidebarInset>
+      </SidebarProvider>
     </AuthGuard>
   );
 }

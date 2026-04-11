@@ -22,33 +22,20 @@ import {
   StopCircle,
   Send,
   Loader2,
-  History,
   Plus,
-  Clock,
-  Trash2,
   RefreshCw,
   Bell,
   BellOff,
   Share,
   Download,
   Phone,
-  Mail,
-  Settings,
   Upload,
-  LayoutList,
+  Menu,
 } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "~/components/ui/sheet";
-import {
   ToolApprovalCard,
   ToolResultCard,
-  convertPendingFromApi,
   convertAllPendingFromApi,
   type PendingApproval,
 } from "~/components/chat/tool-cards";
@@ -59,6 +46,11 @@ import {
   FilePreviewStrip,
 } from "~/components/chat/file-attachment-area";
 import { FileMessageDisplay } from "~/components/chat/file-message-display";
+import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
+import {
+  ConversationSidebar,
+  prefetchConversations,
+} from "~/components/sernia/conversation-sidebar";
 
 const API_BASE = "/api/sernia-ai";
 
@@ -87,17 +79,6 @@ const suggestedPrompts = [
     prompt: "Search for recent property info",
   },
 ];
-
-interface ConversationSummary {
-  conversation_id: string;
-  modality: string;
-  preview: string;
-  has_pending: boolean;
-  trigger_source: string | null;
-  trigger_contact_name: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
 
 // ---------------------------------------------------------------------------
 // Inner chat component — remounts on conversation switch via `key` prop
@@ -761,7 +742,90 @@ function SystemInstructionsView({
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Outer page component — manages conversation selection & history
+// Chat header with sidebar toggle, admin tabs, push notifications
+// ---------------------------------------------------------------------------
+
+function ChatHeader({
+  isAdmin,
+  push,
+  onNewConversation,
+}: {
+  isAdmin: boolean;
+  push: ReturnType<typeof usePushNotifications>;
+  onNewConversation: () => void;
+}) {
+  const { toggleSidebar, isMobile } = useSidebar();
+
+  return (
+    <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b min-w-0">
+      <div className="flex items-center gap-1 min-w-0">
+        {/* Mobile sidebar toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 md:hidden"
+          onClick={toggleSidebar}
+        >
+          <Menu className="w-4 h-4" />
+        </Button>
+
+        {isAdmin && (
+          <TabsList>
+            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="instructions">Instructions</TabsTrigger>
+          </TabsList>
+        )}
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0">
+        {push.isSupported && !push.needsInstall && (
+          <Button
+            variant={push.shouldPrompt ? "outline" : "ghost"}
+            size="icon"
+            className={cn("h-8 w-8", push.shouldPrompt && "animate-pulse")}
+            onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
+            disabled={push.isLoading || push.permission === "denied"}
+            title={
+              push.permission === "denied"
+                ? "Notifications blocked — update browser settings"
+                : push.isSubscribed
+                  ? "Disable push notifications"
+                  : "Enable push notifications"
+            }
+          >
+            {push.isSubscribed ? (
+              <Bell className="w-4 h-4" />
+            ) : (
+              <BellOff className="w-4 h-4 text-muted-foreground" />
+            )}
+          </Button>
+        )}
+        {push.canInstall && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={push.promptInstall}
+            title="Install Sernia Capital app"
+          >
+            <Download className="w-4 h-4" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={onNewConversation}
+          title="New conversation"
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Outer page component — manages conversation selection & sidebar layout
 // ---------------------------------------------------------------------------
 
 export default function SerniaChatPage() {
@@ -770,7 +834,8 @@ export default function SerniaChatPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const isAdmin = user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
+  const isAdmin =
+    user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
   const urlConversationId = searchParams.get("id");
   const [conversationId, setConversationId] = useState<string>(
     () => urlConversationId || crypto.randomUUID()
@@ -784,52 +849,26 @@ export default function SerniaChatPage() {
     useState<PendingApproval | null>(null);
   const [loadedAllPending, setLoadedAllPending] =
     useState<PendingApproval[]>([]);
-  const [conversationModality, setConversationModality] = useState<string>("web_chat");
-
-  const [conversationHistory, setConversationHistory] = useState<
-    ConversationSummary[]
-  >([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [conversationModality, setConversationModality] =
+    useState<string>("web_chat");
   const push = usePushNotifications();
 
-  // Fetch conversation history
-  const fetchHistory = useCallback(async () => {
-    if (!isSignedIn) return;
-    setIsLoadingHistory(true);
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_BASE}/conversations/history`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConversationHistory(data.conversations || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch history:", err);
-    } finally {
-      setIsLoadingHistory(false);
+  // Prefetch conversations for the sidebar as early as possible
+  useEffect(() => {
+    if (isSignedIn) {
+      prefetchConversations(getToken);
     }
   }, [isSignedIn, getToken]);
 
-  // Prefetch on mount so the list is ready when user opens history
-  useEffect(() => {
-    if (isSignedIn) fetchHistory();
-  }, [isSignedIn, fetchHistory]);
-
-  // Refresh when sheet opens (in case new conversations were created)
-  useEffect(() => {
-    if (historyOpen) fetchHistory();
-  }, [historyOpen, fetchHistory]);
-
   // Load conversation messages from API
-  // When silent=true, skip the loading spinner (used for background refreshes)
   const loadConversation = useCallback(
-    async (convId: string, opts?: { updateUrl?: boolean; modality?: string; silent?: boolean }) => {
+    async (
+      convId: string,
+      opts?: { updateUrl?: boolean; modality?: string; silent?: boolean }
+    ) => {
       if (!isSignedIn) return;
       if (!opts?.silent) {
-        setLoadedMessages(null); // triggers loading state
+        setLoadedMessages(null);
       }
 
       try {
@@ -855,9 +894,9 @@ export default function SerniaChatPage() {
         setConversationId(convId);
         setLoadedMessages(data.messages || []);
         setConversationModality(
-          opts?.modality || (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat")
+          opts?.modality ||
+            (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat")
         );
-        setHistoryOpen(false);
 
         if (opts?.updateUrl !== false) {
           navigate(`/sernia-chat?id=${convId}`, { replace: true });
@@ -874,7 +913,6 @@ export default function SerniaChatPage() {
   );
 
   // Load from URL on mount or when URL conversation ID changes
-  // (e.g. notification click navigates to a different conversation)
   useEffect(() => {
     if (urlConversationId && isSignedIn) {
       loadConversation(urlConversationId, { updateUrl: false });
@@ -884,21 +922,23 @@ export default function SerniaChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, urlConversationId]);
 
-  // Re-fetch conversation when page regains visibility (covers PWA focus,
-  // notification click to same conversation, and tab switching).
-  // Uses silent mode to refresh messages in the background without showing
-  // the loading spinner or unmounting ChatView (preserves draft input).
+  // Re-fetch conversation when page regains visibility
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && isSignedIn && conversationId) {
+      if (
+        document.visibilityState === "visible" &&
+        isSignedIn &&
+        conversationId
+      ) {
         loadConversation(conversationId, { updateUrl: false, silent: true });
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
   }, [isSignedIn, conversationId, loadConversation]);
 
-  // Listen for service worker messages (e.g. notification click on same conversation)
+  // Listen for service worker messages (notification click)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "notification-click" && isSignedIn) {
@@ -909,287 +949,107 @@ export default function SerniaChatPage() {
       }
     };
     navigator.serviceWorker?.addEventListener("message", handler);
-    return () => navigator.serviceWorker?.removeEventListener("message", handler);
+    return () =>
+      navigator.serviceWorker?.removeEventListener("message", handler);
   }, [isSignedIn, loadConversation]);
 
-  // Delete a conversation
-  const deleteConversation = useCallback(
-    async (convId: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!isSignedIn) return;
-      if (!confirm("Are you sure you want to delete this conversation?"))
-        return;
-
-      try {
-        const token = await getToken();
-        const res = await fetch(`${API_BASE}/conversation/${convId}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          setConversationHistory((prev) =>
-            prev.filter((c) => c.conversation_id !== convId)
-          );
-          if (convId === conversationId) {
-            startNewConversation();
-          }
-        }
-      } catch (err) {
-        console.error("Failed to delete conversation:", err);
-      }
-    },
-    [isSignedIn, getToken, conversationId]
-  );
-
-  const startNewConversation = () => {
+  const startNewConversation = useCallback(() => {
     const newId = crypto.randomUUID();
     setConversationId(newId);
     setLoadedMessages([]);
     setLoadedPending(null);
     setLoadedAllPending([]);
     setConversationModality("web_chat");
-    setHistoryOpen(false);
     navigate(`/sernia-chat?id=${newId}`, { replace: true });
-  };
+  }, [navigate]);
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
-  };
+  const handleSelectConversation = useCallback(
+    (convId: string, modality?: string) => {
+      loadConversation(convId, { modality });
+    },
+    [loadConversation]
+  );
+
+  const handleDeleteConversation = useCallback(
+    (convId: string) => {
+      if (convId === conversationId) {
+        startNewConversation();
+      }
+    },
+    [conversationId, startNewConversation]
+  );
 
   // Loading state (waiting for messages to load from API)
   const isLoading = loadedMessages === null;
-
-  if (isLoading) {
-    return (
-      <AuthGuard
-        requireDomain="serniacapital.com"
-        message="Sernia AI assistant"
-        icon={<Building className="w-16 h-16 text-muted-foreground" />}
-      >
-        <div className="flex flex-col items-center justify-center h-[calc(100dvh-52px)] gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Loading conversation...</p>
-        </div>
-      </AuthGuard>
-    );
-  }
 
   return (
     <AuthGuard
       message="Sernia AI assistant"
       icon={<Building className="w-16 h-16 text-muted-foreground" />}
     >
-      <Tabs
-        defaultValue="chat"
-        className="flex flex-col min-w-0 h-[calc(100dvh-52px)] bg-background"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b min-w-0">
-          <div className="flex items-center gap-1 min-w-0">
-            <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
-                  <History className="w-4 h-4" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-80">
-                <SheetHeader>
-                  <SheetTitle>Conversation History</SheetTitle>
-                </SheetHeader>
-                <div className="mt-4 space-y-2">
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2"
-                    onClick={startNewConversation}
-                  >
-                    <Plus className="w-4 h-4" />
-                    New Conversation
-                  </Button>
-                  <div className="h-px bg-border my-2" />
-                  {isLoadingHistory ? (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : conversationHistory.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No previous conversations
-                    </p>
-                  ) : (
-                    conversationHistory.map((conv) => (
-                      <div
-                        key={conv.conversation_id}
-                        className={cn(
-                          "group flex items-center gap-1 p-2 rounded-lg hover:bg-muted transition-colors",
-                          conv.conversation_id === conversationId &&
-                            "bg-muted"
-                        )}
-                      >
-                        <button
-                          onClick={() =>
-                            loadConversation(conv.conversation_id, { modality: conv.modality })
-                          }
-                          className="flex-1 text-left min-w-0"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm truncate flex-1">
-                              {conv.preview || "Empty conversation"}
-                            </span>
-                            {conv.has_pending && (
-                              <Badge
-                                variant="outline"
-                                className="ml-2 text-xs"
-                              >
-                                Pending
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                            {conv.trigger_source === "sms" ? (
-                              <Phone className="w-3 h-3" />
-                            ) : conv.trigger_source === "email" || conv.trigger_source === "zillow_email" ? (
-                              <Mail className={cn("w-3 h-3", conv.trigger_source === "zillow_email" && "text-blue-500")} />
-                            ) : (
-                              <Clock className="w-3 h-3" />
-                            )}
-                            {conv.trigger_contact_name || formatDate(conv.updated_at)}
-                          </div>
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                          onClick={(e) =>
-                            deleteConversation(conv.conversation_id, e)
-                          }
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))
-                  )}
+      <SidebarProvider>
+        <ConversationSidebar
+          activeConversationId={conversationId}
+          onSelectConversation={handleSelectConversation}
+          onNewConversation={startNewConversation}
+          onDeleteConversation={handleDeleteConversation}
+        />
+        <SidebarInset className="min-w-0 overflow-x-hidden">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-dvh gap-4">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              <p className="text-muted-foreground">Loading conversation...</p>
+            </div>
+          ) : (
+            <Tabs
+              defaultValue="chat"
+              className="flex flex-col min-w-0 h-dvh bg-background"
+            >
+              <ChatHeader
+                isAdmin={isAdmin}
+                push={push}
+                onNewConversation={startNewConversation}
+              />
+
+              {/* iOS install banner */}
+              {push.needsInstall && (
+                <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
+                  <Share className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {push.iosBrowser === "chrome"
+                      ? "For notifications: tap Share (top right) → Add to Home Screen"
+                      : "For notifications: tap Share (bottom center) → Add to Home Screen"}
+                  </span>
                 </div>
-              </SheetContent>
-            </Sheet>
+              )}
 
-            {isAdmin && (
-              <>
-                <TabsList>
-                  <TabsTrigger value="chat">Chat</TabsTrigger>
-                  <TabsTrigger value="instructions">Instructions</TabsTrigger>
-
-                </TabsList>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => navigate("/sernia-admin")}
-                  title="Browse all conversations"
-                >
-                  <LayoutList className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => navigate("/sernia-settings")}
-                  title="Schedule & trigger settings"
-                >
-                  <Settings className="w-4 h-4" />
-                </Button>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-0.5 shrink-0">
-            {push.isSupported && !push.needsInstall && (
-              <Button
-                variant={push.shouldPrompt ? "outline" : "ghost"}
-                size="icon"
-                className={cn("h-8 w-8", push.shouldPrompt && "animate-pulse")}
-                onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
-                disabled={push.isLoading || push.permission === "denied"}
-                title={
-                  push.permission === "denied"
-                    ? "Notifications blocked — update browser settings"
-                    : push.isSubscribed
-                      ? "Disable push notifications"
-                      : "Enable push notifications"
-                }
+              <TabsContent
+                value="chat"
+                className="flex-1 flex flex-col min-h-0 mt-0"
               >
-                {push.isSubscribed ? (
-                  <Bell className="w-4 h-4" />
-                ) : (
-                  <BellOff className="w-4 h-4 text-muted-foreground" />
-                )}
-              </Button>
-            )}
-            {push.canInstall && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={push.promptInstall}
-                title="Install Sernia Capital app"
-              >
-                <Download className="w-4 h-4" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={startNewConversation}
-              title="New conversation"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
+                <ChatView
+                  key={conversationId}
+                  conversationId={conversationId}
+                  initialMessages={loadedMessages}
+                  initialPending={loadedPending}
+                  initialAllPending={loadedAllPending}
+                  getToken={getToken}
+                  readOnly={conversationModality === "sms"}
+                />
+              </TabsContent>
 
-        {/* iOS install banner — shown when push requires Add to Home Screen */}
-        {push.needsInstall && (
-          <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
-            <Share className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              {push.iosBrowser === "chrome"
-                ? "For notifications: tap Share (top right) → Add to Home Screen"
-                : "For notifications: tap Share (bottom center) → Add to Home Screen"}
-            </span>
-          </div>
-        )}
-
-        <TabsContent
-          value="chat"
-          className="flex-1 flex flex-col min-h-0 mt-0"
-        >
-          {/* ChatView — keyed by conversationId to force clean remount */}
-          <ChatView
-            key={conversationId}
-            conversationId={conversationId}
-            initialMessages={loadedMessages}
-            initialPending={loadedPending}
-            initialAllPending={loadedAllPending}
-            getToken={getToken}
-            readOnly={conversationModality === "sms"}
-          />
-        </TabsContent>
-
-        {isAdmin && (
-          <>
-            <TabsContent
-              value="instructions"
-              className="flex-1 flex flex-col min-h-0 mt-0"
-            >
-              <SystemInstructionsView getToken={getToken} />
-            </TabsContent>
-          </>
-        )}
-      </Tabs>
+              {isAdmin && (
+                <TabsContent
+                  value="instructions"
+                  className="flex-1 flex flex-col min-h-0 mt-0"
+                >
+                  <SystemInstructionsView getToken={getToken} />
+                </TabsContent>
+              )}
+            </Tabs>
+          )}
+        </SidebarInset>
+      </SidebarProvider>
     </AuthGuard>
   );
 }

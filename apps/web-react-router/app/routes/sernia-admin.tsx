@@ -73,8 +73,10 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
-  Settings,
+  Menu,
 } from "lucide-react";
+import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
+import { ConversationSidebar } from "~/components/sernia/conversation-sidebar";
 
 const API_BASE = "/api/sernia-ai";
 const PAGE_SIZE = 30;
@@ -394,6 +396,24 @@ function ConversationDetail({
 }
 
 // ---------------------------------------------------------------------------
+// Mobile sidebar toggle
+// ---------------------------------------------------------------------------
+
+function MobileSidebarToggle() {
+  const { toggleSidebar } = useSidebar();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8 shrink-0 md:hidden"
+      onClick={toggleSidebar}
+    >
+      <Menu className="w-4 h-4" />
+    </Button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Admin Page
 // ---------------------------------------------------------------------------
 
@@ -572,15 +592,33 @@ export default function SerniaAdminPage() {
     getFacetedUniqueValues: getFacetedUniqueValues(),
   });
 
+  const handleSelectConversation = useCallback(
+    (convId: string) => {
+      navigate(`/sernia-chat?id=${convId}`);
+    },
+    [navigate]
+  );
+
+  const handleNewConversation = useCallback(() => {
+    navigate("/sernia-chat");
+  }, [navigate]);
+
   return (
     <AuthGuard
       requireDomain="serniacapital.com"
       message="Admin access required"
       icon={<Building className="w-16 h-16 text-muted-foreground" />}
     >
-      <div className="flex flex-col h-[calc(100dvh-52px)] bg-background">
+      <SidebarProvider>
+        <ConversationSidebar
+          onSelectConversation={handleSelectConversation}
+          onNewConversation={handleNewConversation}
+        />
+        <SidebarInset className="min-w-0 overflow-x-hidden">
+      <div className="flex flex-col h-dvh bg-background">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
+          <MobileSidebarToggle />
           <Button
             variant="ghost"
             size="icon"
@@ -590,17 +628,8 @@ export default function SerniaAdminPage() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-semibold">Conversations</h1>
+            <h1 className="text-lg font-semibold">All Conversations</h1>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => navigate("/sernia-settings")}
-            title="Schedule & trigger settings"
-          >
-            <Settings className="w-4 h-4" />
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -780,6 +809,8 @@ export default function SerniaAdminPage() {
           )}
         </SheetContent>
       </Sheet>
+        </SidebarInset>
+      </SidebarProvider>
     </AuthGuard>
   );
 }
