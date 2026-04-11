@@ -46,4 +46,22 @@ Git-backed persistent workspace at `/workspace/`:
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
+- `skills/` — Playbooks and procedures (auto-injected via `SkillsToolset`)
+
+### Server-Side vs Knowledge-Repo Content
+
+The agent's behavior comes from two sources with different error boundaries:
+
+| Source | Location | Edited by | Error handling |
+|--------|----------|-----------|----------------|
+| **Server-side** | `api/src/sernia_ai/` (Python) | Developers (code deploys) | Bugs crash the app — standard software quality applies |
+| **Knowledge repo** | `.workspace/` (`sernia-knowledge` git repo) | Agent + humans at runtime | Must **never** crash the server — all reads are error-wrapped |
+
+This distinction matters most for **skills** (`/workspace/skills/<name>/SKILL.md`). Skills are runtime-editable YAML+markdown files that the agent itself can create and modify via `workspace_edit`. A malformed SKILL.md (bad YAML frontmatter, broken encoding, etc.) must degrade gracefully:
+
+- **Reload** (`reload_skills()` in `agent.py`): Per-directory try/except — a broken skill directory is skipped and logged, other skills still load.
+- **Injection** (`SkillsToolset.get_instructions()`): Operates on already-loaded `_skills` dict, so it only sees successfully parsed skills.
+- **Decorator** (`refresh_skills_before_run`): Wraps the reload in try/except — if the entire reload fails, the agent runs with stale skills rather than crashing.
+
+The same principle applies to all knowledge-repo content: `MEMORY.md` reads are capped and wrapped, filetree generation catches `OSError`, and workspace file tools return error strings rather than raising.
 

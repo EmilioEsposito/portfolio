@@ -311,7 +311,19 @@ The frontend uses `trigger_source` and `trigger_contact_name` to render icons (P
 | Filetree | Entire `.workspace/` | Yes (every turn) | Agent knows what files exist |
 | Daily Notes | `/workspace/daily_notes/YYYY-MM-DD_<desc>.md` | On demand | Activity logs, events |
 | Areas | `/workspace/areas/<topic>.md` | On demand | Deep topic knowledge |
-| Skills | `/workspace/skills/<name>/SKILL.md` | On demand | SOPs (deferred) |
+| Skills | `/workspace/skills/<name>/SKILL.md` | Yes (every turn) | Playbooks, SOPs — auto-injected via `SkillsToolset` |
+
+### Server-Side vs Knowledge-Repo Error Boundary
+
+All workspace content (memory, areas, skills) lives in the `sernia-knowledge` git repo and is editable at runtime by the agent and humans. Server-side code (`api/src/sernia_ai/`) is developer-maintained Python.
+
+**Key principle**: Knowledge-repo content must **never** crash the server. A malformed `SKILL.md`, corrupt `MEMORY.md`, or missing file must degrade gracefully (log + skip), not take down agent runs.
+
+This is enforced by:
+- `reload_skills()` — per-directory try/except, broken skill directories are skipped
+- `refresh_skills_before_run` decorator — wraps reload in try/except, agent runs with stale skills on failure
+- `inject_memory` / `inject_filetree` — capped reads with fallback to empty string
+- `ErrorLoggingToolset` — workspace tool errors return error strings, never raise
 
 ### Git-Backed Sync
 
