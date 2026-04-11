@@ -496,23 +496,32 @@ async def read_email_thread(
 async def list_calendar_events(
     ctx: RunContext[SerniaDeps],
     days_ahead: int = 7,
+    days_behind: int = 0,
     user_email_account: UserEmailAccount = None,
 ) -> str:
-    """List upcoming calendar events.
+    """List calendar events around the current date.
+
+    Always includes all events for the current day (today). Use days_behind
+    to also look at past days (e.g. days_behind=7 to see the last week).
 
     Args:
         days_ahead: Number of days ahead to look (default 7).
+        days_behind: Number of days in the past to include (default 0, today only).
     """
     service = await get_calendar_service(user_email=user_email_account or ctx.deps.user_email)
     et_tz = pytz.timezone("US/Eastern")
     now = datetime.now(tz=et_tz)
+    # Start from the beginning of today (minus days_behind) to include all
+    # current-day events, not just those starting after "now".
+    start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    time_min = start_of_today - timedelta(days=days_behind)
     time_max = now + timedelta(days=days_ahead)
 
     events_result = (
         service.events()
         .list(
             calendarId="primary",
-            timeMin=now.isoformat(),
+            timeMin=time_min.isoformat(),
             timeMax=time_max.isoformat(),
             maxResults=50,
             singleEvents=True,
@@ -523,7 +532,8 @@ async def list_calendar_events(
     events = events_result.get("items", [])
 
     if not events:
-        return f"No calendar events in the next {days_ahead} days."
+        behind_str = f" (including {days_behind} days back)" if days_behind else ""
+        return f"No calendar events in the next {days_ahead} days{behind_str}."
 
     lines = []
     for event in events:
