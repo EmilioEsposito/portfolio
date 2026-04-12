@@ -67,7 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body className={cn("antialiased")}>
+      <body className={cn("antialiased overflow-x-hidden")}>
         {children}
         <ScrollRestoration />
         <Scripts />

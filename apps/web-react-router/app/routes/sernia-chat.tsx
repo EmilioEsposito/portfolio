@@ -451,10 +451,7 @@ function ChatView({
           SMS conversation — reply via text message
         </div>
       ) : (
-      <form
-        onSubmit={handleSubmit}
-        autoComplete="none"
-        data-form-type="other"
+      <div
         className="shrink-0 flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
       >
         {messages.length === 0 ? (
@@ -486,10 +483,6 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
-                autoComplete="none"
-                data-1p-ignore
-                data-lpignore="true"
-                data-form-type="other"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -507,7 +500,8 @@ function ChatView({
                 }
               />
               <Button
-                type="submit"
+                type="button"
+                onClick={() => handleSubmit()}
                 size="icon"
                 disabled={
                   (!input.trim() && !attachment.hasFiles) ||
@@ -537,10 +531,6 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
-                autoComplete="none"
-                data-1p-ignore
-                data-lpignore="true"
-                data-form-type="other"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -575,7 +565,8 @@ function ChatView({
                 </Button>
               ) : (
                 <Button
-                  type="submit"
+                  type="button"
+                  onClick={() => handleSubmit()}
                   size="icon"
                   disabled={
                     (!input.trim() && !attachment.hasFiles) ||
@@ -590,7 +581,7 @@ function ChatView({
             </div>
           </div>
         )}
-      </form>
+      </div>
       )}
     </>
   );
