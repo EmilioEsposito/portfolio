@@ -454,6 +454,7 @@ function ChatView({
       <form
         onSubmit={handleSubmit}
         autoComplete="off"
+        data-form-type="other"
         className="shrink-0 flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
       >
         {messages.length === 0 ? (
@@ -487,6 +488,9 @@ function ChatView({
                 ref={textareaRef}
                 name="chat-message"
                 autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -536,6 +540,9 @@ function ChatView({
                 ref={textareaRef}
                 name="chat-message"
                 autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
