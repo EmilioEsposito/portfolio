@@ -853,6 +853,13 @@ export default function SerniaChatPage() {
     useState<string>("web_chat");
   const push = usePushNotifications();
 
+  // Track IDs created locally so the URL-change effect skips the API call
+  const newConversationIds = useRef<Set<string>>(new Set());
+  // If the initial load has no URL id, it's a new conversation — register it
+  if (!urlConversationId) {
+    newConversationIds.current.add(conversationId);
+  }
+
   // Prefetch conversations for the sidebar as early as possible
   useEffect(() => {
     if (isSignedIn) {
@@ -915,6 +922,11 @@ export default function SerniaChatPage() {
   // Load from URL on mount or when URL conversation ID changes
   useEffect(() => {
     if (urlConversationId && isSignedIn) {
+      // Skip API call for conversations we just created locally
+      if (newConversationIds.current.has(urlConversationId)) {
+        newConversationIds.current.delete(urlConversationId);
+        return;
+      }
       loadConversation(urlConversationId, { updateUrl: false });
     } else if (!urlConversationId && isSignedIn) {
       navigate(`/sernia-chat?id=${conversationId}`, { replace: true });
@@ -955,6 +967,7 @@ export default function SerniaChatPage() {
 
   const startNewConversation = useCallback(() => {
     const newId = crypto.randomUUID();
+    newConversationIds.current.add(newId);
     setConversationId(newId);
     setLoadedMessages([]);
     setLoadedPending(null);
