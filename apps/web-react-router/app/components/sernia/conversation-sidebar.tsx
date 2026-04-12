@@ -487,32 +487,26 @@ export function ConversationSidebar({
             <>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  asChild
                   tooltip="All Conversations"
                   onClick={() => {
                     navigate("/sernia-admin");
                     if (isMobile) toggleSidebar();
                   }}
                 >
-                  <button className="flex w-full">
-                    <LayoutList className="w-4 h-4" />
-                    {!isCollapsed && <span>All Conversations</span>}
-                  </button>
+                  <LayoutList className="w-4 h-4" />
+                  {!isCollapsed && <span>All Conversations</span>}
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  asChild
                   tooltip="Settings"
                   onClick={() => {
                     navigate("/sernia-settings");
                     if (isMobile) toggleSidebar();
                   }}
                 >
-                  <button className="flex w-full">
-                    <Settings className="w-4 h-4" />
-                    {!isCollapsed && <span>Settings</span>}
-                  </button>
+                  <Settings className="w-4 h-4" />
+                  {!isCollapsed && <span>Settings</span>}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </>

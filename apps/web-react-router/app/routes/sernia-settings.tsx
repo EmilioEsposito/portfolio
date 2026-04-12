@@ -84,7 +84,6 @@ export default function SerniaSettingsPage() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -105,7 +104,6 @@ export default function SerniaSettingsPage() {
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const token = await getToken();
@@ -120,8 +118,6 @@ export default function SerniaSettingsPage() {
       setSaved(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
-    } finally {
-      setLoading(false);
     }
   }, [getToken]);
 
@@ -253,11 +249,6 @@ export default function SerniaSettingsPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
             <div className="max-w-2xl mx-auto p-4 space-y-6">
               {/* Status messages */}
               {error && (
@@ -393,7 +384,6 @@ export default function SerniaSettingsPage() {
                 </CardContent>
               </Card>
             </div>
-          )}
         </div>
       </div>
         </SidebarInset>
