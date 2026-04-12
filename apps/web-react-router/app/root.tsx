@@ -5,6 +5,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
 } from "react-router";
 import {
   ClerkProvider,
@@ -66,7 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body className={cn("antialiased")}>
+      <body className={cn("antialiased overflow-x-hidden")}>
         {children}
         <ScrollRestoration />
         <Scripts />
@@ -75,19 +76,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+const SERNIA_ROUTE_PREFIXES = ["/sernia-chat", "/sernia-admin", "/sernia-settings"];
+
+function isSerniaRoute(pathname: string) {
+  return SERNIA_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export default function App({ loaderData }: Route.ComponentProps) {
+  const location = useLocation();
+  const isSernia = isSerniaRoute(location.pathname);
+
   return (
     <ClerkProvider loaderData={loaderData}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <Toaster />
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset className="min-w-0 overflow-x-hidden">
-            <Navbar />
+        {isSernia ? (
+          // Sernia routes provide their own sidebar — render Outlet directly
+          <>
             <EnvBanner />
             <Outlet />
-          </SidebarInset>
-        </SidebarProvider>
+          </>
+        ) : (
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset className="min-w-0 overflow-x-hidden">
+              <Navbar />
+              <EnvBanner />
+              <Outlet />
+            </SidebarInset>
+          </SidebarProvider>
+        )}
       </ThemeProvider>
     </ClerkProvider>
   );
