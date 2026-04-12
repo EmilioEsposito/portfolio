@@ -483,6 +483,7 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
+                autoComplete="off"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -531,6 +532,7 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
+                autoComplete="off"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
