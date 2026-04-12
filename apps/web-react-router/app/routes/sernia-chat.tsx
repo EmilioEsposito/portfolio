@@ -427,13 +427,17 @@ function ChatView({
         )}
       </div>
 
-      {/* Hidden file input */}
+      {/* Hidden file input — tabIndex -1 and aria-hidden to prevent iOS
+          from including it in form field detection / navigation */}
       <input
         ref={attachment.fileInputRef}
         type="file"
         accept={attachment.acceptString}
         multiple
         className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        autoComplete="off"
         onChange={attachment.handleFileInputChange}
       />
 

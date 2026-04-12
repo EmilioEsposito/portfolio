@@ -119,11 +119,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         )}
         <div
           ref={divRef}
-          contentEditable={!disabled}
+          // "plaintext-only" is a WebKit/Blink extension that prevents rich-text
+          // formatting and may further signal to iOS that this is not a form field.
+          // Falls back to contentEditable="true" on unsupported browsers.
+          contentEditable={disabled ? false : ("plaintext-only" as any)}
+          // enterKeyHint tells iOS this is a send-type input (chat), not a form
+          enterKeyHint="send"
           role="textbox"
           aria-multiline="true"
           aria-placeholder={placeholder}
           aria-disabled={disabled || undefined}
+          // Suppress all autofill/autocorrect signals
+          autoCorrect="off"
+          autoCapitalize="sentences"
           suppressContentEditableWarning
           onInput={handleInput}
           onKeyDown={disabled ? undefined : onKeyDown}
