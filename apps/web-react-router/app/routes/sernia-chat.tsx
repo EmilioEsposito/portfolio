@@ -359,7 +359,7 @@ function ChatView({
 
                   <div
                     className={cn(
-                      "flex flex-col gap-2 max-w-[85%] min-w-0 overflow-hidden",
+                      "flex flex-col gap-2 max-w-[85%] min-w-0",
                       message.role === "user" && "items-end"
                     )}
                   >
@@ -382,8 +382,8 @@ function ChatView({
                       <>
                         {segments.map((seg, i) =>
                           seg.type === "text" ? (
-                            <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden">
-                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words">
+                            <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
+                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
                                 <Markdown>{seg.content}</Markdown>
                               </div>
                             </div>
