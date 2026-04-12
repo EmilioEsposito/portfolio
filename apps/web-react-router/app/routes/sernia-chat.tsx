@@ -453,7 +453,7 @@ function ChatView({
       ) : (
       <form
         onSubmit={handleSubmit}
-        autoComplete="off"
+        autoComplete="none"
         data-form-type="other"
         className="shrink-0 flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl"
       >
@@ -486,8 +486,7 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
-                name="chat-message"
-                autoComplete="off"
+                autoComplete="none"
                 data-1p-ignore
                 data-lpignore="true"
                 data-form-type="other"
@@ -538,8 +537,7 @@ function ChatView({
               />
               <Textarea
                 ref={textareaRef}
-                name="chat-message"
-                autoComplete="off"
+                autoComplete="none"
                 data-1p-ignore
                 data-lpignore="true"
                 data-form-type="other"
