@@ -7,6 +7,7 @@ All operations delegate as ctx.deps.user_email via service account credentials.
 """
 
 import io
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Annotated
@@ -16,7 +17,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 import logfire
-from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
+from pydantic_ai import Agent, ApprovalRequired, FunctionToolset, RunContext
 
 from api.src.google.calendar.service import (
     CalendarEventInput,
@@ -28,7 +29,11 @@ from api.src.google.common.service_account_auth import get_delegated_credentials
 from pydantic import EmailStr
 from pydantic.fields import Field
 
-from api.src.sernia_ai.config import SHARED_EXTERNAL_EMAIL, INTERNAL_EMAIL_DOMAIN
+from api.src.sernia_ai.config import (
+    SHARED_EXTERNAL_EMAIL,
+    INTERNAL_EMAIL_DOMAIN,
+    SUB_AGENT_MODEL,
+)
 from api.src.google.gmail.service import (
     extract_email_body,
     get_email_content,
@@ -70,6 +75,159 @@ def _html_to_markdown(html: str) -> str:
     result = md(cleaned, strip=["table", "tr", "td", "th", "tbody", "thead", "tfoot"])
     # Collapse excessive blank lines
     return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+# ---------------------------------------------------------------------------
+# Zillow email cleanup
+# ---------------------------------------------------------------------------
+
+# Boilerplate phrases that appear in Zillow notification emails.
+# Each pattern is removed (with surrounding whitespace) from the email body.
+_ZILLOW_BOILERPLATE_RE = [
+    r"New message from a renter\.?\s*",
+    r"A renter sent you a message about your listing at [^.]+\.\s*",
+    r"You can reply on Zillow or directly to this (?:email|message)\.?\s*",
+    r"(?:Reply|View) on Zillow\.?\s*",
+    # Safety disclaimer block (may span multiple lines)
+    r"For your safety,?\s*always double[- ]check.*?(?:staying safe|the other party)\.?\s*",
+    r"Do not send payment or share personal financial information[^.]*\.?\s*",
+    r"Learn about staying safe\.?\s*",
+]
+_ZILLOW_BOILERPLATE_COMPILED = [
+    re.compile(p, re.IGNORECASE | re.DOTALL) for p in _ZILLOW_BOILERPLATE_RE
+]
+
+
+def _is_zillow_content(from_addr: str = "", content: str = "") -> bool:
+    """Return True if this email appears to be from Zillow."""
+    return "zillow.com" in from_addr.lower() or "zillow.com" in content[:500].lower()
+
+
+def _clean_zillow_email(content: str) -> str:
+    """Extract the actual renter message from Zillow notification boilerplate.
+
+    Zillow wraps a short renter message in boilerplate (header, suggested
+    reply buttons, safety disclaimers, Fair Housing notices).  The real
+    content is in the "[Name] says:" section near the end.  Extract that
+    and discard everything above it (including confusing suggested-reply
+    button text).  Falls back to pattern-based cleanup when no "says:"
+    section is found (initial notifications, our own replies, etc.).
+    """
+    # -- Primary strategy: extract from "[Name] says:" -----------------------
+    # Find the *last* occurrence — earlier ones could be quoted content.
+    says_pattern = re.compile(r"[A-Z]\w+(?:\s+\w+)*\s+says:\s*")
+    matches = list(says_pattern.finditer(content))
+    if matches:
+        message = content[matches[-1].end():].strip()
+        if message:
+            # Strip trailing boilerplate that may follow the message
+            message = _strip_zillow_tail(message)
+            if message:
+                return message
+
+    # -- Fallback: no usable "says:" section ---------------------------------
+    return _strip_zillow_tail(content)
+
+
+def _strip_zillow_tail(content: str) -> str:
+    """Remove Zillow boilerplate from *content* using pattern matching.
+
+    Used both as the tail-cleaner after a "says:" extraction and as the
+    full-content fallback when no "says:" anchor is found.
+    """
+    # URLs — use [^\s)] to avoid eating the closing ")" of markdown links
+    content = re.sub(r"https?://[^\s)]{80,}", "", content)
+    content = re.sub(r"https?://zillow\.com/r/\S+", "", content)
+
+    # Remove action-button markdown links BEFORE flattening so they don't
+    # merge with adjacent text (no space between adjacent links in Zillow HTML).
+    content = re.sub(r"\[Reply to \w+(?:\s+\w+)*\]\([^)]*\)", "", content)
+    content = re.sub(r"\[Send Application\]\([^)]*\)", "", content)
+
+    # Flatten remaining markdown links — keep text, strip syntax
+    content = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", content)   # [text](url) → text
+    content = re.sub(r"\[([^\]]+)\]\(\s*", r"\1", content)       # [text]( → text
+    content = re.sub(r"\[\]\([^)]*\)", "", content)               # [](url) → remove
+    content = re.sub(r"\[\]\(\s*", "", content)                   # []( → remove
+
+    # Known boilerplate phrases
+    for pat in _ZILLOW_BOILERPLATE_COMPILED:
+        content = pat.sub("", content)
+
+    # Action button text (plain text variants, for cases without link syntax)
+    content = re.sub(
+        r"You can also reply directly to this (?:email|message)\.?\s*", "", content
+    )
+
+    # Standalone button text
+    content = re.sub(r"^\s*(?:Yes|No)\s*$", "", content, flags=re.MULTILINE)
+
+    # UTM / tracking-param lines
+    content = re.sub(
+        r"^.*(?:utm_|campaign=|headerOnly|MessageTemplate|content-info|"
+        r"term=visit|term=rental|AssistanceProgram).*$",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    # "Reminder: The federal Fair Housing Act..." and everything after
+    content = re.sub(r"Reminder:\s*The\s+federal\s+.*", "", content, flags=re.DOTALL)
+
+    # "the basics of fair housing..." and everything after
+    content = re.sub(
+        r"(?:The basics of|the basics of)\s+(?:the\s+)?[Ff]air [Hh]ousing.*",
+        "",
+        content,
+        flags=re.DOTALL,
+    )
+
+    # "Other helpful links" section and everything after
+    content = re.sub(r"Other helpful links.*", "", content, flags=re.DOTALL)
+
+    # Collapse blank lines
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content.strip()
+
+
+# ---------------------------------------------------------------------------
+# LLM summarization fallback
+# ---------------------------------------------------------------------------
+
+_email_summarizer = Agent(
+    SUB_AGENT_MODEL,
+    instructions=(
+        "You are a concise email summarizer. Given an email body, produce a short "
+        "summary that preserves: sender name, key questions or requests, specific "
+        "details (addresses, dates, times, amounts), and any action items. "
+        "Omit boilerplate, disclaimers, and formatting artifacts. "
+        "Keep the summary under 300 words."
+    ),
+    instrument=True,
+    name="email_content_summarizer",
+)
+
+# Cap input sent to the summarizer to protect Haiku's context
+_MAX_SUMMARIZER_INPUT = 30_000
+
+
+async def _summarize_if_long(content: str, max_chars: int) -> str:
+    """Summarize *content* with an LLM if it exceeds *max_chars*.
+
+    Falls back to hard truncation if the LLM call fails.
+    """
+    if len(content) <= max_chars:
+        return content
+
+    try:
+        result = await _email_summarizer.run(
+            f"Summarize this email content ({len(content)} chars):\n\n"
+            f"{content[:_MAX_SUMMARIZER_INPUT]}"
+        )
+        return f"[Summarized — original {len(content)} chars]:\n{result.output}"
+    except Exception:
+        logfire.exception("Email summarization failed, falling back to truncation")
+        return content[:max_chars] + "\n...[TRUNCATED]"
 
 
 # ---------------------------------------------------------------------------
@@ -347,14 +505,19 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
     if text_only and content == body.get("html"):
         content = _html_to_markdown(content)
 
+    # Strip Zillow boilerplate when applicable
+    from_addr = headers.get("from", "")
+    if _is_zillow_content(from_addr, content):
+        content = _clean_zillow_email(content)
 
     thread_id = message.get("threadId", "?")
 
     return (
-        f"From: {headers.get('from', '?')}\n"
+        f"From: {from_addr}\n"
         f"To: {headers.get('to', '?')}\n"
         f"Date: {headers.get('date', '?')}\n"
         f"Subject: {headers.get('subject', '(no subject)')}\n"
+        f"Message ID: {message_id}\n"
         f"Thread ID: {thread_id}\n\n"
         f"{content}"
     )
@@ -367,14 +530,18 @@ async def read_email(
 ) -> str:
     """Read the full content of an email by its Gmail message ID.
 
+    Returns headers (From, To, Date, Subject, Message ID, Thread ID) plus the
+    email body.  Use Message ID with send_email's reply_to_message_id to reply.
+    Use Thread ID with read_email_thread to see the full conversation.
+
     Args:
         message_id: The Gmail message ID (returned by search_emails).
     """
     result = await _read_email(message_id, user_email_account or ctx.deps.user_email)
 
-    # truncate to 5000 characters
+    # Summarize instead of hard truncation
     if len(result) > 5000:
-        result = result[:5000] + "\n...[TRUNCATED: WARN USER]"
+        result = await _summarize_if_long(result, 5000)
 
     return result
 
@@ -429,7 +596,11 @@ async def read_email_thread(
 
     Use this to understand the full back-and-forth of a conversation.
     The thread_id is returned by search_emails and read_email.
-    Quoted replies are stripped out, giving a more concise view of the conversation.
+    Quoted replies are stripped and Zillow boilerplate is removed for clarity.
+    Long messages are summarized instead of truncated so no content is lost.
+
+    Each message header includes a Message ID you can pass to send_email's
+    reply_to_message_id to reply to a specific message in the thread.
 
     Args:
         thread_id: The Gmail thread ID.
@@ -438,7 +609,6 @@ async def read_email_thread(
     credentials = get_delegated_credentials(user_email=account, scopes=GMAIL_SCOPES)
     service = get_gmail_service(credentials)
 
-    from googleapiclient.errors import HttpError
     try:
         thread = (
             service.users()
@@ -469,16 +639,22 @@ async def read_email_thread(
         if content == body.get("html"):
             content = _html_to_markdown(content)
 
+        # Strip Zillow boilerplate when applicable
+        from_addr = headers.get("from", "")
+        if _is_zillow_content(from_addr, content):
+            content = _clean_zillow_email(content)
+
         # Strip redundant quoted replies (each message already shown in full)
         content = _strip_quoted_replies(content)
 
-        # Cap individual message body
+        # Summarize individual message if still too long (instead of hard truncation)
         if len(content) > 3000:
-            content = content[:3000] + "\n...[truncated]"
+            content = await _summarize_if_long(content, 3000)
 
+        msg_id = msg.get("id", "?")
         parts.append(
-            f"--- Message {i}/{len(messages)} ---\n"
-            f"From: {headers.get('from', '?')}\n"
+            f"--- Message {i}/{len(messages)} (ID: {msg_id}) ---\n"
+            f"From: {from_addr}\n"
             f"To: {headers.get('to', '?')}\n"
             f"Date: {headers.get('date', '?')}\n"
             f"Subject: {headers.get('subject', '(no subject)')}\n\n"
@@ -486,9 +662,9 @@ async def read_email_thread(
         )
 
     result = "\n\n".join(parts)
-    # Cap total output
+    # Cap total output — summarize if oversized
     if len(result) > 15000:
-        result = result[:15000] + "\n\n...[THREAD TRUNCATED — too many messages]"
+        result = await _summarize_if_long(result, 15000)
     return result
 
 
