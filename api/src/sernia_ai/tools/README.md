@@ -89,7 +89,7 @@ One-time scheduled SMS and email delivery via APScheduler date trigger.
 
 | Module | Description |
 |--------|-------------|
-| `google_tools.py` | Gmail (search, read, send), Calendar (list, create), Drive (search, read docs/sheets/PDFs). Core email routing (`EmailRouting`, `resolve_email_routing`) exported for scheduling. |
+| `google_tools.py` | Gmail (search, read, send), Calendar (list, create), Drive (search, read docs/sheets/PDFs). Core email routing (`EmailRouting`, `resolve_email_routing`) exported for scheduling. Email tools include: Zillow email boilerplate cleanup (`_clean_zillow_email`), and LLM summarization fallback (`_summarize_if_long`) that replaces hard truncation with Haiku-based summarization. Each email/thread message includes its Message ID for daisy-chaining with `send_email`'s `reply_to_message_id`. |
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
 | `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
 | `code_tools.py` | Python sandbox (pydantic-monty) for math, formatting, data manipulation |

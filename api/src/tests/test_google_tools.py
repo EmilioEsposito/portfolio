@@ -21,9 +21,12 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(".env"), override=False)
 
 from api.src.sernia_ai.tools.google_tools import (
+    _clean_zillow_email,
     _html_to_markdown,
+    _is_zillow_content,
     _read_email,
     _strip_quoted_replies,
+    _summarize_if_long,
     read_email_thread,
     search_emails,
     google_toolset,
@@ -194,8 +197,8 @@ class TestReadEmailThreadMock:
         assert "world" in result
 
     @pytest.mark.asyncio
-    async def test_long_message_body_truncated(self):
-        """Individual messages over 3000 chars should be truncated."""
+    async def test_long_message_body_summarized(self):
+        """Individual messages over 3000 chars should be summarized (or truncated as fallback)."""
         long_body = "x" * 5000
         thread_data = {
             "messages": [
@@ -211,18 +214,25 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
+        # Mock summarizer to verify it's called for oversized content
+        async def fake_summarize(content, max_chars):
+            if len(content) > max_chars:
+                return content[:max_chars] + "\n...[SUMMARIZED]"
+            return content
+
         with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service), \
+             patch("api.src.sernia_ai.tools.google_tools._summarize_if_long", side_effect=fake_summarize):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_long")
 
-        assert "[truncated]" in result
+        assert "SUMMARIZED" in result
         # The body shouldn't contain the full 5000 chars
         assert len(result) < 5000
 
     @pytest.mark.asyncio
-    async def test_total_output_truncated_for_large_threads(self):
-        """Threads with many messages should be capped at 15000 chars total."""
+    async def test_total_output_capped_for_large_threads(self):
+        """Threads with many messages should be capped at ~15000 chars (summarized or truncated)."""
         messages = []
         for i in range(20):
             messages.append(
@@ -238,13 +248,19 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
+        async def fake_summarize(content, max_chars):
+            if len(content) > max_chars:
+                return content[:max_chars] + "\n...[SUMMARIZED]"
+            return content
+
         with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service), \
+             patch("api.src.sernia_ai.tools.google_tools._summarize_if_long", side_effect=fake_summarize):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_huge")
 
-        assert len(result) <= 15100  # 15000 + truncation message
-        assert "THREAD TRUNCATED" in result
+        assert len(result) <= 15100  # 15000 + summarized/truncation message
+        assert "SUMMARIZED" in result
 
     @pytest.mark.asyncio
     async def test_user_email_account_passed_to_credentials(self):
@@ -460,6 +476,230 @@ class TestStripQuotedReplies:
 
 
 # ---------------------------------------------------------------------------
+# Unit Tests: _clean_zillow_email
+# ---------------------------------------------------------------------------
+
+
+class TestCleanZillowEmail:
+    def test_strips_new_message_boilerplate(self):
+        """'New message from a renter' and listing sentence should be removed."""
+        content = (
+            "What about when using AC?\n"
+            "New message from a renter. "
+            "A renter sent you a message about your listing at "
+            "659 Maryland Ave #4, Shadyside, PA 15232. "
+            "You can reply on Zillow or directly to this email.\n"
+            "Nelson Chang says: What about when using AC?"
+        )
+        result = _clean_zillow_email(content)
+        assert "What about when using AC?" in result
+        assert "New message from a renter" not in result
+        assert "A renter sent you a message" not in result
+        assert "You can reply on Zillow" not in result
+
+    def test_extracts_from_says_discarding_suggested_replies(self):
+        """Suggested reply button text above 'says:' should be discarded."""
+        content = (
+            "We're here!\n"
+            "Okay see you soon!\n"
+            "Sorry I'm running a little late, almost there!\n"
+            "Reply on Zillow\n"
+            "For your safety, always double-check requests.\n"
+            "Nelson Chang says:\n"
+            "We're here!"
+        )
+        result = _clean_zillow_email(content)
+        assert result == "We're here!"
+        assert "Okay see you soon" not in result
+        assert "running a little late" not in result
+
+    def test_strips_safety_disclaimer(self):
+        content = (
+            "Can I schedule a tour?\n\n"
+            "For your safety, always double-check requests for information in "
+            "messages and be vigilant of scams. Do not send payment or share "
+            "personal financial information with the other party.\n"
+            "Learn about staying safe.\n"
+        )
+        result = _clean_zillow_email(content)
+        assert "schedule a tour" in result
+        assert "For your safety" not in result
+        assert "Learn about staying safe" not in result
+
+    def test_strips_yes_no_buttons(self):
+        content = "Are you interested?\nYes\nNo\nReply on Zillow\n"
+        result = _clean_zillow_email(content)
+        assert "Are you interested?" in result
+        # Yes/No/Reply on Zillow removed
+        assert result.strip().replace("\n", "").startswith("Are you interested?")
+
+    def test_strips_long_tracking_urls(self):
+        long_url = "https://www.zillow.com/rental-manager/inbox/conversations/" + "a" * 100
+        content = f"Hello!\n{long_url}\nGoodbye!"
+        result = _clean_zillow_email(content)
+        assert "Hello!" in result
+        assert "Goodbye!" in result
+        assert long_url not in result
+
+    def test_strips_fair_housing_boilerplate(self):
+        content = (
+            "I'd like to tour.\n\n"
+            "The basics of Fair Housing: The Fair Housing Act prohibits housing "
+            "discrimination on the basis of race, color, national origin, sex "
+            "(including sexual orientation and gender identity), familial status, "
+            "disability, and religion."
+        )
+        result = _clean_zillow_email(content)
+        assert "I'd like to tour." in result
+        assert "Fair Housing" not in result
+
+    def test_strips_utm_lines(self):
+        content = (
+            "Great message.\n"
+            "utm_source=email&utm_campaign=unified&utm_content=stuff\n"
+            "Real text."
+        )
+        result = _clean_zillow_email(content)
+        assert "Great message." in result
+        assert "Real text." in result
+        assert "utm_" not in result
+
+    def test_preserves_non_zillow_content(self):
+        content = "Hi Emilio,\n\nRent check will be late this month.\n\nThanks, Nelson"
+        result = _clean_zillow_email(content)
+        assert result == content
+
+    def test_empty_string(self):
+        assert _clean_zillow_email("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Unit Tests: _is_zillow_content
+# ---------------------------------------------------------------------------
+
+
+class TestIsZillowContent:
+    def test_zillow_from_address(self):
+        assert _is_zillow_content(from_addr="lead@convo.zillow.com")
+
+    def test_zillow_in_content(self):
+        assert _is_zillow_content(content="A renter from zillow.com sent a message")
+
+    def test_non_zillow(self):
+        assert not _is_zillow_content(from_addr="tenant@gmail.com", content="Plain email")
+
+
+# ---------------------------------------------------------------------------
+# Unit Tests: _summarize_if_long
+# ---------------------------------------------------------------------------
+
+
+class TestSummarizeIfLong:
+    @pytest.mark.asyncio
+    async def test_short_content_returned_unchanged(self):
+        """Content under the limit should be returned as-is."""
+        content = "Short email content."
+        result = await _summarize_if_long(content, 5000)
+        assert result == content
+
+    @pytest.mark.asyncio
+    async def test_long_content_summarized(self):
+        """Content over the limit should be summarized by the LLM."""
+        long_content = "Important detail. " * 500  # ~9000 chars
+
+        with patch("api.src.sernia_ai.tools.google_tools._email_summarizer") as mock_agent:
+            mock_result = MagicMock()
+            mock_result.output = "Summary of important details."
+            mock_agent.run = AsyncMock(return_value=mock_result)
+
+            result = await _summarize_if_long(long_content, 3000)
+
+        assert "Summarized" in result
+        assert "Summary of important details" in result
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_truncation_on_error(self):
+        """If LLM fails, should fall back to hard truncation."""
+        long_content = "x" * 6000
+
+        with patch("api.src.sernia_ai.tools.google_tools._email_summarizer") as mock_agent:
+            mock_agent.run = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+
+            result = await _summarize_if_long(long_content, 5000)
+
+        assert len(result) <= 5100  # 5000 + truncation message
+        assert "TRUNCATED" in result
+
+
+# ---------------------------------------------------------------------------
+# Unit Tests: read_email_thread with message IDs
+# ---------------------------------------------------------------------------
+
+
+class TestReadEmailThreadMessageIds:
+    @pytest.mark.asyncio
+    async def test_output_includes_message_ids(self):
+        """Each message in thread output should include its Gmail message ID."""
+        thread_data = {
+            "messages": [
+                _make_gmail_message(
+                    msg_id="abc123", thread_id="thread1",
+                    from_addr="a@b.com", to_addr="c@d.com",
+                    subject="Test", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    body_text="Hello",
+                ),
+            ]
+        }
+        thread_data["messages"][0]["internalDate"] = "1000000"
+
+        mock_service = MagicMock()
+        mock_service.users().threads().get().execute.return_value = thread_data
+
+        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
+             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+            ctx = _FakeRunContext()
+            result = await read_email_thread(ctx, thread_id="thread1")
+
+        assert "(ID: abc123)" in result
+
+    @pytest.mark.asyncio
+    async def test_zillow_content_cleaned_in_thread(self):
+        """Zillow boilerplate should be stripped from thread messages."""
+        zillow_body = (
+            "What about when using AC?\n"
+            "New message from a renter. "
+            "A renter sent you a message about your listing at "
+            "659 Maryland Ave #4, Shadyside, PA 15232. "
+            "You can reply on Zillow or directly to this email."
+        )
+        thread_data = {
+            "messages": [
+                _make_gmail_message(
+                    msg_id="z1", thread_id="thread_z",
+                    from_addr="lead@convo.zillow.com",
+                    to_addr="emilio@serniacapital.com",
+                    subject="Inquiry about 659 Maryland Ave",
+                    date="Mon, 13 Apr 2026 10:00:00 +0000",
+                    body_text=zillow_body,
+                ),
+            ]
+        }
+        thread_data["messages"][0]["internalDate"] = "1000000"
+
+        mock_service = MagicMock()
+        mock_service.users().threads().get().execute.return_value = thread_data
+
+        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
+             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+            ctx = _FakeRunContext()
+            result = await read_email_thread(ctx, thread_id="thread_z")
+
+        assert "What about when using AC?" in result
+        assert "New message from a renter" not in result
+        assert "You can reply on Zillow" not in result
+
+
+# ---------------------------------------------------------------------------
 # Live Tests (real Gmail API)
 # ---------------------------------------------------------------------------
 
@@ -468,6 +708,11 @@ class TestStripQuotedReplies:
 # Thread IDs are mailbox-specific — same conversation has different IDs per inbox
 _SAMANTHA_THREAD_ID_EMILIO = "19caf1e244d20176"  # emilio@serniacapital.com
 _SAMANTHA_THREAD_ID_ALL = "19caf1e113d3f75d"  # all@serniacapital.com
+
+# Real thread: "Nelson Chang is requesting information about 659 Maryland Ave #4"
+# Zillow lead thread — used to verify Zillow cleanup, message IDs, and
+# that the reply from all@serniacapital.com is visible.
+_NELSON_THREAD_ID_EMILIO = "19d749e8a5b36ccf"  # emilio@serniacapital.com
 
 _live = [
     pytest.mark.live,
@@ -554,3 +799,62 @@ class TestReadEmailThreadLive:
         assert "Samantha" in thread_result
 
         print("\n--- Search → Read Thread flow verified ---")
+
+
+# python -m pytest -m live api/src/tests/test_google_tools.py::TestNelsonChangThreadLive -v -s
+class TestNelsonChangThreadLive:
+    """Live tests for the Nelson Chang / 659 Maryland Ave #4 Zillow thread.
+
+    This thread was the original bug report — the reply from all@serniacapital.com
+    was missing because the thread was truncated. These tests verify that Zillow
+    cleanup + summarization keep the thread complete, and that message IDs are
+    present for daisy-chaining with send_email.
+    """
+    pytestmark = _live
+
+    @pytest.mark.asyncio
+    async def test_reads_nelson_thread_with_all_replies(self):
+        """Read the Nelson Chang thread and verify the reply from all@ is visible."""
+        ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
+        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+
+        # Should have messages
+        assert "Message 1/" in result
+        # Known participants
+        assert "Nelson Chang" in result or "nelson" in result.lower()
+        assert "659 Maryland" in result
+
+        # The reply from all@serniacapital.com should be present
+        # (this was the bug — it was truncated away before)
+        assert "serniacapital.com" in result.lower()
+
+        print(f"\n--- Nelson Chang thread ({len(result)} chars) ---")
+        print(result)
+
+    @pytest.mark.asyncio
+    async def test_zillow_boilerplate_stripped(self):
+        """Zillow boilerplate should be cleaned from Nelson Chang thread messages."""
+        ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
+        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+
+        # Zillow boilerplate should NOT appear
+        assert "New message from a renter" not in result
+        assert "Reply on Zillow" not in result
+        assert "For your safety" not in result
+
+        print(f"\n--- Zillow cleanup verified ({len(result)} chars) ---")
+
+    @pytest.mark.asyncio
+    async def test_message_ids_present(self):
+        """Each message should include its Gmail message ID for reply chaining."""
+        ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
+        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+
+        # Message IDs should be in the format "(ID: <hex>)"
+        import re
+        id_matches = re.findall(r"\(ID: ([a-f0-9]+)\)", result)
+        assert len(id_matches) >= 2, (
+            f"Expected at least 2 message IDs, found {len(id_matches)}: {id_matches}"
+        )
+
+        print(f"\n--- Found {len(id_matches)} message IDs: {id_matches} ---")

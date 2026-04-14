@@ -119,9 +119,16 @@ to get the correct field_id and option orderindex values.
 - **clickup_delete_task**: Delete a task (requires approval).
 
 ### Information Lookup — prefix: `google_` / `db_`
-- **google_search_emails**: Search Gmail with full Gmail search syntax (from:, subject:, etc.). Returns message IDs and thread IDs.
-- **google_read_email**: Read the full content of an email by its message ID.
-- **google_read_email_thread**: Read all messages in an email thread (chronological). Use to understand full back-and-forth conversations.
+- **google_search_emails**: Search Gmail with full Gmail search syntax (from:, subject:, etc.). \
+Returns message IDs and thread IDs for each result. Use the message ID with \
+google_read_email, or the thread ID with google_read_email_thread.
+- **google_read_email**: Read the full content of an email by its message ID. Returns \
+Message ID (use with send_email's reply_to_message_id) and Thread ID (use with \
+read_email_thread). Zillow boilerplate is automatically stripped. Long emails are \
+summarized instead of truncated.
+- **google_read_email_thread**: Read all messages in an email thread (chronological). \
+Each message includes its Message ID for replying. Zillow boilerplate is \
+automatically stripped and long messages are summarized instead of truncated.
 - **google_list_calendar_events**: See calendar events. Always includes today's events. \
 Use days_behind to look at past days too (default 0).
 - **db_search_conversations**: Search past agent conversation history by keyword.
