@@ -5,7 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useAuth, useUser } from "@clerk/react-router";
 import { Button } from "~/components/ui/button";
-import { ChatInput, type ChatInputHandle } from "~/components/chat/chat-input";
+import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
 import { usePushNotifications } from "~/hooks/use-push-notifications";
 import { cn } from "~/lib/utils";
@@ -116,7 +116,7 @@ function ChatView({
       sessionStorage.removeItem(draftKey);
     }
   }, [input, draftKey]);
-  const chatInputRef = useRef<ChatInputHandle>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const attachment = useFileAttachments();
@@ -203,6 +203,13 @@ function ChatView({
     }
   }, [messages, status]);
 
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [input]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -427,17 +434,13 @@ function ChatView({
         )}
       </div>
 
-      {/* Hidden file input — tabIndex -1 and aria-hidden to prevent iOS
-          from including it in form field detection / navigation */}
+      {/* Hidden file input */}
       <input
         ref={attachment.fileInputRef}
         type="file"
         accept={attachment.acceptString}
         multiple
         className="hidden"
-        tabIndex={-1}
-        aria-hidden="true"
-        autoComplete="off"
         onChange={attachment.handleFileInputChange}
       />
 
@@ -478,10 +481,11 @@ function ChatView({
                 onClick={attachment.openFilePicker}
                 disabled={status === "submitted" || status === "streaming"}
               />
-              <ChatInput
-                ref={chatInputRef}
+              <Textarea
+                ref={textareaRef}
+                autoComplete="off"
                 value={input}
-                onValueChange={setInput}
+                onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -490,7 +494,8 @@ function ChatView({
                 }}
                 onPaste={attachment.handlePaste}
                 placeholder="Ask Sernia AI anything..."
-                className="rounded-lg py-2 text-base md:text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
+                rows={1}
                 disabled={
                   status === "submitted" || status === "streaming"
                 }
@@ -525,10 +530,11 @@ function ChatView({
                   !!pendingApproval
                 }
               />
-              <ChatInput
-                ref={chatInputRef}
+              <Textarea
+                ref={textareaRef}
+                autoComplete="off"
                 value={input}
-                onValueChange={setInput}
+                onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -541,7 +547,8 @@ function ChatView({
                     ? "Approve or deny the action above first..."
                     : "Ask Sernia AI anything..."
                 }
-                className="rounded-lg py-2 text-base md:text-sm bg-muted"
+                className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
+                rows={1}
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||

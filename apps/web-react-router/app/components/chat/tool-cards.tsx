@@ -384,9 +384,6 @@ function ApprovalItem({
                     onChange={(e) => onSetEditedBody(e.target.value)}
                     className="min-h-[80px] bg-background text-sm"
                     disabled={disabled}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    data-form-type="other"
                   />
                   {editedBody !== msgValue && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">

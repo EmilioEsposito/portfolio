@@ -346,9 +346,6 @@ export function ConversationSidebar({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search conversations..."
                 className="h-8 pl-8 pr-8 text-sm"
-                autoComplete="off"
-                autoCorrect="off"
-                data-form-type="other"
               />
               {searchQuery && (
                 <button
