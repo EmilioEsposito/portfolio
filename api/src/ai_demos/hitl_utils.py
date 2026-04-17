@@ -4,6 +4,7 @@ Shared HITL (Human-in-the-Loop) utilities for all agents.
 Agent-agnostic helpers for extracting pending approvals and resuming
 agents with approval decisions. Used by hitl_sms_agent and sernia_agent.
 """
+import dataclasses
 import json
 from dataclasses import dataclass
 
@@ -15,7 +16,13 @@ from pydantic_ai import (
     ToolApproved,
     ToolDenied,
 )
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 import logfire
 
@@ -121,22 +128,28 @@ async def resume_with_approvals(
     # PydanticAI's override_args REPLACES the full args dict, so partial
     # overrides (e.g. just {"message": "edited"}) would drop other required
     # fields like "to". Merge each override onto the pending call's original
-    # args so callers can send only the edited fields.
+    # args, then rewrite the ToolCallPart in history so:
+    #   1. validation passes (all required fields present)
+    #   2. persisted history reflects what actually ran (the UI shows the
+    #      overridden args, not the superseded original)
     pending_args_by_id = {
         p["tool_call_id"]: p["args"] or {}
         for p in extract_pending_approval_from_messages(messages)
     }
 
+    overrides_by_id: dict[str, dict] = {}
     approvals_dict = {}
     for decision in decisions:
         if decision.approved:
-            override = decision.override_args
-            if override:
+            if decision.override_args:
                 original = pending_args_by_id.get(decision.tool_call_id, {})
-                override = {**original, **override}
-            approvals_dict[decision.tool_call_id] = ToolApproved(override_args=override)
+                overrides_by_id[decision.tool_call_id] = {**original, **decision.override_args}
+            approvals_dict[decision.tool_call_id] = ToolApproved()
         else:
             approvals_dict[decision.tool_call_id] = ToolDenied(decision.denial_reason or "Denied by user")
+
+    if overrides_by_id:
+        messages = _apply_arg_overrides(messages, overrides_by_id)
 
     deferred_results = DeferredToolResults(approvals=approvals_dict)
 
@@ -147,4 +160,56 @@ async def resume_with_approvals(
         metadata=metadata,
     )
 
+    _log_tool_retries(result, conversation_id=conversation_id)
+
     return result
+
+
+def _log_tool_retries(result: AgentRunResult, *, conversation_id: str) -> None:
+    """Surface silent tool validation failures from an agent run.
+
+    PydanticAI wraps tool-arg ValidationError into a RetryPromptPart sent back
+    to the model, so a failed approval (e.g. override_args missing a required
+    field) looks like success at the HTTP layer. Log them so they show up in
+    logfire.
+    """
+    for msg in result.new_messages():
+        if not isinstance(msg, ModelRequest):
+            continue
+        for part in msg.parts:
+            if isinstance(part, RetryPromptPart):
+                logfire.warn(
+                    "tool call retry triggered after approval",
+                    conversation_id=conversation_id,
+                    tool_name=part.tool_name,
+                    tool_call_id=part.tool_call_id,
+                    content=part.content,
+                )
+
+
+def _apply_arg_overrides(
+    messages: list[ModelMessage],
+    overrides_by_id: dict[str, dict],
+) -> list[ModelMessage]:
+    """Return a new message list with ToolCallPart.args replaced for the given tool_call_ids.
+
+    Args are stored as a JSON string on ToolCallPart — keep that shape.
+    """
+    patched: list[ModelMessage] = []
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            new_parts = []
+            mutated = False
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart) and part.tool_call_id in overrides_by_id:
+                    new_args = overrides_by_id[part.tool_call_id]
+                    new_parts.append(
+                        dataclasses.replace(part, args=json.dumps(new_args))
+                    )
+                    mutated = True
+                else:
+                    new_parts.append(part)
+            patched.append(dataclasses.replace(msg, parts=new_parts) if mutated else msg)
+        else:
+            patched.append(msg)
+    return patched
