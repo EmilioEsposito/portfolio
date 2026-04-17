@@ -19,7 +19,10 @@ from pydantic_ai.messages import ModelMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 import logfire
 
-from api.src.ai_demos.models import get_conversation_messages
+from api.src.ai_demos.models import (
+    extract_pending_approval_from_messages,
+    get_conversation_messages,
+)
 from api.src.database.database import provide_session
 
 
@@ -115,10 +118,23 @@ async def resume_with_approvals(
     if not messages:
         raise ValueError(f"No conversation found with ID: {conversation_id}")
 
+    # PydanticAI's override_args REPLACES the full args dict, so partial
+    # overrides (e.g. just {"message": "edited"}) would drop other required
+    # fields like "to". Merge each override onto the pending call's original
+    # args so callers can send only the edited fields.
+    pending_args_by_id = {
+        p["tool_call_id"]: p["args"] or {}
+        for p in extract_pending_approval_from_messages(messages)
+    }
+
     approvals_dict = {}
     for decision in decisions:
         if decision.approved:
-            approvals_dict[decision.tool_call_id] = ToolApproved(override_args=decision.override_args)
+            override = decision.override_args
+            if override:
+                original = pending_args_by_id.get(decision.tool_call_id, {})
+                override = {**original, **override}
+            approvals_dict[decision.tool_call_id] = ToolApproved(override_args=override)
         else:
             approvals_dict[decision.tool_call_id] = ToolDenied(decision.denial_reason or "Denied by user")
 
