@@ -350,10 +350,20 @@ async def approve_conversation(
     Approve or deny pending tool calls for a Sernia agent conversation.
     Resumes the agent with decisions and returns the result.
     """
+    # Log each decision verbatim (using repr on override_args values so any
+    # hidden \r\n / control chars in edited bodies are visible in logfire).
+    decisions_log = [
+        {
+            "tool_call_id": d.tool_call_id,
+            "approved": d.approved,
+            "override_args_repr": {k: repr(v) for k, v in (d.override_args or {}).items()} or None,
+        }
+        for d in body.decisions
+    ]
     logfire.info(
         "sernia approve",
         conversation_id=conversation_id,
-        decisions=len(body.decisions),
+        decisions=decisions_log,
     )
     clerk_user_id = user.id
     user_name = _display_name(user)
