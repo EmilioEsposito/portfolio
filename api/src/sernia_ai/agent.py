@@ -93,9 +93,9 @@ sernia_agent = Agent(
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
     model_settings=AnthropicModelSettings(
-        anthropic_cache_instructions=True,
-        anthropic_cache_tool_definitions=True,
-        anthropic_cache_messages=True,
+        anthropic_cache_instructions="1h",
+        anthropic_cache_tool_definitions="1h",
+        anthropic_cache_messages="1h",
     ),
     builtin_tools=_build_builtin_tools(),
     toolsets=[
