@@ -6,6 +6,8 @@ Only touches ToolReturnParts that exceed SUMMARIZATION_CHAR_THRESHOLD and
 are NOT in the current turn (the agent is actively using those results).
 """
 
+from collections import OrderedDict
+
 import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import (
@@ -33,6 +35,25 @@ _summarizer = Agent(
 
 # Cap input to the summarizer to protect Haiku's context
 _MAX_SUMMARIZER_INPUT_CHARS = 50_000
+
+# Stable summary cache keyed by tool_call_id (unique per Anthropic tool call across all
+# runs/processes). Pydantic-AI's history_processors run before EVERY model request,
+# including each tool-loop iteration within a single run, and Haiku output is non-
+# deterministic — so without caching, the same raw tool result would summarize to a
+# different string each iteration, invalidating Anthropic's message-prefix cache and
+# also re-billing for Haiku. FIFO-evicted to bound memory.
+_SUMMARY_CACHE_MAX = 2_000
+_summary_cache: "OrderedDict[str, str]" = OrderedDict()
+
+
+def _get_cached_summary(tool_call_id: str) -> str | None:
+    return _summary_cache.get(tool_call_id)
+
+
+def _store_summary(tool_call_id: str, summary: str) -> None:
+    _summary_cache[tool_call_id] = summary
+    while len(_summary_cache) > _SUMMARY_CACHE_MAX:
+        _summary_cache.popitem(last=False)
 
 
 def _find_current_turn_boundary(messages: list[ModelMessage]) -> int:
@@ -111,19 +132,28 @@ async def summarize_tool_results(
     if not oversized:
         return messages
 
-    logfire.info(f"Summarizing {len(oversized)} oversized tool results")
+    cache_hits = sum(1 for _, _, p in oversized if _get_cached_summary(p.tool_call_id) is not None)
+    logfire.info(
+        f"Summarizing {len(oversized)} oversized tool results "
+        f"({cache_hits} cache hits, {len(oversized) - cache_hits} new)"
+    )
 
     # Build new older_messages with summarized tool returns
     new_older = [msg for msg in older_messages]  # shallow copy of list
     for msg_idx, part_idx, part in oversized:
         content_str = str(part.content) if not isinstance(part.content, str) else part.content
-        truncated = content_str[:_MAX_SUMMARIZER_INPUT_CHARS]
 
         try:
-            result = await _summarizer.run(
-                f"Summarize this {part.tool_name} tool result:\n\n{truncated}"
-            )
-            summary_text = f"[Summarized {part.tool_name} result]: {result.output}"
+            cached = _get_cached_summary(part.tool_call_id)
+            if cached is not None:
+                summary_text = cached
+            else:
+                truncated = content_str[:_MAX_SUMMARIZER_INPUT_CHARS]
+                result = await _summarizer.run(
+                    f"Summarize this {part.tool_name} tool result:\n\n{truncated}"
+                )
+                summary_text = f"[Summarized {part.tool_name} result]: {result.output}"
+                _store_summary(part.tool_call_id, summary_text)
 
             # Build replacement part preserving metadata
             new_part = ToolReturnPart(
