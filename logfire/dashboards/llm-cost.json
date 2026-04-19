@@ -1,0 +1,307 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "LLM Cost",
+    "project": "portfolio"
+  },
+  "spec": {
+    "display": {
+      "name": "LLM Cost",
+      "description": null
+    },
+    "datasources": {},
+    "variables": [],
+    "panels": {
+      "LLMCostByEnv": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Env"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "SELECT\n    time_bucket($resolution,start_timestamp) as x,\n    deployment_environment as dim,\n    sum((attributes ->> 'operation.cost')::float) as llm_cost,\n    count(distinct trace_id) as runs\nFROM\n    records\nwhere attributes ->> 'operation.cost' is not null\ngroup by 1,2\n;",
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-1": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "with a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r \n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-3": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Runs By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "with a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r \n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "groupBy": "dim",
+                    "metrics": ["runs"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-4": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Sample Records"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "NonTimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireNonTimeSeriesQuery",
+                  "spec": {
+                    "query": "select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  -- MAX(attributes ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source_old,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\nfrom records as r \nQUALIFY agent_name is not null and llm_cost is not null\norder by start_timestamp desc\nlimit 10"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-5": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost-Per-Run By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "display": "line",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "with a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r \n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "groupBy": "dim",
+                    "metrics": ["cost_per_run"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "RunTraceSample": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Run Trace Sample"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "NonTimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireNonTimeSeriesQuery",
+                  "spec": {
+                    "query": "select\n  trace_id,\n  min(start_timestamp) as run_start,\n  max(attributes ->> 'agent_name') as agent_name,\n  max((attributes ->> 'metadata') ->> 'trigger_source') as trigger_source,\n  sum((attributes ->> 'operation.cost')::float) as llm_cost\nfrom records as r\ngroup by trace_id\nhaving max(attributes ->> 'agent_name') is not null\n   and sum((attributes ->> 'operation.cost')::float) is not null\norder by run_start desc\nlimit 50\n"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Panel Group",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv"
+              }
+            },
+            {
+              "x": 0,
+              "y": 13,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-1"
+              }
+            },
+            {
+              "x": 0,
+              "y": 26,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-5"
+              }
+            },
+            {
+              "x": 0,
+              "y": 39,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-3"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Samples",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/RunTraceSample"
+              }
+            },
+            {
+              "x": 0,
+              "y": 6,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-4"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "duration": "7d",
+    "refreshInterval": "0s"
+  }
+}
