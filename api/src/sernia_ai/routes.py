@@ -48,6 +48,7 @@ from api.src.ai_demos.models import (
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
     _merge_sms_into_history,
+    _sanitize_tool_calls,
 )
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.push.routes import router as push_router
@@ -227,6 +228,8 @@ async def chat_sernia(
     backend_message_history = await _merge_sms_if_needed(
         conversation_id, backend_message_history
     )
+    # Remove trailing unprocessed tool calls (can happen if a previous run crashed)
+    backend_message_history = _sanitize_tool_calls(backend_message_history)
 
     logfire.info(
         "sernia chat",

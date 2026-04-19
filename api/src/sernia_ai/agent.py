@@ -137,9 +137,16 @@ async def search_files(
     Args:
         query: Text to search for (case-insensitive substring match).
         glob_pattern: Glob pattern to filter files (default: all .md files).
+                      Use relative patterns like "**/*.md", not absolute paths.
     """
+    # Strip /workspace/ prefix and leading slashes - glob() only supports relative patterns
+    pattern = glob_pattern
+    if pattern.startswith("/workspace/"):
+        pattern = pattern[len("/workspace/") :]
+    pattern = pattern.lstrip("/")
+
     results: list[str] = []
-    for path in sorted(ctx.deps.workspace_path.glob(glob_pattern)):
+    for path in sorted(ctx.deps.workspace_path.glob(pattern)):
         if not path.is_file():
             continue
         try:
