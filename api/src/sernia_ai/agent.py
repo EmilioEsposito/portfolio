@@ -6,8 +6,8 @@ HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search)
 """
 import logfire
 from pydantic import BaseModel
-from pydantic_ai import Agent, DeferredToolRequests, RunContext
-from pydantic_ai.models.anthropic import AnthropicModelSettings
+from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebSearchTool
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 
@@ -37,13 +37,11 @@ from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
 
 
 def _build_builtin_tools() -> list:
-    """Build builtin tools list. WebSearchTool/WebFetchTool require Anthropic."""
-    tools: list = []
-    if MAIN_AGENT_MODEL.startswith("anthropic:"):
-        from pydantic_ai import WebSearchTool, WebFetchTool
-        tools.append(WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS))
-        tools.append(WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS))
-    return tools
+    """Build builtin tools. WebSearchTool works on Anthropic, OpenAI Responses,
+    Groq, Google, xAI, and OpenRouter; safe to include unconditionally as long
+    as MAIN_AGENT_MODEL uses one of those providers.
+    """
+    return [WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)]
 
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
@@ -92,11 +90,10 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
-    model_settings=AnthropicModelSettings(
-        anthropic_cache_instructions=True,
-        anthropic_cache_tool_definitions=True,
-        anthropic_cache_messages=True,
-    ),
+    # `thinking` is PydanticAI's unified reasoning-effort setting (maps to
+    # openai_reasoning_effort on OpenAI Responses, anthropic_thinking on
+    # Anthropic). Cross-provider-safe.
+    model_settings=ModelSettings(thinking="high"),
     builtin_tools=_build_builtin_tools(),
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace")),
