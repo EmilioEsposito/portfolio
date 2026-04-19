@@ -31,6 +31,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
 )
@@ -373,6 +374,37 @@ def _trim_sms_history(
     return messages[keep_from:], keep_from
 
 
+def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Remove trailing unprocessed tool calls from message history.
+
+    PydanticAI raises UserError if the history ends with a ModelResponse
+    containing ToolCallPart without a subsequent ToolReturnPart. This can
+    happen when history is trimmed mid-conversation or a previous run crashed.
+
+    Walks backwards from the end, removing messages until we reach a state
+    where no tool calls are pending.
+    """
+    if not messages:
+        return messages
+
+    result = list(messages)
+
+    while result:
+        last = result[-1]
+        if isinstance(last, ModelResponse):
+            has_tool_call = any(isinstance(p, ToolCallPart) for p in last.parts)
+            if has_tool_call:
+                logfire.info(
+                    "ai_sms_event: removing trailing tool call",
+                    removed_message_type=type(last).__name__,
+                )
+                result.pop()
+                continue
+        break
+
+    return result
+
+
 async def _send_sms_reply(to_phone: str, message: str) -> None:
     """Send an SMS reply from the AI phone number, auto-splitting if long. Never raises."""
     from api.src.sernia_ai.tools.quo_tools import split_sms
@@ -458,14 +490,16 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         sms_thread = await _fetch_sms_thread(from_number)
 
         merged = _merge_sms_into_history(db_history, sms_thread)
-        history, trimmed_count = _trim_sms_history(merged)
+        trimmed, trimmed_count = _trim_sms_history(merged)
+        history = _sanitize_tool_calls(trimmed)
         logfire.info(
             "ai_sms_event: history loaded",
             from_number=from_number,
             db_messages=len(db_history),
             sms_messages=len(sms_thread),
             merged_messages=len(merged),
-            after_trim=len(history),
+            after_trim=len(trimmed),
+            after_sanitize=len(history),
             trimmed=trimmed_count,
         )
 
