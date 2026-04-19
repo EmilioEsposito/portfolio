@@ -6,6 +6,43 @@ import os
 # but uses localhost since we're running PostgreSQL directly (not in Docker)
 LOCAL_DATABASE_URL = "postgresql://portfolio:portfolio@localhost:5432/portfolio"
 
+# Keys to pull from ~/.zprofile for Claude Code dev tooling (not used by the app itself)
+ZPROFILE_KEYS = [
+    "LOGFIRE_MCP_API_KEY",
+    "RAILWAY_MCP_TOKEN",
+    "GH_TOKEN",
+    "NEON_MCP_API_KEY",
+]
+
+
+def parse_zprofile_secrets(keys):
+    """Extract `export KEY=VALUE` lines from ~/.zprofile matching the given keys."""
+    zprofile_path = os.path.expanduser("~/.zprofile")
+    if not os.path.exists(zprofile_path):
+        return {}
+
+    with open(zprofile_path, 'r') as file:
+        lines = file.read().splitlines()
+
+    wanted = set(keys)
+    found = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("export "):
+            continue
+        assignment = stripped[len("export "):]
+        if "=" not in assignment:
+            continue
+        key, value = assignment.split("=", 1)
+        key = key.strip()
+        if key not in wanted:
+            continue
+        value = value.strip()
+        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+            value = value[1:-1]
+        found[key] = value
+    return found
+
 
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +81,20 @@ def main():
         else:
             # unhandled case, preserve as-is (rare, shouldn't happen in .env)
             strict_lines.append(stripped)
+
+    zprofile_secrets = parse_zprofile_secrets(ZPROFILE_KEYS)
+    existing_keys = {line.split("=", 1)[0] for line in strict_lines if "=" in line}
+    for key in ZPROFILE_KEYS:
+        if key in existing_keys:
+            print(f"Skipping {key} from ~/.zprofile (already set in .env)")
+            continue
+        if key not in zprofile_secrets:
+            print(f"Warning: {key} not found in ~/.zprofile")
+            continue
+        strict_lines.append(f"{key}={zprofile_secrets[key]}")
+        existing_keys.add(key)
+        print(f"Adding {key} from ~/.zprofile")
+
     new_env_var_format = "\n".join(strict_lines)
 
     file_path = os.path.join(repo_root, '.claude/.env.claude.remote')
