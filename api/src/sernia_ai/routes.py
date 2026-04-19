@@ -11,6 +11,7 @@ import functools
 from typing import Literal
 
 import anthropic
+import openai
 import logfire
 from pydantic_ai import capture_run_messages
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -68,28 +69,39 @@ _SMS_CONV_PREFIX = "ai_sms_from_"
 # =============================================================================
 
 
-def _anthropic_error_response(
-    e: anthropic.APIError,
+# Union of provider exception bases we know about. Catching these lets the
+# route handlers stay provider-agnostic as we swap MAIN_AGENT_MODEL between
+# Anthropic and OpenAI Responses.
+LLMAPIError = (anthropic.APIError, openai.APIError)
+
+
+def _llm_error_response(
+    e: Exception,
     context: str = "request",
 ) -> tuple[int, str]:
-    """Map Anthropic API errors to appropriate HTTP status codes and messages.
+    """Map an LLM provider API error to an HTTP status + user-facing message.
 
     Returns (status_code, user_message) tuple.
     """
-    if isinstance(e, anthropic.APIStatusError):
+    status_error_types = (anthropic.APIStatusError, openai.APIStatusError)
+    connection_error_types = (
+        anthropic.APIConnectionError,
+        anthropic.APITimeoutError,
+        openai.APIConnectionError,
+        openai.APITimeoutError,
+    )
+    if isinstance(e, status_error_types):
         status = getattr(e, "status_code", 500)
-        # 529 = Overloaded, 429 = Rate limited → both are retriable
+        # 529 = Overloaded (Anthropic), 429 = Rate limited → both retriable.
         if status in (529, 429):
             return 503, "The AI service is temporarily overloaded. Please try again in a moment."
-        # 5xx from Anthropic → surface as 502 (bad gateway)
+        # Any other provider-side 5xx → surface as 502 (bad gateway).
         if 500 <= status < 600:
             return 502, "The AI service is temporarily unavailable. Please try again."
-        # 4xx errors (auth, bad request, etc.) → surface as 500 (our misconfiguration)
+        # 4xx → our misconfiguration (auth, bad request, etc.).
         return 500, "An internal error occurred. Please try again."
-    # Connection/timeout errors → surface as 503
-    if isinstance(e, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
+    if isinstance(e, connection_error_types):
         return 503, "Unable to reach the AI service. Please try again."
-    # Fallback
     return 500, "An internal error occurred. Please try again."
 
 
@@ -278,16 +290,16 @@ async def chat_sernia(
             on_complete=on_complete,
             metadata={"trigger_source": "api/sernia-ai/chat"},
         )
-    except anthropic.APIError as e:
-        # Anthropic API errors (overloaded, rate limited, etc.) — log but don't
+    except LLMAPIError as e:
+        # LLM provider API errors (overloaded, rate limited, etc.) — log but don't
         # treat as internal error, surface with appropriate status code
-        status_code, user_message = _anthropic_error_response(e, "chat")
+        status_code, user_message = _llm_error_response(e, "chat")
         logfire.warn(
-            "sernia chat anthropic API error",
+            "sernia chat LLM API error",
             conversation_id=conversation_id,
             clerk_user_id=clerk_user_id,
             error_type=type(e).__name__,
-            anthropic_status=getattr(e, "status_code", None),
+            provider_status=getattr(e, "status_code", None),
         )
         return Response(
             content=json.dumps({
@@ -445,16 +457,16 @@ async def approve_conversation(
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except anthropic.APIError as e:
-        # Anthropic API errors (overloaded, rate limited, etc.) — log as warning,
+    except LLMAPIError as e:
+        # LLM provider API errors (overloaded, rate limited, etc.) — log as warning,
         # surface with appropriate status code, don't leak raw error body
-        status_code, user_message = _anthropic_error_response(e, "approve")
+        status_code, user_message = _llm_error_response(e, "approve")
         logfire.warn(
-            "sernia approve anthropic API error",
+            "sernia approve LLM API error",
             conversation_id=conversation_id,
             clerk_user_id=clerk_user_id,
             error_type=type(e).__name__,
-            anthropic_status=getattr(e, "status_code", None),
+            provider_status=getattr(e, "status_code", None),
         )
         if captured_messages:
             try:
@@ -464,7 +476,7 @@ async def approve_conversation(
                     agent_name=AGENT_NAME,
                     messages=captured_messages,
                     clerk_user_id=clerk_user_id,
-                    metadata={"partial": True, "error": True, "anthropic_error": True},
+                    metadata={"partial": True, "error": True, "llm_error": True},
                 )
             except Exception:
                 logfire.exception("failed to save partial approval conversation")

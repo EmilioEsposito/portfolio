@@ -6,8 +6,9 @@ Keep tunables here so they're easy to find and tweak.
 import os
 from pathlib import Path
 
-# Web search / fetch: only these domains are allowed.
-# Used by WebSearchTool and WebFetchTool (Anthropic builtin tools).
+# Web search: only these domains are allowed.
+# Used by the builtin WebSearchTool (supported by Anthropic, OpenAI Responses,
+# Groq, Google, xAI, OpenRouter — see pydantic_ai.builtin_tools.WebSearchTool).
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "zillow.com",
     "redfin.com",
@@ -27,15 +28,16 @@ WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
 ]
 
 # Compaction: trigger at ~85% of context window token estimate.
-# Claude Sonnet 4.5 has a 200k context window.
+# gpt-5.4 has a 200k context window (same as Claude Sonnet 4.6); adjust if you
+# swap to a smaller model.
 TOKEN_COMPACTION_THRESHOLD = 170_000
 
 # Summarization: tool results larger than this (chars) get summarized by the sub-agent.
 SUMMARIZATION_CHAR_THRESHOLD = 10_000
 
-# Main agent model.
-# Anthropic required for WebSearchTool (allowed_domains) and WebFetchTool.
-MAIN_AGENT_MODEL = "anthropic:claude-sonnet-4-6"
+# Main agent model. Use `openai-responses:` (not `openai:`) so builtin tools
+# like WebSearchTool work — the Chat Completions API doesn't support them.
+MAIN_AGENT_MODEL = "openai-responses:gpt-5.4"
 
 # Sub-agent model (cheaper, no builtin tool dependency)
 SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
