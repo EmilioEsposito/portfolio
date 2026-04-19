@@ -10,7 +10,21 @@
       "description": null
     },
     "datasources": {},
-    "variables": [],
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "resolution",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "defaultValue": "24h",
+          "plugin": {
+            "kind": "TimeBucketVariable",
+            "spec": {}
+          }
+        }
+      }
+    ],
     "panels": {
       "LLMCostByEnv": {
         "kind": "Panel",
@@ -40,6 +54,47 @@
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
                     "query": "SELECT\n    time_bucket($resolution,start_timestamp) as x,\n    deployment_environment as dim,\n    sum((attributes ->> 'operation.cost')::float) as llm_cost,\n    count(distinct trace_id) as runs\nFROM\n    records\nwhere attributes ->> 'operation.cost' is not null\ngroup by 1,2\n;",
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByTokenType": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Token Type",
+            "description": "Cost breakdown by token bucket (input_non_cached, cache_input, cache_write, output). Computed from token counts × per-model list prices; totals reconcile to ~0.01% of operation.cost."
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "with base as (\n  select\n    start_timestamp,\n    attributes ->> 'gen_ai.request.model' as model,\n    COALESCE((attributes ->> 'gen_ai.usage.details.input_tokens')::float, 0) as input_non_cached_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,\n      0\n    ) as cache_read_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,\n      0\n    ) as cache_write_tokens,\n    COALESCE((attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens\n  from records\n  where attributes ->> 'operation.cost' is not null\n),\npriced as (\n  select\n    start_timestamp,\n    input_non_cached_tokens * (case\n      when model like 'claude-sonnet%' then 3.0\n      when model like 'claude-haiku%' then 1.0\n      when model like 'gpt-4o-mini%' then 0.15\n      when model like 'gpt-4o%' then 2.5\n      when model like 'gpt-4.1-mini%' then 0.40\n      when model like 'gpt-4.1%' then 2.0\n      else 0\n    end) / 1e6 as cost_input_non_cached,\n    cache_read_tokens * (case\n      when model like 'claude-sonnet%' then 0.30\n      when model like 'claude-haiku%' then 0.10\n      when model like 'gpt-4o-mini%' then 0.075\n      when model like 'gpt-4o%' then 1.25\n      else 0\n    end) / 1e6 as cost_cache_input,\n    cache_write_tokens * (case\n      when model like 'claude-sonnet%' then 3.75\n      when model like 'claude-haiku%' then 1.25\n      else 0\n    end) / 1e6 as cost_cache_write,\n    output_tokens * (case\n      when model like 'claude-sonnet%' then 15.0\n      when model like 'claude-haiku%' then 5.0\n      when model like 'gpt-4o-mini%' then 0.60\n      when model like 'gpt-4o%' then 10.0\n      when model like 'gpt-4.1-mini%' then 1.60\n      when model like 'gpt-4.1%' then 8.0\n      else 0\n    end) / 1e6 as cost_output\n  from base\n),\nunpivoted as (\n  select start_timestamp, 'input_non_cached' as dim, cost_input_non_cached as llm_cost from priced\n  union all\n  select start_timestamp, 'cache_input', cost_cache_input from priced\n  union all\n  select start_timestamp, 'cache_write', cost_cache_write from priced\n  union all\n  select start_timestamp, 'output', cost_output from priced\n)\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom unpivoted\ngroup by 1, 2\n;",
                     "groupBy": "dim",
                     "metrics": ["llm_cost"]
                   }
@@ -245,7 +300,7 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-1"
+                "$ref": "#/spec/panels/LLMCostByTokenType"
               }
             },
             {
@@ -254,12 +309,21 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-5"
+                "$ref": "#/spec/panels/LLMCostByEnv-1"
               }
             },
             {
               "x": 0,
               "y": 39,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-5"
+              }
+            },
+            {
+              "x": 0,
+              "y": 52,
               "width": 17,
               "height": 13,
               "content": {
@@ -301,7 +365,7 @@
         }
       }
     ],
-    "duration": "7d",
+    "duration": "24h",
     "refreshInterval": "0s"
   }
 }

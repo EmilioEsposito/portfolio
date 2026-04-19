@@ -34,4 +34,4 @@ mcp__logfire__dashboard_update(
 
 ## Current snapshots
 
-- `llm-cost.json` — LLM Cost dashboard (pre-2026-04-19 baseline, before 24h default + token-type breakout).
+- `llm-cost.json` — LLM Cost dashboard. 24h default time range; declares `resolution` ListVariable (TimeBucketVariable, `defaultValue: "24h"`) so the UI can save new defaults; includes the `LLMCostByTokenType` panel.
