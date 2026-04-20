@@ -304,7 +304,7 @@
                 "plugin": {
                   "kind": "LogfireNonTimeSeriesQuery",
                   "spec": {
-                    "query": "select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  -- MAX(attributes ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source_old,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\nfrom records as r\nQUALIFY COALESCE(agent_name, '') LIKE $agent_name and llm_cost is not null\norder by start_timestamp desc\nlimit 10"
+                    "query": "select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  -- MAX(attributes ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source_old,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  attributes ->> 'gen_ai.request.model' as model,\n  (attributes ->> 'operation.cost')::float as llm_cost,\n  (attributes ->> 'gen_ai.usage.input_tokens')::int as input_tokens,\n  COALESCE(\n    (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::int,\n    (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::int\n  ) as cache_read_tokens,\n  COALESCE(\n    (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::int,\n    (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::int\n  ) as cache_write_tokens,\n  (attributes ->> 'gen_ai.usage.output_tokens')::int as output_tokens\nfrom records as r\nQUALIFY COALESCE(agent_name, '') LIKE $agent_name and llm_cost is not null\norder by start_timestamp desc\nlimit 10"
                   }
                 }
               }
@@ -370,7 +370,7 @@
                 "plugin": {
                   "kind": "LogfireNonTimeSeriesQuery",
                   "spec": {
-                    "query": "select\n  trace_id,\n  min(start_timestamp) as run_start,\n  max(attributes ->> 'agent_name') as agent_name,\n  max((attributes ->> 'metadata') ->> 'trigger_source') as trigger_source,\n  sum((attributes ->> 'operation.cost')::float) as llm_cost\nfrom records as r\ngroup by trace_id\nhaving COALESCE(max(attributes ->> 'agent_name'), '') LIKE $agent_name\n   and sum((attributes ->> 'operation.cost')::float) is not null\norder by run_start desc\nlimit 50"
+                    "query": "select\n  trace_id,\n  min(start_timestamp) as run_start,\n  max(attributes ->> 'agent_name') as agent_name,\n  max((attributes ->> 'metadata') ->> 'trigger_source') as trigger_source,\n  sum((attributes ->> 'operation.cost')::float) as llm_cost,\n  sum((attributes ->> 'gen_ai.usage.input_tokens')::int) as input_tokens,\n  sum(COALESCE(\n    (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::int,\n    (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::int\n  )) as cache_read_tokens,\n  sum(COALESCE(\n    (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::int,\n    (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::int\n  )) as cache_write_tokens,\n  sum((attributes ->> 'gen_ai.usage.output_tokens')::int) as output_tokens\nfrom records as r\ngroup by trace_id\nhaving COALESCE(max(attributes ->> 'agent_name'), '') LIKE $agent_name\n   and sum((attributes ->> 'operation.cost')::float) is not null\norder by run_start desc\nlimit 50"
                   }
                 }
               }
