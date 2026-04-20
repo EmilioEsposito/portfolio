@@ -59,7 +59,6 @@ async def run_agent_for_trigger(
     trigger_source: str,
     trigger_prompt: str,
     trigger_metadata: dict,
-    trigger_instructions: str = "",
     notification_title: str = "",
     notification_body: str = "",
     rate_limit_key: str | None = None,
@@ -71,9 +70,11 @@ async def run_agent_for_trigger(
 
     Args:
         trigger_source: Origin of the trigger ("ai_sms", "email", "zillow_email_event", "scheduled_check").
-        trigger_prompt: Synthetic user message describing the event.
+        trigger_prompt: Synthetic user message describing the event. Each caller
+            owns their full prompt — include any decision framework, output
+            structure, or skill references directly in the prompt (or in the
+            workspace skill markdown the prompt points to).
         trigger_metadata: Stored in conversation metadata_ JSON for frontend display.
-        trigger_instructions: Injected into agent instructions via deps.trigger_instructions.
         notification_title: Title for the push notification (if conversation created).
         notification_body: Body for the push notification (if conversation created).
         rate_limit_key: Cooldown key (e.g. phone number for SMS). When provided,
@@ -115,10 +116,6 @@ async def run_agent_for_trigger(
     }.get(trigger_source, "trigger:unknown")
 
     conv_id = conversation_id or str(uuid.uuid4())
-    resolved_trigger_instructions = trigger_instructions or f"Trigger source: {trigger_source}"
-
-    # Persist trigger_instructions in metadata so they can be inspected later
-    trigger_metadata["trigger_instructions"] = resolved_trigger_instructions
 
     async with AsyncSessionFactory() as session:
         deps = SerniaDeps(
@@ -129,7 +126,6 @@ async def run_agent_for_trigger(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
-            trigger_instructions=resolved_trigger_instructions,
         )
 
         with capture_run_messages() as captured_messages:

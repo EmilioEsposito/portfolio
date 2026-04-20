@@ -114,7 +114,6 @@ async def _build_deps(session: AsyncSession) -> SerniaDeps:
         user_email=GOOGLE_DELEGATION_EMAIL,
         modality="web_chat",
         workspace_path=WORKSPACE_PATH,
-        trigger_instructions=None,
     )
 
 

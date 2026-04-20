@@ -668,7 +668,7 @@ async def get_conversation_instructions(
     for a specific conversation.
 
     Reconstructs the dynamic instructions using the conversation's stored
-    metadata (modality, clerk_user_id, trigger_instructions, etc.).
+    metadata (modality, clerk_user_id, etc.).
     """
     from types import SimpleNamespace
 
@@ -681,8 +681,6 @@ async def get_conversation_instructions(
 
     # Reconstruct deps from conversation record
     modality = conv.modality or "web_chat"
-    metadata = conv.metadata_ or {}
-    trigger_instructions = metadata.get("trigger_instructions")
 
     # Determine user identity from conversation
     is_trigger = conv.clerk_user_id == TRIGGER_BOT_ID
@@ -703,7 +701,6 @@ async def get_conversation_instructions(
         user_email=resolved_email,
         modality=modality,
         workspace_path=WORKSPACE_PATH,
-        trigger_instructions=trigger_instructions,
     )
     fake_ctx = SimpleNamespace(deps=deps)
 
@@ -724,7 +721,6 @@ async def get_conversation_instructions(
             "user_email": resolved_email,
             "modality": modality,
             "is_trigger": is_trigger,
-            "trigger_instructions": trigger_instructions,
         },
     }
 

@@ -287,40 +287,9 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     return guidance.get(ctx.deps.modality, "")
 
 
-def inject_trigger_guidance(ctx: RunContext[SerniaDeps]) -> str:
-    if not ctx.deps.trigger_instructions:
-        return ""
-    return f"""## Trigger Event Processing
-
-You are processing an automated trigger event, not a direct user message. \
-The team will see your response in web chat.
-
-{ctx.deps.trigger_instructions}
-
-**SMS routing for triggers:** When you need to text someone about a trigger event, \
-default to texting Emilio directly — not the shared team number. Only text the \
-shared team number if the trigger instructions explicitly say to.
-
-**Decision framework:**
-- If this needs human attention (reply needed, action required, important update, \
-new lead, maintenance request, question needing a response): Provide a concise \
-analysis with context and recommended action(s). The team will review in web chat.
-- If this is routine/noise (automated message, read receipt, simple "ok thanks", \
-"got it", marketing email, tool notification): Use the `NoAction` output tool \
-with a brief reason. You may still update workspace memory/notes for routine \
-events if there is useful information to record before using NoAction.
-
-When creating an analysis for the team, structure it as:
-1. **What happened** — who, what, when (1-2 sentences)
-2. **Context** — relevant info from memory, recent history (if useful)
-3. **Recommended action** — what should the team do next
-"""
-
-
 DYNAMIC_INSTRUCTIONS = [
     inject_context,
     inject_memory,
     inject_filetree,
     inject_modality_guidance,
-    inject_trigger_guidance,
 ]
