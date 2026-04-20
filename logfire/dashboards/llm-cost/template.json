@@ -1,0 +1,371 @@
+{
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "LLM Cost",
+    "project": "portfolio"
+  },
+  "spec": {
+    "display": {
+      "name": "LLM Cost",
+      "description": null
+    },
+    "datasources": {},
+    "variables": [
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "resolution",
+          "allowMultiple": false,
+          "allowAllValue": false,
+          "defaultValue": "24h",
+          "plugin": {
+            "kind": "TimeBucketVariable",
+            "spec": {}
+          }
+        }
+      }
+    ],
+    "panels": {
+      "LLMCostByEnv": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Env"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/cost_by_env.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByTokenType": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Token Type",
+            "description": "Cost breakdown by token bucket (input_non_cached, cache_input, cache_write, output). Computed from token counts × per-model list prices; totals reconcile to ~0.01% of operation.cost."
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/cost_by_token_type.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-1": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/trigger_source_metrics.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-3": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Runs By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/trigger_source_metrics.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["runs"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-4": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Sample Records"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "NonTimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireNonTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/sample_records.sql" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByEnv-5": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost-Per-Run By Trigger Source"
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "display": "line",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/trigger_source_metrics.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["cost_per_run"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "RunTraceSample": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Run Trace Sample"
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "NonTimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireNonTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/run_trace_sample.sql" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "layouts": [
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Panel Group",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv"
+              }
+            },
+            {
+              "x": 0,
+              "y": 13,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByTokenType"
+              }
+            },
+            {
+              "x": 0,
+              "y": 26,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-1"
+              }
+            },
+            {
+              "x": 0,
+              "y": 39,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-5"
+              }
+            },
+            {
+              "x": 0,
+              "y": 52,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-3"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "Grid",
+        "spec": {
+          "display": {
+            "title": "Samples",
+            "collapse": {
+              "open": true
+            }
+          },
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "content": {
+                "$ref": "#/spec/panels/RunTraceSample"
+              }
+            },
+            {
+              "x": 0,
+              "y": 6,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-4"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "duration": "24h",
+    "refreshInterval": "0s"
+  }
+}
