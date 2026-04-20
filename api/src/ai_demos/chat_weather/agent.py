@@ -18,7 +18,7 @@ class ChatContext:
 
 
 # Create the agent with the OpenAI model
-model = OpenAIChatModel("gpt-4-turbo-preview")
+model = OpenAIChatModel("gpt-4.1-nano")
 
 agent = Agent(
     model=model,
