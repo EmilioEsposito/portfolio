@@ -7,7 +7,7 @@ HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search)
 import logfire
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebSearchTool
-from pydantic_ai.settings import ModelSettings
+from pydantic_ai.models.openai import OpenAIResponsesModelSettings
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 
@@ -90,10 +90,13 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
-    # `thinking` is PydanticAI's unified reasoning-effort setting (maps to
-    # openai_reasoning_effort on OpenAI Responses, anthropic_thinking on
-    # Anthropic). Cross-provider-safe.
-    model_settings=ModelSettings(thinking="high"),
+    # `thinking="high"` → openai_reasoning_effort='high' on Responses API.
+    # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
+    # in-memory cache to 24h so infrequent scheduled runs still hit cache.
+    model_settings=OpenAIResponsesModelSettings(
+        thinking="high",
+        openai_prompt_cache_retention="24h",
+    ),
     builtin_tools=_build_builtin_tools(),
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace")),
