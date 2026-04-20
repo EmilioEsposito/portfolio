@@ -20,8 +20,10 @@ from pydantic_ai.ui.vercel_ai.request_types import RequestData, SubmitMessage
 
 from api.src.ai_demos.chat_emilio.agent import agent, PortfolioContext
 from api.src.utils.swagger_schema import expand_json_schema
+from api.src.utils.input_sanitization import sanitize_request_json
 from api.src.ai_demos.models import persist_agent_run_result
 import functools
+import json
 from api.src.database.database import DBSession
 
 router = APIRouter(prefix="/chat-emilio", tags=["ai"])
@@ -151,20 +153,23 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
     """
     logfire.info("Portfolio chat request using VercelAIAdapter")
 
-    # Read the request JSON to get the conversation ID
+    # Read and sanitize request body to prevent SSRF attacks via document-url parts
     request_json = await request.json()
-    conversation_id = request_json.get('id')
+    sanitized_json = sanitize_request_json(request_json)
+    # Replace request body so VercelAIAdapter uses sanitized version
+    request._body = json.dumps(sanitized_json).encode()
+
+    conversation_id = sanitized_json.get('id')
 
     # Validate that there are messages to process — the Anthropic API rejects
     # requests with an empty messages array ("at least one message is required").
-    messages = request_json.get('messages', [])
+    messages = sanitized_json.get('messages', [])
     if not messages:
         logfire.warn("chat_emilio: empty messages array in request", conversation_id=conversation_id)
         return Response(status_code=400, content="messages array is empty")
-    
+
     # Log new messages
-    if request_json.get('trigger') == 'submit-message':
-        messages = request_json.get('messages', [])
+    if sanitized_json.get('trigger') == 'submit-message':
         if messages:
             # Structured logging for easy querying/alerting in Logfire UI
             latest_message = messages[-1]

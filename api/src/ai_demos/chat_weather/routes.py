@@ -9,9 +9,11 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 
 from api.src.ai_demos.chat_weather.agent import agent, ChatContext
 from api.src.utils.swagger_schema import expand_json_schema
+from api.src.utils.input_sanitization import sanitize_request_json
 from api.src.ai_demos.models import persist_agent_run_result
 import logfire
 import functools
+import json
 from api.src.database.database import DBSession
 
 router = APIRouter(prefix="/chat-weather", tags=["ai"])
@@ -145,18 +147,22 @@ async def chat(request: Request, session: DBSession) -> Response:
     """
     logfire.info("Weather chat request using VercelAIAdapter")
 
-    # Log new messages
+    # Read and sanitize request body to prevent SSRF attacks via document-url parts
     request_json = await request.json()
-    if request_json.get('trigger') == 'submit-message':
-        messages = request_json.get('messages', [])
+    sanitized_json = sanitize_request_json(request_json)
+    # Replace request body so VercelAIAdapter uses sanitized version
+    request._body = json.dumps(sanitized_json).encode()
+
+    if sanitized_json.get('trigger') == 'submit-message':
+        messages = sanitized_json.get('messages', [])
         # Structured logging for easy querying/alerting in Logfire UI
-        latest_message = messages[-1]
+        latest_message = messages[-1] if messages else {}
         logfire.info("new chat message",
             slack_alert=True,
             endpoint="/api/ai-demos/chat-weather",
             message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
         )
-    conversation_id = request_json.get('id')
+    conversation_id = sanitized_json.get('id')
 
     # Use functools.partial to create a callback with pre-filled arguments
     # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments

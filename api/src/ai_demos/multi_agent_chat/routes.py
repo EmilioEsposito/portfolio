@@ -1,6 +1,7 @@
 """
 Routes for Graph-based router agent that dynamically routes to Emilio or Weather agents
 """
+import json
 import logfire
 from fastapi import APIRouter
 from starlette.requests import Request
@@ -13,7 +14,7 @@ from api.src.ai_demos.multi_agent_chat.graph import (
     multi_agent_graph,
 )
 from api.src.utils.swagger_schema import expand_json_schema
-import logfire
+from api.src.utils.input_sanitization import sanitize_request_json
 
 
 router = APIRouter(prefix="/multi-agent-chat", tags=["ai"])
@@ -142,11 +143,16 @@ async def multi_agent_chat(request: Request) -> Response:
     logfire.info("LOGFIRE: Multi-agent chat request using Graph Beta API")
     logfire.info("CLASSIC LOGGER: Multi-agent chat request using Graph Beta API")
 
+    # Read and sanitize request body to prevent SSRF attacks via document-url parts
     request_json = await request.json()
-    user_message = _extract_latest_message_text(request_json)
-    message_history = request_json.get("messages") or None
+    sanitized_json = sanitize_request_json(request_json)
+    # Replace request body so downstream agents (VercelAIAdapter) use sanitized version
+    request._body = json.dumps(sanitized_json).encode()
 
-    if request_json.get('trigger') == 'submit-message':
+    user_message = _extract_latest_message_text(sanitized_json)
+    message_history = sanitized_json.get("messages") or None
+
+    if sanitized_json.get('trigger') == 'submit-message':
         logfire.info(
             "new multi-agent chat message",
             slack_alert=True,
