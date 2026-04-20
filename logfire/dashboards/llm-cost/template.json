@@ -17,7 +17,7 @@
           "name": "resolution",
           "allowMultiple": false,
           "allowAllValue": false,
-          "defaultValue": "24h",
+          "defaultValue": "24 hours",
           "plugin": {
             "kind": "TimeBucketVariable",
             "spec": {}
@@ -95,6 +95,47 @@
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
                     "query": { "$file": "queries/cost_by_token_type.sql" },
+                    "groupBy": "dim",
+                    "metrics": ["llm_cost"]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByTokenTypeV2": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Token Type (v2, no hardcoded rates)",
+            "description": "Same breakdown as v1, but sums per-bucket cost attributes emitted by CostBreakdownSpanProcessor (api/src/utils/llm_cost_breakdown.py). Rates come from genai-prices at request time, so new models pick up automatically. Only shows data from runs after the processor was deployed; compare against v1 to verify parity, then retire v1."
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/cost_by_token_type_v2.sql" },
                     "groupBy": "dim",
                     "metrics": ["llm_cost"]
                   }
@@ -188,7 +229,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Sample Records"
+            "name": "Sample Records (grain=LLM API Call)"
           },
           "plugin": {
             "kind": "Table",
@@ -252,7 +293,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Run Trace Sample"
+            "name": "Run Trace Sample (grain=Agent Run)"
           },
           "plugin": {
             "kind": "Table",
@@ -309,7 +350,7 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-1"
+                "$ref": "#/spec/panels/LLMCostByTokenTypeV2"
               }
             },
             {
@@ -318,12 +359,21 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-5"
+                "$ref": "#/spec/panels/LLMCostByEnv-1"
               }
             },
             {
               "x": 0,
               "y": 52,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-5"
+              }
+            },
+            {
+              "x": 0,
+              "y": 65,
               "width": 17,
               "height": 13,
               "content": {
@@ -346,15 +396,15 @@
             {
               "x": 0,
               "y": 0,
-              "width": 12,
-              "height": 6,
+              "width": 17,
+              "height": 9,
               "content": {
                 "$ref": "#/spec/panels/RunTraceSample"
               }
             },
             {
               "x": 0,
-              "y": 6,
+              "y": 9,
               "width": 17,
               "height": 13,
               "content": {
@@ -365,7 +415,7 @@
         }
       }
     ],
-    "duration": "24h",
+    "duration": "7d",
     "refreshInterval": "0s"
   }
 }

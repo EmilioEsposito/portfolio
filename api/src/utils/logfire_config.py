@@ -9,6 +9,9 @@ import logfire
 from dotenv import find_dotenv, load_dotenv
 from logfire import LogfireLoggingHandler
 from logfire.sampling import TailSamplingSpanInfo
+from opentelemetry import trace as otel_trace
+
+from api.src.utils.llm_cost_breakdown import CostBreakdownSpanProcessor
 
 _CONFIGURED: bool = False
 _CONFIGURED_MODE: Optional[str] = None  # e.g. "prod", "test"
@@ -126,6 +129,13 @@ def ensure_logfire_configured(
     # Capture Python standard library logging (includes APScheduler, third-party libs, etc.)
     # Uses custom handler that applies log level rules (see _LOG_LEVEL_RULES above)
     logging.getLogger().addHandler(_RuleBasedLoggingHandler(level=logging.INFO))
+
+    # Enrich LLM call spans with per-token-bucket cost attributes so the
+    # Logfire "Cost By Token Type" panel can sum them directly without a
+    # hard-coded per-model pricing table in SQL.
+    tracer_provider = otel_trace.get_tracer_provider()
+    if hasattr(tracer_provider, "add_span_processor"):
+        tracer_provider.add_span_processor(CostBreakdownSpanProcessor())
 
     _CONFIGURED = True
     _CONFIGURED_MODE = mode

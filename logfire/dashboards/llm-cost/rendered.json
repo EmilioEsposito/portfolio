@@ -17,7 +17,7 @@
           "name": "resolution",
           "allowMultiple": false,
           "allowAllValue": false,
-          "defaultValue": "24h",
+          "defaultValue": "24 hours",
           "plugin": {
             "kind": "TimeBucketVariable",
             "spec": {}
@@ -97,6 +97,49 @@
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
                     "query": "with base as (\n  select\n    start_timestamp,\n    attributes ->> 'gen_ai.request.model' as model,\n    COALESCE((attributes ->> 'gen_ai.usage.input_tokens')::float, 0) as total_input_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,\n      0\n    ) as cache_read_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,\n      0\n    ) as cache_write_tokens,\n    COALESCE((attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens\n  from records\n  where attributes ->> 'operation.cost' is not null\n),\npriced as (\n  select\n    start_timestamp,\n    -- Non-cached input = total input minus cache read/write. Works for both\n    -- Anthropic (where genai-prices sums input+cache_read+cache_write into the\n    -- top-level input_tokens) and OpenAI (where input_tokens already includes\n    -- cached_tokens; cache_write is 0).\n    greatest(total_input_tokens - cache_read_tokens - cache_write_tokens, 0) * (case\n      when model like 'claude-sonnet%' then 3.0\n      when model like 'claude-haiku%' then 1.0\n      when model like 'gpt-4o-mini%' then 0.15\n      when model like 'gpt-4o%' then 2.5\n      when model like 'gpt-4.1-mini%' then 0.40\n      when model like 'gpt-4.1%' then 2.0\n      when model like 'gpt-5.4-nano%' then 0.20\n      when model like 'gpt-5.4-mini%' then 0.75\n      when model like 'gpt-5.4%' then 2.5\n      else 0\n    end) / 1e6 as cost_input_non_cached,\n    cache_read_tokens * (case\n      when model like 'claude-sonnet%' then 0.30\n      when model like 'claude-haiku%' then 0.10\n      when model like 'gpt-4o-mini%' then 0.075\n      when model like 'gpt-4o%' then 1.25\n      when model like 'gpt-5.4-nano%' then 0.02\n      when model like 'gpt-5.4-mini%' then 0.075\n      when model like 'gpt-5.4%' then 0.25\n      else 0\n    end) / 1e6 as cost_cache_input,\n    cache_write_tokens * (case\n      when model like 'claude-sonnet%' then 3.75\n      when model like 'claude-haiku%' then 1.25\n      else 0\n    end) / 1e6 as cost_cache_write,\n    output_tokens * (case\n      when model like 'claude-sonnet%' then 15.0\n      when model like 'claude-haiku%' then 5.0\n      when model like 'gpt-4o-mini%' then 0.60\n      when model like 'gpt-4o%' then 10.0\n      when model like 'gpt-4.1-mini%' then 1.60\n      when model like 'gpt-4.1%' then 8.0\n      when model like 'gpt-5.4-nano%' then 1.25\n      when model like 'gpt-5.4-mini%' then 4.5\n      when model like 'gpt-5.4%' then 15.0\n      else 0\n    end) / 1e6 as cost_output\n  from base\n),\nunpivoted as (\n  select start_timestamp, 'input_non_cached' as dim, cost_input_non_cached as llm_cost from priced\n  union all\n  select start_timestamp, 'cache_input', cost_cache_input from priced\n  union all\n  select start_timestamp, 'cache_write', cost_cache_write from priced\n  union all\n  select start_timestamp, 'output', cost_output from priced\n)\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom unpivoted\ngroup by 1, 2\n;",
+                    "groupBy": "dim",
+                    "metrics": [
+                      "llm_cost"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "LLMCostByTokenTypeV2": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "LLM Cost By Token Type (v2, no hardcoded rates)",
+            "description": "Same breakdown as v1, but sums per-bucket cost attributes emitted by CostBreakdownSpanProcessor (api/src/utils/llm_cost_breakdown.py). Rates come from genai-prices at request time, so new models pick up automatically. Only shows data from runs after the processor was deployed; compare against v1 to verify parity, then retire v1."
+          },
+          "plugin": {
+            "kind": "TimeSeriesChart",
+            "spec": {
+              "legend": {
+                "position": "bottom"
+              },
+              "visual": {
+                "stack": "all",
+                "display": "bar",
+                "palette": {
+                  "mode": "categorical"
+                },
+                "areaOpacity": 0.3,
+                "connectNulls": true
+              }
+            }
+          },
+          "queries": [
+            {
+              "kind": "TimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireTimeSeriesQuery",
+                  "spec": {
+                    "query": "-- Cost by token type, v2.\n--\n-- Reads per-bucket cost attributes (gen_ai.cost.*) written by the\n-- CostBreakdownSpanProcessor in api/src/utils/llm_cost_breakdown.py.\n-- No hard-coded per-model rates in SQL — rates come from genai-prices.\n--\n-- Unlike v1 (cost_by_token_type.sql), this query only sees data from runs\n-- emitted after the SpanProcessor was deployed. Kept side-by-side with v1\n-- for a parity check. Once parity holds for the desired window, v1 and the\n-- hard-coded SQL can be removed.\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom (\n  select start_timestamp, 'input_non_cached' as dim,\n         (attributes ->> 'gen_ai.cost.input_non_cached')::float as llm_cost\n  from records where attributes ->> 'gen_ai.cost.input_non_cached' is not null\n  union all\n  select start_timestamp, 'cache_input',\n         (attributes ->> 'gen_ai.cost.cache_read')::float\n  from records where attributes ->> 'gen_ai.cost.cache_read' is not null\n  union all\n  select start_timestamp, 'cache_write',\n         (attributes ->> 'gen_ai.cost.cache_write')::float\n  from records where attributes ->> 'gen_ai.cost.cache_write' is not null\n  union all\n  select start_timestamp, 'output',\n         (attributes ->> 'gen_ai.cost.output')::float\n  from records where attributes ->> 'gen_ai.cost.output' is not null\n) unpivoted\ngroup by 1, 2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "llm_cost"
@@ -196,7 +239,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Sample Records"
+            "name": "Sample Records (grain=LLM API Call)"
           },
           "plugin": {
             "kind": "Table",
@@ -262,7 +305,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Run Trace Sample"
+            "name": "Run Trace Sample (grain=Agent Run)"
           },
           "plugin": {
             "kind": "Table",
@@ -319,7 +362,7 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-1"
+                "$ref": "#/spec/panels/LLMCostByTokenTypeV2"
               }
             },
             {
@@ -328,12 +371,21 @@
               "width": 17,
               "height": 13,
               "content": {
-                "$ref": "#/spec/panels/LLMCostByEnv-5"
+                "$ref": "#/spec/panels/LLMCostByEnv-1"
               }
             },
             {
               "x": 0,
               "y": 52,
+              "width": 17,
+              "height": 13,
+              "content": {
+                "$ref": "#/spec/panels/LLMCostByEnv-5"
+              }
+            },
+            {
+              "x": 0,
+              "y": 65,
               "width": 17,
               "height": 13,
               "content": {
@@ -356,15 +408,15 @@
             {
               "x": 0,
               "y": 0,
-              "width": 12,
-              "height": 6,
+              "width": 17,
+              "height": 9,
               "content": {
                 "$ref": "#/spec/panels/RunTraceSample"
               }
             },
             {
               "x": 0,
-              "y": 6,
+              "y": 9,
               "width": 17,
               "height": 13,
               "content": {
@@ -375,7 +427,7 @@
         }
       }
     ],
-    "duration": "24h",
+    "duration": "7d",
     "refreshInterval": "0s"
   }
 }
