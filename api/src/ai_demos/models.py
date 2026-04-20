@@ -248,9 +248,9 @@ async def save_agent_conversation(
         messages_json = _sanitize_json(data)
 
     # Look up user email from Clerk for convenience/debugging
-    # Skip for system user IDs (e.g. "system:sernia-ai") — not real Clerk users
+    # Skip for placeholder/system user IDs — not real Clerk users
     user_email = None
-    if clerk_user_id and not clerk_user_id.startswith("system:"):
+    if clerk_user_id and clerk_user_id not in ("visitor",) and not clerk_user_id.startswith("system:"):
         user_email = await _get_user_email_from_clerk(clerk_user_id)
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
