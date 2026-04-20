@@ -364,7 +364,6 @@ def analyze_system_prompt():
     print(f"    - inject_memory(): up to ~1,500 tokens (MEMORY.md, capped at 5K chars)")
     print(f"    - inject_filetree(): up to ~800 tokens (workspace tree, capped at 3K chars)")
     print(f"    - inject_modality_guidance(): ~200-400 tokens (SMS/email/web rules)")
-    print(f"    - inject_trigger_guidance(): ~200-500 tokens (trigger processing rules)")
     print(f"\n  Estimated total system prompt: ~3,500-5,500 tokens per LLM call")
     print(f"  With prompt caching, only the first call pays full cost.")
 

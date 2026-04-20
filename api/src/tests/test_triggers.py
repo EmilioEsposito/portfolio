@@ -63,21 +63,6 @@ class TestSmoke:
         from api.src.sernia_ai.agent import sernia_agent, NoAction
         assert NoAction in sernia_agent.output_type
 
-    def test_trigger_instructions_field_on_deps(self):
-        """SerniaDeps should have the trigger_instructions field."""
-        from api.src.sernia_ai.deps import SerniaDeps
-        import dataclasses
-
-        fields = {f.name for f in dataclasses.fields(SerniaDeps)}
-        assert "trigger_instructions" in fields
-
-    def test_inject_trigger_guidance_in_dynamic_instructions(self):
-        """inject_trigger_guidance should be in DYNAMIC_INSTRUCTIONS."""
-        from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS
-
-        fn_names = [fn.__name__ for fn in DYNAMIC_INSTRUCTIONS]
-        assert "inject_trigger_guidance" in fn_names
-
     def test_notify_trigger_alert_imports(self):
         """Push service should have the new trigger alert function."""
         from api.src.sernia_ai.push.service import notify_trigger_alert
@@ -423,52 +408,6 @@ class TestScheduledTriggers:
             assert call_kwargs["trigger_source"] == "scheduled_check"
             assert "scheduled-checks" in call_kwargs["trigger_prompt"].lower()
             assert call_kwargs["rate_limit_key"] == "scheduled_check"
-
-
-class TestInjectTriggerGuidance:
-    """Test the trigger guidance dynamic instruction."""
-
-    def test_returns_empty_without_trigger_instructions(self):
-        """When trigger_instructions is None, instruction should return empty string."""
-        from types import SimpleNamespace
-        from api.src.sernia_ai.instructions import inject_trigger_guidance
-        from api.src.sernia_ai.deps import SerniaDeps
-
-        deps = SerniaDeps(
-            db_session=None,  # type: ignore
-            conversation_id="test",
-            user_identifier="user_123",
-            user_name="Test User",
-            user_email="test@serniacapital.com",
-            modality="web_chat",
-            workspace_path="/tmp",  # type: ignore
-            trigger_instructions=None,
-        )
-        ctx = SimpleNamespace(deps=deps)
-        result = inject_trigger_guidance(ctx)  # type: ignore
-        assert result == ""
-
-    def test_returns_guidance_with_trigger_instructions(self):
-        """When trigger_instructions is set, instruction should include it."""
-        from types import SimpleNamespace
-        from api.src.sernia_ai.instructions import inject_trigger_guidance
-        from api.src.sernia_ai.deps import SerniaDeps
-
-        deps = SerniaDeps(
-            db_session=None,  # type: ignore
-            conversation_id="test",
-            user_identifier="system:sernia-ai",
-            user_name="Sernia AI (Trigger)",
-            user_email="emilio@serniacapital.com",
-            modality="web_chat",
-            workspace_path="/tmp",  # type: ignore
-            trigger_instructions="This is an inbound SMS trigger.",
-        )
-        ctx = SimpleNamespace(deps=deps)
-        result = inject_trigger_guidance(ctx)  # type: ignore
-        assert "Trigger Event Processing" in result
-        assert "inbound SMS trigger" in result
-        assert "NoAction" in result
 
 
 class TestNotifyTeamSms:
