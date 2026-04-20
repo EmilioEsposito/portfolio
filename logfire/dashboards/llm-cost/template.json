@@ -188,7 +188,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Sample Records"
+            "name": "Sample Records (grain=LLM API Call)"
           },
           "plugin": {
             "kind": "Table",
@@ -252,7 +252,7 @@
         "kind": "Panel",
         "spec": {
           "display": {
-            "name": "Run Trace Sample"
+            "name": "Run Trace Sample (grain=Agent Run)"
           },
           "plugin": {
             "kind": "Table",
