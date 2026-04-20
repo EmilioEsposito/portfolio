@@ -41,6 +41,7 @@ def extract_tool_results(result: AgentRunResult) -> dict[str, str]:
     ToolReturnPart in the new messages produced by the run.
     """
     from pydantic_ai.messages import ModelRequest, ToolReturnPart
+    from pydantic_core import to_jsonable_python
 
     tool_results: dict[str, str] = {}
     for msg in result.new_messages():
@@ -49,7 +50,10 @@ def extract_tool_results(result: AgentRunResult) -> dict[str, str]:
                 if isinstance(part, ToolReturnPart):
                     content = part.content
                     if not isinstance(content, str):
-                        content = json.dumps(content)
+                        try:
+                            content = json.dumps(to_jsonable_python(content))
+                        except Exception:
+                            content = str(content)
                     tool_results[part.tool_call_id] = content
     return tool_results
 
