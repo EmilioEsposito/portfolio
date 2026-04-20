@@ -23,6 +23,34 @@
             "spec": {}
           }
         }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "agent_name",
+          "display": {
+            "name": "Agent"
+          },
+          "allowMultiple": false,
+          "allowAllValue": true,
+          "customAllValue": "%",
+          "defaultValue": "%",
+          "plugin": {
+            "kind": "StaticListVariable",
+            "spec": {
+              "values": [
+                {"value": "sernia", "label": "sernia"},
+                {"value": "chat_weather", "label": "chat_weather"},
+                {"value": "chat_emilio", "label": "chat_emilio"},
+                {"value": "tool_result_summarizer", "label": "tool_result_summarizer"},
+                {"value": "router_agent", "label": "router_agent"},
+                {"value": "emilio", "label": "emilio"},
+                {"value": "weather", "label": "weather"},
+                {"value": "email_content_summarizer", "label": "email_content_summarizer"}
+              ]
+            }
+          }
+        }
       }
     ],
     "panels": {

@@ -23,6 +23,58 @@
             "spec": {}
           }
         }
+      },
+      {
+        "kind": "ListVariable",
+        "spec": {
+          "name": "agent_name",
+          "display": {
+            "name": "Agent"
+          },
+          "allowMultiple": false,
+          "allowAllValue": true,
+          "customAllValue": "%",
+          "defaultValue": "%",
+          "plugin": {
+            "kind": "StaticListVariable",
+            "spec": {
+              "values": [
+                {
+                  "value": "sernia",
+                  "label": "sernia"
+                },
+                {
+                  "value": "chat_weather",
+                  "label": "chat_weather"
+                },
+                {
+                  "value": "chat_emilio",
+                  "label": "chat_emilio"
+                },
+                {
+                  "value": "tool_result_summarizer",
+                  "label": "tool_result_summarizer"
+                },
+                {
+                  "value": "router_agent",
+                  "label": "router_agent"
+                },
+                {
+                  "value": "emilio",
+                  "label": "emilio"
+                },
+                {
+                  "value": "weather",
+                  "label": "weather"
+                },
+                {
+                  "value": "email_content_summarizer",
+                  "label": "email_content_summarizer"
+                }
+              ]
+            }
+          }
+        }
       }
     ],
     "panels": {
@@ -53,7 +105,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "SELECT\n    time_bucket($resolution,start_timestamp) as x,\n    deployment_environment as dim,\n    sum((attributes ->> 'operation.cost')::float) as llm_cost,\n    count(distinct trace_id) as runs\nFROM\n    records\nwhere attributes ->> 'operation.cost' is not null\ngroup by 1,2\n;",
+                    "query": "-- `agent_name` lives on the agent root span, not the per-LLM-call spans that\n-- carry `operation.cost`. Build a trace → agent_name lookup once, then JOIN\n-- it back to filter. COALESCE lets rows in traces without any agent_name still\n-- match when \"All\" is selected (customAllValue='%', '' LIKE '%' is true).\nwith trace_agent_name as (\n  select\n    trace_id,\n    MAX(attributes ->> 'agent_name') as trace_agent_name\n  from records\n  group by trace_id\n)\nSELECT\n    time_bucket($resolution, r.start_timestamp) as x,\n    r.deployment_environment as dim,\n    sum((r.attributes ->> 'operation.cost')::float) as llm_cost,\n    count(distinct r.trace_id) as runs\nFROM records as r\nleft join trace_agent_name on r.trace_id = trace_agent_name.trace_id\nwhere r.attributes ->> 'operation.cost' is not null\n  and COALESCE(trace_agent_name.trace_agent_name, '') LIKE $agent_name\ngroup by 1, 2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "llm_cost"
@@ -96,7 +148,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "with base as (\n  select\n    start_timestamp,\n    attributes ->> 'gen_ai.request.model' as model,\n    COALESCE((attributes ->> 'gen_ai.usage.input_tokens')::float, 0) as total_input_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,\n      0\n    ) as cache_read_tokens,\n    COALESCE(\n      (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,\n      (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,\n      0\n    ) as cache_write_tokens,\n    COALESCE((attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens\n  from records\n  where attributes ->> 'operation.cost' is not null\n),\npriced as (\n  select\n    start_timestamp,\n    -- Non-cached input = total input minus cache read/write. Works for both\n    -- Anthropic (where genai-prices sums input+cache_read+cache_write into the\n    -- top-level input_tokens) and OpenAI (where input_tokens already includes\n    -- cached_tokens; cache_write is 0).\n    greatest(total_input_tokens - cache_read_tokens - cache_write_tokens, 0) * (case\n      when model like 'claude-sonnet%' then 3.0\n      when model like 'claude-haiku%' then 1.0\n      when model like 'gpt-4o-mini%' then 0.15\n      when model like 'gpt-4o%' then 2.5\n      when model like 'gpt-4.1-mini%' then 0.40\n      when model like 'gpt-4.1%' then 2.0\n      when model like 'gpt-5.4-nano%' then 0.20\n      when model like 'gpt-5.4-mini%' then 0.75\n      when model like 'gpt-5.4%' then 2.5\n      else 0\n    end) / 1e6 as cost_input_non_cached,\n    cache_read_tokens * (case\n      when model like 'claude-sonnet%' then 0.30\n      when model like 'claude-haiku%' then 0.10\n      when model like 'gpt-4o-mini%' then 0.075\n      when model like 'gpt-4o%' then 1.25\n      when model like 'gpt-5.4-nano%' then 0.02\n      when model like 'gpt-5.4-mini%' then 0.075\n      when model like 'gpt-5.4%' then 0.25\n      else 0\n    end) / 1e6 as cost_cache_input,\n    cache_write_tokens * (case\n      when model like 'claude-sonnet%' then 3.75\n      when model like 'claude-haiku%' then 1.25\n      else 0\n    end) / 1e6 as cost_cache_write,\n    output_tokens * (case\n      when model like 'claude-sonnet%' then 15.0\n      when model like 'claude-haiku%' then 5.0\n      when model like 'gpt-4o-mini%' then 0.60\n      when model like 'gpt-4o%' then 10.0\n      when model like 'gpt-4.1-mini%' then 1.60\n      when model like 'gpt-4.1%' then 8.0\n      when model like 'gpt-5.4-nano%' then 1.25\n      when model like 'gpt-5.4-mini%' then 4.5\n      when model like 'gpt-5.4%' then 15.0\n      else 0\n    end) / 1e6 as cost_output\n  from base\n),\nunpivoted as (\n  select start_timestamp, 'input_non_cached' as dim, cost_input_non_cached as llm_cost from priced\n  union all\n  select start_timestamp, 'cache_input', cost_cache_input from priced\n  union all\n  select start_timestamp, 'cache_write', cost_cache_write from priced\n  union all\n  select start_timestamp, 'output', cost_output from priced\n)\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom unpivoted\ngroup by 1, 2\n;",
+                    "query": "with trace_agent as (\n  select\n    trace_id,\n    MAX(attributes ->> 'agent_name') as trace_agent_name\n  from records\n  group by trace_id\n),\nbase as (\n  select\n    r.start_timestamp,\n    r.attributes ->> 'gen_ai.request.model' as model,\n    COALESCE((r.attributes ->> 'gen_ai.usage.input_tokens')::float, 0) as total_input_tokens,\n    COALESCE(\n      (r.attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,\n      (r.attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,\n      0\n    ) as cache_read_tokens,\n    COALESCE(\n      (r.attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,\n      (r.attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,\n      0\n    ) as cache_write_tokens,\n    COALESCE((r.attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens\n  from records as r\n  left join trace_agent on r.trace_id = trace_agent.trace_id\n  where r.attributes ->> 'operation.cost' is not null\n    and COALESCE(trace_agent.trace_agent_name, '') LIKE $agent_name\n),\npriced as (\n  select\n    start_timestamp,\n    -- Non-cached input = total input minus cache read/write. Works for both\n    -- Anthropic (where genai-prices sums input+cache_read+cache_write into the\n    -- top-level input_tokens) and OpenAI (where input_tokens already includes\n    -- cached_tokens; cache_write is 0).\n    greatest(total_input_tokens - cache_read_tokens - cache_write_tokens, 0) * (case\n      when model like 'claude-sonnet%' then 3.0\n      when model like 'claude-haiku%' then 1.0\n      when model like 'gpt-4o-mini%' then 0.15\n      when model like 'gpt-4o%' then 2.5\n      when model like 'gpt-4.1-mini%' then 0.40\n      when model like 'gpt-4.1%' then 2.0\n      when model like 'gpt-5.4-nano%' then 0.20\n      when model like 'gpt-5.4-mini%' then 0.75\n      when model like 'gpt-5.4%' then 2.5\n      else 0\n    end) / 1e6 as cost_input_non_cached,\n    cache_read_tokens * (case\n      when model like 'claude-sonnet%' then 0.30\n      when model like 'claude-haiku%' then 0.10\n      when model like 'gpt-4o-mini%' then 0.075\n      when model like 'gpt-4o%' then 1.25\n      when model like 'gpt-5.4-nano%' then 0.02\n      when model like 'gpt-5.4-mini%' then 0.075\n      when model like 'gpt-5.4%' then 0.25\n      else 0\n    end) / 1e6 as cost_cache_input,\n    cache_write_tokens * (case\n      when model like 'claude-sonnet%' then 3.75\n      when model like 'claude-haiku%' then 1.25\n      else 0\n    end) / 1e6 as cost_cache_write,\n    output_tokens * (case\n      when model like 'claude-sonnet%' then 15.0\n      when model like 'claude-haiku%' then 5.0\n      when model like 'gpt-4o-mini%' then 0.60\n      when model like 'gpt-4o%' then 10.0\n      when model like 'gpt-4.1-mini%' then 1.60\n      when model like 'gpt-4.1%' then 8.0\n      when model like 'gpt-5.4-nano%' then 1.25\n      when model like 'gpt-5.4-mini%' then 4.5\n      when model like 'gpt-5.4%' then 15.0\n      else 0\n    end) / 1e6 as cost_output\n  from base\n),\nunpivoted as (\n  select start_timestamp, 'input_non_cached' as dim, cost_input_non_cached as llm_cost from priced\n  union all\n  select start_timestamp, 'cache_input', cost_cache_input from priced\n  union all\n  select start_timestamp, 'cache_write', cost_cache_write from priced\n  union all\n  select start_timestamp, 'output', cost_output from priced\n)\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom unpivoted\ngroup by 1, 2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "llm_cost"
@@ -139,7 +191,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "-- Cost by token type, v2.\n--\n-- Reads per-bucket cost attributes (gen_ai.cost.*) written by the\n-- CostBreakdownSpanProcessor in api/src/utils/llm_cost_breakdown.py.\n-- No hard-coded per-model rates in SQL — rates come from genai-prices.\n--\n-- Unlike v1 (cost_by_token_type.sql), this query only sees data from runs\n-- emitted after the SpanProcessor was deployed. Kept side-by-side with v1\n-- for a parity check. Once parity holds for the desired window, v1 and the\n-- hard-coded SQL can be removed.\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom (\n  select start_timestamp, 'input_non_cached' as dim,\n         (attributes ->> 'gen_ai.cost.input_non_cached')::float as llm_cost\n  from records where attributes ->> 'gen_ai.cost.input_non_cached' is not null\n  union all\n  select start_timestamp, 'cache_input',\n         (attributes ->> 'gen_ai.cost.cache_read')::float\n  from records where attributes ->> 'gen_ai.cost.cache_read' is not null\n  union all\n  select start_timestamp, 'cache_write',\n         (attributes ->> 'gen_ai.cost.cache_write')::float\n  from records where attributes ->> 'gen_ai.cost.cache_write' is not null\n  union all\n  select start_timestamp, 'output',\n         (attributes ->> 'gen_ai.cost.output')::float\n  from records where attributes ->> 'gen_ai.cost.output' is not null\n) unpivoted\ngroup by 1, 2\n;",
+                    "query": "-- Cost by token type, v2.\n--\n-- Reads per-bucket cost attributes (gen_ai.cost.*) written by the\n-- CostBreakdownSpanProcessor in api/src/utils/llm_cost_breakdown.py.\n-- No hard-coded per-model rates in SQL — rates come from genai-prices.\n--\n-- Unlike v1 (cost_by_token_type.sql), this query only sees data from runs\n-- emitted after the SpanProcessor was deployed. Kept side-by-side with v1\n-- for a parity check. Once parity holds for the desired window, v1 and the\n-- hard-coded SQL can be removed.\nwith trace_agent as (\n  select\n    trace_id,\n    MAX(attributes ->> 'agent_name') as trace_agent_name\n  from records\n  group by trace_id\n),\nfiltered as (\n  select r.start_timestamp, r.attributes\n  from records as r\n  left join trace_agent on r.trace_id = trace_agent.trace_id\n  where COALESCE(trace_agent.trace_agent_name, '') LIKE $agent_name\n)\nselect\n  time_bucket($resolution, start_timestamp) as x,\n  dim,\n  sum(llm_cost) as llm_cost\nfrom (\n  select start_timestamp, 'input_non_cached' as dim,\n         (attributes ->> 'gen_ai.cost.input_non_cached')::float as llm_cost\n  from filtered where attributes ->> 'gen_ai.cost.input_non_cached' is not null\n  union all\n  select start_timestamp, 'cache_input',\n         (attributes ->> 'gen_ai.cost.cache_read')::float\n  from filtered where attributes ->> 'gen_ai.cost.cache_read' is not null\n  union all\n  select start_timestamp, 'cache_write',\n         (attributes ->> 'gen_ai.cost.cache_write')::float\n  from filtered where attributes ->> 'gen_ai.cost.cache_write' is not null\n  union all\n  select start_timestamp, 'output',\n         (attributes ->> 'gen_ai.cost.output')::float\n  from filtered where attributes ->> 'gen_ai.cost.output' is not null\n) unpivoted\ngroup by 1, 2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "llm_cost"
@@ -181,7 +233,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere COALESCE(agent_name, '') LIKE $agent_name\ngroup by 1,2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "llm_cost"
@@ -223,7 +275,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere COALESCE(agent_name, '') LIKE $agent_name\ngroup by 1,2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "runs"
@@ -252,7 +304,7 @@
                 "plugin": {
                   "kind": "LogfireNonTimeSeriesQuery",
                   "spec": {
-                    "query": "select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  -- MAX(attributes ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source_old,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\nfrom records as r\nQUALIFY agent_name is not null and llm_cost is not null\norder by start_timestamp desc\nlimit 10"
+                    "query": "select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  -- MAX(attributes ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source_old,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\nfrom records as r\nQUALIFY COALESCE(agent_name, '') LIKE $agent_name and llm_cost is not null\norder by start_timestamp desc\nlimit 10"
                   }
                 }
               }
@@ -289,7 +341,7 @@
                 "plugin": {
                   "kind": "LogfireTimeSeriesQuery",
                   "spec": {
-                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere agent_name is not null\ngroup by 1,2\n;",
+                    "query": "-- Shared base query for three panels that differ only in which `metrics`\n-- Perses picks off the result set: llm_cost, runs, cost_per_run.\nwith a as (\n  select\n  trace_id,\n  start_timestamp,\n  MAX(attributes ->> 'agent_name') OVER (PARTITION BY  r.trace_id) as agent_name,\n  MAX((attributes ->> 'metadata') ->> 'trigger_source') OVER (PARTITION BY  r.trace_id) as trigger_source,\n  (attributes ->> 'operation.cost')::float as llm_cost\n  from records as r\n)\n\nSELECT\n    time_bucket($resolution,start_timestamp) as x,\n    COALESCE(trigger_source, 'unknown') as dim,\n    -- COALESCE(agent_name, 'unknown') as dim,\n    sum(llm_cost) as llm_cost,\n    count(distinct a.trace_id) as runs,\n    sum(llm_cost)/count(distinct a.trace_id) as cost_per_run\nFROM\n    a\nwhere COALESCE(agent_name, '') LIKE $agent_name\ngroup by 1,2\n;",
                     "groupBy": "dim",
                     "metrics": [
                       "cost_per_run"
@@ -318,7 +370,7 @@
                 "plugin": {
                   "kind": "LogfireNonTimeSeriesQuery",
                   "spec": {
-                    "query": "select\n  trace_id,\n  min(start_timestamp) as run_start,\n  max(attributes ->> 'agent_name') as agent_name,\n  max((attributes ->> 'metadata') ->> 'trigger_source') as trigger_source,\n  sum((attributes ->> 'operation.cost')::float) as llm_cost\nfrom records as r\ngroup by trace_id\nhaving max(attributes ->> 'agent_name') is not null\n   and sum((attributes ->> 'operation.cost')::float) is not null\norder by run_start desc\nlimit 50"
+                    "query": "select\n  trace_id,\n  min(start_timestamp) as run_start,\n  max(attributes ->> 'agent_name') as agent_name,\n  max((attributes ->> 'metadata') ->> 'trigger_source') as trigger_source,\n  sum((attributes ->> 'operation.cost')::float) as llm_cost\nfrom records as r\ngroup by trace_id\nhaving COALESCE(max(attributes ->> 'agent_name'), '') LIKE $agent_name\n   and sum((attributes ->> 'operation.cost')::float) is not null\norder by run_start desc\nlimit 50"
                   }
                 }
               }
