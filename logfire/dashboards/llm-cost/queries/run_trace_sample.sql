@@ -6,7 +6,7 @@ select
   sum((attributes ->> 'operation.cost')::float) as llm_cost
 from records as r
 group by trace_id
-having max(attributes ->> 'agent_name') is not null
+having COALESCE(max(attributes ->> 'agent_name'), '') LIKE $agent_name
    and sum((attributes ->> 'operation.cost')::float) is not null
 order by run_start desc
 limit 50

@@ -1,21 +1,30 @@
-with base as (
+with trace_agent as (
   select
-    start_timestamp,
-    attributes ->> 'gen_ai.request.model' as model,
-    COALESCE((attributes ->> 'gen_ai.usage.input_tokens')::float, 0) as total_input_tokens,
+    trace_id,
+    MAX(attributes ->> 'agent_name') as trace_agent_name
+  from records
+  group by trace_id
+),
+base as (
+  select
+    r.start_timestamp,
+    r.attributes ->> 'gen_ai.request.model' as model,
+    COALESCE((r.attributes ->> 'gen_ai.usage.input_tokens')::float, 0) as total_input_tokens,
     COALESCE(
-      (attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,
-      (attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,
+      (r.attributes ->> 'gen_ai.usage.details.cache_read_tokens')::float,
+      (r.attributes ->> 'gen_ai.usage.details.cache_read_input_tokens')::float,
       0
     ) as cache_read_tokens,
     COALESCE(
-      (attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,
-      (attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,
+      (r.attributes ->> 'gen_ai.usage.details.cache_write_tokens')::float,
+      (r.attributes ->> 'gen_ai.usage.details.cache_creation_input_tokens')::float,
       0
     ) as cache_write_tokens,
-    COALESCE((attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens
-  from records
-  where attributes ->> 'operation.cost' is not null
+    COALESCE((r.attributes ->> 'gen_ai.usage.output_tokens')::float, 0) as output_tokens
+  from records as r
+  left join trace_agent on r.trace_id = trace_agent.trace_id
+  where r.attributes ->> 'operation.cost' is not null
+    and COALESCE(trace_agent.trace_agent_name, '') LIKE $agent_name
 ),
 priced as (
   select

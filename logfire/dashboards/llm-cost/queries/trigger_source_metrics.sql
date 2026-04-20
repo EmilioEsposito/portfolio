@@ -19,6 +19,6 @@ SELECT
     sum(llm_cost)/count(distinct a.trace_id) as cost_per_run
 FROM
     a
-where agent_name is not null
+where COALESCE(agent_name, '') LIKE $agent_name
 group by 1,2
 ;
