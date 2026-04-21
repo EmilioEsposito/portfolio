@@ -375,20 +375,56 @@ def _trim_sms_history(
 
 
 def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
-    """Remove trailing unprocessed tool calls from message history.
+    """Sanitize tool call/return pairs in message history.
 
-    PydanticAI raises UserError if the history ends with a ModelResponse
-    containing ToolCallPart without a subsequent ToolReturnPart. This can
-    happen when history is trimmed mid-conversation or a previous run crashed.
+    Handles two scenarios that break model APIs:
+    1. Orphaned ToolReturnParts — tool returns without matching tool calls.
+       This happens when history trimming cuts off older messages containing
+       the ToolCallPart, or when the main agent model changes (e.g., Anthropic
+       to OpenAI) and old tool_call_ids have incompatible formats.
+    2. Trailing ToolCallParts — tool calls at the end without subsequent returns.
+       This happens when a previous run crashed or history was trimmed.
 
-    Walks backwards from the end, removing messages until we reach a state
-    where no tool calls are pending.
+    Returns a sanitized copy of the message list.
     """
     if not messages:
         return messages
 
-    result = list(messages)
+    # Step 1: Collect all tool_call_ids from ToolCallParts
+    valid_tool_call_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    valid_tool_call_ids.add(part.tool_call_id)
 
+    # Step 2: Remove orphaned ToolReturnParts (returns without matching calls)
+    result: list[ModelMessage] = []
+    orphans_removed = 0
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            # Filter out ToolReturnParts that reference non-existent tool calls
+            new_parts = []
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    if part.tool_call_id not in valid_tool_call_ids:
+                        orphans_removed += 1
+                        continue
+                new_parts.append(part)
+
+            # Only include the request if it has remaining parts
+            if new_parts:
+                result.append(ModelRequest(parts=new_parts))
+        else:
+            result.append(msg)
+
+    if orphans_removed > 0:
+        logfire.info(
+            "ai_sms_event: removed orphaned tool returns",
+            orphans_removed=orphans_removed,
+        )
+
+    # Step 3: Remove trailing tool calls without returns
     while result:
         last = result[-1]
         if isinstance(last, ModelResponse):

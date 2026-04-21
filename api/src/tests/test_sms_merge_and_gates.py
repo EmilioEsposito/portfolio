@@ -23,6 +23,7 @@ from pydantic_ai.messages import (
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _extract_text_contents,
     _merge_sms_into_history,
+    _sanitize_tool_calls,
 )
 from api.src.sernia_ai.tools.quo_tools import _is_internal_contact
 
@@ -212,3 +213,146 @@ class TestIsInternalContact:
     def test_whitespace_not_trimmed(self):
         """Whitespace around company name is not trimmed."""
         assert _is_internal_contact(_make_contact(" Sernia Capital LLC ")) is False
+
+
+# ===========================================================================
+# _sanitize_tool_calls
+# ===========================================================================
+
+
+def _tool_call(name: str, call_id: str) -> ModelResponse:
+    return ModelResponse(parts=[ToolCallPart(tool_name=name, args='{}', tool_call_id=call_id)])
+
+
+def _tool_return(name: str, call_id: str, content: str = "ok") -> ModelRequest:
+    return ModelRequest(parts=[ToolReturnPart(tool_name=name, content=content, tool_call_id=call_id)])
+
+
+class TestSanitizeToolCalls:
+    def test_empty_messages(self):
+        assert _sanitize_tool_calls([]) == []
+
+    def test_no_tool_calls_unchanged(self):
+        msgs = [_user("hello"), _assistant("hi")]
+        assert _sanitize_tool_calls(msgs) == msgs
+
+    def test_removes_trailing_tool_call(self):
+        """Trailing ToolCallPart without return should be removed."""
+        msgs = [
+            _user("do something"),
+            _tool_call("send_sms", "tc1"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # Trailing tool call removed
+        assert len(result) == 1
+        assert isinstance(result[0], ModelRequest)
+
+    def test_removes_orphaned_tool_return(self):
+        """ToolReturnPart without matching ToolCallPart should be removed."""
+        msgs = [
+            _tool_return("old_tool", "toolu_orphan"),
+            _user("hello"),
+            _assistant("hi"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # Orphaned return removed
+        assert len(result) == 2
+        assert isinstance(result[0], ModelRequest)
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_keeps_valid_tool_call_return_pair(self):
+        """Valid ToolCallPart + ToolReturnPart pairs are preserved."""
+        msgs = [
+            _user("search"),
+            _tool_call("search_contacts", "tc1"),
+            _tool_return("search_contacts", "tc1"),
+            _assistant("found it"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 4
+
+    def test_removes_anthropic_style_orphan_from_trimmed_history(self):
+        """Simulates history trimming cutting off the ToolCallPart.
+
+        This is the exact bug that caused issues 81/82 — history trimming
+        removes the beginning of the conversation which contains the
+        ToolCallPart, leaving an orphaned ToolReturnPart.
+        """
+        msgs = [
+            # ToolCallPart was in trimmed portion — only return remains
+            _tool_return("send_sms", "toolu_012dE58Mgx5qBuz7yjcZCkpk"),
+            _user("thanks for sending that"),
+            _assistant("you're welcome"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # Orphaned return removed
+        assert len(result) == 2
+        assert isinstance(result[0].parts[0], UserPromptPart)
+        assert result[0].parts[0].content == "thanks for sending that"
+
+    def test_mixed_valid_and_orphaned_returns(self):
+        """Some returns are valid (have matching calls), some are orphaned."""
+        msgs = [
+            # Orphaned return (no matching call)
+            _tool_return("old_tool", "toolu_orphan"),
+            _user("search"),
+            _tool_call("search_contacts", "tc1"),
+            _tool_return("search_contacts", "tc1"),
+            _assistant("found it"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # Orphaned return removed, valid pair kept
+        assert len(result) == 4
+        # Check the return that remains is the valid one
+        returns = [
+            p for msg in result if isinstance(msg, ModelRequest)
+            for p in msg.parts if isinstance(p, ToolReturnPart)
+        ]
+        assert len(returns) == 1
+        assert returns[0].tool_call_id == "tc1"
+
+    def test_request_removed_if_only_orphaned_returns(self):
+        """ModelRequest with only orphaned ToolReturnParts is removed entirely."""
+        msgs = [
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
+                ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
+            ]),
+            _user("hello"),
+            _assistant("hi"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # First request entirely removed
+        assert len(result) == 2
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_request_keeps_non_orphan_parts(self):
+        """ModelRequest with both orphaned returns and valid parts keeps valid parts."""
+        msgs = [
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"),
+                UserPromptPart(content="hello"),
+            ]),
+            _assistant("hi"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 2
+        # UserPromptPart preserved
+        assert isinstance(result[0], ModelRequest)
+        assert len(result[0].parts) == 1
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_handles_both_orphan_types(self):
+        """Both orphaned returns AND trailing calls are handled."""
+        msgs = [
+            # Orphaned return
+            _tool_return("old_tool", "toolu_orphan"),
+            _user("do something"),
+            # Trailing tool call without return
+            _tool_call("send_sms", "tc1"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        # Both removed
+        assert len(result) == 1
+        assert isinstance(result[0].parts[0], UserPromptPart)
+        assert result[0].parts[0].content == "do something"

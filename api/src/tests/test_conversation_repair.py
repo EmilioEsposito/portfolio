@@ -157,3 +157,104 @@ class TestRepairOrphanedToolCalls:
         assert isinstance(synthetic.parts[0], ToolReturnPart)
         assert synthetic.parts[0].tool_call_id == "tc1"
         assert "interrupted" in synthetic.parts[0].content.lower()
+
+    def test_removes_orphaned_tool_return(self):
+        """ToolReturnPart without matching ToolCallPart should be removed.
+
+        This happens when history is trimmed and the ToolCallPart was in the
+        trimmed portion, or when the main agent model changes and old
+        tool_call_ids reference non-existent calls.
+        """
+        msgs = [
+            # ToolReturnPart references a tool call that doesn't exist in history
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="old_tool", content="result", tool_call_id="toolu_orphan"),
+            ]),
+            ModelRequest(parts=[UserPromptPart(content="hello")]),
+            ModelResponse(parts=[TextPart(content="hi")]),
+        ]
+        result = _repair_orphaned_tool_calls(msgs)
+        # The orphaned ToolReturnPart should be removed
+        assert len(result) == 2
+        # First message should be the UserPromptPart
+        assert isinstance(result[0], ModelRequest)
+        assert len(result[0].parts) == 1
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_removes_orphaned_tool_return_keeps_other_parts(self):
+        """When a ModelRequest has both orphaned returns and valid parts, keep valid parts."""
+        msgs = [
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="old_tool", content="result", tool_call_id="toolu_orphan"),
+                UserPromptPart(content="hello"),
+            ]),
+            ModelResponse(parts=[TextPart(content="hi")]),
+        ]
+        result = _repair_orphaned_tool_calls(msgs)
+        assert len(result) == 2
+        # The request should still exist but without the orphaned return
+        assert isinstance(result[0], ModelRequest)
+        assert len(result[0].parts) == 1
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_removes_orphaned_returns_from_model_switch(self):
+        """Simulates the model switch scenario (Anthropic to OpenAI).
+
+        Old history has Anthropic-style tool_call_ids (toolu_...) that don't
+        match any ToolCallParts because the ToolCallPart was in trimmed history
+        or from a different model.
+        """
+        msgs = [
+            # This simulates trimmed history where ToolCallPart was cut off
+            ModelRequest(parts=[
+                ToolReturnPart(
+                    tool_name="send_sms",
+                    content="sent",
+                    tool_call_id="toolu_012dE58Mgx5qBuz7yjcZCkpk",  # Anthropic format
+                ),
+            ]),
+            ModelRequest(parts=[UserPromptPart(content="thanks")]),
+            ModelResponse(parts=[TextPart(content="you're welcome")]),
+        ]
+        result = _repair_orphaned_tool_calls(msgs)
+        # Orphaned return removed, only user prompt + response remain
+        assert len(result) == 2
+        assert isinstance(result[0], ModelRequest)
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_handles_mixed_orphaned_and_valid_returns(self):
+        """Some returns are valid (have matching calls), some are orphaned."""
+        msgs = [
+            ModelRequest(parts=[UserPromptPart(content="do two things")]),
+            ModelResponse(parts=[
+                ToolCallPart(tool_name="tool_a", args='{}', tool_call_id="tc1"),
+            ]),
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="tool_a", content="ok", tool_call_id="tc1"),
+                ToolReturnPart(tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"),
+            ]),
+            ModelResponse(parts=[TextPart(content="done")]),
+        ]
+        result = _repair_orphaned_tool_calls(msgs)
+        # The orphaned return should be removed, valid return kept
+        assert len(result) == 4
+        request_with_returns = result[2]
+        assert isinstance(request_with_returns, ModelRequest)
+        assert len(request_with_returns.parts) == 1
+        assert request_with_returns.parts[0].tool_call_id == "tc1"
+
+    def test_removes_request_if_only_orphaned_returns(self):
+        """If a ModelRequest only contains orphaned ToolReturnParts, remove it entirely."""
+        msgs = [
+            ModelRequest(parts=[
+                ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
+                ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
+            ]),
+            ModelRequest(parts=[UserPromptPart(content="hello")]),
+            ModelResponse(parts=[TextPart(content="hi")]),
+        ]
+        result = _repair_orphaned_tool_calls(msgs)
+        # First request entirely removed because all parts were orphaned
+        assert len(result) == 2
+        assert isinstance(result[0], ModelRequest)
+        assert isinstance(result[0].parts[0], UserPromptPart)
