@@ -352,6 +352,12 @@ class ApprovalDecisionRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     """Batch approval request for one or more tool calls."""
     decisions: list[ApprovalDecisionRequest]
+    # Optional user-typed message attached to this approval round. PydanticAI
+    # bundles this alongside the ToolReturnParts into a single ModelRequest
+    # (see CallToolsNode), so it persists as a real UserPromptPart — used by
+    # the "deny with feedback" flow where the user's reply should live in
+    # message history as a normal chat turn, not just as a tool-denial reason.
+    user_message: str | None = None
 
 
 @router.post("/conversation/{conversation_id}/approve")
@@ -414,6 +420,7 @@ async def approve_conversation(
                 clerk_user_id=None,  # Shared team access
                 session=session,
                 metadata={"trigger_source": "api/sernia-ai/approve"},
+                user_message=body.user_message,
             )
 
         # Persist the approval result (tool outputs + agent follow-up) to DB

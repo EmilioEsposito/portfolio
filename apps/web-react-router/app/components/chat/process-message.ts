@@ -14,6 +14,8 @@ export interface ToolSegment {
   toolName: string;
   args: any;
   result: any;
+  /** True when the source tool part was a denied tool return (state "output-denied"). */
+  denied?: boolean;
 }
 
 export interface FileSegment {
@@ -41,7 +43,8 @@ function isCompletedTool(part: any): boolean {
   return (
     part.result !== undefined ||
     part.output !== undefined ||
-    part.state === "output-available"
+    part.state === "output-available" ||
+    part.state === "output-denied"
   );
 }
 
@@ -65,12 +68,29 @@ function parseToolPart(part: any): ToolSegment {
     }
   }
 
+  // PydanticAI / Vercel AI v5 emits `state: "output-denied"` on denied tool
+  // returns. Also recognize the legacy `approval.approved === false` shape from
+  // older `ToolOutputDeniedPart` serializations, and the `outcome` field on
+  // raw PydanticAI ToolReturnParts if we ever render them directly.
+  const denied =
+    part.state === "output-denied" ||
+    part.outcome === "denied" ||
+    part.approval?.approved === false;
+
+  let result: any = part.result;
+  if (result === undefined) result = part.output;
+  if (result === undefined && denied) {
+    result = part.approval?.reason || "The tool call was denied.";
+  }
+  if (result === undefined) result = "Completed";
+
   return {
     type: "tool",
     toolCallId: part.toolCallId || part.tool_call_id || part.id,
     toolName: toolName || "unknown",
     args,
-    result: part.result || part.output || "Completed",
+    result,
+    denied,
   };
 }
 

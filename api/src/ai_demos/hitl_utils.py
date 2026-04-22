@@ -111,6 +111,7 @@ async def resume_with_approvals(
     clerk_user_id: str | None = None,
     session: AsyncSession | None = None,
     metadata: dict | None = None,
+    user_message: str | None = None,
 ) -> AgentRunResult:
     """
     Resume a paused agent with approval decisions. Agent-agnostic.
@@ -122,6 +123,12 @@ async def resume_with_approvals(
         deps: Agent-specific deps object
         clerk_user_id: Clerk user ID for DB ownership filter, or None for shared access
         session: Optional existing DB session
+        user_message: Optional user-typed message to include as a real user turn
+            alongside the tool return parts. PydanticAI bundles this with the
+            ToolReturnParts into a single ModelRequest (see CallToolsNode), so
+            it persists in history as a normal UserPromptPart. Use this for
+            "deny with feedback" flows where the user wants their reply stored
+            as a regular message, not just as a tool-denial reason.
     """
     async with provide_session(session) as s:
         messages = await get_conversation_messages(conversation_id, clerk_user_id, session=s)
@@ -158,6 +165,7 @@ async def resume_with_approvals(
     deferred_results = DeferredToolResults(approvals=approvals_dict)
 
     result = await agent.run(
+        user_prompt=user_message,
         message_history=messages,
         deferred_tool_results=deferred_results,
         deps=deps,
