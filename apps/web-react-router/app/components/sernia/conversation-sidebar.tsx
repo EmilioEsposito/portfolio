@@ -539,26 +539,26 @@ export function ConversationSidebar({
                                   )}
                                 </div>
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                                  <span className="shrink-0 tabular-nums">
+                                    {formatTimeOfDay(conv.updated_at)}
+                                  </span>
                                   {conv.trigger_contact_name && (
                                     <>
+                                      <span>&middot;</span>
                                       <span className="truncate">
                                         {conv.trigger_contact_name}
                                       </span>
-                                      <span>&middot;</span>
                                     </>
                                   )}
                                   {conv.participant &&
                                     !conv.trigger_contact_name && (
                                       <>
+                                        <span>&middot;</span>
                                         <span className="truncate">
                                           {conv.participant}
                                         </span>
-                                        <span>&middot;</span>
                                       </>
                                     )}
-                                  <span className="shrink-0 tabular-nums">
-                                    {formatTimeOfDay(conv.updated_at)}
-                                  </span>
                                 </div>
                               </div>
                               <Button
