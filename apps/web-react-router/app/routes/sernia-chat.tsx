@@ -603,13 +603,13 @@ function ChatView({
 
       {/* Input Area — hidden for read-only SMS conversations */}
       {readOnly ? (
-        <div className="flex items-center justify-center px-4 py-3 border-t text-sm text-muted-foreground">
+        <div className="flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground">
           <Phone className="w-4 h-4 mr-2" />
           SMS conversation — reply via text message
         </div>
       ) : (
       <div
-        className="shrink-0 flex mx-auto px-4 bg-background py-3 md:py-4 gap-2 w-full md:max-w-3xl border-t"
+        className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col gap-4 w-full">
