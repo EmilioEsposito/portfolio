@@ -123,12 +123,18 @@ def _repair_orphaned_tool_calls(
     conversation_id: str = "",
     include_terminal: bool = False,
 ) -> list[ModelMessage]:
-    """Inject synthetic ToolReturnParts for orphaned ToolCallParts mid-conversation.
+    """Repair tool call/return mismatches in conversation history.
 
-    When an approval-gated tool call is saved to the DB but the ToolReturnPart
-    never arrives (timeout, crash, client disconnect), the conversation becomes
-    permanently broken — the Anthropic API rejects histories where tool_use
-    blocks have no matching tool_result.
+    Handles two scenarios that break model APIs:
+
+    1. Orphaned ToolCallParts (calls without returns) — When an approval-gated
+       tool call is saved to the DB but the ToolReturnPart never arrives
+       (timeout, crash, client disconnect). Fixed by injecting synthetic returns.
+
+    2. Orphaned ToolReturnParts (returns without calls) — When history is
+       trimmed/corrupted or the main agent model changes (e.g., Anthropic to
+       OpenAI) and old tool_call_ids reference non-existent calls.
+       Fixed by removing the orphaned returns.
 
     Args:
         include_terminal: When True, also patches the last ModelResponse.
@@ -137,9 +143,44 @@ def _repair_orphaned_tool_calls(
             When False (default), the last ModelResponse is preserved for
             the approve flow and GET endpoints.
     """
-    # Collect all returned tool_call_ids
-    returned_ids: set[str] = set()
+    if not messages:
+        return messages
+
+    # Step 1: Collect all tool_call_ids from ToolCallParts (the valid set)
+    valid_call_ids: set[str] = set()
     for msg in messages:
+        if isinstance(msg, ModelResponse):
+            for part in msg.parts:
+                if isinstance(part, ToolCallPart):
+                    valid_call_ids.add(part.tool_call_id)
+
+    # Step 2: Remove orphaned ToolReturnParts (returns without matching calls)
+    cleaned: list[ModelMessage] = []
+    orphan_returns_removed = 0
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            new_parts = []
+            for part in msg.parts:
+                if isinstance(part, ToolReturnPart):
+                    if part.tool_call_id not in valid_call_ids:
+                        orphan_returns_removed += 1
+                        continue
+                new_parts.append(part)
+            if new_parts:
+                cleaned.append(ModelRequest(parts=new_parts))
+        else:
+            cleaned.append(msg)
+
+    if orphan_returns_removed > 0:
+        logfire.warn(
+            "removed orphaned tool returns from conversation history",
+            conversation_id=conversation_id,
+            orphan_returns_removed=orphan_returns_removed,
+        )
+
+    # Step 3: Collect returned tool_call_ids (for orphan call detection)
+    returned_ids: set[str] = set()
+    for msg in cleaned:
         if isinstance(msg, ModelRequest):
             for part in msg.parts:
                 if isinstance(part, ToolReturnPart):
@@ -148,14 +189,14 @@ def _repair_orphaned_tool_calls(
     # Find the index of the last ModelResponse
     last_response_idx = -1
     if not include_terminal:
-        for i, msg in enumerate(messages):
+        for i, msg in enumerate(cleaned):
             if isinstance(msg, ModelResponse):
                 last_response_idx = i
 
-    # Walk messages and build repaired list
+    # Step 4: Add synthetic returns for orphaned ToolCallParts
     repaired: list[ModelMessage] = []
-    patched = False
-    for i, msg in enumerate(messages):
+    orphan_calls_patched = False
+    for i, msg in enumerate(cleaned):
         repaired.append(msg)
         if isinstance(msg, ModelResponse) and i != last_response_idx:
             orphans = [
@@ -173,9 +214,9 @@ def _repair_orphaned_tool_calls(
                 ]
                 repaired.append(ModelRequest(parts=synthetic_parts))
                 returned_ids.update(tc.tool_call_id for tc in orphans)
-                patched = True
+                orphan_calls_patched = True
 
-    if patched:
+    if orphan_calls_patched:
         logfire.warn(
             "repaired orphaned tool calls in conversation history",
             conversation_id=conversation_id,
