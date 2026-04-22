@@ -54,13 +54,12 @@ export interface ConversationSummary {
   updated_at: string | null;
 }
 
-type SourceFilter = "all" | "web_chat" | "sms" | "email";
+type SourceFilter = "all" | "web_chat" | "sms";
 
 const SOURCE_FILTERS: { value: SourceFilter; label: string; icon: React.ReactNode }[] = [
   { value: "all", label: "All", icon: null },
   { value: "web_chat", label: "Chat", icon: <MessageSquare className="w-3 h-3" /> },
   { value: "sms", label: "SMS", icon: <Phone className="w-3 h-3" /> },
-  { value: "email", label: "Email", icon: <Mail className="w-3 h-3" /> },
 ];
 
 function modalityIcon(conv: ConversationSummary) {
@@ -291,12 +290,7 @@ export function ConversationSidebar({
     if (sourceFilter !== "all") {
       const matchesModality = conv.modality === sourceFilter;
       const matchesTrigger =
-        sourceFilter === "sms"
-          ? conv.trigger_source === "sms"
-          : sourceFilter === "email"
-            ? conv.trigger_source === "email" ||
-              conv.trigger_source === "zillow_email"
-            : false;
+        sourceFilter === "sms" ? conv.trigger_source === "sms" : false;
       if (!matchesModality && !matchesTrigger) return false;
     }
     if (searchQuery.trim()) {
