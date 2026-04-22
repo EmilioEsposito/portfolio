@@ -12,17 +12,30 @@ _IS_PRODUCTION = os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production"
 
 
 async def is_sernia_ai_enabled() -> bool:
-    """Check if the Sernia AI agent is enabled via the `triggers_enabled` app setting.
+    """Check if automated Sernia AI runs are enabled.
 
-    This is a universal kill switch for ALL Sernia AI agent runs — web chat,
-    HITL approvals, SMS conversations, and background triggers.
+    Universal kill switch for all automated agent runs — scheduled checks,
+    AI SMS event triggers, and email event triggers. Web chat and HITL
+    approvals are never gated by this.
 
-    Default: enabled on production, disabled elsewhere (safety net for dev/PR envs).
-    DB setting overrides the environment-based default when present.
+    Non-production environments are hard-gated off regardless of the DB
+    value. Neon PR branches inherit rows from the parent DB, so the
+    ``triggers_enabled`` row in a PR env is whatever production had at
+    branch time — we can't trust it to reflect operator intent on that
+    environment. Forcing False on non-prod means a PR deployment will
+    never fire automated triggers, even if its inherited DB row says
+    True. Local dev is the same — set RAILWAY_ENVIRONMENT_NAME=production
+    in a throwaway shell if you genuinely need to exercise triggers.
+
+    On production, the DB setting acts as the kill switch: missing row
+    defaults to enabled, an explicit ``false`` disables.
     """
     from api.src.database.database import AsyncSessionFactory
 
-    enabled = _IS_PRODUCTION
+    if not _IS_PRODUCTION:
+        return False
+
+    enabled = True
     try:
         async with AsyncSessionFactory() as session:
             result = await session.execute(

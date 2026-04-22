@@ -147,7 +147,7 @@ A single scheduled job via APScheduler in `scheduled_triggers.py`:
 |-----|----------|-------|
 | `run_scheduled_checks()` | Configurable (default: Mon–Fri at 8am, 11am, 2pm, 5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
 
-The schedule is configurable via the Settings page (`/sernia-settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save.
+The schedule is configurable via the Settings page (`/sernia-settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save. Setting either list to empty unregisters the job entirely (no scheduled checks).
 
 The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `skills/scheduled-checks/SKILL.md`, not in trigger code.
 
@@ -165,9 +165,13 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 | Web chat (`/chat`) | **No** | User-initiated, intentional |
 | HITL approvals (`/approve`) | **No** | User-initiated, write actions already behind HITL |
 
-**Default**: Enabled on production, disabled elsewhere (safety net for dev/PR envs). DB setting overrides the environment-based default when present.
+**Default**: Enabled on production, disabled elsewhere. Non-production environments (dev, PR envs) are **hard-gated off** — the DB `triggers_enabled` row is ignored and the function always returns False. This is important because Neon PR branches inherit the parent DB's rows, so the `triggers_enabled` value in a PR env reflects production's intent, not the PR's. On production, the DB row acts as the runtime kill switch: missing row = enabled, explicit `false` = disabled.
 
-**Implementation**: `is_sernia_ai_enabled()` in `sernia_ai/models.py` — shared by `background_agent_runner.py` and `ai_sms_event_trigger.py`.
+The admin settings GET endpoint mirrors the same behavior — on non-production it returns `triggers_enabled: false` and `schedule_config: {days_of_week: [], hours: []}` regardless of what the DB contains.
+
+The scheduled-checks job itself is only registered on production and only when both `days_of_week` and `hours` are non-empty. Empty lists (or any non-production env) remove the job entirely.
+
+**Implementation**: `is_sernia_ai_enabled()` in `sernia_ai/models.py` — shared by `background_agent_runner.py` and `ai_sms_event_trigger.py`. Job registration in `scheduled_triggers._apply_schedule()`.
 
 ## Rate Limiting
 
