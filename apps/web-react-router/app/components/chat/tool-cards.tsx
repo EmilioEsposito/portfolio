@@ -64,6 +64,48 @@ interface ApprovalItemDecision {
   editedBody?: string;
 }
 
+export interface ApprovalDecisionPayload {
+  tool_call_id: string;
+  approved: boolean;
+  reason?: string;
+  override_args?: Record<string, any>;
+}
+
+/**
+ * POST a batch of approve/deny decisions to the Sernia approve endpoint.
+ * Shared between the approval card and the main chat input's "deny with feedback" path.
+ *
+ * When `userMessage` is provided, the backend bundles it with the ToolReturnParts
+ * into a single ModelRequest (see PydanticAI CallToolsNode), so the user's reply
+ * persists as a real UserPromptPart in the conversation.
+ */
+export async function submitApprovalDecisions(params: {
+  apiBase: string;
+  conversationId: string;
+  getToken: () => Promise<string | null>;
+  decisions: ApprovalDecisionPayload[];
+  userMessage?: string;
+}): Promise<any> {
+  const token = await params.getToken();
+  const url = `${params.apiBase}/conversation/${params.conversationId}/approve`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      decisions: params.decisions,
+      ...(params.userMessage ? { user_message: params.userMessage } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to process approval");
+  }
+  return res.json();
+}
+
 /** Get a short summary for a tool call (e.g., recipient for emails/sms) */
 function getToolSummary(p: PendingApproval): string {
   // For email tools, show recipient
@@ -145,10 +187,7 @@ export function ToolApprovalCard({
 
     setProcessing(true);
     try {
-      const token = await getToken();
-      const url = `${apiBase}/conversation/${conversationId}/approve`;
-
-      const decisionList = pendingList.map((p) => {
+      const decisionList: ApprovalDecisionPayload[] = pendingList.map((p) => {
         const d = decisions[p.toolCallId];
         const { key: msgKey, value: originalValue } = getMessageFromArgs(p.args);
         const overrideArgs =
@@ -158,27 +197,18 @@ export function ToolApprovalCard({
 
         return {
           tool_call_id: p.toolCallId,
-          approved: d.approved,
+          approved: d.approved === true,
           override_args: overrideArgs,
           reason: d.approved ? undefined : "Denied by user",
         };
       });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ decisions: decisionList }),
+      const result = await submitApprovalDecisions({
+        apiBase,
+        conversationId,
+        getToken,
+        decisions: decisionList,
       });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Failed to process approval");
-      }
-
-      const result = await res.json();
       onApprovalComplete(result);
     } catch (err) {
       console.error("Approval error:", err);
@@ -485,16 +515,25 @@ export function ToolResultCard({
   toolName,
   args,
   result,
+  denied,
 }: {
   toolName: string;
   args?: Record<string, any>;
   result: string;
+  /**
+   * Explicit denial flag from the source tool part (state === "output-denied"
+   * on the Vercel AI part or our optimistic equivalent). When not supplied,
+   * falls back to sniffing the result string for legacy messages stored
+   * before the flag existed.
+   */
+  denied?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const isDenied =
-    result === "Denied by user" ||
-    result === "The tool call was denied." ||
-    result.startsWith("Denied:");
+    denied ??
+    (result === "Denied by user" ||
+      result === "The tool call was denied." ||
+      result.startsWith("Denied:"));
 
   const isTruncated = result.length > RESULT_TRUNCATE_LIMIT;
   const displayResult = isTruncated

@@ -37,6 +37,7 @@ import {
   ToolApprovalCard,
   ToolResultCard,
   convertAllPendingFromApi,
+  submitApprovalDecisions,
   type PendingApproval,
 } from "~/components/chat/tool-cards";
 import { processMessage } from "~/components/chat/process-message";
@@ -103,7 +104,7 @@ function ChatView({
     useState<PendingApproval | null>(initialPending);
   const [allPendingApprovals, setAllPendingApprovals] =
     useState<PendingApproval[]>(initialAllPending || (initialPending ? [initialPending] : []));
-  const [isProcessingApproval] = useState(false);
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const draftKey = `sernia-draft-${conversationId}`;
   const [input, setInput] = useState(
     () => (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || ""
@@ -211,27 +212,73 @@ function ChatView({
     }
   }, [input]);
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const hasContent = input.trim() || attachment.hasFiles;
-    if (hasContent && status !== "submitted" && status !== "streaming") {
-      const parts: any[] = [
-        ...attachment.files.map((f) => ({
-          type: "file",
-          mediaType: f.mediaType,
-          url: f.url,
-          filename: f.filename,
-        })),
-      ];
-      if (input.trim()) {
-        parts.push({ type: "text", text: input });
+    if (status === "submitted" || status === "streaming" || isProcessingApproval) return;
+
+    const text = input.trim();
+    const hasContent = text || attachment.hasFiles;
+    if (!hasContent) return;
+
+    // Deny-with-feedback path: when a HITL approval is pending and the user
+    // types a message, submit implicitly denies every pending tool call and
+    // attaches the typed text as a real user turn. The backend passes the
+    // text to PydanticAI's agent.run(user_prompt=...), which bundles it with
+    // the ToolReturnParts into a single ModelRequest (UserPromptPart). So it
+    // lives in the DB as a normal chat turn, not just a tool-denial reason.
+    // This also collapses the old two-round-trip flow (deny → wait → type
+    // feedback) into one LLM call.
+    if (allPendingApprovals.length > 0 && text) {
+      setIsProcessingApproval(true);
+      // Render the user's message optimistically so the chat feels responsive.
+      // On refresh, the same text will load from the DB as a UserPromptPart;
+      // IDs differ but the visible bubble is identical so there is no dupe.
+      const optimisticUserMsg = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text", text }],
+      };
+      setMessages((prev: any[]) => [...prev, optimisticUserMsg]);
+      try {
+        const result = await submitApprovalDecisions({
+          apiBase: API_BASE,
+          conversationId,
+          getToken,
+          decisions: allPendingApprovals.map((p) => ({
+            tool_call_id: p.toolCallId,
+            approved: false,
+            reason: text,
+          })),
+          userMessage: text,
+        });
+        setInput("");
+        handleApprovalComplete(result);
+      } catch (err) {
+        console.error("Deny-with-feedback error:", err);
+        alert(err instanceof Error ? err.message : "Failed to submit feedback");
+        setMessages((prev: any[]) => prev.filter((m) => m.id !== optimisticUserMsg.id));
+      } finally {
+        setIsProcessingApproval(false);
       }
-      setPendingApproval(null);
-      setAllPendingApprovals([]);
-      sendMessage({ role: "user", parts });
-      setInput("");
-      attachment.clearFiles();
+      return;
     }
+
+    const parts: any[] = [
+      ...attachment.files.map((f) => ({
+        type: "file",
+        mediaType: f.mediaType,
+        url: f.url,
+        filename: f.filename,
+      })),
+    ];
+    if (text) {
+      parts.push({ type: "text", text: input });
+    }
+    setPendingApproval(null);
+    setAllPendingApprovals([]);
+    sendMessage({ role: "user", parts });
+    setInput("");
+    attachment.clearFiles();
   };
 
   const handleSuggestedPrompt = (prompt: string) => {
@@ -255,6 +302,20 @@ function ChatView({
       // Backend returns actual tool results keyed by tool_call_id
       const toolResults: Record<string, string> = result.tool_results || {};
 
+      // If the backend surfaced a new round of pending approvals (because the
+      // resumed agent called more deferred tools), we need to render a fresh
+      // approval card. Build assistant-message parts that mirror what the
+      // streaming chat would have produced (state: "input-available", no output).
+      const newPendingParts =
+        Array.isArray(result.pending) && result.pending.length > 0
+          ? result.pending.map((p: any) => ({
+              type: `tool-${p.tool_name}`,
+              toolCallId: p.tool_call_id,
+              input: p.args || {},
+              state: "input-available",
+            }))
+          : [];
+
       setMessages((prev: any[]) => {
         const updated = [...prev];
         const lastAssistantIdx = updated.findLastIndex(
@@ -274,12 +335,14 @@ function ChatView({
                 const realResult = part.toolCallId
                   ? toolResults[part.toolCallId]
                   : undefined;
+                // Match the Vercel AI SDK / PydanticAI adapter's on-refresh
+                // encoding: denied returns use state "output-denied" so the
+                // renderer doesn't have to sniff the output string.
                 return {
                   ...part,
-                  state: "output-available",
-                  output: wasApproved
-                    ? realResult || "Completed"
-                    : "Denied by user",
+                  state: wasApproved ? "output-available" : "output-denied",
+                  output:
+                    realResult || (wasApproved ? "Completed" : "Denied by user"),
                 };
               }
               return part;
@@ -288,16 +351,37 @@ function ChatView({
           updated[lastAssistantIdx] = { ...lastMsg };
         }
 
+        const followUpParts: any[] = [];
         if (result.output) {
+          followUpParts.push({ type: "text", text: result.output });
+        }
+        followUpParts.push(...newPendingParts);
+
+        if (followUpParts.length > 0) {
           updated.push({
             id: crypto.randomUUID(),
             role: "assistant" as const,
-            parts: [{ type: "text", text: result.output }],
+            parts: followUpParts,
           });
         }
 
         return updated;
       });
+
+      // If there are new pending approvals, immediately reflect them in state
+      // so the approval card shows without waiting for the messages-watcher
+      // useEffect to tick.
+      if (newPendingParts.length > 0) {
+        const asPendingApprovals: PendingApproval[] = newPendingParts.map(
+          (p: any) => ({
+            toolCallId: p.toolCallId,
+            toolName: p.type.replace("tool-", ""),
+            args: p.input,
+          })
+        );
+        setPendingApproval(asPendingApprovals[0]);
+        setAllPendingApprovals(asPendingApprovals);
+      }
     },
     [setMessages]
   );
@@ -387,7 +471,7 @@ function ChatView({
                                 <Markdown>{seg.content}</Markdown>
                               </div>
                             </div>
-                          ) : (
+                          ) : seg.type === "tool" ? (
                             <ToolResultCard
                               key={seg.toolCallId}
                               toolName={seg.toolName}
@@ -397,8 +481,9 @@ function ChatView({
                                   ? seg.result
                                   : JSON.stringify(seg.result)
                               }
+                              denied={seg.denied}
                             />
-                          )
+                          ) : null
                         )}
 
                         {isLastAssistant && pendingApproval && (
@@ -517,6 +602,11 @@ function ChatView({
           </div>
         ) : (
           <div className="flex flex-col gap-2 w-full">
+            {pendingApproval && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
+                Sending a message will deny the pending action{allPendingApprovals.length > 1 ? "s" : ""} — your text becomes the feedback the AI sees.
+              </p>
+            )}
             <FilePreviewStrip
               files={attachment.files}
               onRemove={attachment.removeFile}
@@ -527,7 +617,8 @@ function ChatView({
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||
-                  !!pendingApproval
+                  !!pendingApproval ||
+                  isProcessingApproval
                 }
               />
               <Textarea
@@ -544,7 +635,7 @@ function ChatView({
                 onPaste={attachment.handlePaste}
                 placeholder={
                   pendingApproval
-                    ? "Approve or deny the action above first..."
+                    ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
                     : "Ask Sernia AI anything..."
                 }
                 className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
@@ -552,7 +643,7 @@ function ChatView({
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||
-                  !!pendingApproval
+                  isProcessingApproval
                 }
               />
               {status === "streaming" ? (
@@ -573,11 +664,16 @@ function ChatView({
                   disabled={
                     (!input.trim() && !attachment.hasFiles) ||
                     status === "submitted" ||
-                    !!pendingApproval
+                    isProcessingApproval ||
+                    (!!pendingApproval && !input.trim())
                   }
                   className="h-9 w-9 shrink-0 rounded-lg"
                 >
-                  <Send className="w-4 h-4" />
+                  {isProcessingApproval ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </Button>
               )}
             </div>
