@@ -8,6 +8,11 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/hooks/use-scroll-to-bottom";
 import { usePushNotifications } from "~/hooks/use-push-notifications";
+import { useVisualViewportHeight } from "~/hooks/use-visual-viewport-height";
+import {
+  usePullToRefresh,
+  useIsStandalonePwa,
+} from "~/hooks/use-pull-to-refresh";
 import { cn } from "~/lib/utils";
 import { Markdown } from "~/components/markdown";
 import { AuthGuard } from "~/components/auth-guard";
@@ -82,6 +87,40 @@ const suggestedPrompts = [
 ];
 
 // ---------------------------------------------------------------------------
+// Typing indicator — shown while waiting on the backend's first response byte
+// ---------------------------------------------------------------------------
+
+function TypingIndicator() {
+  return (
+    <div
+      className="flex gap-3 justify-start"
+      role="status"
+      aria-label="Sernia AI is typing"
+    >
+      <div className="shrink-0">
+        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+          <Building className="w-4 h-4 text-primary-foreground" />
+        </div>
+      </div>
+      <div className="bg-muted/50 rounded-2xl px-4 py-3 shadow-sm flex items-center gap-1.5">
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
+          style={{ animationDelay: "0ms" }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
+          style={{ animationDelay: "150ms" }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
+          style={{ animationDelay: "300ms" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Inner chat component — remounts on conversation switch via `key` prop
 // ---------------------------------------------------------------------------
 
@@ -121,6 +160,15 @@ function ChatView({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const attachment = useFileAttachments();
+
+  const isStandalonePwa = useIsStandalonePwa();
+  const pullDistance = usePullToRefresh({
+    scrollContainerRef: messagesContainerRef,
+    enabled: isStandalonePwa,
+    threshold: 80,
+    onRefresh: () => window.location.reload(),
+  });
+  const pullProgress = Math.min(pullDistance / 80, 1);
 
   // Transport is created once per mount (conversationId is stable for this instance)
   const transport = useRef(
@@ -394,6 +442,25 @@ function ChatView({
         className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative"
         {...attachment.dropTargetProps}
       >
+        {isStandalonePwa && pullDistance > 0 && (
+          <div
+            className="absolute inset-x-0 top-0 flex justify-center pointer-events-none z-10"
+            style={{
+              transform: `translateY(${pullDistance - 32}px)`,
+              opacity: pullProgress,
+            }}
+          >
+            <div className="rounded-full bg-background/90 border shadow-sm p-2">
+              <RefreshCw
+                className={cn(
+                  "w-4 h-4 text-muted-foreground",
+                  pullProgress >= 1 && "text-primary"
+                )}
+                style={{ transform: `rotate(${pullProgress * 360}deg)` }}
+              />
+            </div>
+          </div>
+        )}
         {attachment.isDragging && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 border-2 border-dashed border-primary rounded-lg m-2">
             <div className="flex flex-col items-center gap-2 text-primary">
@@ -511,6 +578,11 @@ function ChatView({
                 </div>
               );
             })}
+            {(status === "submitted" ||
+              (status === "streaming" &&
+                messages[messages.length - 1]?.role !== "assistant")) && (
+              <TypingIndicator />
+            )}
             <div
               ref={messagesEndRef}
               className="shrink-0 min-w-[24px] min-h-[24px]"
@@ -531,13 +603,13 @@ function ChatView({
 
       {/* Input Area — hidden for read-only SMS conversations */}
       {readOnly ? (
-        <div className="flex items-center justify-center px-4 py-3 border-t text-sm text-muted-foreground">
+        <div className="flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground">
           <Phone className="w-4 h-4 mr-2" />
           SMS conversation — reply via text message
         </div>
       ) : (
       <div
-        className="shrink-0 flex mx-auto px-4 bg-background py-3 md:py-4 gap-2 w-full md:max-w-3xl border-t"
+        className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col gap-4 w-full">
@@ -923,6 +995,7 @@ function ChatHeader({
 // ---------------------------------------------------------------------------
 
 export default function SerniaChatPage() {
+  useVisualViewportHeight();
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
   const [searchParams] = useSearchParams();
@@ -1103,14 +1176,14 @@ export default function SerniaChatPage() {
         />
         <SidebarInset className="min-w-0 overflow-x-hidden">
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center h-dvh gap-4">
+            <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               <p className="text-muted-foreground">Loading conversation...</p>
             </div>
           ) : (
             <Tabs
               defaultValue="chat"
-              className="flex flex-col min-w-0 h-dvh bg-background"
+              className="flex flex-col min-w-0 bg-background h-chat-viewport"
             >
               <ChatHeader
                 isAdmin={isAdmin}

@@ -209,7 +209,7 @@ export default function SerniaSettingsPage() {
           onNewConversation={handleNewConversation}
         />
         <SidebarInset className="min-w-0 overflow-x-hidden">
-      <div className="flex flex-col h-dvh bg-background">
+      <div className="flex flex-col h-chat-viewport bg-background">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <SettingsMobileSidebarToggle />
@@ -323,9 +323,6 @@ export default function SerniaSettingsPage() {
                         );
                       })}
                     </div>
-                    {days.length === 0 && (
-                      <p className="text-xs text-destructive">At least one day must be selected.</p>
-                    )}
                   </div>
 
                   {/* Hours */}
@@ -354,38 +351,41 @@ export default function SerniaSettingsPage() {
                         );
                       })}
                     </div>
-                    {hours.length === 0 && (
-                      <p className="text-xs text-destructive">At least one time must be selected.</p>
-                    )}
                   </div>
 
                   {/* Summary */}
-                  {days.length > 0 && hours.length > 0 && (
-                    <div className="rounded-lg bg-muted/50 p-3 space-y-1">
-                      <p className="text-xs font-medium text-muted-foreground">Schedule preview</p>
-                      <p className="text-sm">
-                        Runs{" "}
-                        <span className="font-medium">
-                          {[...days]
-                            .sort()
-                            .map((d) => DAYS.find((x) => x.value === d)!.label)
-                            .join(", ")}
-                        </span>{" "}
-                        at{" "}
-                        <span className="font-medium">
-                          {[...hours]
-                            .sort()
-                            .map(formatHour)
-                            .join(", ")}
-                        </span>{" "}
-                        ET
+                  <div className="rounded-lg bg-muted/50 p-3 space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Schedule preview</p>
+                    {days.length === 0 || hours.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No scheduled checks — the agent will not wake up on a schedule.
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {hours.length} check{hours.length !== 1 && "s"} per day,{" "}
-                        {days.length} day{days.length !== 1 && "s"} per week ({hours.length * days.length} total/week)
-                      </p>
-                    </div>
-                  )}
+                    ) : (
+                      <>
+                        <p className="text-sm">
+                          Runs{" "}
+                          <span className="font-medium">
+                            {[...days]
+                              .sort()
+                              .map((d) => DAYS.find((x) => x.value === d)!.label)
+                              .join(", ")}
+                          </span>{" "}
+                          at{" "}
+                          <span className="font-medium">
+                            {[...hours]
+                              .sort()
+                              .map(formatHour)
+                              .join(", ")}
+                          </span>{" "}
+                          ET
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {hours.length} check{hours.length !== 1 && "s"} per day,{" "}
+                          {days.length} day{days.length !== 1 && "s"} per week ({hours.length * days.length} total/week)
+                        </p>
+                      </>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>

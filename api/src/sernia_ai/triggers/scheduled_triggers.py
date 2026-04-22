@@ -24,6 +24,7 @@ from api.src.sernia_ai.config import (
     DEFAULT_SCHEDULE_DAYS_OF_WEEK,
     DEFAULT_SCHEDULE_HOURS,
 )
+from api.src.sernia_ai.models import _IS_PRODUCTION
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
 JOB_ID = "sernia_scheduled_checks"
@@ -45,10 +46,26 @@ async def run_scheduled_checks() -> None:
 # ---------------------------------------------------------------------------
 
 def _apply_schedule(days_of_week: list[int], hours: list[int]) -> None:
-    """Register (or re-register) the APScheduler cron job with the given config."""
+    """Register, re-register, or remove the APScheduler cron job.
+
+    Empty ``days_of_week`` or ``hours`` means "no scheduled checks" — any
+    existing job is removed. On non-production environments the job is
+    always removed regardless of the config, mirroring the hard-gate in
+    ``is_sernia_ai_enabled``.
+    """
     scheduler = get_scheduler()
-    day_expr = ",".join(str(d) for d in sorted(days_of_week)) if days_of_week else "0-6"
-    hour_expr = ",".join(str(h) for h in sorted(hours)) if hours else "8"
+
+    if not _IS_PRODUCTION or not days_of_week or not hours:
+        if scheduler.get_job(JOB_ID):
+            scheduler.remove_job(JOB_ID)
+            logfire.info(
+                "Sernia AI scheduled trigger removed",
+                reason="non_production" if not _IS_PRODUCTION else "empty_schedule",
+            )
+        return
+
+    day_expr = ",".join(str(d) for d in sorted(days_of_week))
+    hour_expr = ",".join(str(h) for h in sorted(hours))
 
     upsert_job(
         scheduler,

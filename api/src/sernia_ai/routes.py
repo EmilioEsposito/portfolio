@@ -737,8 +737,20 @@ async def get_admin_settings(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """Return current app settings including schedule config."""
+    """Return current app settings including schedule config.
+
+    On non-production environments both the triggers kill switch and the
+    schedule config are reported as their effective (forced-off) values,
+    not the raw DB row. PR branches inherit rows from the parent DB, so
+    the raw row would otherwise surface the production config here.
+    """
     from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
+
+    if not _IS_PRODUCTION:
+        return {
+            "triggers_enabled": False,
+            "schedule_config": {"days_of_week": [], "hours": []},
+        }
 
     result = await session.execute(
         select(AppSetting).where(AppSetting.key == "triggers_enabled")
@@ -746,7 +758,7 @@ async def get_admin_settings(
     row = result.scalar_one_or_none()
     schedule_config = await get_schedule_config()
     return {
-        "triggers_enabled": row.value if row else _IS_PRODUCTION,
+        "triggers_enabled": row.value if row else True,
         "schedule_config": schedule_config,
     }
 
@@ -782,17 +794,14 @@ async def update_admin_settings(
         updated["triggers_enabled"] = body.triggers_enabled
 
     if body.schedule_config is not None:
-        # Validate ranges
+        # Validate ranges. Empty lists are allowed and mean "no scheduled
+        # checks" — the scheduled job is simply unregistered in that case.
         for d in body.schedule_config.days_of_week:
             if d < 0 or d > 6:
                 raise HTTPException(status_code=422, detail=f"Invalid day_of_week: {d}")
         for h in body.schedule_config.hours:
             if h < 0 or h > 23:
                 raise HTTPException(status_code=422, detail=f"Invalid hour: {h}")
-        if not body.schedule_config.hours:
-            raise HTTPException(status_code=422, detail="At least one hour is required")
-        if not body.schedule_config.days_of_week:
-            raise HTTPException(status_code=422, detail="At least one day is required")
 
         config_dict = body.schedule_config.model_dump()
         stmt = pg_insert(AppSetting).values(
