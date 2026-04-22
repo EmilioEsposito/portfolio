@@ -74,12 +74,17 @@ export interface ApprovalDecisionPayload {
 /**
  * POST a batch of approve/deny decisions to the Sernia approve endpoint.
  * Shared between the approval card and the main chat input's "deny with feedback" path.
+ *
+ * When `userMessage` is provided, the backend bundles it with the ToolReturnParts
+ * into a single ModelRequest (see PydanticAI CallToolsNode), so the user's reply
+ * persists as a real UserPromptPart in the conversation.
  */
 export async function submitApprovalDecisions(params: {
   apiBase: string;
   conversationId: string;
   getToken: () => Promise<string | null>;
   decisions: ApprovalDecisionPayload[];
+  userMessage?: string;
 }): Promise<any> {
   const token = await params.getToken();
   const url = `${params.apiBase}/conversation/${params.conversationId}/approve`;
@@ -89,7 +94,10 @@ export async function submitApprovalDecisions(params: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ decisions: params.decisions }),
+    body: JSON.stringify({
+      decisions: params.decisions,
+      ...(params.userMessage ? { user_message: params.userMessage } : {}),
+    }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({}));
@@ -507,16 +515,25 @@ export function ToolResultCard({
   toolName,
   args,
   result,
+  denied,
 }: {
   toolName: string;
   args?: Record<string, any>;
   result: string;
+  /**
+   * Explicit denial flag from the source tool part (state === "output-denied"
+   * on the Vercel AI part or our optimistic equivalent). When not supplied,
+   * falls back to sniffing the result string for legacy messages stored
+   * before the flag existed.
+   */
+  denied?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const isDenied =
-    result === "Denied by user" ||
-    result === "The tool call was denied." ||
-    result.startsWith("Denied:");
+    denied ??
+    (result === "Denied by user" ||
+      result === "The tool call was denied." ||
+      result.startsWith("Denied:"));
 
   const isTruncated = result.length > RESULT_TRUNCATE_LIMIT;
   const displayResult = isTruncated
