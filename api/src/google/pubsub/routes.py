@@ -192,8 +192,13 @@ async def process_gmail_notification(pubsub_notification_data: dict):
 
                 # Save to database using a short-lived session (will update if message exists).
                 # This avoids holding a pooled connection during slow Gmail API calls.
+                # was_inserted tells us whether this save was a fresh insert (new logical
+                # email) or an update of an existing row (pubsub redelivery or Gmail
+                # label-change notification for a message we'd already seen).
                 async with session_context() as save_session:
-                    saved_msg = await save_email_message(save_session, processed_email_message, history_id)
+                    saved_msg, was_inserted = await save_email_message(
+                        save_session, processed_email_message, history_id
+                    )
                 if saved_msg:
                     processed_email_messages.append(processed_email_message)
                     logfire.info(
@@ -201,15 +206,17 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
 
-                    # Queue Zillow emails for debounced trigger processing.
-                    # No is_new gate — added_message_ids is unreliable (often empty),
-                    # and the debounce window deduplicates anyway.
+                    # Queue Zillow emails for debounced trigger processing —
+                    # but only on the initial insert. Upserts on an existing
+                    # message_id (redelivery / label change) are not new logical
+                    # email events and should not refire the trigger. The queue
+                    # itself also dedupes by message_id as a secondary guard.
                     from_addr = processed_email_message.get("from_address", "")
                     is_zillow = bool(
                         from_addr
                         and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower())
                     )
-                    if is_zillow:
+                    if is_zillow and was_inserted:
                         logfire.info(
                             "zillow_trigger_gate: queuing",
                             email_message_id=email_message_id,
@@ -225,6 +232,13 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                                 from_address=from_addr,
                                 body_text=processed_email_message.get("body_text"),
                             )
+                        )
+                    elif is_zillow and not was_inserted:
+                        logfire.info(
+                            "zillow_trigger_gate: skipping (not a new email — pubsub redelivery or label change)",
+                            email_message_id=email_message_id,
+                            from_address=from_addr,
+                            subject=processed_email_message.get("subject", ""),
                         )
                 else:
                     failed_email_ids.append(email_message_id)

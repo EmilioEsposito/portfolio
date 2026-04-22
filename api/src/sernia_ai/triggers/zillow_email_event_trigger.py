@@ -6,11 +6,20 @@ the first email starts a 10-minute window; any additional Zillow emails
 during that window are accumulated.  The agent fires once at the end of
 the window so it can assess all accumulated emails in a single run.
 
+Deduplication: Gmail Pub/Sub has at-least-once delivery, and a single logical
+message can show up in multiple history notifications (e.g. when Gmail label
+state changes). We dedupe by Gmail ``message_id`` at two levels:
+
+1. Within the current debounce window — skip if the id is already pending.
+2. Across recent windows — a short TTL "recently fired" cache guards against
+   a redelivery arriving moments after we fired the previous batch.
+
 Naming convention: all public symbols use the ``zillow_email_event`` root.
 """
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from textwrap import dedent
 
@@ -24,11 +33,32 @@ from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_tri
 # ---------------------------------------------------------------------------
 DEBOUNCE_SECONDS = 600  # 10 minutes
 
+# TTL for the recently-fired message_id cache. Must comfortably exceed the
+# debounce window so a redelivery landing after a batch fires still dedupes.
+RECENTLY_FIRED_TTL_SECONDS = 3600  # 1 hour
+
 # Module-level state for the debounce window.
 # _pending_emails accumulates email info dicts; _pending_task is the asyncio
 # task that sleeps for DEBOUNCE_SECONDS and then fires the trigger.
 _pending_emails: list[dict] = []
 _pending_task: asyncio.Task | None = None
+
+# {message_id: monotonic_epoch_when_fired} — TTL cache of message_ids that
+# were already included in a fired batch. Used to reject pubsub redeliveries
+# that arrive shortly after a window closes.
+_recently_fired_message_ids: dict[str, float] = {}
+
+
+def _prune_recently_fired(now: float | None = None) -> None:
+    """Drop entries older than RECENTLY_FIRED_TTL_SECONDS from the TTL cache."""
+    if now is None:
+        now = time.monotonic()
+    expired = [
+        mid for mid, ts in _recently_fired_message_ids.items()
+        if (now - ts) > RECENTLY_FIRED_TTL_SECONDS
+    ]
+    for mid in expired:
+        _recently_fired_message_ids.pop(mid, None)
 
 # Module-level cache for Emilio's clerk_user_id (looked up once from DB).
 _emilio_clerk_user_id: str | None = None
@@ -80,8 +110,32 @@ async def queue_zillow_email_event(
     The first email in a quiet period starts a 10-minute timer.  All
     subsequent emails within that window are accumulated.  When the timer
     fires, the agent runs once and sees every email in the batch.
+
+    Duplicate Gmail ``message_id`` values (pubsub redelivery, label-change
+    history events for the same physical message) are dropped: once already
+    pending or already fired within the TTL, additional calls for the same
+    id become no-ops.
     """
     global _pending_task
+
+    # Dedupe by Gmail message_id. Empty message_id falls through (can't dedupe
+    # without an identifier) but we should never see that in practice.
+    if message_id:
+        _prune_recently_fired()
+        if message_id in _recently_fired_message_ids:
+            logfire.info(
+                "zillow_email_event: dropping duplicate (recently fired)",
+                message_id=message_id,
+                subject=subject,
+            )
+            return
+        if any(e["message_id"] == message_id for e in _pending_emails):
+            logfire.info(
+                "zillow_email_event: dropping duplicate (already pending)",
+                message_id=message_id,
+                subject=subject,
+            )
+            return
 
     email_info = {
         "thread_id": thread_id,
@@ -118,6 +172,15 @@ async def _debounced_fire() -> None:
 
     if not emails:
         return
+
+    # Mark all fired message_ids as recently-fired so redeliveries landing
+    # after this window closes still dedupe.
+    now = time.monotonic()
+    _prune_recently_fired(now)
+    for email in emails:
+        mid = email.get("message_id")
+        if mid:
+            _recently_fired_message_ids[mid] = now
 
     logfire.info(
         "zillow_email_event: debounce window closed, firing trigger",
