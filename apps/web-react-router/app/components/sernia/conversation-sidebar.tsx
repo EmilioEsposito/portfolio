@@ -36,6 +36,8 @@ import {
   Building,
   X,
   Menu,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 const API_BASE = "/api/sernia-ai";
@@ -82,20 +84,65 @@ function modalityIcon(conv: ConversationSummary) {
   return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />;
 }
 
-function formatRelativeTime(dateString: string | null) {
+function formatTimeOfDay(dateString: string | null): string {
   if (!dateString) return "";
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
+  return new Date(dateString).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-  if (diffMins < 1) return "now";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function localDateKey(d: Date): string {
+  // YYYY-MM-DD in local time, used as a stable group key.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatGroupLabel(date: Date): string {
+  const midnight = (d: Date) => {
+    const c = new Date(d);
+    c.setHours(0, 0, 0, 0);
+    return c;
+  };
+  const diffDays = Math.round(
+    (midnight(new Date()).getTime() - midnight(date).getTime()) / 86_400_000
+  );
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+interface ConversationGroup {
+  key: string;
+  label: string;
+  items: ConversationSummary[];
+}
+
+function groupConversationsByDate(
+  convos: ConversationSummary[]
+): ConversationGroup[] {
+  const map = new Map<string, ConversationGroup>();
+  for (const c of convos) {
+    const ts = c.updated_at || c.created_at;
+    if (!ts) continue;
+    const d = new Date(ts);
+    const key = localDateKey(d);
+    let group = map.get(key);
+    if (!group) {
+      group = { key, label: formatGroupLabel(d), items: [] };
+      map.set(key, group);
+    }
+    group.items.push(c);
+  }
+  return Array.from(map.values()).sort((a, b) => (a.key < b.key ? 1 : -1));
 }
 
 // ---- Cache for page 1 ----
@@ -171,6 +218,9 @@ export function ConversationSidebar({
   const [isLoading, setIsLoading] = useState(!getCachedConversations());
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [collapsedGroups, setCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
   const fetchRef = useRef(0);
 
   const fetchConversations = useCallback(
@@ -288,6 +338,28 @@ export function ConversationSidebar({
     if (isMobile) toggleSidebar();
   };
 
+  const groupedConversations = groupConversationsByDate(filtered);
+  const todayKey = localDateKey(new Date());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayKey = localDateKey(yesterdayDate);
+
+  const isGroupCollapsed = (key: string): boolean => {
+    // Explicit user toggle takes precedence.
+    if (collapsedGroups[key] !== undefined) return collapsedGroups[key];
+    // Default expansion: today, yesterday, and any group containing the
+    // active conversation (so deep-linking to an older convo shows it).
+    if (key === todayKey || key === yesterdayKey) return false;
+    const containsActive = groupedConversations
+      .find((g) => g.key === key)
+      ?.items.some((c) => c.conversation_id === activeConversationId);
+    return !containsActive;
+  };
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !isGroupCollapsed(key) }));
+  };
+
   const handleNewConversation = () => {
     onNewConversation();
     if (isMobile) toggleSidebar();
@@ -391,87 +463,119 @@ export function ConversationSidebar({
                 ? "No matching conversations"
                 : "No conversations yet"}
             </p>
-          ) : (
+          ) : isCollapsed ? (
             <div className="space-y-0.5 pb-2">
               {filtered.map((conv) => {
                 const isActive =
                   conv.conversation_id === activeConversationId;
-
-                if (isCollapsed) {
-                  return (
-                    <SidebarMenu key={conv.conversation_id}>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                          tooltip={conv.preview || "Empty conversation"}
-                          isActive={isActive}
-                          onClick={() => handleSelect(conv)}
-                          className="h-8 w-8 p-0 justify-center"
-                        >
-                          {modalityIcon(conv)}
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  );
-                }
-
                 return (
-                  <div
-                    key={conv.conversation_id}
-                    className={cn(
-                      "group flex items-start gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
-                      isActive
-                        ? "bg-accent text-accent-foreground"
-                        : "hover:bg-muted"
-                    )}
-                    onClick={() => handleSelect(conv)}
-                  >
-                    <div className="shrink-0 mt-0.5">
-                      {modalityIcon(conv)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm truncate flex-1">
-                          {conv.preview || "Empty conversation"}
-                        </span>
-                        {conv.has_pending && (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] px-1 py-0 h-4 text-amber-600 border-amber-300 shrink-0"
-                          >
-                            Pending
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                        {conv.trigger_contact_name && (
-                          <>
-                            <span className="truncate">
-                              {conv.trigger_contact_name}
-                            </span>
-                            <span>&middot;</span>
-                          </>
-                        )}
-                        {conv.participant && !conv.trigger_contact_name && (
-                          <>
-                            <span className="truncate">{conv.participant}</span>
-                            <span>&middot;</span>
-                          </>
-                        )}
-                        <span className="shrink-0">
-                          {formatRelativeTime(conv.updated_at)}
-                        </span>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={(e) =>
-                        handleDelete(conv.conversation_id, e)
-                      }
+                  <SidebarMenu key={conv.conversation_id}>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={conv.preview || "Empty conversation"}
+                        isActive={isActive}
+                        onClick={() => handleSelect(conv)}
+                        className="h-8 w-8 p-0 justify-center"
+                      >
+                        {modalityIcon(conv)}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-2 pb-2">
+              {groupedConversations.map((group) => {
+                const collapsedGroup = isGroupCollapsed(group.key);
+                return (
+                  <div key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.key)}
+                      className="flex items-center gap-1 w-full px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                      {collapsedGroup ? (
+                        <ChevronRight className="w-3 h-3 shrink-0" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 shrink-0" />
+                      )}
+                      <span className="flex-1 text-left">{group.label}</span>
+                      <span className="text-[10px] tabular-nums opacity-70">
+                        {group.items.length}
+                      </span>
+                    </button>
+                    {!collapsedGroup && (
+                      <div className="space-y-0.5">
+                        {group.items.map((conv) => {
+                          const isActive =
+                            conv.conversation_id === activeConversationId;
+                          return (
+                            <div
+                              key={conv.conversation_id}
+                              className={cn(
+                                "group flex items-start gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
+                                isActive
+                                  ? "bg-accent text-accent-foreground"
+                                  : "hover:bg-muted"
+                              )}
+                              onClick={() => handleSelect(conv)}
+                            >
+                              <div className="shrink-0 mt-0.5">
+                                {modalityIcon(conv)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-sm truncate flex-1">
+                                    {conv.preview || "Empty conversation"}
+                                  </span>
+                                  {conv.has_pending && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1 py-0 h-4 text-amber-600 border-amber-300 shrink-0"
+                                    >
+                                      Pending
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                                  {conv.trigger_contact_name && (
+                                    <>
+                                      <span className="truncate">
+                                        {conv.trigger_contact_name}
+                                      </span>
+                                      <span>&middot;</span>
+                                    </>
+                                  )}
+                                  {conv.participant &&
+                                    !conv.trigger_contact_name && (
+                                      <>
+                                        <span className="truncate">
+                                          {conv.participant}
+                                        </span>
+                                        <span>&middot;</span>
+                                      </>
+                                    )}
+                                  <span className="shrink-0 tabular-nums">
+                                    {formatTimeOfDay(conv.updated_at)}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-muted-foreground hover:text-destructive"
+                                onClick={(e) =>
+                                  handleDelete(conv.conversation_id, e)
+                                }
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
