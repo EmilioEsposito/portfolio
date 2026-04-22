@@ -1176,18 +1176,14 @@ export default function SerniaChatPage() {
         />
         <SidebarInset className="min-w-0 overflow-x-hidden">
           {isLoading ? (
-            <div
-              className="flex flex-col items-center justify-center gap-4"
-              style={{ height: "var(--chat-vh, 100dvh)" }}
-            >
+            <div className="flex flex-col items-center justify-center gap-4 h-chat-viewport">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
               <p className="text-muted-foreground">Loading conversation...</p>
             </div>
           ) : (
             <Tabs
               defaultValue="chat"
-              className="flex flex-col min-w-0 bg-background"
-              style={{ height: "var(--chat-vh, 100dvh)" }}
+              className="flex flex-col min-w-0 bg-background h-chat-viewport"
             >
               <ChatHeader
                 isAdmin={isAdmin}

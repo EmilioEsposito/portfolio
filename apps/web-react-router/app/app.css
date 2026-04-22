@@ -410,6 +410,14 @@ body {
   }
 }
 
+/* Viewport height for full-screen Sernia layouts, accounting for the env
+ * banner (shown on non-prod) and the iOS visual viewport. --chat-vh is set
+ * by the useVisualViewportHeight hook when keyboard-aware sizing is needed;
+ * it falls back to 100dvh on routes that don't set it. */
+.h-chat-viewport {
+  height: calc(var(--chat-vh, 100dvh) - var(--env-banner-h, 0px));
+}
+
 @keyframes typing-dot {
   0%, 60%, 100% {
     transform: translateY(0);

@@ -209,7 +209,7 @@ export default function SerniaSettingsPage() {
           onNewConversation={handleNewConversation}
         />
         <SidebarInset className="min-w-0 overflow-x-hidden">
-      <div className="flex flex-col h-dvh bg-background">
+      <div className="flex flex-col h-chat-viewport bg-background">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b">
           <SettingsMobileSidebarToggle />
