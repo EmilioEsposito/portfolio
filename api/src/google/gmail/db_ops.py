@@ -32,21 +32,32 @@ async def save_email_message(
     session: AsyncSession,
     message_data: Dict[str, Any],
     history_id: Optional[int] = None
-) -> Optional[EmailMessage]:
+) -> tuple[Optional[EmailMessage], bool]:
     """
     Save a Gmail message to the database.
-    
+
     Args:
         session: SQLAlchemy async session
         message_data: Processed message data containing all required fields
         history_id: The Gmail history ID related to this message (optional)
-        
+
     Returns:
-        The saved EmailMessage instance or None if save failed
+        Tuple ``(email_msg, was_inserted)``:
+        - ``email_msg``: The saved ``EmailMessage`` instance, or ``None`` if the
+          save failed.
+        - ``was_inserted``: ``True`` if this call inserted a brand-new row;
+          ``False`` if it updated an existing row (e.g. pubsub redelivery or
+          Gmail label-change notification for a message we'd already saved).
     """
     try:
         message_id = message_data.get('message_id')
         logfire.info(f"Saving email message {message_id} to database")
+
+        # Check whether this message_id already exists. This lets callers
+        # distinguish truly new emails from pubsub redeliveries / label-change
+        # notifications (both of which trigger upserts on the same message_id).
+        existing = await get_email_by_message_id(session, message_id)
+        was_inserted = existing is None
 
         # Parse the date and ensure it's timezone aware
         date_str = message_data['date']
@@ -102,12 +113,12 @@ async def save_email_message(
         session.expire_all()
         email_msg = await get_email_by_message_id(session, message_id)
         logfire.info(f"Successfully saved email message {message_id}")
-        return email_msg
+        return email_msg, was_inserted
 
     except Exception as e:
         logfire.exception(f"Failed to save email message: {str(e)}")
         await session.rollback()
-        return None
+        return None, False
 
 
 
@@ -134,33 +145,35 @@ async def test_save_email_message():
     saved_msg = None
     async with get_test_session() as session:
         try:
-            # Save message with history_id
-            saved_msg = await save_email_message(session, message_data, history_id)
+            # Save message with history_id — first call should be a fresh insert
+            saved_msg, was_inserted = await save_email_message(session, message_data, history_id)
             assert saved_msg is not None
+            assert was_inserted is True
             assert saved_msg.message_id == message_data['message_id']
             assert saved_msg.first_history_id == history_id
             assert saved_msg.history_ids == [history_id]
             assert saved_msg.label_ids == message_data['label_ids']
-            
+
             # Verify we can retrieve it
             retrieved = await get_email_by_message_id(session, message_data['message_id'])
             assert retrieved is not None
             assert retrieved.subject == message_data['subject']
-            
-            # Test update with a new history_id
+
+            # Test update with a new history_id — second call should be an update, not an insert
             new_history_id = 67890
             updated_data = message_data.copy()
             updated_data['raw_payload'] = {'test': 'updated data'}
             updated_data['label_ids'] = ['INBOX', 'READ']
-            
-            updated_msg = await save_email_message(session, updated_data, new_history_id)
+
+            updated_msg, was_inserted_again = await save_email_message(session, updated_data, new_history_id)
             assert updated_msg is not None
+            assert was_inserted_again is False
             assert updated_msg.message_id == message_data['message_id']
             assert updated_msg.first_history_id == history_id  # First history should not change
             assert new_history_id in updated_msg.history_ids  # New history should be added
             assert updated_msg.label_ids == updated_data['label_ids']  # Labels should be updated
             assert updated_msg.raw_payload == updated_data['raw_payload']  # Payload should be updated
-            
+
         finally:
             # Cleanup: Delete test message
             if saved_msg:
