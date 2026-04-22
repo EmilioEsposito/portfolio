@@ -135,6 +135,9 @@ flowchart TD
 ### Key design choices
 
 - **10-minute debounce** — First email starts a fixed window; subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
+- **Dedup to logical *new* emails** — Gmail Pub/Sub has at-least-once delivery and every label change (e.g. INBOX→READ) fires another history notification that re-references the same `message_id`. Two guards collapse these back down to one event per logical email:
+  1. **Pubsub route gate** — `save_email_message()` returns `(email, was_inserted)`. The Zillow trigger is only queued when `was_inserted=True`. Redeliveries / label-change upserts don't refire the trigger.
+  2. **Queue-level dedup** — `queue_zillow_email_event()` skips a `message_id` that is already in `_pending_emails` or in `_recently_fired_message_ids` (1-hour TTL). This catches anything that slips past the pubsub gate (e.g. a redelivery that races the DB commit).
 - **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
 - **Emilio-only notifications** — looks up Emilio's `clerk_user_id` from DB via contact slug `"emilio"` (cached at module level), then uses `notify_clerk_user_id` parameter in `run_agent_for_trigger()` to send push only to Emilio's subscriptions via `notify_user_push()`.
 - **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net, catching anything the event trigger misses (e.g., server downtime).

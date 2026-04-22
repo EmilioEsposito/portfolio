@@ -13,17 +13,23 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 
 @pytest.fixture(autouse=True)
 def _clear_trigger_cooldowns():
-    """Reset the in-memory rate-limit cooldowns between tests."""
+    """Reset the in-memory rate-limit cooldowns and dedupe state between tests."""
     from api.src.sernia_ai.triggers.background_agent_runner import _trigger_cooldowns
     from api.src.sernia_ai.triggers.ai_sms_event_trigger import _ai_sms_call_timestamps
     import api.src.sernia_ai.triggers.zillow_email_event_trigger as zillow_mod
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
     zillow_mod._emilio_clerk_user_id = None
+    zillow_mod._pending_emails.clear()
+    zillow_mod._pending_task = None
+    zillow_mod._recently_fired_message_ids.clear()
     yield
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
     zillow_mod._emilio_clerk_user_id = None
+    zillow_mod._pending_emails.clear()
+    zillow_mod._pending_task = None
+    zillow_mod._recently_fired_message_ids.clear()
 
 
 # =========================================================================
@@ -1161,6 +1167,121 @@ class TestGetEmilioClerkUserId:
         ):
             result = await mod._get_emilio_clerk_user_id()
             assert result is None
+
+
+class TestQueueZillowEmailEventDedup:
+    """Dedup behavior of queue_zillow_email_event by Gmail message_id."""
+
+    @pytest.mark.asyncio
+    async def test_dedup_within_pending_window(self):
+        """Re-queuing the same message_id while pending should be a no-op."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        # Replace asyncio.create_task so the debounce timer never actually starts.
+        def _close_coro(coro, *args, **kwargs):
+            # Close the coroutine so pytest doesn't warn about it never being awaited.
+            if hasattr(coro, "close"):
+                coro.close()
+            return MagicMock()
+
+        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
+            await mod.queue_zillow_email_event(
+                thread_id="t1",
+                message_id="msg_dup_1",
+                subject="Amelia requesting info",
+                from_address="lead@convo.zillow.com",
+                body_text="hi",
+            )
+            # Three pubsub redeliveries of the same logical email
+            for _ in range(3):
+                await mod.queue_zillow_email_event(
+                    thread_id="t1",
+                    message_id="msg_dup_1",
+                    subject="Amelia requesting info",
+                    from_address="lead@convo.zillow.com",
+                    body_text="hi",
+                )
+
+        assert len(mod._pending_emails) == 1
+        assert mod._pending_emails[0]["message_id"] == "msg_dup_1"
+
+    @pytest.mark.asyncio
+    async def test_distinct_ids_accumulate(self):
+        """Distinct message_ids should all be accumulated in the batch."""
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        def _close_coro(coro, *args, **kwargs):
+            # Close the coroutine so pytest doesn't warn about it never being awaited.
+            if hasattr(coro, "close"):
+                coro.close()
+            return MagicMock()
+
+        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
+            for mid in ("msg_a", "msg_b", "msg_c"):
+                await mod.queue_zillow_email_event(
+                    thread_id="t1",
+                    message_id=mid,
+                    subject="Subj",
+                    from_address="lead@convo.zillow.com",
+                    body_text=None,
+                )
+
+        ids = [e["message_id"] for e in mod._pending_emails]
+        assert ids == ["msg_a", "msg_b", "msg_c"]
+
+    @pytest.mark.asyncio
+    async def test_recently_fired_ttl_blocks_requeue(self):
+        """A message_id marked as recently fired should be rejected on re-queue."""
+        import time as _time
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        mod._recently_fired_message_ids["msg_just_fired"] = _time.monotonic()
+
+        def _close_coro(coro, *args, **kwargs):
+            # Close the coroutine so pytest doesn't warn about it never being awaited.
+            if hasattr(coro, "close"):
+                coro.close()
+            return MagicMock()
+
+        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
+            await mod.queue_zillow_email_event(
+                thread_id="t1",
+                message_id="msg_just_fired",
+                subject="Subj",
+                from_address="lead@convo.zillow.com",
+                body_text=None,
+            )
+
+        assert mod._pending_emails == []
+
+    @pytest.mark.asyncio
+    async def test_recently_fired_prunes_expired(self):
+        """TTL cache entries older than RECENTLY_FIRED_TTL_SECONDS should be pruned."""
+        import time as _time
+        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
+
+        # Entry from two hours ago — older than the 1h TTL
+        mod._recently_fired_message_ids["msg_expired"] = _time.monotonic() - 7200
+
+        def _close_coro(coro, *args, **kwargs):
+            # Close the coroutine so pytest doesn't warn about it never being awaited.
+            if hasattr(coro, "close"):
+                coro.close()
+            return MagicMock()
+
+        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
+            await mod.queue_zillow_email_event(
+                thread_id="t1",
+                message_id="msg_expired",
+                subject="Subj",
+                from_address="lead@convo.zillow.com",
+                body_text=None,
+            )
+
+        # Expired entry was pruned, so the email was accepted into the batch
+        assert "msg_expired" not in mod._recently_fired_message_ids
+        assert len(mod._pending_emails) == 1
+        assert mod._pending_emails[0]["message_id"] == "msg_expired"
 
 
 class TestZillowEmailBatchedTrigger:
