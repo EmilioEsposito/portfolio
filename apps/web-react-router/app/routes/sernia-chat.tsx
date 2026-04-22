@@ -37,6 +37,7 @@ import {
   ToolApprovalCard,
   ToolResultCard,
   convertAllPendingFromApi,
+  submitApprovalDecisions,
   type PendingApproval,
 } from "~/components/chat/tool-cards";
 import { processMessage } from "~/components/chat/process-message";
@@ -103,7 +104,7 @@ function ChatView({
     useState<PendingApproval | null>(initialPending);
   const [allPendingApprovals, setAllPendingApprovals] =
     useState<PendingApproval[]>(initialAllPending || (initialPending ? [initialPending] : []));
-  const [isProcessingApproval] = useState(false);
+  const [isProcessingApproval, setIsProcessingApproval] = useState(false);
   const draftKey = `sernia-draft-${conversationId}`;
   const [input, setInput] = useState(
     () => (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || ""
@@ -211,27 +212,70 @@ function ChatView({
     }
   }, [input]);
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const hasContent = input.trim() || attachment.hasFiles;
-    if (hasContent && status !== "submitted" && status !== "streaming") {
-      const parts: any[] = [
-        ...attachment.files.map((f) => ({
-          type: "file",
-          mediaType: f.mediaType,
-          url: f.url,
-          filename: f.filename,
-        })),
-      ];
-      if (input.trim()) {
-        parts.push({ type: "text", text: input });
+    if (status === "submitted" || status === "streaming" || isProcessingApproval) return;
+
+    const text = input.trim();
+    const hasContent = text || attachment.hasFiles;
+    if (!hasContent) return;
+
+    // Deny-with-feedback path: when a HITL approval is pending and the user
+    // types a message, treat the submit as an implicit denial of every pending
+    // tool call, using the typed text as the denial reason. The agent sees the
+    // reason on ToolDenied() and produces its follow-up in the same LLM call —
+    // collapsing the old two-round-trip flow (deny, then type feedback) into one.
+    if (allPendingApprovals.length > 0 && text) {
+      setIsProcessingApproval(true);
+      // Optimistically render the user's feedback as a chat bubble so the
+      // conversation reads naturally. The backend stores it on the tool's
+      // ToolDenied reason, not as a standalone user turn.
+      const optimisticUserMsg = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        parts: [{ type: "text", text }],
+      };
+      setMessages((prev: any[]) => [...prev, optimisticUserMsg]);
+      try {
+        const result = await submitApprovalDecisions({
+          apiBase: API_BASE,
+          conversationId,
+          getToken,
+          decisions: allPendingApprovals.map((p) => ({
+            tool_call_id: p.toolCallId,
+            approved: false,
+            reason: text,
+          })),
+        });
+        setInput("");
+        handleApprovalComplete(result);
+      } catch (err) {
+        console.error("Deny-with-feedback error:", err);
+        alert(err instanceof Error ? err.message : "Failed to submit feedback");
+        // Roll back the optimistic bubble so the user can retry.
+        setMessages((prev: any[]) => prev.filter((m) => m.id !== optimisticUserMsg.id));
+      } finally {
+        setIsProcessingApproval(false);
       }
-      setPendingApproval(null);
-      setAllPendingApprovals([]);
-      sendMessage({ role: "user", parts });
-      setInput("");
-      attachment.clearFiles();
+      return;
     }
+
+    const parts: any[] = [
+      ...attachment.files.map((f) => ({
+        type: "file",
+        mediaType: f.mediaType,
+        url: f.url,
+        filename: f.filename,
+      })),
+    ];
+    if (text) {
+      parts.push({ type: "text", text: input });
+    }
+    setPendingApproval(null);
+    setAllPendingApprovals([]);
+    sendMessage({ role: "user", parts });
+    setInput("");
+    attachment.clearFiles();
   };
 
   const handleSuggestedPrompt = (prompt: string) => {
@@ -277,9 +321,8 @@ function ChatView({
                 return {
                   ...part,
                   state: "output-available",
-                  output: wasApproved
-                    ? realResult || "Completed"
-                    : "Denied by user",
+                  output:
+                    realResult || (wasApproved ? "Completed" : "Denied by user"),
                 };
               }
               return part;
@@ -517,6 +560,11 @@ function ChatView({
           </div>
         ) : (
           <div className="flex flex-col gap-2 w-full">
+            {pendingApproval && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
+                Sending a message will deny the pending action{allPendingApprovals.length > 1 ? "s" : ""} — your text becomes the feedback the AI sees.
+              </p>
+            )}
             <FilePreviewStrip
               files={attachment.files}
               onRemove={attachment.removeFile}
@@ -527,7 +575,8 @@ function ChatView({
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||
-                  !!pendingApproval
+                  !!pendingApproval ||
+                  isProcessingApproval
                 }
               />
               <Textarea
@@ -544,7 +593,7 @@ function ChatView({
                 onPaste={attachment.handlePaste}
                 placeholder={
                   pendingApproval
-                    ? "Approve or deny the action above first..."
+                    ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
                     : "Ask Sernia AI anything..."
                 }
                 className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
@@ -552,7 +601,7 @@ function ChatView({
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||
-                  !!pendingApproval
+                  isProcessingApproval
                 }
               />
               {status === "streaming" ? (
@@ -573,11 +622,16 @@ function ChatView({
                   disabled={
                     (!input.trim() && !attachment.hasFiles) ||
                     status === "submitted" ||
-                    !!pendingApproval
+                    isProcessingApproval ||
+                    (!!pendingApproval && !input.trim())
                   }
                   className="h-9 w-9 shrink-0 rounded-lg"
                 >
-                  <Send className="w-4 h-4" />
+                  {isProcessingApproval ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </Button>
               )}
             </div>
