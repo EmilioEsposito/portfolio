@@ -271,6 +271,14 @@ uv run alembic revision --autogenerate -m "description"  # Create
 
 **PR Environments**: Auto-created with isolated Neon database branches. See [`.github/PR_ENVIRONMENTS.md`](.github/PR_ENVIRONMENTS.md) for details.
 
+**When creating a PR, always include the web-react-router Railway preview URL in the PR description.** The URL follows this format (substitute the actual PR number):
+
+```
+https://react-router-portfolio-pr-<PR_NUMBER>.up.railway.app/
+```
+
+Example: PR #235 → `https://react-router-portfolio-pr-235.up.railway.app/`
+
 ---
 
 ## Key Files
