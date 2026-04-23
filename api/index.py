@@ -72,7 +72,6 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 
 from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.config import WORKSPACE_PATH
-from api.src.sernia_mcp.server import mcp as sernia_mcp, is_configured as sernia_mcp_configured
 from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.zillow_email.service import register_zillow_apscheduler_jobs
@@ -178,21 +177,6 @@ async def _apscheduler_startup_async() -> None:
         logfire.exception(f"APScheduler background startup failed: {e}")
 
 
-# Build the FastMCP ASGI app up front so its lifespan can be chained into
-# FastAPI's. stateless_http=True avoids per-client session state — every MCP
-# request is self-contained, which matches the "remote agents" use case.
-# Only built when Clerk OAuth is configured — otherwise the MCP endpoint is
-# left unmounted (with a warning) so the rest of the FastAPI app still boots.
-if sernia_mcp_configured:
-    _mcp_asgi = sernia_mcp.http_app(path="/", stateless_http=True, transport="http")
-else:
-    _mcp_asgi = None
-    logfire.warn(
-        "sernia_mcp: Clerk OAuth env vars not fully set — /api/mcp endpoint will NOT be mounted. "
-        "See api/src/sernia_mcp/README.md for Clerk dashboard setup."
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
@@ -236,13 +220,7 @@ async def lifespan(app: FastAPI):
             logfire.exception(f"Error during startup: {e}")
             raise
 
-    # Chain the FastMCP Starlette lifespan so its session manager starts.
-    # If MCP isn't configured (no Clerk env), skip the lifespan wrap.
-    if _mcp_asgi is not None:
-        async with _mcp_asgi.lifespan(app):
-            yield # Application runs here
-    else:
-        yield
+    yield # Application runs here
 
     # Shutdown logic
     logfire.info("Application shutdown...")
@@ -323,9 +301,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# MCP auth is handled by Clerk via FastMCP's ClerkProvider (built into the
-# FastMCP ASGI app). No extra middleware needed here.
-
 # --- GraphQL Setup ---
 
 # Merge GraphQL types
@@ -354,12 +329,6 @@ app.include_router(apscheduler_router, prefix="/api")
 # app.include_router(dbos_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
-
-# Mount the Sernia MCP server (HTTP transport) under /api/mcp.
-# Auth is enforced by FastMCP ClerkProvider (OAuth). Skipped when
-# Clerk env vars aren't configured — see sernia_mcp/server.py.
-if _mcp_asgi is not None:
-    app.mount("/api/mcp", _mcp_asgi)
 
 @app.get("/api/hello")
 async def hello_fast_api():
