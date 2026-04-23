@@ -15,7 +15,7 @@ import openai
 import logfire
 from pydantic_ai import capture_run_messages
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import Response
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from clerk_backend_api import User
@@ -25,6 +25,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.model_config import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL_KEY,
+    ModelKey,
+    get_active_model_key,
+    get_model_choice,
+    resolve_active_run_kwargs,
+)
 from api.src.sernia_ai.models import _IS_PRODUCTION
 from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.deps import SerniaDeps
@@ -284,6 +292,8 @@ async def chat_sernia(
 
     on_complete = _on_complete
 
+    run_kwargs = await resolve_active_run_kwargs()
+
     try:
         response = await VercelAIAdapter.dispatch_request(
             wrapped_request,
@@ -292,6 +302,7 @@ async def chat_sernia(
             deps=deps,
             on_complete=on_complete,
             metadata={"trigger_source": "api/sernia-ai/chat"},
+            **run_kwargs,
         )
     except LLMAPIError as e:
         # LLM provider API errors (overloaded, rate limited, etc.) — log but don't
@@ -411,6 +422,8 @@ async def approve_conversation(
             workspace_path=WORKSPACE_PATH,
         )
 
+        run_kwargs = await resolve_active_run_kwargs()
+
         with capture_run_messages() as captured_messages:
             result = await resume_with_approvals(
                 agent=sernia_agent,
@@ -421,6 +434,7 @@ async def approve_conversation(
                 session=session,
                 metadata={"trigger_source": "api/sernia-ai/approve"},
                 user_message=body.user_message,
+                **run_kwargs,
             )
 
         # Persist the approval result (tool outputs + agent follow-up) to DB
@@ -656,7 +670,7 @@ async def get_system_instructions(
     return {
         "sections": sections,
         "combined": combined,
-        "model": sernia_agent.model.model_name if hasattr(sernia_agent.model, "model_name") else str(sernia_agent.model),
+        "model": get_model_choice(await get_active_model_key()).model_string,
         "deps": {
             "user_name": resolved_name,
             "modality": modality,
@@ -722,7 +736,7 @@ async def get_conversation_instructions(
         "conversation_id": conversation_id,
         "sections": sections,
         "combined": combined,
-        "model": sernia_agent.model.model_name if hasattr(sernia_agent.model, "model_name") else str(sernia_agent.model),
+        "model": get_model_choice(await get_active_model_key()).model_string,
         "deps": {
             "user_name": resolved_name,
             "user_email": resolved_email,
@@ -746,10 +760,26 @@ async def get_admin_settings(
     """
     from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
 
+    available_models = [
+        {
+            "key": m.key,
+            "label": m.label,
+            "provider": m.provider,
+            "cost_note": m.cost_note,
+        }
+        for m in AVAILABLE_MODELS
+    ]
+
     if not _IS_PRODUCTION:
+        # Model selection is NOT hard-gated off on non-prod — PR envs should
+        # exercise whatever model production has configured. Still read the DB
+        # value (falls back to default) so the UI reflects reality.
+        active_model = await get_active_model_key()
         return {
             "triggers_enabled": False,
             "schedule_config": {"days_of_week": [], "hours": []},
+            "model_config": {"model_key": active_model},
+            "available_models": available_models,
         }
 
     result = await session.execute(
@@ -757,9 +787,12 @@ async def get_admin_settings(
     )
     row = result.scalar_one_or_none()
     schedule_config = await get_schedule_config()
+    active_model = await get_active_model_key()
     return {
         "triggers_enabled": row.value if row else True,
         "schedule_config": schedule_config,
+        "model_config": {"model_key": active_model},
+        "available_models": available_models,
     }
 
 
@@ -768,9 +801,19 @@ class _ScheduleConfigPayload(BaseModel):
     hours: list[int]  # 0–23, ET
 
 
+class _ModelConfigPayload(BaseModel):
+    model_key: ModelKey
+
+
 class _SettingsUpdateRequest(BaseModel):
+    # `model_config` is reserved by Pydantic v2 for ConfigDict, so we store
+    # the field under a different Python name and expose it as `model_config`
+    # in the JSON body via alias.
+    model_config = ConfigDict(populate_by_name=True)
+
     triggers_enabled: bool | None = None
     schedule_config: _ScheduleConfigPayload | None = None
+    model_cfg: _ModelConfigPayload | None = Field(default=None, alias="model_config")
 
 
 @router.patch("/admin/settings")
@@ -818,6 +861,21 @@ async def update_admin_settings(
         # Re-register the APScheduler job with the new config
         from api.src.sernia_ai.triggers.scheduled_triggers import apply_schedule_from_db
         await apply_schedule_from_db()
+
+    if body.model_cfg is not None:
+        # Pydantic's Literal validator already rejected unknown keys before
+        # we got here — no need to re-check.
+        config_dict = body.model_cfg.model_dump()
+        stmt = pg_insert(AppSetting).values(
+            key="model_config",
+            value=config_dict,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": config_dict},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        updated["model_config"] = config_dict
 
     return {"updated": updated}
 

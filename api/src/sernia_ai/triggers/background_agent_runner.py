@@ -16,6 +16,7 @@ from pydantic_ai import capture_run_messages
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import is_sernia_ai_enabled
+from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -128,10 +129,15 @@ async def run_agent_for_trigger(
             workspace_path=WORKSPACE_PATH,
         )
 
+        run_kwargs = await resolve_active_run_kwargs()
+
         with capture_run_messages() as captured_messages:
             try:
                 result = await sernia_agent.run(
-                    trigger_prompt, deps=deps, metadata={"trigger_source": trigger_source}
+                    trigger_prompt,
+                    deps=deps,
+                    metadata={"trigger_source": trigger_source},
+                    **run_kwargs,
                 )
             except Exception:
                 logfire.exception(

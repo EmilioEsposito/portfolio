@@ -38,6 +38,7 @@ from pydantic_ai.messages import (
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import is_sernia_ai_enabled
+from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -569,12 +570,15 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             workspace_path=WORKSPACE_PATH,
         )
 
+        run_kwargs = await resolve_active_run_kwargs()
+
         try:
             result = await sernia_agent.run(
                 message_text + sms_context_hint,
                 message_history=history,
                 deps=deps,
                 metadata={"trigger_source": "ai_sms"},
+                **run_kwargs,
             )
         except Exception:
             logfire.exception(

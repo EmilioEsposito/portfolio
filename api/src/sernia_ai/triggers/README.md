@@ -170,7 +170,7 @@ The `triggers_enabled` app setting in the DB acts as a universal kill switch for
 
 **Default**: Enabled on production, disabled elsewhere. Non-production environments (dev, PR envs) are **hard-gated off** — the DB `triggers_enabled` row is ignored and the function always returns False. This is important because Neon PR branches inherit the parent DB's rows, so the `triggers_enabled` value in a PR env reflects production's intent, not the PR's. On production, the DB row acts as the runtime kill switch: missing row = enabled, explicit `false` = disabled.
 
-The admin settings GET endpoint mirrors the same behavior — on non-production it returns `triggers_enabled: false` and `schedule_config: {days_of_week: [], hours: []}` regardless of what the DB contains.
+The admin settings GET endpoint mirrors the same behavior — on non-production it returns `triggers_enabled: false` and `schedule_config: {days_of_week: [], hours: []}` regardless of what the DB contains. The `model_config` row is **not** hard-gated off on non-prod — PR envs should run whichever model production has configured so trigger behavior stays representative.
 
 The scheduled-checks job itself is only registered on production and only when both `days_of_week` and `hours` are non-empty. Empty lists (or any non-production env) remove the job entirely.
 
