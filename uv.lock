@@ -1139,12 +1139,13 @@ wheels = [
 
 [[package]]
 name = "fastmcp"
-version = "3.2.0"
+version = "3.2.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "authlib" },
     { name = "cyclopts" },
     { name = "exceptiongroup" },
+    { name = "griffelib" },
     { name = "httpx" },
     { name = "jsonref" },
     { name = "jsonschema-path" },
@@ -1164,9 +1165,14 @@ dependencies = [
     { name = "watchfiles" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d0/32/4f1b2cfd7b50db89114949f90158b1dcc2c92a1917b9f57c0ff24e47a2f4/fastmcp-3.2.0.tar.gz", hash = "sha256:d4830b8ffc3592d3d9c76dc0f398904cf41f04910e41a0de38cc1004e0903bef", size = 26318581, upload-time = "2026-03-30T20:25:37.692Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/13/29544fbc6dfe45ea38046af0067311e0bad7acc7d1f2ad38bb08f2409fe2/fastmcp-3.2.4.tar.gz", hash = "sha256:083ecb75b44a4169e7fc0f632f94b781bdb0ff877c6b35b9877cbb566fd4d4d1", size = 28746127, upload-time = "2026-04-14T01:42:24.174Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/67/684fa2d2de1e7504549d4ca457b4f854ccec3cd3be03bd86b33b599fbf58/fastmcp-3.2.0-py3-none-any.whl", hash = "sha256:e71aba3df16f86f546a4a9e513261d3233bcc92bef0dfa647bac3fa33623f681", size = 705550, upload-time = "2026-03-30T20:25:35.499Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/76/b310d52fa0e30d39bd937eb58ec2c1f1ea1b5f519f0575e9dd9612f01deb/fastmcp-3.2.4-py3-none-any.whl", hash = "sha256:e6c9c429171041455e47ab94bb3f83c4657622a0ec28922f6940053959bd58a9", size = 728599, upload-time = "2026-04-14T01:42:26.85Z" },
+]
+
+[package.optional-dependencies]
+apps = [
+    { name = "prefab-ui" },
 ]
 
 [[package]]
@@ -3062,7 +3068,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "email-validator" },
     { name = "fastapi" },
-    { name = "fastmcp" },
+    { name = "fastmcp", extra = ["apps"] },
     { name = "genai-prices" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
@@ -3115,7 +3121,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2.0" },
     { name = "email-validator", specifier = ">=2.2.0" },
     { name = "fastapi", specifier = ">=0.115.12" },
-    { name = "fastmcp", specifier = ">=3.2.0" },
+    { name = "fastmcp", extras = ["apps"], specifier = ">=3.2.4" },
     { name = "genai-prices", specifier = ">=0.0.50" },
     { name = "google-api-python-client", specifier = ">=2.108.0" },
     { name = "google-auth-httplib2", specifier = ">=0.1.1" },
@@ -3153,6 +3159,20 @@ requires-dist = [
 dev = [
     { name = "ipykernel" },
     { name = "ipython", specifier = ">=9.2.0" },
+]
+
+[[package]]
+name = "prefab-ui"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cyclopts" },
+    { name = "pydantic" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d8/79/039ade4eb3bdd23d5850b448f125b93aef3487c30d86adad5ceb9f5929de/prefab_ui-0.19.1.tar.gz", hash = "sha256:344b8c65e8c97d7f9684152c2fd014e8427f7239f633e9a2c3c8fe125a9ce1f4", size = 4082891, upload-time = "2026-04-14T16:26:58.835Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/be/6721c2e4ac5a974d5cab7a5994111996e7d74c6239fb946e21af1799df59/prefab_ui-0.19.1-py3-none-any.whl", hash = "sha256:9cf937ae2a2eab98d05f47699ac5be66b14f061f9d99d83b71dd77bc2b6d6b3f", size = 1849329, upload-time = "2026-04-14T16:27:00.618Z" },
 ]
 
 [[package]]
