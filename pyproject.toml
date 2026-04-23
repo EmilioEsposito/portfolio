@@ -27,7 +27,7 @@ dependencies = [
     "pydantic-ai[dbos]>=1.62.0",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=0.0.7",
-    "fastmcp[apps]>=3.2.4",
+    "fastmcp>=3.2.0",
     # Observability
     "logfire[asyncpg,httpx,fastapi,sqlalchemy,requests]>=0.11.0",
     # Auth
