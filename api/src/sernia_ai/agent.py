@@ -6,8 +6,9 @@ HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search)
 """
 import logfire
 from pydantic import BaseModel
-from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebSearchTool
-from pydantic_ai.models.openai import OpenAIResponsesModelSettings
+from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebFetchTool, WebSearchTool
+from pydantic_ai.models.anthropic import AnthropicModelSettings
+from pydantic_ai.models.openai import OpenAIResponsesModelSettings  # preserved for switch-back
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 
@@ -37,11 +38,17 @@ from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
 
 
 def _build_builtin_tools() -> list:
-    """Build builtin tools. WebSearchTool works on Anthropic, OpenAI Responses,
-    Groq, Google, xAI, and OpenRouter; safe to include unconditionally as long
-    as MAIN_AGENT_MODEL uses one of those providers.
+    """Build builtin tools.
+
+    WebSearchTool: supported by Anthropic, OpenAI Responses, Groq, Google, xAI,
+    OpenRouter.
+    WebFetchTool: supported by Anthropic and Google only — drop it if switching
+    MAIN_AGENT_MODEL to an OpenAI Responses model.
     """
-    return [WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)]
+    tools: list = [WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)]
+    if MAIN_AGENT_MODEL.startswith(("anthropic:", "google")):
+        tools.append(WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS))
+    return tools
 
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
@@ -90,13 +97,23 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
-    # `thinking="high"` → openai_reasoning_effort='high' on Responses API.
+    # Anthropic prompt caching covers instructions, tool definitions, and prior
+    # messages — critical for keeping costs down on long multi-turn runs.
+    model_settings=AnthropicModelSettings(
+        anthropic_cache_instructions=True,
+        anthropic_cache_tool_definitions=True,
+        anthropic_cache_messages=True,
+    ),
+    # OpenAI Responses alternative — preserved for easy switch-back. Uncomment
+    # (and comment out AnthropicModelSettings above) when MAIN_AGENT_MODEL is
+    # set to an `openai-responses:` model.
+    # `thinking="high"` → openai_reasoning_effort='high'.
     # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
     # in-memory cache to 24h so infrequent scheduled runs still hit cache.
-    model_settings=OpenAIResponsesModelSettings(
-        thinking="high",
-        openai_prompt_cache_retention="24h",
-    ),
+    # model_settings=OpenAIResponsesModelSettings(
+    #     thinking="high",
+    #     openai_prompt_cache_retention="24h",
+    # ),
     builtin_tools=_build_builtin_tools(),
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace")),
