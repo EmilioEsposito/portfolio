@@ -2,8 +2,6 @@
 # Setup script for Claude Code remote environment
 # This script runs on SessionStart when CLAUDE_CODE_REMOTE="true"
 
-# TODO: review https://code.claude.com/docs/en/claude-code-on-the-web#the-cloud-environment . Many improvements have been made, we might be able to simplify this setup (e.g. use docker for stuff)
-
 # Only run in remote environments
 if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
   echo "Not in remote environment, skipping setup"
@@ -210,11 +208,6 @@ if [ $PNPM_EXIT -eq 0 ]; then
 else
   echo "WARNING: pnpm install failed (exit $PNPM_EXIT). Check /tmp/pnpm_install.log"
 fi
-
-# TODO: install agent-browser. Below is how I installed it on my local machine. is this the same on the remote Claude Code environment?
-# npm install -g agent-browser
-# agent-browser install  # Download Chrome from Chrome for Testing (first time only)
-
 
 # =============================================================================
 # SUMMARY
