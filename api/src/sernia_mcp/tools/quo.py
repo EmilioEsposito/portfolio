@@ -1,0 +1,41 @@
+"""MCP wrappers for Quo (OpenPhone) read-only tools.
+
+Send tools live in sernia_mcp/tools/approvals.py — they use the FastMCPApp
+pattern for deterministic server-side enforcement (tool-visibility split).
+"""
+from fastmcp.exceptions import ToolError
+
+from api.src.sernia_mcp.server import mcp
+from api.src.tool_core.errors import CoreError
+from api.src.tool_core.quo.contacts import (
+    get_thread_messages_core,
+    search_contacts_core,
+)
+
+
+@mcp.tool
+async def quo_search_contacts(query: str) -> str:
+    """Fuzzy-search Quo (OpenPhone) contacts by name, phone number, or company.
+
+    Returns the top matching contacts as JSON. Tolerates typos.
+    """
+    try:
+        return await search_contacts_core(query)
+    except CoreError as e:
+        raise ToolError(f"quo_search_contacts failed: {e}") from e
+
+
+@mcp.tool
+async def quo_get_thread_messages(phone_number: str, max_results: int = 20) -> str:
+    """Get recent SMS messages with a phone number on the shared team line.
+
+    Returns chronological messages enriched with contact names.
+
+    Args:
+        phone_number: Recipient phone in E.164 format (e.g. "+14155550100").
+        max_results: Max messages to return (default 20).
+    """
+    try:
+        return await get_thread_messages_core(phone_number, max_results=max_results)
+    except CoreError as e:
+        raise ToolError(f"quo_get_thread_messages failed: {e}") from e
