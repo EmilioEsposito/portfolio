@@ -85,6 +85,32 @@ else
   echo "Railway CLI already installed: $(railway --version)"
 fi
 
+# Bridge the MCP-provided token to the env var name the Railway CLI expects,
+# and pre-link the portfolio project so MCP tools that shell out to `railway`
+# (get-logs, list-deployments, link-environment, link-service) work on first
+# try. Without this, those tools fail with "No Railway project is linked".
+if command -v railway &>/dev/null && [ -n "$RAILWAY_MCP_TOKEN" ]; then
+  PORTFOLIO_PROJECT_ID="73eb837a-ba86-4899-992c-cefd0c22b91f"
+
+  # Persist for every future Bash tool call in this session.
+  if [ -n "$CLAUDE_ENV_FILE" ]; then
+    echo "export RAILWAY_API_TOKEN=\"$RAILWAY_MCP_TOKEN\"" >> "$CLAUDE_ENV_FILE"
+  fi
+  export RAILWAY_API_TOKEN="$RAILWAY_MCP_TOKEN"
+
+  # Pre-link to production/fastapi as a sensible default. MCP tools can switch
+  # to other envs/services via link-environment / link-service.
+  if railway link \
+    --project "$PORTFOLIO_PROJECT_ID" \
+    --environment production \
+    --service fastapi \
+    >/dev/null 2>&1; then
+    echo "Railway project pre-linked (portfolio / production / fastapi)"
+  else
+    echo "WARNING: Railway pre-link failed — run 'railway link' manually if needed"
+  fi
+fi
+
 # =============================================================================
 # PYTHON ENVIRONMENT
 # =============================================================================

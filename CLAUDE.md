@@ -35,6 +35,7 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 3. Runs database migrations (`alembic upgrade head`)
 4. Seeds the database
 5. Installs pnpm dependencies and builds React Router app
+6. Bridges `RAILWAY_MCP_TOKEN` → `RAILWAY_API_TOKEN` and pre-links the portfolio project to `production/fastapi` so Railway MCP tools (`get-logs`, `list-deployments`, etc.) work on first try. Switch envs/services with the `link-environment` / `link-service` MCP tools.
 
 **Verification**: Check `/tmp/.claude_remote_setup_ran` exists to confirm the hook ran.
 

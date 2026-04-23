@@ -8,7 +8,8 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 
 - **Agent** (`agent.py`) — Main PydanticAI agent with tool use, sub-agents, and persistent memory
 - **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (datetime, memory, filetree, modality, triggers)
-- **Config** (`config.py`) — Models, phone IDs, rate limits, and other tunables
+- **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
+- **Model config** (`model_config.py`) — Runtime-switchable main-agent model (GPT-5.4 / Sonnet 4.6 / Opus 4.7), resolved per run via the `model_config` app_setting. `WebFetchTool` is attached only when an Anthropic model is active.
 - **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
 
 ## Documentation
