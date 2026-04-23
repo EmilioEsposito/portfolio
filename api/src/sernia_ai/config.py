@@ -6,9 +6,9 @@ Keep tunables here so they're easy to find and tweak.
 import os
 from pathlib import Path
 
-# Web search: only these domains are allowed.
-# Used by the builtin WebSearchTool (supported by Anthropic, OpenAI Responses,
-# Groq, Google, xAI, OpenRouter — see pydantic_ai.builtin_tools.WebSearchTool).
+# Web search / fetch: only these domains are allowed.
+# Used by WebSearchTool (Anthropic, OpenAI Responses, Groq, Google, xAI, OpenRouter)
+# and WebFetchTool (Anthropic, Google) — see pydantic_ai.builtin_tools.
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "zillow.com",
     "redfin.com",
@@ -28,15 +28,19 @@ WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
 ]
 
 # Compaction: trigger at ~85% of context window token estimate.
-# gpt-5.4 has a 200k context window (same as Claude Sonnet 4.6); adjust if you
-# swap to a smaller model.
+# All currently supported models (GPT-5.4, Claude Sonnet 4.6, Claude Opus 4.7)
+# have a 200k context window; adjust if adding a smaller model.
 TOKEN_COMPACTION_THRESHOLD = 170_000
 
 # Summarization: tool results larger than this (chars) get summarized by the sub-agent.
 SUMMARIZATION_CHAR_THRESHOLD = 10_000
 
-# Main agent model. Use `openai-responses:` (not `openai:`) so builtin tools
-# like WebSearchTool work — the Chat Completions API doesn't support them.
+# Default agent model used at Agent() construction. Every run site overrides
+# this via `model_config.resolve_active_run_kwargs()` — the DB-backed
+# `model_config` app_setting is the source of truth. This constant only acts
+# as a fallback if the DB lookup fails or is bypassed.
+# Keep this an `openai-responses:` model so WebSearchTool (baked in at Agent
+# construction) works on the Chat Completions-incompatible Responses API.
 MAIN_AGENT_MODEL = "openai-responses:gpt-5.4"
 
 # Sub-agent model (cheaper, no builtin tool dependency)

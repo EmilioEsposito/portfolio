@@ -3,11 +3,16 @@ Main Sernia AI agent definition.
 
 Includes memory system (workspace file tools + dynamic instructions),
 HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search).
+
+Model selection is runtime-configurable via the ``model_config`` app_setting.
+Call sites resolve the active model via ``model_config.resolve_active_run_kwargs()``
+and spread the result into ``agent.run()`` / ``VercelAIAdapter.dispatch_request()``.
+The ``model``/``model_settings`` / extra ``builtin_tools`` passed at run-time
+override what's configured here.
 """
 import logfire
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebSearchTool
-from pydantic_ai.models.openai import OpenAIResponsesModelSettings
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 
@@ -34,14 +39,6 @@ from api.src.sernia_ai.tools.code_tools import code_toolset
 from api.src.sernia_ai.tools.duckdb_tools import duckdb_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
-
-
-def _build_builtin_tools() -> list:
-    """Build builtin tools. WebSearchTool works on Anthropic, OpenAI Responses,
-    Groq, Google, xAI, and OpenRouter; safe to include unconditionally as long
-    as MAIN_AGENT_MODEL uses one of those providers.
-    """
-    return [WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)]
 
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
@@ -90,14 +87,11 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
-    # `thinking="high"` → openai_reasoning_effort='high' on Responses API.
-    # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
-    # in-memory cache to 24h so infrequent scheduled runs still hit cache.
-    model_settings=OpenAIResponsesModelSettings(
-        thinking="high",
-        openai_prompt_cache_retention="24h",
-    ),
-    builtin_tools=_build_builtin_tools(),
+    # Cross-provider baseline: WebSearchTool works on OpenAI Responses,
+    # Anthropic, Google, Groq, xAI, and OpenRouter. Provider-specific builtins
+    # (WebFetchTool on Anthropic) and model_settings come in per-run via
+    # model_config.build_run_kwargs().
+    builtin_tools=[WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)],
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace")),
         ErrorLoggingToolset(quo_toolset.prefixed("quo")),

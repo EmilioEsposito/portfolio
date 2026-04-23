@@ -28,7 +28,7 @@
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **LLM (main agent)** | Claude Sonnet 4.6 (`anthropic:claude-sonnet-4-6`) | Required for `WebSearchTool` (with `allowed_domains`) and `WebFetchTool` — Anthropic-only in PydanticAI. |
+| **LLM (main agent)** | Runtime-switchable via the `model_config` app_setting (default GPT-5.4). Supported: `openai-responses:gpt-5.4`, `anthropic:claude-sonnet-4-6`, `anthropic:claude-opus-4-7`. See `model_config.py`. | `WebSearchTool` works across all three providers. `WebFetchTool` is Anthropic-only and is added per-run only when an Anthropic model is selected. |
 | **LLM (sub-agents)** | Claude Haiku 4.5 (`anthropic:claude-haiku-4-5-20251001`) | Cost savings for summarization/compaction. |
 | **Framework** | PydanticAI (latest stable API) | `instructions` list, `FileSystemToolset`, `builtin_tools`, `history_processors`. |
 | **Code location** | `api/src/sernia_ai/` | Dedicated module. Imports from existing services. |

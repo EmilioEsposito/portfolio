@@ -61,10 +61,30 @@ interface ScheduleConfig {
   hours: number[];
 }
 
+interface ModelChoice {
+  key: string;
+  label: string;
+  provider: string;
+  cost_note: string | null;
+}
+
+interface ModelConfig {
+  model_key: string;
+}
+
 interface Settings {
   triggers_enabled: boolean;
   schedule_config: ScheduleConfig;
+  model_config: ModelConfig;
+  available_models: ModelChoice[];
 }
+
+const DEFAULT_MODEL_KEY = "gpt-5.4";
+const FALLBACK_MODELS: ModelChoice[] = [
+  { key: "gpt-5.4", label: "GPT-5.4", provider: "openai", cost_note: null },
+  { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
+  { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },
+];
 
 function SettingsMobileSidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -92,6 +112,8 @@ export default function SerniaSettingsPage() {
   const [triggersEnabled, setTriggersEnabled] = useState(false);
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [hours, setHours] = useState<number[]>([8, 11, 14, 17]);
+  const [modelKey, setModelKey] = useState<string>(DEFAULT_MODEL_KEY);
+  const [availableModels, setAvailableModels] = useState<ModelChoice[]>(FALLBACK_MODELS);
 
   // Snapshot of last-saved values to detect dirty state
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -100,7 +122,8 @@ export default function SerniaSettingsPage() {
     saved !== null &&
     (triggersEnabled !== saved.triggers_enabled ||
       JSON.stringify([...days].sort()) !== JSON.stringify([...saved.schedule_config.days_of_week].sort()) ||
-      JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()));
+      JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()) ||
+      modelKey !== saved.model_config.model_key);
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
@@ -115,6 +138,8 @@ export default function SerniaSettingsPage() {
       setTriggersEnabled(data.triggers_enabled);
       setDays(data.schedule_config.days_of_week);
       setHours(data.schedule_config.hours);
+      setModelKey(data.model_config?.model_key ?? DEFAULT_MODEL_KEY);
+      if (data.available_models?.length) setAvailableModels(data.available_models);
       setSaved(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
@@ -144,6 +169,7 @@ export default function SerniaSettingsPage() {
             days_of_week: [...days].sort(),
             hours: [...hours].sort(),
           },
+          model_config: { model_key: modelKey },
         }),
       });
       if (!res.ok) {
@@ -156,6 +182,8 @@ export default function SerniaSettingsPage() {
           days_of_week: [...days].sort(),
           hours: [...hours].sort(),
         },
+        model_config: { model_key: modelKey },
+        available_models: availableModels,
       };
       setSaved(snapshot);
       setSuccess(true);
@@ -173,6 +201,7 @@ export default function SerniaSettingsPage() {
     setTriggersEnabled(saved.triggers_enabled);
     setDays(saved.schedule_config.days_of_week);
     setHours(saved.schedule_config.hours);
+    setModelKey(saved.model_config.model_key);
   };
 
   // Toggle helpers
@@ -266,6 +295,48 @@ export default function SerniaSettingsPage() {
                   Settings saved. Schedule updated.
                 </div>
               )}
+
+              {/* Model selector */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Model</CardTitle>
+                  <CardDescription>
+                    Which LLM the agent uses for every run (web chat, SMS, scheduled checks, approvals).
+                    Anthropic models also enable the builtin web_fetch tool; OpenAI does not.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {availableModels.map((m) => {
+                      const active = modelKey === m.key;
+                      return (
+                        <button
+                          key={m.key}
+                          type="button"
+                          onClick={() => setModelKey(m.key)}
+                          className={cn(
+                            "inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors border",
+                            active
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-muted-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                          )}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    const selected = availableModels.find((m) => m.key === modelKey);
+                    if (!selected?.cost_note) return null;
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Heads up:</span> {selected.cost_note}
+                      </p>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
 
               {/* Triggers enabled */}
               <Card>
