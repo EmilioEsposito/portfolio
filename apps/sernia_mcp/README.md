@@ -40,6 +40,34 @@ uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 
 Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. The picker lists `quo_send_sms` and `google_send_email`; fill in the form and click Launch to see the approval card. **All upstream sends are mocked** — safe to use any phone/email.
 
+## Security model
+
+There are **two distinct gates** every request has to pass:
+
+| Layer | Concern | Where it's enforced |
+|------|---------|---------------------|
+| **Authentication** — *who are you?* | Validates a bearer token issued by Clerk's OAuth flow | FastMCP `ClerkProvider` (token introspection + userinfo against Clerk) |
+| **Authorization** — *should you be allowed?* | Rejects authenticated users whose email isn't on a domain allowlist | FastMCP `AuthMiddleware(auth=require_allowed_email_domain)` in `src/sernia_mcp/auth.py` |
+
+A valid Clerk token alone is **not** sufficient to use this server. Clerk's authentication confirms the user signed in successfully, but anyone with a Clerk account on the same instance (e.g. someone who signed up to the public-facing portfolio site) would otherwise be accepted. The authorization layer enforces the actual policy: only emails ending in a domain on `SERNIA_MCP_ALLOWED_EMAIL_DOMAINS` (defaults to `serniacapital.com`) can list or call tools.
+
+If the token has no `email` claim, has a malformed email, or has a domain not on the allowlist, the middleware raises `AuthorizationError` and the request is rejected before the handler runs. See `tests/test_auth.py` for the exact behavior.
+
+### Defense in depth: also restrict at Clerk
+
+The server-side allowlist is the *load-bearing* check, but you should also configure Clerk so unauthorized users can't even sign in:
+
+1. Clerk dashboard → **Restrictions** → Allowlist → add `*@serniacapital.com`.
+2. Or, on the OAuth Application specifically, restrict who can authorize it.
+
+Two layers because: (a) Clerk's UI restrictions can be bypassed by misconfiguration, and (b) the server-side check is the one your code controls and tests guard.
+
+### What's NOT enforced
+
+- **Per-user permissions** within the Sernia organization. Today, every allowed user has full access to every tool. If/when team-level scoping becomes a need, extend `require_allowed_email_domain` into a richer policy or use Clerk's organization/role claims.
+- **Rate limiting / abuse protection.** The bearer model assumes a small set of trusted users.
+- **Audit logging** beyond Logfire spans. Every `tools/call` is captured in Logfire with the full span tree, so search by user email there if you need a per-user audit trail.
+
 ## Auth — Clerk OAuth
 
 Claude Desktop / Claude.ai custom connectors require OAuth 2.1 with Dynamic Client Registration (RFC 7591). The four-var Clerk integration handles all of it:

@@ -68,6 +68,19 @@ INTERNAL_EMAIL_DOMAIN: str = os.environ.get(
     "INTERNAL_EMAIL_DOMAIN", "serniacapital.com"
 )
 
+# ---- Authorization allowlist -----------------------------------------------
+# Only authenticated users whose email matches one of these domains are
+# allowed to call MCP tools. Authentication (Clerk OAuth) is layered on top —
+# this enforces *authorization* (who is allowed) on top of authentication
+# (who they are). Comma-separated; defaults to INTERNAL_EMAIL_DOMAIN.
+ALLOWED_EMAIL_DOMAINS: tuple[str, ...] = tuple(
+    d.strip().lower()
+    for d in os.environ.get(
+        "SERNIA_MCP_ALLOWED_EMAIL_DOMAINS", INTERNAL_EMAIL_DOMAIN
+    ).split(",")
+    if d.strip()
+)
+
 # ---- SMS limits ------------------------------------------------------------
 SMS_SPLIT_THRESHOLD: int = 500
 SMS_MAX_LENGTH: int = 1000

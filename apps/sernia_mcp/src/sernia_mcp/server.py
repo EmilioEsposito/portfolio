@@ -25,12 +25,14 @@ from pathlib import Path
 
 import logfire
 from fastmcp import FastMCP
+from fastmcp.server.middleware import AuthMiddleware
 from logfire import LogfireLoggingHandler
 from mcp.types import Icon
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 
 from sernia_mcp import __version__
+from sernia_mcp.auth import require_allowed_email_domain
 from sernia_mcp.config import SERNIA_MCP_BASE_URL, clerk_oauth_configured
 
 _ICON_PATH = Path(__file__).parent / "static" / "icon.png"
@@ -92,6 +94,10 @@ mcp = FastMCP(
         ),
     ],
     auth=_build_auth_provider() if _oauth_configured else None,
+    # Authorization layer on top of Clerk authentication: only emails whose
+    # domain is in ``config.ALLOWED_EMAIL_DOMAINS`` are accepted. Even valid
+    # Clerk tokens are rejected if their email isn't on the allowlist.
+    middleware=[AuthMiddleware(auth=require_allowed_email_domain)],
 )
 
 # Side-effect imports register @mcp.tool functions on the instance above.

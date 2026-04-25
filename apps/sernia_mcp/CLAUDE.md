@@ -86,7 +86,18 @@ When upstream changes meaningfully (auth flow, schema, scopes), reflect the chan
 
 The path is captured at `config.py` import time; tests reload the module to pick up env overrides (see `tests/conftest.py`). Don't read `os.environ["SERNIA_MCP_WORKSPACE_PATH"]` ad-hoc — go through `sernia_mcp.config.WORKSPACE_PATH`.
 
-### Auth model
+### Security model — two layers, both load-bearing
+
+1. **Authentication (Clerk OAuth)** — `ClerkProvider` validates the bearer token via introspection + userinfo. A request without a valid Clerk-issued token gets a 401 with the `www-authenticate` challenge.
+2. **Authorization (email-domain allowlist)** — `AuthMiddleware(auth=require_allowed_email_domain)` rejects authenticated users whose email domain isn't in `config.ALLOWED_EMAIL_DOMAINS` (env: `SERNIA_MCP_ALLOWED_EMAIL_DOMAINS`, default `serniacapital.com`). Without this, any user who signed in to the same Clerk instance for an unrelated app would be accepted.
+
+The authorization callable lives in `src/sernia_mcp/auth.py` — it inspects `ctx.token.claims["email"]` and raises `AuthorizationError` for non-allowed domains. Test guardrails in `tests/test_auth.py` pin every allow/reject path.
+
+**When extending tool surface, do not add a new auth path.** All tools route through the same `AuthMiddleware` automatically. If you need *finer* per-tool permissions (e.g. an admin-only tool), tag the tool and add a second auth check rather than bypassing the middleware.
+
+**Recommended Clerk configuration** (defense-in-depth, not load-bearing): in the Clerk dashboard, set Restrictions → Allowlist → `*@serniacapital.com`. Even if our server-side check has a bug, Clerk won't have authenticated the user in the first place.
+
+### Auth model (provider details)
 Clerk OAuth (DCR-compatible) is the production auth. Four env vars are all-or-nothing:
 
 ```
