@@ -19,12 +19,18 @@ the same Clerk instance for an unrelated app — could call MCP tools.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import mcp.types as mt
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.resources.base import ResourceResult
-from fastmcp.server.auth.authorization import AuthContext
+from fastmcp.server.auth.authorization import AuthContext, run_auth_checks
+from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
+from fastmcp.server.providers.addressing import parse_hashed_backend_name
+from fastmcp.tools.base import ToolResult
+from fastmcp.utilities.components import FastMCPComponent
 
 from sernia_mcp.config import ALLOWED_EMAIL_DOMAINS
 
@@ -88,3 +94,37 @@ class SerniaAuthMiddleware(AuthMiddleware):
         if str(context.message.uri).startswith("ui://"):
             return await call_next(context)
         return await super().on_read_resource(context, call_next)
+
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
+        """Authorize tool calls, including hashed Apps backend tools.
+
+        FastMCP's Apps protocol routes ``CallTool`` actions fired from Prefab
+        UI buttons via *hashed backend names* — ``<12-hex>_<local_name>`` —
+        rather than the local tool name. The parent's ``on_call_tool`` does
+        ``get_tool(name)``, which doesn't resolve the hashed form, and rejects
+        the call with ``"tool not found"`` before FastMCP's app-tool
+        dispatcher can route it. That breaks every Prefab approval-card
+        button click under any ``AuthMiddleware``.
+
+        For hashed backend names we still run the global email-domain auth
+        check (``run_auth_checks``) — the user identity check shouldn't be
+        skipped — but we don't pre-resolve a component, since the dispatcher
+        in ``call_next`` resolves and routes via the hash.
+        """
+        if parse_hashed_backend_name(context.message.name) is not None:
+            token = get_access_token()
+            # No component to resolve here — the hashed dispatcher in
+            # ``call_next`` does that. The check function (require_allowed_email_domain)
+            # only inspects ``ctx.token``; the cast keeps ty happy.
+            ctx = AuthContext(token=token, component=cast(FastMCPComponent, None))
+            if not await run_auth_checks(self.auth, ctx):
+                raise AuthorizationError(
+                    f"Authorization failed for app tool '{context.message.name}': "
+                    "insufficient permissions"
+                )
+            return await call_next(context)
+        return await super().on_call_tool(context, call_next)

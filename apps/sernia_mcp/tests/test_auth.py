@@ -102,6 +102,72 @@ async def test_sernia_auth_middleware_bypasses_ui_resources():
 
 
 @pytest.mark.asyncio
+async def test_sernia_auth_middleware_allows_hashed_app_tools(monkeypatch):
+    """Hashed Apps backend tool names (``<12hex>_<local>``) must bypass the
+    parent's ``get_tool`` lookup, otherwise approval-card button clicks fail
+    with ``"tool not found"`` before FastMCP's app-tool dispatcher runs.
+    """
+    from sernia_mcp.auth import SerniaAuthMiddleware
+
+    middleware = SerniaAuthMiddleware(auth=lambda ctx: True)
+    next_call = AsyncMock(return_value="confirmed")
+    context = SimpleNamespace(
+        message=SimpleNamespace(name="abc123def456_confirm_send_sms"),
+    )
+
+    result = await middleware.on_call_tool(context, next_call)
+
+    assert result == "confirmed"
+    next_call.assert_awaited_once_with(context)
+
+
+@pytest.mark.asyncio
+async def test_sernia_auth_middleware_hashed_app_tools_still_check_auth(monkeypatch):
+    """Identity check still runs for hashed app tools — only the component
+    pre-resolve is skipped, never the email-domain check.
+    """
+    from sernia_mcp.auth import SerniaAuthMiddleware
+
+    def deny_everyone(_ctx):
+        from fastmcp.exceptions import AuthorizationError as AE
+
+        raise AE("nope")
+
+    middleware = SerniaAuthMiddleware(auth=deny_everyone)
+    next_call = AsyncMock()
+    context = SimpleNamespace(
+        message=SimpleNamespace(name="abc123def456_confirm_send_sms"),
+    )
+
+    with pytest.raises(AuthorizationError, match="nope"):
+        await middleware.on_call_tool(context, next_call)
+    next_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sernia_auth_middleware_delegates_non_hashed_tools(monkeypatch):
+    """Regular tool names still go through the parent's auth check."""
+    from sernia_mcp.auth import SerniaAuthMiddleware
+
+    parent_called_with = {}
+
+    async def fake_super(self, context, call_next):
+        parent_called_with["name"] = context.message.name
+        return "parent-result"
+
+    middleware = SerniaAuthMiddleware(auth=lambda ctx: True)
+    monkeypatch.setattr(
+        "fastmcp.server.middleware.AuthMiddleware.on_call_tool", fake_super
+    )
+
+    context = SimpleNamespace(message=SimpleNamespace(name="quo_send_sms"))
+    result = await middleware.on_call_tool(context, AsyncMock())
+
+    assert result == "parent-result"
+    assert parent_called_with["name"] == "quo_send_sms"
+
+
+@pytest.mark.asyncio
 async def test_sernia_auth_middleware_delegates_non_ui_resources(monkeypatch):
     """Non-``ui://`` URIs must still go through the parent's auth check."""
     from sernia_mcp.auth import SerniaAuthMiddleware
