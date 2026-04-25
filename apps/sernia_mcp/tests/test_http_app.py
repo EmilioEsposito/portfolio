@@ -12,12 +12,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_http_app_mcp_endpoint_responds():
-    """The /mcp/ endpoint should respond (not 404) — even unauthenticated.
-
-    Without OAuth configured we expect a 200 or 4xx (e.g. method-not-allowed
-    on a bare GET); we just want to confirm the route is mounted and the
-    ASGI lifespan started cleanly.
-    """
+    """The /mcp/ endpoint must be mounted (POST/DELETE only — GET returns 405)."""
     from sernia_mcp.server import mcp
 
     app = mcp.http_app(stateless_http=True)
@@ -29,3 +24,23 @@ async def test_http_app_mcp_endpoint_responds():
             assert resp.status_code != 404, (
                 f"/mcp/ should be mounted, got 404. Headers: {dict(resp.headers)}"
             )
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_returns_200():
+    """Railway healthcheck hits this — must respond 200 OK on GET."""
+    from sernia_mcp.server import mcp
+
+    app = mcp.http_app(stateless_http=True)
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.lifespan(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/health")
+
+    assert resp.status_code == 200, f"/health returned {resp.status_code}"
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "sernia-mcp"
+    assert "version" in body
+    assert body["auth"] in ("clerk-oauth", "unauthenticated")

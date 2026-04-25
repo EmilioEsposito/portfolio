@@ -21,7 +21,10 @@ import os
 
 import logfire
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
+from sernia_mcp import __version__
 from sernia_mcp.config import clerk_oauth_configured
 
 
@@ -63,3 +66,17 @@ import sernia_mcp.tools  # noqa: E402,F401
 from sernia_mcp.tools.approvals import approvals_app  # noqa: E402
 
 mcp.add_provider(approvals_app)
+
+
+# Plain HTTP GET endpoint for Railway's healthcheck (the MCP `/mcp/` path only
+# accepts POST/DELETE per the protocol, so it's not usable as a healthcheck).
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "status": "ok",
+            "service": "sernia-mcp",
+            "version": __version__,
+            "auth": "clerk-oauth" if _oauth_configured else "unauthenticated",
+        }
+    )

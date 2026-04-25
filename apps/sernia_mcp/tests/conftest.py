@@ -20,9 +20,15 @@ _CLERK_VARS = (
 
 @pytest.fixture(autouse=True)
 def _isolate_environment(tmp_path: Path, monkeypatch):
-    """Per-test isolation: temp workspace + cleared Clerk OAuth vars."""
+    """Per-test isolation: temp workspace + cleared Clerk OAuth vars.
+
+    We set the Clerk vars to empty strings rather than deleting them so that
+    ``load_dotenv(..., override=False)`` (which runs again on the config
+    reload below) cannot reload values from a developer's local ``.env``.
+    ``clerk_oauth_configured()`` treats empty strings as not-configured.
+    """
     for var in _CLERK_VARS:
-        monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv(var, "")
     monkeypatch.setenv("SERNIA_MCP_WORKSPACE_PATH", str(tmp_path))
 
     import importlib
