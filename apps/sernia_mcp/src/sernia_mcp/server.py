@@ -1,8 +1,10 @@
-"""FastMCP server entry point.
+"""FastMCP server: builds the ``mcp`` instance and registers tools.
 
-The ``mcp`` instance below is the entrypoint declared in ``fastmcp.json``,
-so ``fastmcp run`` (and ``fastmcp dev``) will pick it up automatically. For
-production we run via ``fastmcp run`` over HTTP — see CLAUDE.md.
+This module configures Logfire and constructs the ``FastMCP`` server (the
+``mcp`` global below). Tool modules import ``mcp`` and decorate functions
+with ``@mcp.tool``. The ASGI application that uvicorn actually serves is
+constructed in ``sernia_mcp.app`` — that module wraps ``mcp.http_app(...)``
+with a request-logging middleware.
 
 Auth: Clerk OAuth via ``ClerkProvider``. Claude Desktop / Claude.ai custom
 connectors do Dynamic Client Registration (RFC 7591) against the OAuth

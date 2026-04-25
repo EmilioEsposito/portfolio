@@ -7,7 +7,7 @@
     ]
   },
   "deploy": {
-    "startCommand": "uv run fastmcp run",
+    "startCommand": "uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",

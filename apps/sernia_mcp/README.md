@@ -24,13 +24,13 @@ Self-contained Python service, deployable as its own Railway service under `mcp.
 
 ```bash
 cd apps/sernia_mcp
-uv sync                      # creates .venv and installs deps
-cp .env.example .env         # fill in API keys; leave Clerk vars blank for unauth dev
-uv run pytest -v             # full test suite (no network)
-uv run fastmcp run           # boots HTTP on http://localhost:8080/mcp/
+uv sync                                                          # creates .venv and installs deps
+cp .env.example .env                                             # fill in API keys; leave Clerk vars blank for unauth dev
+uv run pytest -v                                                 # full test suite (no network)
+uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port 8080     # boots HTTP at http://localhost:8080/mcp/
 ```
 
-`fastmcp.json` is the canonical entrypoint config — `fastmcp run` auto-detects it. No CLI flags needed.
+`sernia_mcp.app:app` is the ASGI application — uvicorn loads it directly. The module wires a request-logging middleware so every inbound request surfaces in Logfire.
 
 ### Browser-based approval testing
 
@@ -91,7 +91,7 @@ This service deploys independently of the main FastAPI app. In Railway:
 
 1. **Project → New Service → GitHub Repo**, root directory `apps/sernia_mcp`.
 2. **Build Command**: `uv sync --frozen` (uses `uv.lock`).
-3. **Start Command**: `uv run fastmcp run` (uses `fastmcp.json`).
+3. **Start Command**: `uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT`.
 4. **Domain**: bind `mcp.sernia.ai` to this service. Set `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` to match.
 5. Set the four Clerk vars + upstream API keys per `.env.example`.
 
@@ -113,11 +113,12 @@ Future: when the MCP service is fully extracted, the workspace becomes a Git-tra
 
 ```
 apps/sernia_mcp/
-├── fastmcp.json                 # Canonical FastMCP entrypoint config
 ├── pyproject.toml               # uv project (own venv, own deps)
+├── railway_sernia_mcp.json      # Railway deploy config (start command, healthcheck)
 ├── .env.example
 ├── src/sernia_mcp/
-│   ├── server.py                # FastMCP instance + tool registration
+│   ├── app.py                   # ASGI entrypoint (uvicorn loads this)
+│   ├── server.py                # FastMCP instance + tool registration + Logfire config
 │   ├── dev_server.py            # Browser-testable mocked harness
 │   ├── config.py                # Env-driven constants
 │   ├── identity.py              # Acting-user resolution

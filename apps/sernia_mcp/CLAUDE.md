@@ -12,11 +12,12 @@ This is a **separate Railway service** from the FastAPI monorepo at `api/`. Own 
 
 ```
 apps/sernia_mcp/
-├── fastmcp.json            ← canonical entrypoint config (transport/host/port)
 ├── pyproject.toml          ← uv-managed; deps are intentionally minimal
+├── railway_sernia_mcp.json ← Railway deploy config (build/start/healthcheck)
 ├── .env.example
 ├── src/sernia_mcp/         ← all production code
-│   ├── server.py           ← FastMCP instance + tool registration entrypoint
+│   ├── app.py              ← ASGI entrypoint (uvicorn loads this)
+│   ├── server.py           ← FastMCP instance + tool registration + Logfire config
 │   ├── dev_server.py       ← browser-testable harness with mocked sends
 │   ├── config.py           ← env-driven constants; loads ./.env (no parent walking)
 │   ├── identity.py         ← acting-user resolver (POC: single user)
@@ -37,7 +38,7 @@ The `core/` layer (formerly `tool_core/` in the monorepo) has zero dependencies 
 | `uv sync` | Create `.venv/` and install deps. Run after pulling. |
 | `uv run pytest -v` | Run the full suite (~1s, no network). |
 | `uv run pytest -m live` | Live tests (require API keys; opt-in only). |
-| `uv run fastmcp run` | Boot HTTP server per `fastmcp.json` (port 8080). |
+| `uv run uvicorn sernia_mcp.app:app --port 8080` | Boot HTTP server with full inbound-request instrumentation. |
 | `uv run fastmcp dev apps src/sernia_mcp/dev_server.py` | Browser-based approval-flow harness (mocked sends). |
 | `uv run ruff check` | Lint. |
 | `uv run ruff format` | Format. |
@@ -54,7 +55,7 @@ All commands run from inside `apps/sernia_mcp/`. **Do not** activate the parent 
 - New tool? Add a smoke entry to `tests/test_smoke.py` confirming it appears in `/tools/list`, plus a unit test against the core function with mocked clients.
 - New approval flow? Mirror the patterns in `tests/test_approvals.py` (in-process `Client(FastMCP(...))` round-trip).
 - Tweaking auth or HTTP? Extend `tests/test_http_app.py` — it boots the real ASGI app via `httpx.ASGITransport` and asserts the route is reachable.
-- Boot failure? Run `uv run fastmcp run --transport http --port 8765` in the background and curl `/mcp/` with a real MCP `initialize` POST. The server's response includes `"extensions":{"io.modelcontextprotocol/ui":{}}` when Apps support is wired correctly.
+- Boot failure? Run `uv run uvicorn sernia_mcp.app:app --port 8765` in the background and curl `/mcp/` with a real MCP `initialize` POST. The server's response includes `"extensions":{"io.modelcontextprotocol/ui":{}}` when Apps support is wired correctly.
 
 The user is **not** the first line of testing. If a regression is only catchable by hand, write the test first. If a test would require API keys, add a `live` marker and skip by default — write a mocked version to cover wiring.
 
@@ -62,8 +63,7 @@ The user is **not** the first line of testing. If a regression is only catchable
 Before doing meaningful work in this repo, fetch:
 
 - https://gofastmcp.com/llms.txt — index of all docs.
-- https://gofastmcp.com/deployment/server-configuration — the `fastmcp.json` schema.
-- https://gofastmcp.com/deployment/http — production HTTP deployment patterns.
+- https://gofastmcp.com/deployment/http — production HTTP deployment patterns (we run via uvicorn, see `app.py`).
 - https://gofastmcp.com/python-sdk/fastmcp-server-auth-providers-clerk — `ClerkProvider` reference.
 
 FastMCP ships features regularly (Generative UI, Code Mode, Tool Search, middleware ecosystem). Patterns we don't use today may obsolete patterns we do.
@@ -124,9 +124,9 @@ The service deploys as its **own** Railway service.
 |---------|-------|
 | Root directory | `apps/sernia_mcp` |
 | Build command | `uv sync --frozen` |
-| Start command | `uv run fastmcp run` |
-| Public domain | `mcp.sernia.ai` |
-| Port (internal) | 8080 (matches `fastmcp.json`) |
+| Start command | `uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT` |
+| Public domain | `mcp.sernia.ai` (production), `dev.mcp.sernia.ai` (development) |
+| Port | injected as `$PORT` by Railway |
 
 Required env on Railway: the four Clerk vars + `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` + upstream API keys + `SERNIA_MCP_WORKSPACE_PATH` (for first cut, point at `/data/workspace` on a mounted Railway volume).
 
@@ -161,6 +161,7 @@ The old `api/src/sernia_mcp/` and `api/src/tool_core/` packages — plus the `/a
 ## Pointers to recent decisions
 
 - **Why a separate Railway service?** Mono FastAPI build was getting heavy and bundling MCP-only deps; future commercialization needs a clean lift-out path.
-- **Why `fastmcp.json` instead of a Procfile + uvicorn invocation?** It's the canonical config FastMCP added in 3.x — declarative, less boilerplate, and `fastmcp dev` reuses it for the inspector.
-- **Why don't we use `mcp.http_app(stateless_http=True)` directly?** `fastmcp run` does this for us when `transport: http` is set. The env override `FASTMCP_STATELESS_HTTP=true` in `fastmcp.json:deployment.env` makes this explicit for horizontal scaling on Railway.
-- **Why no Docker?** Railway's nixpacks autodetects `pyproject.toml` + `uv.lock` + the `fastmcp run` start command. A Dockerfile is only needed if we hit autodetection limits.
+- **Why uvicorn directly instead of `fastmcp run`?** `fastmcp run` builds the Starlette ASGI app internally and gives no hook to wrap it with middleware. Without that hook, inbound-request logging (and auth-flow debugging) is invisible. `app.py` exposes `app = mcp.http_app(...)` with a `_RequestLogMiddleware` already attached, then uvicorn runs it.
+- **Where did `fastmcp.json` go?** Removed. It was only consumed by `fastmcp run`, which we no longer use. The browser-based approval harness (`fastmcp dev apps src/sernia_mcp/dev_server.py`) takes its source path as a CLI arg and doesn't read `fastmcp.json`.
+- **Why `stateless_http=True`?** No per-client session state — every MCP request is self-contained. Matches the "remote agents" use case and supports horizontal scaling on Railway without session affinity.
+- **Why no Docker?** Railway's nixpacks autodetects `pyproject.toml` + `uv.lock` and we explicitly set the start command via `railway_sernia_mcp.json`. A Dockerfile is only needed if we hit autodetection limits.
