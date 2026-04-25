@@ -19,8 +19,12 @@ the same Clerk instance for an unrelated app — could call MCP tools.
 """
 from __future__ import annotations
 
+import mcp.types as mt
 from fastmcp.exceptions import AuthorizationError
+from fastmcp.resources.base import ResourceResult
 from fastmcp.server.auth.authorization import AuthContext
+from fastmcp.server.middleware import AuthMiddleware
+from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 
 from sernia_mcp.config import ALLOWED_EMAIL_DOMAINS
 
@@ -52,3 +56,35 @@ def require_allowed_email_domain(ctx: AuthContext) -> bool:
             f"access denied: email domain {domain!r} is not in the allowlist"
         )
     return True
+
+
+class SerniaAuthMiddleware(AuthMiddleware):
+    """``AuthMiddleware`` that bypasses the resource-existence check for
+    FastMCP's own ``ui://`` resources.
+
+    The parent middleware looks up the resource via ``get_resource(uri)`` and
+    raises ``"resource not found"`` when the lookup returns None. That breaks
+    the FastMCP Apps approval flow: Prefab renderer resources at
+    ``ui://prefab/tool/<hash>/renderer.html`` aren't statically registered —
+    they're synthesized on demand by ``server/providers/prefab_synthesis.py``
+    when the read request reaches the handler. The lookup returning None
+    isn't an authorization failure; it's the wrong layer trying to enforce
+    something that doesn't apply.
+
+    ``ui://`` is reserved for FastMCP-internal UI rendering (Apps + Generative
+    UI). User-defined resources use ``file://``, ``https://``, ``data://``,
+    etc., so bypassing the ``get_resource`` precheck for ``ui://`` URIs
+    doesn't widen the trust boundary — those URIs aren't user-addressable
+    surface anyway. The tool call that produced the renderer URI has already
+    passed the email-domain authorization check via the same middleware's
+    ``on_call_tool`` hook.
+    """
+
+    async def on_read_resource(
+        self,
+        context: MiddlewareContext[mt.ReadResourceRequestParams],
+        call_next: CallNext[mt.ReadResourceRequestParams, ResourceResult],
+    ) -> ResourceResult:
+        if str(context.message.uri).startswith("ui://"):
+            return await call_next(context)
+        return await super().on_read_resource(context, call_next)
