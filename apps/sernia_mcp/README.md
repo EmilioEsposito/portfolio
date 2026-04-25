@@ -55,10 +55,11 @@ If the token has no `email` claim, has a malformed email, or has a domain not on
 
 ### Defense in depth: also restrict at Clerk
 
-The server-side allowlist is the *load-bearing* check, but you should also configure Clerk so unauthorized users can't even sign in:
+The server-side allowlist is the *load-bearing* check, but there is also Clerk-level allolist Restriction:
 
-1. Clerk dashboard → **Restrictions** → Allowlist → add `*@serniacapital.com`.
-2. Or, on the OAuth Application specifically, restrict who can authorize it.
+Clerk dashboard → **Configure** → **Protect** → **Restrictions** → Allowlist → add `*@serniacapital.com`.
+* [Dev restriction](https://dashboard.clerk.com/apps/app_2tB8mbwLmtpZMrbmUza8TZKjPF3/instances/ins_2tB8mbJMmpJmKnswXgPYuFQXzG7/protect/restrictions/allowlist)
+* [Prod restriction](https://dashboard.clerk.com/apps/app_2tB8mbwLmtpZMrbmUza8TZKjPF3/instances/ins_2tDOhx9crrQuKdrgeXgUufiAQ32/protect/restrictions/allowlist)
 
 Two layers because: (a) Clerk's UI restrictions can be bypassed by misconfiguration, and (b) the server-side check is the one your code controls and tests guard.
 
