@@ -1,0 +1,23 @@
+{
+  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/v1.json",
+  "source": {
+    "type": "filesystem",
+    "path": "src/sernia_mcp/server.py",
+    "entrypoint": "mcp"
+  },
+  "environment": {
+    "type": "uv",
+    "python": "3.11",
+    "project": "."
+  },
+  "deployment": {
+    "transport": "http",
+    "host": "0.0.0.0",
+    "port": 8080,
+    "path": "/mcp/",
+    "log_level": "INFO",
+    "env": {
+      "FASTMCP_STATELESS_HTTP": "true"
+    }
+  }
+}

@@ -59,6 +59,12 @@
       "mcp__claude-in-chrome",
       "mcp__logfire"
     ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Read(.env)"
+    ],
     "ask": [
       "mcp__Railway__deploy",
       "mcp__Railway__deploy-template",
@@ -68,19 +74,13 @@
       "mcp__Railway__set-variables",
       "mcp__Railway__link-environment",
       "mcp__Railway__link-service"
-    ],
-    "deny": [
-      "Bash(rm -rf:*)",
-      "Bash(git push --force:*)",
-      "Bash(git reset --hard:*)",
-      "Read(.env)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "shadcn",
     "playwright"
   ],
-  "enableAllProjectMcpServers": true,
   "hooks": {
     "SessionStart": [
       {
@@ -104,5 +104,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "astral@astral-sh": true
   }
 }

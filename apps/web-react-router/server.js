@@ -23,35 +23,33 @@ app.use(compression());
 // Serve static assets from the client build
 app.use(express.static("build/client", { maxAge: "1h" }));
 
-// API Proxy: Forward /api/* requests to the backend
-app.use("/api", async (req, res) => {
-  const backendUrl = getBackendUrl();
-  const targetUrl = `${backendUrl}${req.originalUrl}`;
-
-  console.log(`[API Proxy] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+/**
+ * Stream-proxy a request to the backend.
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {string} targetUrl
+ * @param {string} logTag
+ */
+async function proxyToBackend(req, res, targetUrl, logTag) {
+  console.log(`[${logTag}] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
 
   try {
-    // Build headers, excluding host
     const headers = { ...req.headers };
     delete headers.host;
 
-    // Forward the request
     const response = await fetch(targetUrl, {
       method: req.method,
       headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : req,
-      duplex: "half", // Required for streaming request bodies
+      duplex: "half",
     });
 
-    // Copy response headers
     for (const [key, value] of response.headers.entries()) {
-      // Skip headers that Express will set
       if (!["content-encoding", "transfer-encoding", "content-length"].includes(key.toLowerCase())) {
         res.setHeader(key, value);
       }
     }
 
-    // Set status and stream body
     res.status(response.status);
 
     if (response.body) {
@@ -65,7 +63,7 @@ app.use("/api", async (req, res) => {
         res.end();
       };
       pump().catch((err) => {
-        console.error("[API Proxy] Stream error:", err);
+        console.error(`[${logTag}] Stream error:`, err);
         if (!res.headersSent) {
           res.status(502).json({ error: "Proxy Error", detail: err.message });
         }
@@ -74,7 +72,7 @@ app.use("/api", async (req, res) => {
       res.end();
     }
   } catch (error) {
-    console.error(`[API Proxy] Error proxying to ${targetUrl}:`, error);
+    console.error(`[${logTag}] Error proxying to ${targetUrl}:`, error);
     if (!res.headersSent) {
       res.status(502).json({
         error: "Proxy Error",
@@ -82,6 +80,13 @@ app.use("/api", async (req, res) => {
       });
     }
   }
+}
+
+// API Proxy: Forward /api/* requests to the backend
+app.use("/api", async (req, res) => {
+  const backendUrl = getBackendUrl();
+  const targetUrl = `${backendUrl}${req.originalUrl}`;
+  await proxyToBackend(req, res, targetUrl, "API Proxy");
 });
 
 // React Router handler for all other requests
