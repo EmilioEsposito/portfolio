@@ -42,7 +42,7 @@ Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. The pi
 
 ## Auth — Clerk OAuth
 
-Claude Desktop / Claude.ai custom connectors require OAuth 2.1 with Dynamic Client Registration. The four-var Clerk integration handles all of it:
+Claude Desktop / Claude.ai custom connectors require OAuth 2.1 with Dynamic Client Registration (RFC 7591). The four-var Clerk integration handles all of it:
 
 ```bash
 FASTMCP_SERVER_AUTH_CLERK_DOMAIN=your-instance.clerk.accounts.dev
@@ -51,12 +51,30 @@ FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET=<from Clerk OAuth app>
 SERNIA_MCP_BASE_URL=https://mcp.sernia.ai
 ```
 
-If any of the four are missing the server runs **unauthenticated** — useful for local dev, never expose this state publicly. See [docs/CLERK_SETUP.md](docs/CLERK_SETUP.md) for the one-time Clerk dashboard configuration.
+If any of the four are missing the server runs **unauthenticated** — useful for local dev, never expose this state publicly.
+
+### Callback URIs — there are two; only one of them is yours to register
+
+Source of confusion: the OAuth flow has two redirect URIs in play. Only the first one belongs in the Clerk dashboard.
+
+**1. The MCP server's own redirect URI** — register this in Clerk OAuth Application → Authorized redirect URIs:
+
+```
+https://mcp.sernia.ai/auth/callback           # production
+https://dev.mcp.sernia.ai/auth/callback       # dev environment
+http://localhost:8080/auth/callback           # local, only if testing the full OAuth flow
+```
+
+These are FastMCP's `ClerkProvider` callback — Clerk redirects here after the user signs in, and the provider then hands the auth code back to the MCP client. The path `/auth/callback` is hardcoded by `ClerkProvider`; change it by changing `SERNIA_MCP_BASE_URL`, not the path.
+
+**2. The MCP client's redirect URI** — *don't register this manually*.
+
+When Claude Desktop / Claude.ai connect for the first time, they hit our `/register` endpoint and Dynamic-Client-Register themselves with Clerk, declaring their own callback (e.g. `https://claude.ai/api/mcp/auth_callback` for Claude.ai). Clerk shows you that URL on its consent screen so you can verify the client's identity before clicking Allow Access — but you do not pre-register it. Each MCP client (Claude.ai, Claude Desktop, ChatGPT, VS Code, etc.) will declare its own.
 
 ### Connecting Claude Desktop
 
 1. Settings → Connectors → **Add custom connector**.
-2. URL: `https://mcp.sernia.ai/mcp/` (the trailing slash matters).
+2. URL: `https://mcp.sernia.ai/mcp/` (or `https://dev.mcp.sernia.ai/mcp/` for dev). The trailing slash matters.
 3. Leave the optional OAuth Client ID / Secret fields blank — the server announces DCR via `/register`.
 4. Click Add. Claude opens Clerk's hosted sign-in; sign in with your @serniacapital.com Google account; Clerk redirects back; Claude now has a token.
 

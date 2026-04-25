@@ -98,6 +98,11 @@ SERNIA_MCP_BASE_URL
 
 If any one is missing, `clerk_oauth_configured()` returns False and the server boots **unauthenticated**. That's intentional for local dev. **Never expose unauth state to the public internet** — Railway should always have all four set.
 
+**Two callback URIs, only one to register.** The OAuth flow has two redirect URIs and they're easy to confuse:
+
+- **Server-side (you register this in Clerk):** `{SERNIA_MCP_BASE_URL}/auth/callback` — Clerk redirects here after the user signs in. Path is hardcoded by FastMCP's `ClerkProvider`; only `SERNIA_MCP_BASE_URL` changes. Add one entry per env (`https://dev.mcp.sernia.ai/auth/callback`, `https://mcp.sernia.ai/auth/callback`, optionally `http://localhost:8080/auth/callback`).
+- **Client-side (don't register; informational only):** Each MCP client (Claude.ai, Claude Desktop, ChatGPT, VS Code) declares its own callback (e.g. `https://claude.ai/api/mcp/auth_callback`) when it Dynamic-Client-Registers via our `/register` endpoint. Clerk's consent screen displays it so you can verify the client; clicking Allow Access is the right action.
+
 ### Approval flow (HITL via FastMCP Apps)
 Destructive sends (`quo_send_sms`, `google_send_email`) are gated through the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension using a deterministic tool-visibility split:
 

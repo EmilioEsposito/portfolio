@@ -27,13 +27,29 @@ from starlette.responses import JSONResponse
 from sernia_mcp import __version__
 from sernia_mcp.config import clerk_oauth_configured
 
+# Configure Logfire once at module import. With LOGFIRE_TOKEN set this ships
+# traces to the `sernia-mcp` service in the Logfire portfolio project; without
+# it the call is a no-op (no warning, no telemetry). httpx covers all upstream
+# calls (Quo, ClickUp, Google).
+logfire.configure(
+    service_name="sernia-mcp",
+    environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "local"),
+    send_to_logfire="if-token-present",
+)
+logfire.instrument_httpx()
+
 
 def _build_auth_provider():
     """Construct a ClerkProvider from env. Called only when fully configured."""
     from fastmcp.server.auth.providers.clerk import ClerkProvider
 
+    domain = os.environ["FASTMCP_SERVER_AUTH_CLERK_DOMAIN"]
+    if "://" in domain:
+        raise RuntimeError(
+            f"FASTMCP_SERVER_AUTH_CLERK_DOMAIN must be a bare hostname, got {domain!r}"
+        )
     return ClerkProvider(
-        domain=os.environ["FASTMCP_SERVER_AUTH_CLERK_DOMAIN"],
+        domain=domain,
         client_id=os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID"],
         client_secret=os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET"],
         base_url=os.environ["SERNIA_MCP_BASE_URL"],

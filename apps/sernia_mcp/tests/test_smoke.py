@@ -50,3 +50,20 @@ async def test_clerk_oauth_flag_default_off_in_tests():
     from sernia_mcp.config import clerk_oauth_configured
 
     assert clerk_oauth_configured() is False
+
+
+def test_clerk_domain_with_scheme_rejected(monkeypatch):
+    """A scheme prefix in the Clerk domain would produce doubled OAuth URLs.
+    The auth-provider builder must fail loudly so deploy logs catch it.
+    """
+    import pytest
+
+    monkeypatch.setenv("FASTMCP_SERVER_AUTH_CLERK_DOMAIN", "https://example.clerk.accounts.dev")
+    monkeypatch.setenv("FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID", "x")
+    monkeypatch.setenv("FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET", "y")
+    monkeypatch.setenv("SERNIA_MCP_BASE_URL", "https://example.com")
+
+    from sernia_mcp.server import _build_auth_provider
+
+    with pytest.raises(RuntimeError, match="bare hostname"):
+        _build_auth_provider()
