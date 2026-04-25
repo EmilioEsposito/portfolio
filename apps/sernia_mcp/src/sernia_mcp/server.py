@@ -21,15 +21,19 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import logfire
 from fastmcp import FastMCP
 from logfire import LogfireLoggingHandler
+from mcp.types import Icon
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 
 from sernia_mcp import __version__
-from sernia_mcp.config import clerk_oauth_configured
+from sernia_mcp.config import SERNIA_MCP_BASE_URL, clerk_oauth_configured
+
+_ICON_PATH = Path(__file__).parent / "static" / "icon.png"
 
 # Configure Logfire once at module import. With LOGFIRE_TOKEN set this ships
 # traces to the `sernia-mcp` service in the Logfire portfolio project; without
@@ -80,6 +84,13 @@ mcp = FastMCP(
         "without UI approval are not possible — clients that can't render the "
         "approval card cannot reach the underlying send tools."
     ),
+    icons=[
+        Icon(
+            src=f"{SERNIA_MCP_BASE_URL.rstrip('/')}/icon.png",
+            mimeType="image/png",
+            sizes=["379x379"],
+        ),
+    ],
     auth=_build_auth_provider() if _oauth_configured else None,
 )
 
@@ -92,7 +103,7 @@ from sernia_mcp.tools.approvals import approvals_app  # noqa: E402
 mcp.add_provider(approvals_app)
 
 
-# Plain HTTP GET endpoint for Railway's healthcheck (the MCP `/mcp/` path only
+# Plain HTTP GET endpoint for Railway's healthcheck (the MCP `/mcp` path only
 # accepts POST/DELETE per the protocol, so it's not usable as a healthcheck).
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
@@ -104,3 +115,10 @@ async def health(_request: Request) -> JSONResponse:
             "auth": "clerk-oauth" if _oauth_configured else "unauthenticated",
         }
     )
+
+
+# Static icon. The MCP protocol's server-level ``icons`` field references this
+# URL; clients (Claude Desktop, etc.) render it next to the connector name.
+@mcp.custom_route("/icon.png", methods=["GET"])
+async def icon(_request: Request) -> FileResponse:
+    return FileResponse(_ICON_PATH, media_type="image/png")

@@ -32,6 +32,22 @@ async def test_mcp_endpoint_no_redirect_on_canonical_path():
 
 
 @pytest.mark.asyncio
+async def test_icon_endpoint_serves_png():
+    """``/icon.png`` must serve the PNG referenced by the MCP server icons field."""
+    from sernia_mcp.app import app as application
+
+    transport = httpx.ASGITransport(app=application)
+
+    async with application.lifespan(application):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/icon.png")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/png")
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.asyncio
 async def test_health_endpoint_returns_200():
     """Railway healthcheck hits this — must respond 200 OK on GET."""
     from sernia_mcp.app import app as application
