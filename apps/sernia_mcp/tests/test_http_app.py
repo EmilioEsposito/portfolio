@@ -11,30 +11,34 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_http_app_mcp_endpoint_responds():
-    """The /mcp/ endpoint must be mounted (POST/DELETE only — GET returns 405)."""
-    from sernia_mcp.server import mcp
+async def test_mcp_endpoint_no_redirect_on_canonical_path():
+    """``POST /mcp`` must respond directly (not 307) — Claude posts there.
 
-    app = mcp.http_app(stateless_http=True)
-    transport = httpx.ASGITransport(app=app)
+    A 307 here would cause the connector to fail post-auth: many HTTP clients
+    drop the Authorization header when following redirects, so the redirected
+    request would arrive unauthenticated and the bearer challenge would loop.
+    """
+    from sernia_mcp.app import app as application
 
-    async with app.lifespan(app):
+    transport = httpx.ASGITransport(app=application)
+
+    async with application.lifespan(application):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/mcp/")
-            assert resp.status_code != 404, (
-                f"/mcp/ should be mounted, got 404. Headers: {dict(resp.headers)}"
+            resp = await client.post("/mcp", content=b"{}")
+            assert resp.status_code != 307, (
+                f"POST /mcp should not redirect, got 307 → {resp.headers.get('location')}"
             )
+            assert resp.status_code != 404, "POST /mcp should be mounted, got 404"
 
 
 @pytest.mark.asyncio
 async def test_health_endpoint_returns_200():
     """Railway healthcheck hits this — must respond 200 OK on GET."""
-    from sernia_mcp.server import mcp
+    from sernia_mcp.app import app as application
 
-    app = mcp.http_app(stateless_http=True)
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx.ASGITransport(app=application)
 
-    async with app.lifespan(app):
+    async with application.lifespan(application):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/health")
 

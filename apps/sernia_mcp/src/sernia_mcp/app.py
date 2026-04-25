@@ -49,8 +49,13 @@ class _RequestLogMiddleware(BaseHTTPMiddleware):
             return response
 
 
+# Path is `/mcp` with no trailing slash — Claude (and the MCP spec at
+# modelcontextprotocol.io) POSTs to that exact URL. Mounting at `/mcp/`
+# would force a 307 redirect on every Claude request; many HTTP clients
+# drop the Authorization header when following redirects, so the redirected
+# request lands unauthenticated and the connector reports an auth failure.
 app = mcp.http_app(
-    path="/mcp/",
+    path="/mcp",
     stateless_http=True,
     transport="http",
     middleware=[Middleware(_RequestLogMiddleware)],
