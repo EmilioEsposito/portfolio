@@ -17,10 +17,12 @@ expose this state to a public network.
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import logfire
 from fastmcp import FastMCP
+from logfire import LogfireLoggingHandler
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -29,14 +31,18 @@ from sernia_mcp.config import clerk_oauth_configured
 
 # Configure Logfire once at module import. With LOGFIRE_TOKEN set this ships
 # traces to the `sernia-mcp` service in the Logfire portfolio project; without
-# it the call is a no-op (no warning, no telemetry). httpx covers all upstream
-# calls (Quo, ClickUp, Google).
+# it the call is a no-op (no warning, no telemetry).
 logfire.configure(
     service_name="sernia-mcp",
     environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "local"),
     send_to_logfire="if-token-present",
 )
+# httpx instrumentation covers upstream calls (Quo, ClickUp, Google, Clerk).
 logfire.instrument_httpx()
+# Capture stdlib logging — FastMCP, Starlette, mcp-python-sdk all use it. This
+# is the only way to see internal auth-flow errors (e.g. token validation,
+# audience mismatch) since those don't go through httpx.
+logging.getLogger().addHandler(LogfireLoggingHandler(level=logging.INFO))
 
 
 def _build_auth_provider():
