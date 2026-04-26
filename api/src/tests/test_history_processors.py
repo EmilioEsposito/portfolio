@@ -456,6 +456,58 @@ class TestSummarizeToolResults:
         assert len(captured_prompt) <= _MAX_SUMMARIZER_INPUT_CHARS + 200  # some overhead for prefix
 
     @pytest.mark.asyncio
+    async def test_workspace_tool_results_never_summarized(self):
+        """Workspace_* tool results are kept verbatim even when oversized.
+
+        Summarizing them caused the agent to re-read the same files on subsequent
+        turns since Haiku stubs lose the literal content the model was relying on.
+        """
+        big_workspace_read = "# Workspace File\n" + ("important fact " * 5000)
+        assert len(big_workspace_read) > SUMMARIZATION_CHAR_THRESHOLD
+
+        messages: list[ModelMessage] = [
+            _user_msg("Read the tenants area file"),
+            _tool_call_response("workspace_read", "tc1"),
+            _tool_return_request("workspace_read", big_workspace_read, "tc1"),
+            _assistant_msg("Read the file"),
+            _user_msg("What did it say?"),
+        ]
+
+        ctx = _make_ctx()
+        with patch(
+            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
+        ) as mock_agent:
+            mock_agent.run = AsyncMock()
+            result = await summarize_tool_results(ctx, messages)
+            mock_agent.run.assert_not_called()
+
+        assert result[2].parts[0].content == big_workspace_read
+
+    @pytest.mark.asyncio
+    async def test_search_files_result_never_summarized(self):
+        """The custom search_files tool result is also kept verbatim."""
+        big_search = "\n".join(f"/workspace/areas/x.md:{i}: line content" for i in range(5000))
+        assert len(big_search) > SUMMARIZATION_CHAR_THRESHOLD
+
+        messages: list[ModelMessage] = [
+            _user_msg("Search for tenant info"),
+            _tool_call_response("search_files", "tc1"),
+            _tool_return_request("search_files", big_search, "tc1"),
+            _assistant_msg("Here are the matches"),
+            _user_msg("OK"),
+        ]
+
+        ctx = _make_ctx()
+        with patch(
+            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
+        ) as mock_agent:
+            mock_agent.run = AsyncMock()
+            result = await summarize_tool_results(ctx, messages)
+            mock_agent.run.assert_not_called()
+
+        assert result[2].parts[0].content == big_search
+
+    @pytest.mark.asyncio
     async def test_mixed_small_and_large_results(self):
         """Only oversized results get summarized; small ones in same history are untouched."""
         small_result = _fake_clickup_tasks(3)
