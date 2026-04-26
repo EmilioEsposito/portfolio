@@ -202,9 +202,25 @@ internal contacts) do NOT require approval.
 # Files to hide from the filetree (internal plumbing)
 _HIDDEN_NAMES = {".git", ".gitkeep"}
 
+# Directories rendered as "name/ (N files)" instead of expanded.
+# High-volume dated content the agent should reach for via search/list, not
+# discover by skimming the tree (which historically tempted needless reads).
+_COLLAPSED_DIRS = {"daily_notes"}
 
-def _build_filetree(root: Path, prefix: str = "") -> str:
-    """Build an ASCII filetree of the workspace directory."""
+
+def _count_entries(directory: Path) -> int:
+    try:
+        return sum(1 for _ in directory.iterdir())
+    except OSError:
+        return 0
+
+
+def _build_filetree(root: Path, prefix: str = "", depth: int = 0) -> str:
+    """Build an ASCII filetree of the workspace directory.
+
+    Top-level directories listed in `_COLLAPSED_DIRS` render as
+    `name/ (N entries)` to keep the tree compact and reduce tool-call temptation.
+    """
     lines: list[str] = []
     try:
         entries = sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name))
@@ -213,10 +229,14 @@ def _build_filetree(root: Path, prefix: str = "") -> str:
     entries = [e for e in entries if e.name not in _HIDDEN_NAMES]
     for i, entry in enumerate(entries):
         connector = "└── " if i == len(entries) - 1 else "├── "
+        if entry.is_dir() and depth == 0 and entry.name in _COLLAPSED_DIRS:
+            count = _count_entries(entry)
+            lines.append(f"{prefix}{connector}{entry.name}/ ({count} entries)")
+            continue
         lines.append(f"{prefix}{connector}{entry.name}")
         if entry.is_dir():
             extension = "    " if i == len(entries) - 1 else "│   "
-            lines.append(_build_filetree(entry, prefix + extension))
+            lines.append(_build_filetree(entry, prefix + extension, depth + 1))
     return "\n".join(line for line in lines if line)
 
 

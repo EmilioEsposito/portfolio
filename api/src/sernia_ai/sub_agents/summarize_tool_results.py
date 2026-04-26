@@ -36,6 +36,18 @@ _summarizer = Agent(
 # Cap input to the summarizer to protect Haiku's context
 _MAX_SUMMARIZER_INPUT_CHARS = 50_000
 
+# Tool results we never summarize. Workspace reads return small, capped content
+# the agent needs verbatim to avoid re-reading the same file on subsequent turns
+# (Haiku-stubbed reads were the dominant cause of repeated workspace_read calls).
+_NEVER_SUMMARIZE_PREFIXES: tuple[str, ...] = ("workspace_",)
+_NEVER_SUMMARIZE_NAMES: frozenset[str] = frozenset({"search_files"})
+
+
+def _should_skip_summarization(tool_name: str) -> bool:
+    if tool_name in _NEVER_SUMMARIZE_NAMES:
+        return True
+    return any(tool_name.startswith(p) for p in _NEVER_SUMMARIZE_PREFIXES)
+
 # Stable summary cache keyed by tool_call_id (unique per Anthropic tool call across all
 # runs/processes). Pydantic-AI's history_processors run before EVERY model request,
 # including each tool-loop iteration within a single run, and Haiku output is non-
@@ -125,6 +137,8 @@ async def summarize_tool_results(
         if isinstance(msg, ModelRequest):
             for part_idx, part in enumerate(msg.parts):
                 if isinstance(part, ToolReturnPart):
+                    if _should_skip_summarization(part.tool_name):
+                        continue
                     content_str = str(part.content) if not isinstance(part.content, str) else part.content
                     if len(content_str) > SUMMARIZATION_CHAR_THRESHOLD:
                         oversized.append((msg_idx, part_idx, part))
