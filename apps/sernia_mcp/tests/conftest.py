@@ -36,8 +36,9 @@ def _isolate_environment(tmp_path: Path, monkeypatch):
     import sernia_mcp.config as _config
 
     importlib.reload(_config)
-    import sernia_mcp.core.workspace.files as _files
+    # Modules that captured ``WORKSPACE_PATH`` at import time also need a reload.
+    import sernia_mcp.core.skills as _skills
 
-    importlib.reload(_files)
+    importlib.reload(_skills)
     yield
     os.environ.pop("SERNIA_MCP_WORKSPACE_PATH", None)

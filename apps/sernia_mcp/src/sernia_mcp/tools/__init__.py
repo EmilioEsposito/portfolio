@@ -3,4 +3,4 @@
 Importing this package registers all tools on the global ``mcp`` instance.
 The ``server`` module triggers this import after constructing ``mcp``.
 """
-from sernia_mcp.tools import clickup, google, quo, workspace  # noqa: F401
+from sernia_mcp.tools import clickup, context, google, quo  # noqa: F401

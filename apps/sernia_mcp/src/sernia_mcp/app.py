@@ -18,12 +18,15 @@ This module exposes a single ``app`` callable that:
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 
 import logfire
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from sernia_mcp.clients.git_sync import ensure_repo
+from sernia_mcp.config import WORKSPACE_PATH
 from sernia_mcp.server import mcp
 
 
@@ -60,3 +63,25 @@ app = mcp.http_app(
     transport="http",
     middleware=[Middleware(_RequestLogMiddleware)],
 )
+
+
+_inner_lifespan = app.router.lifespan_context
+
+
+@asynccontextmanager
+async def _wrapped_lifespan(asgi_app):
+    """Pull the knowledge workspace from GitHub before FastMCP's session
+    manager starts. ``ensure_repo`` is a no-op when
+    ``GITHUB_EMILIO_PERSONAL_WRITE_PAT`` is unset (tests + dev), so this is
+    safe to wire unconditionally. Errors during pull are logged but never
+    crash the server — the workspace falls back to whatever's on local disk.
+    """
+    try:
+        await ensure_repo(WORKSPACE_PATH)
+    except Exception:
+        logfire.exception("git_sync: ensure_repo failed during startup (non-fatal)")
+    async with _inner_lifespan(asgi_app):
+        yield
+
+
+app.router.lifespan_context = _wrapped_lifespan

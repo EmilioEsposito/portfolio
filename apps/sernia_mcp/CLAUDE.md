@@ -75,16 +75,22 @@ FastMCP ships features regularly (Generative UI, Code Mode, Tool Search, middlew
 - `clients/gmail.py` ← `api/src/google/gmail/service.py` (only send + read primitives; no watch/history webhook plumbing)
 - `clients/quo.py` ← `api/src/open_phone/service.py` (only contact read + cache; drops DB sync)
 - `clients/_fuzzy.py` ← `api/src/utils/fuzzy_json.py` (verbatim)
+- `clients/git_sync.py` ← `api/src/sernia_ai/memory/git_sync.py` (commit-author and commit-message prefixes changed from `agent:` → `mcp:` so the GitHub history shows which service edited what; logic identical)
 
 When upstream changes meaningfully (auth flow, schema, scopes), reflect the change here — but keep the diff minimal. The drift is acceptable for v1; the alternative (path-installing `api/`) defeats the self-contained model.
 
 ### Workspace storage
-`workspace_read` / `workspace_write` operate on `SERNIA_MCP_WORKSPACE_PATH`. Two valid configurations:
+The MCP server's knowledge surface (`MEMORY.md` + `skills/<name>/SKILL.md`) is **git-backed and shared with the Sernia AI agent** through the private `EmilioEsposito/sernia-knowledge` GitHub repo. Both services clone, pull, and push to the same repo, so edits flow between them transparently.
 
-1. **Standalone**: a directory owned by this service (e.g. mounted volume on Railway).
-2. **Shared during migration**: pointed at `api/src/sernia_ai/workspace/` so the Sernia AI agent and the MCP server read/write the same MEMORY.md, skills/, etc.
+Wiring:
 
-The path is captured at `config.py` import time; tests reload the module to pick up env overrides (see `tests/conftest.py`). Don't read `os.environ["SERNIA_MCP_WORKSPACE_PATH"]` ad-hoc — go through `sernia_mcp.config.WORKSPACE_PATH`.
+- **At startup** — `app.py` wraps the FastMCP lifespan to call `ensure_repo(WORKSPACE_PATH)` before serving traffic. This either clones the repo into the workspace dir (first boot) or pulls latest (subsequent boots). Failures are logged but never crash the server.
+- **After every `edit_resource` write** — `tools/context.py` schedules a fire-and-forget `commit_and_push(WORKSPACE_PATH)` task. Lock-serialized within the process; the git_sync code handles cross-service merge conflicts (they pull-before-push).
+- **No PAT, no sync** — without `GITHUB_EMILIO_PERSONAL_WRITE_PAT` set, both `ensure_repo` and `commit_and_push` no-op. Tests run that way; local dev can too. **Production must always have the PAT set** or the workspace becomes ephemeral on each Railway redeploy.
+
+The path itself comes from `SERNIA_MCP_WORKSPACE_PATH` (default `./workspace`). It's captured at `config.py` import time; tests reload the module to pick up env overrides (see `tests/conftest.py`). Don't read `os.environ["SERNIA_MCP_WORKSPACE_PATH"]` ad-hoc — go through `sernia_mcp.config.WORKSPACE_PATH`.
+
+Concurrency caveat: if both this MCP service AND the sernia_ai agent push to the repo at the same time, one of them will hit a non-fast-forward error. The git_sync code handles this by pulling-before-pushing and committing any merge conflicts as-is. In practice writes are infrequent enough that this is rarely exercised, but if you see weird `agent: commit conflicted files from merge` commits on GitHub, that's why.
 
 ### Security model — two layers, both load-bearing
 

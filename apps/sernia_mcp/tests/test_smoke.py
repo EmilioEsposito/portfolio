@@ -26,8 +26,8 @@ async def test_expected_tools_exposed():
         names = {t.name for t in await c.list_tools()}
 
     expected_visible = {
-        "workspace_read",
-        "workspace_write",
+        "sernia_context",
+        "edit_resource",
         "quo_search_contacts",
         "quo_get_thread_messages",
         "google_search_emails",

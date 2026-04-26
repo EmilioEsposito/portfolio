@@ -38,6 +38,17 @@ def clerk_oauth_configured() -> bool:
     return all(os.environ.get(k) for k in _CLERK_ENV_VARS)
 
 
+# ---- Local-dev auth bypass --------------------------------------------------
+# Setting this to a truthy value disables Clerk auth on the MCP server, even
+# when the four Clerk env vars are configured. Intended for local exploration
+# (MCP Inspector, curl, etc.) where the OAuth dance is just friction. The
+# server raises at boot if this flag is set in a hosted environment — see
+# ``server._disable_auth_requested``.
+SERNIA_MCP_DISABLE_AUTH: bool = os.environ.get(
+    "SERNIA_MCP_DISABLE_AUTH", ""
+).strip().lower() in ("1", "true", "yes")
+
+
 # ---- Identity --------------------------------------------------------------
 GOOGLE_DELEGATION_EMAIL: str = os.environ.get(
     "SERNIA_MCP_DEFAULT_USER", "emilio@serniacapital.com"

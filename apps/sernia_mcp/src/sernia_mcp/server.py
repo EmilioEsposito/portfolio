@@ -32,7 +32,11 @@ from starlette.responses import FileResponse, JSONResponse
 
 from sernia_mcp import __version__
 from sernia_mcp.auth import SerniaAuthMiddleware, require_allowed_email_domain
-from sernia_mcp.config import SERNIA_MCP_BASE_URL, clerk_oauth_configured
+from sernia_mcp.config import (
+    SERNIA_MCP_BASE_URL,
+    SERNIA_MCP_DISABLE_AUTH,
+    clerk_oauth_configured,
+)
 
 _ICON_PATH = Path(__file__).parent / "static" / "icon.png"
 
@@ -69,8 +73,33 @@ def _build_auth_provider():
     )
 
 
-_oauth_configured = clerk_oauth_configured()
-if not _oauth_configured:
+def _disable_auth_requested() -> bool:
+    """Return True if local-dev auth bypass is requested AND safe to honor.
+
+    The kill switch (``SERNIA_MCP_DISABLE_AUTH``) is for local exploration
+    only — never to be set on a deployed service. We detect "deployed" via
+    Railway's standard ``RAILWAY_ENVIRONMENT_NAME`` env var. If the flag is
+    set in a hosted env, refuse to boot rather than silently exposing an
+    unauthenticated MCP endpoint.
+    """
+    if not SERNIA_MCP_DISABLE_AUTH:
+        return False
+    if os.environ.get("RAILWAY_ENVIRONMENT_NAME"):
+        raise RuntimeError(
+            "SERNIA_MCP_DISABLE_AUTH must not be set in a hosted env "
+            "(RAILWAY_ENVIRONMENT_NAME is present). This is a local-dev "
+            "kill switch for unauthenticated MCP exploration."
+        )
+    return True
+
+
+_oauth_configured = clerk_oauth_configured() and not _disable_auth_requested()
+if SERNIA_MCP_DISABLE_AUTH:
+    logfire.warn(
+        "sernia_mcp: SERNIA_MCP_DISABLE_AUTH=true — Clerk auth bypassed. "
+        "LOCAL DEV ONLY. Never set in production."
+    )
+elif not _oauth_configured:
     logfire.warn(
         "sernia_mcp: Clerk OAuth env vars not set — server will run UNAUTHENTICATED. "
         "Acceptable for local dev and tests; never expose this state publicly."

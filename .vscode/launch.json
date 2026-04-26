@@ -52,6 +52,96 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true
+        },
+        {
+            // Boot the Sernia MCP server with the debugger attached.
+            // Hit it from Claude Desktop / claude.ai / curl / any MCP inspector.
+            // Clerk env vars from apps/sernia_mcp/.env determine whether auth is required;
+            // leave them blank for unauthenticated local exploration.
+            "name": "Sernia MCP Server",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "sernia_mcp.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8090",
+                "--reload"
+            ],
+            "cwd": "${workspaceFolder}/apps/sernia_mcp",
+            "envFile": "${workspaceFolder}/apps/sernia_mcp/.env",
+            "python": "${workspaceFolder}/apps/sernia_mcp/.venv/bin/python",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                // Disable Clerk auth on the LOCAL MCP server so the Inspector
+                // (and curl, and any other MCP client) can connect without an
+                // OAuth dance. The server-side guard refuses to boot if this
+                // flag is ever set on Railway, so it can't escape to prod.
+                "SERNIA_MCP_DISABLE_AUTH": "true"
+            }
+        },
+        {
+            // Official MCP Inspector (https://github.com/modelcontextprotocol/inspector).
+            // Launches via npx and auto-opens the browser UI. In the connect form, pick
+            // `Streamable HTTP`, paste `http://localhost:8090/mcp`, and click Connect to
+            // explore tools, resources, prompts of a running MCP server. Pair with the
+            // `Sernia MCP Server` launcher (or the compound) to have a server on 8090 first.
+            //
+            // DANGEROUSLY_OMIT_AUTH=true disables the inspector's *proxy* session-token
+            // requirement (separate from any auth on the MCP server itself). This is OK
+            // for localhost-only dev: the proxy token exists to prevent cross-site attacks
+            // tunneling through a locally-running inspector. We bind to localhost only and
+            // open the inspector ourselves, so the threat doesn't apply.
+            "name": "MCP Inspector (Official)",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npx",
+            "runtimeArgs": [
+                "-y",
+                "@modelcontextprotocol/inspector"
+            ],
+            "env": {
+                "DANGEROUSLY_OMIT_AUTH": "true"
+            },
+            "console": "integratedTerminal",
+            "serverReadyAction": {
+                "pattern": "MCP Inspector is up and running at (https?://[^\\s]+)",
+                "uriFormat": "%s",
+                "action": "openExternally"
+            }
+        },
+        {
+            // FastMCP browser inspector pointed at the dev_server harness.
+            // Only the approval-card flow (quo_send_sms / google_send_email) is wired,
+            // and upstream sends are mocked — safe to exercise with any phone/email.
+            // Inspector opens at http://localhost:8081/.
+            "name": "Sernia MCP — Approval Card Harness",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/sernia_mcp/.venv/bin/fastmcp",
+            "args": [
+                "dev",
+                "apps",
+                "src/sernia_mcp/dev_server.py",
+                "--mcp-port",
+                "8123",
+                "--dev-port",
+                "8081",
+                "--no-reload"
+            ],
+            "cwd": "${workspaceFolder}/apps/sernia_mcp",
+            "envFile": "${workspaceFolder}/apps/sernia_mcp/.env",
+            "python": "${workspaceFolder}/apps/sernia_mcp/.venv/bin/python",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "serverReadyAction": {
+                "pattern": "http://localhost:(8081)",
+                "uriFormat": "http://localhost:8081/",
+                "action": "openExternally"
+            }
         }
     ],
     "compounds": [
@@ -64,6 +154,33 @@
             "presentation": {
                 "hidden": false,
                 "group": "fullstack",
+                "order": 1
+            },
+            "stopAll": true
+        },
+        {
+            "name": "Full Stack + Sernia MCP (Compound)",
+            "configurations": [
+                "FastAPI Backend",
+                "React Router Frontend",
+                "Sernia MCP Server"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "fullstack",
+                "order": 2
+            },
+            "stopAll": true
+        },
+        {
+            "name": "Sernia MCP + Inspector (Compound)",
+            "configurations": [
+                "Sernia MCP Server",
+                "MCP Inspector (Official)"
+            ],
+            "presentation": {
+                "hidden": false,
+                "group": "sernia-mcp",
                 "order": 1
             },
             "stopAll": true
