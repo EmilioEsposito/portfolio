@@ -140,7 +140,7 @@ All in `instructions.py`, passed as `instructions=[STATIC_INSTRUCTIONS, *DYNAMIC
 | Function | What it injects |
 |----------|----------------|
 | `inject_context` | Current datetime (ET) + user name + modality |
-| `inject_memory` | `.workspace/MEMORY.md` content (capped at 5k chars) |
+| `inject_memory` | `.workspace/MEMORY.md` content (verbatim; warns past 100K chars) |
 | `inject_filetree` | ASCII tree of `.workspace/` (capped at 3k chars) |
 | `inject_modality_guidance` | SMS: short/direct, email: formal, web_chat: conversational |
 
@@ -320,7 +320,8 @@ All workspace content (memory, areas, skills) lives in the `sernia-knowledge` gi
 This is enforced by:
 - `reload_skills()` — per-directory try/except, broken skill directories are skipped
 - `refresh_skills_before_run` decorator — wraps reload in try/except, agent runs with stale skills on failure
-- `inject_memory` / `inject_filetree` — capped reads with fallback to empty string
+- `inject_memory` — verbatim read with fallback to empty string (logs warning past sanity threshold)
+- `inject_filetree` — capped read with fallback to empty string
 - `ErrorLoggingToolset` — workspace tool errors return error strings, never raise
 
 ### Git-Backed Sync

@@ -361,7 +361,7 @@ def analyze_system_prompt():
     print(f"\n  The system prompt is composed of:")
     print(f"    - Static instructions: ~2,000-2,500 tokens (role, rules, tool guidance)")
     print(f"    - inject_context(): ~100 tokens (datetime, user, modality)")
-    print(f"    - inject_memory(): up to ~1,500 tokens (MEMORY.md, capped at 5K chars)")
+    print(f"    - inject_memory(): MEMORY.md verbatim (warns past 100K chars)")
     print(f"    - inject_filetree(): up to ~800 tokens (workspace tree, capped at 3K chars)")
     print(f"    - inject_modality_guidance(): ~200-400 tokens (SMS/email/web rules)")
     print(f"\n  Estimated total system prompt: ~3,500-5,500 tokens per LLM call")
