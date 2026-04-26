@@ -1,8 +1,8 @@
 """Skill discovery + frontmatter parsing.
 
-Skills live at ``<WORKSPACE_PATH>/skills/<name>/SKILL.md``. Each one is a
-markdown file with optional YAML frontmatter (the same ``description:`` /
-``---`` convention used by ``.claude/skills/``).
+Skills live at ``<WORKSPACE_PATH>/.claude/skills/<name>/SKILL.md``. Each one
+is a markdown file with optional YAML frontmatter (the same ``description:``
+/ ``---`` convention used by Claude Code's ``.claude/skills/``).
 
 This module just walks the directory and parses the minimum metadata needed
 for the doorway tool's skill listing — full content goes through the
@@ -47,12 +47,12 @@ def _parse_frontmatter_description(text: str) -> str:
 
 
 def list_skills() -> list[SkillMeta]:
-    """Return metadata for every skill under ``<WORKSPACE_PATH>/skills/``.
+    """Return metadata for every skill under ``<WORKSPACE_PATH>/.claude/skills/``.
 
     Each subdirectory containing a readable ``SKILL.md`` becomes one entry.
     Sorted by name for stable output.
     """
-    skills_dir = WORKSPACE_PATH / "skills"
+    skills_dir = WORKSPACE_PATH / ".claude" / "skills"
     if not skills_dir.is_dir():
         return []
 
@@ -84,7 +84,7 @@ def _validate_skill_name(name: str) -> None:
 def read_skill(name: str) -> str:
     """Read full ``SKILL.md`` content for a named skill."""
     _validate_skill_name(name)
-    skill_md = WORKSPACE_PATH / "skills" / name / "SKILL.md"
+    skill_md = WORKSPACE_PATH / ".claude" / "skills" / name / "SKILL.md"
     if not skill_md.is_file():
         raise NotFoundError(f"skill not found: {name}")
     return skill_md.read_text(encoding="utf-8")
@@ -93,7 +93,7 @@ def read_skill(name: str) -> str:
 def write_skill(name: str, content: str) -> Path:
     """Overwrite ``SKILL.md`` for a skill, creating the directory if needed."""
     _validate_skill_name(name)
-    skill_dir = WORKSPACE_PATH / "skills" / name
+    skill_dir = WORKSPACE_PATH / ".claude" / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_md = skill_dir / "SKILL.md"
     skill_md.write_text(content, encoding="utf-8")

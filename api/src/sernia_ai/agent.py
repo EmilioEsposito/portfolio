@@ -57,12 +57,14 @@ _sandbox = Sandbox(SandboxConfig(mounts=[
 ]))
 filesystem_toolset = FileSystemToolset(_sandbox)
 
-# Skills toolset — loads SKILL.md files from .workspace/skills/
+# Skills toolset — loads SKILL.md files from .workspace/.claude/skills/.
+# Path mirrors Claude Code's `.claude/skills/` convention so the same
+# knowledge repo is interoperable with `cd workspace && claude` runs.
 # These are knowledge-repo content (sernia-knowledge git repo), not server-side code.
 # A broken SKILL.md must never crash the server — all loading is error-wrapped.
 # Initial discovery may find nothing if workspace hasn't been git-synced yet.
 # Call reload_skills() after workspace init in lifespan to pick up synced skills.
-skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / "skills"])
+skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / ".claude" / "skills"])
 
 
 def reload_skills() -> None:

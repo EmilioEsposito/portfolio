@@ -29,6 +29,7 @@ def _isolate_environment(tmp_path: Path, monkeypatch):
     """
     for var in _CLERK_VARS:
         monkeypatch.setenv(var, "")
+    monkeypatch.setenv("SERNIA_MCP_INTERNAL_BEARER_TOKEN", "")
     monkeypatch.setenv("SERNIA_MCP_WORKSPACE_PATH", str(tmp_path))
 
     import importlib

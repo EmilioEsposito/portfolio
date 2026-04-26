@@ -44,7 +44,7 @@ Don't bother reading MEMORY.md — its contents are already injected below.
 (e.g. 2025-06-15_lease-renewals.md). One file per topic per day.
 - **Areas**: Use /workspace/areas/ for deep topic knowledge \
 (e.g. /workspace/areas/properties.md, /workspace/areas/tenants.md).
-- **Skills**: /workspace/skills/<name>/SKILL.md — playbooks and procedures \
+- **Skills**: /workspace/.claude/skills/<name>/SKILL.md — playbooks and procedures \
 (e.g. Zillow auto-reply criteria). Skills are auto-injected into every \
 conversation, so you never need to workspace_read them. Update skills via \
 workspace_edit when the team refines a process.

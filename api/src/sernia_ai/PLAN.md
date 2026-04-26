@@ -94,10 +94,11 @@ apps/web-react-router/public/
 **Workspace** (git-backed via `sernia-knowledge` repo):
 ```
 .workspace/
-├── MEMORY.md                           # Long-term memory (injected every conversation)
-├── daily_notes/YYYY-MM-DD_<desc>.md    # One file per topic per day
-├── areas/<topic>.md                    # Deep topic knowledge
-└── skills/<name>/SKILL.md              # SOPs (deferred)
+├── MEMORY.md                                    # Long-term memory (injected every conversation)
+├── daily_notes/YYYY-MM-DD_<desc>.md             # One file per topic per day
+├── areas/<topic>.md                             # Deep topic knowledge
+├── .claude/skills/<name>/SKILL.md               # SOPs — path mirrors Claude Code convention
+└── .mcp.json                                    # Local Claude CLI MCP config (dev.mcp.sernia.ai)
 ```
 
 ---
@@ -309,7 +310,7 @@ The frontend uses `trigger_source` and `trigger_contact_name` to render icons (P
 | Filetree | Entire `.workspace/` | Yes (every turn) | Agent knows what files exist |
 | Daily Notes | `/workspace/daily_notes/YYYY-MM-DD_<desc>.md` | On demand | Activity logs, events |
 | Areas | `/workspace/areas/<topic>.md` | On demand | Deep topic knowledge |
-| Skills | `/workspace/skills/<name>/SKILL.md` | Yes (every turn) | Playbooks, SOPs — auto-injected via `SkillsToolset` |
+| Skills | `/workspace/.claude/skills/<name>/SKILL.md` | Yes (every turn) | Playbooks, SOPs — auto-injected via `SkillsToolset` |
 
 ### Server-Side vs Knowledge-Repo Error Boundary
 

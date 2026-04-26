@@ -61,7 +61,7 @@ Sernia AI reads directly from Gmail API (not the DB). This is simpler and avoids
 |------|------|
 | `api/src/sernia_ai/triggers/scheduled_triggers.py` | Scheduled triggers + APScheduler registration |
 | `api/src/sernia_ai/triggers/zillow_email_event_trigger.py` | Real-time Pub/Sub trigger (already Sernia AI) |
-| `api/src/sernia_ai/workspace/skills/zillow-auto-reply/SKILL.md` | Lead qualification, tone, calendar rules |
+| `api/src/sernia_ai/workspace/.claude/skills/zillow-auto-reply/SKILL.md` | Lead qualification, tone, calendar rules |
 | `api/src/sernia_ai/tools/google_tools.py` | Email/calendar/drive tools |
 | `api/src/zillow_email/service.py` | **Legacy** — preserved for rollback |
 | `api/index.py` | Scheduler registration (legacy disabled, Sernia AI enabled) |

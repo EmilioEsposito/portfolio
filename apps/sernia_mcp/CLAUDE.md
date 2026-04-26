@@ -117,8 +117,10 @@ Concurrency caveat: if both this MCP service AND the sernia_ai agent push to the
 
 ### Security model — two layers, both load-bearing
 
-1. **Authentication (Clerk OAuth)** — `ClerkProvider` validates the bearer token via introspection + userinfo. A request without a valid Clerk-issued token gets a 401 with the `www-authenticate` challenge.
-2. **Authorization (email-domain allowlist)** — `AuthMiddleware(auth=require_allowed_email_domain)` rejects authenticated users whose email domain isn't in `config.ALLOWED_EMAIL_DOMAINS` (env: `SERNIA_MCP_ALLOWED_EMAIL_DOMAINS`, default `serniacapital.com`). Without this, any user who signed in to the same Clerk instance for an unrelated app would be accepted.
+1. **Authentication** — two parallel paths, either of which produces a valid `AccessToken`:
+   - **Clerk OAuth (primary, human-facing)** — `ClerkProvider` validates the bearer token via introspection + userinfo. Used by Claude Desktop / Claude.ai / ChatGPT custom connectors.
+   - **Static internal bearer (secondary, service-to-service)** — set `SERNIA_MCP_INTERNAL_BEARER_TOKEN` (≥32 chars). Constant-time compare against the request's `Authorization: Bearer ...`; matches synthesize an `AccessToken` with `service:sernia-ai` claims. Used by the `api/src/sernia_ai` agent calling MCP without the OAuth dance. The two paths combine via `BearerTokenMixin` in `bearer.py` — bearer is checked first (cheap), falls through to Clerk on miss.
+2. **Authorization (email-domain allowlist)** — `AuthMiddleware(auth=require_allowed_email_domain)` rejects authenticated users whose email domain isn't in `config.ALLOWED_EMAIL_DOMAINS` (env: `SERNIA_MCP_ALLOWED_EMAIL_DOMAINS`, default `serniacapital.com`). Without this, any user who signed in to the same Clerk instance for an unrelated app would be accepted. The bearer path doesn't bypass this — it synthesizes an email (`agent@<first-allowed-domain>`) that *passes* the allowlist, so audit trails distinguish service callers via the `service:sernia-ai` `client_id`.
 
 The authorization callable lives in `src/sernia_mcp/auth.py` — it inspects `ctx.token.claims["email"]` and raises `AuthorizationError` for non-allowed domains. Test guardrails in `tests/test_auth.py` pin every allow/reject path.
 
@@ -142,6 +144,16 @@ We extend FastMCP's `AuthMiddleware` (in `auth.py`) with two bypasses for known 
 Both overrides are tested in `tests/test_auth.py`. If FastMCP changes how Apps routes calls, the bypass tests will likely catch it before the approval flow regresses silently.
 
 ### Auth model (provider details)
+
+The server picks one of four boot configurations from env (see `_build_auth_provider` in `server.py`):
+
+| Clerk vars set | Bearer set | Provider |
+|----------------|------------|----------|
+| ✓ | ✓ | `BearerClerkProvider` (mixin + ClerkProvider) — production default |
+| ✓ | — | `ClerkProvider` (pure OAuth) |
+| — | ✓ | `BearerOnlyProvider` (no OAuth UI) |
+| — | — | `None` — server boots **unauthenticated** (local dev only) |
+
 Clerk OAuth (DCR-compatible) is the production auth. Four env vars are all-or-nothing:
 
 ```
@@ -151,7 +163,9 @@ FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET
 SERNIA_MCP_BASE_URL
 ```
 
-If any one is missing, `clerk_oauth_configured()` returns False and the server boots **unauthenticated**. That's intentional for local dev. **Never expose unauth state to the public internet** — Railway should always have all four set.
+If any one is missing, `clerk_oauth_configured()` returns False. **Never expose unauth state to the public internet** — Railway should always have at least one auth path set (Clerk for human clients, bearer for service callers, normally both).
+
+**Internal bearer token** (`SERNIA_MCP_INTERNAL_BEARER_TOKEN`): generate with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`. Boot fails if set but shorter than 32 chars. Both this MCP server AND the calling service (e.g. `api/src/sernia_ai`) must hold the same value; rotation requires bumping both then restarting.
 
 **Two callback URIs, only one to register.** The OAuth flow has two redirect URIs and they're easy to confuse:
 
@@ -183,7 +197,7 @@ The service deploys as its **own** Railway service.
 | Public domain | `mcp.sernia.ai` (production), `dev.mcp.sernia.ai` (development) |
 | Port | injected as `$PORT` by Railway |
 
-Required env on Railway: the four Clerk vars + `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` + upstream API keys + `SERNIA_MCP_WORKSPACE_PATH` (for first cut, point at `/data/workspace` on a mounted Railway volume).
+Required env on Railway: the four Clerk vars + `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` + upstream API keys + `SERNIA_MCP_WORKSPACE_PATH` (for first cut, point at `/data/workspace` on a mounted Railway volume) + (optional) `SERNIA_MCP_INTERNAL_BEARER_TOKEN` for service-to-service calls.
 
 ### Relationship to the FastAPI monorepo
 The old `api/src/sernia_mcp/` and `api/src/tool_core/` packages — plus the `/api/mcp` mount and the React Router OAuth-metadata proxy hack — were removed as part of the same change that introduced this service. There's no longer a second MCP listening anywhere in the monorepo. `mcp.sernia.ai` is the single source of MCP truth.

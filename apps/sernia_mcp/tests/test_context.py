@@ -22,7 +22,7 @@ def test_list_skills_returns_empty_when_no_dir():
 def test_list_skills_parses_frontmatter_description(tmp_path):
     from sernia_mcp.core.skills import list_skills
 
-    skill = tmp_path / "skills" / "communications" / "SKILL.md"
+    skill = tmp_path / ".claude" / "skills" / "communications" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(
         "---\n"
@@ -43,7 +43,7 @@ def test_list_skills_parses_frontmatter_description(tmp_path):
 def test_list_skills_handles_missing_frontmatter(tmp_path):
     from sernia_mcp.core.skills import list_skills
 
-    skill = tmp_path / "skills" / "minimal" / "SKILL.md"
+    skill = tmp_path / ".claude" / "skills" / "minimal" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("Just a plain skill, no frontmatter.\n", encoding="utf-8")
 
@@ -55,9 +55,9 @@ def test_list_skills_handles_missing_frontmatter(tmp_path):
 def test_list_skills_skips_dirs_without_skill_md(tmp_path):
     from sernia_mcp.core.skills import list_skills
 
-    (tmp_path / "skills" / "valid").mkdir(parents=True)
-    (tmp_path / "skills" / "valid" / "SKILL.md").write_text("ok", encoding="utf-8")
-    (tmp_path / "skills" / "no_skill_md").mkdir(parents=True)
+    (tmp_path / ".claude" / "skills" / "valid").mkdir(parents=True)
+    (tmp_path / ".claude" / "skills" / "valid" / "SKILL.md").write_text("ok", encoding="utf-8")
+    (tmp_path / ".claude" / "skills" / "no_skill_md").mkdir(parents=True)
 
     names = {s.name for s in list_skills()}
     assert names == {"valid"}
@@ -68,7 +68,7 @@ def test_list_skills_skips_dirs_without_skill_md(tmp_path):
 def test_read_skill_returns_full_content(tmp_path):
     from sernia_mcp.core.skills import read_skill
 
-    skill = tmp_path / "skills" / "comms" / "SKILL.md"
+    skill = tmp_path / ".claude" / "skills" / "comms" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("the content", encoding="utf-8")
 
@@ -97,7 +97,7 @@ def test_write_skill_creates_dir(tmp_path):
 
     write_skill("brand_new", "fresh content")
     assert read_skill("brand_new") == "fresh content"
-    assert (tmp_path / "skills" / "brand_new" / "SKILL.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "brand_new" / "SKILL.md").is_file()
 
 
 def test_write_memory_and_read_memory_roundtrip(tmp_path):

@@ -6,16 +6,29 @@ with ``@mcp.tool``. The ASGI application that uvicorn actually serves is
 constructed in ``sernia_mcp.app`` — that module wraps ``mcp.http_app(...)``
 with a request-logging middleware.
 
-Auth: Clerk OAuth via ``ClerkProvider``. Claude Desktop / Claude.ai custom
-connectors do Dynamic Client Registration (RFC 7591) against the OAuth
-metadata we expose at ``/.well-known/oauth-protected-resource/...``; the
-user signs in via Clerk's hosted UI; Clerk issues the token that the MCP
-server validates on every request.
+Auth: two paths, both routed through the same email-domain authorization
+layer (``SerniaAuthMiddleware``).
 
-If the four Clerk env vars (``FASTMCP_SERVER_AUTH_CLERK_DOMAIN``,
-``_CLIENT_ID``, ``_CLIENT_SECRET``, ``SERNIA_MCP_BASE_URL``) are not all set,
-the server boots **without** auth — useful for local dev and tests, never
-expose this state to a public network.
+  1. **Clerk OAuth (primary, human-facing)** — Claude Desktop / Claude.ai
+     custom connectors do Dynamic Client Registration (RFC 7591) against
+     the OAuth metadata we expose at ``/.well-known/oauth-protected-resource/...``;
+     the user signs in via Clerk's hosted UI; Clerk issues the token that
+     the MCP server validates on every request.
+
+  2. **Static bearer (secondary, service-to-service)** — set
+     ``SERNIA_MCP_INTERNAL_BEARER_TOKEN`` to enable. Requests presenting
+     ``Authorization: Bearer <token>`` matching this value get a synthesized
+     ``AccessToken`` with ``service:sernia-ai`` claims that already pass the
+     email-domain allowlist. Used by the ``api/src/sernia_ai`` agent calling
+     this server without the OAuth dance. Never bypasses authorization — it
+     produces a token that explicitly passes it.
+
+Combinations:
+  - Clerk + bearer (production): ``BearerClerkProvider`` (subclasses
+    ``ClerkProvider``, intercepts ``verify_token``).
+  - Bearer only: ``BearerOnlyProvider`` (no OAuth UI).
+  - Clerk only: plain ``ClerkProvider``.
+  - Neither: server boots **without** auth (local dev only).
 """
 from __future__ import annotations
 
@@ -32,6 +45,11 @@ from starlette.responses import FileResponse, JSONResponse
 
 from sernia_mcp import __version__
 from sernia_mcp.auth import SerniaAuthMiddleware, require_allowed_email_domain
+from sernia_mcp.bearer import (
+    BearerOnlyProvider,
+    BearerTokenMixin,
+    internal_bearer_configured,
+)
 from sernia_mcp.config import (
     SERNIA_MCP_BASE_URL,
     SERNIA_MCP_DISABLE_AUTH,
@@ -57,19 +75,54 @@ logging.getLogger().addHandler(LogfireLoggingHandler(level=logging.INFO))
 
 
 def _build_auth_provider():
-    """Construct a ClerkProvider from env. Called only when fully configured."""
+    """Build the auth provider for the configured combination of Clerk + bearer.
+
+    Returns one of:
+      - ``BearerClerkProvider`` (Clerk + bearer): bearer checked first, then
+        Clerk. Production default.
+      - ``ClerkProvider`` (Clerk only): standard human-OAuth flow.
+      - ``BearerOnlyProvider`` (bearer only): no OAuth UI; service-to-service.
+      - ``None`` (neither): caller logs a warning; server runs unauthenticated.
+    """
     from fastmcp.server.auth.providers.clerk import ClerkProvider
+
+    clerk_on = clerk_oauth_configured()
+    bearer_on = internal_bearer_configured()
+
+    if not clerk_on and not bearer_on:
+        return None
+
+    if not clerk_on and bearer_on:
+        return BearerOnlyProvider()
 
     domain = os.environ["FASTMCP_SERVER_AUTH_CLERK_DOMAIN"]
     if "://" in domain:
         raise RuntimeError(
             f"FASTMCP_SERVER_AUTH_CLERK_DOMAIN must be a bare hostname, got {domain!r}"
         )
-    return ClerkProvider(
+    client_id = os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID"]
+    client_secret = os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET"]
+    base_url = os.environ["SERNIA_MCP_BASE_URL"]
+
+    if not bearer_on:
+        return ClerkProvider(
+            domain=domain,
+            client_id=client_id,
+            client_secret=client_secret,
+            base_url=base_url,
+        )
+
+    # Clerk + bearer: subclass at runtime to keep all of ClerkProvider's
+    # OAuth-proxy machinery (DCR, callbacks, metadata) and only intercept
+    # ``verify_token`` so the bearer path is checked first.
+    class BearerClerkProvider(BearerTokenMixin, ClerkProvider):
+        pass
+
+    return BearerClerkProvider(
         domain=domain,
-        client_id=os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID"],
-        client_secret=os.environ["FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET"],
-        base_url=os.environ["SERNIA_MCP_BASE_URL"],
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=base_url,
     )
 
 
@@ -93,16 +146,27 @@ def _disable_auth_requested() -> bool:
     return True
 
 
-_oauth_configured = clerk_oauth_configured() and not _disable_auth_requested()
+_disable_auth = _disable_auth_requested()
+_clerk_on = clerk_oauth_configured() and not _disable_auth
+_bearer_on = internal_bearer_configured() and not _disable_auth
+_auth_configured = _clerk_on or _bearer_on
+
 if SERNIA_MCP_DISABLE_AUTH:
     logfire.warn(
-        "sernia_mcp: SERNIA_MCP_DISABLE_AUTH=true — Clerk auth bypassed. "
-        "LOCAL DEV ONLY. Never set in production."
+        "sernia_mcp: SERNIA_MCP_DISABLE_AUTH=true — all auth bypassed "
+        "(Clerk + bearer). LOCAL DEV ONLY. Never set in production."
     )
-elif not _oauth_configured:
+elif not _auth_configured:
     logfire.warn(
-        "sernia_mcp: Clerk OAuth env vars not set — server will run UNAUTHENTICATED. "
-        "Acceptable for local dev and tests; never expose this state publicly."
+        "sernia_mcp: no auth configured (neither Clerk OAuth nor internal "
+        "bearer token) — server will run UNAUTHENTICATED. Acceptable for "
+        "local dev and tests; never expose this state publicly."
+    )
+else:
+    logfire.info(
+        "sernia_mcp: auth configured — clerk={clerk}, bearer={bearer}",
+        clerk=_clerk_on,
+        bearer=_bearer_on,
     )
 
 mcp = FastMCP(
@@ -121,7 +185,7 @@ mcp = FastMCP(
             sizes=["379x379"],
         ),
     ],
-    auth=_build_auth_provider() if _oauth_configured else None,
+    auth=_build_auth_provider() if _auth_configured else None,
     # Authorization layer on top of Clerk authentication: only emails whose
     # domain is in ``config.ALLOWED_EMAIL_DOMAINS`` are accepted. Even valid
     # Clerk tokens are rejected if their email isn't on the allowlist. The
@@ -143,12 +207,20 @@ mcp.add_provider(approvals_app)
 # accepts POST/DELETE per the protocol, so it's not usable as a healthcheck).
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
+    if not _auth_configured:
+        auth_label = "unauthenticated"
+    elif _clerk_on and _bearer_on:
+        auth_label = "clerk-oauth+bearer"
+    elif _clerk_on:
+        auth_label = "clerk-oauth"
+    else:
+        auth_label = "bearer"
     return JSONResponse(
         {
             "status": "ok",
             "service": "sernia-mcp",
             "version": __version__,
-            "auth": "clerk-oauth" if _oauth_configured else "unauthenticated",
+            "auth": auth_label,
         }
     )
 

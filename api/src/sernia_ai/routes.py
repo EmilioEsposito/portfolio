@@ -663,8 +663,17 @@ async def get_system_instructions(
     )
     fake_ctx = SimpleNamespace(deps=deps)
 
+    import inspect
+
     sections = [{"label": "Static Instructions", "content": STATIC_INSTRUCTIONS}]
     for fn in DYNAMIC_INSTRUCTIONS:
+        if inspect.iscoroutinefunction(fn):
+            # Async dynamic instructions in this codebase are side-effect-only
+            # (e.g. ``refresh_from_remote`` pulls the workspace from GitHub).
+            # They contribute "" to the prompt — firing them from a debug
+            # preview would run real I/O and mutate process-global state.
+            sections.append({"label": fn.__name__, "content": "(skipped — async side-effect only)"})
+            continue
         content = fn(fake_ctx)  # type: ignore[arg-type]
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 
@@ -728,8 +737,13 @@ async def get_conversation_instructions(
     )
     fake_ctx = SimpleNamespace(deps=deps)
 
+    import inspect
+
     sections = [{"label": "Static Instructions", "content": STATIC_INSTRUCTIONS}]
     for fn in DYNAMIC_INSTRUCTIONS:
+        if inspect.iscoroutinefunction(fn):
+            sections.append({"label": fn.__name__, "content": "(skipped — async side-effect only)"})
+            continue
         content = fn(fake_ctx)  # type: ignore[arg-type]
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 

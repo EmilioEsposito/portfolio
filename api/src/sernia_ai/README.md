@@ -47,7 +47,7 @@ Git-backed persistent workspace at `/workspace/`:
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
-- `skills/` — Playbooks and procedures (auto-injected via `SkillsToolset`)
+- `.claude/skills/` — Playbooks and procedures (auto-injected via `SkillsToolset`). Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs.
 
 ### Server-Side vs Knowledge-Repo Content
 
@@ -58,7 +58,7 @@ The agent's behavior comes from two sources with different error boundaries:
 | **Server-side** | `api/src/sernia_ai/` (Python) | Developers (code deploys) | Bugs crash the app — standard software quality applies |
 | **Knowledge repo** | `.workspace/` (`sernia-knowledge` git repo) | Agent + humans at runtime | Must **never** crash the server — all reads are error-wrapped |
 
-This distinction matters most for **skills** (`/workspace/skills/<name>/SKILL.md`). Skills are runtime-editable YAML+markdown files that the agent itself can create and modify via `workspace_edit`. A malformed SKILL.md (bad YAML frontmatter, broken encoding, etc.) must degrade gracefully:
+This distinction matters most for **skills** (`/workspace/.claude/skills/<name>/SKILL.md`). Skills are runtime-editable YAML+markdown files that the agent itself can create and modify via `workspace_edit`. A malformed SKILL.md (bad YAML frontmatter, broken encoding, etc.) must degrade gracefully:
 
 - **Reload** (`reload_skills()` in `agent.py`): Per-directory try/except — a broken skill directory is skipped and logged, other skills still load.
 - **Injection** (`SkillsToolset.get_instructions()`): Operates on already-loaded `_skills` dict, so it only sees successfully parsed skills.
