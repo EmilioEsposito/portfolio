@@ -68,9 +68,20 @@ interface ModelChoice {
   cost_note: string | null;
 }
 
+type ThinkingEffort = "low" | "medium" | "high";
+
 interface ModelConfig {
   model_key: string;
+  thinking_effort: ThinkingEffort;
 }
+
+const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] = [
+  { value: "low", label: "Low", hint: "Fast, minimal thinking. Skips simple queries." },
+  { value: "medium", label: "Medium", hint: "Balanced. Sensible default for chat." },
+  { value: "high", label: "High", hint: "Deeper reasoning. Slower, more tokens." },
+];
+
+const DEFAULT_EFFORT: ThinkingEffort = "medium";
 
 interface Settings {
   triggers_enabled: boolean;
@@ -113,6 +124,7 @@ export default function SerniaSettingsPage() {
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [hours, setHours] = useState<number[]>([8, 11, 14, 17]);
   const [modelKey, setModelKey] = useState<string>(DEFAULT_MODEL_KEY);
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(DEFAULT_EFFORT);
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>(FALLBACK_MODELS);
 
   // Snapshot of last-saved values to detect dirty state
@@ -123,7 +135,8 @@ export default function SerniaSettingsPage() {
     (triggersEnabled !== saved.triggers_enabled ||
       JSON.stringify([...days].sort()) !== JSON.stringify([...saved.schedule_config.days_of_week].sort()) ||
       JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()) ||
-      modelKey !== saved.model_config.model_key);
+      modelKey !== saved.model_config.model_key ||
+      thinkingEffort !== saved.model_config.thinking_effort);
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
@@ -139,6 +152,7 @@ export default function SerniaSettingsPage() {
       setDays(data.schedule_config.days_of_week);
       setHours(data.schedule_config.hours);
       setModelKey(data.model_config?.model_key ?? DEFAULT_MODEL_KEY);
+      setThinkingEffort(data.model_config?.thinking_effort ?? DEFAULT_EFFORT);
       if (data.available_models?.length) setAvailableModels(data.available_models);
       setSaved(data);
     } catch (err) {
@@ -169,7 +183,7 @@ export default function SerniaSettingsPage() {
             days_of_week: [...days].sort(),
             hours: [...hours].sort(),
           },
-          model_config: { model_key: modelKey },
+          model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
         }),
       });
       if (!res.ok) {
@@ -182,7 +196,7 @@ export default function SerniaSettingsPage() {
           days_of_week: [...days].sort(),
           hours: [...hours].sort(),
         },
-        model_config: { model_key: modelKey },
+        model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
         available_models: availableModels,
       };
       setSaved(snapshot);
@@ -202,6 +216,7 @@ export default function SerniaSettingsPage() {
     setDays(saved.schedule_config.days_of_week);
     setHours(saved.schedule_config.hours);
     setModelKey(saved.model_config.model_key);
+    setThinkingEffort(saved.model_config.thinking_effort);
   };
 
   // Toggle helpers
@@ -335,6 +350,37 @@ export default function SerniaSettingsPage() {
                       </p>
                     );
                   })()}
+                  <div className="space-y-2 pt-2">
+                    <Label className="text-sm font-medium">Thinking Effort</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Controls reasoning depth. Anthropic models use adaptive thinking — Claude
+                      decides per request whether and how much to think. OpenAI maps this to
+                      reasoning effort.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {EFFORT_OPTIONS.map((opt) => {
+                        const active = thinkingEffort === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setThinkingEffort(opt.value)}
+                            className={cn(
+                              "inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors border",
+                              active
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background text-muted-foreground border-input hover:bg-accent hover:text-accent-foreground"
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {EFFORT_OPTIONS.find((o) => o.value === thinkingEffort)?.hint}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
 

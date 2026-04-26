@@ -16,7 +16,7 @@ maintaining one Agent per provider.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast, get_args
 
 import logfire
 from pydantic_ai import WebFetchTool
@@ -29,8 +29,11 @@ from sqlalchemy import select
 from api.src.sernia_ai.config import WEB_SEARCH_ALLOWED_DOMAINS
 
 ModelKey = Literal["gpt-5.4", "sonnet-4-6", "opus-4-7"]
+ThinkingEffort = Literal["low", "medium", "high"]
 
 DEFAULT_MODEL_KEY: ModelKey = "gpt-5.4"
+DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium"
+_VALID_EFFORTS: frozenset[str] = frozenset(get_args(ThinkingEffort))
 
 
 @dataclass(frozen=True)
@@ -72,14 +75,28 @@ def get_model_choice(key: str | None) -> ModelChoice:
     return _BY_KEY.get(key or "", _BY_KEY[DEFAULT_MODEL_KEY])
 
 
-def build_run_kwargs(key: str | None) -> dict:
+def get_thinking_effort(value: str | None) -> ThinkingEffort:
+    """Coerce a stored/user-supplied effort to a valid ThinkingEffort, defaulting to medium."""
+    if value in _VALID_EFFORTS:
+        return cast(ThinkingEffort, value)
+    return DEFAULT_THINKING_EFFORT
+
+
+def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
     """Return kwargs to spread into agent.run() / VercelAIAdapter.dispatch_request().
 
     Produces ``model``, ``model_settings``, and ``builtin_tools`` suited to the
     selected provider. ``WebFetchTool`` is added only for Anthropic (OpenAI
     Responses does not support it and would raise ``UserError``).
+
+    ``effort`` controls reasoning depth — low/medium/high. For Sonnet 4.6 and
+    Opus 4.7 this enables adaptive thinking
+    (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking),
+    where Claude decides per-request whether and how much to think. For
+    GPT-5.4 it maps to ``openai_reasoning_effort``. Defaults to medium.
     """
     choice = get_model_choice(key)
+    resolved_effort = get_thinking_effort(effort)
     settings: ModelSettings
     extra_builtins: list[AbstractBuiltinTool] = []
 
@@ -88,14 +105,15 @@ def build_run_kwargs(key: str | None) -> dict:
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
+            anthropic_thinking={"type": "adaptive"},
+            anthropic_effort=resolved_effort,
         )
         extra_builtins.append(WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS))
     else:  # openai
-        # `thinking="high"` → openai_reasoning_effort='high' on Responses API.
         # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
         # in-memory cache to 24h so infrequent scheduled runs still hit cache.
         settings = OpenAIResponsesModelSettings(
-            thinking="high",
+            openai_reasoning_effort=resolved_effort,
             openai_prompt_cache_retention="24h",
         )
 
@@ -106,11 +124,8 @@ def build_run_kwargs(key: str | None) -> dict:
     }
 
 
-async def get_active_model_key() -> ModelKey:
-    """Read model_config from the DB, falling back to DEFAULT_MODEL_KEY.
-
-    Stored shape: ``{"model_key": "<key>"}``.
-    """
+async def _read_model_config_row() -> dict:
+    """Read the raw ``model_config`` JSONB row, returning ``{}`` on error/miss."""
     from api.src.database.database import AsyncSessionFactory
     from api.src.sernia_ai.models import AppSetting
 
@@ -121,14 +136,31 @@ async def get_active_model_key() -> ModelKey:
             )
             row = result.scalar_one_or_none()
             if isinstance(row, dict):
-                candidate = row.get("model_key")
-                if candidate in _BY_KEY:
-                    return candidate  # type: ignore[return-value]
+                return row
     except Exception:
-        logfire.warn("Failed to read model_config from DB, using default", default=DEFAULT_MODEL_KEY)
+        logfire.warn("Failed to read model_config from DB, using defaults")
+    return {}
+
+
+async def get_active_model_key() -> ModelKey:
+    """Read the active model key from the DB, falling back to DEFAULT_MODEL_KEY.
+
+    Stored shape: ``{"model_key": "<key>", "thinking_effort": "<effort>"}``.
+    """
+    row = await _read_model_config_row()
+    candidate = row.get("model_key")
+    if candidate in _BY_KEY:
+        return candidate  # type: ignore[return-value]
     return DEFAULT_MODEL_KEY
 
 
+async def get_active_thinking_effort() -> ThinkingEffort:
+    """Read the active thinking effort from the DB, falling back to medium."""
+    row = await _read_model_config_row()
+    return get_thinking_effort(row.get("thinking_effort"))
+
+
 async def resolve_active_run_kwargs() -> dict:
-    """Convenience: read active key from DB + build run kwargs in one call."""
-    return build_run_kwargs(await get_active_model_key())
+    """Convenience: read active key + effort from DB + build run kwargs in one call."""
+    row = await _read_model_config_row()
+    return build_run_kwargs(row.get("model_key"), row.get("thinking_effort"))
