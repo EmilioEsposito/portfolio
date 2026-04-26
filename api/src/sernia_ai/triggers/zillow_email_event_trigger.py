@@ -25,7 +25,7 @@ from textwrap import dedent
 
 import logfire
 
-from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG, FRONTEND_BASE_URL
+from api.src.sernia_ai.config import FRONTEND_BASE_URL
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
 # ---------------------------------------------------------------------------
@@ -59,30 +59,6 @@ def _prune_recently_fired(now: float | None = None) -> None:
     ]
     for mid in expired:
         _recently_fired_message_ids.pop(mid, None)
-
-# Module-level cache for Emilio's clerk_user_id (looked up once from DB).
-_emilio_clerk_user_id: str | None = None
-
-
-async def _get_emilio_clerk_user_id() -> str | None:
-    """Look up Emilio's clerk_user_id via contact slug, caching at module level."""
-    global _emilio_clerk_user_id
-    if _emilio_clerk_user_id is not None:
-        return _emilio_clerk_user_id
-
-    try:
-        from api.src.contact.service import get_clerk_user_id_by_slug
-
-        clerk_id = await get_clerk_user_id_by_slug(EMILIO_CONTACT_SLUG)
-        if clerk_id:
-            _emilio_clerk_user_id = clerk_id
-            logfire.info("zillow_email_event: cached emilio clerk_user_id", clerk_user_id=clerk_id)
-            return clerk_id
-        logfire.warn("zillow_email_event: no user found for contact slug", slug=EMILIO_CONTACT_SLUG)
-    except Exception:
-        logfire.exception("zillow_email_event: failed to look up emilio clerk_user_id")
-    return None
-
 
 def is_zillow_email(from_address: str) -> bool:
     """Return True if the sender is a Zillow email address."""
@@ -230,10 +206,6 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
             "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
         )
 
-    subjects_preview = ", ".join(e["subject"][:50] for e in emails[:3])
-    if len(emails) > 3:
-        subjects_preview += f" (+{len(emails) - 3} more)"
-
     trigger_prompt = dedent(f"""\
         {len(emails)} new Zillow email(s) arrived. Load the zillow-auto-reply skill and follow it.
 
@@ -252,16 +224,11 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
         "thread_ids": list({e["thread_id"] for e in emails}),
     }
 
-    emilio_clerk_id = await _get_emilio_clerk_user_id()
-
     conversation_id = await run_agent_for_trigger(
         trigger_source="zillow_email_event",
         trigger_prompt=trigger_prompt,
         trigger_metadata=trigger_metadata,
-        notification_title=f"Zillow Draft Ready ({len(emails)} email{'s' if len(emails) != 1 else ''})",
-        notification_body=f"Re: {subjects_preview}",
         rate_limit_key="zillow_batch",
-        notify_clerk_user_id=emilio_clerk_id,
         conversation_id=conv_id,
     )
 

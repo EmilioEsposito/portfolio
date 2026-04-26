@@ -4,9 +4,10 @@ Background agent runner for Sernia AI triggers.
 Runs the Sernia agent outside of an HTTP request context (no Clerk user,
 no streaming). Used by SMS and email triggers to process events autonomously.
 
-When the agent decides human attention is needed, it creates a web chat
-conversation and sends a push notification. When the event is routine,
-the agent responds silently (may still update workspace memory).
+Push notifications are intentionally limited to HITL approval requests
+(``notify_pending_approval``). Generic trigger-completion alerts were
+removed to reduce notification noise — humans pull conversations from web
+chat instead.
 """
 import time
 import uuid
@@ -28,7 +29,7 @@ from api.src.sernia_ai.config import (
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.agent import NoAction
 from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.service import notify_pending_approval, notify_trigger_alert, notify_user_push
+from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.ai_demos.models import save_agent_conversation
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
@@ -60,10 +61,7 @@ async def run_agent_for_trigger(
     trigger_source: str,
     trigger_prompt: str,
     trigger_metadata: dict,
-    notification_title: str = "",
-    notification_body: str = "",
     rate_limit_key: str | None = None,
-    notify_clerk_user_id: str | None = None,
     conversation_id: str | None = None,
 ) -> str | None:
     """
@@ -76,13 +74,9 @@ async def run_agent_for_trigger(
             structure, or skill references directly in the prompt (or in the
             workspace skill markdown the prompt points to).
         trigger_metadata: Stored in conversation metadata_ JSON for frontend display.
-        notification_title: Title for the push notification (if conversation created).
-        notification_body: Body for the push notification (if conversation created).
         rate_limit_key: Cooldown key (e.g. phone number for SMS). When provided,
             the trigger is skipped if the same key fired within the last 2 minutes.
             Falls back to trigger_source if not provided.
-        notify_clerk_user_id: When set, send push notifications only to this user
-            instead of all Sernia users. Used for targeted triggers like Zillow drafts.
         conversation_id: Pre-generated conversation ID. When provided, the runner
             uses this instead of generating a new UUID. Useful when the caller
             needs to embed a deeplink in the trigger prompt.
@@ -90,6 +84,9 @@ async def run_agent_for_trigger(
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
         or None if the agent processed silently or was rate-limited.
+
+    Push notifications: only HITL approval requests fire a push. Generic
+    completion alerts are intentionally suppressed.
     """
     # --- Sernia AI enabled check (universal kill switch) ---
     if not await is_sernia_ai_enabled():
@@ -194,7 +191,9 @@ async def run_agent_for_trigger(
             )
             return None
 
-        # Send push notification (SMS notification removed — will move to agent level)
+        # Push notifications are restricted to HITL approval requests.
+        # Generic trigger-completion alerts were removed to cut notification
+        # noise — humans pull conversations from web chat instead.
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
@@ -206,43 +205,12 @@ async def run_agent_for_trigger(
                 ),
                 name="notify_pending_approval",
             )
-        elif notify_clerk_user_id:
-            # Targeted push — only notify a specific user (e.g. Emilio for Zillow drafts)
-            alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
-            alert_body = notification_body or "New event needs your attention"
-            create_logged_task(
-                notify_user_push(
-                    clerk_user_id=notify_clerk_user_id,
-                    title=alert_title,
-                    body=alert_body,
-                    data={
-                        "url": f"/sernia-chat?id={conv_id}",
-                        "conversation_id": conv_id,
-                        "type": "alert",
-                        "trigger_source": trigger_source,
-                    },
-                ),
-                name="notify_user_push",
-            )
-        else:
-            alert_title = notification_title or f"Sernia AI: {trigger_source} alert"
-            alert_body = notification_body or "New event needs your attention"
-            create_logged_task(
-                notify_trigger_alert(
-                    conversation_id=conv_id,
-                    trigger_source=trigger_source,
-                    title=alert_title,
-                    body=alert_body,
-                ),
-                name="notify_trigger_alert",
-            )
 
         logfire.info(
             "trigger conversation created",
             trigger_source=trigger_source,
             conversation_id=conv_id,
             has_pending=bool(pending),
-            notify_target=notify_clerk_user_id or "all_sernia_users",
             _tags=[_trigger_tag],
         )
         return conv_id
