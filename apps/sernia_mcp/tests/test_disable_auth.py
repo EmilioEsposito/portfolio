@@ -50,11 +50,10 @@ def test_disable_auth_requested_returns_true_locally(monkeypatch):
     monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
     _reload_modules()
 
-    from sernia_mcp.server import _disable_auth_requested
-
     # Server module captured the OLD value of SERNIA_MCP_DISABLE_AUTH at import.
     # Patch the module attribute directly to simulate fresh import.
     import sernia_mcp.server as _server
+    from sernia_mcp.server import _disable_auth_requested
 
     monkeypatch.setattr(_server, "SERNIA_MCP_DISABLE_AUTH", True)
     assert _disable_auth_requested() is True

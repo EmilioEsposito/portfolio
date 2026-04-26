@@ -32,6 +32,7 @@ async def test_expected_tools_exposed():
         "write_resource",
         "quo_search_contacts",
         "quo_get_thread_messages",
+        "quo_list_active_sms_threads",
         "google_search_emails",
         "google_read_email",
         "clickup_search_tasks",
