@@ -8,13 +8,16 @@ Both are passed to Agent(instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTION
 from datetime import datetime
 from pathlib import Path
 
+import logfire
 from pydantic_ai import RunContext
 
 from api.src.sernia_ai.deps import SerniaDeps
 
-# Caps to avoid blowing up context window
-MEMORY_CHAR_CAP = 5_000
+# Filetree is uncurated — keep capped to avoid noise. MEMORY.md is the agent's
+# canonical long-term memory and is injected verbatim; we only log a warning
+# if it grows past a sanity threshold so the team can prune.
 FILETREE_CHAR_CAP = 3_000
+MEMORY_SANITY_WARN_CHARS = 100_000
 
 
 STATIC_INSTRUCTIONS = """\
@@ -268,12 +271,19 @@ def inject_context(ctx: RunContext[SerniaDeps]) -> str:
 
 
 def inject_memory(ctx: RunContext[SerniaDeps]) -> str:
+    """Inject MEMORY.md verbatim. The system prompt is prompt-cached, so a
+    larger MEMORY.md is paid for once per cache window — silently truncating
+    the agent's long-term memory was a worse tradeoff than the cache bytes."""
     memory_file = ctx.deps.workspace_path / "MEMORY.md"
     if not memory_file.exists():
         return ""
     content = memory_file.read_text(encoding="utf-8")
-    if len(content) > MEMORY_CHAR_CAP:
-        content = content[:MEMORY_CHAR_CAP] + "\n...(truncated)"
+    if len(content) > MEMORY_SANITY_WARN_CHARS:
+        logfire.warn(
+            "MEMORY.md is unusually large — consider pruning",
+            chars=len(content),
+            threshold=MEMORY_SANITY_WARN_CHARS,
+        )
     return f"## Your Long-Term Memory\n{content}"
 
 
