@@ -1,0 +1,87 @@
+"""ASGI application entrypoint.
+
+Run via uvicorn from Railway / local dev::
+
+    uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port 8080
+
+We bypass ``fastmcp run`` because that command builds the Starlette ASGI app
+internally and gives us no hook to add inbound-request middleware. Without
+inbound-request logging, auth-flow failures are invisible (only the upstream
+Clerk httpx calls show in Logfire).
+
+This module exposes a single ``app`` callable that:
+
+  1. Wraps the FastMCP HTTP app with a request-logging middleware so every
+     inbound request surfaces in Logfire with method, path, status, latency.
+  2. Logs unhandled exceptions explicitly (Starlette swallows some).
+"""
+from __future__ import annotations
+
+import time
+from contextlib import asynccontextmanager
+
+import logfire
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+from sernia_mcp.clients.git_sync import ensure_repo
+from sernia_mcp.config import WORKSPACE_PATH
+from sernia_mcp.server import mcp
+
+
+class _RequestLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        with logfire.span(
+            "{method} {path}",
+            method=request.method,
+            path=request.url.path,
+        ) as span:
+            try:
+                response = await call_next(request)
+            except Exception:
+                logfire.exception(
+                    "unhandled exception in request",
+                    method=request.method,
+                    path=request.url.path,
+                )
+                raise
+            span.set_attribute("http.status_code", response.status_code)
+            span.set_attribute("duration_ms", int((time.monotonic() - start) * 1000))
+            return response
+
+
+# Path is `/mcp` with no trailing slash — Claude (and the MCP spec at
+# modelcontextprotocol.io) POSTs to that exact URL. Mounting at `/mcp/`
+# would force a 307 redirect on every Claude request; many HTTP clients
+# drop the Authorization header when following redirects, so the redirected
+# request lands unauthenticated and the connector reports an auth failure.
+app = mcp.http_app(
+    path="/mcp",
+    stateless_http=True,
+    transport="http",
+    middleware=[Middleware(_RequestLogMiddleware)],
+)
+
+
+_inner_lifespan = app.router.lifespan_context
+
+
+@asynccontextmanager
+async def _wrapped_lifespan(asgi_app):
+    """Pull the knowledge workspace from GitHub before FastMCP's session
+    manager starts. ``ensure_repo`` is a no-op when
+    ``GITHUB_EMILIO_PERSONAL_WRITE_PAT`` is unset (tests + dev), so this is
+    safe to wire unconditionally. Errors during pull are logged but never
+    crash the server — the workspace falls back to whatever's on local disk.
+    """
+    try:
+        await ensure_repo(WORKSPACE_PATH)
+    except Exception:
+        logfire.exception("git_sync: ensure_repo failed during startup (non-fatal)")
+    async with _inner_lifespan(asgi_app):
+        yield
+
+
+app.router.lifespan_context = _wrapped_lifespan

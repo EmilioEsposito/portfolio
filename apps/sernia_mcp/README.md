@@ -1,0 +1,228 @@
+# Sernia MCP Server
+
+HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing a curated subset of Sernia Capital tools to remote AI harnesses (Claude Desktop, Claude.ai custom connectors, ChatGPT, etc.).
+
+Self-contained Python service, deployable as its own Railway service under `mcp.sernia.ai`. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
+
+> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends require explicit user approval through an interactive Approve / Reject card; clients that can't render the card cannot reach the underlying send tools (deterministic server-side enforcement, not advisory).
+
+## Tools
+
+The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that already know that pattern transfer it cleanly. Plus a doorway tool (`sernia_context`) the model is encouraged to call first.
+
+### Knowledge / context
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `sernia_context` | doorway | Returns current `MEMORY.md` + skill list (name, URI, description). Aggressively documented as "[ALWAYS CALL THIS FIRST]". |
+| `read_resource(uri)` | read | Read full content for `memory://current` or `skill://<name>/SKILL.md`. Tool form so hosts that don't surface MCP `resources/read` to the model still have a path. |
+| `edit_resource(uri, old_string, new_string, replace_all=False)` | write | String-substitution edit (mirrors Claude Code's `Edit`). Whitespace-exact, atomic, fails on ambiguity unless `replace_all=True`. |
+| `write_resource(uri, content)` | write | Full overwrite (mirrors Claude Code's `Write`). For new files or large rewrites. |
+
+`memory://current` and `skill://{name}/SKILL.md` are also exposed as native MCP resources for hosts that surface `resources/list` + `resources/read` directly (Claude Desktop, MCP Inspector). Both paths read the same files.
+
+### Quo / OpenPhone
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `quo_search_contacts` | read | Fuzzy search by name, phone, or company |
+| `quo_get_thread_messages` | read | Recent SMS messages with a specific phone number |
+| `quo_list_active_sms_threads` | read | Mirrors the Quo active inbox — non-'done' threads sorted by recency, with one-line snippet |
+| `quo_send_sms` | **UI-gated** | Returns Approve/Reject card. No send without click. |
+
+### Google Workspace
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `google_search_emails` | read | Gmail search syntax (`from:`, `subject:`, etc.) |
+| `google_read_email` | read | Full body + headers by message ID |
+| `google_send_email` | **UI-gated** | Returns Approve/Reject card. No send without click. |
+
+### ClickUp
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `clickup_search_tasks` | read | Filters + optional fuzzy text query |
+
+## Quick start (local dev)
+
+```bash
+cd apps/sernia_mcp
+uv sync                                                          # creates .venv and installs deps
+cp .env.example .env                                             # fill in API keys; leave Clerk vars blank for unauth dev
+uv run pytest -v                                                 # full test suite (no network)
+uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port 8080     # boots HTTP at http://localhost:8080/mcp/
+```
+
+`sernia_mcp.app:app` is the ASGI application — uvicorn loads it directly. The module wires a request-logging middleware so every inbound request surfaces in Logfire.
+
+### Browser-based approval testing
+
+```bash
+uv run fastmcp dev apps src/sernia_mcp/dev_server.py
+```
+
+Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. The picker lists `quo_send_sms` and `google_send_email`; fill in the form and click Launch to see the approval card. **All upstream sends are mocked** — safe to use any phone/email.
+
+## Security model
+
+There are **two distinct gates** every request has to pass:
+
+| Layer | Concern | Where it's enforced |
+|------|---------|---------------------|
+| **Authentication** — *who are you?* | Validates a bearer token issued by Clerk's OAuth flow | FastMCP `ClerkProvider` (token introspection + userinfo against Clerk) |
+| **Authorization** — *should you be allowed?* | Rejects authenticated users whose email isn't on a domain allowlist | FastMCP `AuthMiddleware(auth=require_allowed_email_domain)` in `src/sernia_mcp/auth.py` |
+
+A valid Clerk token alone is **not** sufficient to use this server. Clerk's authentication confirms the user signed in successfully, but anyone with a Clerk account on the same instance (e.g. someone who signed up to the public-facing portfolio site) would otherwise be accepted. The authorization layer enforces the actual policy: only emails ending in a domain on `SERNIA_MCP_ALLOWED_EMAIL_DOMAINS` (defaults to `serniacapital.com`) can list or call tools.
+
+If the token has no `email` claim, has a malformed email, or has a domain not on the allowlist, the middleware raises `AuthorizationError` and the request is rejected before the handler runs. See `tests/test_auth.py` for the exact behavior.
+
+### Defense in depth: also restrict at Clerk
+
+The server-side allowlist is the *load-bearing* check, but there is also a Clerk-level allowlist restriction:
+
+Clerk dashboard → **Configure** → **Protect** → **Restrictions** → Allowlist → add `*@serniacapital.com`.
+* [Dev restriction](https://dashboard.clerk.com/apps/app_2tB8mbwLmtpZMrbmUza8TZKjPF3/instances/ins_2tB8mbJMmpJmKnswXgPYuFQXzG7/protect/restrictions/allowlist)
+* [Prod restriction](https://dashboard.clerk.com/apps/app_2tB8mbwLmtpZMrbmUza8TZKjPF3/instances/ins_2tDOhx9crrQuKdrgeXgUufiAQ32/protect/restrictions/allowlist)
+
+Two layers because: (a) Clerk's UI restrictions can be bypassed by misconfiguration, and (b) the server-side check is the one your code controls and tests guard.
+
+### What's NOT enforced
+
+- **Per-user permissions** within the Sernia organization. Today, every allowed user has full access to every tool. If/when team-level scoping becomes a need, extend `require_allowed_email_domain` into a richer policy or use Clerk's organization/role claims.
+- **Rate limiting / abuse protection.** The bearer model assumes a small set of trusted users.
+- **Audit logging** beyond Logfire spans. Every `tools/call` is captured in Logfire with the full span tree, so search by user email there if you need a per-user audit trail.
+
+## Auth — Clerk OAuth
+
+Claude Desktop / Claude.ai custom connectors require OAuth 2.1 with Dynamic Client Registration (RFC 7591). The four-var Clerk integration handles all of it:
+
+```bash
+FASTMCP_SERVER_AUTH_CLERK_DOMAIN=your-instance.clerk.accounts.dev
+FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID=<from Clerk OAuth app>
+FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET=<from Clerk OAuth app>
+SERNIA_MCP_BASE_URL=https://mcp.sernia.ai
+```
+
+If any of the four are missing the server runs **unauthenticated** — useful for local dev, never expose this state publicly.
+
+### Local-dev auth bypass
+
+For local exploration with the MCP Inspector or curl, set:
+
+```bash
+SERNIA_MCP_DISABLE_AUTH=true
+```
+
+This forces unauthenticated mode even when the four Clerk vars are configured. The server **raises at boot** if this flag is set in any Railway environment (any value of `RAILWAY_ENVIRONMENT_NAME`), so it can't escape to production. The VS Code "Sernia MCP Server" launcher sets this automatically.
+
+### Callback URIs — there are two; only one of them is yours to register
+
+Source of confusion: the OAuth flow has two redirect URIs in play. Only the first one belongs in the Clerk dashboard.
+
+**1. The MCP server's own redirect URI** — register this in Clerk OAuth Application → Authorized redirect URIs:
+
+```
+https://mcp.sernia.ai/auth/callback           # production
+https://dev.mcp.sernia.ai/auth/callback       # dev environment
+http://localhost:8080/auth/callback           # local, only if testing the full OAuth flow
+```
+
+These are FastMCP's `ClerkProvider` callback — Clerk redirects here after the user signs in, and the provider then hands the auth code back to the MCP client. The path `/auth/callback` is hardcoded by `ClerkProvider`; change it by changing `SERNIA_MCP_BASE_URL`, not the path.
+
+**2. The MCP client's redirect URI** — *don't register this manually*.
+
+When Claude Desktop / Claude.ai connect for the first time, they hit our `/register` endpoint and Dynamic-Client-Register themselves with Clerk, declaring their own callback (e.g. `https://claude.ai/api/mcp/auth_callback` for Claude.ai). Clerk shows you that URL on its consent screen so you can verify the client's identity before clicking Allow Access — but you do not pre-register it. Each MCP client (Claude.ai, Claude Desktop, ChatGPT, VS Code, etc.) will declare its own.
+
+### Connecting Claude Desktop / Claude.ai
+
+1. Settings → Connectors → **Add custom connector**.
+2. URL: `https://mcp.sernia.ai/mcp` (or `https://dev.mcp.sernia.ai/mcp` for dev). **No trailing slash** — Claude posts to the no-slash form, and the server mounts there directly to avoid a 307 redirect that drops the bearer header.
+3. Leave the optional OAuth Client ID / Secret fields blank — the server announces DCR via `/register`.
+4. Click Add. Claude opens Clerk's hosted sign-in; sign in with your @serniacapital.com Google account; Clerk redirects back; Claude now has a token.
+
+### Verifying OAuth metadata is live
+
+```bash
+curl https://mcp.sernia.ai/.well-known/oauth-protected-resource/mcp | jq .
+# Should return JSON with: resource, authorization_servers, scopes_supported, ...
+```
+
+## Deployment (Railway)
+
+This service deploys independently of the main FastAPI app. In Railway:
+
+1. **Project → New Service → GitHub Repo**, root directory `apps/sernia_mcp`.
+2. **Build Command**: `uv sync --frozen` (uses `uv.lock`).
+3. **Start Command**: `uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT`.
+4. **Domain**: bind `mcp.sernia.ai` to this service. Set `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` to match.
+5. Set the four Clerk vars + upstream API keys per `.env.example`.
+
+### Single source of MCP truth
+
+The old `/api/mcp` mount on the FastAPI monorepo (`api/src/sernia_mcp/` + `api/src/tool_core/`) was removed in the same change that introduced this service — `mcp.sernia.ai` is the only MCP listener. The React Router OAuth-metadata proxy hack that supported the nested mount is also gone.
+
+## Workspace storage
+
+`MEMORY.md` and `skills/<name>/SKILL.md` live in `SERNIA_MCP_WORKSPACE_PATH`, which is **git-backed** to the private `EmilioEsposito/sernia-knowledge` repo. Both this service AND the Sernia AI agent (in `api/`) clone, pull, and push to the same repo, so edits flow between them transparently.
+
+- **At startup** — `app.py` wraps the FastMCP lifespan to call `ensure_repo(WORKSPACE_PATH)`: clones if empty, pulls otherwise. Failures are logged but never crash the server.
+- **After every `edit_resource` / `write_resource`** — a fire-and-forget `commit_and_push` task pushes the change. Lock-serialized within the process.
+- **No PAT, no sync** — without `GITHUB_EMILIO_PERSONAL_WRITE_PAT`, both sides no-op. Tests run that way; local dev can too. Production must always have the PAT set or the workspace becomes ephemeral on each Railway redeploy.
+
+## Layout
+
+```
+apps/sernia_mcp/
+├── pyproject.toml               # uv project (own venv, own deps)
+├── railway_sernia_mcp.json      # Railway deploy config (start command, healthcheck)
+├── .env.example
+├── src/sernia_mcp/
+│   ├── app.py                   # ASGI entrypoint (uvicorn loads this); wires git_sync lifespan + request-log middleware
+│   ├── server.py                # FastMCP instance + Clerk auth + email-domain authz + Logfire config + /health + /icon.png
+│   ├── auth.py                  # SerniaAuthMiddleware: email-domain check + bypasses for ui:// resources and hashed app tools
+│   ├── dev_server.py            # Browser-testable approval-flow harness (mocked sends)
+│   ├── config.py                # Env-driven constants
+│   ├── identity.py              # Acting-user resolver (POC: single user via SERNIA_MCP_DEFAULT_USER)
+│   ├── static/icon.png          # Server icon advertised at MCP-level + served at /icon.png
+│   ├── clients/                 # Vendored upstream HTTP clients (sync points documented in CLAUDE.md)
+│   │   ├── google_auth.py       #   service-account delegated creds
+│   │   ├── gmail.py             #   Gmail v1 API helpers
+│   │   ├── quo.py               #   OpenPhone API helpers
+│   │   ├── git_sync.py          #   git clone/pull/commit/push for the workspace repo
+│   │   └── _fuzzy.py            #   Fuzzy filter for contact / task search
+│   ├── core/                    # Harness-agnostic async tool functions
+│   │   ├── skills.py            #   list_skills, read/write skill + memory, frontmatter parsing
+│   │   ├── google/gmail.py
+│   │   ├── quo/{contacts,send_sms}.py
+│   │   ├── clickup/tasks.py
+│   │   ├── errors.py
+│   │   └── types.py
+│   └── tools/                   # @mcp.tool wrappers + approvals app
+│       ├── context.py           #   sernia_context, read_resource, edit_resource, write_resource + memory:// & skill:// resources
+│       ├── google.py
+│       ├── quo.py
+│       ├── clickup.py
+│       └── approvals.py         #   FastMCPApp HITL flow for SMS / email
+└── tests/                       # uv run pytest -v  (80 tests at last count)
+    ├── test_smoke.py            #   Imports + expected tool registration
+    ├── test_context.py          #   Doorway, resources, edit/write_resource (Edit-style + Write-style)
+    ├── test_approvals.py        #   In-memory FastMCP Client + hidden-tool isolation
+    ├── test_auth.py             #   Email-domain check + ui:// bypass + hashed-app-tool bypass
+    ├── test_disable_auth.py     #   SERNIA_MCP_DISABLE_AUTH flag + Railway boot guard
+    ├── test_http_app.py         #   ASGI lifespan + /mcp /health /icon.png
+    ├── test_git_sync_wiring.py  #   ensure_repo on startup + commit_and_push after writes
+    └── test_quo_active_threads.py  # Mocked OpenPhone API integration
+```
+
+## Out of scope (v1)
+
+- Feature parity with the Sernia AI agent (deliberately a smaller surface — `mass_text_tenants`, scheduling, ClickUp create/update, Calendar, Drive, DB search, Python sandbox all live in `api/src/sernia_ai/` for now).
+- External SMS / email sending without UI approval (deferred — DB-backed queue).
+- Calendar / Drive / ClickUp **write** tools (deferred; read-only for now).
+- Per-user / per-tool authorization (today: email-domain allowlist gates *all* tools uniformly; per-tool roles or org-level scoping not modeled).
+
+## See also
+
+- [`CLAUDE.md`](CLAUDE.md) — AI-assisted-development guide for this service.
+- [FastMCP docs](https://gofastmcp.com/) — refresh once per session for new features.

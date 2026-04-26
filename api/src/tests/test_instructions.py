@@ -1,8 +1,17 @@
-"""Unit tests for sernia_ai.instructions filetree rendering."""
+"""Unit tests for sernia_ai.instructions filetree rendering + refresh_from_remote."""
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from api.src.sernia_ai.instructions import _build_filetree, _COLLAPSED_DIRS
+import pytest
+
+from api.src.sernia_ai.instructions import (
+    _build_filetree,
+    _COLLAPSED_DIRS,
+    _pulled_conversation_ids,
+    refresh_from_remote,
+)
 
 
 def test_filetree_collapses_daily_notes(tmp_path: Path):
@@ -42,3 +51,89 @@ def test_filetree_only_collapses_at_top_level(tmp_path: Path):
     tree = _build_filetree(tmp_path)
     assert "x.md" in tree
     assert "(1 entries)" not in tree
+
+
+# =====================================================================
+# refresh_from_remote — pull only on first turn of each conversation
+# =====================================================================
+
+@pytest.fixture(autouse=True)
+def _clear_pulled_conversation_cache():
+    """The pulled-conversations set is process-global; clear before each test."""
+    _pulled_conversation_ids.clear()
+    yield
+    _pulled_conversation_ids.clear()
+
+
+def _ctx(conversation_id: str, workspace_path: Path) -> SimpleNamespace:
+    """Minimal RunContext stand-in. ``refresh_from_remote`` only reads
+    ``ctx.deps.conversation_id`` and ``ctx.deps.workspace_path``.
+    """
+    return SimpleNamespace(
+        deps=SimpleNamespace(
+            conversation_id=conversation_id,
+            workspace_path=workspace_path,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_pulls_on_first_turn(tmp_path):
+    """First call for a conversation_id triggers pull_workspace."""
+    with patch(
+        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
+    ) as fake_pull:
+        result = await refresh_from_remote(_ctx("conv-A", tmp_path))
+
+    assert result == ""
+    fake_pull.assert_awaited_once_with(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_refresh_skips_pull_on_followup_turn(tmp_path):
+    """Subsequent turns in the same conversation must NOT pull — that's
+    the whole point of the optimization. Avoids ~300-500ms latency on
+    every user message after the first.
+    """
+    with patch(
+        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
+    ) as fake_pull:
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+
+    fake_pull.assert_awaited_once()  # only the first call
+
+
+@pytest.mark.asyncio
+async def test_refresh_pulls_per_conversation(tmp_path):
+    """Different conversations each get one pull on their first turn."""
+    with patch(
+        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
+    ) as fake_pull:
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+        await refresh_from_remote(_ctx("conv-B", tmp_path))
+        await refresh_from_remote(_ctx("conv-A", tmp_path))  # follow-up
+        await refresh_from_remote(_ctx("conv-C", tmp_path))
+
+    # A, B, C → 3 distinct first-turn pulls; A's follow-up is suppressed.
+    assert fake_pull.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_refresh_marks_conversation_even_on_pull_failure(tmp_path):
+    """If pull_workspace raises, we still mark the conversation as pulled
+    so we don't retry on every follow-up turn (which would compound the
+    latency for a known-broken sync).
+    """
+    with patch(
+        "api.src.sernia_ai.memory.git_sync.pull_workspace",
+        new=AsyncMock(side_effect=RuntimeError("simulated git outage")),
+    ) as fake_pull:
+        # Must not raise (fail-soft contract).
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+        await refresh_from_remote(_ctx("conv-A", tmp_path))
+
+    # Pull only attempted once despite the failure.
+    fake_pull.assert_awaited_once()
+    assert "conv-A" in _pulled_conversation_ids

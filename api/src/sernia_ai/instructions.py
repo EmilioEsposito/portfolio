@@ -258,6 +258,50 @@ def format_current_datetime(now: datetime | None = None) -> str:
     )
 
 
+# Conversations whose first turn has already pulled the workspace. The cache
+# is process-local, keyed on conversation_id, and unbounded (~36 bytes per
+# entry — fine at any realistic conversation volume). A process restart
+# clears it, so each conversation re-pulls once after a redeploy. This
+# avoids paying the ~300-500ms pull latency on every follow-up turn.
+_pulled_conversation_ids: set[str] = set()
+
+
+async def refresh_from_remote(ctx: RunContext[SerniaDeps]) -> str:
+    """Pull the workspace from GitHub on the **first** turn of each conversation.
+
+    Runs first in ``DYNAMIC_INSTRUCTIONS`` so subsequent ``inject_memory``
+    and ``inject_filetree`` calls see the latest state — including edits
+    made directly on GitHub or by the ``apps/sernia_mcp`` service.
+
+    Follow-up turns in the same conversation skip the pull (it would have
+    re-fetched whatever was already loaded on the first turn, at the cost
+    of latency on every user message). Trade-off: long-running conversations
+    can drift from the remote until a restart, but conversations are
+    typically minutes-long and Sernia restarts daily on dev.
+
+    Returns "" — this dynamic instruction exists for its side effect (the
+    pull), not for any system-prompt contribution. ``pull_workspace`` is
+    fail-soft, so this never blocks an agent run.
+    """
+    conv_id = ctx.deps.conversation_id
+    if conv_id in _pulled_conversation_ids:
+        return ""
+
+    try:
+        from api.src.sernia_ai.memory.git_sync import pull_workspace
+
+        await pull_workspace(ctx.deps.workspace_path)
+    except Exception:
+        logfire.exception("git_sync: refresh_from_remote failed (non-fatal)")
+    finally:
+        # Mark as pulled even if the pull failed — we don't want to retry
+        # on every follow-up turn after a transient failure (it would
+        # re-fail and add latency repeatedly). Next conversation gets a
+        # fresh attempt; or wait for a restart.
+        _pulled_conversation_ids.add(conv_id)
+    return ""
+
+
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
     from api.src.sernia_ai.config import FRONTEND_BASE_URL
 
@@ -318,6 +362,7 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
 
 
 DYNAMIC_INSTRUCTIONS = [
+    refresh_from_remote,  # FIRST: pull from GitHub so memory/filetree see latest
     inject_context,
     inject_memory,
     inject_filetree,

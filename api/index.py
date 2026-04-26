@@ -220,7 +220,7 @@ async def lifespan(app: FastAPI):
             logfire.exception(f"Error during startup: {e}")
             raise
 
-    yield # Application runs here
+    yield  # Application runs here
 
     # Shutdown logic
     logfire.info("Application shutdown...")

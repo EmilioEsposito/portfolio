@@ -1,13 +1,28 @@
-"""
-Git-backed sync for the Sernia AI agent workspace.
+# ruff: noqa: RUF059
+"""Git-backed sync for the Sernia knowledge workspace.
 
-Backs the .workspace/ directory with a private GitHub repo so that:
-- File edits are visible as git commits on GitHub
-- Knowledge can be edited directly on GitHub
-- Version history comes for free
+Vendored from ``api/src/sernia_ai/memory/git_sync.py`` so that the MCP service
+and the existing Sernia AI agent can write to the **same** GitHub repo
+(``EmilioEsposito/sernia-knowledge``). When this service edits MEMORY.md or a
+skill via ``edit_resource``, the change is committed and pushed; the next
+sernia_ai agent run pulls the same change. Same on the way back: edits made
+through the agent flow into the MCP workspace on the next pull.
 
-Requires GITHUB_EMILIO_PERSONAL_WRITE_PAT env var. Without it, workspace
-operates in local-only mode (no git sync).
+Backs the configured workspace directory with a private GitHub repo so:
+  - File edits are visible as git commits on GitHub
+  - Knowledge can be edited directly on GitHub
+  - Version history comes for free
+  - Both this MCP service and the sernia_ai agent share state through git
+
+Requires ``GITHUB_EMILIO_PERSONAL_WRITE_PAT`` env var. Without it, the workspace
+operates in local-only mode (no git sync) — useful for tests and dev. When
+the api/ copy of this file changes meaningfully, mirror the change here. The
+contract is small enough that occasional drift is acceptable; document any
+intentional divergence in CLAUDE.md.
+
+The ``RUF059`` ruff rule (unused unpacked variables) is suppressed file-wide
+to match the upstream copy in ``api/src/sernia_ai/memory/`` — we keep this
+file as close to upstream as possible to make periodic sync trivial.
 """
 
 import asyncio
@@ -26,7 +41,7 @@ class GitSyncPushFailed(Exception):
     Raised+caught locally inside ``commit_and_push`` to drive a
     ``logfire.exception`` call. The fire-and-forget task wrapper around
     ``commit_and_push`` already discards exceptions, so this never reaches
-    the agent — but the Logfire Issue + Slack notification it produces
+    the MCP client — but the Logfire Issue + Slack notification it produces
     surfaces the data-loss risk to operators.
     """
 
@@ -60,7 +75,6 @@ async def _run_git(
     stdout = stdout_bytes.decode(errors="replace")
     stderr = stderr_bytes.decode(errors="replace")
 
-    # Redact PAT in logs
     if pat:
         stdout = _redact(stdout, pat)
         stderr = _redact(stderr, pat)
@@ -69,10 +83,9 @@ async def _run_git(
 
 
 async def _configure_repo(workspace: Path, pat: str) -> None:
-    """Set repo-local git config for the AI agent."""
-    await _run_git("config", "user.name", "Sernia AI Agent", cwd=workspace)
+    """Set repo-local git config for the MCP service's commits."""
+    await _run_git("config", "user.name", "Sernia MCP", cwd=workspace)
     await _run_git("config", "user.email", "ai-agent@serniacapital.com", cwd=workspace)
-    # Ensure remote URL uses current PAT
     rc, _, _ = await _run_git("remote", "get-url", "origin", cwd=workspace, pat=pat)
     if rc == 0:
         await _run_git("remote", "set-url", "origin", _remote_url(pat), cwd=workspace, pat=pat)
@@ -115,7 +128,7 @@ def _has_unmerged_files(status_out: str) -> bool:
 async def _commit_and_push_dirty(workspace: Path, pat: str) -> None:
     """Commit and push any uncommitted workspace changes. Called once at startup."""
     committed = await _stage_and_commit_dirty(
-        workspace, "agent: commit uncommitted changes from previous run"
+        workspace, "mcp: commit uncommitted changes from previous run"
     )
     if not committed:
         return
@@ -128,14 +141,13 @@ async def _commit_and_push_dirty(workspace: Path, pat: str) -> None:
 
 
 async def ensure_repo(workspace_path: Path) -> None:
-    """
-    Ensure workspace is backed by the git repo. Called once at startup.
+    """Ensure ``workspace_path`` is backed by the git repo. Called once at startup.
 
     Scenarios:
-    - PAT not set -> no-op (local-only fallback)
-    - Not a git repo, dir empty -> git clone
-    - Not a git repo, dir has files -> git init + add remote + fetch
-    - Already a git repo -> git pull (non-fatal on failure)
+      - PAT not set → no-op (local-only fallback, safe for tests + dev)
+      - Not a git repo, dir empty → ``git clone``
+      - Not a git repo, dir has files → ``git init`` + add remote + fetch
+      - Already a git repo → ``git pull`` (non-fatal on failure)
     """
     pat = _get_pat()
     if not pat:
@@ -147,16 +159,14 @@ async def ensure_repo(workspace_path: Path) -> None:
     is_git_repo = git_dir.exists()
 
     if is_git_repo:
-        # Already a git repo - just pull latest
         logfire.info("git_sync: Existing repo, pulling latest")
         await _configure_repo(workspace_path, pat)
 
-        # If a previous merge left unresolved conflicts, resolve them first
         rc_status, status_out, _ = await _run_git("status", "--porcelain", cwd=workspace_path)
         if "U " in (status_out or "") or " U" in (status_out or ""):
             logfire.warn("git_sync: found unmerged files on startup, committing as-is to unblock")
             await _run_git("add", "-A", cwd=workspace_path)
-            await _run_git("commit", "-m", "agent: commit unmerged files on startup", cwd=workspace_path)
+            await _run_git("commit", "-m", "mcp: commit unmerged files on startup", cwd=workspace_path)
 
         rc, stdout, stderr = await _run_git(
             "pull", "--rebase=false", "origin", "main",
@@ -169,58 +179,45 @@ async def ensure_repo(workspace_path: Path) -> None:
                 "origin", "main",
                 cwd=workspace_path, pat=pat,
             )
-            # The merge may leave conflicts — commit them as-is to unblock
             if rc != 0 or "CONFLICT" in (stdout or ""):
                 logfire.warn("git_sync: conflicts after unrelated-histories merge, committing as-is")
                 await _run_git("add", "-A", cwd=workspace_path)
                 await _run_git(
-                    "commit", "-m", "agent: commit conflicted files from unrelated-histories merge",
+                    "commit", "-m", "mcp: commit conflicted files from unrelated-histories merge",
                     cwd=workspace_path,
                 )
-                rc = 0  # resolved
+                rc = 0
 
         if rc != 0:
             logfire.error(f"git_sync: pull failed (non-fatal): {stderr}")
 
-        # Push any uncommitted changes left over from a previous run
-        # (e.g. server crashed before commit_and_push fired).
         await _commit_and_push_dirty(workspace_path, pat)
         return
 
-    # Check if directory has existing files (besides .git)
     has_files = any(
         p.name != ".git" for p in workspace_path.iterdir()
     ) if workspace_path.exists() else False
 
     if not has_files:
-        # Empty directory - clone directly
         logfire.info("git_sync: Empty workspace, cloning repo")
-        # Clone into a temp name, then move contents
-        # (git clone won't clone into non-empty dir)
         rc, stdout, stderr = await _run_git(
             "clone", _remote_url(pat), str(workspace_path),
             cwd=workspace_path.parent, pat=pat,
         )
         if rc != 0:
-            # Clone may fail if repo is empty (no commits yet)
-            # In that case, init fresh
             logfire.info(f"git_sync: Clone failed ({stderr.strip()}), initializing fresh repo")
             await _run_git("init", cwd=workspace_path)
             await _configure_repo(workspace_path, pat)
-            # Create main branch
             await _run_git("checkout", "-b", "main", cwd=workspace_path)
         else:
             await _configure_repo(workspace_path, pat)
     else:
-        # Has existing files - init and connect to remote
         logfire.info("git_sync: Workspace has files, initializing git and connecting to remote")
         await _run_git("init", cwd=workspace_path)
         await _configure_repo(workspace_path, pat)
         await _run_git("checkout", "-b", "main", cwd=workspace_path)
-        # Fetch remote to see if there are existing commits
         rc, _, _ = await _run_git("fetch", "origin", cwd=workspace_path, pat=pat)
         if rc == 0:
-            # Try to merge remote history (may fail if unrelated histories)
             rc2, _, stderr2 = await _run_git(
                 "merge", "origin/main", "--allow-unrelated-histories", "--no-edit",
                 cwd=workspace_path, pat=pat,
@@ -234,10 +231,9 @@ async def ensure_repo(workspace_path: Path) -> None:
 async def pull_workspace(workspace_path: Path) -> None:
     """Pull latest from remote to refresh local state. Drives pre-read freshness.
 
-    Called as the first dynamic instruction on each agent run so that
-    direct-on-GitHub edits (and edits made by the ``apps/sernia_mcp``
-    service) are visible to the current run before ``inject_memory`` /
-    ``inject_filetree`` read the workspace.
+    Called at the top of ``sernia_context()`` so that direct-on-GitHub edits
+    (and edits made by the ``api/src/sernia_ai`` agent) are visible to the
+    current MCP session before the model reads memory or skills.
 
     Same commit-before-pull pattern as ``commit_and_push`` so a dirty working
     tree (rare — only happens after an interrupted previous run) doesn't
@@ -265,7 +261,7 @@ async def pull_workspace(workspace_path: Path) -> None:
             if rc == 0 and status_out.strip():
                 await _stage_and_commit_dirty(
                     workspace_path,
-                    "agent: pre-pull commit (local edits preserved)",
+                    "mcp: pre-pull commit (local edits preserved)",
                 )
 
             # Pull.
@@ -299,14 +295,14 @@ async def pull_workspace(workspace_path: Path) -> None:
                 )
                 await _stage_and_commit_dirty(
                     workspace_path,
-                    "agent: commit conflicted files from pull (markers preserved)",
+                    "mcp: commit conflicted files from pull (markers preserved)",
                 )
         except Exception:
             logfire.exception("git_sync: pull_workspace error")
 
 
 async def commit_and_push(workspace_path: Path) -> None:
-    """Stage all changes, commit, pull, and push. Fire-and-forget after each agent turn.
+    """Stage all changes, commit, pull, and push. Fire-and-forget after each edit.
 
     Order matters:
 
@@ -317,7 +313,7 @@ async def commit_and_push(workspace_path: Path) -> None:
          pull can merge with cleanly.
 
       2. **Pull (no rebase, no edit).** Picks up edits made on GitHub or by
-         the sernia_mcp service. Auto-merge handles non-conflicting concurrent
+         the sernia_ai agent. Auto-merge handles non-conflicting concurrent
          changes. ``--allow-unrelated-histories`` retry handles the rare
          "fresh repo on each side" case.
 
@@ -365,7 +361,7 @@ async def commit_and_push(workspace_path: Path) -> None:
                 file_summary = ", ".join(changed_files[:5])
                 if len(changed_files) > 5:
                     file_summary += f" (+{len(changed_files) - 5} more)"
-                commit_msg = f"agent: update {file_summary}"
+                commit_msg = f"mcp: update {file_summary}"
                 await _stage_and_commit_dirty(workspace_path, commit_msg)
 
             # 2. Pull. Local commits + remote commits merge here.
@@ -395,7 +391,7 @@ async def commit_and_push(workspace_path: Path) -> None:
                 )
                 await _stage_and_commit_dirty(
                     workspace_path,
-                    "agent: commit conflicted files from merge (markers preserved)",
+                    "mcp: commit conflicted files from merge (markers preserved)",
                 )
 
             # 4. Push, but only if we have local commits ahead of remote.
@@ -424,9 +420,9 @@ async def commit_and_push(workspace_path: Path) -> None:
             # wipe the local filesystem and lose them. Fail LOUDLY via
             # logfire.exception (creates a Logfire Issue, triggers Slack
             # notification) so an operator sees this. We deliberately do
-            # NOT propagate the exception to the caller — the agent run
-            # already returned its result, and the fire-and-forget contract
-            # is "best-effort sync."
+            # NOT propagate the exception to the caller — edit_resource
+            # already returned success to the model, and the fire-and-forget
+            # contract is "best-effort sync."
             try:
                 raise GitSyncPushFailed(
                     f"local commits failed to push to remote — "
