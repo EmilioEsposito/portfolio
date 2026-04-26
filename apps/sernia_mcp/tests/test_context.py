@@ -237,15 +237,15 @@ async def test_read_resource_missing_skill_raises_not_found(mcp_client):
         )
 
 
-# ---------------------------------------------------------- edit_resource tool
+# --------------------------------------------------------- write_resource tool
 
 @pytest.mark.asyncio
-async def test_edit_resource_updates_memory(tmp_path, mcp_client):
+async def test_write_resource_updates_memory(tmp_path, mcp_client):
     result = await mcp_client.call_tool(
-        "edit_resource",
+        "write_resource",
         {"uri": "memory://current", "content": "new memory"},
     )
-    assert "updated memory" in result.content[0].text
+    assert "wrote memory" in result.content[0].text
 
     from sernia_mcp.core.skills import read_memory
 
@@ -253,17 +253,189 @@ async def test_edit_resource_updates_memory(tmp_path, mcp_client):
 
 
 @pytest.mark.asyncio
-async def test_edit_resource_updates_skill(tmp_path, mcp_client):
+async def test_write_resource_creates_or_overwrites_skill(tmp_path, mcp_client):
     result = await mcp_client.call_tool(
-        "edit_resource",
+        "write_resource",
         {"uri": "skill://invoicing/SKILL.md", "content": "new skill body"},
     )
-    assert "updated skill" in result.content[0].text
+    assert "wrote skill" in result.content[0].text
     assert "invoicing" in result.content[0].text
 
     from sernia_mcp.core.skills import read_skill
 
     assert read_skill("invoicing") == "new skill body"
+
+
+@pytest.mark.asyncio
+async def test_write_resource_rejects_unknown_scheme(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="unsupported URI"):
+        await mcp_client.call_tool(
+            "write_resource",
+            {"uri": "file:///etc/passwd", "content": "evil"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_write_resource_rejects_skill_uri_without_skill_md_suffix(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match=r"must end with /SKILL\.md"):
+        await mcp_client.call_tool(
+            "write_resource",
+            {"uri": "skill://comms/notes.md", "content": "x"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_write_resource_rejects_path_traversal(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="invalid skill name"):
+        await mcp_client.call_tool(
+            "write_resource",
+            {"uri": "skill://..%2Fevil/SKILL.md", "content": "x"},
+        )
+
+
+# ------------------------------------ edit_resource tool (string substitution)
+
+@pytest.mark.asyncio
+async def test_edit_resource_replaces_unique_substring(tmp_path, mcp_client):
+    from sernia_mcp.core.skills import read_memory, write_memory
+
+    write_memory("Tenant: Anna lives in unit 02.")
+
+    result = await mcp_client.call_tool(
+        "edit_resource",
+        {
+            "uri": "memory://current",
+            "old_string": "unit 02",
+            "new_string": "unit 03",
+        },
+    )
+    assert "replaced 1 occurrence" in result.content[0].text
+    assert read_memory() == "Tenant: Anna lives in unit 03."
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_fails_when_old_string_not_found(tmp_path, mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    from sernia_mcp.core.skills import write_memory
+
+    write_memory("hello world")
+
+    with pytest.raises(ToolError, match="not found"):
+        await mcp_client.call_tool(
+            "edit_resource",
+            {
+                "uri": "memory://current",
+                "old_string": "missing",
+                "new_string": "anything",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_fails_on_ambiguous_old_string(tmp_path, mcp_client):
+    """Two occurrences without ``replace_all`` must fail loudly — that's the
+    Claude Code Edit safety property: one wrong replacement is worse than
+    forcing the caller to disambiguate.
+    """
+    from fastmcp.exceptions import ToolError
+
+    from sernia_mcp.core.skills import write_memory
+
+    write_memory("foo\nfoo\n")
+
+    with pytest.raises(ToolError, match="appears 2 times"):
+        await mcp_client.call_tool(
+            "edit_resource",
+            {
+                "uri": "memory://current",
+                "old_string": "foo",
+                "new_string": "bar",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_replace_all_flag(tmp_path, mcp_client):
+    from sernia_mcp.core.skills import read_memory, write_memory
+
+    write_memory("foo\nfoo\nfoo\n")
+
+    result = await mcp_client.call_tool(
+        "edit_resource",
+        {
+            "uri": "memory://current",
+            "old_string": "foo",
+            "new_string": "bar",
+            "replace_all": True,
+        },
+    )
+    assert "replaced 3 occurrences" in result.content[0].text
+    assert read_memory() == "bar\nbar\nbar\n"
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_no_op_rejected(tmp_path, mcp_client):
+    """``old_string == new_string`` should fail rather than silently no-op."""
+    from fastmcp.exceptions import ToolError
+
+    from sernia_mcp.core.skills import write_memory
+
+    write_memory("anything")
+
+    with pytest.raises(ToolError, match="identical"):
+        await mcp_client.call_tool(
+            "edit_resource",
+            {
+                "uri": "memory://current",
+                "old_string": "x",
+                "new_string": "x",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_whitespace_exact(tmp_path, mcp_client):
+    """Whitespace must match exactly — no fuzzy matching, like Claude Code."""
+    from fastmcp.exceptions import ToolError
+
+    from sernia_mcp.core.skills import write_memory
+
+    write_memory("    indented line\n")
+
+    # Tab-indented old_string should NOT match space-indented file content.
+    with pytest.raises(ToolError, match="not found"):
+        await mcp_client.call_tool(
+            "edit_resource",
+            {
+                "uri": "memory://current",
+                "old_string": "\tindented line",
+                "new_string": "\tchanged",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_supports_skill_uris(tmp_path, mcp_client):
+    from sernia_mcp.core.skills import read_skill, write_skill
+
+    write_skill("rent", "Step 1: send invoice.\nStep 2: confirm.\n")
+
+    await mcp_client.call_tool(
+        "edit_resource",
+        {
+            "uri": "skill://rent/SKILL.md",
+            "old_string": "send invoice",
+            "new_string": "send detailed invoice",
+        },
+    )
+    assert "send detailed invoice" in read_skill("rent")
 
 
 @pytest.mark.asyncio
@@ -273,29 +445,11 @@ async def test_edit_resource_rejects_unknown_scheme(mcp_client):
     with pytest.raises(ToolError, match="unsupported URI"):
         await mcp_client.call_tool(
             "edit_resource",
-            {"uri": "file:///etc/passwd", "content": "evil"},
-        )
-
-
-@pytest.mark.asyncio
-async def test_edit_resource_rejects_skill_uri_without_skill_md_suffix(mcp_client):
-    from fastmcp.exceptions import ToolError
-
-    with pytest.raises(ToolError, match=r"must end with /SKILL\.md"):
-        await mcp_client.call_tool(
-            "edit_resource",
-            {"uri": "skill://comms/notes.md", "content": "x"},
-        )
-
-
-@pytest.mark.asyncio
-async def test_edit_resource_rejects_path_traversal(mcp_client):
-    from fastmcp.exceptions import ToolError
-
-    with pytest.raises(ToolError, match="invalid skill name"):
-        await mcp_client.call_tool(
-            "edit_resource",
-            {"uri": "skill://..%2Fevil/SKILL.md", "content": "x"},
+            {
+                "uri": "file:///etc/passwd",
+                "old_string": "x",
+                "new_string": "y",
+            },
         )
 
 
@@ -303,11 +457,11 @@ async def test_edit_resource_rejects_path_traversal(mcp_client):
 
 @pytest.mark.asyncio
 async def test_edit_then_sernia_context_reflects_change(tmp_path, mcp_client):
-    """The full self-improving loop: write a skill via edit_resource, see it
-    in the doorway tool's response, then read its content via the resource.
+    """The full self-improving loop: write a skill, see it in the doorway
+    tool's response, then read its content via the resource.
     """
     await mcp_client.call_tool(
-        "edit_resource",
+        "write_resource",
         {
             "uri": "skill://reporting/SKILL.md",
             "content": (

@@ -29,6 +29,7 @@ async def test_expected_tools_exposed():
         "sernia_context",
         "read_resource",
         "edit_resource",
+        "write_resource",
         "quo_search_contacts",
         "quo_get_thread_messages",
         "google_search_emails",
