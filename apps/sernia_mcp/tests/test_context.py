@@ -453,6 +453,45 @@ async def test_edit_resource_rejects_unknown_scheme(mcp_client):
         )
 
 
+@pytest.mark.asyncio
+async def test_edit_resource_accepts_old_str_new_str_aliases(tmp_path, mcp_client):
+    """Models often default to ``old_str`` / ``new_str`` (Aider, grep-replace,
+    older Anthropic filesystem tool conventions). The advertised schema uses
+    the full names but the server accepts the abbreviated forms defensively
+    via pydantic AliasChoices. Without this, an issue surfaces in production
+    (Logfire issue #86, env=development).
+    """
+    from sernia_mcp.core.skills import read_memory, write_memory
+
+    write_memory("hello world")
+
+    result = await mcp_client.call_tool(
+        "edit_resource",
+        {
+            "uri": "memory://current",
+            "old_str": "world",
+            "new_str": "earth",
+        },
+    )
+    assert "replaced 1 occurrence" in result.content[0].text
+    assert read_memory() == "hello earth"
+
+
+@pytest.mark.asyncio
+async def test_edit_resource_schema_advertises_canonical_names(mcp_client):
+    """Defensive aliases shouldn't pollute the public schema — models should
+    see ``old_string`` / ``new_string`` only, so they default to those.
+    """
+    tools = await mcp_client.list_tools()
+    edit_tool = next(t for t in tools if t.name == "edit_resource")
+    props = edit_tool.inputSchema["properties"]
+    assert "old_string" in props
+    assert "new_string" in props
+    # The aliases must NOT be advertised to the model — only accepted on the wire.
+    assert "old_str" not in props
+    assert "new_str" not in props
+
+
 # ----------------------------------------- write-then-read round-trip via MCP
 
 @pytest.mark.asyncio

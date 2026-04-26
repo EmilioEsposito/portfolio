@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Annotated
 
 from fastmcp.exceptions import ToolError
+from pydantic import AliasChoices, Field
 
 from sernia_mcp.clients.git_sync import commit_and_push
 from sernia_mcp.config import WORKSPACE_PATH
@@ -249,8 +251,20 @@ async def skill_resource(name: str) -> str:
 @mcp.tool
 async def edit_resource(
     uri: str,
-    old_string: str,
-    new_string: str,
+    old_string: Annotated[
+        str,
+        Field(
+            description="Exact text in the resource to replace; whitespace-sensitive.",
+            validation_alias=AliasChoices("old_string", "old_str"),
+        ),
+    ],
+    new_string: Annotated[
+        str,
+        Field(
+            description="Replacement text. Pass empty string to delete old_string.",
+            validation_alias=AliasChoices("new_string", "new_str"),
+        ),
+    ],
     replace_all: bool = False,
 ) -> str:
     """Replace ``old_string`` with ``new_string`` inside a Sernia resource.
