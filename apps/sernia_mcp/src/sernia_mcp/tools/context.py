@@ -89,13 +89,9 @@ async def sernia_context() -> str:
           "instructions": "<guidance on how to use this context>"
         }
 
-    To read the full content of a specific skill, call ``resources/read``
-    with the skill's URI (or, if your client doesn't surface MCP resources,
-    that won't work — but the doorway already gives you the names and
-    descriptions, which is usually enough to answer questions).
-
-    To update memory or a skill, call ``edit_resource`` with the appropriate
-    URI (``memory://current`` or ``skill://<name>/SKILL.md``).
+    To read the full content of a specific skill, call ``read_resource(uri)``
+    with the URI from the skills list. To update memory or a skill, call
+    ``edit_resource(uri, content)``.
     """
     try:
         memory = read_memory()
@@ -112,11 +108,50 @@ async def sernia_context() -> str:
             ],
             "instructions": (
                 "Always treat 'memory' as authoritative current state. "
-                "If a skill is relevant, read its full content via "
-                "resources/read using the URI. To update memory or a skill, "
-                "call edit_resource(uri, content)."
+                "If a skill's description matches the current task, fetch "
+                "its full body via read_resource(uri). To update memory or "
+                "a skill, call edit_resource(uri, content)."
             ),
         }
+    )
+
+
+@mcp.tool
+async def read_resource(uri: str) -> str:
+    """Read the full content of a Sernia knowledge resource by URI.
+
+    Use this when ``sernia_context`` returns a skill URI you need to fully
+    consult, or when you want the current MEMORY.md content fresh.
+
+    Supported URIs:
+      - ``memory://current`` — current MEMORY.md content
+      - ``skill://<name>/SKILL.md`` — a skill's playbook (use the URI
+        returned in the ``skills`` list from ``sernia_context``)
+
+    This is a regular MCP tool because not every host surfaces native
+    ``resources/read`` to the model. Functionally equivalent to fetching
+    the resource via the protocol — both paths read the same files.
+    """
+    if uri == _MEMORY_URI:
+        return read_memory()
+
+    if uri.startswith(_SKILL_URI_PREFIX):
+        suffix = uri[len(_SKILL_URI_PREFIX):]
+        if not suffix.endswith("/SKILL.md"):
+            raise ToolError(
+                f"skill URI must end with /SKILL.md, got {uri!r}"
+            )
+        name = suffix[: -len("/SKILL.md")]
+        try:
+            return read_skill(name)
+        except NotFoundError as e:
+            raise ToolError(str(e)) from e
+        except ValidationError as e:
+            raise ToolError(f"invalid skill name: {e}") from e
+
+    raise ToolError(
+        f"unsupported URI {uri!r}. Use 'memory://current' or "
+        "'skill://<name>/SKILL.md'."
     )
 
 

@@ -180,6 +180,63 @@ async def test_skill_resource_template_listed(mcp_client):
     assert "skill://{name}/SKILL.md" in uris
 
 
+# ---------------------------------------------------------- read_resource tool
+
+@pytest.mark.asyncio
+async def test_read_resource_returns_memory_content(tmp_path, mcp_client):
+    from sernia_mcp.core.skills import write_memory
+
+    write_memory("the operating memory body")
+
+    result = await mcp_client.call_tool(
+        "read_resource", {"uri": "memory://current"}
+    )
+    assert result.content[0].text == "the operating memory body"
+
+
+@pytest.mark.asyncio
+async def test_read_resource_returns_skill_content(tmp_path, mcp_client):
+    from sernia_mcp.core.skills import write_skill
+
+    write_skill("comms", "---\ndescription: how to message\n---\n\nBody.")
+
+    result = await mcp_client.call_tool(
+        "read_resource", {"uri": "skill://comms/SKILL.md"}
+    )
+    assert "Body." in result.content[0].text
+    assert "description: how to message" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_read_resource_rejects_unknown_scheme(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="unsupported URI"):
+        await mcp_client.call_tool(
+            "read_resource", {"uri": "file:///etc/passwd"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_read_resource_rejects_skill_uri_without_skill_md_suffix(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match=r"must end with /SKILL\.md"):
+        await mcp_client.call_tool(
+            "read_resource", {"uri": "skill://comms/notes.md"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_read_resource_missing_skill_raises_not_found(mcp_client):
+    from fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="skill not found"):
+        await mcp_client.call_tool(
+            "read_resource", {"uri": "skill://nonexistent/SKILL.md"}
+        )
+
+
 # ---------------------------------------------------------- edit_resource tool
 
 @pytest.mark.asyncio

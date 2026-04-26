@@ -27,6 +27,7 @@ async def test_expected_tools_exposed():
 
     expected_visible = {
         "sernia_context",
+        "read_resource",
         "edit_resource",
         "quo_search_contacts",
         "quo_get_thread_messages",
