@@ -28,8 +28,11 @@ from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
     DEFAULT_MODEL_KEY,
+    DEFAULT_THINKING_EFFORT,
     ModelKey,
+    ThinkingEffort,
     get_active_model_key,
+    get_active_thinking_effort,
     get_model_choice,
     resolve_active_run_kwargs,
 )
@@ -775,10 +778,11 @@ async def get_admin_settings(
         # exercise whatever model production has configured. Still read the DB
         # value (falls back to default) so the UI reflects reality.
         active_model = await get_active_model_key()
+        active_effort = await get_active_thinking_effort()
         return {
             "triggers_enabled": False,
             "schedule_config": {"days_of_week": [], "hours": []},
-            "model_config": {"model_key": active_model},
+            "model_config": {"model_key": active_model, "thinking_effort": active_effort},
             "available_models": available_models,
         }
 
@@ -788,10 +792,11 @@ async def get_admin_settings(
     row = result.scalar_one_or_none()
     schedule_config = await get_schedule_config()
     active_model = await get_active_model_key()
+    active_effort = await get_active_thinking_effort()
     return {
         "triggers_enabled": row.value if row else True,
         "schedule_config": schedule_config,
-        "model_config": {"model_key": active_model},
+        "model_config": {"model_key": active_model, "thinking_effort": active_effort},
         "available_models": available_models,
     }
 
@@ -803,6 +808,7 @@ class _ScheduleConfigPayload(BaseModel):
 
 class _ModelConfigPayload(BaseModel):
     model_key: ModelKey
+    thinking_effort: ThinkingEffort = DEFAULT_THINKING_EFFORT
 
 
 class _SettingsUpdateRequest(BaseModel):
