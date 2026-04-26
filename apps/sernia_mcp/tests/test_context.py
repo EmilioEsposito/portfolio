@@ -147,6 +147,41 @@ async def test_sernia_context_works_with_no_memory_or_skills(mcp_client):
     assert payload["skills"] == []
 
 
+@pytest.mark.asyncio
+async def test_sernia_context_calls_pull_workspace_first(mcp_client):
+    """The doorway tool must call ``pull_workspace`` before reading state,
+    so direct-on-GitHub edits and edits from the sernia_ai service are
+    visible to the current session.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "sernia_mcp.tools.context.pull_workspace", new=AsyncMock()
+    ) as fake_pull:
+        await mcp_client.call_tool("sernia_context", {})
+
+    fake_pull.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sernia_context_succeeds_when_pull_fails(mcp_client):
+    """A failing pull must NOT block the doorway. Drift is acceptable;
+    making the model unable to call its first tool is not.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    with patch(
+        "sernia_mcp.tools.context.pull_workspace",
+        new=AsyncMock(side_effect=RuntimeError("simulated git outage")),
+    ):
+        # Must succeed despite the pull failure
+        result = await mcp_client.call_tool("sernia_context", {})
+        payload = json.loads(result.content[0].text)
+        # Empty workspace, but the call returned a valid response
+        assert payload["memory"] == ""
+        assert payload["skills"] == []
+
+
 # ---------------------------------------------------------------- resources
 
 @pytest.mark.asyncio

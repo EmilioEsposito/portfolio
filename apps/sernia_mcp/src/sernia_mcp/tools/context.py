@@ -37,7 +37,9 @@ from typing import Annotated
 from fastmcp.exceptions import ToolError
 from pydantic import AliasChoices, Field
 
-from sernia_mcp.clients.git_sync import commit_and_push
+import logfire
+
+from sernia_mcp.clients.git_sync import commit_and_push, pull_workspace
 from sernia_mcp.config import WORKSPACE_PATH
 from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
 from sernia_mcp.core.skills import (
@@ -158,6 +160,16 @@ async def sernia_context() -> str:
     from the skills list. To edit a small section, call ``edit_resource``
     (string substitution). For large rewrites or new files, ``write_resource``.
     """
+    # Pull latest workspace state from remote before reading. Catches edits
+    # made directly on GitHub or by the sernia_ai agent since the last sync.
+    # Fail-soft — pull_workspace logs warnings but never raises, and the
+    # extra try/except here is belt-and-suspenders against unexpected
+    # exceptions inside the function (e.g. import-time failures).
+    try:
+        await pull_workspace(WORKSPACE_PATH)
+    except Exception:
+        logfire.exception("sernia_context: pre-read pull failed (non-fatal)")
+
     try:
         memory = read_memory()
         skills = list_skills()

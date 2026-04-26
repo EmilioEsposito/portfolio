@@ -317,6 +317,137 @@ async def test_successful_push_does_not_emit_logfire_exception(
     fake_exc.assert_not_called()
 
 
+# ============================================================================
+# pull_workspace (the pre-read freshening primitive)
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_pull_workspace_picks_up_remote_changes(patched_remote):
+    """When the remote has commits the local doesn't, pull_workspace
+    brings them in. This is the core drift-prevention property."""
+    from sernia_mcp.clients.git_sync import pull_workspace
+
+    local = patched_remote["local"]
+    remote = patched_remote["remote"]
+
+    # Move the remote ahead via a sibling clone.
+    other = local.parent / "other_clone"
+    _git(local.parent, "clone", str(remote), str(other))
+    _git(other, "config", "user.email", "test@example.com")
+    _git(other, "config", "user.name", "Test")
+    (other / "REMOTE_FILE.md").write_text("from remote\n", encoding="utf-8")
+    _git(other, "add", "REMOTE_FILE.md")
+    _git(other, "commit", "-m", "remote: add REMOTE_FILE.md")
+    _git(other, "push", "origin", "main")
+
+    # Local doesn't know about REMOTE_FILE.md yet
+    assert not (local / "REMOTE_FILE.md").exists()
+
+    await pull_workspace(local)
+
+    # After pull_workspace, the remote file IS visible locally
+    assert (local / "REMOTE_FILE.md").read_text() == "from remote\n"
+
+
+@pytest.mark.asyncio
+async def test_pull_workspace_does_not_push(patched_remote):
+    """pull_workspace must commit dirty local edits (so pull doesn't fail)
+    but must NOT push them. Push is reserved for commit_and_push, triggered
+    by explicit edits — not by pre-read freshening.
+    """
+    from sernia_mcp.clients.git_sync import pull_workspace
+
+    local = patched_remote["local"]
+    remote = patched_remote["remote"]
+
+    # Local has a dirty edit
+    (local / "MEMORY.md").write_text("local edit\n", encoding="utf-8")
+
+    await pull_workspace(local)
+
+    # Local commit was made (so pull could merge)
+    rc, log_out, _ = (
+        0,
+        subprocess.run(
+            ["git", "log", "--format=%s"], cwd=local,
+            check=True, capture_output=True, text=True,
+        ).stdout.strip(),
+        "",
+    )
+    assert "pre-pull commit" in log_out
+
+    # But the remote does NOT have the local edit (no push happened)
+    verify = local.parent / "verify_no_push"
+    _git(local.parent, "clone", str(remote), str(verify))
+    assert not (verify / "MEMORY.md").exists() or (
+        (verify / "MEMORY.md").read_text() != "local edit\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_pull_workspace_clean_tree_no_op(patched_remote):
+    """Clean local + remote in sync → no-op. No spurious commits."""
+    from sernia_mcp.clients.git_sync import pull_workspace
+
+    local = patched_remote["local"]
+    before = _git_log(local)
+
+    await pull_workspace(local)
+
+    after = _git_log(local)
+    assert before == after
+
+
+@pytest.mark.asyncio
+async def test_pull_workspace_skips_when_no_pat(monkeypatch, tmp_path):
+    """No PAT → silent no-op."""
+    from sernia_mcp.clients import git_sync
+
+    monkeypatch.delenv("GITHUB_EMILIO_PERSONAL_WRITE_PAT", raising=False)
+
+    calls = []
+
+    async def fake_run_git(*args, **kwargs):
+        calls.append(args)
+        return 0, "", ""
+
+    monkeypatch.setattr(git_sync, "_run_git", fake_run_git)
+    await git_sync.pull_workspace(tmp_path)
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_pull_workspace_failure_does_not_raise(monkeypatch, patched_remote):
+    """Pull failures must NOT raise (fail-soft) — drift is acceptable;
+    blocking the read path is not.
+    """
+    from unittest.mock import patch
+
+    import sernia_mcp.clients.git_sync as gs
+
+    local = patched_remote["local"]
+
+    original_run_git = gs._run_git
+
+    async def fail_on_pull(*args, **kwargs):
+        if args and args[0] == "pull":
+            return 1, "", "simulated network failure"
+        return await original_run_git(*args, **kwargs)
+
+    monkeypatch.setattr(gs, "_run_git", fail_on_pull)
+
+    # Must not raise
+    with patch.object(gs.logfire, "warn") as fake_warn:
+        await gs.pull_workspace(local)
+
+    # Should have logged a warning about the failure
+    assert any(
+        "pull_workspace failed" in str(call) or "non-fatal" in str(call)
+        for call in fake_warn.call_args_list
+    )
+
+
 @pytest.mark.asyncio
 async def test_skips_when_no_pat(monkeypatch, tmp_path):
     """No PAT → silent no-op, no exceptions, no git invocations."""

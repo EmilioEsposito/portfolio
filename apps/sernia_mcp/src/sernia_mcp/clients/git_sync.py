@@ -228,6 +228,79 @@ async def ensure_repo(workspace_path: Path) -> None:
     logfire.info("git_sync: ensure_repo complete")
 
 
+async def pull_workspace(workspace_path: Path) -> None:
+    """Pull latest from remote to refresh local state. Drives pre-read freshness.
+
+    Called at the top of ``sernia_context()`` so that direct-on-GitHub edits
+    (and edits made by the ``api/src/sernia_ai`` agent) are visible to the
+    current MCP session before the model reads memory or skills.
+
+    Same commit-before-pull pattern as ``commit_and_push`` so a dirty working
+    tree (rare — only happens after an interrupted previous run) doesn't
+    block the pull. Does NOT push: any local commits made here ride out on
+    the next ``commit_and_push`` triggered by an actual edit.
+
+      - PAT not set or not a git repo → silent no-op
+      - Pull failure → ``logfire.warn`` (drift, not data loss; next call catches up)
+      - Conflict markers after pull → committed as-is (knowledge repo policy)
+    """
+    pat = _get_pat()
+    if not pat:
+        return
+
+    git_dir = workspace_path / ".git"
+    if not git_dir.exists():
+        return
+
+    async with _push_lock:
+        try:
+            # Stage + commit any local changes BEFORE pulling.
+            rc, status_out, _ = await _run_git(
+                "status", "--porcelain", cwd=workspace_path,
+            )
+            if rc == 0 and status_out.strip():
+                await _stage_and_commit_dirty(
+                    workspace_path,
+                    "mcp: pre-pull commit (local edits preserved)",
+                )
+
+            # Pull.
+            rc, _, stderr = await _run_git(
+                "pull", "--rebase=false", "--no-edit", "origin", "main",
+                cwd=workspace_path, pat=pat,
+            )
+            if rc != 0 and "unrelated histories" in stderr:
+                logfire.warn("git_sync: unrelated histories on pull, retrying")
+                rc, _, stderr = await _run_git(
+                    "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
+                    "origin", "main",
+                    cwd=workspace_path, pat=pat,
+                )
+            if rc != 0:
+                logfire.warn(
+                    "git_sync: pull_workspace failed (non-fatal)",
+                    stderr=stderr,
+                )
+                return
+
+            # If pull left conflict markers, commit them as-is so the
+            # working tree is consistent. Markers are informative.
+            rc, status_out, _ = await _run_git(
+                "status", "--porcelain", cwd=workspace_path,
+            )
+            if rc == 0 and _has_unmerged_files(status_out):
+                logfire.warn(
+                    "git_sync: pull_workspace found conflict markers, "
+                    "committed as-is for human/agent review"
+                )
+                await _stage_and_commit_dirty(
+                    workspace_path,
+                    "mcp: commit conflicted files from pull (markers preserved)",
+                )
+        except Exception:
+            logfire.exception("git_sync: pull_workspace error")
+
+
 async def commit_and_push(workspace_path: Path) -> None:
     """Stage all changes, commit, pull, and push. Fire-and-forget after each edit.
 
