@@ -766,6 +766,26 @@ interface InstructionSection {
   content: string;
 }
 
+interface ToolEntry {
+  name: string;
+  description: string;
+  parameters_json_schema: unknown;
+  kind?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface ToolsetEntry {
+  name: string;
+  tools: ToolEntry[];
+  error?: string;
+}
+
+interface BuiltinToolEntry {
+  name: string;
+  type: string;
+  config: Record<string, unknown>;
+}
+
 const MODALITIES = ["web_chat", "sms", "email"] as const;
 
 function SystemInstructionsView({
@@ -774,6 +794,9 @@ function SystemInstructionsView({
   getToken: () => Promise<string | null>;
 }) {
   const [sections, setSections] = useState<InstructionSection[] | null>(null);
+  const [toolsets, setToolsets] = useState<ToolsetEntry[]>([]);
+  const [builtinTools, setBuiltinTools] = useState<BuiltinToolEntry[]>([]);
+  const [totalTools, setTotalTools] = useState<number>(0);
   const [model, setModel] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -790,12 +813,15 @@ function SystemInstructionsView({
       const params = new URLSearchParams({ modality });
       if (userName.trim()) params.set("user_name", userName.trim());
       const res = await fetch(
-        `${API_BASE}/admin/system-instructions?${params}`,
+        `${API_BASE}/admin/context?${params}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const data = await res.json();
       setSections(data.sections);
+      setToolsets(data.toolsets || []);
+      setBuiltinTools(data.builtin_tools || []);
+      setTotalTools(data.total_tools || 0);
       setModel(data.model || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -813,9 +839,9 @@ function SystemInstructionsView({
       <div className="mx-auto max-w-3xl px-4 py-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">System Instructions</h2>
+            <h2 className="text-lg font-semibold">Context</h2>
             <p className="text-sm text-muted-foreground">
-              Resolved instructions as the model sees them.
+              Resolved system prompt + tools as the model sees them.
               {model && (
                 <>
                   {" "}
@@ -887,17 +913,112 @@ function SystemInstructionsView({
         )}
 
         {sections?.map((section, idx) => (
-          <div key={idx} className="space-y-2">
-            <div className="flex items-center gap-2">
+          <details
+            key={idx}
+            className="rounded-lg border bg-muted/30"
+            open={idx === 0}
+          >
+            <summary className="cursor-pointer px-4 py-2 text-sm font-medium select-none flex items-center gap-2">
               <Badge variant="outline" className="text-xs font-mono">
                 {section.label}
               </Badge>
+              <span className="text-xs text-muted-foreground">
+                {section.content.length.toLocaleString()} chars
+              </span>
+            </summary>
+            <div className="prose prose-sm dark:prose-invert max-w-none px-4 pb-4 pt-1 overflow-x-auto">
+              <Markdown>{section.content}</Markdown>
             </div>
-            <pre className="text-sm whitespace-pre-wrap bg-muted/50 rounded-lg p-4 border overflow-x-auto">
-              {section.content}
-            </pre>
-          </div>
+          </details>
         ))}
+
+        {(toolsets.length > 0 || builtinTools.length > 0) && (
+          <div className="space-y-3 pt-2">
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-base font-semibold">Tools</h3>
+              <p className="text-xs text-muted-foreground">
+                {totalTools} custom + {builtinTools.length} builtin — exactly what
+                pydantic-ai packages for the model via{" "}
+                <code className="bg-muted px-1 rounded">Toolset.get_tools()</code>.
+              </p>
+            </div>
+
+            {builtinTools.length > 0 && (
+              <details className="rounded-lg border bg-muted/30">
+                <summary className="cursor-pointer px-4 py-2 text-sm font-medium select-none">
+                  Builtin tools ({builtinTools.length})
+                </summary>
+                <div className="px-4 pb-3 space-y-2">
+                  {builtinTools.map((bt) => (
+                    <div key={bt.name} className="text-xs space-y-1">
+                      <div>
+                        <code className="font-mono text-sm">{bt.name}</code>{" "}
+                        <span className="text-muted-foreground">({bt.type})</span>
+                      </div>
+                      {Object.keys(bt.config).length > 0 && (
+                        <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto">
+                          {JSON.stringify(bt.config, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {toolsets.map((ts, tsIdx) => (
+              <details
+                key={tsIdx}
+                className="rounded-lg border bg-muted/30"
+                open={tsIdx === 0}
+              >
+                <summary className="cursor-pointer px-4 py-2 text-sm font-medium select-none flex items-center gap-2">
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {ts.name}
+                  </span>
+                  <Badge variant="secondary" className="text-xs">
+                    {ts.tools.length}
+                  </Badge>
+                  {ts.error && (
+                    <span className="text-xs text-red-500">{ts.error}</span>
+                  )}
+                </summary>
+                <div className="px-4 pb-3 space-y-3">
+                  {ts.tools.map((t) => (
+                    <div key={t.name} className="space-y-1 border-t pt-2 first:border-t-0 first:pt-0">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <code className="font-mono text-sm">{t.name}</code>
+                        {t.kind && t.kind !== "function" && (
+                          <Badge variant="outline" className="text-xs">
+                            {t.kind}
+                          </Badge>
+                        )}
+                        {t.metadata && (t.metadata as { requires_approval?: boolean }).requires_approval && (
+                          <Badge variant="destructive" className="text-xs">
+                            HITL approval
+                          </Badge>
+                        )}
+                      </div>
+                      {t.description && (
+                        <div className="prose prose-xs dark:prose-invert max-w-none text-xs text-muted-foreground">
+                          <Markdown>{t.description}</Markdown>
+                        </div>
+                      )}
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-xs text-muted-foreground select-none">
+                          parameters
+                        </summary>
+                        <pre className="text-xs bg-muted/50 rounded p-2 mt-1 overflow-x-auto">
+                          {JSON.stringify(t.parameters_json_schema, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -938,7 +1059,7 @@ function ChatHeader({
         {isAdmin && (
           <TabsList>
             <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="instructions">Instructions</TabsTrigger>
+            <TabsTrigger value="context">Context</TabsTrigger>
           </TabsList>
         )}
       </div>
@@ -1220,7 +1341,7 @@ export default function SerniaChatPage() {
 
               {isAdmin && (
                 <TabsContent
-                  value="instructions"
+                  value="context"
                   className="flex-1 flex flex-col min-h-0 mt-0"
                 >
                   <SystemInstructionsView getToken={getToken} />

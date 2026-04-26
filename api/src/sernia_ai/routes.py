@@ -631,8 +631,112 @@ async def delete_conversation_endpoint(
 # Admin
 # =============================================================================
 
-@router.get("/admin/system-instructions")
-async def get_system_instructions(
+async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
+    """Walk the agent's toolsets and return tool definitions as the model sees them.
+
+    Uses ``Toolset.get_tools(ctx)`` — the same call PydanticAI makes when
+    packaging tools for the model — so the preview is bit-for-bit what gets
+    injected (modulo per-run builtin_tools added by ``model_config``).
+    """
+    from pydantic_ai import RunContext
+    from pydantic_ai.usage import RunUsage
+
+    ctx: RunContext[SerniaDeps] = RunContext(  # type: ignore[call-arg]
+        deps=deps, model=None, usage=RunUsage()
+    )
+
+    # Resolve tools first so we can use tool-name shape to label capability-
+    # contributed toolsets (the agent wraps them in CombinedToolset with no
+    # ``name`` attribute). Each toolset's own ``get_instructions(ctx)`` is also
+    # called — that's how SkillsCapability injects the skill registry into the
+    # system prompt at run time, and the Context tab needs to surface it for
+    # the preview to match what the model actually sees.
+    import inspect
+
+    _SKILLS_TOOLS = {"list_skills", "load_skill"}
+
+    def _label_for(ts, tool_names: set[str]) -> str:
+        explicit = getattr(ts, "name", None)
+        if explicit:
+            return explicit
+        cls_name = type(ts).__name__
+        if cls_name == "_AgentFunctionToolset":
+            return "agent.tool registrations"
+        if _SKILLS_TOOLS.issubset(tool_names):
+            return "skills"
+        return cls_name
+
+    toolsets_out: list[dict] = []
+    toolset_instructions: list[dict] = []
+    total = 0
+    for ts in sernia_agent.toolsets:
+        try:
+            tools = await ts.get_tools(ctx)
+        except Exception as e:
+            toolsets_out.append({
+                "name": getattr(ts, "name", None) or type(ts).__name__,
+                "error": f"{type(e).__name__}: {e}",
+                "tools": [],
+            })
+            continue
+        label = _label_for(ts, set(tools.keys()))
+        entries = []
+        for t in tools.values():
+            td = t.tool_def
+            entries.append({
+                "name": td.name,
+                "description": td.description or "",
+                "parameters_json_schema": td.parameters_json_schema,
+                "kind": getattr(td, "kind", None),
+                "metadata": getattr(td, "metadata", None) or {},
+            })
+        total += len(entries)
+        toolsets_out.append({"name": label, "tools": entries})
+
+        # Capture toolset-injected instructions (e.g. skill registry).
+        gi = getattr(ts, "get_instructions", None)
+        if gi is None:
+            continue
+        try:
+            content = gi(ctx)
+            if inspect.isawaitable(content):
+                content = await content
+        except Exception:
+            content = None
+        if content:
+            toolset_instructions.append({"label": label, "content": str(content)})
+
+    # Builtin tools (web search/fetch). The agent stores its construction-time
+    # set on a private attr; the active model also adds run-specific builtins
+    # (e.g. WebFetchTool on Anthropic) — surface both for an honest picture.
+    builtins: list[dict] = []
+    seen: set[str] = set()
+    base_builtins = getattr(sernia_agent, "_cap_builtin_tools", []) or []
+    run_kwargs = await resolve_active_run_kwargs()
+    for bt in list(base_builtins) + list(run_kwargs.get("builtin_tools") or []):
+        kind = getattr(bt, "kind", type(bt).__name__)
+        if kind in seen:
+            continue
+        seen.add(kind)
+        builtins.append({
+            "name": kind,
+            "type": type(bt).__name__,
+            "config": {
+                k: v for k, v in (bt.__dict__ if hasattr(bt, "__dict__") else {}).items()
+                if not k.startswith("_") and not callable(v)
+            },
+        })
+
+    return {
+        "toolsets": toolsets_out,
+        "builtin_tools": builtins,
+        "total_tools": total,
+        "toolset_instructions": toolset_instructions,
+    }
+
+
+@router.get("/admin/context")
+async def get_admin_context(
     user: SerniaUser = Depends(_get_sernia_user),
     modality: Literal["sms", "email", "web_chat"] = "web_chat",
     user_name: str | None = None,
@@ -677,6 +781,15 @@ async def get_system_instructions(
         content = fn(fake_ctx)  # type: ignore[arg-type]
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 
+    tool_overview = await _resolve_tool_overview(deps)
+    # Toolsets can also contribute system-prompt content (e.g. SkillsCapability
+    # injects the skill registry). Surface those alongside the explicit
+    # instructions so the preview matches what the model actually sees.
+    for ts_section in tool_overview.pop("toolset_instructions", []):
+        sections.append({
+            "label": f"toolset:{ts_section['label']}",
+            "content": ts_section["content"],
+        })
     combined = "\n\n".join(s["content"] for s in sections)
 
     return {
@@ -687,11 +800,12 @@ async def get_system_instructions(
             "user_name": resolved_name,
             "modality": modality,
         },
+        **tool_overview,
     }
 
 
-@router.get("/conversation/{conversation_id}/instructions")
-async def get_conversation_instructions(
+@router.get("/conversation/{conversation_id}/context")
+async def get_conversation_context(
     conversation_id: str,
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
@@ -747,9 +861,19 @@ async def get_conversation_instructions(
         content = fn(fake_ctx)  # type: ignore[arg-type]
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 
+    tool_overview = await _resolve_tool_overview(deps)
+    # Toolsets can also contribute system-prompt content (e.g. SkillsCapability
+    # injects the skill registry). Surface those alongside the explicit
+    # instructions so the preview matches what the model actually sees.
+    for ts_section in tool_overview.pop("toolset_instructions", []):
+        sections.append({
+            "label": f"toolset:{ts_section['label']}",
+            "content": ts_section["content"],
+        })
     combined = "\n\n".join(s["content"] for s in sections)
 
     return {
+        **tool_overview,
         "conversation_id": conversation_id,
         "sections": sections,
         "combined": combined,

@@ -310,7 +310,7 @@ The frontend uses `trigger_source` and `trigger_contact_name` to render icons (P
 | Filetree | Entire `.workspace/` | Yes (every turn) | Agent knows what files exist |
 | Daily Notes | `/workspace/daily_notes/YYYY-MM-DD_<desc>.md` | On demand | Activity logs, events |
 | Areas | `/workspace/areas/<topic>.md` | On demand | Deep topic knowledge |
-| Skills | `/workspace/.claude/skills/<name>/SKILL.md` | Yes (every turn) | Playbooks, SOPs — auto-injected via `SkillsToolset` |
+| Skills | `/workspace/.claude/skills/<name>/SKILL.md` | Yes (every turn) | Playbooks, SOPs. Registry auto-injected via `SkillsToolset`; bodies read on demand via `load_skill`. Workspace file tools are for editing only. |
 
 ### Server-Side vs Knowledge-Repo Error Boundary
 

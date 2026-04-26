@@ -20,7 +20,7 @@ class NoAction(BaseModel):
     """Agent decided no human action is needed."""
     reason: str
 
-from pydantic_ai_skills import SkillsToolset
+from pydantic_ai_skills import SkillsCapability
 
 from api.src.sernia_ai.config import (
     MAIN_AGENT_MODEL,
@@ -57,32 +57,22 @@ _sandbox = Sandbox(SandboxConfig(mounts=[
 ]))
 filesystem_toolset = FileSystemToolset(_sandbox)
 
-# Skills toolset — loads SKILL.md files from .workspace/.claude/skills/.
-# Path mirrors Claude Code's `.claude/skills/` convention so the same
-# knowledge repo is interoperable with `cd workspace && claude` runs.
-# These are knowledge-repo content (sernia-knowledge git repo), not server-side code.
-# A broken SKILL.md must never crash the server — all loading is error-wrapped.
-# Initial discovery may find nothing if workspace hasn't been git-synced yet.
-# Call reload_skills() after workspace init in lifespan to pick up synced skills.
-skills_toolset = SkillsToolset(directories=[WORKSPACE_PATH / ".claude" / "skills"])
-
-
-def reload_skills() -> None:
-    """Re-discover skills from disk with per-directory error handling.
-
-    Called during lifespan startup and before every agent run (via decorator).
-    Per-directory try/except ensures a broken SKILL.md never crashes the agent.
-    """
-    skills_toolset._skills.clear()
-    for skill_dir in skills_toolset._skill_directories:
-        try:
-            for skill in skill_dir.get_skills().values():
-                skills_toolset._skills[skill.name] = skill
-        except Exception:
-            logfire.exception(
-                "Failed to load skills from directory — skipping",
-                directory=str(skill_dir._skill_directory),
-            )
+# Skills capability — discovers SKILL.md files at .workspace/.claude/skills/,
+# injects the skill registry (name + description) into the system prompt, and
+# exposes the list_skills / load_skill / read_skill_resource / run_skill_script
+# tools. The path mirrors Claude Code's `.claude/skills/` convention so the
+# same knowledge repo is interoperable with `cd workspace && claude` runs.
+#
+# auto_reload=True re-scans the directory before every run, so edits made by
+# the agent itself (or by `apps/sernia_mcp` against the shared sernia-knowledge
+# repo) show up without a server restart. Replaces the old SkillsToolset +
+# manual ``reload_skills()`` decorator pattern, which never injected the
+# skill registry into the prompt — meaning the agent had skill *tools* but
+# couldn't see what skills existed without calling list_skills first.
+skills_capability = SkillsCapability(
+    directories=[WORKSPACE_PATH / ".claude" / "skills"],
+    auto_reload=True,
+)
 
 sernia_agent = Agent(
     MAIN_AGENT_MODEL,
@@ -95,34 +85,20 @@ sernia_agent = Agent(
     # model_config.build_run_kwargs().
     builtin_tools=[WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)],
     toolsets=[
-        ErrorLoggingToolset(filesystem_toolset.prefixed("workspace")),
-        ErrorLoggingToolset(quo_toolset.prefixed("quo")),
-        ErrorLoggingToolset(google_toolset.prefixed("google")),
-        ErrorLoggingToolset(clickup_toolset.prefixed("clickup")),
-        ErrorLoggingToolset(db_search_toolset.prefixed("db")),
-        ErrorLoggingToolset(scheduling_toolset),
-        ErrorLoggingToolset(code_toolset),
-        ErrorLoggingToolset(duckdb_toolset),
-        ErrorLoggingToolset(skills_toolset),
+        ErrorLoggingToolset(filesystem_toolset.prefixed("workspace"), name="workspace"),
+        ErrorLoggingToolset(quo_toolset.prefixed("quo"), name="quo"),
+        ErrorLoggingToolset(google_toolset.prefixed("google"), name="google"),
+        ErrorLoggingToolset(clickup_toolset.prefixed("clickup"), name="clickup"),
+        ErrorLoggingToolset(db_search_toolset.prefixed("db"), name="db"),
+        ErrorLoggingToolset(scheduling_toolset, name="scheduling"),
+        ErrorLoggingToolset(code_toolset, name="code"),
+        ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
     ],
+    capabilities=[skills_capability],
     history_processors=[summarize_tool_results, compact_history],
     instrument=True,
     name=AGENT_NAME,
 )
-
-
-@sernia_agent.instructions
-async def refresh_skills_before_run(ctx: RunContext[SerniaDeps]) -> None:
-    """Re-discover skills from disk before every agent run.
-
-    Only reloads — does NOT return instructions (the toolset's own
-    get_instructions() handles that, avoiding the old duplicate injection).
-    Errors are swallowed so a broken SKILL.md never crashes the agent.
-    """
-    try:
-        reload_skills()
-    except Exception:
-        logfire.exception("refresh_skills_before_run failed — agent will run with stale skills")
 
 
 @sernia_agent.tool

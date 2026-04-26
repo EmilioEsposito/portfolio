@@ -183,10 +183,8 @@ async def lifespan(app: FastAPI):
     with logfire.span("LIFESPAN: FastAPI index.py"):
         try:
             await initialize_workspace(WORKSPACE_PATH)
-
-            # Re-discover skills now that workspace is synced from git
-            from api.src.sernia_ai.agent import reload_skills
-            reload_skills()
+            # Skills are auto-reloaded by SkillsCapability (auto_reload=True)
+            # before every agent run, so no explicit post-sync reload is needed.
 
             # Clean up stale DuckDB/CSV data from previous conversations
             from api.src.sernia_ai.tools.duckdb_tools import cleanup_stale_data

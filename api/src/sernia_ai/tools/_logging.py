@@ -44,7 +44,15 @@ class ErrorLoggingToolset(WrapperToolset):
 
     PydanticAI control-flow exceptions (ApprovalRequired, ModelRetry, etc.)
     are always re-raised so the framework can handle them.
+
+    The optional ``name`` kwarg labels the toolset for admin/debug surfaces
+    (e.g. the Context tab). Pydantic-ai's stock ``label`` property bakes in
+    the wrapper class chain, which isn't useful for humans.
     """
+
+    def __init__(self, wrapped, *, name: str | None = None):
+        super().__init__(wrapped)
+        self.name = name
 
     async def call_tool(
         self,

@@ -47,7 +47,7 @@ Git-backed persistent workspace at `/workspace/`:
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
-- `.claude/skills/` — Playbooks and procedures (auto-injected via `SkillsToolset`). Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs.
+- `.claude/skills/` — Playbooks and procedures. The agent discovers and reads skills via the `SkillsToolset` tools (`list_skills`, `load_skill`, `read_skill_resource`, `run_skill_script`); the registry is auto-injected into the system prompt. Workspace file tools (`workspace_write` / `workspace_edit`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs.
 
 ### Server-Side vs Knowledge-Repo Content
 

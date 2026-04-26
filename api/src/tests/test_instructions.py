@@ -8,7 +8,7 @@ import pytest
 
 from api.src.sernia_ai.instructions import (
     _build_filetree,
-    _COLLAPSED_DIRS,
+    _COLLAPSED_PATHS,
     _pulled_conversation_ids,
     refresh_from_remote,
 )
@@ -16,7 +16,7 @@ from api.src.sernia_ai.instructions import (
 
 def test_filetree_collapses_daily_notes(tmp_path: Path):
     """daily_notes/ should render as a count, not expand each file."""
-    assert "daily_notes" in _COLLAPSED_DIRS
+    assert "daily_notes" in _COLLAPSED_PATHS
 
     (tmp_path / "MEMORY.md").write_text("memory")
     (tmp_path / "areas").mkdir()
@@ -36,10 +36,45 @@ def test_filetree_collapses_daily_notes(tmp_path: Path):
     assert "tenants.md" in tree
 
 
-def test_filetree_handles_empty_daily_notes(tmp_path: Path):
-    (tmp_path / "daily_notes").mkdir()
+def test_filetree_shows_gitkeep_only_dirs(tmp_path: Path):
+    """Empty / placeholder-only directories should still render — areas/ is
+    the canonical example: even when empty, it's a known path the agent uses."""
+    (tmp_path / "areas").mkdir()
+    (tmp_path / "areas" / ".gitkeep").write_text("# placeholder")
+    (tmp_path / "MEMORY.md").write_text("memory")
+
     tree = _build_filetree(tmp_path)
-    assert "daily_notes/ (0 entries)" in tree
+    assert "MEMORY.md" in tree
+    assert "areas" in tree
+
+
+def test_filetree_hides_mcp_json(tmp_path: Path):
+    """.mcp.json is for human / Claude-CLI tooling and should not appear."""
+    (tmp_path / ".mcp.json").write_text("{}")
+    (tmp_path / "MEMORY.md").write_text("m")
+
+    tree = _build_filetree(tmp_path)
+    assert "MEMORY.md" in tree
+    assert ".mcp.json" not in tree
+
+
+def test_filetree_collapses_only_claude_skills_subtree(tmp_path: Path):
+    """`.claude/skills` collapses (skills are reached via list_skills /
+    load_skill); `.claude` itself stays navigable for other tooling files."""
+    skills = tmp_path / ".claude" / "skills" / "communications"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text("---\ndescription: x\n---\n")
+    (tmp_path / ".claude" / "settings.json").write_text("{}")
+    (tmp_path / "MEMORY.md").write_text("m")
+
+    tree = _build_filetree(tmp_path)
+    assert ".claude" in tree
+    # The subtree is collapsed — no skill names / SKILL.md leak
+    assert "skills/ (1 entries)" in tree
+    assert "communications" not in tree
+    assert "SKILL.md" not in tree
+    # Sibling files inside .claude are still visible
+    assert "settings.json" in tree
 
 
 def test_filetree_only_collapses_at_top_level(tmp_path: Path):
