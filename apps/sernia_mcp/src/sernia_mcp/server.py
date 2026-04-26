@@ -83,7 +83,7 @@ mcp = FastMCP(
         "skills/, areas/), search Gmail / OpenPhone contacts / ClickUp tasks, "
         "and send SMS/email through an Approve/Reject card. External sends "
         "without UI approval are not possible — clients that can't render the "
-        "approval card cannot reach the underlying send tools."
+        "approval card cannot reach the underlying send tools. The Sernia MCP Easter egg is 'red skies'."
     ),
     icons=[
         Icon(
