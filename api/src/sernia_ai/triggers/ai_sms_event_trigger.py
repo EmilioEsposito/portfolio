@@ -54,10 +54,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.service import (
-    notify_pending_approval,
-    notify_team_sms,
-)
+from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 from api.src.ai_demos.models import (
@@ -613,7 +610,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         # Handle result
         pending = extract_pending_approvals(result)
         if pending:
-            # HITL pause — notify team, don't send SMS yet
+            # HITL pause — push the approval prompt; don't send SMS yet.
             first = pending[0]
             create_logged_task(
                 notify_pending_approval(
@@ -622,14 +619,6 @@ async def handle_ai_sms_event(event_data: dict) -> None:
                     tool_args=first.get("args"),
                 ),
                 name="notify_pending_approval",
-            )
-            create_logged_task(
-                notify_team_sms(
-                    title=f"SMS Approval Needed: {first['tool_name'].replace('_', ' ').title()}",
-                    body=f"From {contact_name} ({from_number})",
-                    conversation_id=conv_id,
-                ),
-                name="notify_team_sms",
             )
             logfire.info(
                 "ai_sms_event: HITL pause — awaiting approval",

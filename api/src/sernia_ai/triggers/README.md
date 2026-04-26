@@ -70,7 +70,7 @@ flowchart TD
 
     AGENT --> SAVE["models.save_agent_conversation()<br/>(modality=sms, upsert)"]
     SAVE --> RESULT{"Pending<br/>approvals?"}
-    RESULT -->|Yes| HITL["push/service.notify_pending_approval()<br/>push/service.notify_team_sms()"]
+    RESULT -->|Yes| HITL["push/service.notify_pending_approval()"]
     RESULT -->|No| CHECK{"NoAction?"}
     CHECK -->|Yes| LOG["Log reason, no SMS reply"]
     CHECK -->|No| REPLY["ai_sms_event_trigger._send_sms_reply()"]
@@ -100,9 +100,9 @@ sequenceDiagram
 
 Debounced Zillow lead processing. When a new email from `zillow.com` arrives via Gmail Pub/Sub, it is **queued** rather than processed immediately. The first email starts a 10-minute debounce window; any additional Zillow emails within that window are accumulated. After the window closes, the agent fires **once** and sees all batched emails — this lets it assess multiple leads or thread updates in a single run.
 
-**Phase 1 (Training):** Agent drafts a reply but does NOT send it. Emilio receives a targeted push notification to review the draft in web chat. The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
+**Phase 1 (Training):** Agent drafts a reply but does NOT send it. The draft lands in web chat for review (no push notification fires — the team pulls drafts from the chat list). The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
 
-**Phase 2 (planned):** Agent calls `send_external_email` (already approval-gated via HITL). Emilio approves/denies in web chat.
+**Phase 2 (planned):** Agent calls `send_external_email` (already approval-gated via HITL). The HITL approval prompt is the only push notification this flow ever sends.
 
 ```mermaid
 flowchart TD
@@ -128,8 +128,7 @@ flowchart TD
     THREAD --> DECIDE{"Reply<br/>warranted?"}
     DECIDE -->|No| NOACTION["NoAction + reason"]
     DECIDE -->|Yes| DRAFT["Draft reply in<br/>conversation output"]
-    DRAFT --> PUSH["notify_user_push()<br/>(Emilio only)"]
-    PUSH --> REVIEW["Emilio reviews in<br/>web chat"]
+    DRAFT --> REVIEW["Team pulls draft<br/>from web chat list<br/>(no push fired)"]
 ```
 
 ### Key design choices
@@ -139,7 +138,7 @@ flowchart TD
   1. **Pubsub route gate** — `save_email_message()` returns `(email, was_inserted)`. The Zillow trigger is only queued when `was_inserted=True`. Redeliveries / label-change upserts don't refire the trigger.
   2. **Queue-level dedup** — `queue_zillow_email_event()` skips a `message_id` that is already in `_pending_emails` or in `_recently_fired_message_ids` (1-hour TTL). This catches anything that slips past the pubsub gate (e.g. a redelivery that races the DB commit).
 - **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
-- **Emilio-only notifications** — looks up Emilio's `clerk_user_id` from DB via contact slug `"emilio"` (cached at module level), then uses `notify_clerk_user_id` parameter in `run_agent_for_trigger()` to send push only to Emilio's subscriptions via `notify_user_push()`.
+- **No completion push** — Zillow drafts (and other trigger completions) do not fire push notifications. Only HITL approval prompts (`notify_pending_approval`) push. Drafts surface via the web-chat conversation list to keep notification volume low.
 - **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net, catching anything the event trigger misses (e.g., server downtime).
 
 ## Scheduled Trigger Flow
@@ -200,7 +199,7 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 
 | File | Purpose |
 |------|---------|
-| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction`/alert routing, push notifications (supports `notify_clerk_user_id` for targeted push) |
+| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction` handling, HITL approval push (`notify_pending_approval` only — generic completion alerts removed) |
 | `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
 | `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
