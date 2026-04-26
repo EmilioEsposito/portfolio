@@ -35,6 +35,17 @@ REPO = "EmilioEsposito/sernia-knowledge"
 _push_lock = asyncio.Lock()
 
 
+class GitSyncPushFailed(Exception):
+    """Local commits exist but failed to propagate to the remote repo.
+
+    Raised+caught locally inside ``commit_and_push`` to drive a
+    ``logfire.exception`` call. The fire-and-forget task wrapper around
+    ``commit_and_push`` already discards exceptions, so this never reaches
+    the MCP client — but the Logfire Issue + Slack notification it produces
+    surfaces the data-loss risk to operators.
+    """
+
+
 def _get_pat() -> str | None:
     return os.environ.get("GITHUB_EMILIO_PERSONAL_WRITE_PAT")
 
@@ -82,18 +93,46 @@ async def _configure_repo(workspace: Path, pat: str) -> None:
         await _run_git("remote", "add", "origin", _remote_url(pat), cwd=workspace, pat=pat)
 
 
-async def _commit_and_push_dirty(workspace: Path, pat: str) -> None:
-    """Commit and push any uncommitted workspace changes. Called once at startup."""
+async def _stage_and_commit_dirty(workspace: Path, commit_msg: str) -> bool:
+    """Stage all changes and commit. Returns True if a commit was created.
+
+    Used as the first step of any sync to turn local working-tree changes
+    into a real commit before pulling — pulling onto a dirty tree fails with
+    "Your local changes would be overwritten by merge" and stalls the sync.
+    Also used to stage post-pull conflict markers as-is (the markers ride
+    into the merge commit; they're informative, not corrupt state).
+    """
     rc, stdout, _ = await _run_git("status", "--porcelain", cwd=workspace)
     if rc != 0 or not stdout.strip():
-        return
-
-    logfire.info("git_sync: found uncommitted changes on startup, committing")
+        return False
     await _run_git("add", "-A", cwd=workspace)
     rc, _, _ = await _run_git("diff", "--cached", "--quiet", cwd=workspace)
     if rc == 0:
+        return False  # nothing staged after add (e.g. only .gitignored files)
+    await _run_git("commit", "-m", commit_msg, cwd=workspace)
+    return True
+
+
+def _has_unmerged_files(status_out: str) -> bool:
+    """True if ``git status --porcelain`` shows any unmerged entries."""
+    for line in (status_out or "").splitlines():
+        if not line:
+            continue
+        # XY status codes for unmerged: DD AU UD UA DU AA UU
+        x, y = line[:1], line[1:2]
+        if "U" in (x, y) or (x == "A" and y == "A") or (x == "D" and y == "D"):
+            return True
+    return False
+
+
+async def _commit_and_push_dirty(workspace: Path, pat: str) -> None:
+    """Commit and push any uncommitted workspace changes. Called once at startup."""
+    committed = await _stage_and_commit_dirty(
+        workspace, "mcp: commit uncommitted changes from previous run"
+    )
+    if not committed:
         return
-    await _run_git("commit", "-m", "mcp: commit uncommitted changes from previous run", cwd=workspace)
+    logfire.info("git_sync: found uncommitted changes on startup, committing")
     rc, _, stderr = await _run_git("push", "-u", "origin", "main", cwd=workspace, pat=pat)
     if rc != 0:
         logfire.error(f"git_sync: startup push failed: {stderr}")
@@ -190,12 +229,37 @@ async def ensure_repo(workspace_path: Path) -> None:
 
 
 async def commit_and_push(workspace_path: Path) -> None:
-    """Stage all changes, commit, and push. Fire-and-forget after each edit.
+    """Stage all changes, commit, pull, and push. Fire-and-forget after each edit.
 
-      - PAT not set or no changes → no-op
-      - Pulls first to pick up edits made on GitHub or by the sernia_ai agent
-      - If pull has merge conflicts, commits conflicted files as-is
-      - Uses asyncio.Lock to serialize concurrent calls within this process
+    Order matters:
+
+      1. **Stage + commit local changes FIRST.** Pulling onto a dirty working
+         tree fails with "Your local changes would be overwritten by merge,"
+         which previously left the local state stuck and the remote unchanged.
+         Committing first turns the local mutation into a real commit that
+         pull can merge with cleanly.
+
+      2. **Pull (no rebase, no edit).** Picks up edits made on GitHub or by
+         the sernia_ai agent. Auto-merge handles non-conflicting concurrent
+         changes. ``--allow-unrelated-histories`` retry handles the rare
+         "fresh repo on each side" case.
+
+      3. **Commit conflict markers as-is.** This is a knowledge-only repo:
+         a merge with conflicts leaves ``<<<<<<<`` markers in the file, and
+         we deliberately commit them as-is so the agent (or a human) can
+         read the markers later and decide how to resolve. The alternative —
+         aborting the merge — leaves the workspace in an inconsistent state.
+
+      4. **Push.** Skipped if local is not ahead of origin.
+
+    No-ops cleanly when:
+      - PAT is not set (local-only mode)
+      - The workspace isn't a git repo (``ensure_repo`` skipped)
+      - There's nothing to commit AND nothing local-ahead of remote
+
+    Uses ``asyncio.Lock`` to serialize concurrent calls within this process.
+    Cross-process / cross-service races are handled by the pull-merge-push
+    pattern itself.
     """
     pat = _get_pat()
     if not pat:
@@ -207,101 +271,97 @@ async def commit_and_push(workspace_path: Path) -> None:
 
     async with _push_lock:
         try:
-            rc, stdout, _ = await _run_git("status", "--porcelain", cwd=workspace_path)
+            # 1. Stage + commit any local changes BEFORE pulling, so pull
+            # operates on a clean working tree.
+            rc, status_out, _ = await _run_git(
+                "status", "--porcelain", cwd=workspace_path,
+            )
             if rc != 0:
                 return
 
-            has_changes = bool(stdout.strip())
-
-            rc, _, stderr = await _run_git(
-                "pull", "--rebase=false", "origin", "main",
-                cwd=workspace_path, pat=pat,
-            )
-            if rc != 0:
-                if "unmerged files" in stderr:
-                    logfire.warn("git_sync: unmerged files detected, committing as-is to unblock")
-                    await _run_git("add", "-A", cwd=workspace_path)
-                    await _run_git(
-                        "commit", "--allow-empty", "-m", "mcp: commit unmerged files",
-                        cwd=workspace_path,
-                    )
-                    rc, _, stderr = await _run_git(
-                        "pull", "--rebase=false", "origin", "main",
-                        cwd=workspace_path, pat=pat,
-                    )
-
-                if rc != 0 and "unrelated histories" in stderr:
-                    logfire.warn("git_sync: unrelated histories, retrying pull")
-                    rc, _, stderr = await _run_git(
-                        "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
-                        "origin", "main",
-                        cwd=workspace_path, pat=pat,
-                    )
-                    rc_status, status_out, _ = await _run_git(
-                        "status", "--porcelain", cwd=workspace_path,
-                    )
-                    if "U" in (status_out or ""):
-                        logfire.warn("git_sync: conflicts after merge, committing as-is")
-                        await _run_git("add", "-A", cwd=workspace_path)
-                        await _run_git(
-                            "commit", "-m", "mcp: commit conflicted files from merge",
-                            cwd=workspace_path,
-                        )
-                        rc = 0
-
-                if rc != 0:
-                    logfire.error(f"git_sync: pull before push failed: {stderr}")
-
-            rc, stdout, _ = await _run_git("status", "--porcelain", cwd=workspace_path)
-            if rc != 0 or not stdout.strip():
-                if not has_changes:
-                    return
-                rc_log, log_out, _ = await _run_git(
-                    "status", "--porcelain", cwd=workspace_path,
-                )
-                if not log_out.strip():
-                    rc_ahead, ahead_out, _ = await _run_git(
-                        "rev-list", "--count", "origin/main..HEAD",
-                        cwd=workspace_path, pat=pat,
-                    )
-                    if rc_ahead != 0 or ahead_out.strip() == "0":
-                        return
-
-            changed_files = [
-                line.split(maxsplit=1)[-1].strip()
-                for line in stdout.strip().splitlines()
-                if line.strip()
-            ] if stdout.strip() else []
-
-            if changed_files:
+            if status_out.strip():
+                changed_files = [
+                    line.split(maxsplit=1)[-1].strip()
+                    for line in status_out.strip().splitlines()
+                    if line.strip()
+                ]
                 file_summary = ", ".join(changed_files[:5])
                 if len(changed_files) > 5:
                     file_summary += f" (+{len(changed_files) - 5} more)"
                 commit_msg = f"mcp: update {file_summary}"
-            else:
-                commit_msg = "mcp: sync workspace"
+                await _stage_and_commit_dirty(workspace_path, commit_msg)
 
-            await _run_git("add", "-A", cwd=workspace_path)
-
-            rc, staged, _ = await _run_git("diff", "--cached", "--quiet", cwd=workspace_path)
-            if rc == 0:
-                rc_ahead, ahead_out, _ = await _run_git(
-                    "rev-list", "--count", "origin/main..HEAD",
+            # 2. Pull. Local commits + remote commits merge here.
+            rc, _, stderr = await _run_git(
+                "pull", "--rebase=false", "--no-edit", "origin", "main",
+                cwd=workspace_path, pat=pat,
+            )
+            if rc != 0 and "unrelated histories" in stderr:
+                logfire.warn("git_sync: unrelated histories, retrying pull")
+                rc, _, stderr = await _run_git(
+                    "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
+                    "origin", "main",
                     cwd=workspace_path, pat=pat,
                 )
-                if rc_ahead != 0 or ahead_out.strip() == "0":
-                    return
-            else:
-                await _run_git("commit", "-m", commit_msg, cwd=workspace_path)
+            if rc != 0:
+                logfire.error(f"git_sync: pull failed: {stderr}")
+
+            # 3. If the merge left conflict markers, commit them as-is.
+            # In a knowledge-only repo the markers are informative — the
+            # agent or human reads them later and decides how to resolve.
+            rc, status_out, _ = await _run_git(
+                "status", "--porcelain", cwd=workspace_path,
+            )
+            if rc == 0 and _has_unmerged_files(status_out):
+                logfire.warn(
+                    "git_sync: conflict markers preserved as-is for human/agent review"
+                )
+                await _stage_and_commit_dirty(
+                    workspace_path,
+                    "mcp: commit conflicted files from merge (markers preserved)",
+                )
+
+            # 4. Push, but only if we have local commits ahead of remote.
+            rc_ahead, ahead_out, _ = await _run_git(
+                "rev-list", "--count", "origin/main..HEAD",
+                cwd=workspace_path, pat=pat,
+            )
+            if rc_ahead != 0 or ahead_out.strip() == "0":
+                return
+
+            try:
+                ahead_count = int(ahead_out.strip())
+            except ValueError:
+                ahead_count = -1
 
             rc, _, stderr = await _run_git(
                 "push", "-u", "origin", "main",
                 cwd=workspace_path, pat=pat,
             )
-            if rc != 0:
-                logfire.error(f"git_sync: push failed: {stderr}")
-            else:
+            if rc == 0:
                 logfire.info("git_sync: pushed successfully")
+                return
+
+            # Push failed AND we had local commits — local edits did not
+            # propagate to the remote. On Railway, the next redeploy will
+            # wipe the local filesystem and lose them. Fail LOUDLY via
+            # logfire.exception (creates a Logfire Issue, triggers Slack
+            # notification) so an operator sees this. We deliberately do
+            # NOT propagate the exception to the caller — edit_resource
+            # already returned success to the model, and the fire-and-forget
+            # contract is "best-effort sync."
+            try:
+                raise GitSyncPushFailed(
+                    f"local commits failed to push to remote — "
+                    f"{ahead_count} commit(s) at risk of loss on next "
+                    f"workspace redeploy. push stderr: {stderr}"
+                )
+            except GitSyncPushFailed:
+                logfire.exception(
+                    "git_sync: local edits did not reach remote",
+                    ahead_count=ahead_count,
+                    stderr=stderr,
+                )
 
         except Exception:
             logfire.exception("git_sync: commit_and_push error")
