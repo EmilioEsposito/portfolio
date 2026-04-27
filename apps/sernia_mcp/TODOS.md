@@ -73,33 +73,20 @@ Hidden Apps backend tools (model can't reach): `_confirm_send_sms`, `_confirm_se
 
 ---
 
-## Easy lifts — read-only Google API calls
+## ~~Easy lifts — read-only Google + ClickUp~~ ✅ DONE (2026-04-26)
 
-These are pure HTTP calls through `googleapiclient.discovery.build` with no
-DB / scheduler / conversation-scoped state. Pattern is identical to
-`google_search_drive` / `google_read_sheet` (already lifted): add a core
-function in `core/google/`, wrap in `tools/google.py`, mock-test the API.
+All shipped: `google_read_doc`, `google_read_pdf`, `google_read_email_thread`,
+`google_list_calendar_events`, `clickup_list_lists`, `clickup_get_tasks`,
+`clickup_get_maintenance_field_options`. `pypdf` added as a dep for the
+PDF extractor.
 
-| Tool (sernia_ai name) | Why easy | Notes |
-|---|---|---|
-| `read_google_doc` | Same scope set as Sheets, returns plain text. | Sernia_ai version is in `google_tools.py:read_google_doc`. |
-| `read_drive_pdf` | Drive download → `pypdf` extract → cap. | Adds `pypdf` dep. |
-| `read_email_thread` | Gmail API `threads().get()`. | Returns N messages with IDs for chaining. |
-| `list_calendar_events` | Calendar API list, time-window args. | Read-only; no approval needed. |
-
-**Estimated effort**: 30 min each, mostly mechanical. Bundle into one PR.
-
----
-
-## Easy lifts — read-only ClickUp
-
-| Tool | Why easy |
-|---|---|
-| `clickup_list_lists` | One GET `/team/{id}/list`. |
-| `clickup_get_tasks` | List with filter; already similar to existing search_tasks. |
-| `clickup_get_maintenance_field_options` | Read custom-field options for a known field. |
-
-The `_clickup_request` helper in sernia_ai is one function — port as-is.
+**Notable simplification vs sernia_ai**: `google_read_email_thread` does
+NOT strip Zillow boilerplate, collapse quoted replies, or LLM-summarize
+oversized messages — sernia_ai uses its agent's own model for that, and
+the MCP server has no LLM dep. Long messages are hard-truncated at 3000
+chars per message and 15000 chars total. If output is too noisy for a
+specific use case, fall back to `google_read_email` per message and let
+the calling agent reason over it.
 
 ---
 
