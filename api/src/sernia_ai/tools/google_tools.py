@@ -359,6 +359,7 @@ async def send_email(
     to: list[EmailStr],
     subject: str,
     body: str,
+    body_html: str = "",
     reply_to_message_id: str = "",
 ) -> str:
     """Send an email to any recipient.
@@ -372,10 +373,16 @@ async def send_email(
         to: List of recipient email addresses (e.g. ["tenant@gmail.com"]
             or ["emilio@serniacapital.com"]).
         subject: Email subject line.
-        body: Plain text email body.
+        body: Plain-text body. Always required — used as the text/plain
+            alternative for clients that don't render HTML.
+        body_html: Optional HTML body. When provided, the email is sent as
+            multipart/alternative with both parts. Use for rich formatting
+            (tables, hyperlinks, headings, lists). Inline CSS only — many
+            mail clients strip <style> blocks. Always also provide a
+            sensible plain-text ``body``; don't rely on HTML alone.
         reply_to_message_id: Optional Gmail message ID to reply to (threads the email).
     """
-    logfire.info("send_email called", to=to, subject=subject[:80])
+    logfire.info("send_email called", to=to, subject=subject[:80], html=bool(body_html))
 
     if not to:
         return "Blocked: no recipients provided."
@@ -419,6 +426,7 @@ async def send_email(
         to=to_str,
         subject=subject,
         message_text=body,
+        message_html=body_html or None,
         sender=routing.sender_display,
         credentials=credentials,
         **thread_kwargs,

@@ -3,6 +3,7 @@ Gmail service functionality for interacting with Gmail API.
 """
 
 from googleapiclient.discovery import build
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import base64
 import os
@@ -52,7 +53,25 @@ def get_gmail_service(credentials: Union[Credentials, service_account.Credential
         )
 
 
-def create_message(sender: str, to: str, subject: str, message_text: str):
+def _build_mime(message_text: str, message_html: Optional[str]):
+    """Build the body MIME object — multipart/alternative when HTML is given,
+    plain text otherwise. The text part stays as the fallback for clients that
+    don't render HTML, per RFC 2046."""
+    if message_html:
+        part = MIMEMultipart("alternative")
+        part.attach(MIMEText(message_text, "plain"))
+        part.attach(MIMEText(message_html, "html"))
+        return part
+    return MIMEText(message_text)
+
+
+def create_message(
+    sender: str,
+    to: str,
+    subject: str,
+    message_text: str,
+    message_html: Optional[str] = None,
+):
     """
     Creates a message for an email.
 
@@ -60,12 +79,15 @@ def create_message(sender: str, to: str, subject: str, message_text: str):
         sender: Email address of the sender.
         to: Email address of the receiver.
         subject: The subject of the email message.
-        message_text: The text of the email message.
+        message_text: The plain-text email body (always required — used as the
+            fallback for clients that don't render HTML).
+        message_html: Optional HTML body. When provided, the message is sent
+            as ``multipart/alternative`` with both parts.
 
     Returns:
         An object containing a base64url encoded email object.
     """
-    message = MIMEText(message_text)
+    message = _build_mime(message_text, message_html)
     message["to"] = to
     message["from"] = sender
     message["subject"] = subject
@@ -83,9 +105,10 @@ def create_reply_message(
     message_text: str,
     in_reply_to: str,
     references: str,
+    message_html: Optional[str] = None,
 ) -> dict:
     """Create a MIME message with threading headers for replying."""
-    message = MIMEText(message_text)
+    message = _build_mime(message_text, message_html)
     message["to"] = to
     message["from"] = sender
     message["subject"] = subject
@@ -105,6 +128,7 @@ async def send_email(
     thread_id: Optional[str] = None,
     in_reply_to: Optional[str] = None,
     references: Optional[str] = None,
+    message_html: Optional[str] = None,
 ):
     """
     Sends an email using the Gmail API.
@@ -112,13 +136,16 @@ async def send_email(
     Args:
         to: Email address of the receiver
         subject: The subject of the email message
-        message_text: The text of the email message
+        message_text: The plain-text body — always required, used as the
+            ``text/plain`` alternative for clients that don't render HTML.
         sender: Optional email address of the sender. If None, uses the authenticated user's email
         credentials: Optional credentials object (service account or OAuth)
         credentials_json: Optional OAuth credentials as dictionary (for backward compatibility)
         thread_id: Optional Gmail thread ID to place the message in the same thread
         in_reply_to: Optional RFC 2822 Message-ID of the email being replied to
         references: Optional RFC 2822 References header chain
+        message_html: Optional HTML body. When set, the message is sent as
+            ``multipart/alternative`` with the plain-text and HTML parts.
     """
     try:
         # Determine which credentials to use
@@ -151,10 +178,18 @@ async def send_email(
         # Create the email message
         if in_reply_to and references:
             message = create_reply_message(
-                sender, to, subject, message_text, in_reply_to, references
+                sender,
+                to,
+                subject,
+                message_text,
+                in_reply_to,
+                references,
+                message_html=message_html,
             )
         else:
-            message = create_message(sender, to, subject, message_text)
+            message = create_message(
+                sender, to, subject, message_text, message_html=message_html
+            )
 
         if thread_id:
             message["threadId"] = thread_id

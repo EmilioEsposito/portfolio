@@ -858,3 +858,123 @@ class TestNelsonChangThreadLive:
         )
 
         print(f"\n--- Found {len(id_matches)} message IDs: {id_matches} ---")
+
+
+# python -m pytest -m live api/src/tests/test_google_tools.py::TestSendHtmlEmailLive -v -s
+class TestSendHtmlEmailLive:
+    """Live test for HTML-bodied send_email.
+
+    Sends one real email through the Gmail service layer with a multipart/
+    alternative body (intro + table with hyperlinked cells + signature).
+    Recipient is Emilio's personal address.
+    """
+    pytestmark = _live
+
+    @pytest.mark.asyncio
+    async def test_sends_html_email_with_table_and_links(self):
+        from datetime import datetime
+
+        from api.src.google.common.service_account_auth import get_delegated_credentials
+        from api.src.google.gmail.service import send_email as _send_email
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        subject = f"[Sernia AI test] HTML email — {timestamp}"
+
+        plain_body = (
+            f"Hi Emilio,\n\n"
+            f"This is a test of the new HTML-bodied send_email tool. The HTML "
+            f"version of this message includes a formatted vacancy status table "
+            f"with hyperlinked listing columns.\n\n"
+            f"Property        Unit   Status            Listing\n"
+            f"320 S Mathilda  02     Available         https://www.zillow.com/homedetails/320-S-Mathilda/\n"
+            f"324 S Mathilda  04     Tour scheduled    https://www.zillow.com/homedetails/324-S-Mathilda/\n"
+            f"659 Maryland    03     Available         https://drive.google.com/drive/folders/photos\n\n"
+            f"Best,\n"
+            f"Sernia AI Intern\n"
+            f"Sernia Capital LLC\n"
+            f"emilio@serniacapital.com | (412) 910-1989"
+        )
+
+        html_body = """\
+<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1f2937; max-width: 640px; line-height: 1.5;">
+  <p>Hi Emilio,</p>
+  <p>
+    This is a test of the new <strong>HTML-bodied <code>send_email</code></strong> tool.
+    Below is a sample vacancy status table with <em>hyperlinked listing</em> columns —
+    confirming that <code>multipart/alternative</code> with rich formatting renders cleanly
+    in Gmail and Apple Mail.
+  </p>
+
+  <table style="border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px;">
+    <thead>
+      <tr style="background: #f3f4f6; text-align: left;">
+        <th style="border: 1px solid #d1d5db; padding: 8px;">Property</th>
+        <th style="border: 1px solid #d1d5db; padding: 8px;">Unit</th>
+        <th style="border: 1px solid #d1d5db; padding: 8px;">Status</th>
+        <th style="border: 1px solid #d1d5db; padding: 8px;">Listing</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">320 S Mathilda</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">02</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px; color: #059669;"><strong>Available</strong></td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">
+          <a href="https://www.zillow.com/homedetails/320-S-Mathilda/" style="color: #2563eb;">View on Zillow</a>
+        </td>
+      </tr>
+      <tr style="background: #fafafa;">
+        <td style="border: 1px solid #d1d5db; padding: 8px;">324 S Mathilda</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">04</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px; color: #b45309;">Tour scheduled</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">
+          <a href="https://www.zillow.com/homedetails/324-S-Mathilda/" style="color: #2563eb;">View on Zillow</a>
+        </td>
+      </tr>
+      <tr>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">659 Maryland</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">03</td>
+        <td style="border: 1px solid #d1d5db; padding: 8px; color: #059669;"><strong>Available</strong></td>
+        <td style="border: 1px solid #d1d5db; padding: 8px;">
+          <a href="https://drive.google.com/drive/folders/photos" style="color: #2563eb;">Photos &amp; floorplan</a>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Three things to verify on your end:</p>
+  <ol>
+    <li>The table renders with borders and the header row shaded.</li>
+    <li>The four <em>Listing</em> cells are clickable hyperlinks.</li>
+    <li>Status badges are color-coded (green = available, amber = tour scheduled).</li>
+  </ol>
+
+  <p style="margin-top: 32px;">Best,</p>
+  <p style="margin: 0;"><strong>Sernia AI Intern</strong></p>
+  <p style="margin: 0; color: #6b7280; font-size: 13px;">Sernia Capital LLC</p>
+  <p style="margin: 0; color: #6b7280; font-size: 13px;">
+    <a href="mailto:emilio@serniacapital.com" style="color: #2563eb;">emilio@serniacapital.com</a>
+    &nbsp;|&nbsp; (412) 910-1989
+  </p>
+</body>
+</html>
+"""
+
+        credentials = get_delegated_credentials(
+            user_email="emilio@serniacapital.com",
+            scopes=["https://mail.google.com"],
+        )
+
+        result = await _send_email(
+            to="espo412@gmail.com",
+            subject=subject,
+            message_text=plain_body,
+            message_html=html_body,
+            sender="Sernia AI Intern <emilio@serniacapital.com>",
+            credentials=credentials,
+        )
+
+        assert result.get("id"), f"No message ID returned: {result}"
+        print(f"\n--- HTML email sent: id={result['id']} thread={result.get('threadId')} ---")
