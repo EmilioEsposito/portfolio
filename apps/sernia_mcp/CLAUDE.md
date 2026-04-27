@@ -56,6 +56,21 @@ All commands run from inside `apps/sernia_mcp/`. **Do not** activate the parent 
 
 ---
 
+## Open work
+
+📋 **[TODOS.md](TODOS.md)** — running inventory of tools `sernia_ai` has but
+this server doesn't, classified by lift difficulty, plus the migration plan
+for how `sernia_ai` eventually points at this MCP server and we delete the
+bolted-on Python tool implementations from `api/src/sernia_ai/tools/`.
+**Revisit at the start of each session that touches tool surface or auth**
+— it tracks which design questions are answered and which are still open.
+
+When you finish a substantive piece of work, end your reply by surfacing
+any items in `TODOS.md` that are unblocked or naturally next, so the human
+operator can pick what to do next without re-reading the file.
+
+---
+
 ## Working principles
 
 ### AI-first testability

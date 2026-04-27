@@ -9,14 +9,63 @@
 
 ---
 
+## End state — sernia_ai eventually points at sernia_mcp
+
+The current state is **dual-implementation**: `api/src/sernia_ai/tools/*.py`
+and `apps/sernia_mcp/src/sernia_mcp/core/*` both have their own copies of
+each tool's logic, often vendored from each other. This is intentional
+short-term scaffolding while we validate the MCP server in production.
+
+**The end state is**: `sernia_ai` calls `sernia_mcp` over HTTP (using the
+internal-bearer auth path) for every tool that this server exposes, and
+the bolted-on Python implementations in `api/src/sernia_ai/tools/` are
+deleted. Sernia_ai keeps only the orchestration layer (PydanticAI agent,
+modality routing, triggers, instructions, conversation history) — its
+"tools" become a single MCP-client toolset pointing at `mcp.sernia.ai`.
+
+Migration sequence (rough — adjust as we learn):
+
+1. **Stand up sernia_mcp parity** (this doc tracks the gap). Each tool
+   ships on MCP first, with tests, before we touch sernia_ai.
+2. **Wire sernia_ai to use the MCP server as a toolset.** PydanticAI has
+   `MCPServerHTTP` toolset support — point it at `https://mcp.sernia.ai/mcp`
+   with `Authorization: Bearer ${SERNIA_MCP_INTERNAL_BEARER_TOKEN}`.
+3. **Per-tool cutover under a feature flag** so we can A/B compare. For
+   each tool, sernia_ai exposes both versions; the flag picks one. Once
+   the MCP version has run for ~1 week without regressions, delete the
+   bolted-on Python version from `api/src/sernia_ai/tools/`.
+4. **Delete** `api/src/sernia_ai/tools/*` files entirely once empty, plus
+   any helpers (`_clickup_request`, `_build_contact_payload`, etc.) that
+   only existed to back them.
+
+**Why not flip everything at once**: failure modes differ. A pure-Python
+tool fails by raising; an MCP tool fails by network-timing-out, returning
+a `ToolError`, hitting a transient deploy mid-call, etc. We want to debug
+those one tool at a time, not all at once. The feature flag gives us a
+clean rollback per tool.
+
+**What sernia_ai keeps** (these stay in `api/`):
+- The PydanticAI agent itself (`agent.py`), graph/router, modality glue
+- `triggers/` — webhook + scheduler entrypoints
+- `db_search_tools.py` / DB-touching helpers (until/unless we move them
+  too — see "Hard" section below)
+- `code_tools.py` Python sandbox (probably stays — see decision question)
+- Conversation history / approval persistence (DB-bound)
+- `instructions.py` — prompts, dynamic context, memory injection
+- `routes.py` — FastAPI endpoints
+
+Everything else collapses onto `sernia_mcp` over time.
+
+---
+
 ## Current MCP tool surface (for context)
 
 Visible tools currently registered on `sernia_mcp`:
 
 - Memory/skills: `sernia_context`, `read_resource`, `edit_resource`, `write_resource`
-- Quo: `quo_search_contacts`, `quo_get_thread_messages`, `quo_list_active_sms_threads`, `quo_send_sms` (HITL)
+- Quo: `quo_search_contacts`, `quo_get_thread_messages`, `quo_list_active_sms_threads`, `quo_create_contact`, `quo_send_sms` (HITL)
 - Google: `google_search_emails`, `google_read_email`, `google_search_drive`, `google_read_sheet`, `google_send_email` (HITL)
-- ClickUp: `clickup_search_tasks`
+- ClickUp: `clickup_search_tasks`, `clickup_create_task`, `clickup_update_task`, `clickup_set_task_custom_field`
 
 Hidden Apps backend tools (model can't reach): `_confirm_send_sms`, `_confirm_send_email`.
 
@@ -52,18 +101,18 @@ The `_clickup_request` helper in sernia_ai is one function — port as-is.
 
 ---
 
-## Medium — write tools without HITL approval
+## ~~Medium — write tools without HITL approval~~ ✅ DONE (2026-04-26)
 
-ClickUp `create_task`, `update_task`, `set_task_custom_field` and Quo
-`create_contact` don't require approval in sernia_ai — the agent just calls
-them. In MCP we can expose them the same way (no Apps approval card).
-**But** before doing so, decide: should write tools require Clerk OAuth
-(human user) and reject the bearer-token path? Otherwise a compromised
-internal bearer = silent ClickUp/Quo writes.
+ClickUp `create_task`, `update_task`, `set_task_custom_field`, and Quo
+`create_contact` are all live as `clickup_create_task`, `clickup_update_task`,
+`clickup_set_task_custom_field`, and `quo_create_contact`.
 
-Relevant decision: add a per-tool gate in `auth.py` that inspects
-`ctx.token.claims["client_id"]` — if it's `service:sernia-ai`, reject
-write tools. Lift `update_contact` once that gate is in place.
+**Decision recorded**: bearer-token callers may invoke writes — same
+authorization scope as Clerk-OAuth users. The bearer is treated as an
+authenticated identity (`service:sernia-ai`), not a reduced-privilege
+mode. If we ever want bearer-only-reads in the future, a per-tool gate
+in `auth.py` inspecting `ctx.token.claims["client_id"]` is the place
+to add it (currently no such gate).
 
 ---
 
@@ -159,8 +208,8 @@ These tools have non-trivial dependencies that don't exist in `sernia_mcp` yet.
 
 ## Open questions to answer before next batch
 
-1. **Bearer-vs-OAuth tool gating**: should the bearer auth path be
-   read-only by default, with writes requiring human OAuth?
+1. ~~**Bearer-vs-OAuth tool gating**~~ — **answered 2026-04-26**: bearer
+   auth has full scope, no read-only gate.
 2. **DB sharing**: does `sernia_mcp` get its own DB, share sernia_ai's, or
    stay DB-less and proxy DB-needing operations into the FastAPI service?
 3. **Scheduler ownership**: same question, for APScheduler.
