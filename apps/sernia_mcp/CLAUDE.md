@@ -192,8 +192,8 @@ The service deploys as its **own** Railway service.
 | Setting | Value |
 |---------|-------|
 | Root directory | `apps/sernia_mcp` |
-| Build command | `uv sync --frozen` |
-| Start command | `uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT` |
+| Builder | `DOCKERFILE` (`apps/sernia_mcp/Dockerfile`) |
+| Start command | from Dockerfile `CMD` (uvicorn on `$PORT`) |
 | Public domain | `mcp.sernia.ai` (production), `dev.mcp.sernia.ai` (development) |
 | Port | injected as `$PORT` by Railway |
 
@@ -234,7 +234,7 @@ The old `api/src/sernia_mcp/` and `api/src/tool_core/` packages — plus the `/a
 - **Why uvicorn directly instead of `fastmcp run`?** `fastmcp run` builds the Starlette ASGI app internally and gives no hook to wrap it with middleware. Without that hook, inbound-request logging (and auth-flow debugging) is invisible. `app.py` exposes `app = mcp.http_app(...)` with a `_RequestLogMiddleware` already attached, then uvicorn runs it.
 - **Where did `fastmcp.json` go?** Removed. It was only consumed by `fastmcp run`, which we no longer use. The browser-based approval harness (`fastmcp dev apps src/sernia_mcp/dev_server.py`) takes its source path as a CLI arg and doesn't read `fastmcp.json`.
 - **Why `stateless_http=True`?** No per-client session state — every MCP request is self-contained. Matches the "remote agents" use case and supports horizontal scaling on Railway without session affinity.
-- **Why no Docker?** Railway's nixpacks autodetects `pyproject.toml` + `uv.lock` and we explicitly set the start command via `railway_sernia_mcp.json`. A Dockerfile is only needed if we hit autodetection limits.
+- **Why Docker (and not Nixpacks)?** Railway deprecated Nixpacks and its `uv` autodetection broke (build failed with `Could not find a version that satisfies the requirement uv==`, because `$NIXPACKS_UV_VERSION` was never set). The Dockerfile uses `ghcr.io/astral-sh/uv:python3.11-bookworm-slim` for the build stage so uv is preinstalled at a known version, then copies the venv into a slim runtime image. Smaller, faster cold starts, fully reproducible. `git` is installed in the runtime stage because `clients/git_sync.py` shells out to it for `pull_workspace` / `commit_and_push`.
 - **Why `/mcp` and not `/mcp/`?** Claude posts to `/mcp` (no trailing slash) per the spec. Mounting at `/mcp/` triggers a Starlette 307 redirect on the no-slash request, and many HTTP clients drop the `Authorization` header when following redirects — every Claude request would arrive unauthenticated. Pinned in `tests/test_http_app.py::test_mcp_endpoint_no_redirect_on_canonical_path`.
 - **Why is `read_resource` a tool when MCP has `resources/read`?** Empirically, Claude.ai's connector doesn't surface `resources/read` to the model. The tool form is the workaround. Resources stay registered for hosts that DO surface them (Claude Desktop, MCP Inspector).
 - **Why is the server's `instructions` field not load-bearing?** Same reason as above — Claude.ai doesn't surface it to the model either. Tested with an easter-egg in `instructions` and the model couldn't see it. We rely on `sernia_context` instead.

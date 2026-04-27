@@ -1,0 +1,32 @@
+# Keep image small and reproducible. Anything excluded here is invisible to
+# `COPY` instructions in the Dockerfile.
+
+# Local virtualenvs (the build stage creates a fresh one inside the image).
+.venv/
+**/__pycache__/
+*.pyc
+
+# Local secrets / dotfiles — must never reach the registry.
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise.
+.vscode/
+.idea/
+.DS_Store
+
+# Test surface — not needed at runtime.
+tests/
+
+# Knowledge workspace — cloned fresh from the sernia-knowledge git repo at
+# startup. Carrying any local clone into the image would (a) bloat the image
+# with the git history and (b) embed a snapshot that could mask sync bugs.
+workspace/
+
+# CI / local tooling.
+.git/
+.gitignore
+.ruff_cache/
+.pytest_cache/
+*.log
