@@ -77,16 +77,17 @@ Hidden Apps backend tools (model can't reach): `_confirm_send_sms`, `_confirm_se
 
 All shipped: `google_read_doc`, `google_read_pdf`, `google_read_email_thread`,
 `google_list_calendar_events`, `clickup_list_lists`, `clickup_get_tasks`,
-`clickup_get_maintenance_field_options`. `pypdf` added as a dep for the
-PDF extractor.
+`clickup_get_maintenance_field_options`. New deps: `pypdf` (PDF text),
+`beautifulsoup4` + `markdownify` (HTML email → markdown).
 
-**Notable simplification vs sernia_ai**: `google_read_email_thread` does
-NOT strip Zillow boilerplate, collapse quoted replies, or LLM-summarize
-oversized messages — sernia_ai uses its agent's own model for that, and
-the MCP server has no LLM dep. Long messages are hard-truncated at 3000
-chars per message and 15000 chars total. If output is too noisy for a
-specific use case, fall back to `google_read_email` per message and let
-the calling agent reason over it.
+`google_read_email_thread` runs the same cleanup pipeline sernia_ai does:
+HTML→markdown → Zillow boilerplate stripping (`[Name] says:` anchor +
+tail patterns) → 3+-line quoted-reply + attribution collapsing. The only
+divergence is the oversized-message handler: sernia_ai calls a Haiku
+summarizer, MCP hard-truncates at 3000 chars/message and 15000 chars total
+(no LLM dep on the MCP server). All cleanup helpers vendored to
+`core/google/_email_cleanup.py`; if Zillow ever changes their template,
+update both copies until the sernia_ai → MCP migration completes.
 
 ---
 

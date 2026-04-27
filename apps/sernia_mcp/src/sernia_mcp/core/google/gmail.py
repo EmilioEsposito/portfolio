@@ -97,17 +97,26 @@ async def read_email_core(message_id: str, *, user_email: str) -> str:
 async def read_email_thread_core(thread_id: str, *, user_email: str) -> str:
     """Read all messages in a Gmail thread, in chronological order.
 
-    Each message is rendered with its From / To / Date / Subject / Message ID
-    so the caller can chain a reply (``send_email_core(reply_to_message_id=...)``).
+    Pipeline per message: HTML → markdown (if HTML-only) → Zillow
+    boilerplate stripping (when applicable) → 3+-line quoted-reply
+    collapsing → 3000-char hard truncate. Total thread output is hard
+    capped at 15000 chars.
 
-    Note on simplifications vs sernia_ai: this MCP version does NOT strip
-    Zillow boilerplate, does NOT collapse quoted replies, and does NOT call
-    a summarizer for oversized messages — sernia_ai relies on the agent's
-    own LLM for that, and the MCP server has no LLM dep. Long messages are
-    hard-truncated at 3000 chars per message and 15000 chars total. If the
-    output is too noisy, fall back to ``read_email_core`` for individual
-    messages and let the calling agent reason over them.
+    Each message is rendered with From / To / Date / Subject / Message ID
+    so callers can chain a reply with ``send_email_core(reply_to_message_id=...)``.
+
+    Note on simplifications vs sernia_ai: when oversized, sernia_ai calls
+    a Haiku-based summarizer; the MCP server has no LLM dep, so we
+    hard-truncate. The cleanup pipeline (HTML / Zillow / quoted-replies)
+    is identical to sernia_ai's.
     """
+    from sernia_mcp.core.google._email_cleanup import (
+        clean_zillow_email,
+        html_to_markdown,
+        is_zillow_content,
+        strip_quoted_replies,
+    )
+
     creds = get_delegated_credentials(user_email=user_email, scopes=GMAIL_SCOPES)
     service = get_gmail_service(creds)
 
@@ -137,14 +146,28 @@ async def read_email_thread_core(thread_id: str, *, user_email: str) -> str:
             for h in msg.get("payload", {}).get("headers", [])
         }
         body = extract_body(msg)
-        content = body.get("text") or body.get("html") or "(no body)"
+        text = body.get("text")
+        html = body.get("html")
+        if text:
+            content = text
+        elif html:
+            content = html_to_markdown(html)
+        else:
+            content = "(no body)"
+
+        from_addr = headers.get("from", "")
+        if is_zillow_content(from_addr, content):
+            content = clean_zillow_email(content)
+
+        content = strip_quoted_replies(content)
+
         if len(content) > 3000:
             content = content[:3000] + "\n...(truncated — message exceeded 3000 chars)"
 
         msg_id = msg.get("id", "?")
         parts.append(
             f"--- Message {i}/{len(messages)} (ID: {msg_id}) ---\n"
-            f"From: {headers.get('from', '?')}\n"
+            f"From: {from_addr or '?'}\n"
             f"To: {headers.get('to', '?')}\n"
             f"Date: {headers.get('date', '?')}\n"
             f"Subject: {headers.get('subject', '(no subject)')}\n\n"
