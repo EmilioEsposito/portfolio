@@ -37,6 +37,13 @@
       "headers": {
         "Authorization": "Bearer ${NEON_MCP_API_KEY:-}"
       }
+    },
+    "sernia": {
+      "type": "http",
+      "url": "https://dev.mcp.sernia.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SERNIA_MCP_INTERNAL_BEARER_TOKEN}"
+      }
     }
   }
 }

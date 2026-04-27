@@ -47,12 +47,14 @@ GITKEEP_FILES: dict[str, str] = {
         "#   areas/vendors.md      — plumbers, electricians, etc.\n"
         "#   areas/processes.md    — rent collection, maintenance flow\n"
     ),
-    "skills/.gitkeep": (
+    ".claude/skills/.gitkeep": (
         "# Skills — learned procedures and playbooks\n"
         "# One folder per skill with a SKILL.md (auto-injected every conversation).\n"
+        "# Path mirrors Claude Code's .claude/skills/ convention so the workspace\n"
+        "# is interoperable with `cd workspace && claude` runs.\n"
         "# Example:\n"
-        "#   skills/zillow-auto-reply/SKILL.md\n"
-        "#   skills/lease-renewal/SKILL.md\n"
+        "#   .claude/skills/zillow-auto-reply/SKILL.md\n"
+        "#   .claude/skills/lease-renewal/SKILL.md\n"
     ),
 }
 
@@ -63,15 +65,15 @@ def ensure_workspace_dirs(workspace_path: Path) -> None:
 
     Structure:
         .workspace/
-        |-- MEMORY.md          # Long-term memory (injected every conversation)
-        |-- daily_notes/       # YYYY-MM-DD_<short-desc>.md per topic per day
-        |-- areas/             # Topic-specific deep knowledge
-        |-- skills/            # Learned procedures and playbooks
+        |-- MEMORY.md             # Long-term memory (injected every conversation)
+        |-- daily_notes/          # YYYY-MM-DD_<short-desc>.md per topic per day
+        |-- areas/                # Topic-specific deep knowledge
+        |-- .claude/skills/       # Learned procedures and playbooks
     """
     workspace_path.mkdir(parents=True, exist_ok=True)
 
-    for subdir in ("daily_notes", "areas", "skills"):
-        (workspace_path / subdir).mkdir(exist_ok=True)
+    for subdir in ("daily_notes", "areas", ".claude/skills"):
+        (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
 
     memory_file = workspace_path / "MEMORY.md"
     if not memory_file.exists():
