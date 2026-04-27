@@ -20,12 +20,12 @@ WORKDIR /app
 # README.md is copied because pyproject.toml's `readme = "README.md"` is
 # validated by hatchling at build time, even with --no-install-project.
 COPY pyproject.toml uv.lock README.md ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=sernia-mcp-uv,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # Then the app source — small change → small layer.
 COPY src/ ./src/
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=sernia-mcp-uv,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # -----------------------------------------------------------------------------
