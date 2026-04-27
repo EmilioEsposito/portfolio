@@ -9,6 +9,48 @@
 
 ---
 
+## 🌙 Closing thoughts (2026-04-26 EOD) — pickup notes for next session
+
+**Tentative direction on the "Hard — needs new infra" tier**: tools that
+need DB access, APScheduler jobstores, conversation-scoped CSV storage,
+or other stateful infra **stay on sernia_ai as bolted-on tools** rather
+than migrating to MCP. Rationale:
+
+  - Standing up Postgres / migrations / a scheduler on `sernia_mcp` just
+    to mirror tools that already work fine on sernia_ai is ~all cost,
+    little benefit. The MCP server's value prop is "remote AI harnesses
+    can call the same tools" — DB-bound tools (history search, conversation
+    analytics) are sernia_ai-specific and not interesting to Claude.ai /
+    ChatGPT clients anyway.
+  - When sernia_ai eventually calls sernia_mcp for *most* tools (per the
+    "End state" section below), it'll still keep its DB-bound + sandbox +
+    scheduler tools as native PydanticAI tools. The dual-toolset isn't
+    ugly — it's just "MCP toolset for portable stuff, native toolset for
+    sernia_ai-only stuff."
+
+This effectively answers Open Questions #2 (DB sharing) and #3 (scheduler
+ownership) — the answer is "neither; those tools just don't migrate."
+The TODOs below have been updated to reflect this. Re-open if Claude.ai /
+ChatGPT users start asking for SMS-history search through MCP.
+
+**Next session priority**: test the HITL approval-card mechanism (the
+existing `quo_send_sms` / `google_send_email` Apps approval flow) to
+understand the migration path for the **Medium — approval-gated tools**
+batch (`update_contact`, `delete_task`, `delete_contact`, calendar
+create/delete, `mass_text_tenants`). Concretely:
+
+  1. Use the running dev MCP server with Claude.ai or `fastmcp dev apps`
+     to actually trigger an approval card and walk through approve/reject.
+  2. Watch for any rough edges — does the card render right? Is the
+     `decided` reactive state preventing double-clicks? What happens if
+     the user closes the card without clicking?
+  3. Use what we learn to inform whether `register_approval_flow()` should
+     be extracted before adding 6 more flows, or after.
+
+That investigation unblocks the entire approval-gated batch.
+
+---
+
 ## End state — sernia_ai eventually points at sernia_mcp
 
 The current state is **dual-implementation**: `api/src/sernia_ai/tools/*.py`
@@ -44,17 +86,23 @@ a `ToolError`, hitting a transient deploy mid-call, etc. We want to debug
 those one tool at a time, not all at once. The feature flag gives us a
 clean rollback per tool.
 
-**What sernia_ai keeps** (these stay in `api/`):
+**What sernia_ai keeps** (these stay in `api/` permanently — they don't
+migrate to MCP per the closing-thoughts decision above):
 - The PydanticAI agent itself (`agent.py`), graph/router, modality glue
 - `triggers/` — webhook + scheduler entrypoints
-- `db_search_tools.py` / DB-touching helpers (until/unless we move them
-  too — see "Hard" section below)
-- `code_tools.py` Python sandbox (probably stays — see decision question)
+- `db_search_tools.py` / DB-touching helpers — DB stays on sernia_ai
+- `code_tools.py` Python sandbox — heavy dep, stays on sernia_ai
+- `data_export.py` + `duckdb_tools.py` — conversation-scoped, stays
+- `scheduling_tools.py` — APScheduler-bound, stays
 - Conversation history / approval persistence (DB-bound)
 - `instructions.py` — prompts, dynamic context, memory injection
 - `routes.py` — FastAPI endpoints
 
-Everything else collapses onto `sernia_mcp` over time.
+Everything else (Quo, Google, ClickUp, workspace memory, send tools)
+collapses onto `sernia_mcp` over time. The end-state agent has TWO
+toolsets: an `MCPServerHTTP` toolset pointing at `mcp.sernia.ai` for the
+portable surface, plus a native PydanticAI toolset for the DB/sandbox/
+scheduler tools that stay sernia_ai-only.
 
 ---
 
@@ -129,46 +177,26 @@ core function — to remove the boilerplate.
 
 ---
 
-## Hard — needs new infra
+## Stays on sernia_ai (per 2026-04-26 closing-thoughts decision)
 
-These tools have non-trivial dependencies that don't exist in `sernia_mcp` yet.
+These tools all need infra (DB, sandbox, scheduler, conversation-scoped
+storage) that doesn't belong on a stateless MCP server. The decision
+recorded in the closing-thoughts section is **don't migrate them** — they
+stay as bolted-on PydanticAI tools on sernia_ai forever, and sernia_ai
+keeps them in its native toolset alongside the MCP toolset for portable
+tools. Re-open this section only if a remote MCP client (Claude.ai,
+ChatGPT) explicitly needs one of these.
 
-### `db_search_tools.py` — DB access
+| sernia_ai module | Tools | Why it stays |
+|---|---|---|
+| `db_search_tools.py` | `db_get_contact_sms_history`, `db_search_sms_history`, `db_search_conversations` | Needs Postgres + alembic awareness; sernia_ai-internal value, not interesting to remote clients. |
+| `code_tools.py` | `run_python` | Heavy `pydantic-monty` dep + RestrictedPython sandbox; trust model is murkier when the caller is a remote MCP client. |
+| `data_export.py` + `duckdb_tools.py` | `list_datasets`, `load_dataset`, `describe_table`, `run_sql` | Per-conversation CSV storage; MCP is stateless across requests. Remote clients can do data analysis themselves. |
+| `scheduling_tools.py` | `schedule_sms`, `schedule_email`, `list_scheduled_messages`, `cancel_scheduled_message` | Needs APScheduler with persistent jobstore (DB-backed); not worth standing up on MCP. |
 
-- `db_get_contact_sms_history`, `db_search_sms_history`, `db_search_conversations`
-- **Blocker**: `sernia_mcp` has no DB connection. Adding one means: shared
-  Postgres conn, alembic migrations awareness, env config for `DATABASE_URL_*`.
-- **Decision needed**: should MCP read sernia_ai's DB, or have its own?
-  Cross-harness search is the "self-improving" story; isolated DB defeats
-  it. But coupling deploys is bad. Probably resolve by giving MCP read-only
-  access to sernia_ai's DB via env-injected URL.
+---
 
-### `code_tools.py` — pydantic-monty Python sandbox
-
-- `run_python` — RestrictedPython-based eval.
-- **Blocker**: heavy `pydantic-monty` dep + sandbox infrastructure.
-- **Decision needed**: do we trust an MCP caller (with bearer or human OAuth)
-  to run arbitrary Python? Probably yes for human OAuth, no for bearer.
-  Same gate as the write-tools section above.
-
-### `data_export.py` + `duckdb_tools.py` — conversation-scoped CSV + DuckDB
-
-- `list_datasets`, `load_dataset`, `describe_table`, `run_sql`.
-- **Blocker**: relies on per-conversation CSV storage. MCP servers are
-  stateless across requests — there's no "conversation" the way sernia_ai
-  has one (that's PydanticAI agent state). Would need per-session storage
-  keyed on `client_id` from the token, with TTL cleanup.
-- **Likely resolution**: skip. The Claude.ai client doesn't really benefit;
-  it can do data analysis itself. This was a sernia_ai-internal optimization.
-
-### `scheduling_tools.py` — APScheduler-backed scheduled sends
-
-- `schedule_sms`, `schedule_email`, `list_scheduled_messages`, `cancel_scheduled_message`.
-- **Blocker**: needs APScheduler with persistent jobstore. `sernia_mcp` has
-  no scheduler, no DB, no jobstore.
-- **Decision needed**: should MCP get its own scheduler, or call into
-  sernia_ai's `/api/sernia-ai/admin/schedule` endpoint as a thin proxy?
-  Proxy is simpler but couples deploys. Own scheduler means another DB.
+## Hard — needs new infra (the genuinely-hard ones)
 
 ### MCP-bridged Quo tools (FastMCPToolset → OpenPhone OpenAPI)
 
@@ -188,23 +216,73 @@ These tools have non-trivial dependencies that don't exist in `sernia_mcp` yet.
 
 - **History trimming + bootstrap helpers in `ai_sms_event_trigger.py`** —
   they're trigger-specific glue, not callable surface.
-- **Internal helpers** (`_clean_zillow_email`, `_html_to_markdown`,
-  `_summarize_if_long`, `_strip_quoted_replies`) — port them along WITH the
-  tool that needs them, not as standalone tools.
 - **`mass_text_tenants` per-unit sharding logic before the approval flow
   refactor** (see Medium section). Don't lift this without the helper.
 
+### Internal helpers — already lifted alongside their tools (2026-04-26)
+
+The cleanup helpers from sernia_ai's `google_tools.py` were vendored into
+`apps/sernia_mcp/src/sernia_mcp/core/google/_email_cleanup.py` along with
+`google_read_email_thread`:
+
+- `clean_zillow_email` (+ `_strip_zillow_tail`, `_ZILLOW_BOILERPLATE_RE`)
+  — boilerplate stripping via `[Name] says:` anchor + tail patterns.
+- `html_to_markdown` — HTML email → readable markdown via BeautifulSoup
+  + markdownify, layout tables flattened.
+- `is_zillow_content` — sender + body sniff.
+- `strip_quoted_replies` — collapse 3+-line `>` blocks and the
+  `On ... wrote:` attribution.
+
+The only sernia_ai helper that did **not** port is `_summarize_if_long`
+(LLM-based) — MCP hard-truncates instead since there's no LLM dep on the
+server. Live parity tested at `tests/test_email_thread_live.py` against
+the real Samantha + Nelson Chang Zillow threads.
+
+**Drift caveat**: until the sernia_ai → MCP migration completes, both
+copies need to be updated together if Zillow ever changes their email
+template (the regex patterns are the only volatile bit — sender / boiler-
+plate strings).
+
 ---
 
-## Open questions to answer before next batch
+## Open questions
 
 1. ~~**Bearer-vs-OAuth tool gating**~~ — **answered 2026-04-26**: bearer
    auth has full scope, no read-only gate.
-2. **DB sharing**: does `sernia_mcp` get its own DB, share sernia_ai's, or
-   stay DB-less and proxy DB-needing operations into the FastAPI service?
-3. **Scheduler ownership**: same question, for APScheduler.
-4. **Approval-flow boilerplate**: extract a registration helper now, or
-   wait for 4+ approval flows in the door before refactoring?
-
-These should be agreed on before the medium/hard batches start so we don't
-make divergent choices per-tool.
+2. ~~**DB sharing**~~ — **answered 2026-04-26**: MCP stays DB-less.
+   DB-bound tools stay on sernia_ai forever (see "Stays on sernia_ai").
+3. ~~**Scheduler ownership**~~ — **answered 2026-04-26**: same as DB.
+   `scheduling_tools.py` stays on sernia_ai.
+4. **Approval-flow boilerplate**: extract a `register_approval_flow()`
+   registration helper now, or wait for 4+ approval flows in the door
+   before refactoring? — *To be informed by the next-session investigation
+   of the existing HITL approval-card mechanism (see closing thoughts at
+   the top).*
+5. **Workspace tools — native or via MCP?** sernia_ai today has its own
+   native workspace toolset (`workspace_read`, `workspace_write`,
+   `workspace_edit`, `workspace_list_files`, `search_files`,
+   `workspace_delete`) operating directly on the local clone of the
+   `sernia-knowledge` repo. The MCP server has its own equivalents
+   (`read_resource` / `edit_resource` / `write_resource` plus the
+   `sernia_context` doorway). Both write to the same git-backed repo, so
+   correctness is fine either way; the question is whether sernia_ai
+   should keep its native toolset or route through the MCP server's.
+   - **Pro keep native**: lower latency (no HTTP roundtrip), no
+     dependency on MCP being up for sernia_ai to remember things, simpler
+     debug story, tools mature and well-tested. The agent's "memory" is
+     load-bearing for every conversation — coupling it to a separate
+     service availability is a real risk.
+   - **Pro route via MCP**: single source of truth for workspace surface
+     (no behavioral drift between the two implementations), cleaner
+     end-state (sernia_ai becomes thinner), MCP server already does the
+     git pull/commit/push lifecycle so we'd stop having two services
+     racing on the same repo, and the MCP doorway pattern
+     (`sernia_context` → memory + skill list) is more curated than
+     sernia_ai's filetree dump.
+   - If we **keep native** for sernia_ai, we should filter the workspace
+     tools out of the MCP surface that sernia_ai sees (otherwise the
+     agent gets duplicate tools and may pick the wrong one). The bearer-
+     auth `client_id` claim is the natural filter point.
+   - **Decision deferred** — revisit in the coming days alongside the
+     HITL-mechanism investigation, since both questions inform what the
+     final sernia_ai-as-MCP-client wiring looks like.
