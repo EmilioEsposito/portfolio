@@ -15,18 +15,25 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies first (cache-friendly: re-runs only when lockfile changes).
-# --no-install-project skips installing our own package; we add source after.
+# Install dependencies first (cache-friendly via Docker layer caching:
+# this RUN re-executes only when pyproject.toml or uv.lock changes, since
+# they're the only inputs to the layer above). --no-install-project skips
+# installing our own package; we add source after.
+#
+# We deliberately do NOT use --mount=type=cache here. Railway's BuildKit
+# requires its own cacheKey prefix on the `id` (e.g. id=s/<service-id>-...),
+# which would hardcode a Railway-specific service ID into the Dockerfile
+# and break local + cross-platform builds. Layer caching alone is enough
+# for our dep set.
+#
 # README.md is copied because pyproject.toml's `readme = "README.md"` is
 # validated by hatchling at build time, even with --no-install-project.
 COPY pyproject.toml uv.lock README.md ./
-RUN --mount=type=cache,id=sernia-mcp-uv,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Then the app source — small change → small layer.
 COPY src/ ./src/
-RUN --mount=type=cache,id=sernia-mcp-uv,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 # -----------------------------------------------------------------------------
 # Runtime stage — minimal Python image with the prebuilt venv on PATH.
