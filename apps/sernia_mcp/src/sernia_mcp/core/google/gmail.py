@@ -1,6 +1,8 @@
 """Gmail search / read / send via Google domain-wide delegation."""
 from __future__ import annotations
 
+from googleapiclient.errors import HttpError
+
 from sernia_mcp.clients.gmail import (
     GMAIL_SCOPES,
     extract_body,
@@ -90,6 +92,69 @@ async def read_email_core(message_id: str, *, user_email: str) -> str:
         f"Thread ID: {thread_id}\n\n"
         f"{content}"
     )
+
+
+async def read_email_thread_core(thread_id: str, *, user_email: str) -> str:
+    """Read all messages in a Gmail thread, in chronological order.
+
+    Each message is rendered with its From / To / Date / Subject / Message ID
+    so the caller can chain a reply (``send_email_core(reply_to_message_id=...)``).
+
+    Note on simplifications vs sernia_ai: this MCP version does NOT strip
+    Zillow boilerplate, does NOT collapse quoted replies, and does NOT call
+    a summarizer for oversized messages — sernia_ai relies on the agent's
+    own LLM for that, and the MCP server has no LLM dep. Long messages are
+    hard-truncated at 3000 chars per message and 15000 chars total. If the
+    output is too noisy, fall back to ``read_email_core`` for individual
+    messages and let the calling agent reason over them.
+    """
+    creds = get_delegated_credentials(user_email=user_email, scopes=GMAIL_SCOPES)
+    service = get_gmail_service(creds)
+
+    try:
+        thread = (
+            service.users()
+            .threads()
+            .get(userId="me", id=thread_id, format="full")
+            .execute()
+        )
+    except HttpError as e:
+        if e.resp.status == 404:
+            return (
+                f"Thread {thread_id} not found in {user_email}. "
+                "Thread IDs are mailbox-specific — try a different user_email_account."
+            )
+        raise
+
+    messages = thread.get("messages", [])
+    if not messages:
+        return f"Thread {thread_id} has no messages."
+
+    parts: list[str] = []
+    for i, msg in enumerate(messages, 1):
+        headers = {
+            h["name"].lower(): h["value"]
+            for h in msg.get("payload", {}).get("headers", [])
+        }
+        body = extract_body(msg)
+        content = body.get("text") or body.get("html") or "(no body)"
+        if len(content) > 3000:
+            content = content[:3000] + "\n...(truncated — message exceeded 3000 chars)"
+
+        msg_id = msg.get("id", "?")
+        parts.append(
+            f"--- Message {i}/{len(messages)} (ID: {msg_id}) ---\n"
+            f"From: {headers.get('from', '?')}\n"
+            f"To: {headers.get('to', '?')}\n"
+            f"Date: {headers.get('date', '?')}\n"
+            f"Subject: {headers.get('subject', '(no subject)')}\n\n"
+            f"{content}"
+        )
+
+    result = "\n\n".join(parts)
+    if len(result) > 15000:
+        result = result[:15000] + "\n\n...(truncated — thread exceeded 15000 chars)"
+    return result
 
 
 async def send_email_core(

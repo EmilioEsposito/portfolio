@@ -7,8 +7,11 @@ so we just format and cap the inline output).
 """
 from __future__ import annotations
 
+import io
+
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 
 from sernia_mcp.clients.google_auth import get_delegated_credentials
 
@@ -33,6 +36,15 @@ def _get_drive_service(user_email: str):
 def _get_sheets_service(user_email: str):
     creds = get_delegated_credentials(user_email=user_email, scopes=SHEETS_SCOPES)
     return build("sheets", "v4", credentials=creds)
+
+
+def _get_docs_service(user_email: str):
+    """Docs API uses the broader Drive scope so the same delegation works."""
+    creds = get_delegated_credentials(
+        user_email=user_email,
+        scopes=["https://www.googleapis.com/auth/drive"],
+    )
+    return build("docs", "v1", credentials=creds)
 
 
 async def search_drive_core(
@@ -162,3 +174,77 @@ async def read_google_sheet_core(
     if len(text) > _CONTENT_CAP:
         text = text[:_CONTENT_CAP] + "\n...(truncated)"
     return text
+
+
+async def read_google_doc_core(file_id: str, *, user_email: str) -> str:
+    """Read the text content of a Google Doc.
+
+    Output is capped at ``_CONTENT_CAP`` chars. For PDFs use
+    ``read_drive_pdf_core``; for sheets use ``read_google_sheet_core``.
+    """
+    service = _get_docs_service(user_email)
+    doc = service.documents().get(documentId=file_id).execute()
+    title = doc.get("title", "(untitled)")
+
+    content_parts: list[str] = []
+    for element in doc.get("body", {}).get("content", []):
+        paragraph = element.get("paragraph")
+        if not paragraph:
+            continue
+        for pe in paragraph.get("elements", []):
+            text_run = pe.get("textRun")
+            if text_run:
+                content_parts.append(text_run.get("content", ""))
+
+    text = "".join(content_parts).strip()
+    if len(text) > _CONTENT_CAP:
+        text = text[:_CONTENT_CAP] + "\n...(truncated)"
+
+    return f"Title: {title}\n\n{text}" if text else f"Title: {title}\n\n(empty document)"
+
+
+async def read_drive_pdf_core(file_id: str, *, user_email: str) -> str:
+    """Download a PDF from Drive and extract its text.
+
+    If ``file_id`` points at a Google Doc (not a PDF), delegates to
+    ``read_google_doc_core`` so callers don't have to branch upfront.
+    Image-based PDFs return a "no extractable text" notice; ``pypdf`` does
+    not OCR.
+    """
+    service = _get_drive_service(user_email)
+    meta = service.files().get(fileId=file_id, fields="name,mimeType").execute()
+    name = meta.get("name", "unknown")
+    mime = meta.get("mimeType", "")
+
+    if mime == "application/vnd.google-apps.document":
+        return await read_google_doc_core(file_id, user_email=user_email)
+
+    request = service.files().get_media(fileId=file_id)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    pdf_bytes = buffer.getvalue()
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    text_parts: list[str] = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text_parts.append(page_text)
+    text = "\n\n".join(text_parts)
+
+    if not text.strip():
+        return (
+            f"PDF '{name}' appears to be image-based "
+            f"(no extractable text). {len(pdf_bytes)} bytes."
+        )
+
+    if len(text) > _CONTENT_CAP:
+        text = text[:_CONTENT_CAP] + "\n...(truncated)"
+
+    return f"PDF: {name}\n\n{text}"

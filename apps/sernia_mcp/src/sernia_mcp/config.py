@@ -73,6 +73,15 @@ QUO_INTERNAL_COMPANY: str = os.environ.get(
 
 # ---- ClickUp ---------------------------------------------------------------
 CLICKUP_TEAM_ID: str = os.environ.get("CLICKUP_TEAM_ID", "90131316997")
+# Default ClickUp view used by ``clickup_get_tasks`` when no list_or_view_id
+# is passed. "Peppino View" — the curated cross-list task feed.
+DEFAULT_CLICKUP_VIEW_ID: str = os.environ.get(
+    "DEFAULT_CLICKUP_VIEW_ID", "2ky3xg85-573"
+)
+# Sernia maintenance list — backs ``clickup_get_maintenance_field_options``.
+CLICKUP_MAINTENANCE_LIST_ID: str = os.environ.get(
+    "CLICKUP_MAINTENANCE_LIST_ID", "901312027371"
+)
 
 # ---- Sernia constants ------------------------------------------------------
 INTERNAL_EMAIL_DOMAIN: str = os.environ.get(

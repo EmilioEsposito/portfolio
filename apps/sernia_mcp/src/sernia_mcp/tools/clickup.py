@@ -1,6 +1,11 @@
 """MCP wrappers for ClickUp tools."""
 from fastmcp.exceptions import ToolError
 
+from sernia_mcp.core.clickup.reads import (
+    get_maintenance_field_options_core,
+    get_tasks_core,
+    list_clickup_lists_core,
+)
 from sernia_mcp.core.clickup.tasks import search_tasks_core
 from sernia_mcp.core.clickup.writes import (
     create_task_core,
@@ -151,3 +156,50 @@ async def clickup_set_task_custom_field(
         return await set_task_custom_field_core(task_id, field_id, value)
     except CoreError as e:
         raise ToolError(f"clickup_set_task_custom_field failed: {e}") from e
+
+
+@mcp.tool
+async def clickup_list_lists() -> str:
+    """List all spaces, folders, and lists in the ClickUp workspace.
+
+    Returns a formatted hierarchy with each list's ID and task count.
+    Use the IDs as the ``list_id`` argument to ``clickup_create_task``
+    or as ``list_or_view_id`` to ``clickup_get_tasks``.
+    """
+    try:
+        return await list_clickup_lists_core()
+    except CoreError as e:
+        raise ToolError(f"clickup_list_lists failed: {e}") from e
+
+
+@mcp.tool
+async def clickup_get_tasks(list_or_view_id: str | None = None) -> str:
+    """Get tasks from a ClickUp list or view.
+
+    For broader cross-workspace search with fuzzy matching, prefer
+    ``clickup_search_tasks``. This tool is the right choice when you
+    already have a specific list/view ID.
+
+    Args:
+        list_or_view_id: ClickUp list ID (numeric) or view ID (contains
+            hyphens/letters). Defaults to the curated Sernia view if omitted.
+    """
+    try:
+        return await get_tasks_core(list_or_view_id)
+    except CoreError as e:
+        raise ToolError(f"clickup_get_tasks failed: {e}") from e
+
+
+@mcp.tool
+async def clickup_get_maintenance_field_options() -> str:
+    """Return the maintenance list's custom-field IDs and dropdown UUIDs.
+
+    Use this before calling ``clickup_create_task`` or
+    ``clickup_set_task_custom_field`` on the maintenance list — drop_down
+    custom-field values must be the option UUID, not the human label.
+    Pure formatter; no API call.
+    """
+    try:
+        return await get_maintenance_field_options_core()
+    except CoreError as e:
+        raise ToolError(f"clickup_get_maintenance_field_options failed: {e}") from e

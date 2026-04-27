@@ -64,8 +64,10 @@ Visible tools currently registered on `sernia_mcp`:
 
 - Memory/skills: `sernia_context`, `read_resource`, `edit_resource`, `write_resource`
 - Quo: `quo_search_contacts`, `quo_get_thread_messages`, `quo_list_active_sms_threads`, `quo_create_contact`, `quo_send_sms` (HITL)
-- Google: `google_search_emails`, `google_read_email`, `google_search_drive`, `google_read_sheet`, `google_send_email` (HITL)
-- ClickUp: `clickup_search_tasks`, `clickup_create_task`, `clickup_update_task`, `clickup_set_task_custom_field`
+- Google (Gmail): `google_search_emails`, `google_read_email`, `google_read_email_thread`, `google_send_email` (HITL)
+- Google (Drive/Docs/Sheets): `google_search_drive`, `google_read_sheet`, `google_read_doc`, `google_read_pdf`
+- Google (Calendar): `google_list_calendar_events`
+- ClickUp: `clickup_search_tasks`, `clickup_get_tasks`, `clickup_list_lists`, `clickup_get_maintenance_field_options`, `clickup_create_task`, `clickup_update_task`, `clickup_set_task_custom_field`
 
 Hidden Apps backend tools (model can't reach): `_confirm_send_sms`, `_confirm_send_email`.
 
