@@ -17,7 +17,9 @@ WORKDIR /app
 
 # Install dependencies first (cache-friendly: re-runs only when lockfile changes).
 # --no-install-project skips installing our own package; we add source after.
-COPY pyproject.toml uv.lock ./
+# README.md is copied because pyproject.toml's `readme = "README.md"` is
+# validated by hatchling at build time, even with --no-install-project.
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 

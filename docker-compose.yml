@@ -59,7 +59,30 @@ services:
       - "8081:8081"
     # Add env_file if Expo app needs runtime env vars from .env
     env_file:
-      - .env 
+      - .env
+    networks:
+      - portfolio-net
+  sernia-mcp:
+    # Self-contained service — its Dockerfile expects build context to be
+    # apps/sernia_mcp/ (matches Railway's "Root directory: apps/sernia_mcp"
+    # service setting), so one Dockerfile works in both places.
+    build:
+      context: apps/sernia_mcp
+      dockerfile: Dockerfile
+    container_name: portfolio-sernia-mcp
+    ports:
+      - "8090:8090"
+    # The sernia_mcp service has its OWN .env at apps/sernia_mcp/.env (kept
+    # separate from the monorepo .env so the service stays liftable). Mount
+    # it explicitly rather than using env_file so the build context exclusion
+    # in .dockerignore stays respected.
+    env_file:
+      - apps/sernia_mcp/.env
+    environment:
+      - PORT=8090
+      # Override base URL for local container — Clerk OAuth callbacks need
+      # to know the externally reachable host.
+      - SERNIA_MCP_BASE_URL=http://localhost:8090
     networks:
       - portfolio-net
 
