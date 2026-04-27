@@ -1,16 +1,12 @@
 """ClickUp task search core function."""
 from __future__ import annotations
 
-import os
 from datetime import datetime
-
-import httpx
 
 from sernia_mcp.clients._fuzzy import fuzzy_filter_json
 from sernia_mcp.config import CLICKUP_TEAM_ID
+from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError
-
-_BASE = "https://api.clickup.com/api/v2"
 
 
 async def search_tasks_core(
@@ -51,21 +47,9 @@ async def search_tasks_core(
     if subtasks:
         params["subtasks"] = "true"
 
-    headers = {
-        "accept": "application/json",
-        "Authorization": os.environ.get("CLICKUP_API_KEY", ""),
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.get(
-                f"{_BASE}/team/{CLICKUP_TEAM_ID}/task",
-                headers=headers,
-                params=params,
-                timeout=20,
-            )
-        except httpx.HTTPError as exc:
-            raise ExternalServiceError(f"ClickUp API error: {exc}") from exc
-
+    resp = await clickup_request(
+        "GET", f"/team/{CLICKUP_TEAM_ID}/task", params=params
+    )
     if resp.status_code != 200:
         raise ExternalServiceError(
             f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}"

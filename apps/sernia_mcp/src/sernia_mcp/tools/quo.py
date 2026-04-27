@@ -6,6 +6,12 @@ deterministic server-side enforcement (tool-visibility split).
 from fastmcp.exceptions import ToolError
 
 from sernia_mcp.core.errors import CoreError
+from sernia_mcp.core.quo.contact_writes import (
+    CustomField,
+    Email,
+    PhoneNumber,
+    create_contact_core,
+)
 from sernia_mcp.core.quo.contacts import (
     get_thread_messages_core,
     list_active_threads_core,
@@ -68,3 +74,44 @@ async def quo_list_active_sms_threads(
         )
     except CoreError as e:
         raise ToolError(f"quo_list_active_sms_threads failed: {e}") from e
+
+
+@mcp.tool
+async def quo_create_contact(
+    first_name: str,
+    last_name: str,
+    company: str | None = None,
+    role: str | None = None,
+    phone_numbers: list[PhoneNumber] | None = None,
+    emails: list[Email] | None = None,
+    tags: list[str] | None = None,
+    custom_fields: list[CustomField] | None = None,
+) -> str:
+    """Create a new Quo (OpenPhone) contact.
+
+    Args:
+        first_name: Contact's first name.
+        last_name: Contact's last name.
+        company: Company name (e.g. "Sernia Capital LLC").
+        role: Role or type (e.g. "Tenant", "Lead", "Vendor").
+        phone_numbers: Phone numbers. Each entry is ``{name, value}`` with
+            ``value`` in E.164 (e.g. ``"+14125551234"``). Default name is
+            ``"Phone Number"``.
+        emails: Email addresses. Each entry is ``{name, value}``.
+        tags: Tags to apply (multi-select; e.g. ``["Insurance", "Vendor"]``).
+        custom_fields: Additional custom fields as ``{key, value}`` entries.
+            ``key`` is the 24-char hex Quo custom-field ID.
+    """
+    try:
+        return await create_contact_core(
+            first_name,
+            last_name,
+            company=company,
+            role=role,
+            phone_numbers=phone_numbers,
+            emails=emails,
+            tags=tags,
+            custom_fields=custom_fields,
+        )
+    except CoreError as e:
+        raise ToolError(f"quo_create_contact failed: {e}") from e

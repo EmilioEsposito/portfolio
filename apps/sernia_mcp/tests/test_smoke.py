@@ -38,6 +38,10 @@ async def test_expected_tools_exposed():
         "google_search_drive",
         "google_read_sheet",
         "clickup_search_tasks",
+        "clickup_create_task",
+        "clickup_update_task",
+        "clickup_set_task_custom_field",
+        "quo_create_contact",
         "quo_send_sms",
         "google_send_email",
     }
