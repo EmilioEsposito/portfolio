@@ -40,6 +40,13 @@ _BEARER_MIN_LENGTH = 32
 # ``service:`` is a non-human caller and should be logged accordingly.
 _BEARER_CLIENT_ID = "service:sernia-ai"
 
+# Scopes the synthesized AccessToken must carry. ``ClerkProvider`` defaults
+# its ``required_scopes`` to ``["openid", "email", "profile"]``; if the
+# bearer token's scopes don't include them, the request is rejected with
+# 403 ``insufficient_scope`` AFTER our verify_token returns. Mirror Clerk's
+# default so the bearer path passes the same scope gate Clerk would.
+_BEARER_SCOPES = ["openid", "email", "profile"]
+
 
 def _bearer_email() -> str:
     """Synthesize an email that will pass ``require_allowed_email_domain``.
@@ -93,7 +100,7 @@ def verify_internal_bearer(token: str) -> AccessToken | None:
     return AccessToken(
         token=token,
         client_id=_BEARER_CLIENT_ID,
-        scopes=[],
+        scopes=list(_BEARER_SCOPES),
         expires_at=None,
         claims={
             "sub": _BEARER_CLIENT_ID,

@@ -52,7 +52,11 @@ def test_matching_token_returns_synthesized_access_token(monkeypatch):
     token = bearer.verify_internal_bearer(_VALID_TOKEN)
     assert token is not None
     assert token.client_id == "service:sernia-ai"
-    assert token.scopes == []
+    # Must carry the scopes ClerkProvider's default ``required_scopes`` enforces,
+    # otherwise downstream MCP returns 403 insufficient_scope.
+    assert "openid" in token.scopes
+    assert "email" in token.scopes
+    assert "profile" in token.scopes
     assert token.expires_at is None
     assert token.claims["sub"] == "service:sernia-ai"
     assert token.claims["auth_method"] == "internal_bearer"
