@@ -33,11 +33,54 @@ ownership) — the answer is "neither; those tools just don't migrate."
 The TODOs below have been updated to reflect this. Re-open if Claude.ai /
 ChatGPT users start asking for SMS-history search through MCP.
 
-**Next session priority**: test the HITL approval-card mechanism (the
-existing `quo_send_sms` / `google_send_email` Apps approval flow) to
-understand the migration path for the **Medium — approval-gated tools**
-batch (`update_contact`, `delete_task`, `delete_contact`, calendar
-create/delete, `mass_text_tenants`). Concretely:
+**🔴 Highest-priority next-session item — audit "ported" tools for true
+parity.** Several tools that the prior commits marked as "shipped" are
+in fact *partial* ports — they're behaviorally divergent from sernia_ai
+in ways that aren't called out in the docstrings or the TODO checklist.
+Treat the existing parity claims as suspect until each tool is audited
+side-by-side.
+
+**Concrete example caught 2026-04-26 — `send_email`:**
+
+| Aspect | sernia_ai `send_email` | sernia_mcp `google_send_email` |
+|---|---|---|
+| Signature | `(to, subject, body, body_html="", reply_to_message_id="")` | `(to, subject, body)` |
+| HTML body | ✅ multipart/alternative via `body_html` | ❌ plain-text only |
+| Reply threading | ✅ `In-Reply-To` + `References` headers via `reply_to_message_id`; cross-mailbox fallback | ❌ every send is a fresh thread |
+| Internal/external routing | ✅ external sends from `SHARED_EXTERNAL_EMAIL` (`all@serniacapital.com`); internal from user's own mailbox | ❌ always sends from whatever mailbox `user_email` resolves to (no shared-mailbox split) |
+| HITL approval | Conditional — internal-only skips, external requires | Unconditional — card every time, even all-internal |
+| Sender display | Always sets display From to `user_email` even when authenticated as shared mailbox (so replies come back to the human) | Just uses `user_email` or `sender_override` |
+
+These are real functional regressions, not stylistic differences. If we
+sent a Zillow draft via the MCP `google_send_email` today, it would (a)
+lose HTML formatting, (b) not thread the reply (recipient sees a fresh
+message instead of a continuation), (c) come from the wrong mailbox, and
+(d) still ask Emilio for approval even when sending to himself.
+
+**Audit task** — go through every tool TODOS marks ✅, read the sernia_ai
+version line-by-line, and document the real gap. Then either close the
+gap (port the missing functionality) OR mark the tool clearly as
+"partial port" with the divergence list, so we don't accidentally cut
+sernia_ai over to a behaviorally weaker MCP version. Likely candidates
+to look at first:
+
+- `google_send_email` (gaps above — work this first)
+- `quo_send_sms` (does it have the same routing / context-seeding /
+  auto-split logic as sernia_ai's `send_sms`?)
+- `clickup_create_task` (does it accept and forward all the optional
+  fields sernia_ai accepts?)
+- `quo_create_contact` (does the payload builder produce identical
+  output for the same args?)
+- `google_search_emails` / `google_read_email` (do they cap output the
+  same way? Same field selection?)
+- `clickup_search_tasks` (does the fuzzy-match and pagination behave
+  identically?)
+
+**Next session priority** (after the audit): test the HITL approval-card
+mechanism (the existing `quo_send_sms` / `google_send_email` Apps
+approval flow) to understand the migration path for the **Medium —
+approval-gated tools** batch (`update_contact`, `delete_task`,
+`delete_contact`, calendar create/delete, `mass_text_tenants`). Concretely:
 
   1. Use the running dev MCP server with Claude.ai or `fastmcp dev apps`
      to actually trigger an approval card and walk through approve/reject.

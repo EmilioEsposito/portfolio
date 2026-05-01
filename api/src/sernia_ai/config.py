@@ -70,6 +70,15 @@ GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
 DEFAULT_SCHEDULE_DAYS_OF_WEEK = [0, 1, 2, 3, 4]  # Mon–Fri (APScheduler convention)
 DEFAULT_SCHEDULE_HOURS = [8, 11, 14, 17]  # 8am, 11am, 2pm, 5pm ET
 
+# Zillow email trigger defaults — overridable via DB-backed zillow_email_config setting.
+# Debounce: first email starts a window; additional Zillow emails accumulate
+# and the agent fires once at the end with the full batch.
+DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300  # 5 minutes
+# When True (default), Zillow auto-replies route through the standard external
+# email HITL approval card. Flip to False once the agent has earned trust to
+# auto-send Zillow replies without per-email approval.
+DEFAULT_ZILLOW_REQUIRE_APPROVAL = True
+
 # Shared team contact ID in OpenPhone (Quo).
 # Phone number is looked up at runtime via the API — not hardcoded.
 QUO_SHARED_TEAM_CONTACT_ID = "699b78b18371c26349b453ab"

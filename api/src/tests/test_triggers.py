@@ -1198,8 +1198,8 @@ class TestQueueZillowEmailEventDedup:
         import time as _time
         import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
 
-        # Entry from two hours ago — older than the 1h TTL
-        mod._recently_fired_message_ids["msg_expired"] = _time.monotonic() - 7200
+        # Entry from three hours ago — older than the 2h TTL
+        mod._recently_fired_message_ids["msg_expired"] = _time.monotonic() - 10800
 
         def _close_coro(coro, *args, **kwargs):
             # Close the coroutine so pytest doesn't warn about it never being awaited.

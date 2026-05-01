@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/react-router";
 import { AuthGuard } from "~/components/auth-guard";
 import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
+import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
@@ -83,10 +84,16 @@ const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] =
 
 const DEFAULT_EFFORT: ThinkingEffort = "medium";
 
+interface ZillowEmailConfig {
+  debounce_seconds: number;
+  require_approval: boolean;
+}
+
 interface Settings {
   triggers_enabled: boolean;
   schedule_config: ScheduleConfig;
   model_config: ModelConfig;
+  zillow_email_config: ZillowEmailConfig;
   available_models: ModelChoice[];
 }
 
@@ -96,6 +103,13 @@ const FALLBACK_MODELS: ModelChoice[] = [
   { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
   { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },
 ];
+
+// Zillow defaults — mirror api/src/sernia_ai/config.py constants. These are
+// only used as the initial form values before the GET /admin/settings response
+// arrives; the server response (which reflects the DB row or its own defaults)
+// always wins.
+const DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300;
+const DEFAULT_ZILLOW_REQUIRE_APPROVAL = true;
 
 function SettingsMobileSidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -126,6 +140,12 @@ export default function SerniaSettingsPage() {
   const [modelKey, setModelKey] = useState<string>(DEFAULT_MODEL_KEY);
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(DEFAULT_EFFORT);
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>(FALLBACK_MODELS);
+  const [zillowDebounceSeconds, setZillowDebounceSeconds] = useState<number>(
+    DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
+  );
+  const [zillowRequireApproval, setZillowRequireApproval] = useState<boolean>(
+    DEFAULT_ZILLOW_REQUIRE_APPROVAL,
+  );
 
   // Snapshot of last-saved values to detect dirty state
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -136,7 +156,9 @@ export default function SerniaSettingsPage() {
       JSON.stringify([...days].sort()) !== JSON.stringify([...saved.schedule_config.days_of_week].sort()) ||
       JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()) ||
       modelKey !== saved.model_config.model_key ||
-      thinkingEffort !== saved.model_config.thinking_effort);
+      thinkingEffort !== saved.model_config.thinking_effort ||
+      zillowDebounceSeconds !== saved.zillow_email_config.debounce_seconds ||
+      zillowRequireApproval !== saved.zillow_email_config.require_approval);
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
@@ -153,6 +175,12 @@ export default function SerniaSettingsPage() {
       setHours(data.schedule_config.hours);
       setModelKey(data.model_config?.model_key ?? DEFAULT_MODEL_KEY);
       setThinkingEffort(data.model_config?.thinking_effort ?? DEFAULT_EFFORT);
+      setZillowDebounceSeconds(
+        data.zillow_email_config?.debounce_seconds ?? DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
+      );
+      setZillowRequireApproval(
+        data.zillow_email_config?.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
+      );
       if (data.available_models?.length) setAvailableModels(data.available_models);
       setSaved(data);
     } catch (err) {
@@ -184,6 +212,10 @@ export default function SerniaSettingsPage() {
             hours: [...hours].sort(),
           },
           model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
+          zillow_email_config: {
+            debounce_seconds: zillowDebounceSeconds,
+            require_approval: zillowRequireApproval,
+          },
         }),
       });
       if (!res.ok) {
@@ -197,6 +229,10 @@ export default function SerniaSettingsPage() {
           hours: [...hours].sort(),
         },
         model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
+        zillow_email_config: {
+          debounce_seconds: zillowDebounceSeconds,
+          require_approval: zillowRequireApproval,
+        },
         available_models: availableModels,
       };
       setSaved(snapshot);
@@ -217,6 +253,8 @@ export default function SerniaSettingsPage() {
     setHours(saved.schedule_config.hours);
     setModelKey(saved.model_config.model_key);
     setThinkingEffort(saved.model_config.thinking_effort);
+    setZillowDebounceSeconds(saved.zillow_email_config.debounce_seconds);
+    setZillowRequireApproval(saved.zillow_email_config.require_approval);
   };
 
   // Toggle helpers
@@ -501,6 +539,71 @@ export default function SerniaSettingsPage() {
                           {days.length} day{days.length !== 1 && "s"} per week ({hours.length * days.length} total/week)
                         </p>
                       </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Zillow email trigger config */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Zillow Email Auto-Reply</CardTitle>
+                  <CardDescription>
+                    Controls the Zillow lead trigger that drafts and sends replies to inbound
+                    Zillow inquiry emails.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Debounce */}
+                  <div className="space-y-2">
+                    <Label htmlFor="zillow-debounce" className="text-sm font-medium">
+                      Debounce Window (seconds)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      First Zillow email starts a timer; additional Zillow emails arriving within
+                      this window are batched into a single agent run. 60–3600 seconds.
+                    </p>
+                    <Input
+                      id="zillow-debounce"
+                      type="number"
+                      min={60}
+                      max={3600}
+                      step={30}
+                      value={zillowDebounceSeconds}
+                      onChange={(e) =>
+                        setZillowDebounceSeconds(Number(e.target.value) || 0)
+                      }
+                      className="max-w-40"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      ≈ {(zillowDebounceSeconds / 60).toFixed(zillowDebounceSeconds % 60 === 0 ? 0 : 1)} minute
+                      {zillowDebounceSeconds === 60 ? "" : "s"}
+                    </p>
+                  </div>
+
+                  {/* Require approval */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Require HITL Approval</Label>
+                    <p className="text-xs text-muted-foreground">
+                      When on, every outbound Zillow reply pauses for human approval (the standard
+                      external-email HITL card). Turn off only once the agent has earned trust to
+                      auto-send Zillow replies — flip back on if it goes off the rails.
+                    </p>
+                    <div className="flex items-center gap-3 pt-1">
+                      <Switch
+                        id="zillow-require-approval"
+                        checked={zillowRequireApproval}
+                        onCheckedChange={setZillowRequireApproval}
+                      />
+                      <Label htmlFor="zillow-require-approval" className="cursor-pointer">
+                        {zillowRequireApproval ? "Approval required" : "Auto-send (no approval)"}
+                      </Label>
+                    </div>
+                    {!zillowRequireApproval && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        Heads up: with approval off, the agent will send Zillow replies without
+                        the per-email approval card.
+                      </p>
                     )}
                   </div>
                 </CardContent>

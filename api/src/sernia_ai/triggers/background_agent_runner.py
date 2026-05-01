@@ -63,6 +63,7 @@ async def run_agent_for_trigger(
     trigger_metadata: dict,
     rate_limit_key: str | None = None,
     conversation_id: str | None = None,
+    bypass_external_email_approval: bool = False,
 ) -> str | None:
     """
     Run the Sernia agent in background for a trigger event.
@@ -80,6 +81,9 @@ async def run_agent_for_trigger(
         conversation_id: Pre-generated conversation ID. When provided, the runner
             uses this instead of generating a new UUID. Useful when the caller
             needs to embed a deeplink in the trigger prompt.
+        bypass_external_email_approval: When True, this run skips the external
+            email HITL approval card. Used by triggers that have their own
+            opt-out toggle (e.g. Zillow auto-reply with `require_approval=False`).
 
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
@@ -124,6 +128,7 @@ async def run_agent_for_trigger(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
+            bypass_external_email_approval=bypass_external_email_approval,
         )
 
         run_kwargs = await resolve_active_run_kwargs()

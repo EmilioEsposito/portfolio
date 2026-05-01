@@ -2,9 +2,23 @@
 Zillow email event trigger for the Sernia AI agent.
 
 Fires when new Zillow emails arrive via Gmail Pub/Sub, but **debounced**:
-the first email starts a 10-minute window; any additional Zillow emails
-during that window are accumulated.  The agent fires once at the end of
-the window so it can assess all accumulated emails in a single run.
+the first email starts a debounce window (default 5 min); any additional
+Zillow emails during that window are accumulated.  The agent fires once at
+the end of the window so it can assess all accumulated emails in a single
+run.
+
+Configuration: debounce length and the HITL approval gate are both
+overridable via the DB-backed ``zillow_email_config`` AppSetting (JSONB):
+
+    {
+        "debounce_seconds": 300,
+        "require_approval": true
+    }
+
+Defaults come from ``DEFAULT_ZILLOW_DEBOUNCE_SECONDS`` and
+``DEFAULT_ZILLOW_REQUIRE_APPROVAL`` in ``config.py``. ``require_approval=False``
+opts the agent's outbound Zillow replies out of the standard external email
+HITL approval card (the agent calls ``send_email`` directly for these runs).
 
 Deduplication: Gmail Pub/Sub has at-least-once delivery, and a single logical
 message can show up in multiple history notifications (e.g. when Gmail label
@@ -24,22 +38,24 @@ import uuid
 from textwrap import dedent
 
 import logfire
+from sqlalchemy import select
 
-from api.src.sernia_ai.config import FRONTEND_BASE_URL
+from api.src.sernia_ai.config import (
+    DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
+    DEFAULT_ZILLOW_REQUIRE_APPROVAL,
+    FRONTEND_BASE_URL,
+)
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
-
-# ---------------------------------------------------------------------------
-# Debounce configuration
-# ---------------------------------------------------------------------------
-DEBOUNCE_SECONDS = 600  # 10 minutes
 
 # TTL for the recently-fired message_id cache. Must comfortably exceed the
 # debounce window so a redelivery landing after a batch fires still dedupes.
-RECENTLY_FIRED_TTL_SECONDS = 3600  # 1 hour
+# The runtime debounce is configurable up to 3600s, so a 2-hour TTL covers
+# even the longest valid window.
+RECENTLY_FIRED_TTL_SECONDS = 7200  # 2 hours
 
 # Module-level state for the debounce window.
 # _pending_emails accumulates email info dicts; _pending_task is the asyncio
-# task that sleeps for DEBOUNCE_SECONDS and then fires the trigger.
+# task that sleeps for the configured debounce and then fires the trigger.
 _pending_emails: list[dict] = []
 _pending_task: asyncio.Task | None = None
 
@@ -47,6 +63,35 @@ _pending_task: asyncio.Task | None = None
 # were already included in a fired batch. Used to reject pubsub redeliveries
 # that arrive shortly after a window closes.
 _recently_fired_message_ids: dict[str, float] = {}
+
+
+async def get_zillow_email_config() -> dict:
+    """Read ``zillow_email_config`` from the DB, returning defaults if not set.
+
+    Defaults come from ``config.DEFAULT_ZILLOW_*`` so the constants stay the
+    single source of truth. Failures fall back to defaults — never raises.
+    """
+    from api.src.database.database import AsyncSessionFactory
+    from api.src.sernia_ai.models import AppSetting
+
+    defaults = {
+        "debounce_seconds": DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
+        "require_approval": DEFAULT_ZILLOW_REQUIRE_APPROVAL,
+    }
+    try:
+        async with AsyncSessionFactory() as session:
+            result = await session.execute(
+                select(AppSetting.value).where(AppSetting.key == "zillow_email_config")
+            )
+            row = result.scalar_one_or_none()
+            if isinstance(row, dict):
+                return {
+                    "debounce_seconds": int(row.get("debounce_seconds", defaults["debounce_seconds"])),
+                    "require_approval": bool(row.get("require_approval", defaults["require_approval"])),
+                }
+    except Exception:
+        logfire.warn("Failed to read zillow_email_config from DB, using defaults")
+    return defaults
 
 
 def _prune_recently_fired(now: float | None = None) -> None:
@@ -83,9 +128,11 @@ async def queue_zillow_email_event(
     """
     Queue a Zillow email for debounced processing.
 
-    The first email in a quiet period starts a 10-minute timer.  All
-    subsequent emails within that window are accumulated.  When the timer
-    fires, the agent runs once and sees every email in the batch.
+    The first email in a quiet period starts the debounce timer (length
+    configurable via ``zillow_email_config.debounce_seconds`` — see
+    ``get_zillow_email_config``). Subsequent emails within that window are
+    accumulated.  When the timer fires, the agent runs once and sees every
+    email in the batch.
 
     Duplicate Gmail ``message_id`` values (pubsub redelivery, label-change
     history events for the same physical message) are dropped: once already
@@ -130,17 +177,19 @@ async def queue_zillow_email_event(
         )
         return
 
+    config = await get_zillow_email_config()
+    debounce_seconds = config["debounce_seconds"]
     logfire.info(
         "zillow_email_event: starting debounce window",
-        debounce_seconds=DEBOUNCE_SECONDS,
+        debounce_seconds=debounce_seconds,
         subject=subject,
     )
-    _pending_task = asyncio.create_task(_debounced_fire())
+    _pending_task = asyncio.create_task(_debounced_fire(debounce_seconds))
 
 
-async def _debounced_fire() -> None:
+async def _debounced_fire(debounce_seconds: int) -> None:
     """Sleep for the debounce window, then fire the trigger with all accumulated emails."""
-    await asyncio.sleep(DEBOUNCE_SECONDS)
+    await asyncio.sleep(debounce_seconds)
 
     # Snapshot and clear the pending list atomically
     emails = _pending_emails.copy()
@@ -177,6 +226,9 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
     """Run the agent once for a batch of Zillow emails."""
     conv_id = str(uuid.uuid4())
     deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={conv_id}"
+
+    config = await get_zillow_email_config()
+    require_approval = config["require_approval"]
 
     # Build a summary of all emails in the batch
     if len(emails) == 1:
@@ -230,6 +282,7 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
         trigger_metadata=trigger_metadata,
         rate_limit_key="zillow_batch",
         conversation_id=conv_id,
+        bypass_external_email_approval=not require_approval,
     )
 
     logfire.info(
@@ -237,6 +290,7 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
         email_count=len(emails),
         conversation_id=conversation_id,
         draft_created=conversation_id is not None,
+        require_approval=require_approval,
     )
 
     return conversation_id

@@ -389,8 +389,14 @@ async def send_email(
 
     routing = resolve_email_routing(to, ctx.deps.user_email)
 
-    # Conditional approval: external recipients require HITL
-    if not routing.is_internal and not ctx.tool_call_approved:
+    # Conditional approval: external recipients require HITL, unless the
+    # current run has explicitly opted out (e.g. Zillow auto-reply with the
+    # per-trigger `require_approval` setting flipped off).
+    if (
+        not routing.is_internal
+        and not ctx.tool_call_approved
+        and not ctx.deps.bypass_external_email_approval
+    ):
         raise ApprovalRequired()
 
     # Resolve threading

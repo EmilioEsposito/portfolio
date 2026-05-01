@@ -900,6 +900,9 @@ async def get_admin_settings(
     the raw row would otherwise surface the production config here.
     """
     from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
+    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+        get_zillow_email_config,
+    )
 
     available_models = [
         {
@@ -911,6 +914,13 @@ async def get_admin_settings(
         for m in AVAILABLE_MODELS
     ]
 
+    # Zillow config is reported as-is on every env. Unlike the trigger kill
+    # switch / schedule, the bypass-approval flag is only consulted inside
+    # `bypass_external_email_approval`-aware code paths, which are themselves
+    # gated by `is_sernia_ai_enabled` (hard-off on non-prod). Showing the real
+    # value lets PR envs see what production has configured.
+    zillow_email_config = await get_zillow_email_config()
+
     if not _IS_PRODUCTION:
         # Model selection is NOT hard-gated off on non-prod — PR envs should
         # exercise whatever model production has configured. Still read the DB
@@ -921,6 +931,7 @@ async def get_admin_settings(
             "triggers_enabled": False,
             "schedule_config": {"days_of_week": [], "hours": []},
             "model_config": {"model_key": active_model, "thinking_effort": active_effort},
+            "zillow_email_config": zillow_email_config,
             "available_models": available_models,
         }
 
@@ -935,6 +946,7 @@ async def get_admin_settings(
         "triggers_enabled": row.value if row else True,
         "schedule_config": schedule_config,
         "model_config": {"model_key": active_model, "thinking_effort": active_effort},
+        "zillow_email_config": zillow_email_config,
         "available_models": available_models,
     }
 
@@ -949,6 +961,11 @@ class _ModelConfigPayload(BaseModel):
     thinking_effort: ThinkingEffort = DEFAULT_THINKING_EFFORT
 
 
+class _ZillowEmailConfigPayload(BaseModel):
+    debounce_seconds: int
+    require_approval: bool
+
+
 class _SettingsUpdateRequest(BaseModel):
     # `model_config` is reserved by Pydantic v2 for ConfigDict, so we store
     # the field under a different Python name and expose it as `model_config`
@@ -958,6 +975,7 @@ class _SettingsUpdateRequest(BaseModel):
     triggers_enabled: bool | None = None
     schedule_config: _ScheduleConfigPayload | None = None
     model_cfg: _ModelConfigPayload | None = Field(default=None, alias="model_config")
+    zillow_email_config: _ZillowEmailConfigPayload | None = None
 
 
 @router.patch("/admin/settings")
@@ -1020,6 +1038,34 @@ async def update_admin_settings(
         await session.execute(stmt)
         await session.commit()
         updated["model_config"] = config_dict
+
+    if body.zillow_email_config is not None:
+        # Clamp debounce to a sane range. The lower bound prevents accidental
+        # zero-second debounces (a trigger would fire on every email and lose
+        # batching). The upper bound is the recently-fired TTL window — going
+        # beyond it would let redeliveries slip past dedup.
+        if body.zillow_email_config.debounce_seconds < 60:
+            raise HTTPException(
+                status_code=422,
+                detail="debounce_seconds must be at least 60",
+            )
+        if body.zillow_email_config.debounce_seconds > 3600:
+            raise HTTPException(
+                status_code=422,
+                detail="debounce_seconds must not exceed 3600 (1 hour)",
+            )
+
+        config_dict = body.zillow_email_config.model_dump()
+        stmt = pg_insert(AppSetting).values(
+            key="zillow_email_config",
+            value=config_dict,
+        ).on_conflict_do_update(
+            index_elements=["key"],
+            set_={"value": config_dict},
+        )
+        await session.execute(stmt)
+        await session.commit()
+        updated["zillow_email_config"] = config_dict
 
     return {"updated": updated}
 

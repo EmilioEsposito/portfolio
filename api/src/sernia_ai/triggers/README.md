@@ -98,11 +98,18 @@ sequenceDiagram
 
 ## Zillow Email Event Trigger Flow
 
-Debounced Zillow lead processing. When a new email from `zillow.com` arrives via Gmail Pub/Sub, it is **queued** rather than processed immediately. The first email starts a 10-minute debounce window; any additional Zillow emails within that window are accumulated. After the window closes, the agent fires **once** and sees all batched emails — this lets it assess multiple leads or thread updates in a single run.
+Debounced Zillow lead processing. When a new email from `zillow.com` arrives via Gmail Pub/Sub, it is **queued** rather than processed immediately. The first email starts a debounce window (default 5 minutes, configurable); any additional Zillow emails within that window are accumulated. After the window closes, the agent fires **once** and sees all batched emails — this lets it assess multiple leads or thread updates in a single run.
 
-**Phase 1 (Training):** Agent drafts a reply but does NOT send it. The draft lands in web chat for review (no push notification fires — the team pulls drafts from the chat list). The detailed guide lives in `.workspace/areas/zillow_auto_reply.md` — editable without code deploys.
+The agent loads the `zillow-auto-reply` workspace skill and replies via `send_email`. By default, every outbound reply pauses for the standard external-email HITL approval card. Both the debounce length and the HITL gate are runtime-configurable via the **Zillow Email Auto-Reply** section of the Settings page (`/sernia-settings`), backed by the `zillow_email_config` AppSetting:
 
-**Phase 2 (planned):** Agent calls `send_external_email` (already approval-gated via HITL). The HITL approval prompt is the only push notification this flow ever sends.
+```json
+{
+  "debounce_seconds": 300,
+  "require_approval": true
+}
+```
+
+Turning `require_approval` off lets the agent auto-send Zillow replies without the HITL prompt — intended only after the agent has earned trust on this flow. Flip it back on if the agent goes off the rails.
 
 ```mermaid
 flowchart TD
@@ -113,9 +120,9 @@ flowchart TD
 
     QUEUE --> PENDING{"Debounce timer<br/>already running?"}
     PENDING -->|Yes| BATCH["Add to batch,<br/>wait for timer"]
-    PENDING -->|No| TIMER["Start 10-min<br/>debounce timer"]
+    PENDING -->|No| TIMER["Start debounce timer<br/>(zillow_email_config.debounce_seconds)"]
 
-    TIMER --> SLEEP["asyncio.sleep(600)"]
+    TIMER --> SLEEP["asyncio.sleep(debounce_seconds)"]
     SLEEP --> FIRE["_fire_batched_trigger()<br/>(all accumulated emails)"]
 
     FIRE --> RUNNER["background_agent_runner.<br/>run_agent_for_trigger()"]
@@ -133,7 +140,8 @@ flowchart TD
 
 ### Key design choices
 
-- **10-minute debounce** — First email starts a fixed window; subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
+- **Debounce window** — First email starts the window (default 5 min, set by `zillow_email_config.debounce_seconds`); subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
+- **Per-trigger HITL toggle** — `zillow_email_config.require_approval` controls whether outbound Zillow replies pause for the external-email HITL approval card. The plumbing lives on `SerniaDeps.bypass_external_email_approval`: when the toggle is off, the trigger passes `bypass_external_email_approval=True` to `run_agent_for_trigger`, and `send_email` short-circuits its `is_internal=False` approval gate for that one run. Other triggers (and web chat) never set the flag, so the standard HITL behavior is preserved everywhere else.
 - **Dedup to logical *new* emails** — Gmail Pub/Sub has at-least-once delivery and every label change (e.g. INBOX→READ) fires another history notification that re-references the same `message_id`. Two guards collapse these back down to one event per logical email:
   1. **Pubsub route gate** — `save_email_message()` returns `(email, was_inserted)`. The Zillow trigger is only queued when `was_inserted=True`. Redeliveries / label-change upserts don't refire the trigger.
   2. **Queue-level dedup** — `queue_zillow_email_event()` skips a `message_id` that is already in `_pending_emails` or in `_recently_fired_message_ids` (1-hour TTL). This catches anything that slips past the pubsub gate (e.g. a redelivery that races the DB commit).
