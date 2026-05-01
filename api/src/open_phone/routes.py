@@ -237,10 +237,26 @@ async def webhook(
             return {"message": "Event recorded successfully"}
 
     except IntegrityError as e:
-        # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
+        await session.rollback()
         event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
+
+        # Check if this is a duplicate key violation on event_id (race condition)
+        # PostgreSQL unique_violation error code is '23505'
+        is_duplicate_event = (
+            hasattr(e, 'orig') and
+            hasattr(e.orig, 'pgcode') and
+            e.orig.pgcode == '23505' and
+            'event_id' in str(e)
+        )
+
+        if is_duplicate_event:
+            # Race condition: another request already inserted this event
+            logfire.info(f"Event {event_id_for_log} already processed (duplicate key race condition), skipping")
+            return {"message": "Event already processed"}
+
+        # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
         log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Full payload: {payload}. Database Error: {e}"
-        logfire.exception(log_message) # exc_info=True includes the stack trace
+        logfire.exception(log_message)
 
         raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
     except Exception as e:
