@@ -27,20 +27,22 @@ def parse_zprofile_secrets(keys):
     wanted = set(keys)
     found = {}
     for line in lines:
-        stripped = line.strip()
-        if not stripped.startswith("export "):
-            continue
-        assignment = stripped[len("export "):]
-        if "=" not in assignment:
-            continue
-        key, value = assignment.split("=", 1)
-        key = key.strip()
-        if key not in wanted:
-            continue
-        value = value.strip()
-        if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
-            value = value[1:-1]
-        found[key] = value
+        # Handle chained statements like `export FOO=bar; export BAZ=qux`
+        for segment in line.split(";"):
+            stripped = segment.strip()
+            if not stripped.startswith("export "):
+                continue
+            assignment = stripped[len("export "):]
+            if "=" not in assignment:
+                continue
+            key, value = assignment.split("=", 1)
+            key = key.strip()
+            if key not in wanted:
+                continue
+            value = value.strip()
+            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+                value = value[1:-1]
+            found[key] = value
     return found
 
 
@@ -56,8 +58,8 @@ def main():
     strict_lines = []
     for line in lines:
         stripped = line.strip()
-        # Ignore comments and empty lines
-        if not stripped or stripped.startswith("#"):
+        # Ignore comments and empty lines (`;` is also used as a comment marker)
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
             continue
         # Remove quotes around values if present
         if "=" in stripped:
