@@ -525,7 +525,7 @@ Core function shared by all triggers:
 
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY` | Main + sub-agent LLM calls |
+| `SERNIA_ANTHROPIC_API_KEY` | Main + sub-agent LLM calls (bridged to `ANTHROPIC_API_KEY` at startup; renamed to avoid colliding with the key Claude Cloud injects in remote dev) |
 | `OPEN_PHONE_API_KEY` | Quo/OpenPhone API access |
 | `OPEN_PHONE_WEBHOOK_SECRET` | HMAC signature verification |
 | `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` | Web Push signing |
