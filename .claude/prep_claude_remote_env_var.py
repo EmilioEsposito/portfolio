@@ -14,6 +14,12 @@ ZPROFILE_KEYS = [
     "NEON_MCP_API_KEY",
 ]
 
+# Keys from .env that must NOT be injected into the Claude Code remote env.
+# ANTHROPIC_API_KEY collides with the key Claude Cloud injects for itself and
+# breaks the remote session. Tracked as a TODO: rename in app code, Railway
+# secrets, and .env so this skip can be removed.
+SKIP_KEYS = {"ANTHROPIC_API_KEY"}
+
 
 def parse_zprofile_secrets(keys):
     """Extract `export KEY=VALUE` lines from ~/.zprofile matching the given keys."""
@@ -69,6 +75,10 @@ def main():
             # Remove leading/trailing quotes
             if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
                 value = value[1:-1]
+
+            if key in SKIP_KEYS:
+                print(f"Warning: skipping {key} — collides with Claude Cloud's own env var. Rename in app code/Railway/.env to remove this skip.")
+                continue
 
             # Override database URLs when running in remote environment
             if key in ("DATABASE_URL", "DATABASE_URL_UNPOOLED"):
