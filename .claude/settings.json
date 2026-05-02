@@ -82,6 +82,18 @@
     "playwright"
   ],
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/setup_remote.sh",
+            "timeout": 60000
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [
