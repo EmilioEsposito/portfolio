@@ -1,14 +1,15 @@
 import { useEffect } from "react";
 
 /**
- * Tracks window.visualViewport.height into the CSS variable --chat-vh so
- * flex containers can stay within the visible viewport when the iOS virtual
- * keyboard opens. dvh alone does not shrink for the keyboard on iOS Safari.
+ * Tracks window.visualViewport into CSS variables so the chat input bar
+ * can stay anchored to the bottom of the visible viewport, above the iOS
+ * keyboard:
+ *   --chat-vh        : visualViewport.height (height of visible viewport)
+ *   --keyboard-inset : space the keyboard takes from the bottom of the
+ *                      layout viewport (0 when keyboard is closed)
  *
- * Also locks html/body scrolling while mounted: without this, iOS Safari
- * scrolls the page when the keyboard opens, pushing the chat input below
- * the visible area. With body scroll locked and the chat shell sized to
- * --chat-vh, the input bar stays anchored just above the keyboard.
+ * Also locks html/body scrolling while mounted so iOS Safari can't push
+ * the page up when the keyboard opens.
  */
 export function useVisualViewportHeight() {
   useEffect(() => {
@@ -18,8 +19,17 @@ export function useVisualViewportHeight() {
     const body = document.body;
 
     const update = () => {
-      const h = vv ? vv.height : window.innerHeight;
-      root.style.setProperty("--chat-vh", `${h}px`);
+      if (vv) {
+        root.style.setProperty("--chat-vh", `${vv.height}px`);
+        const inset = Math.max(
+          0,
+          window.innerHeight - vv.height - vv.offsetTop
+        );
+        root.style.setProperty("--keyboard-inset", `${inset}px`);
+      } else {
+        root.style.setProperty("--chat-vh", `${window.innerHeight}px`);
+        root.style.setProperty("--keyboard-inset", "0px");
+      }
     };
 
     update();
@@ -46,6 +56,7 @@ export function useVisualViewportHeight() {
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
       root.style.removeProperty("--chat-vh");
+      root.style.removeProperty("--keyboard-inset");
       root.style.overflow = prevHtmlOverflow;
       body.style.overflow = prevBodyOverflow;
       body.style.overscrollBehavior = prevBodyOverscroll;

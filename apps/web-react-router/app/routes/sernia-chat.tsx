@@ -157,9 +157,30 @@ function ChatView({
     }
   }, [input, draftKey]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputBarRef = useRef<HTMLDivElement>(null);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const attachment = useFileAttachments();
+
+  // Track the actual height of the input bar so the messages list reserves
+  // matching bottom padding. The input bar is position:fixed on mobile, so
+  // without this the latest message would render under it.
+  useEffect(() => {
+    const el = inputBarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height ?? 0;
+      document.documentElement.style.setProperty(
+        "--chat-input-h",
+        `${h}px`
+      );
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty("--chat-input-h");
+    };
+  }, [readOnly]);
 
   const isStandalonePwa = useIsStandalonePwa();
   const pullDistance = usePullToRefresh({
@@ -439,7 +460,7 @@ function ChatView({
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative"
+        className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative max-md:pb-[var(--chat-input-h,5rem)]"
         {...attachment.dropTargetProps}
       >
         {isStandalonePwa && pullDistance > 0 && (
@@ -601,15 +622,22 @@ function ChatView({
         onChange={attachment.handleFileInputChange}
       />
 
-      {/* Input Area — hidden for read-only SMS conversations */}
+      {/* Input Area — hidden for read-only SMS conversations.
+          On mobile we pin it with position:fixed at --keyboard-inset above
+          the bottom so it stays directly above the iOS keyboard instead of
+          being pushed off-screen with the page. */}
       {readOnly ? (
-        <div className="flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground">
+        <div
+          ref={inputBarRef}
+          className="flex items-center justify-center px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t text-sm text-muted-foreground bg-background max-md:fixed max-md:left-0 max-md:right-0 max-md:bottom-[var(--keyboard-inset,0px)] max-md:z-30"
+        >
           <Phone className="w-4 h-4 mr-2" />
           SMS conversation — reply via text message
         </div>
       ) : (
       <div
-        className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t"
+        ref={inputBarRef}
+        className="shrink-0 flex mx-auto px-4 bg-background pt-3 md:pt-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))] gap-2 w-full md:max-w-3xl border-t max-md:fixed max-md:left-0 max-md:right-0 max-md:bottom-[var(--keyboard-inset,0px)] max-md:z-30"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col gap-4 w-full">
