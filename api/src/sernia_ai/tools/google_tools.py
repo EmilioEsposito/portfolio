@@ -742,6 +742,16 @@ async def list_calendar_events(
     return "\n".join(lines)
 
 
+def _has_external_attendee(attendees: list) -> bool:
+    """True if any attendee email is outside the internal email domain."""
+    for a in attendees or []:
+        # Calendar API returns dicts; CalendarAttendee inputs expose `.email`.
+        email = a.get("email") if isinstance(a, dict) else getattr(a, "email", None)
+        if email and not email.lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}"):
+            return True
+    return False
+
+
 @google_toolset.tool
 async def create_calendar_event(
     ctx: RunContext[SerniaDeps],
@@ -753,10 +763,7 @@ async def create_calendar_event(
     Reminders default to email 1 day before + popup 1 hour before.
     Default timezone is US/Eastern.
     """
-    has_external = event.attendees and any(
-        not a.email.endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for a in event.attendees
-    )
-    if has_external and not ctx.tool_call_approved:
+    if _has_external_attendee(event.attendees) and not ctx.tool_call_approved:
         raise ApprovalRequired()
 
     # Use the shared mailbox as organizer so attendees receive email invites
@@ -774,15 +781,20 @@ async def delete_calendar_event_tool(
     ctx: RunContext[SerniaDeps],
     event_id: str,
 ) -> str:
-    """Delete a Google Calendar event (always requires approval).
+    """Delete a Google Calendar event. Requires approval if the event has external attendees.
 
     Args:
         event_id: The Google Calendar event ID to delete.
     """
-    if not ctx.tool_call_approved:
+    service = await get_calendar_service(user_email=SHARED_EXTERNAL_EMAIL)
+
+    # Fetch the event so we can decide whether HITL approval applies. Internal-only
+    # events delete without prompting; anything with an external attendee pauses
+    # for approval so we don't silently un-invite a tenant or lead.
+    existing = service.events().get(calendarId="primary", eventId=event_id).execute()
+    if _has_external_attendee(existing.get("attendees", [])) and not ctx.tool_call_approved:
         raise ApprovalRequired()
 
-    service = await get_calendar_service(user_email=SHARED_EXTERNAL_EMAIL)
     await _delete_calendar_event(service, event_id)
     return f"Calendar event {event_id} deleted."
 

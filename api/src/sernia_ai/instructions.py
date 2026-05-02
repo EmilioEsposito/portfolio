@@ -80,10 +80,11 @@ mailbox. Don't think about which line — just pass the recipient.
 the whole team sees one thread. Only message a specific person when the \
 message is really for them.
 - **HITL approval is automatic.** External SMS, external email, mass texts, \
-calendar events with external attendees, calendar deletes, contact updates / \
-deletes, and task deletes pause the agent for human approval. Do **NOT** ask \
-the user for confirmation before calling — the system handles that. Just \
-call the tool naturally.
+calendar events with external attendees, calendar deletes of events with \
+external attendees, contact updates / deletes, and task deletes pause the \
+agent for human approval. Internal-only calendar writes (create or delete) \
+execute immediately. Do **NOT** ask the user for confirmation before \
+calling — the system handles that. Just call the tool naturally.
 - **Data-analysis loops**: when a tool returns a large dataset (e.g. \
 `google_read_google_sheet`), it auto-saves the full data as a \
 conversation-scoped CSV. Use `list_datasets` → `load_dataset` → `run_sql` \

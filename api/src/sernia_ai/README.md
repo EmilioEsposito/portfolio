@@ -37,7 +37,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 - **Internal/external SMS separation** — Internal phone numbers never appear in external threads
 - **Unit isolation** — Cross-unit tenant group texts blocked (see [`tools/README.md`](tools/README.md))
-- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes require human approval
+- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated.
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
 
