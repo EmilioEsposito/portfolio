@@ -469,8 +469,13 @@ async def list_user_conversations(
     from sqlalchemy import text
 
     async with provide_session(session) as s:
-        # Use raw SQL to extract preview at DB level - avoids loading full messages JSON
-        # Preview: prefer trigger_message_preview from metadata, fall back to first user message
+        # Use raw SQL to extract preview at DB level - avoids loading full messages JSON.
+        # Preview rule: SMS conversations show the LAST message (the live, ongoing
+        # thread is what's interesting); everything else (web chat, email triggers)
+        # shows the FIRST message (the prompt or trigger that started the run, which
+        # acts like the conversation title). Each branch falls back to other parts
+        # of the messages array when parts[0] has no `content` (e.g. pure tool
+        # calls), and finally to ``trigger_message_preview`` from metadata.
         user_filter = "AND clerk_user_id = :clerk_user_id" if clerk_user_id else ""
         modality_filter = "AND modality = :modality" if modality else ""
         query = text(f"""
@@ -486,12 +491,20 @@ async def list_user_conversations(
                 cost_total,
                 run_count,
                 contact_identifier,
-                COALESCE(
-                    NULLIF(LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100), ''),
-                    NULLIF(LEFT(messages -> (json_array_length(messages) - 2) -> 'parts' -> 0 ->> 'content', 100), ''),
-                    metadata_ ->> 'trigger_message_preview',
-                    LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
-                ) as preview,
+                CASE
+                    WHEN modality = 'sms' THEN COALESCE(
+                        NULLIF(LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100), ''),
+                        NULLIF(LEFT(messages -> (json_array_length(messages) - 2) -> 'parts' -> 0 ->> 'content', 100), ''),
+                        metadata_ ->> 'trigger_message_preview',
+                        LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100)
+                    )
+                    ELSE COALESCE(
+                        NULLIF(LEFT(messages -> 0 -> 'parts' -> 0 ->> 'content', 100), ''),
+                        NULLIF(LEFT(messages -> 1 -> 'parts' -> 0 ->> 'content', 100), ''),
+                        metadata_ ->> 'trigger_message_preview',
+                        LEFT(messages -> (json_array_length(messages) - 1) -> 'parts' -> 0 ->> 'content', 100)
+                    )
+                END as preview,
                 created_at,
                 updated_at
             FROM agent_conversations
