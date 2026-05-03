@@ -75,6 +75,8 @@ _MCP_WRITE_TOOLS = frozenset({
 
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
 # Contact create/update/search → custom tools; keep delete + field defs.
+# getCallSummary_v1 / getCallTranscript_v1 are intentionally NOT kept — the
+# custom ``get_call_details`` tool wraps both into a single curated response.
 _KEEP_TOOLS = frozenset({
     # Contacts
     "deleteContact_v1",
@@ -82,8 +84,6 @@ _KEEP_TOOLS = frozenset({
     # Calls
     "listCalls_v1",
     "getCallById_v1",
-    "getCallSummary_v1",
-    "getCallTranscript_v1",
 })
 
 
@@ -413,6 +413,59 @@ async def search_contacts_impl(
     return fuzzy_filter_json(contacts, query, top_n=5)
 
 
+def _format_call_snippet(call: dict) -> str:
+    """One-line snippet for a call activity, including the call ID so the agent
+    can pass it to ``get_call_details`` for the summary + transcript."""
+    direction = call.get("direction") or "?"
+    duration = call.get("duration")
+    status = call.get("status") or ""
+    dur_str = f"{duration}s" if isinstance(duration, int) else "?s"
+    bits = [direction, dur_str]
+    if status and status != "completed":
+        bits.append(status)
+    return f"Call ({', '.join(bits)}) — Call ID {call.get('id', '?')}"
+
+
+async def _fetch_latest_message(
+    client: httpx.AsyncClient, phone: str,
+) -> dict | None:
+    """Fetch the most recent SMS for a phone on the shared team line."""
+    try:
+        resp = await client.get(
+            "/v1/messages",
+            params={
+                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "participants": phone,
+                "maxResults": "1",
+            },
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    msgs = resp.json().get("data", [])
+    return msgs[0] if msgs else None
+
+
+async def _fetch_latest_call(
+    client: httpx.AsyncClient, phone: str,
+) -> dict | None:
+    """Fetch the most recent call for a phone on the shared team line."""
+    try:
+        resp = await client.get(
+            "/v1/calls",
+            params={
+                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "participants": phone,
+                "maxResults": "1",
+            },
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    calls = resp.json().get("data", [])
+    return calls[0] if calls else None
+
+
 async def list_active_threads_impl(
     client: httpx.AsyncClient,
     max_results: int = 20,
@@ -422,6 +475,10 @@ async def list_active_threads_impl(
 
     Mimics the Quo active inbox: returns all non-done conversations, sorted by
     most recent activity.  An optional ``updated_after_days`` narrows the window.
+
+    For each thread, the snippet line shows whichever activity is more recent —
+    SMS or call. Call snippets include the call ID so the agent can pass it to
+    ``get_call_details`` for the summary + transcript.
     """
     # Paginate through results to collect enough active threads.
     # ~95% of conversations are "done" (snoozed 100yr), so we must page past them.
@@ -469,28 +526,22 @@ async def list_active_threads_impl(
     contacts = await get_all_contacts(client)
     phone_map = _build_phone_map(contacts)
 
-    # Fetch last message snippet for each thread in parallel
+    # Fetch latest message AND latest call for each thread in parallel; pick
+    # whichever is more recent so calls aren't invisible when they're the
+    # actual last activity.
     import asyncio
 
-    async def _fetch_snippet(participant_phone: str) -> tuple[str, str] | None:
-        try:
-            resp = await client.get(
-                "/v1/messages",
-                params={
-                    "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
-                    "participants": participant_phone,
-                    "maxResults": "1",
-                },
-            )
-            resp.raise_for_status()
-            msgs = resp.json().get("data", [])
-            if msgs:
-                direction = msgs[0].get("direction", "")
-                text = msgs[0].get("text") or msgs[0].get("body") or ""
-                return (direction, text)
-        except httpx.HTTPError:
-            pass
-        return None
+    async def _fetch_latest(participant_phone: str) -> dict | None:
+        msg, call = await asyncio.gather(
+            _fetch_latest_message(client, participant_phone),
+            _fetch_latest_call(client, participant_phone),
+            return_exceptions=False,
+        )
+        if msg and call:
+            return msg if msg.get("createdAt", "") >= call.get("createdAt", "") else call | {"_kind": "call"}
+        if call:
+            return call | {"_kind": "call"}
+        return msg  # may be None
 
     # Get the external participant for each conversation (first non-internal phone)
     snippet_phones = []
@@ -499,13 +550,12 @@ async def list_active_threads_impl(
         snippet_phones.append(participants[0] if participants else "")
 
     snippets = await asyncio.gather(
-        *(_fetch_snippet(p) for p in snippet_phones if p),
+        *(_fetch_latest(p) for p in snippet_phones if p),
         return_exceptions=True,
     )
-    # Map phone → snippet
-    snippet_map: dict[str, tuple[str, str]] = {}
+    snippet_map: dict[str, dict] = {}
     for phone, result in zip(snippet_phones, snippets):
-        if isinstance(result, tuple):
+        if isinstance(result, dict):
             snippet_map[phone] = result
 
     lines: list[str] = []
@@ -519,19 +569,22 @@ async def list_active_threads_impl(
             name = phone_map.get(phone, phone)
             enriched.append(f"{name} ({phone})" if name != phone else phone)
 
-        # Build snippet line
         snippet_line = ""
         ext_phone = participants[0] if participants else ""
-        snippet = snippet_map.get(ext_phone)
-        if snippet:
-            direction, text = snippet
-            if text:
-                preview = text[:80] + "..." if len(text) > 80 else text
-                if direction == "outgoing":
-                    snippet_line = f"\n  Snippet: You: {preview}"
-                else:
-                    sender = phone_map.get(ext_phone, ext_phone).split(" (")[0]
-                    snippet_line = f"\n  Snippet: {sender}: {preview}"
+        latest = snippet_map.get(ext_phone)
+        if latest:
+            if latest.get("_kind") == "call":
+                snippet_line = f"\n  Snippet: {_format_call_snippet(latest)}"
+            else:
+                direction = latest.get("direction", "")
+                text = latest.get("text") or latest.get("body") or ""
+                if text:
+                    preview = text[:80] + "..." if len(text) > 80 else text
+                    if direction == "outgoing":
+                        snippet_line = f"\n  Snippet: You: {preview}"
+                    else:
+                        sender = phone_map.get(ext_phone, ext_phone).split(" (")[0]
+                        snippet_line = f"\n  Snippet: {sender}: {preview}"
 
         lines.append(
             f"Thread: {', '.join(enriched)}{snippet_line}\n"
@@ -545,10 +598,17 @@ async def list_active_threads_impl(
 async def get_thread_messages_impl(
     client: httpx.AsyncClient, phone_number: str, max_results: int = 20,
 ) -> str:
-    """Core implementation of thread message retrieval (no RunContext dependency)."""
-    try:
+    """Core implementation of thread retrieval (no RunContext dependency).
+
+    Returns SMS messages **and calls** for the given phone, interleaved in
+    chronological order. Call entries include the call ID so the agent can
+    pass it to ``get_call_details`` for the summary + transcript.
+    """
+    import asyncio
+
+    async def _fetch(path: str) -> dict:
         resp = await client.get(
-            "/v1/messages",
+            path,
             params={
                 "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
                 "participants": phone_number,
@@ -556,41 +616,218 @@ async def get_thread_messages_impl(
             },
         )
         resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        return f"Error fetching messages for {phone_number}: {exc}"
+        return resp.json()
 
-    data = resp.json()
-    messages = data.get("data", [])
-    if not messages:
-        return f"No messages found with {phone_number}."
+    try:
+        msg_data, call_data = await asyncio.gather(
+            _fetch("/v1/messages"),
+            _fetch("/v1/calls"),
+        )
+    except httpx.HTTPError as exc:
+        return f"Error fetching thread for {phone_number}: {exc}"
+
+    messages = msg_data.get("data", [])
+    calls = call_data.get("data", [])
+    if not messages and not calls:
+        return f"No messages or calls found with {phone_number}."
 
     contacts = await get_all_contacts(client)
     phone_map = _build_phone_map(contacts)
-
-    # Messages come newest-first; reverse for chronological order
-    messages = list(reversed(messages))
-
     contact_name = phone_map.get(phone_number, phone_number)
-    lines: list[str] = [f"SMS thread with {contact_name} ({phone_number}) — {len(messages)} messages\n"]
-    for msg in messages:
-        created = msg.get("createdAt", "?")
-        direction = msg.get("direction", "?")
-        text = msg.get("text") or msg.get("body") or "(no text)"
-        sender_phone = msg.get("from_") or msg.get("from", "?")
 
-        if direction == "outgoing":
-            sender_name = "Sernia Capital"
-            recipient_name = contact_name
+    # Tag each item with its kind, then merge sorted by createdAt (oldest first).
+    items: list[tuple[str, dict]] = (
+        [("message", m) for m in messages] + [("call", c) for c in calls]
+    )
+    items.sort(key=lambda kv: kv[1].get("createdAt", ""))
+
+    lines: list[str] = [
+        f"Thread with {contact_name} ({phone_number}) — "
+        f"{len(messages)} message{'s' if len(messages) != 1 else ''}, "
+        f"{len(calls)} call{'s' if len(calls) != 1 else ''}\n"
+    ]
+
+    for kind, item in items:
+        created = item.get("createdAt", "?")
+        if kind == "call":
+            direction = item.get("direction", "?")
+            duration = item.get("duration")
+            dur_str = f"{duration}s" if isinstance(duration, int) else "?s"
+            status = item.get("status") or ""
+            status_str = f", {status}" if status and status != "completed" else ""
+            arrow = (
+                f"{contact_name} → Sernia Capital" if direction == "incoming"
+                else f"Sernia Capital → {contact_name}"
+            )
+            lines.append(
+                f"[{created}] CALL {arrow} ({direction}, {dur_str}{status_str}) "
+                f"— Call ID {item.get('id', '?')}"
+            )
         else:
-            sender_name = phone_map.get(sender_phone, sender_phone) if isinstance(sender_phone, str) else "?"
-            recipient_name = "Sernia Capital"
+            direction = item.get("direction", "?")
+            text = item.get("text") or item.get("body") or "(no text)"
+            sender_phone = item.get("from_") or item.get("from", "?")
 
-        if len(text) > 500:
-            text = text[:500] + "..."
+            if direction == "outgoing":
+                sender_name = "Sernia Capital"
+                recipient_name = contact_name
+            else:
+                sender_name = (
+                    phone_map.get(sender_phone, sender_phone)
+                    if isinstance(sender_phone, str) else "?"
+                )
+                recipient_name = "Sernia Capital"
 
-        lines.append(f"[{created}] {sender_name} → {recipient_name}: {text}")
+            if len(text) > 500:
+                text = text[:500] + "..."
+
+            lines.append(f"[{created}] {sender_name} → {recipient_name}: {text}")
 
     return "\n".join(lines)
+
+
+def _format_call_timestamp(seconds: float | int | None) -> str:
+    """Render dialogue offsets as ``M:SS`` (or ``H:MM:SS`` for long calls)."""
+    if not isinstance(seconds, (int, float)):
+        return "?:??"
+    total = int(seconds)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+async def get_call_details_impl(
+    client: httpx.AsyncClient,
+    call_id: str,
+    transcript_max_chars: int = 4000,
+) -> str:
+    """Fetch a Quo call's summary AND transcript in one call, rendered as
+    markdown. Pairs with the ``Call ID`` surfaced by ``list_active_sms_threads``
+    and ``get_thread_messages``.
+
+    Summary at the top, transcript below. Transcript is truncated at
+    ``transcript_max_chars`` (default 4000 chars) — the caller can pass a
+    larger value when they need the full text.
+    """
+    import asyncio
+
+    async def _fetch_call() -> dict | None:
+        try:
+            resp = await client.get(f"/v1/calls/{call_id}")
+            resp.raise_for_status()
+            return resp.json().get("data")
+        except httpx.HTTPError:
+            return None
+
+    async def _fetch_summary() -> dict | None:
+        try:
+            resp = await client.get(f"/v1/call-summaries/{call_id}")
+            resp.raise_for_status()
+            return resp.json().get("data")
+        except httpx.HTTPError:
+            return None
+
+    async def _fetch_transcript() -> dict | None:
+        try:
+            resp = await client.get(f"/v1/call-transcripts/{call_id}")
+            resp.raise_for_status()
+            return resp.json().get("data")
+        except httpx.HTTPError:
+            return None
+
+    call, summary, transcript = await asyncio.gather(
+        _fetch_call(), _fetch_summary(), _fetch_transcript(),
+    )
+
+    if call is None and summary is None and transcript is None:
+        return f"No call found with ID {call_id} (or transcript/summary not yet ready)."
+
+    # Build phone → name map for speaker attribution.
+    try:
+        contacts = await get_all_contacts(client)
+        phone_map = _build_phone_map(contacts)
+    except httpx.HTTPError:
+        phone_map = {}
+
+    parts: list[str] = [f"# Call {call_id}\n"]
+
+    # --- Call metadata ---
+    if call:
+        meta_bits = []
+        direction = call.get("direction")
+        if direction:
+            meta_bits.append(f"**Direction:** {direction}")
+        duration = call.get("duration")
+        if isinstance(duration, int):
+            meta_bits.append(f"**Duration:** {duration}s")
+        status = call.get("status")
+        if status:
+            meta_bits.append(f"**Status:** {status}")
+        created = call.get("createdAt")
+        if created:
+            meta_bits.append(f"**Created:** {created}")
+        participants = call.get("participants") or []
+        if participants:
+            named = [
+                f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p
+                for p in participants
+            ]
+            meta_bits.append(f"**Participants:** {', '.join(named)}")
+        if meta_bits:
+            parts.append("\n".join(meta_bits) + "\n")
+
+    # --- Summary section ---
+    parts.append("## Summary\n")
+    if summary:
+        bullets = summary.get("summary") or []
+        if bullets:
+            parts.append("\n".join(f"- {b}" for b in bullets))
+        else:
+            parts.append("_(no summary text available)_")
+
+        next_steps = summary.get("nextSteps") or []
+        if next_steps:
+            parts.append("\n\n### Next Steps\n")
+            parts.append("\n".join(f"- {s}" for s in next_steps))
+        parts.append("\n")
+    else:
+        parts.append("_(summary not available — Quo may still be generating it)_\n")
+
+    # --- Transcript section ---
+    parts.append("## Transcript\n")
+    if transcript:
+        dialogue = transcript.get("dialogue") or []
+        if not dialogue:
+            parts.append("_(transcript empty)_")
+        else:
+            lines: list[str] = []
+            running = 0
+            truncated = False
+            for turn in dialogue:
+                ts = _format_call_timestamp(turn.get("start"))
+                speaker_phone = turn.get("identifier") or "?"
+                speaker_name = phone_map.get(speaker_phone, speaker_phone)
+                team_tag = " (team)" if turn.get("userId") else ""
+                content = (turn.get("content") or "").strip()
+                line = f"[{ts}] {speaker_name}{team_tag}: {content}"
+                if running + len(line) + 1 > transcript_max_chars:
+                    truncated = True
+                    break
+                lines.append(line)
+                running += len(line) + 1
+            parts.append("\n".join(lines))
+            if truncated:
+                parts.append(
+                    f"\n\n_(transcript truncated at {transcript_max_chars} chars; "
+                    f"call ``get_call_details`` with a larger ``transcript_max_chars`` "
+                    f"to see more)_"
+                )
+    else:
+        parts.append("_(transcript not available — Quo may still be generating it)_")
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -1096,10 +1333,13 @@ def _build_quo_toolset():
         max_results: int = 20,
         updated_after_days: int | None = None,
     ) -> str:
-        """List active SMS conversation threads on the shared team number.
+        """List active conversation threads on the shared team number.
 
         Mirrors the Quo active inbox — returns all non-done threads, enriched
-        with contact names and sorted by most recent activity.
+        with contact names and sorted by most recent activity. Each thread's
+        snippet shows whichever activity is most recent: an SMS or a call.
+        Call snippets include the Call ID — pass it to ``get_call_details`` to
+        read the summary + transcript.
 
         Args:
             max_results: Max threads to return (default 20).
@@ -1113,19 +1353,39 @@ def _build_quo_toolset():
     # ------------------------------------------------------------------
 
     @custom_toolset.tool
+    async def get_call_details(
+        ctx: RunContext[SerniaDeps],
+        call_id: str,
+        transcript_max_chars: int = 4000,
+    ) -> str:
+        """Fetch a Quo call's summary AND transcript in one call, rendered as
+        markdown (summary on top, transcript below). Use this with the Call ID
+        surfaced by ``list_active_sms_threads`` or ``get_thread_messages``.
+
+        Args:
+            call_id: The Quo call ID (``AC...``).
+            transcript_max_chars: Max characters of transcript dialogue to
+                include (default 4000). Pass a larger value when you need the
+                full transcript of a long call.
+        """
+        return await get_call_details_impl(client, call_id, transcript_max_chars)
+
+    @custom_toolset.tool
     async def get_thread_messages(
         ctx: RunContext[SerniaDeps],
         phone_number: str,
         max_results: int = 20,
     ) -> str:
-        """Get recent SMS messages with a specific phone number on the shared team line.
+        """Get the recent thread (SMS + calls) with a specific phone number on
+        the shared team line.
 
-        Returns messages in chronological order with contact names enriched.
-        Use this to review the conversation thread with a specific contact.
+        Returns SMS messages and calls interleaved in chronological order, with
+        contact names enriched. Call entries include the Call ID — pass it to
+        ``get_call_details`` to read the call's summary + transcript.
 
         Args:
             phone_number: The contact's phone number in E.164 format (e.g. "+14125551234").
-            max_results: Max messages to return (default 20, most recent).
+            max_results: Max items per type to return (default 20 messages + 20 calls).
         """
         return await get_thread_messages_impl(client, phone_number, max_results)
 

@@ -13,6 +13,7 @@ from sernia_mcp.core.quo.contact_writes import (
     create_contact_core,
 )
 from sernia_mcp.core.quo.contacts import (
+    get_call_details_core,
     get_thread_messages_core,
     list_active_threads_core,
     search_contacts_core,
@@ -33,14 +34,38 @@ async def quo_search_contacts(query: str) -> str:
 
 
 @mcp.tool
-async def quo_get_thread_messages(phone_number: str, max_results: int = 20) -> str:
-    """Get recent SMS messages with a phone number on the shared team line.
+async def quo_get_call_details(call_id: str, transcript_max_chars: int = 4000) -> str:
+    """Fetch a Quo call's summary AND transcript in one shot, rendered as
+    markdown (summary on top with next steps, transcript below). Use this with
+    the Call ID surfaced by ``quo_list_active_sms_threads`` or
+    ``quo_get_thread_messages``.
 
-    Returns chronological messages enriched with contact names.
+    Args:
+        call_id: The Quo call ID (``AC...``).
+        transcript_max_chars: Max characters of transcript dialogue to include
+            (default 4000). Pass a larger value when you need the full
+            transcript of a long call.
+    """
+    try:
+        return await get_call_details_core(
+            call_id, transcript_max_chars=transcript_max_chars,
+        )
+    except CoreError as e:
+        raise ToolError(f"quo_get_call_details failed: {e}") from e
+
+
+@mcp.tool
+async def quo_get_thread_messages(phone_number: str, max_results: int = 20) -> str:
+    """Get the recent thread (SMS + calls) with a phone number on the shared
+    team line.
+
+    Returns SMS messages and calls interleaved chronologically, enriched with
+    contact names. Call entries include the Call ID — pass it to
+    ``quo_get_call_details`` to read the call's summary + transcript.
 
     Args:
         phone_number: Recipient phone in E.164 format (e.g. "+14155550100").
-        max_results: Max messages to return (default 20).
+        max_results: Max items per type to return (default 20 messages + 20 calls).
     """
     try:
         return await get_thread_messages_core(phone_number, max_results=max_results)
@@ -53,14 +78,16 @@ async def quo_list_active_sms_threads(
     max_results: int = 20,
     updated_after_days: int | None = None,
 ) -> str:
-    """List active SMS conversation threads on the shared team line.
+    """List active conversation threads on the shared team line.
 
     Mirrors the Quo active inbox: returns all non-'done' threads (Quo marks
-    'done' by snoozing 100+ years out), enriched with contact names and a
-    one-line snippet of the last message, sorted by most recent activity.
+    'done' by snoozing 100+ years out), enriched with contact names, sorted
+    by most recent activity. Each thread's snippet shows whichever activity
+    is most recent — SMS or call. Call snippets include the Call ID so you
+    can pass it to ``quo_get_call_details`` for the summary + transcript.
 
     Use this for "what threads need attention right now" — for a specific
-    conversation's full message history, use ``quo_get_thread_messages``.
+    conversation's full thread history, use ``quo_get_thread_messages``.
 
     Args:
         max_results: Max threads to return (default 20).

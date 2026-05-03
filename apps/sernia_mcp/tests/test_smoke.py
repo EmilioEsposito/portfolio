@@ -33,6 +33,7 @@ async def test_expected_tools_exposed():
         "quo_search_contacts",
         "quo_get_thread_messages",
         "quo_list_active_sms_threads",
+        "quo_get_call_details",
         "google_search_emails",
         "google_read_email",
         "google_read_email_thread",

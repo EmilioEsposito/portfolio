@@ -63,9 +63,21 @@ The `_get_contact_unit()` helper extracts this as a `(property, unit)` tuple, re
 ### Other Tools
 
 - **search_contacts** — Fuzzy search by name, phone, or company against a TTL-cached (5 min) contact list.
+- **list_active_sms_threads** — Mirrors the Quo active inbox. Each thread's snippet shows whichever activity is most recent — SMS or call. Call snippets surface the Call ID so the agent can chain to `get_call_details`.
+- **get_thread_messages** — Returns SMS messages and calls interleaved chronologically for a phone number. Call entries include the Call ID for `get_call_details` chaining.
+- **get_call_details** — Fetches a Quo call's summary + transcript in one shot, rendered as markdown (`# Call <id>` → metadata → `## Summary` → `### Next Steps` → `## Transcript`). Speaker turns are attributed by phone→contact lookup, with a `(team)` tag when the speaker is on Sernia's side. Transcript truncates at `transcript_max_chars` (default 4000) and tells the caller how to extend.
 - **update_contact** — Safe read-merge-write contact update. Fetches the full contact first, merges only the provided fields, then sends the complete payload to Quo. Works around Quo's PATCH bug that clears omitted fields. Requires HITL approval.
 - **create_contact** — Create a new Quo contact. No approval required.
-- **MCP-bridged tools** — `deleteContact_v1`, `getContactCustomFields_v1`, `listCalls_v1`, `getCallById_v1`, `getCallSummary_v1`, `getCallTranscript_v1`. Contact deletes require HITL approval.
+- **MCP-bridged tools** — `deleteContact_v1`, `getContactCustomFields_v1`, `listCalls_v1`, `getCallById_v1`. Contact deletes require HITL approval. The native `getCallSummary_v1` and `getCallTranscript_v1` tools are intentionally **not** kept — `get_call_details` subsumes them with a curated, lower-token output.
+
+### Calls in Conversation Threads
+
+Quo conversations contain both SMS messages and calls. The conversation object only exposes `lastActivityId` (an `AC...` ID that's indistinguishable between calls and messages by prefix), so the listing tools fetch from `/v1/messages` *and* `/v1/calls` in parallel and merge by `createdAt`. This guarantees:
+
+- `list_active_sms_threads` snippets correctly reflect the latest activity even when it's a call (otherwise the call is invisible and the snippet falls back to a stale message).
+- `get_thread_messages` shows the full picture of a thread, not just the texts.
+
+Whenever a call appears in either tool's output, the Call ID (`AC...`) is included on the same line. Pass it to `get_call_details` to read the call's summary, next steps, and full transcript.
 
 ## Scheduling (`scheduling_tools.py`)
 

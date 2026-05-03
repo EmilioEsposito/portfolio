@@ -33,9 +33,10 @@ from api.src.open_phone.service import (
     invalidate_contact_cache,
 )
 from api.src.sernia_ai.tools.quo_tools import (
-    search_contacts_impl,
-    list_active_threads_impl,
+    get_call_details_impl,
     get_thread_messages_impl,
+    list_active_threads_impl,
+    search_contacts_impl,
 )
 from api.src.utils.fuzzy_json import fuzzy_filter
 
@@ -347,14 +348,121 @@ async def test_get_thread_messages_impl_with_known_contact(quo_client: httpx.Asy
     _save_fixture(f"quo_thread_messages_{phone_slug}.md", result)
     print(f"\nget_thread_messages_impl('{target_phone}') → saved to fixtures/quo_thread_messages_{phone_slug}.md")
     assert isinstance(result, str)
-    assert "SMS thread with" in result or "No messages found" in result
+    assert "Thread with" in result or "No messages or calls found" in result
 
 
 @pytest.mark.asyncio
 async def test_get_thread_messages_impl_no_messages(quo_client: httpx.AsyncClient):
-    """A fake phone number should return 'no messages found'."""
+    """A fake phone number should return 'no messages or calls found'."""
     result = await get_thread_messages_impl(quo_client, "+19999999999", max_results=5)
-    assert "No messages found" in result
+    assert "No messages or calls found" in result
+
+
+# ---- Call surfacing in conversations ----
+#
+# The "Lead 659 Benjamin" thread is a stable example of a conversation that
+# contains both a call and an SMS. If that contact is renamed/deleted in the
+# future, replace BENJAMIN_PHONE with another known call-bearing thread.
+BENJAMIN_PHONE = "+14842802433"
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_includes_calls_with_id(
+    quo_client: httpx.AsyncClient,
+):
+    """Thread retrieval should interleave calls with messages and surface the Call ID
+    so the agent can chain to ``getCallTranscript_v1``."""
+    result = await get_thread_messages_impl(quo_client, BENJAMIN_PHONE, max_results=20)
+    _save_fixture("quo_thread_with_call_benjamin.md", result)
+    print(f"\nBenjamin thread:\n{result}")
+    assert "CALL" in result, "Expected a CALL line in the thread"
+    assert "Call ID AC" in result, "Expected a Call ID surfaced in the output"
+
+
+@pytest_asyncio.fixture
+async def benjamin_call_id(quo_client: httpx.AsyncClient) -> str:
+    """Fetch Benjamin's most recent OpenPhone call ID at test time.
+
+    The call ID is derived dynamically rather than hardcoded so:
+    1. The test stays robust if the specific call is archived or replaced.
+    2. No ``AC<32 hex>`` literal appears in source — GitHub's secret scanner
+       cannot distinguish OpenPhone call IDs from Twilio Account SIDs (same
+       regex), and would block pushes containing a hardcoded one.
+    """
+    from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
+
+    resp = await quo_client.get(
+        "/v1/calls",
+        params={
+            "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+            "participants": BENJAMIN_PHONE,
+            "maxResults": "1",
+        },
+    )
+    resp.raise_for_status()
+    calls = resp.json().get("data", [])
+    if not calls:
+        pytest.skip(f"No calls found for {BENJAMIN_PHONE} — cannot test call details")
+    return calls[0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_get_call_details_impl_returns_summary_and_transcript(
+    quo_client: httpx.AsyncClient,
+    benjamin_call_id: str,
+):
+    """The merged tool should produce markdown with both ## Summary and
+    ## Transcript sections, and surface the call ID at the top."""
+    result = await get_call_details_impl(quo_client, benjamin_call_id)
+    _save_fixture("quo_call_details_benjamin.md", result)
+    assert f"# Call {benjamin_call_id}" in result
+    assert "## Summary" in result
+    assert "## Transcript" in result
+    # Speaker attribution should pull in the contact name we have for the caller.
+    assert "Lead 659 Benjamin" in result
+    # Team turns should be tagged.
+    assert "(team)" in result
+
+
+@pytest.mark.asyncio
+async def test_get_call_details_impl_truncates_when_limit_set(
+    quo_client: httpx.AsyncClient,
+    benjamin_call_id: str,
+):
+    """When transcript_max_chars is exceeded, the truncation marker must be
+    appended and the output should reference the parameter so the caller
+    knows how to extend."""
+    result = await get_call_details_impl(
+        quo_client, benjamin_call_id, transcript_max_chars=300,
+    )
+    assert "transcript truncated at 300 chars" in result
+    assert "transcript_max_chars" in result
+
+
+@pytest.mark.asyncio
+async def test_get_call_details_impl_unknown_call_returns_friendly(
+    quo_client: httpx.AsyncClient,
+):
+    """A bogus call ID should not crash — return a friendly not-found string."""
+    result = await get_call_details_impl(quo_client, "ACnotarealcallid")
+    assert "No call found" in result
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_impl_surfaces_call_id_when_call_is_latest(
+    quo_client: httpx.AsyncClient,
+):
+    """When a thread's most recent activity is a call (not an SMS), the snippet
+    should show the Call ID so the agent can fetch a transcript."""
+    result = await list_active_threads_impl(quo_client, max_results=50)
+    _save_fixture("quo_active_threads.md", result)
+    if "No active" in result:
+        pytest.skip("No active threads — cannot test call snippet")
+    # We don't assert that a call snippet is always present (depends on inbox state),
+    # but if one exists, it must include the Call ID.
+    for line in result.splitlines():
+        if line.strip().startswith("Snippet: Call"):
+            assert "Call ID AC" in line, f"Call snippet missing Call ID: {line}"
 
 
 @pytest.mark.asyncio
@@ -370,8 +478,8 @@ async def test_get_thread_messages_impl_chronological_order(quo_client: httpx.As
 
     target = phones[0]
     msg_result = await get_thread_messages_impl(quo_client, target, max_results=10)
-    if "No messages found" in msg_result:
-        pytest.skip("No messages for extracted phone number")
+    if "No messages or calls found" in msg_result:
+        pytest.skip("No messages or calls for extracted phone number")
 
     phone_slug = target.replace("+", "").replace("-", "")
     _save_fixture(f"quo_thread_messages_{phone_slug}.md", msg_result)
