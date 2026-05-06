@@ -63,8 +63,8 @@ The `_get_contact_unit()` helper extracts this as a `(property, unit)` tuple, re
 ### Other Tools
 
 - **search_contacts** — Fuzzy search by name, phone, or company against a TTL-cached (5 min) contact list.
-- **list_active_sms_threads** — Mirrors the Quo active inbox. Each thread's snippet shows whichever activity is most recent — SMS or call. Call snippets surface the Call ID so the agent can chain to `get_call_details`.
-- **get_thread_messages** — Returns SMS messages and calls interleaved chronologically for a phone number. Call entries include the Call ID for `get_call_details` chaining.
+- **list_active_sms_threads** — Mirrors the Quo active inbox. Each thread's snippet shows whichever activity is most recent — SMS or call. Call snippets surface the Call ID so the agent can chain to `get_call_details`. For multi-participant (group) conversations, the snippet is fetched via the conversation's `lastActivityId` rather than per-participant — see _Group Threads_ below.
+- **get_thread_messages** — Returns SMS messages and calls interleaved chronologically. Accepts a single phone (1:1 thread) **or a list of phones (group thread)**. Call entries include the Call ID for `get_call_details` chaining.
 - **get_call_details** — Fetches a Quo call's summary + transcript in one shot, rendered as markdown (`# Call <id>` → metadata → `## Summary` → `### Next Steps` → `## Transcript`). Speaker turns are attributed by phone→contact lookup, with a `(team)` tag when the speaker is on Sernia's side. Transcript truncates at `transcript_max_chars` (default 4000) and tells the caller how to extend.
 - **update_contact** — Safe read-merge-write contact update. Fetches the full contact first, merges only the provided fields, then sends the complete payload to Quo. Works around Quo's PATCH bug that clears omitted fields. Requires HITL approval.
 - **create_contact** — Create a new Quo contact. No approval required.
@@ -78,6 +78,17 @@ Quo conversations contain both SMS messages and calls. The conversation object o
 - `get_thread_messages` shows the full picture of a thread, not just the texts.
 
 Whenever a call appears in either tool's output, the Call ID (`AC...`) is included on the same line. Pass it to `get_call_details` to read the call's summary, next steps, and full transcript.
+
+### Group Threads
+
+OpenPhone supports multi-participant conversations (e.g. two roommates sharing one Quo thread), but the public API does **not** let you list a group thread's messages by participant: `/v1/messages?participants[]=A&participants[]=B` silently filters to the 1:1 conversation with the *first* participant, regardless of how many are passed. The group conversation is real (it appears in `/v1/conversations`), and individual messages can be fetched by ID via `/v1/messages/{id}`, but you can't enumerate them.
+
+Workarounds in this codebase:
+
+- **`list_active_sms_threads`**: when a conversation has more than one participant, the snippet is built from the conversation's `lastActivityId` (probing both `/v1/messages/{id}` and `/v1/calls/{id}` in parallel since both share the `AC...` prefix). This guarantees the inbox snippet reflects the actual most-recent group activity instead of falling back to a stale 1:1 thread.
+- **`get_thread_messages`**: accepts `phone_number: str | list[str]`. When given a list, it locates the matching group conversation, surfaces the most-recent group activity via `lastActivityId`, and renders each participant's 1:1 history below for context. The output explicitly states the API limitation so the agent doesn't pretend it has the full group history.
+
+For full group-thread history, the OpenPhone web/mobile UI is the source of truth.
 
 ## Scheduling (`scheduling_tools.py`)
 

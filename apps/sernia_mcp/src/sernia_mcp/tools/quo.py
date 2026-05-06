@@ -55,17 +55,31 @@ async def quo_get_call_details(call_id: str, transcript_max_chars: int = 4000) -
 
 
 @mcp.tool
-async def quo_get_thread_messages(phone_number: str, max_results: int = 20) -> str:
+async def quo_get_thread_messages(
+    phone_number: str | list[str],
+    max_results: int = 20,
+) -> str:
     """Get the recent thread (SMS + calls) with a phone number on the shared
-    team line.
+    team line, OR a group thread by passing a list of phones.
 
     Returns SMS messages and calls interleaved chronologically, enriched with
     contact names. Call entries include the Call ID — pass it to
     ``quo_get_call_details`` to read the call's summary + transcript.
 
+    **Group threads** (multiple phones, partial data): OpenPhone's public
+    API does not list group-thread history by participant filter, so this
+    tool can only return the *most recent* group activity plus each
+    participant's 1:1 history. Older group messages exist but are not
+    retrievable through this MCP server — view them in the OpenPhone app.
+    The output includes a caveat block making this explicit. To find the
+    participant set for a group conversation, use
+    ``quo_list_active_sms_threads`` (it shows all participants per thread).
+
     Args:
-        phone_number: Recipient phone in E.164 format (e.g. "+14155550100").
-        max_results: Max items per type to return (default 20 messages + 20 calls).
+        phone_number: A single phone in E.164 (1:1 thread) OR a list of
+            phones (group thread).
+        max_results: Max items per type to return per participant
+            (default 20 messages + 20 calls).
     """
     try:
         return await get_thread_messages_core(phone_number, max_results=max_results)

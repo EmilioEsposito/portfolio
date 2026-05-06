@@ -90,6 +90,82 @@ async def _fetch_latest_call(
     return calls[0] if calls else None
 
 
+async def _fetch_message_by_id(
+    client: httpx.AsyncClient, activity_id: str,
+) -> dict | None:
+    try:
+        resp = await client.get(f"/v1/messages/{activity_id}")
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    return resp.json().get("data")
+
+
+async def _fetch_call_by_id(
+    client: httpx.AsyncClient, activity_id: str,
+) -> dict | None:
+    try:
+        resp = await client.get(f"/v1/calls/{activity_id}")
+        resp.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    return resp.json().get("data")
+
+
+async def _fetch_activity_by_id(
+    client: httpx.AsyncClient, activity_id: str,
+) -> dict | None:
+    """Fetch a Quo activity (message or call) by its ``AC...`` ID.
+
+    Both share the same ID prefix and the conversation object exposes only
+    ``lastActivityId`` (no type marker), so we probe both endpoints in
+    parallel and return whichever succeeds. Group threads can ONLY be read
+    this way — OpenPhone's ``/v1/messages?participants[]=…`` silently filters
+    to 1:1 threads regardless of how many participants are passed.
+    """
+    msg, call = await asyncio.gather(
+        _fetch_message_by_id(client, activity_id),
+        _fetch_call_by_id(client, activity_id),
+    )
+    if call is not None:
+        return call | {"_kind": "call"}
+    if msg is not None:
+        return msg | {"_kind": "message"}
+    return None
+
+
+async def _find_group_conversation(
+    client: httpx.AsyncClient, participants: list[str],
+) -> dict | None:
+    """Find the OpenPhone conversation whose participants exactly match the
+    given set (regardless of ordering). Returns None if none found. Pages
+    through up to 5 pages of conversations (~500) — enough for an active
+    inbox of any realistic size.
+    """
+    target = frozenset(participants)
+    page_token: str | None = None
+    for _ in range(5):
+        params: list[tuple[str, str]] = [
+            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
+            ("maxResults", "100"),
+        ]
+        if page_token:
+            params.append(("pageToken", page_token))
+        try:
+            resp = await client.get("/v1/conversations", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        data = resp.json()
+        for conv in data.get("data", []):
+            if frozenset(conv.get("participants") or []) == target:
+                return conv
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+    return None
+
+
 def _format_call_timestamp(seconds: float | int | None) -> str:
     """Render dialogue offsets as ``M:SS`` (or ``H:MM:SS`` for long calls)."""
     if not isinstance(seconds, (int, float)):
@@ -293,34 +369,52 @@ async def list_active_threads_core(
         contacts = await get_all_contacts(client)
         phone_map = _build_phone_map(contacts)
 
-        # Fetch latest message + latest call per thread; pick whichever is
-        # more recent. The conversation object's ``lastActivityId`` shares
-        # the ``AC...`` prefix between calls and messages, so we have to
-        # fetch both to know which it is.
-        async def _fetch_latest(participant_phone: str) -> dict | None:
+        # Build the snippet for each thread by picking whichever of the
+        # latest message / latest call has the more recent ``createdAt``.
+        # Group threads (>1 participant) require a different path:
+        # OpenPhone's ``/v1/messages?participants[]=…`` filter silently
+        # narrows to 1:1 even when both participants are passed, so
+        # per-participant fetches return the wrong thread. Instead, follow
+        # the conversation's ``lastActivityId`` — that always points at the
+        # actual most-recent activity for the thread.
+        async def _fetch_snippet_1to1(phone: str) -> dict | None:
             msg, call = await asyncio.gather(
-                _fetch_latest_message(client, participant_phone),
-                _fetch_latest_call(client, participant_phone),
+                _fetch_latest_message(client, phone),
+                _fetch_latest_call(client, phone),
             )
             if msg and call:
-                if msg.get("createdAt", "") >= call.get("createdAt", ""):
-                    return msg
-                return call | {"_kind": "call"}
+                return (
+                    msg | {"_kind": "message"}
+                    if msg.get("createdAt", "") >= call.get("createdAt", "")
+                    else call | {"_kind": "call"}
+                )
             if call:
                 return call | {"_kind": "call"}
-            return msg
+            if msg:
+                return msg | {"_kind": "message"}
+            return None
 
-        snippet_phones = [
-            (conv.get("participants") or [""])[0] for conv in conversations
-        ]
+        async def _fetch_snippet_for_conv(conv: dict) -> dict | None:
+            participants = conv.get("participants") or []
+            if len(participants) > 1:
+                last_id = conv.get("lastActivityId")
+                if last_id:
+                    return await _fetch_activity_by_id(client, last_id)
+                return None
+            if participants:
+                return await _fetch_snippet_1to1(participants[0])
+            return None
+
         snippet_results = await asyncio.gather(
-            *(_fetch_latest(p) for p in snippet_phones if p),
+            *(_fetch_snippet_for_conv(c) for c in conversations),
             return_exceptions=True,
         )
+        # Index by conversation id so we don't lose group-thread snippets
+        # to phone-key collisions when two conversations share a participant.
         snippet_map: dict[str, dict] = {}
-        for phone, result in zip(snippet_phones, snippet_results, strict=False):
+        for conv, result in zip(conversations, snippet_results, strict=False):
             if isinstance(result, dict):
-                snippet_map[phone] = result
+                snippet_map[conv.get("id", "")] = result
 
     lines: list[str] = []
     for conv in conversations:
@@ -334,8 +428,7 @@ async def list_active_threads_core(
             enriched.append(f"{name} ({phone})" if name != phone else phone)
 
         snippet_line = ""
-        ext_phone = participants[0] if participants else ""
-        latest = snippet_map.get(ext_phone)
+        latest = snippet_map.get(conv_id)
         if latest:
             if latest.get("_kind") == "call":
                 snippet_line = f"\n  Snippet: {_format_call_snippet(latest)}"
@@ -347,8 +440,13 @@ async def list_active_threads_core(
                     if direction == "outgoing":
                         snippet_line = f"\n  Snippet: You: {preview}"
                     else:
-                        sender = phone_map.get(ext_phone, ext_phone).split(" (")[0]
-                        snippet_line = f"\n  Snippet: {sender}: {preview}"
+                        sender_phone = (
+                            latest.get("from_") or latest.get("from") or ""
+                        )
+                        sender_label = phone_map.get(
+                            sender_phone, sender_phone
+                        ).split(" (")[0] if sender_phone else "Them"
+                        snippet_line = f"\n  Snippet: {sender_label}: {preview}"
 
         lines.append(
             f"Thread: {', '.join(enriched)}{snippet_line}\n"
@@ -359,15 +457,16 @@ async def list_active_threads_core(
     return f"Active threads ({len(conversations)}):\n\n" + "\n\n".join(lines)
 
 
-async def get_thread_messages_core(phone_number: str, max_results: int = 20) -> str:
-    """Get the recent thread (SMS + calls) for ``phone_number``.
+async def _fetch_one_to_one_thread(
+    client: httpx.AsyncClient,
+    phone_number: str,
+    max_results: int,
+) -> tuple[list[dict], list[dict]] | str:
+    """Fetch SMS + call list for a single phone (1:1 thread).
 
-    Returns SMS messages and calls interleaved chronologically (oldest →
-    newest), enriched with contact names. Call entries include the Call ID
-    so the caller can chain to ``get_call_details_core`` for the
-    summary + transcript.
+    Returns ``(messages, calls)`` on success, or an error string on failure.
     """
-    async def _fetch(client: httpx.AsyncClient, path: str) -> dict:
+    async def _fetch(path: str) -> dict:
         resp = await client.get(
             path,
             params={
@@ -379,32 +478,34 @@ async def get_thread_messages_core(phone_number: str, max_results: int = 20) -> 
         resp.raise_for_status()
         return resp.json()
 
-    async with build_quo_client() as client:
-        try:
-            msg_data, call_data = await asyncio.gather(
-                _fetch(client, "/v1/messages"),
-                _fetch(client, "/v1/calls"),
-            )
-        except httpx.HTTPError as exc:
-            raise ExternalServiceError(f"Quo API error: {exc}") from exc
+    try:
+        msg_data, call_data = await asyncio.gather(
+            _fetch("/v1/messages"),
+            _fetch("/v1/calls"),
+        )
+    except httpx.HTTPError as exc:
+        return f"Error fetching thread for {phone_number}: {exc}"
 
-        messages = msg_data.get("data", [])
-        calls = call_data.get("data", [])
-        if not messages and not calls:
-            return f"No messages or calls found with {phone_number}."
+    return msg_data.get("data", []), call_data.get("data", [])
 
-        contacts = await get_all_contacts(client)
 
-    phone_map = _build_phone_map(contacts)
-    contact_name = phone_map.get(phone_number, phone_number)
-
+def _render_thread(
+    messages: list[dict],
+    calls: list[dict],
+    contact_name: str,
+    phone_number: str,
+    phone_map: dict[str, str],
+    *,
+    header_prefix: str = "Thread with",
+) -> str:
+    """Render a chronological thread (SMS + calls interleaved)."""
     items: list[tuple[str, dict]] = (
         [("message", m) for m in messages] + [("call", c) for c in calls]
     )
     items.sort(key=lambda kv: kv[1].get("createdAt", ""))
 
     lines: list[str] = [
-        f"Thread with {contact_name} ({phone_number}) — "
+        f"{header_prefix} {contact_name} ({phone_number}) — "
         f"{len(messages)} message{'s' if len(messages) != 1 else ''}, "
         f"{len(calls)} call{'s' if len(calls) != 1 else ''}\n"
     ]
@@ -436,8 +537,7 @@ async def get_thread_messages_core(phone_number: str, max_results: int = 20) -> 
             else:
                 sender_name = (
                     phone_map.get(sender_phone, sender_phone)
-                    if isinstance(sender_phone, str)
-                    else "?"
+                    if isinstance(sender_phone, str) else "?"
                 )
                 recipient_name = "Sernia Capital"
 
@@ -447,3 +547,148 @@ async def get_thread_messages_core(phone_number: str, max_results: int = 20) -> 
             lines.append(f"[{created}] {sender_name} → {recipient_name}: {text}")
 
     return "\n".join(lines)
+
+
+def _format_group_activity_line(
+    item: dict,
+    phone_map: dict[str, str],
+) -> str:
+    """Render a single group-thread activity (message or call) as one line."""
+    created = item.get("createdAt", "?")
+    if item.get("_kind") == "call":
+        direction = item.get("direction", "?")
+        duration = item.get("duration")
+        dur_str = f"{duration}s" if isinstance(duration, int) else "?s"
+        return (
+            f"[{created}] CALL ({direction}, {dur_str}) — "
+            f"Call ID {item.get('id', '?')}"
+        )
+    text = (item.get("text") or item.get("body") or "(no text)")[:500]
+    sender_phone = item.get("from_") or item.get("from") or ""
+    sender_name = (
+        phone_map.get(sender_phone, sender_phone)
+        if isinstance(sender_phone, str) else "?"
+    )
+    to_phones = item.get("to") or []
+    to_names = ", ".join(
+        phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
+    )
+    return f"[{created}] {sender_name} → {to_names}: {text}"
+
+
+async def get_thread_messages_core(
+    phone_number: str | list[str],
+    max_results: int = 20,
+) -> str:
+    """Get the recent thread (SMS + calls) for ``phone_number``.
+
+    Accepts either a single phone (1:1 thread) or a list of phones (group
+    thread). Group threads are an OpenPhone API limitation: the
+    ``/v1/messages?participants[]=…`` filter silently narrows to 1:1 even
+    when multiple participants are passed. So for group threads we surface
+    the most recent group activity via the conversation's ``lastActivityId``
+    and supplement with each participant's 1:1 history (clearly labeled).
+
+    Call entries include the Call ID so the caller can chain to
+    ``get_call_details_core`` for the summary + transcript.
+    """
+    participants_in: list[str] = (
+        [phone_number] if isinstance(phone_number, str) else list(phone_number)
+    )
+    if len(participants_in) == 0:
+        return "No phone numbers provided."
+
+    # Deduplicate + sort so that [A, B] and [B, A] produce byte-identical
+    # output. The OpenPhone conversation lookup is already order-insensitive
+    # (frozenset match), but the rendered labels and per-participant sections
+    # would otherwise vary by input order.
+    participants_in = sorted(set(participants_in))
+
+    async with build_quo_client() as client:
+        try:
+            contacts = await get_all_contacts(client)
+        except httpx.HTTPError as exc:
+            raise ExternalServiceError(f"Quo API error: {exc}") from exc
+        phone_map = _build_phone_map(contacts)
+
+        if len(participants_in) == 1:
+            only_phone = participants_in[0]
+            result = await _fetch_one_to_one_thread(client, only_phone, max_results)
+            if isinstance(result, str):
+                raise ExternalServiceError(result)
+            messages, calls = result
+            if not messages and not calls:
+                return f"No messages or calls found with {only_phone}."
+            return _render_thread(
+                messages, calls,
+                phone_map.get(only_phone, only_phone), only_phone, phone_map,
+            )
+
+        # ---- Group thread path ----
+        # TODO(group-thread-db): The sister monorepo `api/src/sernia_ai`
+        # serves full group-thread history from a webhook-ingested
+        # `open_phone_events` Postgres table (see
+        # `api/src/sernia_ai/tools/quo_tools.py::_fetch_group_thread_from_events_table`).
+        # We DON'T do that here on purpose — the MCP service is intentionally
+        # lean (no SQLAlchemy / asyncpg per CLAUDE.md), and we'd rather not
+        # couple to the backend's DB schema directly.
+        # When we want to close this gap, the cleanest path is to expose a
+        # service-internal HTTP endpoint on the FastAPI backend
+        # (e.g. GET /api/open-phone/conversations/{id}/messages) gated by the
+        # existing SERNIA_MCP_INTERNAL_BEARER_TOKEN, and call it from here.
+        # Until then, we fall back to the API-only path below and the caveat
+        # makes the limitation explicit to the MCP client.
+        conv = await _find_group_conversation(client, participants_in)
+        last_activity: dict | None = None
+        conv_id = "?"
+        if conv is not None:
+            conv_id = conv.get("id", "?")
+            last_id = conv.get("lastActivityId")
+            if last_id:
+                last_activity = await _fetch_activity_by_id(client, last_id)
+
+        per_participant = await asyncio.gather(
+            *(_fetch_one_to_one_thread(client, p, max_results) for p in participants_in),
+        )
+
+    participant_labels = ", ".join(
+        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p
+        for p in participants_in
+    )
+    out: list[str] = [
+        f"Group thread: {participant_labels}",
+        f"Conversation ID: {conv_id}",
+        "",
+        "**Caveat — partial data:** OpenPhone's public API does not expose "
+        "group-thread message history by participant filter. Only the *most "
+        "recent* group activity (via the conversation's `lastActivityId`) "
+        "and each participant's 1:1 thread can be listed. Older group "
+        "messages exist but cannot be retrieved through this tool — view "
+        "them in the OpenPhone app, or wait for backend-side group-thread "
+        "support (TODO: see comment in core/quo/contacts.py).",
+        "",
+        "## Most recent group activity",
+    ]
+    if last_activity is not None:
+        out.append(_format_group_activity_line(last_activity, phone_map))
+    else:
+        out.append("_(no recent group activity available)_")
+
+    out.append("")
+    for phone, result in zip(participants_in, per_participant, strict=False):
+        contact_name = phone_map.get(phone, phone)
+        out.append(f"## 1:1 thread with {contact_name}")
+        if isinstance(result, str):
+            out.append(result)
+        else:
+            messages, calls = result
+            if not messages and not calls:
+                out.append(f"_(no 1:1 messages or calls with {phone})_")
+            else:
+                out.append(_render_thread(
+                    messages, calls, contact_name, phone, phone_map,
+                    header_prefix="1:1 with",
+                ))
+        out.append("")
+
+    return "\n".join(out).rstrip()

@@ -241,6 +241,34 @@ ChatGPT) explicitly needs one of these.
 
 ## Hard — needs new infra (the genuinely-hard ones)
 
+### Group-thread message history for `quo_get_thread_messages`
+
+- **Status**: deliberately partial. The tool currently returns the most
+  recent group activity (via `lastActivityId`) plus each participant's
+  1:1 history, with a self-explaining caveat in the output. Older group
+  messages are not retrievable.
+- **Why partial**: OpenPhone's `/v1/messages?participants[]=…` filter
+  silently narrows to 1:1 conversations. Verified across ~14 different
+  serializations and 3 alternate endpoints — this is a server-side
+  limitation of the public API, not a client-side bug. The internal
+  `https://communication.openphoneapi.com/v2/activity` endpoint that the
+  Quo web UI uses *can* fetch by `conversationId`, but it requires an
+  Auth0 user JWT (not the API key), is undocumented, and is almost
+  certainly outside ToS for programmatic agent traffic.
+- **What sernia_ai does**: reads from the webhook-ingested
+  `open_phone_events` Postgres table to serve full group history. See
+  `api/src/sernia_ai/tools/quo_tools.py::_fetch_group_thread_from_events_table`.
+- **What it'd take here**: SQLAlchemy + asyncpg + the `OpenPhoneEvent`
+  model + a session factory, all of which violate the lean-deps rule in
+  this service's CLAUDE.md.
+- **Cleaner path when we want to close it**: expose a service-internal
+  HTTP endpoint on the FastAPI backend (e.g.
+  `GET /api/open-phone/conversations/{id}/messages`) gated by the
+  existing `SERNIA_MCP_INTERNAL_BEARER_TOKEN`, and call it from
+  `core/quo/contacts.py::get_thread_messages_core`. Keeps DB access in
+  the backend, keeps the MCP lean, gives us a clean cross-service contract.
+- **Marker**: search `TODO(group-thread-db)` in `core/quo/contacts.py`.
+
 ### MCP-bridged Quo tools (FastMCPToolset → OpenPhone OpenAPI)
 
 - `deleteContact_v1`, `getContactCustomFields_v1`, `listCalls_v1`,

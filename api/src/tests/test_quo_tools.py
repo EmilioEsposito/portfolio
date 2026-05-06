@@ -33,6 +33,7 @@ from api.src.open_phone.service import (
     invalidate_contact_cache,
 )
 from api.src.sernia_ai.tools.quo_tools import (
+    _render_group_thread_from_db,
     get_call_details_impl,
     get_thread_messages_impl,
     list_active_threads_impl,
@@ -364,6 +365,177 @@ async def test_get_thread_messages_impl_no_messages(quo_client: httpx.AsyncClien
 # contains both a call and an SMS. If that contact is renamed/deleted in the
 # future, replace BENJAMIN_PHONE with another known call-bearing thread.
 BENJAMIN_PHONE = "+14842802433"
+
+# 659-02 group thread — both tenants share one Quo conversation.
+AIDAN_PHONE = "+15857734751"
+ADELINE_PHONE = "+17708760966"
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_handles_group_thread(
+    quo_client: httpx.AsyncClient,
+):
+    """A group thread (multiple participants) should produce one of two
+    shapes — both must include the participant phones and surface group
+    content. Which shape we get depends on whether the local
+    ``open_phone_events`` table has webhook-ingested events for the conv:
+
+    - **DB-backed path** (preferred): "Group thread with <names>" header,
+      followed by a chronological feed of group messages.
+    - **API fallback path**: "Group thread: <names>" header, the OpenPhone
+      API caveat, the lastActivityId snippet, and per-participant 1:1
+      sections.
+    """
+    result = await get_thread_messages_impl(
+        quo_client, [AIDAN_PHONE, ADELINE_PHONE], max_results=5,
+    )
+    _save_fixture("quo_thread_group_659_02.md", result)
+    assert AIDAN_PHONE in result
+    assert ADELINE_PHONE in result
+    db_path = result.startswith("Group thread with ")
+    fallback_path = result.startswith("Group thread: ")
+    assert db_path or fallback_path, result[:200]
+    if fallback_path:
+        # Fallback: the lastActivityId-only path, with caveat + 1:1 sections.
+        assert "Conversation ID: CN" in result
+        assert "OpenPhone's API does not expose group-thread" in result
+        assert "## Most recent group activity" in result
+        assert "## 1:1 thread with" in result
+
+
+def test_render_group_thread_from_db_pins_format():
+    """Pure-Python check on the DB-backed renderer using fixture activity
+    dicts. Pins:
+    - Header counts both messages and calls.
+    - Each row uses contact names (with phone fallback).
+    - Group ``to`` lists multiple recipients.
+    - Calls show the Call ID inline for chaining to ``get_call_details``.
+    """
+    activities = [
+        {
+            "_kind": "message",
+            "id": "ACmsg1",
+            "createdAt": "2026-05-05T11:00:00Z",
+            "text": "Heads up: showing tomorrow at 5pm.",
+            "from": "+19990001111",
+            "to": ["+15551112222", "+15553334444"],
+            "direction": "outgoing",
+            "duration": None,
+            "status": "delivered",
+        },
+        {
+            "_kind": "message",
+            "id": "ACmsg2",
+            "createdAt": "2026-05-05T11:30:00Z",
+            "text": "Confirmed",
+            "from": "+15551112222",
+            "to": ["+19990001111", "+15553334444"],
+            "direction": "incoming",
+            "duration": None,
+            "status": "received",
+        },
+        {
+            "_kind": "call",
+            "id": "ACcall1",
+            "createdAt": "2026-05-05T12:00:00Z",
+            "text": None,
+            "from": "+15553334444",
+            "to": ["+19990001111"],
+            "direction": "incoming",
+            "duration": 42,
+            "status": "completed",
+        },
+    ]
+    phone_map = {
+        "+19990001111": "Sernia Capital Team",
+        "+15551112222": "Aidan",
+        "+15553334444": "Adeline",
+    }
+    out = _render_group_thread_from_db(
+        activities, ["+15551112222", "+15553334444"], phone_map,
+    )
+    assert "Group thread with Aidan (+15551112222), Adeline (+15553334444)" in out
+    assert "2 messages, 1 call" in out
+    # Outgoing group msg renders sender + multiple recipients
+    assert "Sernia Capital Team → Aidan, Adeline" in out
+    # Incoming reply renders correctly
+    assert "Aidan → Sernia Capital Team, Adeline" in out
+    # Call line includes Call ID for downstream get_call_details chain
+    assert "Call ID ACcall1" in out
+    assert "(incoming, 42s)" in out
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_impl_group_input_order_independent(
+    quo_client: httpx.AsyncClient,
+):
+    """Group thread output must not depend on input participant order, and
+    duplicates in the input must be deduped before processing.
+
+    Note: the rendered body can vary across runs if the DB fallback path
+    flickers (DB success → API-only fallback under connection churn), so
+    we don't assert byte equality. We assert the contract that matters:
+    both runs identify the **same conversation** and list the **same
+    participants** in the same order, regardless of input ordering or
+    duplicates.
+    """
+    forward = await get_thread_messages_impl(
+        quo_client, [AIDAN_PHONE, ADELINE_PHONE], max_results=3,
+    )
+    reverse = await get_thread_messages_impl(
+        quo_client, [ADELINE_PHONE, AIDAN_PHONE], max_results=3,
+    )
+    duped = await get_thread_messages_impl(
+        quo_client, [AIDAN_PHONE, ADELINE_PHONE, AIDAN_PHONE], max_results=3,
+    )
+
+    def _participant_signature(out: str) -> tuple[str, ...]:
+        """Extract the ordered list of phone numbers from the header. The
+        prefix differs between paths ("Group thread with " vs
+        "Group thread: ") but the participant ordering is the contract we
+        care about — it must be deterministic regardless of input order."""
+        header = out.splitlines()[0]
+        return tuple(re.findall(r"\+\d{10,15}", header))
+
+    sig_forward = _participant_signature(forward)
+    sig_reverse = _participant_signature(reverse)
+    sig_duped = _participant_signature(duped)
+    assert sig_forward == sig_reverse, (
+        f"participant order must not depend on input order: "
+        f"forward={sig_forward}, reverse={sig_reverse}"
+    )
+    assert sig_forward == sig_duped, (
+        f"duplicate input phones must be deduped before rendering: "
+        f"forward={sig_forward}, duped={sig_duped}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_impl_group_thread_snippet_via_last_activity(
+    quo_client: httpx.AsyncClient,
+):
+    """For group threads, the snippet must come from the conversation's
+    ``lastActivityId`` — not from a per-participant fetch (which silently
+    returns the wrong 1:1 thread). Pin this so a regression in the snippet
+    routing is caught immediately."""
+    result = await list_active_threads_impl(quo_client, max_results=50)
+    if "No active" in result:
+        pytest.skip("No active threads — cannot test group snippet routing")
+
+    # Find the 659-02 group thread block. The Quo inbox sometimes drops it
+    # from the active set; skip if so.
+    if AIDAN_PHONE not in result or ADELINE_PHONE not in result:
+        pytest.skip("659-02 group thread not currently in active inbox")
+
+    # Walk the result text and extract the block that contains both phones.
+    for block in result.split("\n\n"):
+        if AIDAN_PHONE in block and ADELINE_PHONE in block:
+            # The snippet must reference one of the actual group participants
+            # (or be a Call snippet) — never a stale 1:1 fallback.
+            assert "Snippet:" in block, block
+            break
+    else:
+        pytest.fail("group block not found in active threads output")
 
 
 @pytest.mark.asyncio

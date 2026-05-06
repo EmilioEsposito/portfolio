@@ -381,6 +381,257 @@ async def test_get_call_details_unknown_returns_friendly():
 
 
 @pytest.mark.asyncio
+async def test_get_thread_messages_group_uses_last_activity_id():
+    """For a group thread (multi participants), ``get_thread_messages_core``
+    must:
+    - Detect the group via the conversations list.
+    - Surface the conversation's ``lastActivityId`` activity (since the
+      OpenPhone API can't list group history by participant filter).
+    - Include the API-limitation caveat in the output.
+    - Render each participant's 1:1 thread for context.
+    """
+    from sernia_mcp.core.quo.contacts import get_thread_messages_core
+
+    AIDAN = "+15550001111"
+    ADELINE = "+15550002222"
+
+    fake_conversations = {
+        "data": [
+            {
+                "id": "CN-group",
+                "participants": [AIDAN, ADELINE],
+                "lastActivityAt": "2026-05-05T21:39:47Z",
+                "lastActivityId": "ACgroupmsg",
+                "snoozedUntil": None,
+            },
+        ],
+        "nextPageToken": None,
+    }
+    fake_aidan_msgs = {
+        "data": [
+            {"createdAt": "2026-04-01T00:00:00Z", "direction": "incoming",
+             "from": AIDAN, "to": ["+14129101989"], "text": "Aidan 1:1 hi"},
+        ]
+    }
+    fake_adeline_msgs = {
+        "data": [
+            {"createdAt": "2026-04-02T00:00:00Z", "direction": "outgoing",
+             "from_": "+14129101989", "to": [ADELINE], "text": "Adeline 1:1 reply"},
+        ]
+    }
+    fake_group_msg = {
+        "data": {
+            "id": "ACgroupmsg",
+            "createdAt": "2026-05-05T21:39:47Z",
+            "from": ADELINE,
+            "to": ["+14129101989", AIDAN],
+            "text": "Confirmed!",
+            "direction": "incoming",
+        }
+    }
+
+    async def fake_get(url, params=None):
+        resp = AsyncMock()
+        resp.raise_for_status = lambda: None
+        if url == "/v1/conversations":
+            resp.json = lambda: fake_conversations
+        elif url == "/v1/messages":
+            # Branch on participants param
+            phone = (params or {}).get("participants") if isinstance(params, dict) else None
+            if phone == AIDAN:
+                resp.json = lambda: fake_aidan_msgs
+            elif phone == ADELINE:
+                resp.json = lambda: fake_adeline_msgs
+            else:
+                resp.json = lambda: {"data": []}
+        elif url == "/v1/calls":
+            resp.json = lambda: {"data": []}
+        elif url == f"/v1/messages/ACgroupmsg":
+            resp.json = lambda: fake_group_msg
+        elif url == "/v1/calls/ACgroupmsg":
+            # 404 for the call lookup so the message branch wins.
+            import httpx as _httpx
+            def _raise():
+                raise _httpx.HTTPError("not a call")
+            resp.raise_for_status = _raise
+        return resp
+
+    fake_client = AsyncMock()
+    fake_client.get = fake_get
+    fake_client.__aenter__.return_value = fake_client
+    fake_client.__aexit__.return_value = None
+
+    with (
+        patch("sernia_mcp.core.quo.contacts.build_quo_client", return_value=fake_client),
+        patch(
+            "sernia_mcp.core.quo.contacts.get_all_contacts",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        result = await get_thread_messages_core([AIDAN, ADELINE], max_results=5)
+
+    assert result.startswith("Group thread:"), result[:200]
+    assert "Conversation ID: CN-group" in result
+    assert "OpenPhone's public API does not expose" in result
+    assert "Older group messages exist but cannot be retrieved" in result
+    assert "## Most recent group activity" in result
+    assert "Confirmed!" in result, result
+    assert "## 1:1 thread with" in result
+    assert "Aidan 1:1 hi" in result
+    assert "Adeline 1:1 reply" in result
+
+
+@pytest.mark.asyncio
+async def test_get_thread_messages_group_input_order_independent():
+    """Group thread output must not depend on input participant order, and
+    duplicate phones in the input must be deduped before processing."""
+    from sernia_mcp.core.quo.contacts import get_thread_messages_core
+
+    AIDAN = "+15550001111"
+    ADELINE = "+15550002222"
+
+    fake_conversations = {
+        "data": [
+            {
+                "id": "CN-group",
+                "participants": [AIDAN, ADELINE],
+                "lastActivityAt": "2026-05-05T21:39:47Z",
+                "lastActivityId": "ACgroupmsg",
+                "snoozedUntil": None,
+            },
+        ],
+        "nextPageToken": None,
+    }
+    fake_group_msg = {
+        "data": {
+            "id": "ACgroupmsg",
+            "createdAt": "2026-05-05T21:39:47Z",
+            "from": ADELINE,
+            "to": ["+14129101989", AIDAN],
+            "text": "Confirmed!",
+            "direction": "incoming",
+        }
+    }
+
+    async def fake_get(url, params=None):
+        resp = AsyncMock()
+        resp.raise_for_status = lambda: None
+        if url == "/v1/conversations":
+            resp.json = lambda: fake_conversations
+        elif url == "/v1/messages":
+            resp.json = lambda: {"data": []}
+        elif url == "/v1/calls":
+            resp.json = lambda: {"data": []}
+        elif url == "/v1/messages/ACgroupmsg":
+            resp.json = lambda: fake_group_msg
+        elif url == "/v1/calls/ACgroupmsg":
+            import httpx as _httpx
+            def _raise():
+                raise _httpx.HTTPError("not a call")
+            resp.raise_for_status = _raise
+        return resp
+
+    fake_client = AsyncMock()
+    fake_client.get = fake_get
+    fake_client.__aenter__.return_value = fake_client
+    fake_client.__aexit__.return_value = None
+
+    with (
+        patch("sernia_mcp.core.quo.contacts.build_quo_client", return_value=fake_client),
+        patch(
+            "sernia_mcp.core.quo.contacts.get_all_contacts",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        forward = await get_thread_messages_core([AIDAN, ADELINE], max_results=3)
+        reverse = await get_thread_messages_core([ADELINE, AIDAN], max_results=3)
+        duped = await get_thread_messages_core(
+            [AIDAN, ADELINE, AIDAN], max_results=3,
+        )
+
+    assert forward == reverse, "group output must not depend on input order"
+    assert forward == duped, "duplicate input phones must be deduped"
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_group_uses_last_activity_id():
+    """A multi-participant conversation must build its snippet from
+    ``lastActivityId`` (probing both /v1/messages/{id} and /v1/calls/{id}),
+    not from a per-participant fetch (which would silently return the wrong
+    1:1 thread)."""
+    from sernia_mcp.core.quo.contacts import list_active_threads_core
+
+    AIDAN = "+15550001111"
+    ADELINE = "+15550002222"
+
+    fake_conversations = {
+        "data": [
+            {
+                "id": "CN-group",
+                "participants": [AIDAN, ADELINE],
+                "lastActivityAt": "2026-05-05T21:39:47Z",
+                "lastActivityId": "ACgroupmsg",
+                "snoozedUntil": None,
+            },
+        ],
+        "nextPageToken": None,
+    }
+    fake_group_msg = {
+        "data": {
+            "id": "ACgroupmsg",
+            "createdAt": "2026-05-05T21:39:47Z",
+            "from": ADELINE,
+            "to": ["+14129101989", AIDAN],
+            "text": "Confirmed!",
+            "direction": "incoming",
+        }
+    }
+
+    per_participant_calls: list[str] = []
+
+    async def fake_get(url, params=None):
+        resp = AsyncMock()
+        resp.raise_for_status = lambda: None
+        if url == "/v1/conversations":
+            resp.json = lambda: fake_conversations
+        elif url == "/v1/messages":
+            # Per-participant fetches must NOT be used for group threads.
+            # Track and assert we never fall back to them.
+            per_participant_calls.append(str((params or {}).get("participants")))
+            resp.json = lambda: {"data": []}
+        elif url == "/v1/calls":
+            per_participant_calls.append(str((params or {}).get("participants")))
+            resp.json = lambda: {"data": []}
+        elif url == "/v1/messages/ACgroupmsg":
+            resp.json = lambda: fake_group_msg
+        elif url == "/v1/calls/ACgroupmsg":
+            import httpx as _httpx
+            def _raise():
+                raise _httpx.HTTPError("not a call")
+            resp.raise_for_status = _raise
+        return resp
+
+    fake_client = AsyncMock()
+    fake_client.get = fake_get
+    fake_client.__aenter__.return_value = fake_client
+    fake_client.__aexit__.return_value = None
+
+    with (
+        patch("sernia_mcp.core.quo.contacts.build_quo_client", return_value=fake_client),
+        patch(
+            "sernia_mcp.core.quo.contacts.get_all_contacts",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        result = await list_active_threads_core(max_results=20)
+
+    # The snippet must come from the group activity, not a 1:1 fallback.
+    assert "Confirmed!" in result, result
+    # And no per-participant fetch should have been issued for the group conv.
+    assert per_participant_calls == [], per_participant_calls
+
+
+@pytest.mark.asyncio
 async def test_get_thread_messages_empty_returns_friendly():
     """No messages and no calls → friendly empty message."""
     from sernia_mcp.core.quo.contacts import get_thread_messages_core
