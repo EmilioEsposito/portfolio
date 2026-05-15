@@ -20,7 +20,12 @@
       "minimatch@>=9.0.0 <9.0.6": ">=9.0.6",
       "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
       "ajv@>=7.0.0-alpha.0 <8.18.0": ">=8.18.0"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@clerk/shared",
+      "esbuild",
+      "msw"
+    ]
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
