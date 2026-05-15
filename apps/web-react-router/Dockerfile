@@ -1,8 +1,8 @@
 # Build context is repo root (not apps/web-react-router)
 # Uses workspace lockfile for single source of truth
 
-FROM node:20-alpine AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+FROM node:22-alpine AS base
+RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps

@@ -29,6 +29,8 @@ echo "Project directory: $PROJECT_DIR"
 # =============================================================================
 echo ""
 echo "--- Starting pnpm install in background ---"
+# Enable corepack to use packageManager from package.json
+corepack enable
 pnpm install > /tmp/pnpm_install.log 2>&1 &
 PNPM_PID=$!
 
