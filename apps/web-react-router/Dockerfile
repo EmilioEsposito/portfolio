@@ -13,6 +13,7 @@ RUN pnpm install --filter web-react-router
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/web-react-router/node_modules ./apps/web-react-router/node_modules
+COPY pnpm-workspace.yaml package.json ./
 COPY apps/web-react-router ./apps/web-react-router
 WORKDIR /app/apps/web-react-router
 RUN pnpm run build
@@ -20,7 +21,8 @@ RUN pnpm run build
 FROM base
 WORKDIR /app
 # Copy root package.json for pnpm config, .npmrc for build settings, app package.json for deps
-COPY package.json pnpm-lock.yaml .npmrc ./
+# pnpm-workspace.yaml needed for allowBuilds config
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 WORKDIR /app/apps/web-react-router
 RUN pnpm install --prod --ignore-scripts
