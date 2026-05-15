@@ -8,8 +8,7 @@ BRANCH_ID=$(echo "$INPUT" | jq -r '.tool_input.branchId // empty')
 
 # Always destructive - require confirmation regardless of branch
 if [[ "$TOOL_NAME" == *"delete_branch"* ]] || \
-   [[ "$TOOL_NAME" == *"delete_project"* ]] || \
-   [[ "$TOOL_NAME" == *"reset_from_parent"* ]]; then
+   [[ "$TOOL_NAME" == *"delete_project"* ]]; then
   echo '{"decision":"ask","reason":"Destructive Neon operation - requires confirmation"}'
   exit 0
 fi

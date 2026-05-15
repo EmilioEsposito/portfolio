@@ -141,15 +141,6 @@
         ]
       },
       {
-        "matcher": "mcp__Neon__reset_from_parent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
         "matcher": "mcp__Neon__complete_database_migration",
         "hooks": [
           {
