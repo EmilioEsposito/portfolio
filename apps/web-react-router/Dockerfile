@@ -6,7 +6,7 @@ RUN corepack enable
 WORKDIR /app
 
 FROM base AS deps
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 RUN pnpm install --filter web-react-router
 
@@ -19,11 +19,11 @@ RUN pnpm run build
 
 FROM base
 WORKDIR /app
-# Copy root package.json for pnpm config (onlyBuiltDependencies), app package.json for deps
-COPY package.json pnpm-lock.yaml ./
+# Copy root package.json for pnpm config, .npmrc for build settings, app package.json for deps
+COPY package.json pnpm-lock.yaml .npmrc ./
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 WORKDIR /app/apps/web-react-router
-RUN pnpm install --prod
+RUN pnpm install --prod --ignore-scripts
 COPY --from=build /app/apps/web-react-router/build ./build
 COPY apps/web-react-router/server.js ./server.js
 ENV PORT=5173
