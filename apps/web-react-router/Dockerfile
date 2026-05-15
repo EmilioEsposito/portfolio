@@ -19,7 +19,10 @@ RUN pnpm run build
 
 FROM base
 WORKDIR /app
-COPY apps/web-react-router/package.json pnpm-lock.yaml ./
+# Copy root package.json for pnpm config (onlyBuiltDependencies), app package.json for deps
+COPY package.json pnpm-lock.yaml ./
+COPY apps/web-react-router/package.json ./apps/web-react-router/
+WORKDIR /app/apps/web-react-router
 RUN pnpm install --prod
 COPY --from=build /app/apps/web-react-router/build ./build
 COPY apps/web-react-router/server.js ./server.js
