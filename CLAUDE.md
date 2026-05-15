@@ -35,7 +35,7 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 3. Runs database migrations (`alembic upgrade head`)
 4. Seeds the database
 5. Installs pnpm dependencies and builds React Router app
-6. Bridges `RAILWAY_MCP_TOKEN` → `RAILWAY_API_TOKEN` and pre-links the portfolio project to `production/fastapi` so Railway MCP tools (`get-logs`, `list-deployments`, etc.) work on first try. Switch envs/services with the `link-environment` / `link-service` MCP tools.
+6. Bridges `RAILWAY_MCP_TOKEN` → `RAILWAY_API_TOKEN` and pre-links the portfolio project to `development/fastapi` (not production - safer default). Switch envs/services with the `link-environment` / `link-service` MCP tools. **PR environments:** Named `portfolio-pr-<number>` (e.g., `portfolio-pr-248`). List all with `railway environment list --json`.
 
 **Verification**: Check `/tmp/.claude_remote_setup_ran` exists to confirm the hook ran.
 
@@ -47,6 +47,8 @@ pnpm dev-with-fastapi # Both
 ```
 
 **Expected warnings**: Logfire API unreachable (proxy restrictions) - non-blocking.
+
+**Production Protection**: PreToolUse hooks in `.claude/hooks/` guard Railway and Neon operations. Philosophy: protect production, allow development freely. See [`.claude/hooks/README.md`](.claude/hooks/README.md) for details.
 
 ### Local CLI Development
 
@@ -79,7 +81,8 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 /
 ├── .claude/                   # Claude Code hooks and settings
 │   ├── settings.json          # Permissions, hooks config
-│   └── setup_remote.sh        # Session-start hook script
+│   ├── setup_remote.sh        # Session-start hook script
+│   └── hooks/                 # PreToolUse guards for Railway/Neon
 ├── api/                       # FastAPI Backend
 │   ├── index.py               # Main app entry
 │   └── src/
@@ -158,6 +161,9 @@ cd api && uv run alembic revision --autogenerate -m "description"
 
 # Add Shadcn component
 cd apps/web-react-router && pnpm dlx @shadcn/ui@latest add <component>
+
+# Approve build scripts for new packages (pnpm 11+)
+pnpm approve-builds <package-name>  # Updates pnpm-workspace.yaml allowBuilds
 ```
 
 ### Testing Conventions

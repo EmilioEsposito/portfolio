@@ -469,22 +469,28 @@ async def _fetch_latest_call(
 async def _fetch_message_by_id(
     client: httpx.AsyncClient, activity_id: str,
 ) -> dict | None:
-    try:
-        resp = await client.get(f"/v1/messages/{activity_id}")
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return None
+    # Suppress instrumentation: this is a probe call that may return 404/400
+    # when the ID is a call, not a message. Expected failures shouldn't log.
+    with logfire.suppress_instrumentation():
+        try:
+            resp = await client.get(f"/v1/messages/{activity_id}")
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
     return resp.json().get("data")
 
 
 async def _fetch_call_by_id(
     client: httpx.AsyncClient, activity_id: str,
 ) -> dict | None:
-    try:
-        resp = await client.get(f"/v1/calls/{activity_id}")
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return None
+    # Suppress instrumentation: this is a probe call that may return 404/400
+    # when the ID is a message, not a call. Expected failures shouldn't log.
+    with logfire.suppress_instrumentation():
+        try:
+            resp = await client.get(f"/v1/calls/{activity_id}")
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
     return resp.json().get("data")
 
 
@@ -1087,28 +1093,37 @@ async def get_call_details_impl(
     import asyncio
 
     async def _fetch_call() -> dict | None:
-        try:
-            resp = await client.get(f"/v1/calls/{call_id}")
-            resp.raise_for_status()
-            return resp.json().get("data")
-        except httpx.HTTPError:
-            return None
+        # Suppress instrumentation: may return 404/400 for invalid call IDs
+        # or when the agent passes a message ID by mistake.
+        with logfire.suppress_instrumentation():
+            try:
+                resp = await client.get(f"/v1/calls/{call_id}")
+                resp.raise_for_status()
+                return resp.json().get("data")
+            except httpx.HTTPError:
+                return None
 
     async def _fetch_summary() -> dict | None:
-        try:
-            resp = await client.get(f"/v1/call-summaries/{call_id}")
-            resp.raise_for_status()
-            return resp.json().get("data")
-        except httpx.HTTPError:
-            return None
+        # Suppress instrumentation: summary may not exist yet (Quo generates
+        # it async) — 404/400 is expected for recent or short calls.
+        with logfire.suppress_instrumentation():
+            try:
+                resp = await client.get(f"/v1/call-summaries/{call_id}")
+                resp.raise_for_status()
+                return resp.json().get("data")
+            except httpx.HTTPError:
+                return None
 
     async def _fetch_transcript() -> dict | None:
-        try:
-            resp = await client.get(f"/v1/call-transcripts/{call_id}")
-            resp.raise_for_status()
-            return resp.json().get("data")
-        except httpx.HTTPError:
-            return None
+        # Suppress instrumentation: transcript may not exist yet (Quo generates
+        # it async) — 404/400 is expected for recent or short calls.
+        with logfire.suppress_instrumentation():
+            try:
+                resp = await client.get(f"/v1/call-transcripts/{call_id}")
+                resp.raise_for_status()
+                return resp.json().get("data")
+            except httpx.HTTPError:
+                return None
 
     call, summary, transcript = await asyncio.gather(
         _fetch_call(), _fetch_summary(), _fetch_transcript(),

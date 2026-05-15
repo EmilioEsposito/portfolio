@@ -54,6 +54,7 @@
       "mcp__Railway__list-deployments",
       "mcp__Railway__list-variables",
       "mcp__Railway__get-logs",
+      "mcp__Railway__link-environment",
       "mcp__cloudflare-dns",
       "mcp__cloudflare-docs",
       "mcp__claude-in-chrome",
@@ -72,7 +73,6 @@
       "mcp__Railway__create-environment",
       "mcp__Railway__generate-domain",
       "mcp__Railway__set-variables",
-      "mcp__Railway__link-environment",
       "mcp__Railway__link-service"
     ]
   },
@@ -90,6 +90,71 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/setup_remote.sh",
             "timeout": 60000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__Railway__link-environment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/railway-link-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__delete_branch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__delete_project",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__run_sql",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__run_sql_transaction",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__complete_database_migration",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__complete_query_tuning",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
           }
         ]
       }
