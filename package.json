@@ -2,7 +2,7 @@
   "name": "portfolio-monorepo",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.1.2",
+  "packageManager": "pnpm@11.1.2+sha512.415a1cc25974731e75455c1468371be74c5aa5fb7621b50d4056d222451609f11412f23fd602e6169f1e060466641f798597e1be961a10688836a67b16569499",
   "scripts": {
     "reinstall": "rm -rf node_modules && rm -rf pnpm-lock.yaml && rm -rf apps/web-react-router/node_modules && rm -rf apps/my-expo-app/node_modules && pnpm install",
     "dev": "pnpm --filter web-react-router dev",
