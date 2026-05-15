@@ -102,14 +102,14 @@ if command -v railway &>/dev/null && [ -n "$RAILWAY_MCP_TOKEN" ]; then
   fi
   export RAILWAY_API_TOKEN="$RAILWAY_MCP_TOKEN"
 
-  # Pre-link to production/fastapi as a sensible default. MCP tools can switch
+  # Pre-link to development/fastapi as a sensible default. MCP tools can switch
   # to other envs/services via link-environment / link-service.
   if railway link \
     --project "$PORTFOLIO_PROJECT_ID" \
-    --environment production \
+    --environment development \
     --service fastapi \
     >/dev/null 2>&1; then
-    echo "Railway project pre-linked (portfolio / production / fastapi)"
+    echo "Railway project pre-linked (portfolio / development / fastapi)"
   else
     echo "WARNING: Railway pre-link failed — run 'railway link' manually if needed"
   fi
