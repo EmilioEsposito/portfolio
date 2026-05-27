@@ -164,8 +164,8 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
             else:
                 logfire.exception(f"OpenAI API call failed after {max_retries + 1} attempts: {e}")
 
-    # Default to NOT escalating on AI failure — the keyword fallback below
-    # catches obvious emergencies. False escalations cause alarm fatigue.
+    # Default to NOT escalating on AI failure.
+    # False escalations cause more harm (alarm fatigue) than missed ones.
     error_snippet = str(last_exception)[:100]
     return False, f"AI assessment failed: {error_snippet}"
 
@@ -218,13 +218,14 @@ async def analyze_for_twilio_escalation(
     except Exception as e:
         logfire.error(f"AI Error assessing for escalation: {e}")
 
-    if not should_escalate and any(
-        keyword in normalize_text_for_keyword_search(event_message_text)
-        for keyword in explicit_keywords
-    ):
-        should_escalate = True
-        reason = f"Keyword fallback escalation triggered for event_id={event_id}"
-        logfire.info(f"Explicit keyword escalation triggered. event_id={event_id} message_text={event_message_text}")
+    # Keyword fallback disabled — was too noisy with false positives
+    # if not should_escalate and any(
+    #     keyword in normalize_text_for_keyword_search(event_message_text)
+    #     for keyword in explicit_keywords
+    # ):
+    #     should_escalate = True
+    #     reason = f"Keyword fallback escalation triggered for event_id={event_id}"
+    #     logfire.info(f"Explicit keyword escalation triggered. event_id={event_id} message_text={event_message_text}")
 
     escalate_from_number = "+14129001989" 
     event_message_text = (
