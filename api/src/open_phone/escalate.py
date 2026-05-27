@@ -122,8 +122,8 @@ Please respond with a JSON object with the following fields:
 """
 
 
-async def ai_assess_for_escalation(open_phone_event: dict):
-    client = OpenAI()
+async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1):
+    client = OpenAI(timeout=30.0)
 
     class ShouldEscalate(BaseModel):
         should_escalate: bool
@@ -137,32 +137,37 @@ async def ai_assess_for_escalation(open_phone_event: dict):
     else:
         timestamp_et = timestamp
 
-    try:
-        response = client.responses.parse(
-            model="gpt-4o-mini",
-            input=[
-                {"role": "system", "content": ai_instructions},
-                {
-                    "role": "user",
-                    "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
-                },
-            ],
-            text_format=ShouldEscalate,
-        )
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.responses.parse(
+                model="gpt-4o-mini",
+                input=[
+                    {"role": "system", "content": ai_instructions},
+                    {
+                        "role": "user",
+                        "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
+                    },
+                ],
+                text_format=ShouldEscalate,
+            )
 
-        logfire.info(
-            f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
-        )
+            logfire.info(
+                f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
+            )
 
-        should_escalate = response.output_parsed.should_escalate
-        reason = response.output_parsed.reason
-    except Exception as e:
-        logfire.exception(f"OpenAI API call failed: {e}")
-        should_escalate = True
-        error_snippet = str(e)[:100]  # Keep first 100 chars for SMS
-        reason = f"OpenAI API call failure. Emilio to investigate. Error: {error_snippet}"
-    
-    return should_escalate, reason
+            return response.output_parsed.should_escalate, response.output_parsed.reason
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries:
+                logfire.warn(f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+            else:
+                logfire.exception(f"OpenAI API call failed after {max_retries + 1} attempts: {e}")
+
+    # Default to NOT escalating on AI failure — the keyword fallback below
+    # catches obvious emergencies. False escalations cause alarm fatigue.
+    error_snippet = str(last_exception)[:100]
+    return False, f"AI assessment failed: {error_snippet}"
 
 @logfire.instrument()
 async def analyze_for_twilio_escalation(
@@ -213,13 +218,13 @@ async def analyze_for_twilio_escalation(
     except Exception as e:
         logfire.error(f"AI Error assessing for escalation: {e}")
 
-    # # Check for explicit keywords in the message text, just in case the AI doesn't catch it
-    # if not should_escalate and any(
-    #     keyword in normalize_text_for_keyword_search(event_message_text)
-    #     for keyword in explicit_keywords
-    # ):
-    #     should_escalate = True
-    #     logger.info(f"Explicit keyword escalation triggered. \nevent_id={event_id}\nshould_escalate={should_escalate}\nmessage_text={event_message_text}")
+    if not should_escalate and any(
+        keyword in normalize_text_for_keyword_search(event_message_text)
+        for keyword in explicit_keywords
+    ):
+        should_escalate = True
+        reason = f"Keyword fallback escalation triggered for event_id={event_id}"
+        logfire.info(f"Explicit keyword escalation triggered. event_id={event_id} message_text={event_message_text}")
 
     escalate_from_number = "+14129001989" 
     event_message_text = (
