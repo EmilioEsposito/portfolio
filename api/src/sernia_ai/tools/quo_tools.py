@@ -1397,6 +1397,11 @@ async def _get_contact_by_id(client: httpx.AsyncClient, contact_id: str) -> dict
 # ---------------------------------------------------------------------------
 
 def _build_quo_client() -> httpx.AsyncClient:
+    # Shared rate-limited transport keeps the agent's bursty parallel reads
+    # (contact cache + per-conversation message/call fan-out) under OpenPhone's
+    # per-key rate limit. This client also backs the FastMCP-bridged tools.
+    from api.src.open_phone.rate_limit import build_rate_limited_transport
+
     api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
     if not api_key:
         logfire.warn("OPEN_PHONE_API_KEY not set — Quo tools will fail at runtime")
@@ -1404,6 +1409,7 @@ def _build_quo_client() -> httpx.AsyncClient:
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
         timeout=30,
+        transport=build_rate_limited_transport(),
     )
 
 
