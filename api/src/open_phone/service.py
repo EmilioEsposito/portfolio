@@ -24,12 +24,19 @@ _cache_ts: float = 0.0
 
 
 def _openphone_client() -> httpx.AsyncClient:
-    """Create a configured AsyncClient for the OpenPhone API."""
+    """Create a configured AsyncClient for the OpenPhone API.
+
+    Uses a shared rate-limited transport so bursts of parallel reads stay under
+    OpenPhone's per-key rate limit (see ``rate_limit.py``).
+    """
+    from api.src.open_phone.rate_limit import build_rate_limited_transport
+
     api_key = os.getenv("OPEN_PHONE_API_KEY", "")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
         timeout=15,
+        transport=build_rate_limited_transport(),
     )
 
 

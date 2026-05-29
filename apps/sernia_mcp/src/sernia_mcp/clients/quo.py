@@ -20,8 +20,12 @@ _cache_ts: float = 0.0
 def build_quo_client() -> httpx.AsyncClient:
     """Return a fresh AsyncClient for the OpenPhone API.
 
-    Use inside ``async with`` so connections close cleanly.
+    Use inside ``async with`` so connections close cleanly. The rate-limited
+    transport keeps bursty parallel reads under OpenPhone's per-key rate limit
+    (see ``rate_limit.py``).
     """
+    from sernia_mcp.clients.rate_limit import build_rate_limited_transport
+
     api_key = os.environ.get("QUO_API_KEY", "")
     if not api_key:
         logfire.warn("QUO_API_KEY not set — Quo tool calls will fail")
@@ -29,6 +33,7 @@ def build_quo_client() -> httpx.AsyncClient:
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
         timeout=30,
+        transport=build_rate_limited_transport(),
     )
 
 
