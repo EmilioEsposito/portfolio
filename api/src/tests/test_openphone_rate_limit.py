@@ -13,9 +13,27 @@ import pytest
 from api.src.open_phone.rate_limit import (
     MAX_RETRIES,
     RateLimitedTransport,
+    _level_for_status,
     _parse_retry_after,
     _TokenBucket,
 )
+
+
+@pytest.mark.parametrize(
+    "status, expected",
+    [
+        (200, None),
+        (202, None),
+        (404, "error"),
+        (429, "error"),  # only seen here when retries are exhausted
+        (500, "error"),
+        (503, "error"),
+    ],
+)
+def test_level_for_status(status, expected):
+    # A recovered 429 reaches this helper as its final 2xx status, so it maps
+    # to None (default/info) — no error-level span, no alert.
+    assert _level_for_status(status) == expected
 
 
 @pytest.mark.parametrize(
