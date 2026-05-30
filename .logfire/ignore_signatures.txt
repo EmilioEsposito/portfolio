@@ -1,0 +1,7 @@
+# Logfire signature suppression list (my "Ignored" state).
+# One signature substring per line. Matched case-insensitively as a plain
+# substring (NO regex) against "exception_type | service_name".
+# Lines starting with # and blank/whitespace-only lines are ignored.
+# Examples:
+#   KeyError | fastapi
+#   ConnectionResetError
