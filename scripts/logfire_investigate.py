@@ -5,12 +5,19 @@ Pull model only (no webhooks). Designed to run once per day from a GitHub
 Actions cron. On any given run it:
 
   1. Reads the stored watermark (``.logfire/last_run.txt``); defaults to now-24h.
-  2. Queries Logfire for exception rows newer than the watermark.
-  3. Groups rows by (exception_type, exception_message, service_name).
-  4. Drops groups whose "exception_type | service_name" matches an entry in
-     ``.logfire/ignore_signatures.txt`` (case-insensitive substring).
+  2. Runs every query in SOURCES against Logfire /v1/query (rows newer than the
+     watermark) and unions the results. SOURCES mirrors both the auto "Issues"
+     fingerprint stream AND my explicitly-defined SQL alerts, because the read
+     token cannot reach the OAuth2-only alerts management API to live-fetch them.
+  3. Groups rows by Logfire exception fingerprint (with a
+     type/service/span fallback for non-fingerprinted error-level records).
+  4. Drops groups matching an entry in ``.logfire/ignore_signatures.txt``
+     (case-insensitive substring vs type/service/label/fingerprint) -- this
+     stands in for Logfire's own "Ignored" issue state, which is not exposed
+     to read tokens via the API.
   5. If anything remains, fires the Claude Code routine EXACTLY ONCE with a
-     single batched payload, and only then advances the watermark.
+     single batched payload (an extra turn appended to the routine's session),
+     and only then advances the watermark.
 
 The watermark is advanced (and committed back by the workflow) ONLY when a
 routine was actually fired and the fire returned HTTP 200. No fire => no
@@ -47,24 +54,89 @@ MAX_SAMPLE_TRACES = 5
 LOOKBACK_HOURS = 24
 HTTP_TIMEOUT = 60
 
-# The WHERE condition below mirrors my existing Logfire SQL alert, MINUS the
-# time-interval clause (that part is handled here via min_timestamp + watermark).
-#   Original alert:
-#     ... AND service_name in ('fastapi','react-router','expo')
-#         AND exception_type != 'HTTPException'
-#         AND start_timestamp > now() - interval '10 minutes'
-ALERT_CONDITION = (
-    "service_name IN ('fastapi', 'react-router', 'expo') "
-    "AND exception_type != 'HTTPException'"
-)
+# --- Source queries ---------------------------------------------------------
+#
+# The Logfire MANAGEMENT API (alerts CRUD on api-us.pydantic.dev) is OAuth2
+# authorization-code only (scope `project:read_alert`). A Logfire READ token
+# (LOGFIRE_GHA_TOKEN, used by /v1/query) cannot call it, so we cannot live-fetch
+# alert SQL from the runner. Instead we mirror the relevant alert/issue WHERE
+# clauses here as editable source queries, all executed via /v1/query.
+#
+# This covers BOTH kinds of alert:
+#   B) the auto "Issues" stream  -> fingerprinted exceptions (no persistent
+#      alert id; backed by a hidden filter alert in Logfire).
+#   A) my explicitly-defined SQL alerts -> their exact WHERE clauses.
+#
+# To keep these in sync with Logfire, copy the alert's WHERE clause from the
+# Logfire UI (or `alert_get`) into the matching entry below. Each source's rows
+# are unified by fingerprint downstream, so an exception caught by more than one
+# source is reported once, not twice.
 
-SQL = (
-    "SELECT start_timestamp, trace_id, exception_type, exception_message, service_name\n"
-    "FROM records\n"
-    "WHERE is_exception = true\n"
-    f"  AND {ALERT_CONDITION}\n"
-    "ORDER BY start_timestamp"
-)
+# Every source SELECTs this common column set so grouping/dedup is uniform.
+# `fingerprint` is Logfire's own exception fingerprint (the same value that
+# powers Issues); `message` is the fallback label for error-level log records
+# that are not exceptions (these have no exception_type).
+COMMON_SELECT = """\
+SELECT
+    start_timestamp,
+    trace_id,
+    span_id,
+    exception_type,
+    exception_message,
+    message,
+    span_name,
+    service_name,
+    deployment_environment,
+    attributes->>'logfire.exception.fingerprint' AS fingerprint
+FROM records
+WHERE {where}
+ORDER BY start_timestamp"""
+
+# Reusable predicate: anything not from the local dev environment.
+NON_LOCAL = "(deployment_environment IS NULL OR deployment_environment != 'local')"
+
+SOURCES = [
+    {
+        # B) Mirrors Logfire's auto "Issues" saved search (fingerprinted
+        #    exceptions). New issues fire their own alerts in your settings;
+        #    this reproduces that population. `... IS NOT NULL` is used instead
+        #    of the jsonb `?` operator for /v1/query (DataFusion) portability.
+        "name": "issues-fingerprint-stream",
+        "where": (
+            "is_exception = true "
+            "AND attributes->>'logfire.exception.fingerprint' IS NOT NULL "
+            f"AND {NON_LOCAL}"
+        ),
+    },
+    {
+        # A) Mirrors the "Error-level records (non-local)" alert. Catches
+        #    error-level logs AND exceptions that Issues can miss (e.g.
+        #    subprocess failures logged via logfire.error).
+        "name": "error-level-records-non-local",
+        "where": (
+            "level >= 17 "
+            "AND service_name = 'fastapi' "
+            f"AND {NON_LOCAL} "
+            "AND span_name NOT LIKE '%POST api.anthropic.com%' "
+            "AND span_name NOT LIKE '%Run time of job%' "
+            "AND COALESCE(exception_type, '') != 'pydantic_ai.exceptions.ApprovalRequired' "
+            "AND NOT (span_name = 'INSERT neondb' AND message LIKE '%apscheduler_jobs%')"
+        ),
+    },
+    {
+        # A) Mirrors the "APScheduler startup failure" alert.
+        "name": "apscheduler-startup-failure",
+        "where": (
+            "span_name = 'APScheduler background startup failed: {e}' "
+            "AND is_exception = true "
+            f"AND {NON_LOCAL}"
+        ),
+    },
+]
+
+
+def build_sql(where: str) -> str:
+    return COMMON_SELECT.format(where=where)
 
 
 # --- Helpers ----------------------------------------------------------------
@@ -138,15 +210,25 @@ def load_ignore_patterns() -> list[str]:
 
 
 def is_ignored(group: dict, patterns: list[str]) -> bool:
-    signature = f"{group['exception_type']} | {group['service_name']}".lower()
-    return any(p in signature for p in patterns)
+    # Match against several facets so an ignore line can target a type, a
+    # service, a fingerprint, or a log message. Mirrors Logfire's own
+    # "Ignored" issue state, which the read token cannot read via the API.
+    haystack = " | ".join(
+        [
+            group.get("exception_type", ""),
+            group.get("service_name", ""),
+            group.get("label", ""),
+            group.get("fingerprint", ""),
+        ]
+    ).lower()
+    return any(p in haystack for p in patterns)
 
 
-def query_logfire(base: str, token: str, min_timestamp: str) -> list[dict]:
+def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[dict]:
     url = f"{base.rstrip('/')}/v1/query"
     headers = {"Authorization": f"Bearer {token}"}
     params = {
-        "sql": SQL,
+        "sql": sql,
         "min_timestamp": min_timestamp,
         "row_oriented": "true",
     }
@@ -156,6 +238,30 @@ def query_logfire(base: str, token: str, min_timestamp: str) -> list[dict]:
         log(resp.text[:2000])
         resp.raise_for_status()
     return extract_rows(resp.json())
+
+
+def collect_rows(base: str, token: str, min_timestamp: str) -> list[dict]:
+    """Run every source query and return the de-duplicated union of rows.
+
+    A single (trace_id, span_id) can be returned by more than one source
+    (e.g. a fingerprinted exception that is also an error-level record), so we
+    dedupe on that pair to avoid double-counting hits.
+    """
+    seen: set[tuple] = set()
+    merged: list[dict] = []
+    for source in SOURCES:
+        sql = build_sql(source["where"])
+        rows = query_logfire(base, token, sql, min_timestamp)
+        new = 0
+        for r in rows:
+            key = (r.get("trace_id"), r.get("span_id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(r)
+            new += 1
+        log(f"  source {source['name']}: {len(rows)} rows ({new} new)")
+    return merged
 
 
 def extract_rows(data) -> list[dict]:
@@ -176,22 +282,47 @@ def extract_rows(data) -> list[dict]:
     return []
 
 
+def signature_key(row: dict) -> tuple:
+    """Stable grouping key for a row.
+
+    Prefer Logfire's own exception fingerprint (the Issues identity). For
+    error-level log records that have no fingerprint, fall back to
+    (exception_type, service_name, span_name) so they still collapse sensibly.
+    """
+    fp = (row.get("fingerprint") or "").strip()
+    if fp:
+        return ("fp", fp)
+    return (
+        "fallback",
+        (row.get("exception_type") or "").strip(),
+        (row.get("service_name") or "").strip(),
+        (row.get("span_name") or "").strip(),
+    )
+
+
+def row_label(row: dict) -> str:
+    """Human label for a group: exception type, else the span/message."""
+    et = (row.get("exception_type") or "").strip()
+    if et:
+        return et
+    return (row.get("span_name") or row.get("message") or "error-level record").strip()
+
+
 def group_rows(rows: list[dict]) -> list[dict]:
-    """Group rows by (exception_type, exception_message, service_name)."""
+    """Group rows by Logfire fingerprint (with a type/service/span fallback)."""
     groups: dict[tuple, dict] = {}
     for r in rows:
-        et = (r.get("exception_type") or "").strip()
-        em = (r.get("exception_message") or "").strip()
-        sn = (r.get("service_name") or "").strip()
         ts = (r.get("start_timestamp") or "").strip()
         tid = (r.get("trace_id") or "").strip()
-        key = (et, em, sn)
+        key = signature_key(r)
         g = groups.get(key)
         if g is None:
             g = {
-                "exception_type": et,
-                "exception_message": em,
-                "service_name": sn,
+                "label": row_label(r),
+                "exception_type": (r.get("exception_type") or "").strip(),
+                "exception_message": (r.get("exception_message") or "").strip(),
+                "service_name": (r.get("service_name") or "").strip(),
+                "fingerprint": (r.get("fingerprint") or "").strip(),
                 "hits": 0,
                 "first_seen": ts,
                 "last_seen": ts,
@@ -224,11 +355,21 @@ def newest_timestamp(rows: list[dict]) -> str | None:
 
 
 def build_payload(groups: list[dict]) -> str:
-    lines = ["Investigate and address these Logfire alerts:", ""]
+    # The routine already holds the standing instructions server-side; this
+    # text is the extra turn appended to the session, so it is pure context.
+    lines = [
+        "New Logfire exceptions since the last run "
+        "(grouped by Logfire fingerprint; investigate each via its trace):",
+        "",
+    ]
     for i, g in enumerate(groups, 1):
+        svc = g["service_name"] or "unknown-service"
         traces = ", ".join(g["traces"][:MAX_SAMPLE_TRACES]) or "(none captured)"
-        lines.append(f"[{i}] {g['exception_type']} in {g['service_name']}")
-        lines.append(f"    message: {g['exception_message']}")
+        lines.append(f"[{i}] {g['label']} in {svc}")
+        if g["exception_message"]:
+            lines.append(f"    message: {g['exception_message']}")
+        if g["fingerprint"]:
+            lines.append(f"    fingerprint: {g['fingerprint']}")
         lines.append(
             f"    hits: {g['hits']}   first_seen: {g['first_seen']}"
             f"   last_seen: {g['last_seen']}"
@@ -289,13 +430,13 @@ def main() -> int:
     log(f"Dry run:        {dry_run}")
 
     try:
-        rows = query_logfire(base, read_token, watermark)
+        rows = collect_rows(base, read_token, watermark)
     except requests.RequestException as exc:
         log(f"ERROR: Logfire query failed: {exc}")
         set_output("fired", "0")
         return 1
 
-    log(f"Rows returned: {len(rows)}")
+    log(f"Total unique rows across sources: {len(rows)}")
 
     # New watermark candidate is computed across ALL returned rows (pre-filter).
     new_watermark = newest_timestamp(rows)

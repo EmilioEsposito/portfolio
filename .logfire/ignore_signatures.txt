@@ -1,7 +1,13 @@
 # Logfire signature suppression list (my "Ignored" state).
-# One signature substring per line. Matched case-insensitively as a plain
-# substring (NO regex) against "exception_type | service_name".
+#
+# The GHA read token cannot reach Logfire's issue-state API, so this file is the
+# git-tracked stand-in for marking a signature "Ignored". One substring per line.
+# Matched case-insensitively as a plain substring (NO regex) against a haystack
+# of: exception_type | service_name | label | fingerprint.
+#
 # Lines starting with # and blank/whitespace-only lines are ignored.
 # Examples:
-#   KeyError | fastapi
-#   ConnectionResetError
+#   httpx.ReadTimeout
+#   anyio.ClosedResourceError
+#   fastmcp.exceptions.ToolError
+#   204b29bd3c59243560a453f9fb2d5abf8a1293f94a18839d6bc0ab43702d213e
