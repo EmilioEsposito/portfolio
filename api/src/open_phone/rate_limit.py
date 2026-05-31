@@ -12,12 +12,26 @@ gracefully, e.g. dropping a thread snippet) but they:
      Logfire alert (pure noise — the agent run still succeeded), and
   2. Silently dropped data (missing snippets / thread history).
 
-The fix is to throttle *before* requests leave the process so we stay under
-the limit, plus a bounded ``Retry-After``-aware retry as a safety net for the
-rare residual 429. A single process-wide token bucket is shared across every
-OpenPhone client (the central service client, the agent's Quo client, and the
-FastMCP-bridged tools that reuse it) so concurrent agent runs can't collectively
-exceed the limit.
+The fix has two parts:
+
+  * **Throttle before requests leave the process.** A single process-wide token
+    bucket paces all OpenPhone traffic to stay under the limit. The bucket is
+    deliberately *low-burst* (small ``capacity``) so a fan-out of N parallel
+    requests can't all fire in the same instant and trip the limit — the
+    earlier version allowed an 8-request burst and still drew 429s.
+
+  * **One span per logical request, level set from the FINAL status.** httpx's
+    auto-instrumentation emits a span per transport attempt and flags any 4xx
+    at error level — so a 429 that we *successfully retried* still left an
+    error-level span behind and paged us. Instead, each inner attempt runs
+    under ``logfire.suppress_instrumentation()`` (no per-attempt span) and the
+    transport emits a single span whose level reflects the final outcome: a
+    recovered 429 → final 200 → info (no alert); a genuine 4xx/5xx (or a 429
+    that exhausts retries) → error, so real problems still page.
+
+A single process-wide bucket is shared across every OpenPhone client (the
+central service client, the agent's Quo client, and the FastMCP-bridged tools
+that reuse it) so concurrent agent runs can't collectively exceed the limit.
 
 Wire it up by passing ``transport=build_rate_limited_transport()`` when
 constructing the ``httpx.AsyncClient`` — see ``service._openphone_client`` and
@@ -30,13 +44,17 @@ import time
 import httpx
 import logfire
 
-# OpenPhone documents 10 req/s per API key. Stay safely under it to leave
-# headroom for clock skew, retries, and any traffic we don't route through
-# the bucket (e.g. one-off sends).
-MAX_REQUESTS_PER_SECOND = 8.0
+# OpenPhone documents 10 req/s per API key. Sustained pace, kept under the
+# limit with headroom for clock skew and traffic we don't route through the
+# bucket (e.g. one-off sends).
+MAX_REQUESTS_PER_SECOND = 6.0
 
-# Safety-net retries for the rare 429 that slips past the throttle. Kept small:
-# the token bucket is the real fix, retries just paper over jitter.
+# Max instantaneous burst. Small on purpose: with rate=6 and capacity=3 the
+# worst case in any one-second window is ~9 requests, safely under 10. A larger
+# capacity is what let the previous version trip the limit on fan-out.
+BURST_CAPACITY = 3.0
+
+# Safety-net retries for the rare 429 that slips past the throttle.
 MAX_RETRIES = 3
 
 # Fallback backoff (seconds) when the 429 response carries no ``Retry-After``
@@ -79,7 +97,7 @@ class _TokenBucket:
 
 
 # Process-wide bucket shared by every OpenPhone client.
-_bucket = _TokenBucket(MAX_REQUESTS_PER_SECOND, MAX_REQUESTS_PER_SECOND)
+_bucket = _TokenBucket(MAX_REQUESTS_PER_SECOND, BURST_CAPACITY)
 
 
 def _parse_retry_after(value: str | None) -> float | None:
@@ -96,45 +114,71 @@ def _parse_retry_after(value: str | None) -> float | None:
         return None
 
 
+def _level_for_status(status_code: int) -> str | None:
+    """Logfire level for a request's *final* status, or None for the default.
+
+    Mirrors httpx auto-instrumentation (4xx/5xx → error) but applies only to
+    the final outcome — so a 429 retried into a 2xx lands at the default
+    (info) level and doesn't trip the error-level alert, while genuine errors
+    (including a 429 that exhausts retries) still surface at error level.
+    """
+    if status_code >= 400:
+        return "error"
+    return None
+
+
 class RateLimitedTransport(httpx.AsyncBaseTransport):
     """httpx transport that paces requests through the shared token bucket and
     retries ``429`` responses with ``Retry-After``-aware backoff.
 
     Wraps a real ``AsyncHTTPTransport`` for connection pooling. Each request
     acquires a token before being sent, keeping aggregate throughput under the
-    OpenPhone limit regardless of how many tasks fan out concurrently.
+    OpenPhone limit regardless of how many tasks fan out concurrently. Per-
+    attempt httpx instrumentation is suppressed; the transport emits one span
+    per logical request whose level reflects the final status (see module doc).
     """
 
     def __init__(self, inner: httpx.AsyncBaseTransport | None = None) -> None:
         self._inner = inner if inner is not None else httpx.AsyncHTTPTransport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        method = request.method
+        url = str(request.url)
         response: httpx.Response | None = None
-        for attempt in range(MAX_RETRIES + 1):
-            await _bucket.acquire()
-            response = await self._inner.handle_async_request(request)
-            if response.status_code != 429 or attempt == MAX_RETRIES:
-                return response
+        attempts = 0
 
-            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-            delay = (
-                retry_after
-                if retry_after is not None
-                else min(BASE_BACKOFF * (2 ** attempt), MAX_BACKOFF)
-            )
-            # Discard the throttled response body before retrying.
-            await response.aclose()
-            logfire.debug(
-                "openphone 429 — retrying after {delay}s",
-                delay=delay,
-                attempt=attempt + 1,
-                max_retries=MAX_RETRIES,
-                url=str(request.url),
-            )
-            await asyncio.sleep(delay)
+        with logfire.span("{method} {url}", method=method, url=url, _span_name=method) as span:
+            for attempt in range(MAX_RETRIES + 1):
+                attempts += 1
+                await _bucket.acquire()
+                # Suppress per-attempt auto-instrumentation: a retried 429 would
+                # otherwise leave an error-level span behind and page us. We
+                # record one span (this context) for the logical request below.
+                with logfire.suppress_instrumentation():
+                    response = await self._inner.handle_async_request(request)
+                if response.status_code != 429 or attempt == MAX_RETRIES:
+                    break
 
-        # Unreachable in practice (loop always returns), but satisfies typing.
-        assert response is not None
+                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                delay = (
+                    retry_after
+                    if retry_after is not None
+                    else min(BASE_BACKOFF * (2 ** attempt), MAX_BACKOFF)
+                )
+                # Discard the throttled response body before retrying.
+                await response.aclose()
+                await asyncio.sleep(delay)
+
+            assert response is not None
+            span.set_attribute("http.method", method)
+            span.set_attribute("http.url", url)
+            span.set_attribute("http.status_code", response.status_code)
+            if attempts > 1:
+                span.set_attribute("openphone.attempts", attempts)
+            level = _level_for_status(response.status_code)
+            if level is not None:
+                span.set_level(level)
+
         return response
 
     async def aclose(self) -> None:
