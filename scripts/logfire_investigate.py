@@ -274,12 +274,12 @@ def main() -> int:
     dry_run = args.dry_run or env_dry
 
     base = os.environ.get("LOGFIRE_BASE") or LOGFIRE_BASE_DEFAULT
-    read_token = os.environ.get("LOGFIRE_READ_TOKEN")
+    read_token = os.environ.get("LOGFIRE_GHA_TOKEN")
     routine_token = os.environ.get("CC_ROUTINE_TOKEN")
     routine_id = os.environ.get("CC_ROUTINE_ID")
 
     if not read_token:
-        log("ERROR: LOGFIRE_READ_TOKEN is not set.")
+        log("ERROR: LOGFIRE_GHA_TOKEN is not set.")
         set_output("fired", "0")
         return 1
 

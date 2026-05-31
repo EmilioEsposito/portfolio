@@ -40,7 +40,7 @@ jobs:
         run: python scripts/logfire_investigate.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
         env:
           LOGFIRE_BASE: ${{ vars.LOGFIRE_BASE }}
-          LOGFIRE_READ_TOKEN: ${{ secrets.LOGFIRE_READ_TOKEN }}
+          LOGFIRE_GHA_TOKEN: ${{ secrets.LOGFIRE_GHA_TOKEN }}
           CC_ROUTINE_TOKEN: ${{ secrets.CC_ROUTINE_TOKEN }}
           CC_ROUTINE_ID: ${{ secrets.CC_ROUTINE_ID }}
 
