@@ -52,7 +52,7 @@ HISTORY_FILE = os.path.join(HERE, "history.log")
 
 MAX_PAYLOAD_CHARS = 60000  # well under the 65536 API ceiling
 MAX_SAMPLE_TRACES = 5
-LOOKBACK_HOURS = 24
+LOOKBACK_HOURS = 26
 HTTP_TIMEOUT = 60
 
 # --- Source queries ---------------------------------------------------------
