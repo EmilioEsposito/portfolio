@@ -210,10 +210,14 @@ def is_ignored(group: dict, patterns: list[str]) -> bool:
 def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[dict]:
     url = f"{base.rstrip('/')}/v1/query"
     headers = {"Authorization": f"Bearer {token}"}
+    # NOTE: the param is `json_rows` (not `row_oriented`); it makes the API
+    # return a top-level `rows` list of dicts. Without it the response is purely
+    # column-oriented ({"columns": [{"name", "values": [...]}]}) with no `rows`
+    # key. extract_rows() handles both shapes defensively regardless.
     params = {
         "sql": sql,
         "min_timestamp": min_timestamp,
-        "row_oriented": "true",
+        "json_rows": "true",
     }
     resp = requests.get(url, headers=headers, params=params, timeout=HTTP_TIMEOUT)
     if resp.status_code != 200:
@@ -244,24 +248,57 @@ def collect_rows(base: str, token: str, min_timestamp: str) -> list[dict]:
             merged.append(r)
             new += 1
         log(f"  source {source['name']}: {len(rows)} rows ({new} new)")
+        if rows:
+            # Sample the first row so a future regression in response parsing
+            # (or an unexpected schema) is obvious in the run log.
+            s = rows[0]
+            log(
+                f"      e.g. {s.get('start_timestamp')} "
+                f"{s.get('exception_type') or s.get('span_name')} "
+                f"[{s.get('service_name')}] trace={s.get('trace_id')}"
+            )
     return merged
 
 
 def extract_rows(data) -> list[dict]:
-    """Normalize a Logfire query response into a list of row dicts."""
+    """Normalize a Logfire /v1/query response into a list of row dicts.
+
+    Handles every shape the API has been observed to return:
+      1. {"rows": [{col: val, ...}, ...]}            (json_rows=true)
+      2. {"columns": [{"name", "values": [...]}, ...]} (default; values nested
+                                                        IN each column object --
+                                                        this is the real default
+                                                        and has NO top-level rows)
+      3. {"columns": [...], "rows": [[v, ...], ...]}  (column names + row arrays)
+      4. [ {col: val}, ... ]                          (bare list)
+    """
     if isinstance(data, list):
         return [r for r in data if isinstance(r, dict)]
-    if isinstance(data, dict):
-        rows = data.get("rows")
-        if not rows:
-            return []
-        if isinstance(rows[0], dict):  # row_oriented=true
-            return rows
-        # Column-oriented fallback.
-        cols = data.get("columns") or []
-        names = [c if isinstance(c, str) else c.get("name") for c in cols]
-        if names and isinstance(rows[0], (list, tuple)):
-            return [dict(zip(names, r)) for r in rows]
+    if not isinstance(data, dict):
+        return []
+
+    rows = data.get("rows")
+    cols = data.get("columns") or []
+    names = [c if isinstance(c, str) else c.get("name") for c in cols]
+
+    # Shape 1: rows already a list of dicts.
+    if rows and isinstance(rows[0], dict):
+        return rows
+
+    # Shape 3: rows as positional arrays + column names.
+    if rows and names and isinstance(rows[0], (list, tuple)):
+        return [dict(zip(names, r)) for r in rows]
+
+    # Shape 2: columnar with values embedded in each column object. This is the
+    # API default and MUST be handled, or every result silently becomes 0 rows.
+    if cols and all(isinstance(c, dict) and "values" in c for c in cols):
+        value_lists = [c.get("values") or [] for c in cols]
+        n = max((len(v) for v in value_lists), default=0)
+        return [
+            {name: (vals[i] if i < len(vals) else None) for name, vals in zip(names, value_lists)}
+            for i in range(n)
+        ]
+
     return []
 
 
