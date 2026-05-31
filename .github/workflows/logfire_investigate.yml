@@ -37,7 +37,7 @@ jobs:
 
       - name: Run Logfire investigate
         id: run
-        run: python scripts/logfire_investigate.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+        run: python .github/logfire-investigate/investigate.py ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
         env:
           LOGFIRE_BASE: ${{ vars.LOGFIRE_BASE }}
           LOGFIRE_GHA_TOKEN: ${{ secrets.LOGFIRE_GHA_TOKEN }}
@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .logfire/last_run.txt .logfire/history.log
+          git add .github/logfire-investigate/last_run.txt .github/logfire-investigate/history.log
           if git diff --cached --quiet; then
             echo "No watermark changes to commit"
             exit 0

@@ -4,14 +4,15 @@
 Pull model only (no webhooks). Designed to run once per day from a GitHub
 Actions cron. On any given run it:
 
-  1. Reads the stored watermark (``.logfire/last_run.txt``); defaults to now-24h.
+  1. Reads the stored watermark (``last_run.txt`` beside this script); defaults
+     to now-24h.
   2. Runs every query in SOURCES against Logfire /v1/query (rows newer than the
      watermark) and unions the results. SOURCES mirrors both the auto "Issues"
      fingerprint stream AND my explicitly-defined SQL alerts, because the read
      token cannot reach the OAuth2-only alerts management API to live-fetch them.
   3. Groups rows by Logfire exception fingerprint (with a
      type/service/span fallback for non-fingerprinted error-level records).
-  4. Drops groups matching an entry in ``.logfire/ignore_signatures.txt``
+  4. Drops groups matching an entry in ``ignore_signatures.txt``
      (case-insensitive substring vs type/service/label/fingerprint) -- this
      stands in for Logfire's own "Ignored" issue state, which is not exposed
      to read tokens via the API.
@@ -43,11 +44,11 @@ ANTHROPIC_FIRE_URL = (
 ANTHROPIC_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "experimental-cc-routine-2026-04-01"
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGFIRE_DIR = os.path.join(REPO_ROOT, ".logfire")
-WATERMARK_FILE = os.path.join(LOGFIRE_DIR, "last_run.txt")
-IGNORE_FILE = os.path.join(LOGFIRE_DIR, "ignore_signatures.txt")
-HISTORY_FILE = os.path.join(LOGFIRE_DIR, "history.log")
+# State files live alongside this script (self-contained GHA folder).
+HERE = os.path.dirname(os.path.abspath(__file__))
+WATERMARK_FILE = os.path.join(HERE, "last_run.txt")
+IGNORE_FILE = os.path.join(HERE, "ignore_signatures.txt")
+HISTORY_FILE = os.path.join(HERE, "history.log")
 
 MAX_PAYLOAD_CHARS = 60000  # well under the 65536 API ceiling
 MAX_SAMPLE_TRACES = 5
