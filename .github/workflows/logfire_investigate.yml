@@ -7,18 +7,18 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run: build and print the payload but do NOT fire the routine or advance the watermark"
+        description: "Dry run: build and print the payload but do NOT fire the routine"
         type: boolean
         default: false
 
-# Serialize runs so a manual run and the cron run can never clobber each
-# other's watermark commit.
+# Serialize runs so a manual run and the cron run never overlap (and so the
+# history.log commit below can't race itself).
 concurrency:
   group: logfire-investigate
   cancel-in-progress: false
 
 permissions:
-  contents: write # needed to commit the advanced watermark
+  contents: write # needed to commit the history.log audit entry
 
 jobs:
   investigate:
@@ -44,27 +44,27 @@ jobs:
           CC_ROUTINE_TOKEN: ${{ secrets.CC_ROUTINE_TOKEN }}
           CC_ROUTINE_ID: ${{ secrets.CC_ROUTINE_ID }}
 
-      - name: Commit advanced watermark
+      - name: Commit history.log audit entry
         if: steps.run.outputs.fired == '1'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/logfire-investigate/last_run.txt .github/logfire-investigate/history.log
+          git add .github/logfire-investigate/history.log
           if git diff --cached --quiet; then
-            echo "No watermark changes to commit"
+            echo "No history changes to commit"
             exit 0
           fi
-          git commit -m "chore(logfire): advance watermark after routine fire [skip ci]"
-          # Rebase on latest before pushing so concurrent runs don't clobber the
-          # watermark. Never force-push. Retry with exponential backoff.
+          git commit -m "chore(logfire): record routine fire in history.log [skip ci]"
+          # Rebase before pushing so a concurrent run can't clobber the log.
+          # Never force-push. Retry with exponential backoff.
           for attempt in 1 2 3 4; do
             if git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
-              echo "Watermark pushed."
+              echo "History pushed."
               exit 0
             fi
             echo "Push attempt ${attempt} failed; retrying..."
             sleep $((2 ** attempt))
           done
-          echo "Failed to push watermark after retries." >&2
+          echo "Failed to push history.log after retries." >&2
           exit 1

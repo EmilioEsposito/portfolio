@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Pull new Logfire exceptions and fire a Claude Code routine once per run.
+"""Pull recent Logfire exceptions and fire a Claude Code routine once per run.
 
 Pull model only (no webhooks). Designed to run once per day from a GitHub
 Actions cron. On any given run it:
 
-  1. Reads the stored watermark (``last_run.txt`` beside this script); defaults
-     to now-24h.
-  2. Runs every query in SOURCES against Logfire /v1/query (rows newer than the
-     watermark) and unions the results. SOURCES mirrors both the auto "Issues"
+  1. Computes a fixed lookback window: min_timestamp = now - LOOKBACK_HOURS
+     (default 28h = the daily cron period plus a safety buffer, so a slow/late
+     run can never skip past an event on the 24h boundary). No stored state.
+  2. Runs every query in SOURCES against Logfire /v1/query (rows within the
+     window) and unions the results. SOURCES mirrors both the auto "Issues"
      fingerprint stream AND my explicitly-defined SQL alerts, because the read
      token cannot reach the OAuth2-only alerts management API to live-fetch them.
   3. Groups rows by Logfire exception fingerprint (with a
@@ -15,21 +16,23 @@ Actions cron. On any given run it:
   4. Drops groups matching an entry in ``ignore_signatures.txt``
      (case-insensitive substring vs type/service/label/fingerprint) -- this
      stands in for Logfire's own "Ignored" issue state, which is not exposed
-     to read tokens via the API.
+     to read tokens via the API. This (not a watermark) is what suppresses
+     recurring/known noise.
   5. If anything remains, fires the Claude Code routine EXACTLY ONCE with a
-     single batched payload (an extra turn appended to the routine's session),
-     and only then advances the watermark.
+     single batched payload (an extra turn appended to the routine's session).
 
-The watermark is advanced (and committed back by the workflow) ONLY when a
-routine was actually fired and the fire returned HTTP 200. No fire => no
-watermark change => the same window is re-read next run.
+Why no watermark? Recurring errors emit new rows daily, so they would clear any
+watermark and fire anyway -- the watermark only avoided re-reading the *same*
+rows, at the cost of a fragile boundary and a commit-back-to-main step. A fixed
+lookback with a buffer is simpler and never misses a boundary event. The only
+persisted state is ``history.log`` (append-only audit of actual fires), which the
+workflow commits back when (and only when) a routine fired.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -46,13 +49,14 @@ ANTHROPIC_BETA = "experimental-cc-routine-2026-04-01"
 
 # State files live alongside this script (self-contained GHA folder).
 HERE = os.path.dirname(os.path.abspath(__file__))
-WATERMARK_FILE = os.path.join(HERE, "last_run.txt")
 IGNORE_FILE = os.path.join(HERE, "ignore_signatures.txt")
 HISTORY_FILE = os.path.join(HERE, "history.log")
 
 MAX_PAYLOAD_CHARS = 60000  # well under the 65536 API ceiling
 MAX_SAMPLE_TRACES = 5
-LOOKBACK_HOURS = 26
+# Daily cron period (24h) + 4h buffer so a late run never skips a boundary
+# event. Overridable via the LOOKBACK_HOURS env var.
+LOOKBACK_HOURS = 28
 HTTP_TIMEOUT = 60
 
 # --- Source queries ---------------------------------------------------------
@@ -156,35 +160,13 @@ def set_output(name: str, value: str) -> None:
         f.write(f"{name}={value}\n")
 
 
-def parse_ts(value: str):
-    """Best-effort parse of an ISO8601 timestamp into an aware datetime."""
-    if not value:
-        return None
-    s = value.strip()
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    # Python's fromisoformat tops out at microseconds; trim extra precision.
-    s = re.sub(r"(\.\d{6})\d+", r"\1", s)
+def window_start() -> str:
+    """Return the start of the lookback window (ISO8601 UTC). Stateless."""
     try:
-        dt = datetime.fromisoformat(s)
+        hours = float(os.environ.get("LOOKBACK_HOURS", "") or LOOKBACK_HOURS)
     except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def read_watermark() -> str:
-    """Return the stored watermark, or now-24h (ISO8601 UTC) if absent/empty."""
-    try:
-        with open(WATERMARK_FILE, encoding="utf-8") as f:
-            value = f.read().strip()
-    except FileNotFoundError:
-        value = ""
-    if value:
-        return value
-    default = datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS)
-    return default.isoformat()
+        hours = LOOKBACK_HOURS
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
 def load_ignore_patterns() -> list[str]:
@@ -342,24 +324,11 @@ def group_rows(rows: list[dict]) -> list[dict]:
     return list(groups.values())
 
 
-def newest_timestamp(rows: list[dict]) -> str | None:
-    """Return the raw start_timestamp string of the newest returned row."""
-    best_dt = None
-    best_raw = None
-    for r in rows:
-        raw = (r.get("start_timestamp") or "").strip()
-        dt = parse_ts(raw)
-        if dt and (best_dt is None or dt > best_dt):
-            best_dt = dt
-            best_raw = raw
-    return best_raw
-
-
-def build_payload(groups: list[dict]) -> str:
+def build_payload(groups: list[dict], window_hours: float) -> str:
     # The routine already holds the standing instructions server-side; this
     # text is the extra turn appended to the session, so it is pure context.
     lines = [
-        "New Logfire exceptions since the last run "
+        f"Logfire exceptions from the last {window_hours:g}h "
         "(grouped by Logfire fingerprint; investigate each via its trace):",
         "",
     ]
@@ -407,8 +376,8 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Do everything EXCEPT the fire POST and watermark write; just "
-        "print the payload that would be sent.",
+        help="Do everything EXCEPT the fire POST; just print the payload that "
+        "would be sent.",
     )
     args = parser.parse_args()
 
@@ -425,22 +394,20 @@ def main() -> int:
         set_output("fired", "0")
         return 1
 
-    watermark = read_watermark()
+    min_timestamp = window_start()
+    window_hours = (datetime.now(timezone.utc) - datetime.fromisoformat(min_timestamp)).total_seconds() / 3600
     log(f"Logfire base:   {base}")
-    log(f"Watermark (min_timestamp): {watermark}")
+    log(f"Window start (min_timestamp): {min_timestamp}  (~{window_hours:g}h lookback)")
     log(f"Dry run:        {dry_run}")
 
     try:
-        rows = collect_rows(base, read_token, watermark)
+        rows = collect_rows(base, read_token, min_timestamp)
     except requests.RequestException as exc:
         log(f"ERROR: Logfire query failed: {exc}")
         set_output("fired", "0")
         return 1
 
     log(f"Total unique rows across sources: {len(rows)}")
-
-    # New watermark candidate is computed across ALL returned rows (pre-filter).
-    new_watermark = newest_timestamp(rows)
 
     groups = group_rows(rows)
     patterns = load_ignore_patterns()
@@ -457,11 +424,11 @@ def main() -> int:
         return 0
 
     total_hits = sum(g["hits"] for g in groups)
-    payload = build_payload(groups)
+    payload = build_payload(groups, window_hours)
     log(f"Groups to report: {len(groups)}  total hits: {total_hits}")
 
     if dry_run:
-        log("DRY RUN - payload that WOULD be sent (not firing, not advancing watermark):")
+        log("DRY RUN - payload that WOULD be sent (not firing):")
         log("-" * 72)
         log(payload)
         log("-" * 72)
@@ -478,13 +445,6 @@ def main() -> int:
         body = resp.json()
         session_id = body.get("claude_code_session_id", "")
         session_url = body.get("claude_code_session_url", "")
-        # Advance the watermark only now that the fire succeeded.
-        if new_watermark:
-            with open(WATERMARK_FILE, "w", encoding="utf-8") as f:
-                f.write(new_watermark + "\n")
-            log(f"Advanced watermark -> {new_watermark}")
-        else:
-            log("WARN: no parseable timestamp in returned rows; watermark unchanged")
         now = datetime.now(timezone.utc).isoformat()
         append_history(
             f"{now}  fired  session={session_id}  groups={len(groups)}  hits={total_hits}"
