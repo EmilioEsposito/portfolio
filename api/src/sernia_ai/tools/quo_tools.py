@@ -430,18 +430,25 @@ async def _fetch_latest_message(
     client: httpx.AsyncClient, phone: str,
 ) -> dict | None:
     """Fetch the most recent SMS for a phone on the shared team line."""
-    try:
-        resp = await client.get(
-            "/v1/messages",
-            params={
-                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
-                "participants": phone,
-                "maxResults": "1",
-            },
-        )
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return None
+    # Suppress instrumentation: called concurrently for every active conversation
+    # via asyncio.gather. The burst of parallel requests periodically triggers
+    # OpenPhone 429s that the RateLimitedTransport retries successfully, but the
+    # intermediate 429 spans escape suppress_instrumentation() inside the transport
+    # and trip the error-level alert — pure noise since the tool run succeeds.
+    # Suppress here (before the OTEL httpx wrapper fires) to prevent that.
+    with logfire.suppress_instrumentation():
+        try:
+            resp = await client.get(
+                "/v1/messages",
+                params={
+                    "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                    "participants": phone,
+                    "maxResults": "1",
+                },
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
     msgs = resp.json().get("data", [])
     return msgs[0] if msgs else None
 
@@ -450,18 +457,21 @@ async def _fetch_latest_call(
     client: httpx.AsyncClient, phone: str,
 ) -> dict | None:
     """Fetch the most recent call for a phone on the shared team line."""
-    try:
-        resp = await client.get(
-            "/v1/calls",
-            params={
-                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
-                "participants": phone,
-                "maxResults": "1",
-            },
-        )
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return None
+    # Same rationale as _fetch_latest_message — suppress the fan-out spans to
+    # avoid false-positive error-level alerts from transient 429 retries.
+    with logfire.suppress_instrumentation():
+        try:
+            resp = await client.get(
+                "/v1/calls",
+                params={
+                    "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                    "participants": phone,
+                    "maxResults": "1",
+                },
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
     calls = resp.json().get("data", [])
     return calls[0] if calls else None
 
