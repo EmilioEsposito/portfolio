@@ -35,26 +35,49 @@ router = APIRouter(prefix="/gmail", tags=["gmail"])
 @router.get("/get_zillow_emails")
 async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
     """
-    Fetch 10 random email messages containing 'zillow' in the body HTML,
-    excluding daily listing emails.
+    Fetch 5 random Zillow inquiry emails, excluding daily listing emails.
+
+    Implemented as two cheap queries instead of one. A single query that
+    filters `body_html ILIKE '%zillow%'` across the whole table forces a
+    sequential scan that de-TOASTs every row's large `body_html`/payload
+    (~318 MB of buffers for ~10k rows). On a cold Neon compute that scan
+    exceeds the statement timeout (~10s) and the endpoint 500s.
+
+    Step 1 narrows to inquiry candidates using only the inline `subject`
+    column (no TOAST reads). Step 2 fetches those candidates by primary key
+    and applies the `body_html` filter, so only the candidate rows are
+    de-TOASTed (PK index scan, ~30 MB). A trigram index does not help here:
+    the planner under-costs TOAST reads and ignores it.
     """
     try:
-        # Construct the query
+        # Step 1: cheap candidate lookup on the inline `subject` column only.
+        candidate_ids = (
+            await session.execute(
+                select(EmailMessage.id).where(
+                    EmailMessage.subject.like('%is requesting%'),  # Only inquiries
+                    ~EmailMessage.subject.like('Re%'),  # is NOT a reply
+                )
+            )
+        ).scalars().all()
+
+        if not candidate_ids:
+            return []
+
+        # Step 2: fetch candidates by primary key and apply the body_html
+        # filter. The PK index scan de-TOASTs only the candidate rows.
         query = (
             select(EmailMessage)
             .where(
+                EmailMessage.id.in_(candidate_ids),
                 EmailMessage.body_html.ilike('%zillow%'),
-                EmailMessage.subject.like('%is requesting%'),  # Only inquiries
-                ~EmailMessage.subject.like('Re%')  # is NOT a reply
             )
             .order_by(func.random())
             .limit(5)
         )
-        
-        # Execute the query
+
         result = await session.execute(query)
         emails = result.scalars().all()
-        
+
         # Format the response to match frontend expectations
         return [
             {
@@ -66,12 +89,15 @@ async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
             }
             for email in emails
         ]
-    
+
     except Exception as e:
-        logfire.error(f"Error fetching Zillow emails: {str(e)}")
+        # Use logfire.exception so the real exception type/stacktrace is
+        # captured. The previous str(e) was empty for the timeout error,
+        # producing a blank "Failed to fetch Zillow emails: " message.
+        logfire.exception("Error fetching Zillow emails")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch Zillow emails: {str(e)}"
+            detail=f"Failed to fetch Zillow emails: {e!r}"
         )
 
 @router.post("/generate_email_response")
