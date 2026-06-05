@@ -298,6 +298,24 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                     await asyncio.sleep(wait_time)
                     wait_time *= 2  # Exponential backoff
                 continue
+            elif getattr(getattr(e, "resp", None), "status", None) == 404 or "notFound" in str(e):
+                # Expected, self-healing Gmail behavior: a startHistoryId that is too
+                # old (Gmail only retains ~1 week of history) returns HTTP 404
+                # "notFound". Per Google's docs the correct response is to perform a
+                # full sync, which happens automatically on the next notification with
+                # a fresh historyId. Log at warning (not error) so this expected,
+                # recoverable condition does not trip error-level alerts.
+                # https://developers.google.com/gmail/api/guides/sync#partial_synchronization
+                logfire.warn(
+                    f"History ID {history_id} expired (HTTP 404 notFound); skipping — "
+                    f"next notification will provide a fresh historyId. Detail: {str(e)}"
+                )
+                return {
+                    "status": "retry_needed",
+                    "email_message_ids": [],
+                    "added_message_ids": [],
+                    "reason": f"History ID expired (404 notFound): {str(e)}",
+                }
             else:
                 logfire.error(f"Failed to fetch history: {str(e)}")
                 return {
