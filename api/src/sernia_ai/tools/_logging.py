@@ -7,9 +7,20 @@ import logfire
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError
 from pydantic_ai.toolsets import WrapperToolset
+from pydantic_ai_filesystem_sandbox import SandboxError
 
 # PydanticAI control-flow exceptions that must propagate — never catch these.
 _PASSTHROUGH_EXCEPTIONS = (ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError)
+
+# Expected, model-recoverable tool errors. These are caused by the model's tool
+# *arguments* (e.g. an edit whose search text isn't in the file, a path outside
+# the sandbox, an oversized write), not by a system fault. The model sees the
+# returned error string and retries — exactly like a validation error. We log
+# them at warning level so they stay visible in traces without tripping the
+# error-level "Error-level records (non-local)" alert, which pages on genuine
+# failures. SandboxError is the base of all pydantic_ai_filesystem_sandbox
+# input/content errors (EditError, PathNotInSandboxError, FileTooLargeError, …).
+_RECOVERABLE_EXCEPTIONS = (SandboxError,)
 
 
 def log_tool_error(
@@ -17,19 +28,27 @@ def log_tool_error(
     error: Exception,
     *,
     conversation_id: str = "",
+    level: str = "error",
 ) -> None:
     """Log a tool error with full stack trace and structured fields.
 
-    Must be called inside an ``except`` block so ``logfire.exception()``
-    can capture ``exc_info`` automatically.
+    Must be called inside an ``except`` block so the stack trace is captured.
+
+    ``level`` is ``"error"`` for unexpected failures (trips the error-level
+    Logfire alert) or ``"warn"`` for expected, model-recoverable tool-input
+    errors (e.g. a sandbox ``EditError``) that should stay visible without
+    paging.
     """
-    logfire.exception(
-        "sernia tool error: {tool_name}",
+    fields = dict(
         tool_name=tool_name,
         error_type=type(error).__name__,
         error_message=str(error),
-        conversation_id=conversation_id
+        conversation_id=conversation_id,
     )
+    if level == "warn":
+        logfire.warn("sernia tool error: {tool_name}", _exc_info=error, **fields)
+    else:
+        logfire.exception("sernia tool error: {tool_name}", **fields)
 
 
 class ErrorLoggingToolset(WrapperToolset):
@@ -44,6 +63,11 @@ class ErrorLoggingToolset(WrapperToolset):
 
     PydanticAI control-flow exceptions (ApprovalRequired, ModelRetry, etc.)
     are always re-raised so the framework can handle them.
+
+    Expected, model-recoverable errors (``_RECOVERABLE_EXCEPTIONS`` — sandbox
+    file-tool errors like ``EditError``) are logged at warning level instead
+    of error: the model fixes its arguments and retries, so they shouldn't
+    page like a genuine failure. The returned error string is unchanged.
 
     The optional ``name`` kwarg labels the toolset for admin/debug surfaces
     (e.g. the Context tab). Pydantic-ai's stock ``label`` property bakes in
@@ -65,6 +89,10 @@ class ErrorLoggingToolset(WrapperToolset):
             return await super().call_tool(name, tool_args, ctx, tool)
         except _PASSTHROUGH_EXCEPTIONS:
             raise
+        except _RECOVERABLE_EXCEPTIONS as e:
+            conversation_id = getattr(ctx.deps, "conversation_id", "")
+            log_tool_error(name, e, conversation_id=conversation_id, level="warn")
+            return f"Error in {name}: {e}"
         except Exception as e:
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id)
