@@ -1,0 +1,18 @@
+{
+  "id": "3f8dc66d-a3d3-4f71-9fac-ec5fd30c2294",
+  "name": "Error-level records (non-local)",
+  "project": "portfolio",
+  "active": true,
+  "description": "Catches all error-level log records and exceptions from non-local environments. Includes logfire.error(), logfire.exception(), and unhandled exceptions — covers cases that Logfire Issues misses (like subprocess failures logged via logfire.error). Excludes: Anthropic API errors (retried automatically), APScheduler misfire warnings, HITL ApprovalRequired exceptions, and APScheduler job re-registration INSERT conflicts (expected on every deploy).",
+  "query": "SELECT\n    r.start_timestamp,\n    r.trace_id,\n    'https://logfire-us.pydantic.dev/espo412/portfolio'\n        || '?q=trace_id%3D%27' || r.trace_id || '%27'\n        AS trace_url,\n    r.span_name,\n    r.message,\n    r.is_exception,\n    r.exception_type,\n    r.deployment_environment\nFROM records AS r\nWHERE r.level >= 17\n  AND r.service_name = 'fastapi'\n  AND (r.deployment_environment IS NULL OR r.deployment_environment != 'local')\n  AND r.span_name NOT LIKE '%POST api.anthropic.com%'\n  AND r.span_name NOT LIKE '%Run time of job%'\n  AND COALESCE(r.exception_type, '') != 'pydantic_ai.exceptions.ApprovalRequired'\n  AND NOT (r.span_name = 'INSERT neondb' AND r.message LIKE '%apscheduler_jobs%')\nORDER BY r.start_timestamp DESC\nLIMIT 5",
+  "time_window": "PT10M",
+  "frequency": "PT5M",
+  "watermark": "PT1M",
+  "notify_when": "matches_changed",
+  "channels": [
+    {
+      "id": "2cfbbcf9-39a6-4851-ba51-416a1157c49f",
+      "label": "logfire-slack"
+    }
+  ]
+}

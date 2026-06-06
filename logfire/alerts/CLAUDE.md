@@ -23,6 +23,7 @@ One JSON file per alert, named after the alert (kebab-case). Fields mirror the
 |-------|-------|
 | `id` | Logfire alert UUID (from `alert_get`). |
 | `name`, `description` | Display name + rationale. |
+| `active` | Whether the alert is enabled in Logfire. |
 | `query` | SQL the alert evaluates; it fires based on whether rows are returned. |
 | `time_window` | ISO 8601 window the query scans (e.g. `PT15M`). |
 | `frequency` | How often it runs (e.g. `PT5M`). |
@@ -51,9 +52,18 @@ One JSON file per alert, named after the alert (kebab-case). Fields mirror the
 
 ## Current snapshots
 
+- `error-level-records-non-local.json` — **catch-all.** Fires on any error-level
+  record/exception (`level >= 17`) from a non-local environment, with a few
+  expected-noise exclusions (Anthropic retries, APScheduler misfires/re-register
+  conflicts, HITL `ApprovalRequired`). The primary "something broke" alert.
+- `apscheduler-startup-failure.json` — fires when APScheduler fails to start on a
+  non-local env, meaning all scheduled jobs (ClickUp reminders, Sernia scheduled
+  checks) are down and a redeploy is likely needed.
 - `sernia-recoverable-tool-error-loop.json` — fires when a single Sernia agent
   conversation logs >=3 recoverable tool errors (warn-level `SandboxError`
   family, e.g. `workspace_edit_file` `EditError`) within 15 min. Catches a run
   stuck retrying, which the single-occurrence warning downgrade in
   `api/src/sernia_ai/tools/_logging.py` (`ErrorLoggingToolset`) intentionally
-  keeps off the error-level "Error-level records (non-local)" alert.
+  keeps off the error-level catch-all above.
+- `chat-used.json` — **inactive.** Notifies when a chat endpoint flags a record
+  with `slack_alert=true`. Currently disabled (`active: false`).
