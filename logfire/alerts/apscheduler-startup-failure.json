@@ -1,0 +1,18 @@
+{
+  "id": "8b8d9f29-c401-4481-a011-ff41a6b0a499",
+  "name": "APScheduler startup failure",
+  "project": "portfolio",
+  "active": true,
+  "description": "Fires when APScheduler fails to start on any non-local environment. This means all scheduled jobs (ClickUp reminders, Sernia AI scheduled checks) are NOT running. A redeploy is likely needed.",
+  "query": "SELECT\n    r.start_timestamp,\n    r.trace_id,\n    'https://logfire-us.pydantic.dev/espo412/portfolio'\n        || '?q=trace_id%3D%27' || r.trace_id || '%27'\n        AS trace_url,\n    r.message,\n    r.exception_type,\n    r.deployment_environment\nFROM records AS r\nWHERE r.span_name = 'APScheduler background startup failed: {e}'\n  AND r.is_exception = true\n  AND (r.deployment_environment IS NULL OR r.deployment_environment != 'local')\nORDER BY r.start_timestamp DESC\nLIMIT 3",
+  "time_window": "PT30M",
+  "frequency": "PT5M",
+  "watermark": "PT1M",
+  "notify_when": "starts_having_matches",
+  "channels": [
+    {
+      "id": "2cfbbcf9-39a6-4851-ba51-416a1157c49f",
+      "label": "logfire-slack"
+    }
+  ]
+}

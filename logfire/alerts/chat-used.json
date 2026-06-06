@@ -1,0 +1,18 @@
+{
+  "id": "337e0d3f-ba8a-4b43-9178-bb27b3e1b7cb",
+  "name": "Chat Used!",
+  "project": "portfolio",
+  "active": false,
+  "description": "",
+  "query": "SELECT\n    r.trace_id,\n\n    'https://logfire-us.pydantic.dev/espo412/portfolio'\n        || '?q=trace_id%3D%27' || r.trace_id || '%27'\n        AS trace_url,\n\n    attributes->>'endpoint'      AS endpoint,\n    attributes->>'message_text'  AS message_text\n\nFROM records AS r\nWHERE (attributes->>'slack_alert')::BOOLEAN = TRUE\nORDER BY r.created_at DESC\nLIMIT 1;",
+  "time_window": "P1D",
+  "frequency": "PT5M",
+  "watermark": "PT10S",
+  "notify_when": "matches_changed",
+  "channels": [
+    {
+      "id": "2cfbbcf9-39a6-4851-ba51-416a1157c49f",
+      "label": "logfire-slack"
+    }
+  ]
+}
