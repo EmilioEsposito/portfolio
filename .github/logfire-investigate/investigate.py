@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -58,6 +59,12 @@ MAX_SAMPLE_TRACES = 5
 # event. Overridable via the LOOKBACK_HOURS env var.
 LOOKBACK_HOURS = 28
 HTTP_TIMEOUT = 60
+
+# Transient upstream errors (gateway/timeout) are common against the hosted
+# Logfire endpoint and should not fail the whole run. Retry these a few times
+# with exponential backoff before giving up.
+QUERY_MAX_ATTEMPTS = 4
+QUERY_RETRY_STATUSES = frozenset({502, 503, 504})
 
 # --- Source queries ---------------------------------------------------------
 #
@@ -219,12 +226,46 @@ def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[d
         "min_timestamp": min_timestamp,
         "json_rows": "true",
     }
-    resp = requests.get(url, headers=headers, params=params, timeout=HTTP_TIMEOUT)
-    if resp.status_code != 200:
+    last_exc: requests.RequestException | None = None
+    for attempt in range(1, QUERY_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(
+                url, headers=headers, params=params, timeout=HTTP_TIMEOUT
+            )
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            # Network-level blip (DNS/connect/read timeout): retry.
+            last_exc = exc
+            if attempt < QUERY_MAX_ATTEMPTS:
+                backoff = 2 ** attempt
+                log(f"Logfire query network error ({exc}); retry {attempt} in {backoff}s")
+                time.sleep(backoff)
+                continue
+            raise
+
+        if resp.status_code == 200:
+            return extract_rows(resp.json())
+
+        # Transient gateway/timeout statuses: back off and retry.
+        if resp.status_code in QUERY_RETRY_STATUSES and attempt < QUERY_MAX_ATTEMPTS:
+            backoff = 2 ** attempt
+            log(
+                f"Logfire query failed: HTTP {resp.status_code} "
+                f"(transient); retry {attempt} in {backoff}s"
+            )
+            log(resp.text[:500])
+            time.sleep(backoff)
+            continue
+
+        # Non-retryable status, or retries exhausted.
         log(f"Logfire query failed: HTTP {resp.status_code}")
         log(resp.text[:2000])
         resp.raise_for_status()
-    return extract_rows(resp.json())
+
+    # Only reached if the loop exhausted retries on network errors without
+    # re-raising (defensive; the raise above normally fires first).
+    if last_exc is not None:
+        raise last_exc
+    return []
 
 
 def collect_rows(base: str, token: str, min_timestamp: str) -> list[dict]:
