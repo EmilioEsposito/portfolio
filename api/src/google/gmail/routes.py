@@ -2,11 +2,13 @@
 FastAPI routes for Gmail-specific endpoints.
 """
 
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any, List
 import logfire
 from openai import AsyncOpenAI
 from sqlalchemy import select, func
+from sqlalchemy.orm import aliased
 from api.src.utils.dependencies import verify_cron_or_admin
 from api.src.database.database import DBSession
 from api.src.google.gmail.service import (
@@ -39,18 +41,33 @@ async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
     excluding daily listing emails.
     """
     try:
-        # Construct the query
-        query = (
+        # Pre-filter to a small, bounded subset BEFORE randomizing. ORDER BY
+        # random() forces a full sort of every matching row, so running it over
+        # the entire (leading-wildcard ILIKE) match set caused query timeouts as
+        # email_messages grew. Instead, take the 500 most recent matching
+        # inquiries from the trailing year, then randomize within that subset.
+        one_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
+
+        prefiltered = (
             select(EmailMessage)
             .where(
                 EmailMessage.body_html.ilike('%zillow%'),
                 EmailMessage.subject.like('%is requesting%'),  # Only inquiries
-                ~EmailMessage.subject.like('Re%')  # is NOT a reply
+                ~EmailMessage.subject.like('Re%'),  # is NOT a reply
+                EmailMessage.received_date >= one_year_ago,
             )
+            .order_by(EmailMessage.received_date.desc())
+            .limit(500)
+            .subquery()
+        )
+
+        recent_email = aliased(EmailMessage, prefiltered)
+        query = (
+            select(recent_email)
             .order_by(func.random())
             .limit(5)
         )
-        
+
         # Execute the query
         result = await session.execute(query)
         emails = result.scalars().all()
