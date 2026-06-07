@@ -518,7 +518,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                                     CalendarAttendee(email="jackie@serniacapital.com"),
                                 ],
                                 reminders=[
-                                    CalendarReminder(method=ReminderMethod.EMAIL, minutes=24 * 60),
+                                    CalendarReminder(method=ReminderMethod.POPUP, minutes=24 * 60),
                                     CalendarReminder(method=ReminderMethod.POPUP, minutes=120),
                                 ],
                             )
