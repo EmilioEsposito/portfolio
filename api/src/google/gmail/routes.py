@@ -68,10 +68,16 @@ async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
         ]
     
     except Exception as e:
-        logfire.error(f"Error fetching Zillow emails: {str(e)}")
+        # Some exceptions (e.g. asyncpg TimeoutError on a slow query) have an
+        # empty str(), which previously rendered as a blank, undiagnosable
+        # "Failed to fetch Zillow emails: ". Fall back to repr() so the
+        # exception type is always captured. logfire.exception also attaches
+        # the active traceback.
+        error_detail = str(e) or repr(e)
+        logfire.exception(f"Error fetching Zillow emails: {error_detail}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch Zillow emails: {str(e)}"
+            detail=f"Failed to fetch Zillow emails: {error_detail}"
         )
 
 @router.post("/generate_email_response")
