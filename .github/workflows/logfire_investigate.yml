@@ -2,8 +2,10 @@ name: logfire-investigate
 
 on:
   schedule:
-    # ~09:00 ET (adjust later). Runs once per day.
-    - cron: "0 13 * * *"
+    # Runs twice per day. Times are UTC; ET equivalents assume EDT (UTC-4)
+    # and will shift by an hour during EST — that's acceptable.
+    - cron: "0 13 * * *"   # ~09:00 ET
+    - cron: "30 22 * * *"  # ~18:30 ET (6:30pm)
   workflow_dispatch:
     inputs:
       dry_run:
