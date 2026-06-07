@@ -37,8 +37,10 @@ class CalendarReminder(BaseModel):
     minutes: int = Field(description="Minutes before the event to trigger the reminder.")
 
 
+# Reminders are push-only (popup). We intentionally avoid email reminders so
+# calendar invites only generate push notifications, not emails.
 DEFAULT_REMINDERS = [
-    CalendarReminder(method=ReminderMethod.EMAIL, minutes=24 * 60),
+    CalendarReminder(method=ReminderMethod.POPUP, minutes=24 * 60),
     CalendarReminder(method=ReminderMethod.POPUP, minutes=60),
 ]
 
@@ -71,7 +73,7 @@ class CalendarEventInput(BaseModel):
     )
     reminders: list[CalendarReminder] | None = Field(
         default=None,
-        description="Custom reminders. Defaults to email 1 day before + popup 1 hour before.",
+        description="Custom reminders. Defaults to push (popup) 1 day before + 1 hour before. Use popup, not email.",
     )
     guests_can_see_other_guests: bool = Field(
         default=True,

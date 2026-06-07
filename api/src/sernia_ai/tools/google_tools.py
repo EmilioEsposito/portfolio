@@ -760,7 +760,7 @@ async def create_calendar_event(
     """Create a Google Calendar event. Requires approval if any attendee is external.
 
     Always include all attendees explicitly — no one is auto-added.
-    Reminders default to email 1 day before + popup 1 hour before.
+    Reminders default to push (popup) 1 day before + 1 hour before (never email).
     Default timezone is US/Eastern.
     """
     if _has_external_attendee(event.attendees) and not ctx.tool_call_approved:
