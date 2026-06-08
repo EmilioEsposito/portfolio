@@ -167,6 +167,27 @@ def set_output(name: str, value: str) -> None:
         f.write(f"{name}={value}\n")
 
 
+def write_summary(session_url: str, session_id: str, groups: int, hits: int) -> None:
+    """Append a Markdown blurb (with the clickable Claude session link) to the
+    GitHub Actions run summary, so the session is one click from the run page
+    instead of buried in step logs. No-op outside Actions / defensive on error."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = ["### Logfire investigate — routine fired", ""]
+    if session_url:
+        lines.append(f"**Claude session:** [{session_url}]({session_url})")
+    elif session_id:
+        lines.append(f"**Claude session id:** `{session_id}`")
+    lines.append("")
+    lines.append(f"Reported **{groups}** group(s), **{hits}** total hit(s).")
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError as exc:  # pragma: no cover - defensive
+        log(f"WARN: could not write step summary ({exc})")
+
+
 def window_start() -> str:
     """Return the start of the lookback window (ISO8601 UTC). Stateless."""
     try:
@@ -523,12 +544,18 @@ def main() -> int:
         body = resp.json()
         session_id = body.get("claude_code_session_id", "")
         session_url = body.get("claude_code_session_url", "")
+        # Fall back to constructing the URL from the id if the API omits it.
+        if not session_url and session_id:
+            session_url = f"https://claude.ai/code/{session_id}"
         now = datetime.now(timezone.utc).isoformat()
         append_history(
             f"{now}  fired  session={session_id}  groups={len(groups)}  hits={total_hits}"
         )
         log(f"Fired routine. Session: {session_url}")
         set_output("fired", "1")
+        set_output("session_id", session_id)
+        set_output("session_url", session_url)
+        write_summary(session_url, session_id, len(groups), total_hits)
         return 0
 
     log(f"ERROR: routine fire failed: HTTP {resp.status_code}")

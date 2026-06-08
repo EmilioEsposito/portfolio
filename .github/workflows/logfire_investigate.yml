@@ -46,6 +46,12 @@ jobs:
           CC_ROUTINE_TOKEN: ${{ secrets.CC_ROUTINE_TOKEN }}
           CC_ROUTINE_ID: ${{ secrets.CC_ROUTINE_ID }}
 
+      - name: Show Claude session link
+        if: steps.run.outputs.fired == '1'
+        run: |
+          echo "Claude Code session: ${{ steps.run.outputs.session_url }}"
+          echo "Session id:          ${{ steps.run.outputs.session_id }}"
+
       - name: Commit history.log audit entry
         if: steps.run.outputs.fired == '1'
         run: |
