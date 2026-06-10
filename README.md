@@ -152,9 +152,15 @@ sanitized snapshot of recent Sernia conversations and upload it to the
 and may contain unreviewed business details, so it never goes in the repo):
 
 ```bash
-# Run locally (where .env points at Neon). Redacts phones/emails automatically,
-# then uploads to the seed bucket.
-uv run python scripts/export_seed_fixture.py --limit 10 --upload
+# Run locally (where .env points at Neon). Redacts phones/emails and truncates
+# big tool results automatically.
+uv run python scripts/export_seed_fixture.py --limit 10
+
+# REVIEW api/seed_fixtures/agent_conversations.json — names/addresses in free
+# text are NOT auto-redacted. Then upload the reviewed file:
+uv run python scripts/export_seed_fixture.py --upload-only
+
+# (one-step `--upload` exists, but it skips the review pause)
 ```
 
 `seed_db.py` downloads the fixture automatically in any non-production

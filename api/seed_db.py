@@ -311,34 +311,6 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
             log_info(f"✓ Created conversation '{sample['conversation_id']}'")
 
 
-def _download_fixture_if_configured() -> bool:
-    """Fetch the fixture from the private Railway bucket when creds are present.
-
-    Returns True if a download happened. Fail-soft: a missing/unreachable
-    bucket must never break seeding (and therefore environment setup).
-    """
-    from api.src.utils.seed_fixture import (
-        FIXTURE_BUCKET_KEY,
-        FIXTURE_LOCAL_PATH,
-        bucket_client,
-        bucket_env,
-    )
-
-    cfg = bucket_env()
-    if cfg is None:
-        return False
-    try:
-        FIXTURE_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        bucket_client(cfg).download_file(
-            cfg["bucket"], FIXTURE_BUCKET_KEY, str(FIXTURE_LOCAL_PATH)
-        )
-        log_info(f"Downloaded seed fixture from bucket -> {FIXTURE_LOCAL_PATH}")
-        return True
-    except Exception as e:
-        log_error(f"Seed fixture download failed (non-fatal): {e}")
-        return False
-
-
 async def seed_fixture_conversations(dry_run: bool = False) -> None:
     """Load sanitized real conversations exported by scripts/export_seed_fixture.py.
 

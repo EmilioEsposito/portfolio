@@ -1,35 +1,22 @@
-"""Shared helpers for the sanitized seed fixture pipeline.
+"""Sanitization helpers for the seed fixture pipeline.
 
 The fixture is a JSON export of recent Sernia conversations with PII redacted
-and oversized tool results truncated. It is intentionally NOT committed to
-this (public) repo — it lives in a private Railway bucket (S3-compatible) and
-is downloaded by ``api/seed_db.py`` in environments that have the bucket
-credentials. See README.md ("Sanitized Seed Data") for the human workflow.
-
-Bucket credentials come from explicit env vars (never AWS_* — avoids
-colliding with any real AWS usage, same lesson as SERNIA_ANTHROPIC_API_KEY):
-
-    SEED_BUCKET_ENDPOINT_URL    e.g. https://t3.storageapi.dev
-    SEED_BUCKET_NAME            e.g. ci-bucket-xxxxxxxx
-    SEED_BUCKET_ACCESS_KEY_ID
-    SEED_BUCKET_SECRET_ACCESS_KEY
-    SEED_BUCKET_REGION          optional, defaults to "auto"
-
-Set them in: local .env, GitHub Actions secrets, and the Claude Code
-environment config. Everything degrades gracefully when they're absent.
+and oversized tool results truncated. It is gitignored (this repo is public)
+and distributed via the private Railway seed bucket — see
+``api/src/utils/seed_bucket.py`` for storage and README.md ("Sanitized Seed
+Data") for the human workflow.
 """
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 
 FIXTURE_LOCAL_PATH = Path("api/seed_fixtures/agent_conversations.json")
-FIXTURE_BUCKET_KEY = "seed_fixtures/agent_conversations.json"
 
 # Tool results larger than this (chars) are truncated in the fixture. Giant
 # tool dumps (sheets, full email bodies) are both the bulk of the file size
-# and the hardest content to review for sensitive business details.
+# and the hardest content to review for sensitive business details — an
+# unreviewable fixture defeats the point of the review step.
 TOOL_RESULT_CAP = 2_000
 # Safety net for any other long string (user prompts, model text).
 ANY_STRING_CAP = 8_000
@@ -99,32 +86,3 @@ def sanitize_value(value, *, _in_tool_return: bool = False):
             )
         return out
     return value
-
-
-def bucket_env() -> dict | None:
-    """Return bucket config from env, or None if not (fully) configured."""
-    cfg = {
-        "endpoint_url": os.getenv("SEED_BUCKET_ENDPOINT_URL"),
-        "bucket": os.getenv("SEED_BUCKET_NAME"),
-        "access_key_id": os.getenv("SEED_BUCKET_ACCESS_KEY_ID"),
-        "secret_access_key": os.getenv("SEED_BUCKET_SECRET_ACCESS_KEY"),
-        "region": os.getenv("SEED_BUCKET_REGION", "auto"),
-    }
-    if all(cfg[k] for k in ("endpoint_url", "bucket", "access_key_id", "secret_access_key")):
-        return cfg
-    return None
-
-
-def bucket_client(cfg: dict):
-    """S3 client for the Railway bucket (virtual-hosted-style URLs, per Railway docs)."""
-    import boto3
-    from botocore.config import Config
-
-    return boto3.client(
-        "s3",
-        endpoint_url=cfg["endpoint_url"],
-        region_name=cfg["region"],
-        aws_access_key_id=cfg["access_key_id"],
-        aws_secret_access_key=cfg["secret_access_key"],
-        config=Config(s3={"addressing_style": "virtual"}),
-    )

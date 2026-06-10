@@ -5,10 +5,10 @@ and credential-less environments rely on.
 """
 import pytest
 
+from api.src.utils.seed_bucket import get_seed_bucket
 from api.src.utils.seed_fixture import (
     ANY_STRING_CAP,
     TOOL_RESULT_CAP,
-    bucket_env,
     sanitize_text,
     sanitize_value,
 )
@@ -73,7 +73,7 @@ class TestSanitizeValue:
         assert "4125550199" not in str(out)
 
 
-class TestBucketEnv:
+class TestGetSeedBucket:
     def test_returns_none_when_unconfigured(self, monkeypatch):
         for var in (
             "SEED_BUCKET_ENDPOINT_URL",
@@ -82,23 +82,23 @@ class TestBucketEnv:
             "SEED_BUCKET_SECRET_ACCESS_KEY",
         ):
             monkeypatch.delenv(var, raising=False)
-        assert bucket_env() is None
+        assert get_seed_bucket() is None
 
     def test_returns_none_when_partially_configured(self, monkeypatch):
         monkeypatch.setenv("SEED_BUCKET_ENDPOINT_URL", "https://t3.storageapi.dev")
         monkeypatch.setenv("SEED_BUCKET_NAME", "bucket")
         monkeypatch.delenv("SEED_BUCKET_ACCESS_KEY_ID", raising=False)
         monkeypatch.delenv("SEED_BUCKET_SECRET_ACCESS_KEY", raising=False)
-        assert bucket_env() is None
+        assert get_seed_bucket() is None
 
-    def test_returns_config_when_complete(self, monkeypatch):
+    def test_returns_bucket_when_complete(self, monkeypatch):
         monkeypatch.setenv("SEED_BUCKET_ENDPOINT_URL", "https://t3.storageapi.dev")
         monkeypatch.setenv("SEED_BUCKET_NAME", "bucket")
         monkeypatch.setenv("SEED_BUCKET_ACCESS_KEY_ID", "key")
         monkeypatch.setenv("SEED_BUCKET_SECRET_ACCESS_KEY", "secret")
-        cfg = bucket_env()
-        assert cfg["bucket"] == "bucket"
-        assert cfg["region"] == "auto"
+        bucket = get_seed_bucket()
+        assert bucket.bucket_name == "bucket"
+        assert bucket.FIXTURE_KEY == "seed_fixtures/agent_conversations.json"
 
 
 @pytest.mark.asyncio

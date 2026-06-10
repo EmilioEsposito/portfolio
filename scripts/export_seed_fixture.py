@@ -7,18 +7,18 @@ numbers and email addresses, deterministically so threads stay internally
 consistent), truncates oversized tool results (the bulk of the data, and the
 hardest part to review), and writes a JSON fixture.
 
-The fixture is NOT committed — this repo is public. It lives in a private
-Railway bucket; `api/seed_db.py` downloads it automatically in non-production
-environments that have the SEED_BUCKET_* env vars (see
-api/src/utils/seed_fixture.py for the variable names).
+The fixture is gitignored — this repo is public. It lives in the private
+Railway seed bucket; `api/seed_db.py` downloads it automatically in
+non-production environments that have the SEED_BUCKET_* env vars (see
+api/src/utils/seed_bucket.py).
 
-Usage (from repo root, with .env pointing at the source DB + bucket creds):
-    uv run python scripts/export_seed_fixture.py                # 1. export
+Recommended workflow (review before anything leaves your machine):
+    uv run python scripts/export_seed_fixture.py                 # 1. export
     # 2. REVIEW api/seed_fixtures/agent_conversations.json
-    uv run python scripts/export_seed_fixture.py --upload       # 3. upload reviewed file
+    uv run python scripts/export_seed_fixture.py --upload-only   # 3. upload reviewed file
 
-`--upload` deliberately does NOT re-export — it uploads the file you just
-reviewed, exactly as reviewed.
+One-step (skips the review pause — use only when you trust the redaction):
+    uv run python scripts/export_seed_fixture.py --upload
 """
 import argparse
 import asyncio
@@ -26,10 +26,7 @@ import json
 import sys
 
 from api.src.utils.seed_fixture import (
-    FIXTURE_BUCKET_KEY,
     FIXTURE_LOCAL_PATH,
-    bucket_client,
-    bucket_env,
     digest,
     sanitize_text,
     sanitize_value,
@@ -73,10 +70,11 @@ async def export(limit: int) -> None:
     size_kb = FIXTURE_LOCAL_PATH.stat().st_size / 1024
     print(f"Wrote {len(rows)} sanitized conversations to {FIXTURE_LOCAL_PATH} ({size_kb:.0f} KB)")
     print(
-        "\nIMPORTANT: phones/emails are redacted automatically, but names and "
-        "free-text business details are NOT exhaustively scrubbed.\n"
-        "The fixture is gitignored — distribute it via the seed bucket "
-        "(--upload), never by committing it."
+        "\nIMPORTANT: phones/emails are redacted and big tool results truncated "
+        "automatically, but names and\nfree-text business details are NOT "
+        "exhaustively scrubbed — review before uploading.\n"
+        "The fixture is gitignored — distribute it via the seed bucket, never "
+        "by committing it."
     )
 
 
@@ -93,8 +91,11 @@ def upload() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    bucket.upload_fixture(str(OUTPUT_PATH))
-    print(f"Uploaded {OUTPUT_PATH} -> s3://{bucket.bucket_name}/{bucket.FIXTURE_KEY}")
+    if not FIXTURE_LOCAL_PATH.exists():
+        print(f"No fixture file at {FIXTURE_LOCAL_PATH} to upload", file=sys.stderr)
+        sys.exit(1)
+    bucket.upload_fixture(str(FIXTURE_LOCAL_PATH))
+    print(f"Uploaded {FIXTURE_LOCAL_PATH} -> s3://{bucket.bucket_name}/{bucket.FIXTURE_KEY}")
 
 
 if __name__ == "__main__":
@@ -103,21 +104,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--upload",
         action="store_true",
-        help="Upload the fixture to the seed bucket after exporting (uses SEED_BUCKET_* env vars)",
+        help="Upload to the seed bucket immediately after exporting (skips the review pause)",
     )
     parser.add_argument(
         "--upload-only",
         action="store_true",
-        help="Skip the export and just upload the existing local fixture file",
+        help="Skip the export and upload the existing (reviewed) local fixture file",
     )
     args = parser.parse_args()
     try:
         if not args.upload_only:
             asyncio.run(export(args.limit))
         if args.upload or args.upload_only:
-            if not OUTPUT_PATH.exists():
-                print(f"No fixture file at {OUTPUT_PATH} to upload", file=sys.stderr)
-                sys.exit(1)
             upload()
     except Exception as e:
         print(f"Failed: {e}", file=sys.stderr)
