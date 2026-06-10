@@ -14,6 +14,7 @@ def client():
     return TestClient(app)
 
 
+@pytest.mark.live
 def test_chat_emilio_endpoint_streaming_format(client):
     """
     Test that the /api/ai-demos/chat-emilio endpoint returns properly formatted SSE stream.

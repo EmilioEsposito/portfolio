@@ -57,6 +57,7 @@ async def get_current_weather(ctx: RunContext[ChatContext], latitude: float, lon
         logfire.error(f"Error fetching weather data: {e}")
         return {"error": f"Failed to fetch weather data: {str(e)}"}
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_agent():
     """Test the agent directly"""

@@ -2,6 +2,7 @@
 Shared authentication utilities for Google APIs.
 """
 
+import pytest
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv('.env'))
 from google.oauth2 import service_account
@@ -92,6 +93,7 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
             detail=f"Failed to initialize Google service account credentials: {str(e)}"
         )
     
+@pytest.mark.live
 def test_get_service_credentials():
     creds = get_service_credentials()
     print(creds)

@@ -14,6 +14,7 @@ def client():
     return TestClient(app)
 
 
+@pytest.mark.live
 def test_multi_agent_chat_routes_to_weather(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes weather questions correctly.
@@ -139,6 +140,7 @@ def test_multi_agent_chat_routes_to_weather(client):
         print(f"✓ Stream format is correct")
 
 
+@pytest.mark.live
 def test_multi_agent_chat_routes_to_emilio(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes Emilio questions correctly.
@@ -209,6 +211,7 @@ def test_multi_agent_chat_routes_to_emilio(client):
         print(f"\n✓ Emilio routing: Received {len(parsed_events)} events")
 
 
+@pytest.mark.live
 def test_multi_agent_chat_handles_conversation_history(client):
     """Test endpoint handles conversation history"""
     request_body = {
@@ -251,6 +254,7 @@ def test_multi_agent_chat_handles_conversation_history(client):
         assert len(events) > 0
 
 
+@pytest.mark.live
 def test_multi_agent_chat_handles_empty_messages(client):
     """Test endpoint handles empty messages gracefully"""
     request_body = {

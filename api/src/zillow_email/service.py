@@ -158,7 +158,7 @@ async def test_has_unreplied_emails():
         'Mon DD, HH12:MIpm'
     ) AS received_date_str;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_slugs=["emilio"]
+        sql=sql_query, target_slugs=["emilio"], mock=True
     )
     assert sent_message_count == 1
 
@@ -173,7 +173,7 @@ async def test_has_no_unreplied_emails():
     ) AS received_date_str
     WHERE 1=0;"""
     sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_slugs=["emilio"]
+        sql=sql_query, target_slugs=["emilio"], mock=True
     )
     assert sent_message_count == 0
 
@@ -549,6 +549,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                         )
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_check_email_threads():
     await check_email_threads(overwrite_calendar_events=True)

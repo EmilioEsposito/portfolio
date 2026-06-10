@@ -36,6 +36,7 @@ def patch_run_with_persistence(agent):
     agent.run = MethodType(run, agent)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_agent_run_with_persistence():
     agent = Agent(

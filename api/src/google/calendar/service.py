@@ -216,6 +216,7 @@ async def delete_calendar_event(service, event_id: str):
 # ------------------------------------------------------------------------------------------------
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_query_calendar_events():
     service = await get_calendar_service(user_email="emilio@serniacapital.com")
@@ -238,6 +239,7 @@ async def test_query_calendar_events():
     assert len(events) == 3
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_create_calendar_event():
     service = await get_calendar_service(user_email="all@serniacapital.com")

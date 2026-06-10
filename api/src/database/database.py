@@ -267,6 +267,12 @@ def wait_for_db(max_retries=10, delay=1):
 @logfire.instrument("test-async-engine-select-one")
 async def test_async_engine_select_one():
     """Run a SELECT 1 from the async engine to verify it's working."""
+    # The module-level engine's pool can hold connections bound to a previous
+    # test's (now closed) event loop — pytest-asyncio uses one loop per test.
+    # Dispose first so the pool reconnects on the current loop; otherwise this
+    # fails with "Event loop is closed" whenever another async test touched
+    # the engine earlier in the run.
+    await engine.dispose()
     try:
         async with engine.connect() as conn:
             result = await conn.execute(text("SELECT 1"))

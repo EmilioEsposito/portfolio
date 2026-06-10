@@ -108,6 +108,7 @@ def get_sheet_as_json(spreadsheet_id: str, sheet_name: str = 'Sheet1') -> List[D
             detail=f"Failed to convert sheet to JSON: {str(e)}"
         ) 
 
+@pytest.mark.live
 def test_get_contacts_sheet_as_json():
     spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
     return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")

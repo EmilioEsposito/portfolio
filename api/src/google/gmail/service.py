@@ -204,6 +204,7 @@ async def send_email(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_send_email():
     await send_email(

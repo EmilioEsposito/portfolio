@@ -4,12 +4,8 @@ import json
 import logfire
 import os
 
-# Bridge SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY for the Anthropic SDK.
-# Renamed to avoid colliding with the ANTHROPIC_API_KEY that Claude Cloud
-# injects for the Claude Code session in the remote dev environment.
-_sernia_anthropic_key = os.environ.get("SERNIA_ANTHROPIC_API_KEY")
-if _sernia_anthropic_key:
-    os.environ["ANTHROPIC_API_KEY"] = _sernia_anthropic_key
+# NOTE: the SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY bridge lives in
+# api/__init__.py so every entry point (app, pytest, scripts) gets it.
 
 import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured

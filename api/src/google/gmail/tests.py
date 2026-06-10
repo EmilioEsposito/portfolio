@@ -3,6 +3,7 @@ from api.src.tests.conftest import *
 import os
 import logfire
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_get_zillow_emails(client):
     """Test the /gmail/get_zillow_emails endpoint"""
