@@ -29,6 +29,7 @@ __pycache__
 
 # Sernia AI workspace — git-synced independently to EmilioEsposito/sernia-knowledge
 api/src/sernia_ai/workspace/
+apps/sernia_mcp/workspace/
 
 # production
 /build
