@@ -39,6 +39,13 @@ jobs:
       # non-pytest entry points like alembic/seed.
       OPENAI_API_KEY: test-openai-key
       ANTHROPIC_API_KEY: test-anthropic-key
+      # Sanitized seed fixture lives in the Railway ci-bucket (too large /
+      # too sensitive for the public repo). When these secrets are unset the
+      # seed step simply skips the fixture — CI stays green either way.
+      SEED_BUCKET_ENDPOINT_URL: ${{ secrets.SEED_BUCKET_ENDPOINT_URL }}
+      SEED_BUCKET_NAME: ${{ secrets.SEED_BUCKET_NAME }}
+      SEED_BUCKET_ACCESS_KEY_ID: ${{ secrets.SEED_BUCKET_ACCESS_KEY_ID }}
+      SEED_BUCKET_SECRET_ACCESS_KEY: ${{ secrets.SEED_BUCKET_SECRET_ACCESS_KEY }}
 
     steps:
       - uses: actions/checkout@v5

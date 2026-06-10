@@ -102,16 +102,51 @@ async def export(limit: int) -> None:
     print(f"Wrote {len(rows)} sanitized conversations to {OUTPUT_PATH}")
     print(
         "\nIMPORTANT: phones/emails are redacted automatically, but names and "
-        "addresses inside free text are NOT.\nReview the file before committing."
+        "free-text business details are NOT exhaustively scrubbed.\n"
+        "The fixture is gitignored — distribute it via the seed bucket "
+        "(--upload), never by committing it."
     )
+
+
+def upload() -> None:
+    from api.src.utils.seed_bucket import get_seed_bucket
+
+    bucket = get_seed_bucket()
+    if bucket is None:
+        print(
+            "SEED_BUCKET_* env vars not set (need SEED_BUCKET_ENDPOINT_URL, "
+            "SEED_BUCKET_NAME, SEED_BUCKET_ACCESS_KEY_ID, "
+            "SEED_BUCKET_SECRET_ACCESS_KEY — from the Railway bucket's "
+            "Credentials tab).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    bucket.upload_fixture(str(OUTPUT_PATH))
+    print(f"Uploaded {OUTPUT_PATH} -> s3://{bucket.bucket_name}/{bucket.FIXTURE_KEY}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=10, help="How many recent conversations to export")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload the fixture to the seed bucket after exporting (uses SEED_BUCKET_* env vars)",
+    )
+    parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Skip the export and just upload the existing local fixture file",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(export(args.limit))
+        if not args.upload_only:
+            asyncio.run(export(args.limit))
+        if args.upload or args.upload_only:
+            if not OUTPUT_PATH.exists():
+                print(f"No fixture file at {OUTPUT_PATH} to upload", file=sys.stderr)
+                sys.exit(1)
+            upload()
     except Exception as e:
         print(f"Export failed: {e}", file=sys.stderr)
         sys.exit(1)
