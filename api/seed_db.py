@@ -342,10 +342,14 @@ def _download_fixture_if_configured() -> bool:
 async def seed_fixture_conversations(dry_run: bool = False) -> None:
     """Load sanitized real conversations exported by scripts/export_seed_fixture.py.
 
-    The fixture lives in a private Railway bucket (this repo is public). When
-    the SEED_BUCKET_* env vars are present and no local copy exists, it is
-    downloaded first; with neither, this is a no-op. Non-production only,
-    idempotent via the fixture's stable ``fixture_*`` ids.
+    The fixture is gitignored (too large for git, may contain unreviewed PII)
+    and lives in the Railway seed bucket. Resolution order:
+      1. local file (a fresh export, or a previous download — acts as a cache)
+      2. download from the bucket when SEED_BUCKET_* env vars are set
+      3. otherwise no-op
+    Bucket failures are non-fatal: seeding is nice-to-have, and CI shouldn't
+    go red because object storage hiccuped. Non-production only, idempotent
+    via the fixture's stable ``fixture_*`` ids.
     """
     import json
     from pathlib import Path
@@ -358,13 +362,22 @@ async def seed_fixture_conversations(dry_run: bool = False) -> None:
 
     fixture_file = Path(FIXTURE_PATH)
     if not fixture_file.exists():
-        _download_fixture_if_configured()
-    if not fixture_file.exists():
-        log_info(
-            f"No fixture at {FIXTURE_PATH} and no SEED_BUCKET_* creds — skipping "
-            "(see README.md 'Sanitized Seed Data')"
-        )
-        return
+        from api.src.utils.seed_bucket import get_seed_bucket
+
+        bucket = get_seed_bucket()
+        if bucket is None:
+            log_info(
+                f"No fixture file at {FIXTURE_PATH} and SEED_BUCKET_* not set — "
+                "skipping (see README 'Sanitized Seed Data')"
+            )
+            return
+        try:
+            fixture_file.parent.mkdir(parents=True, exist_ok=True)
+            bucket.download_fixture(str(fixture_file))
+            log_info(f"Downloaded fixture from s3://{bucket.bucket_name}/{bucket.FIXTURE_KEY}")
+        except Exception as e:
+            log_info(f"Fixture download failed ({e}) — skipping fixture seeding")
+            return
 
     from sqlalchemy import select
 

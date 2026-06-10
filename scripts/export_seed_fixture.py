@@ -73,26 +73,28 @@ async def export(limit: int) -> None:
     size_kb = FIXTURE_LOCAL_PATH.stat().st_size / 1024
     print(f"Wrote {len(rows)} sanitized conversations to {FIXTURE_LOCAL_PATH} ({size_kb:.0f} KB)")
     print(
-        "\nREVIEW before uploading: phones/emails are redacted automatically, "
-        "but names and addresses\ninside free text are NOT."
+        "\nIMPORTANT: phones/emails are redacted automatically, but names and "
+        "free-text business details are NOT exhaustively scrubbed.\n"
+        "The fixture is gitignored — distribute it via the seed bucket "
+        "(--upload), never by committing it."
     )
 
 
 def upload() -> None:
-    cfg = bucket_env()
-    if cfg is None:
+    from api.src.utils.seed_bucket import get_seed_bucket
+
+    bucket = get_seed_bucket()
+    if bucket is None:
         print(
-            "Bucket not configured — set SEED_BUCKET_ENDPOINT_URL, SEED_BUCKET_NAME, "
-            "SEED_BUCKET_ACCESS_KEY_ID, SEED_BUCKET_SECRET_ACCESS_KEY in .env",
+            "SEED_BUCKET_* env vars not set (need SEED_BUCKET_ENDPOINT_URL, "
+            "SEED_BUCKET_NAME, SEED_BUCKET_ACCESS_KEY_ID, "
+            "SEED_BUCKET_SECRET_ACCESS_KEY — from the Railway bucket's "
+            "Credentials tab).",
             file=sys.stderr,
         )
         sys.exit(1)
-    if not FIXTURE_LOCAL_PATH.exists():
-        print(f"No fixture at {FIXTURE_LOCAL_PATH} — run the export first.", file=sys.stderr)
-        sys.exit(1)
-    client = bucket_client(cfg)
-    client.upload_file(str(FIXTURE_LOCAL_PATH), cfg["bucket"], FIXTURE_BUCKET_KEY)
-    print(f"Uploaded {FIXTURE_LOCAL_PATH} -> s3://{cfg['bucket']}/{FIXTURE_BUCKET_KEY}")
+    bucket.upload_fixture(str(OUTPUT_PATH))
+    print(f"Uploaded {OUTPUT_PATH} -> s3://{bucket.bucket_name}/{bucket.FIXTURE_KEY}")
 
 
 if __name__ == "__main__":
@@ -101,14 +103,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--upload",
         action="store_true",
-        help="Upload the existing (reviewed) fixture file to the bucket — does not re-export",
+        help="Upload the fixture to the seed bucket after exporting (uses SEED_BUCKET_* env vars)",
+    )
+    parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Skip the export and just upload the existing local fixture file",
     )
     args = parser.parse_args()
     try:
-        if args.upload:
-            upload()
-        else:
+        if not args.upload_only:
             asyncio.run(export(args.limit))
+        if args.upload or args.upload_only:
+            if not OUTPUT_PATH.exists():
+                print(f"No fixture file at {OUTPUT_PATH} to upload", file=sys.stderr)
+                sys.exit(1)
+            upload()
     except Exception as e:
         print(f"Failed: {e}", file=sys.stderr)
         sys.exit(1)
