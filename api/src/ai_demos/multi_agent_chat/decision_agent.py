@@ -54,6 +54,7 @@ router_agent = Agent(
     retries=2,
 )
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_router_agent_routes_to_weather():
     """Test that router agent routes weather-related questions to weather agent"""

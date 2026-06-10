@@ -303,6 +303,7 @@ async def analyze_for_twilio_escalation(
     return successful_escalations
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_explicit_keyword_escalation():
     """
@@ -324,6 +325,7 @@ async def test_explicit_keyword_escalation():
     assert successful_escalations == 1
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_ai_escalation_positive():
     open_phone_event = {
