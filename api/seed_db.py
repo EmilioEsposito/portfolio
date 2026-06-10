@@ -311,6 +311,62 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
             log_info(f"✓ Created conversation '{sample['conversation_id']}'")
 
 
+FIXTURE_PATH = "api/seed_fixtures/agent_conversations.json"
+
+
+async def seed_fixture_conversations(dry_run: bool = False) -> None:
+    """Load sanitized real conversations exported by scripts/export_seed_fixture.py.
+
+    The fixture is optional — when the file is absent (it hasn't been
+    exported/committed yet) this is a no-op. Non-production only, idempotent
+    via the fixture's stable ``fixture_*`` ids.
+    """
+    import json
+    from pathlib import Path
+
+    if os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production":
+        log_info("Skipping fixture conversations (production environment)")
+        return
+
+    fixture_file = Path(FIXTURE_PATH)
+    if not fixture_file.exists():
+        log_info(f"No fixture file at {FIXTURE_PATH} — skipping (run scripts/export_seed_fixture.py to create one)")
+        return
+
+    from sqlalchemy import select
+
+    from api.src.ai_demos.models import AgentConversation
+    from api.src.database.database import AsyncSessionFactory
+
+    rows = json.loads(fixture_file.read_text())
+    async with AsyncSessionFactory() as session:
+        for row in rows:
+            existing = (
+                await session.execute(
+                    select(AgentConversation.id).where(AgentConversation.id == row["id"])
+                )
+            ).scalar_one_or_none()
+            if existing:
+                log_info(f"✓ Fixture conversation '{row['id']}' already exists")
+                continue
+            if dry_run:
+                log_info(f"[DRY RUN] Would create fixture conversation '{row['id']}'")
+                continue
+            session.add(
+                AgentConversation(
+                    id=row["id"],
+                    agent_name=row["agent_name"],
+                    clerk_user_id=None,  # shared team access
+                    messages=row["messages"],
+                    metadata_=row.get("metadata_") or {},
+                    modality=row.get("modality"),
+                    contact_identifier=row.get("contact_identifier"),
+                )
+            )
+            await session.commit()
+            log_info(f"✓ Created fixture conversation '{row['id']}'")
+
+
 async def main(dry_run: bool = False) -> None:
     """Main entry point for seeding the database."""
     log_info("=" * 50)
@@ -331,6 +387,10 @@ async def main(dry_run: bool = False) -> None:
     log_info("")
     log_info("Seeding sample conversations (non-production only)...")
     await seed_sample_conversations(dry_run=dry_run)
+
+    log_info("")
+    log_info("Seeding fixture conversations (non-production only)...")
+    await seed_fixture_conversations(dry_run=dry_run)
 
     log_info("")
     log_info("=" * 50)

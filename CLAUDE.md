@@ -42,7 +42,7 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 
 **Known environment constraints** (Claude Code on web):
 - **Postgres can stop mid-session** (long sessions). If DB tests fail with "connection refused", run `sudo service postgresql start` and retry.
-- **No `ANTHROPIC_API_KEY`** is configured (OPENAI is). Live Anthropic tests can't run; the root `conftest.py` provides dummy keys so imports/collection work.
+- **Anthropic key naming**: the app's key is `ANTHROPIC_API_KEY_PORTFOLIO` — never name an env var `ANTHROPIC_API_KEY` (it breaks Claude Code cloud sessions). `api/__init__.py` bridges it to `ANTHROPIC_API_KEY` inside app/test processes for SDK auto-discovery. If `ANTHROPIC_API_KEY_PORTFOLIO` is absent in this sandbox, live Anthropic tests can't run; the root `conftest.py` provides dummy keys so imports/collection work.
 - **Outbound port 5432 is blocked** — remote Neon Postgres is unreachable from the sandbox; use the local Postgres (default) or the Neon MCP tools for read access to real environments.
 - **Gitignored fixture dirs** (`api/src/tests/requests/`, `api/src/tests/sensitive/`) are absent — tests depending on them auto-skip.
 

@@ -15,9 +15,10 @@ ZPROFILE_KEYS = [
 ]
 
 # Keys from .env that must NOT be injected into the Claude Code remote env.
-# Empty by default — our app's Anthropic key lives under SERNIA_ANTHROPIC_API_KEY
-# (see api/index.py for the bridge to ANTHROPIC_API_KEY) so it no longer
-# collides with the ANTHROPIC_API_KEY Claude Cloud injects for itself.
+# Empty by default — our app's Anthropic key lives under
+# ANTHROPIC_API_KEY_PORTFOLIO (see api/__init__.py for the bridge to
+# ANTHROPIC_API_KEY) so it doesn't collide with the ANTHROPIC_API_KEY Claude
+# Cloud uses for the session itself.
 SKIP_KEYS: set[str] = set()
 
 
