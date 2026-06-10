@@ -339,8 +339,8 @@ export default function ChatWeatherPage() {
                     )}
                   >
                     {message.role === "user" ? (
-                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
-                        <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
+                        <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {textContent}
                         </p>
                       </div>

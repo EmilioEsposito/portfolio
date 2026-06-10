@@ -646,8 +646,8 @@ function ChatView({
                           files={segments.filter((s) => s.type === "file") as any}
                         />
                         {segments.some((s) => s.type === "text") && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
-                            <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
+                            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
                               {segments.find((s) => s.type === "text")?.type === "text"
                                 ? (segments.find((s) => s.type === "text") as any).content
                                 : ""}
@@ -660,7 +660,7 @@ function ChatView({
                         {segments.map((seg, i) =>
                           seg.type === "text" ? (
                             <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
-                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
+                              <div className="text-sm prose prose-sm dark:prose-invert max-w-none [overflow-wrap:anywhere]">
                                 <Markdown>{seg.content}</Markdown>
                               </div>
                             </div>
