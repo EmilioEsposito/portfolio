@@ -80,3 +80,7 @@ scratch/
 
 # AI agent workspace (managed by Sernia agent)
 # api/src/sernia_ai/workspace/
+
+# Sanitized seed fixture — lives in a private Railway bucket, never in this public repo
+api/seed_fixtures/
+

@@ -311,18 +311,46 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
             log_info(f"✓ Created conversation '{sample['conversation_id']}'")
 
 
-FIXTURE_PATH = "api/seed_fixtures/agent_conversations.json"
+def _download_fixture_if_configured() -> bool:
+    """Fetch the fixture from the private Railway bucket when creds are present.
+
+    Returns True if a download happened. Fail-soft: a missing/unreachable
+    bucket must never break seeding (and therefore environment setup).
+    """
+    from api.src.utils.seed_fixture import (
+        FIXTURE_BUCKET_KEY,
+        FIXTURE_LOCAL_PATH,
+        bucket_client,
+        bucket_env,
+    )
+
+    cfg = bucket_env()
+    if cfg is None:
+        return False
+    try:
+        FIXTURE_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        bucket_client(cfg).download_file(
+            cfg["bucket"], FIXTURE_BUCKET_KEY, str(FIXTURE_LOCAL_PATH)
+        )
+        log_info(f"Downloaded seed fixture from bucket -> {FIXTURE_LOCAL_PATH}")
+        return True
+    except Exception as e:
+        log_error(f"Seed fixture download failed (non-fatal): {e}")
+        return False
 
 
 async def seed_fixture_conversations(dry_run: bool = False) -> None:
     """Load sanitized real conversations exported by scripts/export_seed_fixture.py.
 
-    The fixture is optional — when the file is absent (it hasn't been
-    exported/committed yet) this is a no-op. Non-production only, idempotent
-    via the fixture's stable ``fixture_*`` ids.
+    The fixture lives in a private Railway bucket (this repo is public). When
+    the SEED_BUCKET_* env vars are present and no local copy exists, it is
+    downloaded first; with neither, this is a no-op. Non-production only,
+    idempotent via the fixture's stable ``fixture_*`` ids.
     """
     import json
     from pathlib import Path
+
+    from api.src.utils.seed_fixture import FIXTURE_LOCAL_PATH as FIXTURE_PATH
 
     if os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production":
         log_info("Skipping fixture conversations (production environment)")
@@ -330,7 +358,12 @@ async def seed_fixture_conversations(dry_run: bool = False) -> None:
 
     fixture_file = Path(FIXTURE_PATH)
     if not fixture_file.exists():
-        log_info(f"No fixture file at {FIXTURE_PATH} — skipping (run scripts/export_seed_fixture.py to create one)")
+        _download_fixture_if_configured()
+    if not fixture_file.exists():
+        log_info(
+            f"No fixture at {FIXTURE_PATH} and no SEED_BUCKET_* creds — skipping "
+            "(see README.md 'Sanitized Seed Data')"
+        )
         return
 
     from sqlalchemy import select

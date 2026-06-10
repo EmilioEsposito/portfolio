@@ -146,16 +146,19 @@ grep -q '^CUSTOM_RAILWAY_BACKEND_URL=' .env \
 ## Sanitized Seed Data (dev environments)
 
 Dev/PR/Claude-Code environments use a local or branched database with seeded
-demo data (`api/seed_db.py`). To give them *realistic* data, export a
-sanitized snapshot of recent Sernia conversations from the real DB:
+demo data (`api/seed_db.py`). For *realistic* data, a sanitized snapshot of
+recent Sernia conversations lives in a **private Railway bucket** (never in
+this public repo). `seed_db.py` downloads and loads it automatically in any
+non-production environment that has the `SEED_BUCKET_*` env vars (see
+`.env.example`; set them in local `.env`, GitHub Actions secrets, and the
+Claude Code environment config).
+
+To refresh the fixture (run locally, where `.env` points at Neon):
 
 ```bash
-# Run locally (where .env points at Neon). Redacts phones/emails automatically.
-uv run python scripts/export_seed_fixture.py --limit 10
-
-# REVIEW api/seed_fixtures/agent_conversations.json for names/addresses the
-# regexes can't catch, then commit it. seed_db.py loads it automatically in
-# every non-production environment.
+uv run python scripts/export_seed_fixture.py --limit 10   # 1. export (redacts phones/emails, truncates big tool results)
+# 2. REVIEW api/seed_fixtures/agent_conversations.json — names/addresses in free text are NOT auto-redacted
+uv run python scripts/export_seed_fixture.py --upload     # 3. upload the reviewed file to the bucket
 ```
 
 ## 3rd Party Stuff

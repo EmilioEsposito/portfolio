@@ -1,68 +1,39 @@
 #!/usr/bin/env python3
-"""Export sanitized Sernia conversations as a committed seed fixture.
+"""Export sanitized Sernia conversations as a seed fixture and upload to the bucket.
 
 Run this LOCALLY against the real database (Neon) — dev environments can't
-reach it. It pulls the most recent Sernia conversations, redacts PII
-(phone numbers and email addresses, deterministically so threads stay
-internally consistent), and writes a JSON fixture that `api/seed_db.py`
-loads into any non-production database.
+reach it. It pulls the most recent Sernia conversations, redacts PII (phone
+numbers and email addresses, deterministically so threads stay internally
+consistent), truncates oversized tool results (the bulk of the data, and the
+hardest part to review), and writes a JSON fixture.
 
-Usage (from repo root, with .env pointing at the source DB):
-    uv run python scripts/export_seed_fixture.py            # 10 most recent
-    uv run python scripts/export_seed_fixture.py --limit 25
+The fixture is NOT committed — this repo is public. It lives in a private
+Railway bucket; `api/seed_db.py` downloads it automatically in non-production
+environments that have the SEED_BUCKET_* env vars (see
+api/src/utils/seed_fixture.py for the variable names).
 
-ALWAYS review the output file for PII the regexes missed (names, addresses
-in free text) BEFORE committing:
-    api/seed_fixtures/agent_conversations.json
+Usage (from repo root, with .env pointing at the source DB + bucket creds):
+    uv run python scripts/export_seed_fixture.py                # 1. export
+    # 2. REVIEW api/seed_fixtures/agent_conversations.json
+    uv run python scripts/export_seed_fixture.py --upload       # 3. upload reviewed file
+
+`--upload` deliberately does NOT re-export — it uploads the file you just
+reviewed, exactly as reviewed.
 """
 import argparse
 import asyncio
-import hashlib
 import json
-import re
 import sys
-from pathlib import Path
 
-OUTPUT_PATH = Path("api/seed_fixtures/agent_conversations.json")
-
-# Phone numbers: +1 412 555 0100 / (412) 555-0100 / 4125550100 / +14125550100
-_PHONE_RE = re.compile(r"\+?1?[\s.\-(]*\d{3}[\s.\-)]*\d{3}[\s.\-]*\d{4}\b")
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
-
-
-def _digest(value: str, n: int = 7) -> str:
-    """Deterministic short numeric digest so the same input maps to the same fake."""
-    return str(int(hashlib.sha256(value.encode()).hexdigest(), 16))[-n:]
-
-
-def _redact_phone(match: re.Match) -> str:
-    digits = re.sub(r"\D", "", match.group(0))
-    return f"+1555{_digest(digits)}"
-
-
-def _redact_email(match: re.Match) -> str:
-    domain = match.group(1).lower()
-    if domain == "serniacapital.com":
-        # Keep the internal domain — internal/external routing logic depends on it.
-        return f"internal-{_digest(match.group(0))}@serniacapital.com"
-    return f"user-{_digest(match.group(0))}@example.com"
-
-
-def sanitize_text(text: str) -> str:
-    text = _PHONE_RE.sub(_redact_phone, text)
-    text = _EMAIL_RE.sub(_redact_email, text)
-    return text
-
-
-def sanitize_value(value):
-    """Recursively sanitize strings inside any JSON-ish structure."""
-    if isinstance(value, str):
-        return sanitize_text(value)
-    if isinstance(value, list):
-        return [sanitize_value(v) for v in value]
-    if isinstance(value, dict):
-        return {k: sanitize_value(v) for k, v in value.items()}
-    return value
+from api.src.utils.seed_fixture import (
+    FIXTURE_BUCKET_KEY,
+    FIXTURE_LOCAL_PATH,
+    bucket_client,
+    bucket_env,
+    digest,
+    sanitize_text,
+    sanitize_value,
+)
 
 
 async def export(limit: int) -> None:
@@ -86,7 +57,7 @@ async def export(limit: int) -> None:
             {
                 # Stable fixture id namespace — never collides with real rows
                 # when the fixture is loaded back into another environment.
-                "id": f"fixture_{_digest(conv.id, 10)}",
+                "id": f"fixture_{digest(conv.id, 10)}",
                 "agent_name": conv.agent_name,
                 "messages": sanitize_value(conv.messages),
                 "metadata_": sanitize_value(conv.metadata_ or {}) | {"seed_fixture": True},
@@ -97,21 +68,47 @@ async def export(limit: int) -> None:
             }
         )
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(rows, indent=2, default=str) + "\n")
-    print(f"Wrote {len(rows)} sanitized conversations to {OUTPUT_PATH}")
+    FIXTURE_LOCAL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FIXTURE_LOCAL_PATH.write_text(json.dumps(rows, indent=2, default=str) + "\n")
+    size_kb = FIXTURE_LOCAL_PATH.stat().st_size / 1024
+    print(f"Wrote {len(rows)} sanitized conversations to {FIXTURE_LOCAL_PATH} ({size_kb:.0f} KB)")
     print(
-        "\nIMPORTANT: phones/emails are redacted automatically, but names and "
-        "addresses inside free text are NOT.\nReview the file before committing."
+        "\nREVIEW before uploading: phones/emails are redacted automatically, "
+        "but names and addresses\ninside free text are NOT."
     )
+
+
+def upload() -> None:
+    cfg = bucket_env()
+    if cfg is None:
+        print(
+            "Bucket not configured — set SEED_BUCKET_ENDPOINT_URL, SEED_BUCKET_NAME, "
+            "SEED_BUCKET_ACCESS_KEY_ID, SEED_BUCKET_SECRET_ACCESS_KEY in .env",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not FIXTURE_LOCAL_PATH.exists():
+        print(f"No fixture at {FIXTURE_LOCAL_PATH} — run the export first.", file=sys.stderr)
+        sys.exit(1)
+    client = bucket_client(cfg)
+    client.upload_file(str(FIXTURE_LOCAL_PATH), cfg["bucket"], FIXTURE_BUCKET_KEY)
+    print(f"Uploaded {FIXTURE_LOCAL_PATH} -> s3://{cfg['bucket']}/{FIXTURE_BUCKET_KEY}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=10, help="How many recent conversations to export")
+    parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload the existing (reviewed) fixture file to the bucket — does not re-export",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(export(args.limit))
+        if args.upload:
+            upload()
+        else:
+            asyncio.run(export(args.limit))
     except Exception as e:
-        print(f"Export failed: {e}", file=sys.stderr)
+        print(f"Failed: {e}", file=sys.stderr)
         sys.exit(1)

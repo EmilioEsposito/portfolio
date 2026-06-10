@@ -57,6 +57,7 @@ dependencies = [
     "beautifulsoup4>=4.13.4",
     "rapidfuzz>=3.0.0",
     "pywebpush>=2.3.0",
+    "boto3>=1.34.0", # seed fixture upload/download via Railway bucket (S3-compatible)
     "pypdf>=6.7.2",
     "duckdb>=1.2.0",
     "pytz>=2025.2",

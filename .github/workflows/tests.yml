@@ -39,6 +39,12 @@ jobs:
       # non-pytest entry points like alembic/seed.
       OPENAI_API_KEY: test-openai-key
       ANTHROPIC_API_KEY: test-anthropic-key
+      # Optional: private Railway bucket with the sanitized seed fixture.
+      # Seeding skips gracefully when these repo secrets aren't configured.
+      SEED_BUCKET_ENDPOINT_URL: ${{ secrets.SEED_BUCKET_ENDPOINT_URL }}
+      SEED_BUCKET_NAME: ${{ secrets.SEED_BUCKET_NAME }}
+      SEED_BUCKET_ACCESS_KEY_ID: ${{ secrets.SEED_BUCKET_ACCESS_KEY_ID }}
+      SEED_BUCKET_SECRET_ACCESS_KEY: ${{ secrets.SEED_BUCKET_SECRET_ACCESS_KEY }}
 
     steps:
       - uses: actions/checkout@v5
