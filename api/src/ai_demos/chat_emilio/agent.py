@@ -7,6 +7,7 @@ Each information source has its own tool that fetches from a specific URL.
 import logfire
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import Instrumentation
 from dotenv import load_dotenv
 import httpx
 import pytest
@@ -34,7 +35,7 @@ agent = Agent(
     "anthropic:claude-haiku-4-5-20251001",
     system_prompt=SYSTEM_INSTRUCTIONS,
     retries=3,
-    instrument=True,
+    capabilities=[Instrumentation()],
     name="chat_emilio",
 )
 

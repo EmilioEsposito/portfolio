@@ -25,6 +25,7 @@ from pydantic_ai import (
     ApprovalRequired, 
     AgentRunResult,
 )
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -47,7 +48,7 @@ The default recipient will be Emilio unless otherwise specified.
 Do not ask for confirmation - the tool has approval safeguards.""",
     output_type=[str, DeferredToolRequests],
     retries=2,
-    instrument=True,
+    capabilities=[Instrumentation()],
 )
 
 

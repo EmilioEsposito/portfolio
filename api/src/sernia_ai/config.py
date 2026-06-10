@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 
 # Web search / fetch: only these domains are allowed.
-# Used by WebSearchTool (Anthropic, OpenAI Responses, Groq, Google, xAI, OpenRouter)
-# and WebFetchTool (Anthropic, Google) — see pydantic_ai.builtin_tools.
+# Used by the WebSearch (native on Anthropic, OpenAI Responses, Groq, Google,
+# xAI, OpenRouter) and WebFetch (native on Anthropic, Google) capabilities —
+# see pydantic_ai.capabilities and agent.py.
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "zillow.com",
     "redfin.com",

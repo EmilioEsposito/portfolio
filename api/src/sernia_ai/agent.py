@@ -7,12 +7,14 @@ HITL approval flow, and core toolsets (Quo, Gmail, Calendar, ClickUp, DB search)
 Model selection is runtime-configurable via the ``model_config`` app_setting.
 Call sites resolve the active model via ``model_config.resolve_active_run_kwargs()``
 and spread the result into ``agent.run()`` / ``VercelAIAdapter.dispatch_request()``.
-The ``model``/``model_settings`` / extra ``builtin_tools`` passed at run-time
-override what's configured here.
+The ``model``/``model_settings`` passed at run-time override what's configured
+here. Web search/fetch are provider-adaptive capabilities on the agent itself.
 """
 import logfire
 from pydantic import BaseModel
-from pydantic_ai import Agent, DeferredToolRequests, RunContext, WebSearchTool
+from pydantic_ai import Agent, DeferredToolRequests, RunContext
+from pydantic_ai.capabilities import Instrumentation, ProcessHistory, WebFetch, WebSearch
+from pydantic_ai.native_tools import WebFetchTool, WebSearchTool
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 
 
@@ -79,11 +81,6 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
-    # Cross-provider baseline: WebSearchTool works on OpenAI Responses,
-    # Anthropic, Google, Groq, xAI, and OpenRouter. Provider-specific builtins
-    # (WebFetchTool on Anthropic) and model_settings come in per-run via
-    # model_config.build_run_kwargs().
-    builtin_tools=[WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS)],
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace"), name="workspace"),
         ErrorLoggingToolset(quo_toolset.prefixed("quo"), name="quo"),
@@ -94,9 +91,34 @@ sernia_agent = Agent(
         ErrorLoggingToolset(code_toolset, name="code"),
         ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
     ],
-    capabilities=[skills_capability],
-    history_processors=[summarize_tool_results, compact_history],
-    instrument=True,
+    capabilities=[
+        skills_capability,
+        # Provider-adaptive web tools (pydantic-ai core capabilities). Native
+        # web search works on both OpenAI Responses and Anthropic. Native web
+        # fetch is Anthropic-only — `optional=True` silently drops a tool on
+        # models that don't support it, which replaces the old per-run
+        # WebFetchTool attachment in model_config.build_run_kwargs().
+        # local=False keeps behavior identical to the old builtin_tools
+        # setup: no local fallback tool (allowed_domains is only enforced by
+        # native tools, so a local fallback would bypass the domain
+        # allowlist). The domains are set on the native tool instances, not
+        # the capability, because capability-level domain constraints force
+        # native-required mode, which raises instead of dropping.
+        WebSearch(
+            native=WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True),
+            local=False,
+        ),
+        WebFetch(
+            native=WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True),
+            local=False,
+        ),
+        # History processors run in capability order before each model
+        # request: oversized tool-result summarization first, then whole-
+        # history compaction (same order as the old history_processors list).
+        ProcessHistory(summarize_tool_results),
+        ProcessHistory(compact_history),
+        Instrumentation(),
+    ],
     name=AGENT_NAME,
 )
 

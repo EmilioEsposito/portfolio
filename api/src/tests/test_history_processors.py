@@ -37,6 +37,22 @@ from api.src.sernia_ai.sub_agents.compact_history import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_summary_cache():
+    """Reset the module-level summary cache between tests.
+
+    In production, tool_call_ids are globally unique so the cache never
+    collides. Tests reuse short ids like "call_1" across cases, so without
+    this reset a summary cached by one test leaks into the next (the source
+    of long-standing order-dependent failures in this file).
+    """
+    from api.src.sernia_ai.sub_agents.summarize_tool_results import _summary_cache
+
+    _summary_cache.clear()
+    yield
+    _summary_cache.clear()
+
+
 # ---------------------------------------------------------------------------
 # Realistic tool result generators
 # ---------------------------------------------------------------------------
@@ -138,10 +154,16 @@ class TestSmoke:
     """Verify that the agent loads with history processors wired up."""
 
     def test_agent_import_and_processors_wired(self):
-        """sernia_agent should import and have both history_processors attached."""
+        """sernia_agent should import with both ProcessHistory capabilities attached."""
+        from pydantic_ai.capabilities import ProcessHistory
+
         from api.src.sernia_ai.agent import sernia_agent
-        processors = sernia_agent.history_processors
-        assert processors is not None
+
+        processors = [
+            cap.processor
+            for cap in sernia_agent.root_capability.capabilities
+            if isinstance(cap, ProcessHistory)
+        ]
         assert len(processors) == 2
         # Order: summarization first, compaction second
         assert processors[0] is summarize_tool_results
