@@ -121,7 +121,11 @@ def ensure_logfire_configured(
         logfire.configure(
             service_name=service_name,
             environment=env_name,
-            send_to_logfire=True,
+            # "if-token-present": identical to True wherever LOGFIRE_TOKEN is
+            # set (Railway, local dev), but doesn't raise in tokenless
+            # environments like GitHub Actions — send_to_logfire=True crashes
+            # at import time there ("You are not logged into Logfire").
+            send_to_logfire="if-token-present",
             distributed_tracing=False,
             sampling=logfire.SamplingOptions(head=1.0, tail=_drop_dbos_sqlalchemy_sys_traces),
         )
