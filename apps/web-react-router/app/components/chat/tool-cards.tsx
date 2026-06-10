@@ -433,7 +433,7 @@ function ApprovalItem({
                   </Button>
                 </div>
               ) : (
-                <p className="p-2 bg-muted/50 rounded border text-sm whitespace-pre-wrap">
+                <p className="p-2 bg-muted/50 rounded border text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {msgValue}
                 </p>
               )}

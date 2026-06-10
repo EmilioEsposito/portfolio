@@ -646,8 +646,8 @@ function ChatView({
                           files={segments.filter((s) => s.type === "file") as any}
                         />
                         {segments.some((s) => s.type === "text") && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
-                            <p className="text-sm whitespace-pre-wrap">
+                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
+                            <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                               {segments.find((s) => s.type === "text")?.type === "text"
                                 ? (segments.find((s) => s.type === "text") as any).content
                                 : ""}

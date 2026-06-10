@@ -341,8 +341,8 @@ function ConversationDetail({
                       }
                     />
                     {segments.some((s) => s.type === "text") && (
-                      <div className="bg-primary text-primary-foreground rounded-2xl px-3 py-2 shadow-sm">
-                        <p className="text-sm whitespace-pre-wrap">
+                      <div className="bg-primary text-primary-foreground rounded-2xl px-3 py-2 shadow-sm overflow-hidden min-w-0">
+                        <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                           {segments.find((s) => s.type === "text")?.type ===
                           "text"
                             ? (
@@ -360,7 +360,7 @@ function ConversationDetail({
                         key={i}
                         className="bg-muted/50 rounded-2xl px-3 py-2 shadow-sm overflow-hidden"
                       >
-                        <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words">
+                        <div className="text-sm prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
                           <Markdown>{seg.content}</Markdown>
                         </div>
                       </div>
