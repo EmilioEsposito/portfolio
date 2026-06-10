@@ -170,7 +170,7 @@ local `.env`, GitHub Actions secrets, and the Claude Code environment config:
 
 ```
 SEED_BUCKET_ENDPOINT_URL=https://t3.storageapi.dev
-SEED_BUCKET_NAME=<bucket name>
+SEED_BUCKET_NAME=<full bucket name incl. suffix, e.g. ci-bucket-xxxxxxxx — not the display name>
 SEED_BUCKET_ACCESS_KEY_ID=<access key id>
 SEED_BUCKET_SECRET_ACCESS_KEY=<secret access key>
 ```
