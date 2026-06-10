@@ -150,7 +150,11 @@ async def multi_agent_chat(request: Request) -> Response:
     request._body = json.dumps(sanitized_json).encode()
 
     user_message = _extract_latest_message_text(sanitized_json)
-    message_history = sanitized_json.get("messages") or None
+    # No explicit message_history: VercelAIAdapter parses the full
+    # conversation (history + latest prompt) from the request body itself.
+    # `message_history` is only for *additional* ModelMessage objects (e.g.
+    # DB-loaded history) — raw Vercel UI dicts are rejected by pydantic-ai
+    # >=1.9x ("'dict' object has no attribute 'parts'").
 
     if sanitized_json.get('trigger') == 'submit-message':
         logfire.info(
@@ -164,9 +168,8 @@ async def multi_agent_chat(request: Request) -> Response:
         agent_run_method="vercel_ai",
         vercel_ai_request=request,
         message=user_message,
-        message_history=message_history,
     )
-    input_data = MultiAgentInput(message=user_message, message_history=message_history)
+    input_data = MultiAgentInput(message=user_message)
     graph_result = await multi_agent_graph.run(state=state, inputs=input_data)
 
     response = graph_result.response

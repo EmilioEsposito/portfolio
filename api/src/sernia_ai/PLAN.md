@@ -28,15 +28,15 @@
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **LLM (main agent)** | Runtime-switchable via the `model_config` app_setting (default GPT-5.4). Supported: `openai-responses:gpt-5.4`, `anthropic:claude-sonnet-4-6`, `anthropic:claude-opus-4-7`. See `model_config.py`. | `WebSearchTool` works across all three providers. `WebFetchTool` is Anthropic-only and is added per-run only when an Anthropic model is selected. |
+| **LLM (main agent)** | Runtime-switchable via the `model_config` app_setting (default GPT-5.4). Supported: `openai-responses:gpt-5.4`, `anthropic:claude-sonnet-4-6`, `anthropic:claude-opus-4-7`. See `model_config.py`. | Native web search works across all three providers. Native web fetch is Anthropic-only; the `WebFetch` capability drops it automatically on OpenAI runs. |
 | **LLM (sub-agents)** | Claude Haiku 4.5 (`anthropic:claude-haiku-4-5-20251001`) | Cost savings for summarization/compaction. |
-| **Framework** | PydanticAI (latest stable API) | `instructions` list, `FileSystemToolset`, `builtin_tools`, `history_processors`. |
+| **Framework** | PydanticAI (latest stable API) | `instructions` list, `FileSystemToolset`, capabilities (`WebSearch`/`WebFetch`/`ProcessHistory`/`Instrumentation`/skills). |
 | **Code location** | `api/src/sernia_ai/` | Dedicated module. Imports from existing services. |
 | **Conversation storage** | `agent_conversations` table | Shared with other demo agents. Columns: `modality`, `contact_identifier`, `estimated_tokens`, `metadata_`. |
 | **Quo/OpenPhone** | FastMCP OpenAPI bridge + custom guards | OpenPhone REST API spec → MCP tools. Custom `send_internal_sms` / `send_external_sms` with deterministic contact gates + from-phone enforcement. |
 | **Memory storage** | `pydantic-ai-filesystem-sandbox` `FileSystemToolset` | Sandboxed `.workspace/` with `.md`, `.txt`, `.json` suffixes. Custom `search_files` tool for grep. |
 | **Git sync** | `memory/git_sync.py` | `.workspace/` backed by `EmilioEsposito/sernia-knowledge` GitHub repo via PAT. Clone/pull on startup, commit+push after each agent turn. |
-| **Web research** | PydanticAI `WebSearchTool` + `WebFetchTool` | Domain allowlist in `config.py`. |
+| **Web research** | PydanticAI `WebSearch` + `WebFetch` capabilities | Domain allowlist in `config.py`, enforced natively. |
 | **Push notifications** | W3C Web Push + VAPID | No vendor lock-in. Per-device subscriptions, auto-cleanup of expired endpoints. |
 | **Triggers** | Background agent runs + push notifications | SMS via webhook extension, email via APScheduler. Agent creates web chat conversations when human attention needed. |
 
@@ -113,10 +113,13 @@ sernia_agent = Agent(
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],
-    builtin_tools=[WebSearchTool(...), WebFetchTool(...)],
     toolsets=[filesystem_toolset, quo_toolset, google_toolset,
              clickup_toolset, db_search_toolset, code_toolset],
-    history_processors=[summarize_tool_results, compact_history],
+    capabilities=[skills_capability,
+                  WebSearch(...), WebFetch(...),
+                  ProcessHistory(summarize_tool_results),
+                  ProcessHistory(compact_history),
+                  Instrumentation()],
 )
 ```
 
@@ -147,7 +150,7 @@ All in `instructions.py`, passed as `instructions=[STATIC_INSTRUCTIONS, *DYNAMIC
 
 ### Token Management
 
-Two `history_processors` run before each model request (order matters):
+Two history processors (wired as `ProcessHistory` capabilities) run before each model request (order matters):
 
 1. **`summarize_tool_results`** — Shrinks oversized `ToolReturnPart`s (>10k chars) in older messages via Haiku sub-agent. Current turn results are never touched.
 2. **`compact_history`** — When input tokens exceed 170k (~85% of 200k window), summarizes older half of conversation into a single summary message via Haiku sub-agent.
@@ -296,7 +299,7 @@ The frontend uses `trigger_source` and `trigger_contact_name` to render icons (P
 | `run_python` | Secure Python sandbox (pydantic-monty). Math, dates, regex. No FS/network. |
 | `search_files` | Case-insensitive grep across workspace files |
 | File tools (`read_file`, `write_file`, `edit_file`, etc.) | Sandboxed `.workspace/` access via `FileSystemToolset` |
-| `WebSearchTool` / `WebFetchTool` | Web research with domain allowlist |
+| `WebSearch` / `WebFetch` capabilities | Web research with domain allowlist |
 
 ---
 
@@ -504,8 +507,8 @@ Core function shared by all triggers:
 | `instructions=[str, *fns]` list | Static + dynamic instructions — functions take `RunContext[SerniaDeps]` |
 | `FileSystemToolset` + `Sandbox` | Sandboxed file access with mount config, suffix allowlist |
 | `FunctionToolset` | Grouping related tools (quo, google, clickup, etc.) |
-| `builtin_tools=[WebSearchTool(), WebFetchTool()]` | Web research with domain filtering (Anthropic-only) |
-| `history_processors=[fn]` | Token-aware compaction before each model call |
+| `WebSearch` / `WebFetch` capabilities | Provider-adaptive web research with domain filtering (fetch is Anthropic-only) |
+| `ProcessHistory(fn)` capabilities | Token-aware compaction before each model call |
 | `FastMCPToolset` | Bridge OpenAPI specs into PydanticAI toolsets (OpenPhone) |
 | `output_type=[str, NoAction, DeferredToolRequests]` | HITL approval flow + silent triggers |
 | `RunContext[SerniaDeps]` | Access deps in tools and instructions |

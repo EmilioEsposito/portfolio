@@ -18,6 +18,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 import logfire
 from pydantic_ai import Agent, ApprovalRequired, FunctionToolset, RunContext
+from pydantic_ai.capabilities import Instrumentation
 
 from api.src.google.calendar.service import (
     CalendarEventInput,
@@ -203,7 +204,7 @@ _email_summarizer = Agent(
         "Omit boilerplate, disclaimers, and formatting artifacts. "
         "Keep the summary under 300 words."
     ),
-    instrument=True,
+    capabilities=[Instrumentation()],
     name="email_content_summarizer",
 )
 

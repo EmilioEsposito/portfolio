@@ -13,6 +13,7 @@ import logfire
 from dataclasses import dataclass
 
 from pydantic_ai import Agent, AgentRunResult, DeferredToolRequests
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from dbos import DBOS
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -48,7 +49,7 @@ The default recipient is Emilio unless otherwise specified.
 Do not ask for confirmation - the tool has approval safeguards built in.""",
     output_type=[str, DeferredToolRequests],
     retries=2,
-    instrument=True,
+    capabilities=[Instrumentation()],
 )
 
 @DBOS.step()

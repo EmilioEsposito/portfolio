@@ -10,6 +10,7 @@ from collections import OrderedDict
 
 import logfire
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -29,7 +30,7 @@ _summarizer = Agent(
         "Omit boilerplate, repeated headers, and raw formatting. "
         "Keep the summary under 500 words."
     ),
-    instrument=True,
+    capabilities=[Instrumentation()],
     name="tool_result_summarizer",
 )
 

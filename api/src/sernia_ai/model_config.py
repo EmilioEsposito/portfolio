@@ -6,12 +6,19 @@ The main agent model is user-switchable via the ``model_config`` row in
 ``resolve_active_run_kwargs()`` and spread the result into ``agent.run(...)``
 / ``VercelAIAdapter.dispatch_request(...)`` / ``resume_with_approvals(...)``.
 
-Why per-run and not per-agent: builtin tools like ``WebFetchTool`` only work
-on Anthropic/Google, and model settings classes (``AnthropicModelSettings``
-vs ``OpenAIResponsesModelSettings``) are not cross-compatible. PydanticAI
-exposes ``model`` / ``model_settings`` / ``builtin_tools`` on every run
-entrypoint, so one Agent instance with per-run overrides is simpler than
-maintaining one Agent per provider.
+Why per-run and not per-agent: model settings classes
+(``AnthropicModelSettings`` vs ``OpenAIResponsesModelSettings``) are not
+cross-compatible — prompt-cache knobs are provider-specific. PydanticAI
+exposes ``model`` / ``model_settings`` on every run entrypoint, so one Agent
+instance with per-run overrides is simpler than maintaining one Agent per
+provider.
+
+Web search/fetch are no longer attached here: the agent's ``WebSearch`` /
+``WebFetch`` capabilities (see ``agent.py``) adapt to the active provider
+automatically (native web fetch is Anthropic-only and is dropped on OpenAI
+runs). Thinking depth uses the unified ``thinking`` model setting, which
+pydantic-ai maps to adaptive thinking + effort on Anthropic and
+``reasoning_effort`` on OpenAI.
 """
 from __future__ import annotations
 
@@ -19,14 +26,10 @@ from dataclasses import dataclass
 from typing import Literal, cast, get_args
 
 import logfire
-from pydantic_ai import WebFetchTool
-from pydantic_ai.builtin_tools import AbstractBuiltinTool
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.models.openai import OpenAIResponsesModelSettings
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
-
-from api.src.sernia_ai.config import WEB_SEARCH_ALLOWED_DOMAINS
 
 ModelKey = Literal["gpt-5.4", "sonnet-4-6", "opus-4-7"]
 ThinkingEffort = Literal["low", "medium", "high"]
@@ -85,42 +88,39 @@ def get_thinking_effort(value: str | None) -> ThinkingEffort:
 def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
     """Return kwargs to spread into agent.run() / VercelAIAdapter.dispatch_request().
 
-    Produces ``model``, ``model_settings``, and ``builtin_tools`` suited to the
-    selected provider. ``WebFetchTool`` is added only for Anthropic (OpenAI
-    Responses does not support it and would raise ``UserError``).
+    Produces ``model`` and ``model_settings`` suited to the selected provider.
+    The only provider-specific parts left are the prompt-cache knobs; web
+    search/fetch live on the agent as provider-adaptive capabilities.
 
-    ``effort`` controls reasoning depth — low/medium/high. For Sonnet 4.6 and
-    Opus 4.7 this enables adaptive thinking
+    ``effort`` controls reasoning depth — low/medium/high — via the unified
+    ``thinking`` model setting. On Sonnet 4.6 and Opus 4.7 pydantic-ai maps it
+    to adaptive thinking + effort
     (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking),
-    where Claude decides per-request whether and how much to think. For
-    GPT-5.4 it maps to ``openai_reasoning_effort``. Defaults to medium.
+    where Claude decides per-request whether and how much to think. On GPT-5.4
+    it maps to ``reasoning_effort``. Defaults to medium.
     """
     choice = get_model_choice(key)
     resolved_effort = get_thinking_effort(effort)
     settings: ModelSettings
-    extra_builtins: list[AbstractBuiltinTool] = []
 
     if choice.provider == "anthropic":
         settings = AnthropicModelSettings(
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
-            anthropic_thinking={"type": "adaptive"},
-            anthropic_effort=resolved_effort,
+            thinking=resolved_effort,
         )
-        extra_builtins.append(WebFetchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS))
     else:  # openai
         # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
         # in-memory cache to 24h so infrequent scheduled runs still hit cache.
         settings = OpenAIResponsesModelSettings(
-            openai_reasoning_effort=resolved_effort,
+            thinking=resolved_effort,
             openai_prompt_cache_retention="24h",
         )
 
     return {
         "model": choice.model_string,
         "model_settings": settings,
-        "builtin_tools": extra_builtins,
     }
 
 

@@ -1,19 +1,26 @@
-"""Smoke tests for sernia_ai.model_config — keeps the runtime model picker honest."""
+"""Smoke tests for sernia_ai.model_config — keeps the runtime model picker honest.
+
+Since the pydantic-ai 1.106 upgrade, web search/fetch are provider-adaptive
+capabilities on the agent itself (see test_sernia_agent_wiring.py), and
+thinking depth uses the unified ``thinking`` model setting instead of the
+provider-specific ``anthropic_thinking``/``openai_reasoning_effort`` knobs.
+"""
 import pytest
-from pydantic_ai import WebFetchTool
 
 
-def test_build_run_kwargs_openai_has_no_webfetch():
+def test_build_run_kwargs_openai_shape():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     kw = build_run_kwargs("gpt-5.4")
     assert kw["model"] == "openai-responses:gpt-5.4"
-    assert kw["builtin_tools"] == []
-    # OpenAI Responses settings include the reasoning + cache retention knobs.
+    # No per-run native tools anymore — web search/fetch live on the agent
+    # as provider-adaptive capabilities.
+    assert "builtin_tools" not in kw
+    # OpenAI Responses settings include the cache retention knob.
     assert kw["model_settings"].get("openai_prompt_cache_retention") == "24h"
 
 
-def test_build_run_kwargs_anthropic_models_get_webfetch():
+def test_build_run_kwargs_anthropic_shape():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     for key, expected in (
@@ -22,9 +29,7 @@ def test_build_run_kwargs_anthropic_models_get_webfetch():
     ):
         kw = build_run_kwargs(key)
         assert kw["model"] == expected, f"{key}: wrong model string {kw['model']!r}"
-        assert any(isinstance(t, WebFetchTool) for t in kw["builtin_tools"]), (
-            f"{key}: expected a WebFetchTool in builtin_tools"
-        )
+        assert "builtin_tools" not in kw
         # Anthropic caching is enabled on all three layers.
         settings = kw["model_settings"]
         assert settings.get("anthropic_cache_instructions") is True
@@ -46,46 +51,48 @@ def test_default_thinking_effort_is_medium():
     assert DEFAULT_THINKING_EFFORT == "medium"
 
 
-def test_anthropic_models_get_adaptive_thinking_with_default_effort():
-    """Sonnet 4.6 / Opus 4.7 enable adaptive thinking + medium effort by default."""
+@pytest.mark.parametrize("key", ["gpt-5.4", "sonnet-4-6", "opus-4-7"])
+def test_unified_thinking_defaults_to_medium(key: str):
+    """All models get the unified `thinking` setting (pydantic-ai maps it to
+    adaptive thinking + effort on Anthropic, reasoning_effort on OpenAI)."""
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    for key in ("sonnet-4-6", "opus-4-7"):
-        kw = build_run_kwargs(key)
-        settings = kw["model_settings"]
-        assert settings.get("anthropic_thinking") == {"type": "adaptive"}, key
-        assert settings.get("anthropic_effort") == "medium", key
-
-
-def test_openai_uses_reasoning_effort_default_medium():
-    """GPT-5.4 maps the effort knob to openai_reasoning_effort, defaulting to medium."""
-    from api.src.sernia_ai.model_config import build_run_kwargs
-
-    kw = build_run_kwargs("gpt-5.4")
-    settings = kw["model_settings"]
-    assert settings.get("openai_reasoning_effort") == "medium"
+    kw = build_run_kwargs(key)
+    assert kw["model_settings"].get("thinking") == "medium", key
 
 
 @pytest.mark.parametrize("effort", ["low", "medium", "high"])
 def test_explicit_effort_threads_through_for_both_providers(effort: str):
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    openai = build_run_kwargs("gpt-5.4", effort)
-    assert openai["model_settings"].get("openai_reasoning_effort") == effort
+    assert build_run_kwargs("gpt-5.4", effort)["model_settings"].get("thinking") == effort
+    assert build_run_kwargs("sonnet-4-6", effort)["model_settings"].get("thinking") == effort
 
-    anthropic = build_run_kwargs("sonnet-4-6", effort)
-    assert anthropic["model_settings"].get("anthropic_effort") == effort
-    assert anthropic["model_settings"].get("anthropic_thinking") == {"type": "adaptive"}
+
+def test_unified_thinking_maps_to_adaptive_on_anthropic():
+    """Guard the provider translation we rely on: with no explicit
+    `anthropic_thinking`, pydantic-ai turns unified thinking into adaptive
+    thinking + effort on models that support it (Sonnet 4.6 / Opus 4.7)."""
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    from api.src.sernia_ai.model_config import build_run_kwargs
+
+    kw = build_run_kwargs("sonnet-4-6", "high")
+    model = AnthropicModel(
+        "claude-sonnet-4-6", provider=AnthropicProvider(api_key="test-key")
+    )
+    params = ModelRequestParameters(thinking=kw["model_settings"].get("thinking"))
+    translated = model._translate_thinking(kw["model_settings"], params)  # noqa: SLF001
+    assert translated == {"type": "adaptive"}
 
 
 def test_unknown_effort_falls_back_to_medium():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    kw = build_run_kwargs("sonnet-4-6", "ultra")
-    assert kw["model_settings"].get("anthropic_effort") == "medium"
-
-    kw_oai = build_run_kwargs("gpt-5.4", None)
-    assert kw_oai["model_settings"].get("openai_reasoning_effort") == "medium"
+    assert build_run_kwargs("sonnet-4-6", "ultra")["model_settings"].get("thinking") == "medium"
+    assert build_run_kwargs("gpt-5.4", None)["model_settings"].get("thinking") == "medium"
 
 
 def test_available_models_cover_all_keys():

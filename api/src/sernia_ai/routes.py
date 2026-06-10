@@ -636,7 +636,7 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
 
     Uses ``Toolset.get_tools(ctx)`` — the same call PydanticAI makes when
     packaging tools for the model — so the preview is bit-for-bit what gets
-    injected (modulo per-run builtin_tools added by ``model_config``).
+    injected (native web search/fetch tools are listed separately below).
     """
     from pydantic_ai import RunContext
     from pydantic_ai.usage import RunUsage
@@ -706,14 +706,14 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
         if content:
             toolset_instructions.append({"label": label, "content": str(content)})
 
-    # Builtin tools (web search/fetch). The agent stores its construction-time
-    # set on a private attr; the active model also adds run-specific builtins
-    # (e.g. WebFetchTool on Anthropic) — surface both for an honest picture.
+    # Native tools (web search/fetch) contributed by the WebSearch/WebFetch
+    # capabilities. The agent collects them on ``_cap_native_tools`` at
+    # construction; which ones actually reach the model is resolved per run
+    # based on provider support (e.g. WebFetchTool is dropped on OpenAI).
     builtins: list[dict] = []
     seen: set[str] = set()
-    base_builtins = getattr(sernia_agent, "_cap_builtin_tools", []) or []
-    run_kwargs = await resolve_active_run_kwargs()
-    for bt in list(base_builtins) + list(run_kwargs.get("builtin_tools") or []):
+    base_builtins = getattr(sernia_agent, "_cap_native_tools", []) or []
+    for bt in list(base_builtins):
         kind = getattr(bt, "kind", type(bt).__name__)
         if kind in seen:
             continue

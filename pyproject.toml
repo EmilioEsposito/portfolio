@@ -24,7 +24,8 @@ dependencies = [
     # AI / LLM
     "openai>=1.77.0",
     "pydantic>=2.11.2",
-    "pydantic-ai[dbos]>=1.62.0",
+    # >=1.106: core capabilities API (WebSearch/WebFetch/Thinking) + harness-ready (>=1.95.1)
+    "pydantic-ai[dbos]>=1.106.0",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=0.0.7",
     "fastmcp[apps]>=3.2.4",

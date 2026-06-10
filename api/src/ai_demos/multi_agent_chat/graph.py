@@ -10,7 +10,8 @@ from typing import Literal
 import pytest
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict
-from pydantic_graph.beta import GraphBuilder, StepContext
+from pydantic_graph.graph_builder import GraphBuilder
+from pydantic_graph.step import StepContext
 from starlette.requests import Request
 from starlette.responses import Response
 

@@ -8,6 +8,7 @@ then summarizes the older half of the conversation when approaching 85% of the w
 
 import logfire
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -35,7 +36,7 @@ _compactor = Agent(
         "Be thorough but concise. Use bullet points. "
         "The summary will replace the original messages, so nothing important should be lost."
     ),
-    instrument=True,
+    capabilities=[Instrumentation()],
     name="history_compactor",
 )
 

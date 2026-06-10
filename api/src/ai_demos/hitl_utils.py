@@ -8,8 +8,6 @@ import dataclasses
 import json
 from dataclasses import dataclass
 
-from collections.abc import Sequence
-
 from pydantic_ai import (
     Agent,
     AgentRunResult,
@@ -18,7 +16,6 @@ from pydantic_ai import (
     ToolApproved,
     ToolDenied,
 )
-from pydantic_ai.builtin_tools import AbstractBuiltinTool
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -119,7 +116,6 @@ async def resume_with_approvals(
     user_message: str | None = None,
     model: Model | KnownModelName | str | None = None,
     model_settings: ModelSettings | None = None,
-    builtin_tools: Sequence[AbstractBuiltinTool] | None = None,
 ) -> AgentRunResult:
     """
     Resume a paused agent with approval decisions. Agent-agnostic.
@@ -137,10 +133,10 @@ async def resume_with_approvals(
             it persists in history as a normal UserPromptPart. Use this for
             "deny with feedback" flows where the user wants their reply stored
             as a regular message, not just as a tool-denial reason.
-        model, model_settings, builtin_tools: Optional per-run overrides
-            forwarded to agent.run(). Callers needing model switching (e.g.
-            Sernia AI's DB-backed model picker) pass these to override the
-            Agent's construction-time defaults.
+        model, model_settings: Optional per-run overrides forwarded to
+            agent.run(). Callers needing model switching (e.g. Sernia AI's
+            DB-backed model picker) pass these to override the Agent's
+            construction-time defaults.
     """
     async with provide_session(session) as s:
         messages = await get_conversation_messages(conversation_id, clerk_user_id, session=s)
@@ -181,8 +177,6 @@ async def resume_with_approvals(
         run_overrides["model"] = model
     if model_settings is not None:
         run_overrides["model_settings"] = model_settings
-    if builtin_tools is not None:
-        run_overrides["builtin_tools"] = builtin_tools
 
     result = await agent.run(
         user_prompt=user_message,
