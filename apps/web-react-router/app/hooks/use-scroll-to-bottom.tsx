@@ -12,6 +12,12 @@ export function useScrollToBottom<T extends HTMLElement>(): [
     const end = endRef.current;
 
     if (container && end) {
+      // Start at the bottom when mounting with existing history — the
+      // MutationObserver below only reacts to later changes.
+      if (container.scrollHeight > container.clientHeight) {
+        end.scrollIntoView({ behavior: "auto", block: "end" });
+      }
+
       const observer = new MutationObserver((mutations) => {
         // Ignore mutations from form/textarea elements (e.g. textarea auto-resize
         // changes style.height, which shouldn't trigger auto-scroll)

@@ -23,6 +23,7 @@ import {
   TabsContent,
 } from "~/components/ui/tabs";
 import {
+  AlertCircle,
   Building,
   StopCircle,
   Send,
@@ -118,6 +119,42 @@ function TypingIndicator() {
       </div>
     </div>
   );
+}
+
+// Backend error responses are JSON bodies like {"error": "friendly message"}.
+// The AI SDK surfaces the raw body as the Error message — unwrap it so users
+// see the friendly text instead of JSON.
+function formatStreamError(error: Error | undefined): string {
+  const fallback = "The response was interrupted.";
+  if (!error?.message) return fallback;
+  try {
+    const parsed = JSON.parse(error.message);
+    return parsed.error || fallback;
+  } catch {
+    return error.message;
+  }
+}
+
+// Lightweight signature for change detection between the rendered messages
+// and the DB copy. Streamed and DB-dumped messages carry different ids for
+// the same content, so compare role + visible content (text, tool call ids
+// and states) instead of ids.
+function messagesSignature(msgs: any[]): string {
+  return msgs
+    .map((m: any) => {
+      const parts = Array.isArray(m.parts) ? m.parts : [];
+      const content = parts
+        .map((p: any) =>
+          p.type === "text"
+            ? p.text
+            : p.toolCallId
+              ? `${p.toolCallId}:${p.state ?? ""}`
+              : p.type
+        )
+        .join("\u0000");
+      return `${m.role}:${content}`;
+    })
+    .join("\u0001");
 }
 
 // ---------------------------------------------------------------------------
@@ -226,11 +263,79 @@ function ChatView({
     })
   ).current;
 
-  const { messages, sendMessage, status, stop, setMessages } = useChat({
-    id: conversationId,
-    messages: initialMessages,
-    transport,
-  });
+  const { messages, sendMessage, status, stop, setMessages, error, clearError } =
+    useChat({
+      id: conversationId,
+      messages: initialMessages,
+      transport,
+    });
+
+  // Refs so async callbacks can read the latest values without re-subscribing
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const isProcessingApprovalRef = useRef(isProcessingApproval);
+  isProcessingApprovalRef.current = isProcessingApproval;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  // Re-sync the chat from the DB (the authoritative source). useChat only
+  // reads its `messages` option at mount, so without this any response that
+  // finishes after the stream dies client-side (mobile tab suspension,
+  // network blip, provider error) stays invisible until a full page reload.
+  const syncFromServer = useCallback(async () => {
+    const busy = () =>
+      statusRef.current === "submitted" ||
+      statusRef.current === "streaming" ||
+      isProcessingApprovalRef.current;
+    if (busy()) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(
+        `${API_BASE}/conversation/${conversationId}/messages`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      // Re-check after the awaits — the user may have hit send meanwhile.
+      if (busy()) return;
+      const serverMessages: any[] = data.messages || [];
+      // Empty server copy = nothing persisted yet; keep local state.
+      if (serverMessages.length === 0) return;
+      if (
+        messagesSignature(serverMessages) !==
+        messagesSignature(messagesRef.current)
+      ) {
+        setMessages(serverMessages);
+        const allPending = convertAllPendingFromApi(data.pending);
+        setPendingApproval(allPending[0] ?? null);
+        setAllPendingApprovals(allPending);
+      }
+    } catch {
+      // Network failure — keep whatever we have.
+    }
+  }, [conversationId, getToken, setMessages]);
+
+  // Sync when the tab regains visibility or the network comes back.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") syncFromServer();
+    };
+    const handleOnline = () => syncFromServer();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [syncFromServer]);
+
+  // If the stream errors, the run may still have completed server-side (the
+  // backend persists via on_complete) — pull the authoritative copy.
+  useEffect(() => {
+    if (status === "error") {
+      syncFromServer();
+    }
+  }, [status, syncFromServer]);
 
   // Extract ALL pending approvals from latest assistant message
   // PydanticAI requires results for all deferred tool calls, so we need to track all of them
@@ -341,7 +446,7 @@ function ChatView({
       })),
     ];
     if (text) {
-      parts.push({ type: "text", text: input });
+      parts.push({ type: "text", text });
     }
     setPendingApproval(null);
     setAllPendingApprovals([]);
@@ -603,6 +708,29 @@ function ChatView({
               (status === "streaming" &&
                 messages[messages.length - 1]?.role !== "assistant")) && (
               <TypingIndicator />
+            )}
+            {status === "error" && (
+              <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p>{formatStreamError(error)}</p>
+                  <p className="text-xs opacity-80 mt-1">
+                    If the response finished in the background, reloading will
+                    show it.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => {
+                    clearError();
+                    syncFromServer();
+                  }}
+                >
+                  Reload messages
+                </Button>
+              </div>
             )}
             <div
               ref={messagesEndRef}
@@ -1187,12 +1315,10 @@ export default function SerniaChatPage() {
   const loadConversation = useCallback(
     async (
       convId: string,
-      opts?: { updateUrl?: boolean; modality?: string; silent?: boolean }
+      opts?: { updateUrl?: boolean; modality?: string }
     ) => {
       if (!isSignedIn) return;
-      if (!opts?.silent) {
-        setLoadedMessages(null);
-      }
+      setLoadedMessages(null);
 
       try {
         const token = await getToken();
@@ -1203,10 +1329,8 @@ export default function SerniaChatPage() {
 
         if (!res.ok) {
           console.error("Failed to load conversation");
-          if (!opts?.silent) {
-            navigate("/sernia-chat", { replace: true });
-            setLoadedMessages([]);
-          }
+          navigate("/sernia-chat", { replace: true });
+          setLoadedMessages([]);
           return;
         }
 
@@ -1226,10 +1350,8 @@ export default function SerniaChatPage() {
         }
       } catch (err) {
         console.error("Failed to load conversation:", err);
-        if (!opts?.silent) {
-          navigate("/sernia-chat", { replace: true });
-          setLoadedMessages([]);
-        }
+        navigate("/sernia-chat", { replace: true });
+        setLoadedMessages([]);
       }
     },
     [isSignedIn, getToken, navigate]
@@ -1250,21 +1372,10 @@ export default function SerniaChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn, urlConversationId]);
 
-  // Re-fetch conversation when page regains visibility
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (
-        document.visibilityState === "visible" &&
-        isSignedIn &&
-        conversationId
-      ) {
-        loadConversation(conversationId, { updateUrl: false, silent: true });
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, [isSignedIn, conversationId, loadConversation]);
+  // NOTE: re-syncing the open conversation on visibility regain lives inside
+  // ChatView (which owns the useChat state) — useChat only reads its
+  // `messages` option at mount, so updating loadedMessages here wouldn't
+  // reach the rendered chat.
 
   // Listen for service worker messages (notification click)
   useEffect(() => {

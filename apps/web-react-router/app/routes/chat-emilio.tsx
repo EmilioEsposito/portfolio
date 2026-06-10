@@ -261,7 +261,7 @@ export default function ChatEmilioPage() {
                   if (part.type === "file") {
                     fileSegments.push({
                       type: "file",
-                      mediaType: part.mediaType || part.mimeType || "",
+                      mediaType: part.mediaType || "",
                       filename: part.filename,
                       url: part.url || "",
                     });
