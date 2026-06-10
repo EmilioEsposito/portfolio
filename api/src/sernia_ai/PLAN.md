@@ -528,7 +528,7 @@ Core function shared by all triggers:
 
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY_PORTFOLIO` | Main + sub-agent LLM calls (bridged to `ANTHROPIC_API_KEY` in `api/__init__.py`; explicit name avoids colliding with Claude Code cloud sessions; `SERNIA_ANTHROPIC_API_KEY` is the deprecated fallback) |
+| `SERNIA_ANTHROPIC_API_KEY` | Main + sub-agent LLM calls (bridged to `ANTHROPIC_API_KEY` in `api/__init__.py`; explicit name avoids colliding with Claude Code cloud sessions) |
 | `OPEN_PHONE_API_KEY` | Quo/OpenPhone API access |
 | `OPEN_PHONE_WEBHOOK_SECRET` | HMAC signature verification |
 | `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` | Web Push signing |

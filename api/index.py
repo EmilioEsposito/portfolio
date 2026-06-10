@@ -4,7 +4,7 @@ import json
 import logfire
 import os
 
-# NOTE: the ANTHROPIC_API_KEY_PORTFOLIO -> ANTHROPIC_API_KEY bridge lives in
+# NOTE: the SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY bridge lives in
 # api/__init__.py so every entry point (app, pytest, scripts) gets it.
 
 import logfire
