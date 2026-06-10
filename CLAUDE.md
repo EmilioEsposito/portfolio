@@ -34,7 +34,7 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 1. Creates Python venv and installs dependencies (`uv sync`)
 2. Starts local PostgreSQL and configures authentication
 3. Runs database migrations (`alembic upgrade head`)
-4. Seeds the database (contacts, default `model_config` app setting, and — on non-production — demo Sernia conversations so the chat UI and `db_*` search tools have data; see `api/seed_db.py`)
+4. Seeds the database (contacts, default `model_config` app setting, and — on non-production — demo Sernia conversations so the chat UI and `db_*` search tools have data; see `api/seed_db.py`). When the `SEED_BUCKET_*` env vars are configured, it also downloads sanitized real conversations from a private Railway bucket (see README.md "Sanitized Seed Data")
 5. Installs pnpm dependencies and builds React Router app
 6. Bridges `RAILWAY_MCP_TOKEN` → `RAILWAY_API_TOKEN` and pre-links the portfolio project to `development/fastapi` (not production - safer default). Switch envs/services with the `link-environment` / `link-service` MCP tools. **PR environments:** Named `portfolio-pr-<number>` (e.g., `portfolio-pr-248`). List all with `railway environment list --json`.
 
@@ -43,7 +43,7 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 **Known environment constraints** (Claude Code on web):
 - **Postgres can stop mid-session** (long sessions). If DB tests fail with "connection refused", run `sudo service postgresql start` and retry.
 - **Anthropic key naming**: the app's key is `SERNIA_ANTHROPIC_API_KEY` — never name an env var `ANTHROPIC_API_KEY` (it breaks Claude Code cloud sessions). `api/__init__.py` bridges it to `ANTHROPIC_API_KEY` inside app/test processes for SDK auto-discovery. If `SERNIA_ANTHROPIC_API_KEY` is absent in this sandbox, live Anthropic tests can't run; the root `conftest.py` provides dummy keys so imports/collection work.
-- **Outbound port 5432 is blocked** — remote Neon Postgres is unreachable from the sandbox; use the local Postgres (default) or the Neon MCP tools for read access to real environments.
+- **Outbound port 5432 is blocked** — remote Neon Postgres is unreachable from the sandbox. For real production data use the **`load-prod-data` skill** (`.claude/skills/load-prod-data/`): ad hoc rows via the Neon MCP tools (sanitize before inserting locally), persistent baseline via the Railway seed bucket (auto-loaded at session start when `SEED_BUCKET_*` is configured).
 - **Gitignored fixture dirs** (`api/src/tests/requests/`, `api/src/tests/sensitive/`) are absent — tests depending on them auto-skip.
 
 **After setup, start servers with**:

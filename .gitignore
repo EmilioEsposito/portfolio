@@ -29,6 +29,7 @@ __pycache__
 
 # Sernia AI workspace — git-synced independently to EmilioEsposito/sernia-knowledge
 api/src/sernia_ai/workspace/
+apps/sernia_mcp/workspace/
 
 # production
 /build
@@ -80,3 +81,6 @@ scratch/
 
 # AI agent workspace (managed by Sernia agent)
 # api/src/sernia_ai/workspace/
+# Sanitized seed fixtures — too large for git and may contain unreviewed PII.
+# Stored in the Railway ci-bucket instead (see README "Sanitized Seed Data").
+api/seed_fixtures/
