@@ -1020,8 +1020,8 @@ export default function HITLAgentChatPage() {
 
                   <div className={cn("flex flex-col gap-2 max-w-[85%]", message.role === "user" && "items-end")}>
                     {message.role === "user" ? (
-                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
-                        <p className="text-sm whitespace-pre-wrap">{textContent}</p>
+                      <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
+                        <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{textContent}</p>
                       </div>
                     ) : (
                       <>

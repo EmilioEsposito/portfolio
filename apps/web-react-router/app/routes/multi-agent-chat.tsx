@@ -369,8 +369,8 @@ export default function MultiAgentChatPage() {
                       <>
                         <FileMessageDisplay files={fileSegments} />
                         {textContent && (
-                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm">
-                            <p className="text-sm whitespace-pre-wrap">
+                          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
+                            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
                               {textContent}
                             </p>
                           </div>
