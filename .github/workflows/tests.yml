@@ -1,0 +1,61 @@
+name: Tests
+
+# Unit test suite for the FastAPI backend. Excludes `live` tests (real
+# third-party APIs) per pytest.ini addopts, so no real credentials are
+# needed: the root conftest.py provides dummy AI keys, and Postgres runs
+# as a service container (mirrors .claude/setup_remote.sh).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    name: pytest (not live)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+          POSTGRES_DB: portfolio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://portfolio:portfolio@localhost:5432/portfolio
+      DATABASE_URL_UNPOOLED: postgresql://portfolio:portfolio@localhost:5432/portfolio
+      DATABASE_REQUIRE_SSL: "false"
+      # Dummy keys: pydantic-ai validates provider keys at Agent construction
+      # (import time). conftest.py also sets these, but exporting here covers
+      # non-pytest entry points like alembic/seed.
+      OPENAI_API_KEY: test-openai-key
+      ANTHROPIC_API_KEY: test-anthropic-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync -p 3.11
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
+      - name: Seed database
+        run: uv run python api/seed_db.py
+
+      - name: Run tests
+        run: uv run pytest -p no:cacheprovider --tb=short -q

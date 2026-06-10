@@ -1,3 +1,5 @@
+import os
+
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -94,6 +96,10 @@ async def save_oauth_credentials(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not os.path.exists("api/src/tests/sensitive/creds_response.pkl"),
+    reason="requires gitignored local fixture api/src/tests/sensitive/creds_response.pkl",
+)
 async def test_save_oauth_credentials():
     import pickle
 

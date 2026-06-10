@@ -1,6 +1,7 @@
 # CLAUDE.md - AI Assistant Guide
 
-> **Last Updated**: 2025-12-29
+> **Last Updated**: 2026-06-10
+> `AGENTS.md` is a symlink to this file so non-Claude agent tools pick it up too.
 
 ---
 
@@ -33,11 +34,17 @@ When running in Claude Code's cloud environment (`CLAUDE_CODE_REMOTE=true`), a *
 1. Creates Python venv and installs dependencies (`uv sync`)
 2. Starts local PostgreSQL and configures authentication
 3. Runs database migrations (`alembic upgrade head`)
-4. Seeds the database
+4. Seeds the database (contacts, default `model_config` app setting, and — on non-production — demo Sernia conversations so the chat UI and `db_*` search tools have data; see `api/seed_db.py`)
 5. Installs pnpm dependencies and builds React Router app
 6. Bridges `RAILWAY_MCP_TOKEN` → `RAILWAY_API_TOKEN` and pre-links the portfolio project to `development/fastapi` (not production - safer default). Switch envs/services with the `link-environment` / `link-service` MCP tools. **PR environments:** Named `portfolio-pr-<number>` (e.g., `portfolio-pr-248`). List all with `railway environment list --json`.
 
 **Verification**: Check `/tmp/.claude_remote_setup_ran` exists to confirm the hook ran.
+
+**Known environment constraints** (Claude Code on web):
+- **Postgres can stop mid-session** (long sessions). If DB tests fail with "connection refused", run `sudo service postgresql start` and retry.
+- **No `ANTHROPIC_API_KEY`** is configured (OPENAI is). Live Anthropic tests can't run; the root `conftest.py` provides dummy keys so imports/collection work.
+- **Outbound port 5432 is blocked** — remote Neon Postgres is unreachable from the sandbox; use the local Postgres (default) or the Neon MCP tools for read access to real environments.
+- **Gitignored fixture dirs** (`api/src/tests/requests/`, `api/src/tests/sensitive/`) are absent — tests depending on them auto-skip.
 
 **After setup, start servers with**:
 ```bash
@@ -66,7 +73,7 @@ Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote N
 ### Backend
 - FastAPI + Hypercorn (ASGI) + Python 3.11+
 - SQLAlchemy 2.0 + Alembic + Neon Postgres
-- PydanticAI with Graph Beta API for multi-agent AI
+- PydanticAI (>=1.106, capabilities API: `WebSearch`/`WebFetch`/`ProcessHistory`/`Instrumentation`; graph API for multi-agent demos). Note: pydantic-ai validates provider API keys at `Agent()` construction — agents built at import time need keys (or the conftest dummies) present.
 - APScheduler for scheduled jobs + Logfire observability
 - DBOS workflows (currently disabled - see below)
 
@@ -168,12 +175,24 @@ pnpm approve-builds <package-name>  # Updates pnpm-workspace.yaml allowBuilds
 
 ### Testing Conventions
 
+- **The default `pytest` run must pass with NO third-party credentials** — only a local Postgres. This is enforced: CI (`.github/workflows/tests.yml`) and Claude Code on web both run the default suite without real keys. If you add a test that needs a real API, mark it `live`.
 - **Default `pytest` run** excludes tests marked `live` (see `pytest.ini` `addopts`).
-- **`live` marker**: Tests that hit real third-party APIs (ClickUp, OpenPhone, etc.). Run explicitly with `pytest -m live <file>`. Require API keys in `.env`.
+- **`live` marker**: Tests that hit real third-party APIs (ClickUp, OpenPhone, Google, real LLM calls, etc.). Run explicitly with `pytest -m live <file>`. Require API keys in `.env`.
+- **Dummy AI keys**: the root `conftest.py` sets placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` if absent — pydantic-ai validates provider keys when an `Agent` is constructed (import time), so collection would otherwise fail without keys.
+- **Gitignored fixtures**: tests that need local-only files (`api/src/tests/requests/`, `api/src/tests/sensitive/`) must `skipif` when the files are missing — see `test_open_phone.py` for the pattern.
 - **Smoke tests** (`TestSmoke` classes): Fast import/wiring checks that verify modules load correctly and components are connected (e.g., agent has history processors wired, sub-agent models configured). No API keys needed.
 - **Unit tests**: Mock all external calls. Use realistic tool result data matching actual output formats (ClickUp task dumps, Gmail search results, etc.), not dummy strings.
 - **SMS test safety**: NEVER create live tests that send real SMS to external contacts (tenants, vendors, etc.). External SMS tests must ALWAYS mock the send. Only `send_internal_sms` may be tested live against real internal numbers. If a dedicated test phone number is provided in the future, it will be explicitly configured — do not guess or use tenant numbers.
-- **Test location**: `api/src/tests/`
+- **Test location**: `api/src/tests/` (but `pytest.ini` collects `test_*` functions from EVERY `*.py` file under `api/` — see gotchas below).
+
+### Pytest Gotchas (learned the hard way)
+
+- `pytest.ini` sets `python_files = *.py`, so inline tests in service modules are collected too. Consequences:
+  - A FastAPI route handler named `test_*` gets collected as a test — set `handler.__test__ = False` (see `sernia_ai/push/routes.py`).
+  - Every package dir under `api/` needs an `__init__.py`, or pytest imports the file under a second top-level module name and SQLAlchemy models get double-registered ("Table already defined").
+- **Event loop scope is `session`** (`pytest.ini`): the app uses module-level async engines (asyncpg pools). Per-test loops cause order-dependent "Event loop is closed" failures. Don't change this back to `function`.
+- **Module-level caches leak between tests** — e.g. the tool-result summary cache keyed by `tool_call_id`. Clear them in autouse fixtures when tests reuse short ids (see `test_history_processors.py`).
+- **`TestModel` does not support native tools** (WebSearch/WebFetch). To run `sernia_agent` against `TestModel`, use `with sernia_agent.override(native_tools=[]):` and pass `output_type=str` (the structured output spec needs tool-mode output, which `custom_output_text` can't produce). See `test_sernia_agent_wiring.py`.
 
 ---
 
@@ -306,7 +325,8 @@ Example: PR #235 → `https://react-router-portfolio-pr-235.up.railway.app/`
 ### Claude Code on Web
 - **Hook didn't run?** Check if `/tmp/.claude_remote_setup_ran` exists
 - **Logfire warnings?** Expected - proxy restrictions, non-blocking
-- **Database issues?** Verify PostgreSQL is running: `pg_isready -h localhost`
+- **Database issues?** Verify PostgreSQL is running: `pg_isready -h localhost`. It can stop mid-session — restart with `sudo service postgresql start`.
+- **"Event loop is closed" in async DB tests?** A test changed the event-loop scope — it must stay `session` (see pytest.ini comment).
 
 ### Local CLI
 - **SSL errors?** Ensure `DATABASE_REQUIRE_SSL=true` for Neon

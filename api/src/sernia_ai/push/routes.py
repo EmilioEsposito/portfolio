@@ -92,3 +92,8 @@ async def test_push(
         data={"url": "/sernia-chat", "conversation_id": "test"},
     )
     return {"status": "sent"}
+
+
+# FastAPI route handler, not a pytest test — pytest.ini collects every
+# *.py file, so without this flag pytest tries to run the endpoint.
+test_push.__test__ = False

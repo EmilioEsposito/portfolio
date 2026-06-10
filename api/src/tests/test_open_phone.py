@@ -3,6 +3,15 @@ from pprint import pprint
 from fastapi.testclient import TestClient
 from pytest import fixture
 import pytest
+import os
+
+# Payload fixtures are real webhook captures and are gitignored
+# (api/src/tests/requests/* in .gitignore). Skip the whole module where
+# they aren't present (fresh clones, CI, Claude Code on web).
+pytestmark = pytest.mark.skipif(
+    not os.path.isdir("api/src/tests/requests"),
+    reason="requires gitignored fixture payloads in api/src/tests/requests/",
+)
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 from api.index import app
 from api.src.open_phone.routes import OpenPhoneWebhookPayload, verify_open_phone_signature
@@ -116,6 +125,7 @@ def test_open_phone_webhook_call_transcript_completed(mocked_client):
         raise e
 
 
+@pytest.mark.live
 def test_get_contacts_success(mocked_client):
     """Test successful contact retrieval"""
 

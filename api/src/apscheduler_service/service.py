@@ -271,6 +271,7 @@ async def schedule_sms(
     return is_scheduled
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_schedule_sms():
     scheduler = get_scheduler()
@@ -361,6 +362,7 @@ def register_hello_apscheduler_jobs():
     )
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_schedule_email():
     scheduler = get_scheduler()
@@ -422,6 +424,7 @@ async def schedule_push(
     return is_scheduled
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_schedule_push():
     scheduler = get_scheduler()
@@ -475,6 +478,7 @@ async def run_hello_world(name: str):
   logfire.info(f"Hello {name} from apscheduler run_hello_world executed at {datetime.now()}")
 
 
+@pytest.mark.live
 def test_run_hello_world():
     # This function demonstrates adding a job and running the scheduler directly.
     # In the main app, scheduler.start() and scheduler.shutdown() are called by lifespan events.
@@ -538,6 +542,7 @@ async def job_that_will_fail():
     raise ValueError("This job is designed to fail for testing the error handler.")
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_job_that_will_fail():
     logfire.info("--- test_job_that_will_fail START ---")

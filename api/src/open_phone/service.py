@@ -237,6 +237,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
         
     return final_response
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_upsert_openphone_contact():
     contact_create = ContactCreate(

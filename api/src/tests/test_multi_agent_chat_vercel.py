@@ -14,6 +14,7 @@ def client():
     return TestClient(app)
 
 
+@pytest.mark.live
 def test_multi_agent_chat_routes_to_weather(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes weather questions correctly.
@@ -139,6 +140,7 @@ def test_multi_agent_chat_routes_to_weather(client):
         print(f"✓ Stream format is correct")
 
 
+@pytest.mark.live
 def test_multi_agent_chat_routes_to_emilio(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes Emilio questions correctly.

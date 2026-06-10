@@ -189,6 +189,7 @@ g.add(
 multi_agent_graph = g.build()
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_multi_agent_graph_routes_to_weather():
     """Test that multi-agent graph routes weather questions to weather agent"""
@@ -201,6 +202,7 @@ async def test_multi_agent_graph_routes_to_weather():
     print(result.response)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_multi_agent_graph_routes_to_weather_vercel_ai():
     """Test that multi-agent graph routes weather questions to weather agent"""

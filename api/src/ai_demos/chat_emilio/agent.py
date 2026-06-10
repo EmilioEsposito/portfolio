@@ -87,6 +87,7 @@ async def get_emilio_links(ctx: RunContext[PortfolioContext]) -> dict:
     return EMILIO_LINKS
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_agent():
     """Test the agent locally"""

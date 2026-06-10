@@ -47,6 +47,7 @@ async def get_jobs():
     return [job_to_dict(job) for job in jobs]
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_get_jobs():
 
@@ -102,6 +103,7 @@ async def delete_job(job_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete job {job_id}: {str(e)}")
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_run_job_now():
     scheduler = get_scheduler()
