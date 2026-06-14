@@ -12,6 +12,14 @@ import base64
 from typing import List, Optional
 from fastapi import HTTPException
 
+from api.src.google.common.ca_bundle import configure_httplib2_ca_bundle
+
+# google-api-python-client builds on httplib2, which uses its own CA bundle and
+# ignores the system trust store. Align it with the system bundle at import so
+# Google APIs work behind the Claude Code sandbox's TLS-intercepting egress
+# gateway (and harmlessly in prod). See ca_bundle.py for the full rationale.
+configure_httplib2_ca_bundle()
+
 
 # Update these scopes as you add more Google services
 SERVICE_ACCOUNT_DEFAULT_SCOPES = [

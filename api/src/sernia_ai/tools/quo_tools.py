@@ -26,6 +26,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import date
 
 import httpx
 from pydantic import BaseModel, Field
@@ -253,20 +254,67 @@ def _is_internal_contact(contact: dict) -> bool:
     return company == QUO_INTERNAL_COMPANY
 
 
+def _parse_lease_date(value) -> date | None:
+    """Parse a Quo 'date' custom field value to a ``date``.
+
+    Quo stores lease dates as ISO strings (e.g. ``2025-03-30T16:00:00.000+0000``
+    or ``2025-03-30``). We only care about the calendar day, so we read the
+    leading ``YYYY-MM-DD``. Returns None for missing/unparseable values.
+    """
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _has_active_lease(contact: dict, today: date | None = None) -> bool:
+    """True only when the contact has a *currently active* lease.
+
+    Reads the ``Lease Start Date`` / ``Lease End Date`` custom fields and
+    returns True when ``start <= today <= end``. Contacts that are missing
+    either date or whose dates don't parse — leads, prospects, and anyone
+    whose lease hasn't started yet or has already ended (future / past
+    tenants) — are treated as NOT active.
+    """
+    today = today or date.today()
+    start = end = None
+    for field in contact.get("customFields", []):
+        name = field.get("name")
+        if name == "Lease Start Date":
+            start = _parse_lease_date(field.get("value"))
+        elif name == "Lease End Date":
+            end = _parse_lease_date(field.get("value"))
+    if start is None or end is None:
+        return False
+    return start <= today <= end
+
+
 def _filter_tenants_by_property_unit(
     contacts: list[dict],
     properties: list[str],
     units: list[str] | None,
+    *,
+    active_only: bool = True,
 ) -> dict[tuple[str, str], list[dict]]:
     """Group tenant contacts by (property, unit), filtered by selectors.
 
     Returns dict mapping (property, unit) -> list of matching contacts.
     Skips contacts without Property/Unit # fields and internal contacts.
+
+    When ``active_only`` is True (the default), only contacts with a
+    currently-active lease are included — leads, prospects, and future /
+    past tenants (no active lease on today's date) are excluded. This is the
+    safe default for building-wide notices so we never text someone who
+    isn't actually a current tenant. Pass ``active_only=False`` to include
+    every matching contact regardless of lease status.
     """
     from collections import defaultdict
 
     prop_set = {p.strip() for p in properties}
     unit_set = {u.strip() for u in units} if units is not None else None
+    today = date.today()
 
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for contact in contacts:
@@ -274,6 +322,8 @@ def _filter_tenants_by_property_unit(
         if cu is None:
             continue
         if _is_internal_contact(contact):
+            continue
+        if active_only and not _has_active_lease(contact, today):
             continue
         prop, unit = cu
         if prop not in prop_set:
@@ -1635,12 +1685,20 @@ def _build_quo_toolset():
         message: str,
         properties: list[str],
         units: list[str] | None = None,
+        include_inactive: bool = False,
     ) -> str:
-        """Send the same SMS to all tenants in one or more properties.
+        """Send the same SMS to all CURRENT tenants in one or more properties.
 
         Automatically finds matching tenants from the contact list, groups
         by (Property, Unit #), and sends one SMS per unit group. Roommates
         in the same unit share a thread; different units are isolated.
+
+        By default this targets only tenants with a **currently-active lease**
+        (Lease Start Date <= today <= Lease End Date). Leads, prospects, and
+        future / past tenants are excluded — they should never receive
+        building-wide tenant notices. Set ``include_inactive=True`` only when
+        you explicitly intend to reach non-active contacts too (e.g. texting
+        incoming tenants whose lease hasn't started yet).
 
         Max 1000 chars — messages over this limit are rejected (shorten/summarize
         and retry). Messages over 500 chars are auto-split into multiple texts.
@@ -1649,11 +1707,15 @@ def _build_quo_toolset():
             message: The text message body to send to all matching tenants (max 1000 chars).
             properties: Property names to target (e.g. ["320"] or ["320", "400"]).
             units: Optional unit filter within those properties. None = all units.
+            include_inactive: When True, also message contacts without a
+                currently-active lease (leads, future/past tenants). Defaults
+                to False — active-lease tenants only.
         """
         logfire.info(
             "mass_text_tenants called",
             properties=properties,
             units=units,
+            include_inactive=include_inactive,
             message_length=len(message),
         )
 
@@ -1665,11 +1727,17 @@ def _build_quo_toolset():
             )
 
         contacts = await get_all_contacts(client)
-        grouped = _filter_tenants_by_property_unit(contacts, properties, units)
+        grouped = _filter_tenants_by_property_unit(
+            contacts, properties, units, active_only=not include_inactive
+        )
 
         if not grouped:
             unit_desc = f" units {units}" if units else ""
-            return f"No tenants found matching properties {properties}{unit_desc}."
+            lease_desc = "" if include_inactive else " with an active lease"
+            return (
+                f"No tenants{lease_desc} found matching properties "
+                f"{properties}{unit_desc}."
+            )
 
         results: list[str] = []
         failures: list[str] = []

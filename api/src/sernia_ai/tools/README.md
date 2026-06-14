@@ -11,7 +11,7 @@ SMS and contact management via the OpenPhone API, bridged through FastMCP.
 | Tool | Approval | Description |
 |------|----------|-------------|
 | `send_sms` | Conditional | Unified SMS — auto-detects internal vs external. Internal (Sernia Capital LLC) → AI line, no approval. External → shared team number, requires HITL. Single phone number per call. Supports optional `context` param for reply context seeding. |
-| `mass_text_tenants` | Yes (HITL) | Send the same message to all tenants in one or more properties, with optional unit filter. Auto-groups by unit and sends one SMS per unit. |
+| `mass_text_tenants` | Yes (HITL) | Send the same message to all **current** tenants in one or more properties, with optional unit filter. Defaults to active-lease tenants only (excludes leads + future/past tenants); pass `include_inactive=True` to override. Auto-groups by unit and sends one SMS per unit. |
 
 ### Core SMS Logic (module-level, reused by scheduling)
 
@@ -46,7 +46,17 @@ Example: The agent texts Anna "Is the faucet fixed?" with `context="Emilio asked
 **Use `mass_text_tenants`** for building-wide notices. It automatically:
 1. Finds matching tenants from the cached contact list by `(Property, Unit #)`
 2. Skips internal contacts and contacts without phone numbers
-3. Groups by unit and sends one SMS per unit group
+3. **Skips anyone without a currently-active lease** — leads, prospects, and
+   future/past tenants are excluded by default (`Lease Start Date <= today <=
+   Lease End Date`). This is the safe default for building-wide notices so we
+   never text someone who isn't a current tenant. Pass `include_inactive=True`
+   to reach non-active contacts on purpose.
+4. Groups by unit and sends one SMS per unit group
+
+> **Active-lease filtering** is enforced in `_filter_tenants_by_property_unit`
+> via the `_has_active_lease()` helper, which reads the `Lease Start Date` /
+> `Lease End Date` contact custom fields. A contact missing either date (or
+> with unparseable dates) is treated as **not** active.
 
 ### Contact Custom Fields
 
