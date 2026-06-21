@@ -116,7 +116,7 @@ Please generate a professional and appropriate response:"""
 
         # Call OpenAI API using async client
         openai_response = await client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a professional real estate assistant."},
                 {"role": "user", "content": prompt}
