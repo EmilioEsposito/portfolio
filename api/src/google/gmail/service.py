@@ -3,6 +3,8 @@ Gmail service functionality for interacting with Gmail API.
 """
 
 from googleapiclient.discovery import build
+import httplib2
+import google_auth_httplib2
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import base64
@@ -36,15 +38,30 @@ SCOPES = [
 ]
 
 
+# Hard ceiling on a single Gmail API HTTP request. google-api-python-client builds
+# on httplib2, whose default socket timeout is None — so a stalled connection can hang
+# indefinitely (we observed a ~60s OS-level stall), blocking the request and the
+# Pub/Sub retry path. An explicit timeout makes a genuine hang fail fast so redelivery
+# can react. Generous enough not to trip on normal Gmail latency.
+GMAIL_HTTP_TIMEOUT_SECONDS = 30
+
+
 def get_gmail_service(credentials: Union[Credentials, service_account.Credentials]):
     """
     Creates and returns an authorized Gmail API service instance.
+
+    The underlying httplib2 transport is given an explicit timeout so a stalled
+    connection fails fast instead of hanging indefinitely.
 
     Args:
         credentials: Either service account or OAuth user credentials
     """
     try:
-        service = build("gmail", "v1", credentials=credentials)
+        authed_http = google_auth_httplib2.AuthorizedHttp(
+            credentials,
+            http=httplib2.Http(timeout=GMAIL_HTTP_TIMEOUT_SECONDS),
+        )
+        service = build("gmail", "v1", http=authed_http)
         return service
 
     except Exception as e:
@@ -326,12 +343,21 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
                     "reason": f"Exception fetching history: {str(e)}",
                 }
 
-    logfire.warn(f"Failed to retrieve history after {max_retries} retries")
+    # Reaching here means every attempt hit either "no history" or "history not yet
+    # available" — both benign. Genuine API errors (timeouts, etc.) return earlier and
+    # log at error level. This is high-volume, expected Gmail behavior (a watch fires
+    # but history.list has no in-scope changes to return: label-only changes, drafts,
+    # messages outside gmail.readonly), so log at info — NOT as a "failure" — so it does
+    # not masquerade as an outage in alerts/triage. Pub/Sub redelivery still applies.
+    logfire.info(
+        f"No retrievable history for ID {history_id} after {max_retries} attempts "
+        f"(benign: no in-scope changes or history not yet available)"
+    )
     return {
         "status": "retry_needed",
         "email_message_ids": [],
         "added_message_ids": [],
-        "reason": f"Failed to retrieve history after {max_retries} retries",
+        "reason": f"No retrievable history after {max_retries} attempts",
     }
 
 
