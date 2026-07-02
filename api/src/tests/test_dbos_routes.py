@@ -12,6 +12,10 @@ from pprint import pprint
 
 import pytest
 
+# get_jobs reads the DBOS workflow registry, which is populated as an import
+# side effect. Under the old *.py pytest collection every module (including
+# the example workflows) was imported implicitly; import them explicitly now.
+from api.src.dbos_service.examples import hello_dbos  # noqa: F401
 from api.src.dbos_service.routes import get_jobs
 
 
