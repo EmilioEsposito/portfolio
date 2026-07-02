@@ -13,14 +13,13 @@ on:
         type: boolean
         default: false
 
-# Serialize runs so a manual run and the cron run never overlap (and so the
-# history.log commit below can't race itself).
+# Serialize runs so a manual run and the cron run never overlap.
 concurrency:
   group: logfire-investigate
   cancel-in-progress: false
 
 permissions:
-  contents: write # needed to commit the history.log audit entry
+  contents: read
 
 jobs:
   investigate:
@@ -52,27 +51,12 @@ jobs:
           echo "Claude Code session: ${{ steps.run.outputs.session_url }}"
           echo "Session id:          ${{ steps.run.outputs.session_id }}"
 
-      - name: Commit history.log audit entry
+      # The audit trail lives with the run: the fire record goes to the job
+      # summary (write_summary in investigate.py) and history.log is uploaded
+      # as an artifact. Nothing is committed back to the repo.
+      - name: Upload history.log audit entry
         if: steps.run.outputs.fired == '1'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/logfire-investigate/history.log
-          if git diff --cached --quiet; then
-            echo "No history changes to commit"
-            exit 0
-          fi
-          git commit -m "chore(logfire): record routine fire in history.log [skip ci]"
-          # Rebase before pushing so a concurrent run can't clobber the log.
-          # Never force-push. Retry with exponential backoff.
-          for attempt in 1 2 3 4; do
-            if git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
-              echo "History pushed."
-              exit 0
-            fi
-            echo "Push attempt ${attempt} failed; retrying..."
-            sleep $((2 ** attempt))
-          done
-          echo "Failed to push history.log after retries." >&2
-          exit 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: history-log
+          path: .github/logfire-investigate/history.log

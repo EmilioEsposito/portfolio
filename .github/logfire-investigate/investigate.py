@@ -24,9 +24,10 @@ Actions cron. On any given run it:
 Why no watermark? Recurring errors emit new rows daily, so they would clear any
 watermark and fire anyway -- the watermark only avoided re-reading the *same*
 rows, at the cost of a fragile boundary and a commit-back-to-main step. A fixed
-lookback with a buffer is simpler and never misses a boundary event. The only
-persisted state is ``history.log`` (append-only audit of actual fires), which the
-workflow commits back when (and only when) a routine fired.
+lookback with a buffer is simpler and never misses a boundary event. Nothing is
+persisted in git: when a routine fires, the audit record goes to the Actions job
+summary (``write_summary``) and ``history.log`` is written in the run workspace
+and uploaded as a workflow artifact.
 """
 
 from __future__ import annotations
