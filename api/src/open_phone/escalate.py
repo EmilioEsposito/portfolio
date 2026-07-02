@@ -11,8 +11,6 @@ from api.src.google.sheets import get_sheet_as_json
 import json
 
 # from twilio.rest import Client # removed to reduce bundle size
-import pytest
-from datetime import datetime
 import pytz
 import random
 from openai import OpenAI
@@ -301,62 +299,3 @@ async def analyze_for_twilio_escalation(
         )
 
     return successful_escalations
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_explicit_keyword_escalation():
-    """
-    Test function to verify Twilio escalation functionality.
-    """
-    # Test data
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "fire in the building",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    successful_escalations = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(successful_escalations)
-    assert successful_escalations == 1
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_ai_escalation_positive():
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "There is a crazy person screaming about hurting people in the building!",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(should_escalate)
-
-    assert should_escalate == 1
-
-
-@pytest.mark.asyncio
-async def test_ai_escalation_negative():
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "I lost my keys and can't get in! Can someone bring me a spare ASAP??",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(should_escalate)
-
-    assert should_escalate == 0

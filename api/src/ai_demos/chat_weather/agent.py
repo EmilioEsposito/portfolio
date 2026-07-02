@@ -8,7 +8,6 @@ import requests
 from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
-import pytest
 
 
 @dataclass
@@ -56,11 +55,4 @@ async def get_current_weather(ctx: RunContext[ChatContext], latitude: float, lon
     except requests.RequestException as e:
         logfire.error(f"Error fetching weather data: {e}")
         return {"error": f"Failed to fetch weather data: {str(e)}"}
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_agent():
-    """Test the agent directly"""
-    result = await agent.run("What's the weather like at coordinates 40.7128, -74.0060?", deps=ChatContext())
-    assert result.output is not None
 

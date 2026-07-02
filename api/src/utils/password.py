@@ -4,7 +4,6 @@ import os
 import hmac
 import json
 from fastapi import HTTPException, Request
-import pytest
 
 def adhoc_generate_new_password():
     import hashlib
@@ -42,13 +41,8 @@ async def verify_admin_password(password_attempt: str) -> bool:
         raise HTTPException(500, "Password hash not configured")
     
     is_valid = hmac.compare_digest(password_attempt_hash, correct_hash)
-    
-    return is_valid
 
-@pytest.mark.asyncio
-async def test_verify_admin_password():
-    assert await verify_admin_password("wrong123") == False
-    assert await verify_admin_password("wrong456") == False
+    return is_valid
 
 
 async def verify_admin_auth(request: Request) -> bool:

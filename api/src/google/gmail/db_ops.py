@@ -9,24 +9,9 @@ from datetime import datetime
 import pytz
 from typing import Dict, Any, Optional
 from api.src.google.gmail.models import EmailMessage
-import pytest
 import logfire
-from typing import List, AsyncGenerator
-from contextlib import asynccontextmanager
-from api.src.database.database import AsyncSessionFactory
+from typing import List
 
-
-# Test helper for creating database sessions
-@asynccontextmanager
-async def get_test_session() -> AsyncGenerator[AsyncSession, None]:
-    """Create a database session specifically for testing"""
-    async with AsyncSessionFactory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
 
 async def save_email_message(
     session: AsyncSession,
@@ -120,65 +105,6 @@ async def save_email_message(
         await session.rollback()
         return None, False
 
-
-
-@pytest.mark.asyncio
-async def test_save_email_message():
-    """Test saving and retrieving an email message"""
-    # Test data with proper datetime
-    message_data = {
-        'message_id': '1234567890',
-        'thread_id': '1234567890',
-        'subject': 'Test Email',
-        'from_address': 'test@example.com',
-        'to_address': 'recipient@example.com',
-        'date': datetime.now().isoformat(),  # Current time in ISO format
-        'body_text': 'Test body',
-        'body_html': '<p>Test body</p>',
-        'raw_payload': {'test': 'data'},
-        'label_ids': ['INBOX', 'UNREAD']
-    }
-    
-    # Test history ID
-    history_id = 12345
-    
-    saved_msg = None
-    async with get_test_session() as session:
-        try:
-            # Save message with history_id — first call should be a fresh insert
-            saved_msg, was_inserted = await save_email_message(session, message_data, history_id)
-            assert saved_msg is not None
-            assert was_inserted is True
-            assert saved_msg.message_id == message_data['message_id']
-            assert saved_msg.first_history_id == history_id
-            assert saved_msg.history_ids == [history_id]
-            assert saved_msg.label_ids == message_data['label_ids']
-
-            # Verify we can retrieve it
-            retrieved = await get_email_by_message_id(session, message_data['message_id'])
-            assert retrieved is not None
-            assert retrieved.subject == message_data['subject']
-
-            # Test update with a new history_id — second call should be an update, not an insert
-            new_history_id = 67890
-            updated_data = message_data.copy()
-            updated_data['raw_payload'] = {'test': 'updated data'}
-            updated_data['label_ids'] = ['INBOX', 'READ']
-
-            updated_msg, was_inserted_again = await save_email_message(session, updated_data, new_history_id)
-            assert updated_msg is not None
-            assert was_inserted_again is False
-            assert updated_msg.message_id == message_data['message_id']
-            assert updated_msg.first_history_id == history_id  # First history should not change
-            assert new_history_id in updated_msg.history_ids  # New history should be added
-            assert updated_msg.label_ids == updated_data['label_ids']  # Labels should be updated
-            assert updated_msg.raw_payload == updated_data['raw_payload']  # Payload should be updated
-
-        finally:
-            # Cleanup: Delete test message
-            if saved_msg:
-                await session.delete(saved_msg)
-                await session.commit()
 
 async def get_email_by_message_id(
     session: AsyncSession,

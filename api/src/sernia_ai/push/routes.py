@@ -82,7 +82,7 @@ async def unsubscribe(
 
 
 @router.post("/test")
-async def test_push(
+async def send_test_push(
     user: User = Depends(_get_sernia_user),
 ):
     """Send a test push notification to all subscribed devices."""
@@ -92,8 +92,3 @@ async def test_push(
         data={"url": "/sernia-chat", "conversation_id": "test"},
     )
     return {"status": "sent"}
-
-
-# FastAPI route handler, not a pytest test — pytest.ini collects every
-# *.py file, so without this flag pytest tries to run the endpoint.
-test_push.__test__ = False

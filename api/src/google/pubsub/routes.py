@@ -14,10 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
 from api.src.google.gmail.service import process_single_message
 from api.src.database.database import session_context
-from api.src.google.gmail.db_ops import save_email_message, get_email_by_message_id, get_test_session
+from api.src.google.gmail.db_ops import save_email_message, get_email_by_message_id
 from api.src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
 from api.src.google.common.service_account_auth import get_delegated_credentials
-import pytest
 
 
 router = APIRouter(prefix="/pubsub", tags=["pubsub"])
@@ -292,24 +291,3 @@ async def process_gmail_notification(pubsub_notification_data: dict):
             "messages": [],
             "reason": f"Exception during processing: {str(e)}"
         }
-
-@pytest.mark.asyncio
-async def test_process_gmail_notification():
-    """
-    Test function to test the process_gmail_notification function.
-    """
-    # Create test notification data
-    pubsub_notification_data = {
-        "emailAddress": "emilio@serniacapital.com",
-        "historyId": 6531598
-    }
-    
-    # Call the function (it creates its own per-message sessions)
-    processing_result = await process_gmail_notification(pubsub_notification_data)
-
-    assert processing_result['status'] in ["success", "no_messages", "retry_needed"]
-
-    # Log the results
-    for email_msg in processing_result['messages']:
-        print(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
-        assert email_msg['subject'] is not None

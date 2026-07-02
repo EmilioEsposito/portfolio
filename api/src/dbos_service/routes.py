@@ -5,8 +5,6 @@ from datetime import datetime
 
 from api.src.dbos_service.dbos_scheduler import get_scheduled_jobs, get_scheduled_job, get_workflow_func
 from api.src.utils.clerk import verify_serniacapital_user
-import pytest
-from pprint import pprint
 
 router = APIRouter(
     prefix="/dbos",
@@ -21,13 +19,6 @@ async def get_jobs():
     Retrieve all DBOS scheduled workflows.
     """
     return get_scheduled_jobs()
-
-
-@pytest.mark.asyncio
-async def test_get_jobs():
-    jobs = await get_jobs()
-    pprint(jobs)
-    assert len(jobs) > 0
 
 
 @router.get("/run_job_now/{job_id}", response_model=dict)

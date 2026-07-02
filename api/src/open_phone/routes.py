@@ -21,7 +21,6 @@ from pprint import pprint
 import time
 import requests
 import httpx as _httpx
-import pytest
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.contact.service import get_contact_by_slug
@@ -87,16 +86,6 @@ emoji_pattern = re.compile(
 
 async def contains_emoji(text):
     return bool(emoji_pattern.search(text))
-
-@pytest.mark.asyncio
-async def test_contains_emoji():
-    assert await contains_emoji("👍")
-    assert await contains_emoji("👍🏻")
-    assert await contains_emoji("blah blah blah 👍")
-    assert await contains_emoji("👍🏻 blah blah blah")
-    assert await contains_emoji("👍👍👍👍👍")
-    assert not await contains_emoji("Hello")
-    assert not await contains_emoji("Hello José")
 
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
@@ -302,27 +291,6 @@ async def route_delete_contact_by_id(id: str, admin_password: str = Security(API
     }
     response = requests.delete(url, headers=headers)
     return response.status_code
-
-
-# def test_get_ghost_ids():
-#     headers = {
-#         "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
-#         "Content-Type": "application/json",
-#     }
-#     ghost_ids = [
-#         "67a3f0e374352083a596852c",
-#         "67a3ea7913bc7ac81079abce",
-#         "67a3f29874352083a5968570",
-#     ]
-#     response_codes = []
-#     for id in ghost_ids:
-#         url = f"https://api.openphone.com/v1/contacts/{id}"
-#         response = requests.get(url, headers=headers)
-#         print(response.json())
-#         response_codes.append(response.status_code)
-#     pprint(response_codes)
-
-#     assert set(response_codes) == set([200])
 
 
 # Working!

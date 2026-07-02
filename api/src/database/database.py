@@ -11,7 +11,6 @@ from fastapi import Depends
 from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from sqlalchemy import text
-import pytest
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 # Load .env file if present (for local dev, alembic migrations, worktrees)
@@ -238,7 +237,7 @@ async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator
             yield new_session
 
 @logfire.instrument("test-sync-engine-select-one")
-def test_sync_engine_select_one():
+def check_sync_engine_select_one():
     """Run a SELECT 1 from the synchronous engine to verify it's working."""
     try:
         with sync_engine.connect() as conn:
@@ -256,16 +255,15 @@ def wait_for_db(max_retries=10, delay=1):
     import time
     for i in range(max_retries):
         try:
-            test_sync_engine_select_one()
+            check_sync_engine_select_one()
             return
         except:
             if i == max_retries - 1:
                 raise
             time.sleep(delay)
 
-@pytest.mark.asyncio
 @logfire.instrument("test-async-engine-select-one")
-async def test_async_engine_select_one():
+async def check_async_engine_select_one():
     """Run a SELECT 1 from the async engine to verify it's working."""
     # The module-level engine's pool can hold connections bound to a previous
     # test's (now closed) event loop — pytest-asyncio uses one loop per test.
@@ -283,12 +281,11 @@ async def test_async_engine_select_one():
         logfire.exception(f"FAILURE: Async engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Async engine SELECT 1 test failed: {e}")
 
-@pytest.mark.asyncio
 @logfire.instrument("test-database-connections")
-async def test_database_connections():
+async def check_database_connections():
     try:
-        test_sync_engine_select_one()
-        await test_async_engine_select_one()
+        check_sync_engine_select_one()
+        await check_async_engine_select_one()
     except Exception as e:
         logfire.exception(f"Error during database connection test: {e}")
         raise Exception(f"Error during database connection test: {e}")

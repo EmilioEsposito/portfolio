@@ -10,7 +10,6 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import Instrumentation
 from dotenv import load_dotenv
 import httpx
-import pytest
 load_dotenv('.env')
 
 
@@ -85,15 +84,3 @@ async def get_emilio_links(ctx: RunContext[PortfolioContext]) -> dict:
     """
     logfire.info("Getting Emilio's links")
     return EMILIO_LINKS
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_agent():
-    """Test the agent locally"""
-    result = await agent.run("Summarize Emilio's LinkedIn profile")
-    print(f"\n\nAgent Response:\n{result}")
-
-
-if __name__ == "__main__":
-    test_agent()

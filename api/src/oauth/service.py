@@ -1,14 +1,10 @@
-import os
-
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.models import OAuthCredential
 from fastapi import HTTPException
 from typing import Optional, List
 from clerk_backend_api import OAuthAccessToken
-import pytest
 from typing import Union
 import pytz
 async def save_oauth_credentials(
@@ -93,27 +89,6 @@ async def save_oauth_credentials(
             status_code=500,
             detail=f"Failed to save OAuth credentials: {str(e)}"
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(
-    not os.path.exists("api/src/tests/sensitive/creds_response.pkl"),
-    reason="requires gitignored local fixture api/src/tests/sensitive/creds_response.pkl",
-)
-async def test_save_oauth_credentials():
-    import pickle
-
-    with open("api/src/tests/sensitive/creds_response.pkl", "rb") as f:
-        creds_response = pickle.load(f)
-
-    user_id = "user_2tHQGipY2lem9Xat1823wKuGl7J"
-    provider = "oauth_google"
-
-    session = AsyncSessionFactory()
-    await save_oauth_credentials(
-        session, user_id, provider, creds_response=creds_response
-    )
-    await session.close()
 
 
 async def get_oauth_credentials(

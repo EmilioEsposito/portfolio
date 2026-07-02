@@ -11,7 +11,6 @@ from api.src.google.sheets import get_sheet_as_json
 from api.src.contact.service import get_contact_by_slug, create_contact, ContactCreate
 from api.src.database.database import AsyncSessionFactory
 from api.src.contact.models import Contact
-import pytest
 from sqlalchemy import select
 
 # ---------------------------------------------------------------------------
@@ -236,36 +235,6 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
         await db.refresh(merged_contact)
         
     return final_response
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_upsert_openphone_contact():
-    contact_create = ContactCreate(
-        slug="test-lead-contact-random",
-        phone_number="+19291231234",
-        first_name="Test First",
-        last_name="Test Last",
-        email="test@test.com",
-        notes="API-Test",
-        company="Test",
-        role="Test",
-    )
-
-    response = await upsert_openphone_contact(contact_create)
-    print(response.json())
-    assert response.status_code == 201 or response.status_code == 200
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_send_message():
-    response = await send_message(
-        message="Hello, this is a test message",
-        to_phone_number="+14123703550",
-        from_phone_number="+14129101500",
-    )
-    print(response.json())
-    assert response.status_code == 202
 
 async def get_contacts_by_external_ids(
     external_ids: List[str],

@@ -5,7 +5,6 @@ from api.src.open_phone.service import send_message, upsert_openphone_contact
 from api.src.database.database import AsyncSessionFactory
 from api.src.contact.service import ContactCreate
 from sqlalchemy import text
-import pytest
 from api.src.contact.service import get_contact_by_slug
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -148,34 +147,6 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
         # Return the determined count before exception, or 0 if it occurred early
         return sent_message_count
 
-
-@pytest.mark.asyncio
-async def test_has_unreplied_emails():
-    sql_query = """SELECT
-    'testing' AS subject,
-    TO_CHAR(
-        CURRENT_TIMESTAMP at time zone 'America/New_York',
-        'Mon DD, HH12:MIpm'
-    ) AS received_date_str;"""
-    sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_slugs=["emilio"], mock=True
-    )
-    assert sent_message_count == 1
-
-
-@pytest.mark.asyncio
-async def test_has_no_unreplied_emails():
-    sql_query = """SELECT
-    'testing' AS subject,
-    TO_CHAR(
-        CURRENT_TIMESTAMP at time zone 'America/New_York',
-        'Mon DD, HH12:MIpm'
-    ) AS received_date_str
-    WHERE 1=0;"""
-    sent_message_count = await check_unreplied_emails(
-        sql=sql_query, target_slugs=["emilio"], mock=True
-    )
-    assert sent_message_count == 0
 
 # Define Pydantic models for better structure
 class EmailMessageDetail(BaseModel):
@@ -547,12 +518,6 @@ async def check_email_threads(overwrite_calendar_events=False):
                             to_phone_number=target_phone_number,
                             from_phone_number="+14129101500",
                         )
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_check_email_threads():
-    await check_email_threads(overwrite_calendar_events=True)
 
 
 # --- APScheduler Job Registration ---

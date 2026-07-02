@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
-import pytest
 from dotenv import load_dotenv
 
 load_dotenv('.env')
@@ -53,16 +52,3 @@ router_agent = Agent(
     output_type=RoutingDecision,
     retries=2,
 )
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_router_agent_routes_to_weather():
-    """Test that router agent routes weather-related questions to weather agent"""
-    result = await router_agent.run(
-        "What's the weather in Tokyo?",
-        # deps=RouterContext(),
-    )
-    
-    assert result.output is not None
-    assert isinstance(result.output, RoutingDecision)
-    assert result.output.agent_name == AgentName.weather

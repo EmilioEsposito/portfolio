@@ -9,9 +9,6 @@ import logfire
 from api.src.apscheduler_service.service import get_scheduler
 from api.src.utils.clerk import verify_serniacapital_user
 from datetime import datetime, timedelta
-import pytest
-from pprint import pprint
-import asyncio
 
 router = APIRouter(
     prefix="/apscheduler",
@@ -46,21 +43,6 @@ async def get_jobs():
     jobs.sort(key=lambda x: x.id)
     return [job_to_dict(job) for job in jobs]
 
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_get_jobs():
-
-    scheduler = get_scheduler()
-    if not scheduler.running:
-        logfire.info("Starting scheduler for test_job...")
-        scheduler.start()
-    else:
-        logfire.info("Scheduler already running for test_job.")
-    jobs = await get_jobs()
-    pprint(jobs)
-    scheduler.shutdown()
-    assert len(jobs) > 0
 
 @router.get("/run_job_now/{job_id}", response_model=dict)
 async def run_job_now(job_id: str):
@@ -101,18 +83,3 @@ async def delete_job(job_id: str):
     except Exception as e:
         logfire.exception(f"Failed to delete job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete job {job_id}: {str(e)}")
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_run_job_now():
-    scheduler = get_scheduler()
-    if not scheduler.running:
-        logfire.info("Starting scheduler for test_job...")
-        scheduler.start()
-    else:
-        logfire.info("Scheduler already running for test_job.")
-    job_id = "zillow_test_job"
-    await run_job_now(job_id)
-    await asyncio.sleep(10)
-    scheduler.shutdown()

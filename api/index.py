@@ -30,7 +30,7 @@ with logfire.span("Database"):
     from api.src.database.database import (
         engine as async_engine,
         sync_engine,
-        test_database_connections
+        check_database_connections
     )
     engines_to_instrument = [async_engine]
     if sync_engine is not None:
@@ -198,7 +198,7 @@ async def lifespan(app: FastAPI):
             # sequentially for sync + async engines = ~3-5s blocked startup).
             # On Railway the test still runs so a bad deploy fails the health check.
             if is_hosted:
-                await test_database_connections()
+                await check_database_connections()
             else:
                 logfire.info("Skipping DB connection test (local dev)")
 
