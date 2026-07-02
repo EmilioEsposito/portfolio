@@ -17,6 +17,7 @@ LLM-summarizer fallback (the MCP server has no LLM dep). Three concerns:
 
 All three are pure-Python (regex / BeautifulSoup) — no network, no LLM.
 """
+
 from __future__ import annotations
 
 import re
@@ -40,9 +41,7 @@ def html_to_markdown(html: str) -> str:
         tag.decompose()
     cleaned = str(soup)
 
-    result = md(
-        cleaned, strip=["table", "tr", "td", "th", "tbody", "thead", "tfoot"]
-    )
+    result = md(cleaned, strip=["table", "tr", "td", "th", "tbody", "thead", "tfoot"])
     return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
@@ -90,9 +89,7 @@ def _strip_zillow_tail(content: str) -> str:
     for pat in _ZILLOW_BOILERPLATE_COMPILED:
         content = pat.sub("", content)
 
-    content = re.sub(
-        r"You can also reply directly to this (?:email|message)\.?\s*", "", content
-    )
+    content = re.sub(r"You can also reply directly to this (?:email|message)\.?\s*", "", content)
     content = re.sub(r"^\s*(?:Yes|No)\s*$", "", content, flags=re.MULTILINE)
     content = re.sub(
         r"^.*(?:utm_|campaign=|headerOnly|MessageTemplate|content-info|"
@@ -125,7 +122,7 @@ def clean_zillow_email(content: str) -> str:
     says_pattern = re.compile(r"[A-Z]\w+(?:\s+\w+)*\s+says:\s*")
     matches = list(says_pattern.finditer(content))
     if matches:
-        message = content[matches[-1].end():].strip()
+        message = content[matches[-1].end() :].strip()
         if message:
             message = _strip_zillow_tail(message)
             if message:

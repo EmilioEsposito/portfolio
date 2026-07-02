@@ -8,6 +8,7 @@ extra dep.
 Calendar writes (create / delete events) require HITL approval cards and
 will land with the approval-flow batch — see ``apps/sernia_mcp/TODOS.md``.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -75,9 +76,7 @@ async def list_calendar_events_core(
         summary = event.get("summary", "(no title)")
         event_id = event.get("id", "?")
         attendees = event.get("attendees", [])
-        attendee_str = (
-            ", ".join(a.get("email", "?") for a in attendees) if attendees else "none"
-        )
+        attendee_str = ", ".join(a.get("email", "?") for a in attendees) if attendees else "none"
         lines.append(
             f"- {summary}\n"
             f"  Start: {start} | End: {end}\n"

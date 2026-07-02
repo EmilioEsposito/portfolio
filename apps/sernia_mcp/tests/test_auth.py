@@ -9,6 +9,7 @@ Also pins the ``SerniaAuthMiddleware.on_read_resource`` override that lets
 FastMCP's Prefab/Apps ``ui://`` synthesis run without being short-circuited
 by the parent's resource-existence precheck.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -156,9 +157,7 @@ async def test_sernia_auth_middleware_delegates_non_hashed_tools(monkeypatch):
         return "parent-result"
 
     middleware = SerniaAuthMiddleware(auth=lambda ctx: True)
-    monkeypatch.setattr(
-        "fastmcp.server.middleware.AuthMiddleware.on_call_tool", fake_super
-    )
+    monkeypatch.setattr("fastmcp.server.middleware.AuthMiddleware.on_call_tool", fake_super)
 
     context = SimpleNamespace(message=SimpleNamespace(name="quo_send_sms"))
     result = await middleware.on_call_tool(context, AsyncMock())
@@ -179,9 +178,7 @@ async def test_sernia_auth_middleware_delegates_non_ui_resources(monkeypatch):
         return "parent-result"
 
     middleware = SerniaAuthMiddleware(auth=lambda ctx: True)
-    monkeypatch.setattr(
-        "fastmcp.server.middleware.AuthMiddleware.on_read_resource", fake_super
-    )
+    monkeypatch.setattr("fastmcp.server.middleware.AuthMiddleware.on_read_resource", fake_super)
 
     context = SimpleNamespace(
         message=SimpleNamespace(uri="file:///some/regular/resource.md"),
@@ -194,9 +191,7 @@ async def test_sernia_auth_middleware_delegates_non_ui_resources(monkeypatch):
 
 def test_respects_env_var_for_extra_domains(monkeypatch):
     """Operators can extend the allowlist via SERNIA_MCP_ALLOWED_EMAIL_DOMAINS."""
-    monkeypatch.setenv(
-        "SERNIA_MCP_ALLOWED_EMAIL_DOMAINS", "serniacapital.com,partner.example"
-    )
+    monkeypatch.setenv("SERNIA_MCP_ALLOWED_EMAIL_DOMAINS", "serniacapital.com,partner.example")
     import importlib
 
     import sernia_mcp.auth as _auth

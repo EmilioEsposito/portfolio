@@ -1,6 +1,7 @@
-from dbos import DBOS, DBOSConfig
 import os
+
 import logfire
+from dbos import DBOS, DBOSConfig
 
 # --- DBOS Configuration ---
 
@@ -11,6 +12,7 @@ except Exception:
     pass
 
 _dbos_launched: bool = False
+
 
 # idemptotent launcher
 def launch_dbos():

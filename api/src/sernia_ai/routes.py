@@ -5,29 +5,46 @@ All routes are gated to @serniacapital.com users via a router-level dependency.
 The verified Clerk User object is stashed on request.state.sernia_user by the
 gate and retrieved by individual handlers via the SerniaUser dependency.
 """
-import asyncio
+
 import json
-import functools
 from typing import Literal
 
 import anthropic
-import openai
 import logfire
-from pydantic_ai import capture_run_messages
+import openai
+from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.responses import Response
+from pydantic_ai import capture_run_messages
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from clerk_backend_api import User
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from starlette.responses import Response
 
+from api.src.ai_demos.hitl_utils import (
+    ApprovalDecision,
+    extract_pending_approvals,
+    extract_tool_results,
+    resume_with_approvals,
+)
+from api.src.ai_demos.models import (
+    delete_conversation,
+    extract_pending_approval_from_messages,
+    get_agent_conversation,
+    get_conversation_messages,
+    get_conversation_with_pending,
+    list_pending_conversations,
+    list_user_conversations,
+    persist_agent_run_result,
+    save_agent_conversation,
+)
+from api.src.database.database import DBSession
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
-    DEFAULT_MODEL_KEY,
     DEFAULT_THINKING_EFFORT,
     ModelKey,
     ThinkingEffort,
@@ -36,38 +53,16 @@ from api.src.sernia_ai.model_config import (
     get_model_choice,
     resolve_active_run_kwargs,
 )
-from api.src.sernia_ai.models import _IS_PRODUCTION
-from api.src.sernia_ai.models import AppSetting
-from api.src.sernia_ai.deps import SerniaDeps
-from api.src.ai_demos.hitl_utils import (
-    extract_pending_approvals,
-    extract_tool_results,
-    ApprovalDecision,
-    resume_with_approvals,
-)
-from api.src.ai_demos.models import (
-    persist_agent_run_result,
-    save_agent_conversation,
-    get_agent_conversation,
-    list_user_conversations,
-    get_conversation_messages,
-    delete_conversation,
-    list_pending_conversations,
-    get_conversation_with_pending,
-    extract_pending_approval_from_messages,
-)
+from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
+from api.src.sernia_ai.push.routes import router as push_router
+from api.src.sernia_ai.push.service import notify_pending_approval
+from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.routes import router as push_router
-from api.src.sernia_ai.push.service import notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.database.database import DBSession
-
 
 # =============================================================================
 # SMS history merge helper
@@ -130,7 +125,7 @@ async def _merge_sms_if_needed(
     if not conversation_id.startswith(_SMS_CONV_PREFIX):
         return db_messages
 
-    digits = conversation_id[len(_SMS_CONV_PREFIX):]
+    digits = conversation_id[len(_SMS_CONV_PREFIX) :]
     phone = f"+{digits}"
     try:
         sms_thread = await _fetch_sms_thread(phone)
@@ -147,6 +142,7 @@ async def _merge_sms_if_needed(
 # =============================================================================
 # Router-level auth gate
 # =============================================================================
+
 
 async def _sernia_gate(request: Request) -> None:
     """Router-level dependency: verify @serniacapital.com and stash user."""
@@ -187,6 +183,7 @@ def _sernia_email(user: User) -> str:
 # =============================================================================
 # Streaming Chat
 # =============================================================================
+
 
 class _ModifiedJsonRequest:
     """Wrapper to provide modified JSON body to VercelAIAdapter."""
@@ -236,9 +233,7 @@ async def chat_sernia(
         conversation_id, clerk_user_id=None, session=session, include_terminal=True
     )
     # For SMS conversations, merge live Quo messages (source of truth)
-    backend_message_history = await _merge_sms_if_needed(
-        conversation_id, backend_message_history
-    )
+    backend_message_history = await _merge_sms_if_needed(conversation_id, backend_message_history)
     # Remove trailing unprocessed tool calls (can happen if a previous run crashed)
     backend_message_history = _sanitize_tool_calls(backend_message_history)
 
@@ -319,11 +314,13 @@ async def chat_sernia(
             provider_status=getattr(e, "status_code", None),
         )
         return Response(
-            content=json.dumps({
-                "error": user_message,
-                "conversation_id": conversation_id or "",
-                "retriable": status_code == 503,
-            }),
+            content=json.dumps(
+                {
+                    "error": user_message,
+                    "conversation_id": conversation_id or "",
+                    "retriable": status_code == 503,
+                }
+            ),
             status_code=status_code,
             media_type="application/json",
         )
@@ -332,13 +329,15 @@ async def chat_sernia(
             "sernia chat dispatch error",
             conversation_id=conversation_id,
             clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__
+            error_type=type(e).__name__,
         )
         return Response(
-            content=json.dumps({
-                "error": "An internal error occurred. Please try again.",
-                "conversation_id": conversation_id or "",
-            }),
+            content=json.dumps(
+                {
+                    "error": "An internal error occurred. Please try again.",
+                    "conversation_id": conversation_id or "",
+                }
+            ),
             status_code=500,
             media_type="application/json",
         )
@@ -355,8 +354,10 @@ async def chat_sernia(
 # Conversation / Approval API
 # =============================================================================
 
+
 class ApprovalDecisionRequest(BaseModel):
     """A single approval decision for one tool call."""
+
     tool_call_id: str
     approved: bool
     reason: str | None = None
@@ -365,6 +366,7 @@ class ApprovalDecisionRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     """Batch approval request for one or more tool calls."""
+
     decisions: list[ApprovalDecisionRequest]
     # Optional user-typed message attached to this approval round. PydanticAI
     # bundles this alongside the ToolReturnParts into a single ModelRequest
@@ -478,8 +480,7 @@ async def approve_conversation(
             "tool_results": tool_results,
             "status": "pending_approval" if pending else "completed",
             "decisions": [
-                {"tool_call_id": d.tool_call_id, "approved": d.approved}
-                for d in body.decisions
+                {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in body.decisions
             ],
         }
     except ValueError as e:
@@ -513,7 +514,7 @@ async def approve_conversation(
             "sernia approve error",
             conversation_id=conversation_id,
             clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__
+            error_type=type(e).__name__,
         )
         if captured_messages:
             try:
@@ -631,6 +632,7 @@ async def delete_conversation_endpoint(
 # Admin
 # =============================================================================
 
+
 async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
     """Walk the agent's toolsets and return tool definitions as the model sees them.
 
@@ -673,23 +675,27 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
         try:
             tools = await ts.get_tools(ctx)
         except Exception as e:
-            toolsets_out.append({
-                "name": getattr(ts, "name", None) or type(ts).__name__,
-                "error": f"{type(e).__name__}: {e}",
-                "tools": [],
-            })
+            toolsets_out.append(
+                {
+                    "name": getattr(ts, "name", None) or type(ts).__name__,
+                    "error": f"{type(e).__name__}: {e}",
+                    "tools": [],
+                }
+            )
             continue
         label = _label_for(ts, set(tools.keys()))
         entries = []
         for t in tools.values():
             td = t.tool_def
-            entries.append({
-                "name": td.name,
-                "description": td.description or "",
-                "parameters_json_schema": td.parameters_json_schema,
-                "kind": getattr(td, "kind", None),
-                "metadata": getattr(td, "metadata", None) or {},
-            })
+            entries.append(
+                {
+                    "name": td.name,
+                    "description": td.description or "",
+                    "parameters_json_schema": td.parameters_json_schema,
+                    "kind": getattr(td, "kind", None),
+                    "metadata": getattr(td, "metadata", None) or {},
+                }
+            )
         total += len(entries)
         toolsets_out.append({"name": label, "tools": entries})
 
@@ -718,14 +724,17 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
         if kind in seen:
             continue
         seen.add(kind)
-        builtins.append({
-            "name": kind,
-            "type": type(bt).__name__,
-            "config": {
-                k: v for k, v in (bt.__dict__ if hasattr(bt, "__dict__") else {}).items()
-                if not k.startswith("_") and not callable(v)
-            },
-        })
+        builtins.append(
+            {
+                "name": kind,
+                "type": type(bt).__name__,
+                "config": {
+                    k: v
+                    for k, v in (bt.__dict__ if hasattr(bt, "__dict__") else {}).items()
+                    if not k.startswith("_") and not callable(v)
+                },
+            }
+        )
 
     return {
         "toolsets": toolsets_out,
@@ -751,7 +760,7 @@ async def get_admin_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+    from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     resolved_name = user_name or _display_name(user)
 
@@ -786,10 +795,12 @@ async def get_admin_context(
     # injects the skill registry). Surface those alongside the explicit
     # instructions so the preview matches what the model actually sees.
     for ts_section in tool_overview.pop("toolset_instructions", []):
-        sections.append({
-            "label": f"toolset:{ts_section['label']}",
-            "content": ts_section["content"],
-        })
+        sections.append(
+            {
+                "label": f"toolset:{ts_section['label']}",
+                "content": ts_section["content"],
+            }
+        )
     combined = "\n\n".join(s["content"] for s in sections)
 
     return {
@@ -819,8 +830,8 @@ async def get_conversation_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
-    from api.src.sernia_ai.config import TRIGGER_BOT_ID, TRIGGER_BOT_NAME, GOOGLE_DELEGATION_EMAIL
+    from api.src.sernia_ai.config import GOOGLE_DELEGATION_EMAIL, TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
     if not conv:
@@ -866,10 +877,12 @@ async def get_conversation_context(
     # injects the skill registry). Surface those alongside the explicit
     # instructions so the preview matches what the model actually sees.
     for ts_section in tool_overview.pop("toolset_instructions", []):
-        sections.append({
-            "label": f"toolset:{ts_section['label']}",
-            "content": ts_section["content"],
-        })
+        sections.append(
+            {
+                "label": f"toolset:{ts_section['label']}",
+                "content": ts_section["content"],
+            }
+        )
     combined = "\n\n".join(s["content"] for s in sections)
 
     return {
@@ -935,9 +948,7 @@ async def get_admin_settings(
             "available_models": available_models,
         }
 
-    result = await session.execute(
-        select(AppSetting).where(AppSetting.key == "triggers_enabled")
-    )
+    result = await session.execute(select(AppSetting).where(AppSetting.key == "triggers_enabled"))
     row = result.scalar_one_or_none()
     schedule_config = await get_schedule_config()
     active_model = await get_active_model_key()
@@ -987,12 +998,16 @@ async def update_admin_settings(
     """Update app settings (upsert). Re-registers the scheduled job when schedule changes."""
     updated = {}
     if body.triggers_enabled is not None:
-        stmt = pg_insert(AppSetting).values(
-            key="triggers_enabled",
-            value=body.triggers_enabled,
-        ).on_conflict_do_update(
-            index_elements=["key"],
-            set_={"value": body.triggers_enabled},
+        stmt = (
+            pg_insert(AppSetting)
+            .values(
+                key="triggers_enabled",
+                value=body.triggers_enabled,
+            )
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": body.triggers_enabled},
+            )
         )
         await session.execute(stmt)
         await session.commit()
@@ -1009,12 +1024,16 @@ async def update_admin_settings(
                 raise HTTPException(status_code=422, detail=f"Invalid hour: {h}")
 
         config_dict = body.schedule_config.model_dump()
-        stmt = pg_insert(AppSetting).values(
-            key="schedule_config",
-            value=config_dict,
-        ).on_conflict_do_update(
-            index_elements=["key"],
-            set_={"value": config_dict},
+        stmt = (
+            pg_insert(AppSetting)
+            .values(
+                key="schedule_config",
+                value=config_dict,
+            )
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": config_dict},
+            )
         )
         await session.execute(stmt)
         await session.commit()
@@ -1022,18 +1041,23 @@ async def update_admin_settings(
 
         # Re-register the APScheduler job with the new config
         from api.src.sernia_ai.triggers.scheduled_triggers import apply_schedule_from_db
+
         await apply_schedule_from_db()
 
     if body.model_cfg is not None:
         # Pydantic's Literal validator already rejected unknown keys before
         # we got here — no need to re-check.
         config_dict = body.model_cfg.model_dump()
-        stmt = pg_insert(AppSetting).values(
-            key="model_config",
-            value=config_dict,
-        ).on_conflict_do_update(
-            index_elements=["key"],
-            set_={"value": config_dict},
+        stmt = (
+            pg_insert(AppSetting)
+            .values(
+                key="model_config",
+                value=config_dict,
+            )
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": config_dict},
+            )
         )
         await session.execute(stmt)
         await session.commit()
@@ -1056,12 +1080,16 @@ async def update_admin_settings(
             )
 
         config_dict = body.zillow_email_config.model_dump()
-        stmt = pg_insert(AppSetting).values(
-            key="zillow_email_config",
-            value=config_dict,
-        ).on_conflict_do_update(
-            index_elements=["key"],
-            set_={"value": config_dict},
+        stmt = (
+            pg_insert(AppSetting)
+            .values(
+                key="zillow_email_config",
+                value=config_dict,
+            )
+            .on_conflict_do_update(
+                index_elements=["key"],
+                set_={"value": config_dict},
+            )
         )
         await session.execute(stmt)
         await session.commit()

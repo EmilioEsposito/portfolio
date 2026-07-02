@@ -20,6 +20,7 @@ Recommended workflow (review before anything leaves your machine):
 One-step (skips the review pause — use only when you trust the redaction):
     uv run python scripts/export_seed_fixture.py --upload
 """
+
 import argparse
 import asyncio
 import json
@@ -100,7 +101,9 @@ def upload() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--limit", type=int, default=10, help="How many recent conversations to export")
+    parser.add_argument(
+        "--limit", type=int, default=10, help="How many recent conversations to export"
+    )
     parser.add_argument(
         "--upload",
         action="store_true",

@@ -1,4 +1,5 @@
 """ClickUp task search core function."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -47,13 +48,9 @@ async def search_tasks_core(
     if subtasks:
         params["subtasks"] = "true"
 
-    resp = await clickup_request(
-        "GET", f"/team/{CLICKUP_TEAM_ID}/task", params=params
-    )
+    resp = await clickup_request("GET", f"/team/{CLICKUP_TEAM_ID}/task", params=params)
     if resp.status_code != 200:
-        raise ExternalServiceError(
-            f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}"
-        )
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}")
 
     tasks = resp.json().get("tasks", [])
     if not tasks:
@@ -77,9 +74,7 @@ async def search_tasks_core(
         )
         assignees = task.get("assignees", [])
         assignee_str = (
-            ", ".join(a.get("username", "?") for a in assignees)
-            if assignees
-            else "unassigned"
+            ", ".join(a.get("username", "?") for a in assignees) if assignees else "unassigned"
         )
         url_link = task.get("url", "")
         lines.append(

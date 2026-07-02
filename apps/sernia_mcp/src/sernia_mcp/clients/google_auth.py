@@ -7,6 +7,7 @@ and let the calling layer translate to MCP ToolError.
 Required env var: GOOGLE_SERVICE_ACCOUNT_CREDENTIALS — base64-encoded JSON of
 a service account that has domain-wide delegation enabled in Google Workspace.
 """
+
 from __future__ import annotations
 
 import base64
@@ -43,16 +44,12 @@ def _load_service_account_dict() -> dict:
     return creds
 
 
-def get_delegated_credentials(
-    user_email: str, scopes: list[str]
-) -> service_account.Credentials:
+def get_delegated_credentials(user_email: str, scopes: list[str]) -> service_account.Credentials:
     """Return service-account credentials delegated to act as ``user_email``.
 
     Requires domain-wide delegation to be set up in Google Workspace admin for
     the configured service account, with the requested scopes whitelisted.
     """
     info = _load_service_account_dict()
-    credentials = service_account.Credentials.from_service_account_info(
-        info, scopes=scopes
-    )
+    credentials = service_account.Credentials.from_service_account_info(info, scopes=scopes)
     return credentials.with_subject(user_email)

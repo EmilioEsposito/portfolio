@@ -3,17 +3,19 @@ Chat Agent using PydanticAI with weather tool
 
 This agent provides a general-purpose chat assistant with weather functionality.
 """
+
+from dataclasses import dataclass
+
 import logfire
 import requests
-from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
-import pytest
 
 
 @dataclass
 class ChatContext:
     """Context for the chat agent"""
+
     user_name: str = "user"
 
 
@@ -33,20 +35,22 @@ agent = Agent(
 
 
 @agent.tool
-async def get_current_weather(ctx: RunContext[ChatContext], latitude: float, longitude: float) -> dict:
+async def get_current_weather(
+    ctx: RunContext[ChatContext], latitude: float, longitude: float
+) -> dict:
     """
     Get the current weather at a location.
-    
+
     Args:
         ctx: The run context
         latitude: The latitude of the location
         longitude: The longitude of the location
-    
+
     Returns:
         Weather data including current temperature, hourly forecast, and daily sunrise/sunset times
     """
     url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m&hourly=temperature_2m&daily=sunrise,sunset&timezone=auto"
-    
+
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -56,11 +60,3 @@ async def get_current_weather(ctx: RunContext[ChatContext], latitude: float, lon
     except requests.RequestException as e:
         logfire.error(f"Error fetching weather data: {e}")
         return {"error": f"Failed to fetch weather data: {str(e)}"}
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_agent():
-    """Test the agent directly"""
-    result = await agent.run("What's the weather like at coordinates 40.7128, -74.0060?", deps=ChatContext())
-    assert result.output is not None
-

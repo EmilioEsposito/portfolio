@@ -13,7 +13,6 @@ Everything for this job lives in this folder, except the workflow YAML itself
 └── logfire-investigate/
     ├── investigate.py                  # all the logic (stateless)
     ├── ignore_signatures.txt           # git-tracked "Ignored" suppression list
-    ├── history.log                     # append-only audit log of fires
     └── README.md
 ```
 
@@ -29,9 +28,10 @@ Everything for this job lives in this folder, except the workflow YAML itself
 4. Drop groups matching any line in `ignore_signatures.txt`.
 5. If anything remains, fire the routine **once** with a single batched payload
    (an extra turn appended to the routine's server-side session).
-6. On HTTP 200: append a line to `history.log` and the workflow commits it back.
-   On non-200 (incl. 429): nothing is committed and the job fails (visible in the
-   Actions tab); the same window is naturally re-covered on the next run.
+6. On HTTP 200: write the fire record (session link, group/hit counts) to the
+   Actions **job summary** and upload `history.log` as a **workflow artifact**.
+   On non-200 (incl. 429): the job fails (visible in the Actions tab); the same
+   window is naturally re-covered on the next run.
 
 ## Why no watermark / stored state?
 
@@ -50,7 +50,7 @@ get "exactly-once" reads. It was dropped because it bought very little:
 A fixed lookback with a buffer is simpler, never misses a boundary event, and
 needs no state. Worst case, an event in the overlap buffer fires on two
 consecutive days (at most one duplicate). The Actions run log is itself the audit
-of every run; `history.log` additionally records the fires in-repo.
+of every run; the job summary and `history.log` artifact record the fires.
 
 ## Why `SOURCES` is in the script, not fetched live
 
@@ -101,11 +101,11 @@ gh variable set LOGFIRE_BASE     --repo emilioesposito/portfolio --body 'https:/
 Trigger from the Actions tab (`workflow_dispatch`) with **dry_run = true** to
 print the batched payload without firing. The script also accepts `--dry-run`.
 
-## Note on the history.log commit
+## Where the audit trail lives
 
-When a routine fires, the workflow appends to `history.log` and commits it to the
-branch it ran on (the default branch for scheduled runs) as `github-actions[bot]`,
-with `[skip ci]`. If the default branch later gains protection requiring PR
-review, this direct push would be rejected (the fire still happened; only the
-in-repo audit line would be lost) — loosen protection for the bot or switch the
-commit step to open a PR.
+When a routine fires, the record (timestamp, session link, group/hit counts)
+goes to the Actions **job summary** and `history.log` is uploaded as a run
+**artifact** — nothing is committed back to the repo, so main stays free of
+bot commits. Fires before 2026-07-02 were committed to a `history.log` file in
+this folder; that history is preserved in git (`git log --follow -- \
+.github/logfire-investigate/history.log`).

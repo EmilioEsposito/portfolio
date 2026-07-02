@@ -47,10 +47,12 @@ def _make_contact(
 
 class TestGetContactUnit:
     def test_extracts_property_and_unit(self):
-        contact = _make_contact([
-            {"name": "Property", "value": "320"},
-            {"name": "Unit #", "value": "02"},
-        ])
+        contact = _make_contact(
+            [
+                {"name": "Property", "value": "320"},
+                {"name": "Unit #", "value": "02"},
+            ]
+        )
         assert _get_contact_unit(contact) == ("320", "02")
 
     def test_returns_none_when_property_missing(self):
@@ -70,21 +72,26 @@ class TestGetContactUnit:
         assert _get_contact_unit(contact) is None
 
     def test_strips_whitespace(self):
-        contact = _make_contact([
-            {"name": "Property", "value": " 320 "},
-            {"name": "Unit #", "value": " 02 "},
-        ])
+        contact = _make_contact(
+            [
+                {"name": "Property", "value": " 320 "},
+                {"name": "Unit #", "value": " 02 "},
+            ]
+        )
         assert _get_contact_unit(contact) == ("320", "02")
 
     def test_returns_none_for_empty_value(self):
-        contact = _make_contact([
-            {"name": "Property", "value": "320"},
-            {"name": "Unit #", "value": ""},
-        ])
+        contact = _make_contact(
+            [
+                {"name": "Property", "value": "320"},
+                {"name": "Unit #", "value": ""},
+            ]
+        )
         assert _get_contact_unit(contact) is None
 
 
 # -- Helpers for filter tests --
+
 
 def _tenant(first: str, prop: str, unit: str, phone: str = "+10000000000") -> dict:
     # Active-lease tenant by default — the filter defaults to active_only.
@@ -94,7 +101,9 @@ def _tenant(first: str, prop: str, unit: str, phone: str = "+10000000000") -> di
             {"name": "Unit #", "value": unit},
             *_ACTIVE_LEASE_FIELDS,
         ],
-        first=first, last="T", phone=phone,
+        first=first,
+        last="T",
+        phone=phone,
     )
 
 
@@ -105,7 +114,9 @@ def _internal(first: str, prop: str, unit: str) -> dict:
             {"name": "Unit #", "value": unit},
             *_ACTIVE_LEASE_FIELDS,
         ],
-        first=first, last="I", company="Sernia Capital LLC",
+        first=first,
+        last="I",
+        company="Sernia Capital LLC",
     )
 
 
@@ -113,7 +124,9 @@ def _lead(first: str, prop: str, unit: str, phone: str = "+10000000000") -> dict
     """A lead/prospect — Property/Unit set but no lease dates."""
     return _make_contact(
         [{"name": "Property", "value": prop}, {"name": "Unit #", "value": unit}],
-        first=first, last="L", phone=phone,
+        first=first,
+        last="L",
+        phone=phone,
     )
 
 
@@ -126,7 +139,9 @@ def _future_tenant(first: str, prop: str, unit: str, phone: str = "+10000000000"
             {"name": "Lease Start Date", "value": (date.today() + timedelta(days=15)).isoformat()},
             {"name": "Lease End Date", "value": (date.today() + timedelta(days=380)).isoformat()},
         ],
-        first=first, last="F", phone=phone,
+        first=first,
+        last="F",
+        phone=phone,
     )
 
 
@@ -204,40 +219,68 @@ class TestHasActiveLease:
         assert _has_active_lease(contact) is False
 
     def test_inactive_when_lease_not_started(self):
-        contact = _make_contact([
-            {"name": "Lease Start Date", "value": (date.today() + timedelta(days=10)).isoformat()},
-            {"name": "Lease End Date", "value": (date.today() + timedelta(days=375)).isoformat()},
-        ])
+        contact = _make_contact(
+            [
+                {
+                    "name": "Lease Start Date",
+                    "value": (date.today() + timedelta(days=10)).isoformat(),
+                },
+                {
+                    "name": "Lease End Date",
+                    "value": (date.today() + timedelta(days=375)).isoformat(),
+                },
+            ]
+        )
         assert _has_active_lease(contact) is False
 
     def test_inactive_when_lease_ended(self):
-        contact = _make_contact([
-            {"name": "Lease Start Date", "value": (date.today() - timedelta(days=400)).isoformat()},
-            {"name": "Lease End Date", "value": (date.today() - timedelta(days=10)).isoformat()},
-        ])
+        contact = _make_contact(
+            [
+                {
+                    "name": "Lease Start Date",
+                    "value": (date.today() - timedelta(days=400)).isoformat(),
+                },
+                {
+                    "name": "Lease End Date",
+                    "value": (date.today() - timedelta(days=10)).isoformat(),
+                },
+            ]
+        )
         assert _has_active_lease(contact) is False
 
     def test_active_on_boundary_dates(self):
         today = date.today().isoformat()
-        contact = _make_contact([
-            {"name": "Lease Start Date", "value": today},
-            {"name": "Lease End Date", "value": today},
-        ])
+        contact = _make_contact(
+            [
+                {"name": "Lease Start Date", "value": today},
+                {"name": "Lease End Date", "value": today},
+            ]
+        )
         assert _has_active_lease(contact) is True
 
     def test_handles_full_iso_timestamp(self):
         # Quo 'date' fields can carry a time component / offset.
-        contact = _make_contact([
-            {"name": "Lease Start Date", "value": f"{(date.today() - timedelta(days=1)).isoformat()}T16:00:00.000+0000"},
-            {"name": "Lease End Date", "value": f"{(date.today() + timedelta(days=1)).isoformat()}T16:00:00.000+0000"},
-        ])
+        contact = _make_contact(
+            [
+                {
+                    "name": "Lease Start Date",
+                    "value": f"{(date.today() - timedelta(days=1)).isoformat()}T16:00:00.000+0000",
+                },
+                {
+                    "name": "Lease End Date",
+                    "value": f"{(date.today() + timedelta(days=1)).isoformat()}T16:00:00.000+0000",
+                },
+            ]
+        )
         assert _has_active_lease(contact) is True
 
     def test_inactive_when_dates_unparseable(self):
-        contact = _make_contact([
-            {"name": "Lease Start Date", "value": "not-a-date"},
-            {"name": "Lease End Date", "value": "also-bad"},
-        ])
+        contact = _make_contact(
+            [
+                {"name": "Lease Start Date", "value": "not-a-date"},
+                {"name": "Lease End Date", "value": "also-bad"},
+            ]
+        )
         assert _has_active_lease(contact) is False
 
 
@@ -268,9 +311,7 @@ class TestActiveLeaseFiltering:
             _lead("Mary", "659", "02"),
             _future_tenant("Incoming", "659", "02"),
         ]
-        result = _filter_tenants_by_property_unit(
-            contacts, ["659"], ["02"], active_only=False
-        )
+        result = _filter_tenants_by_property_unit(contacts, ["659"], ["02"], active_only=False)
         names = {c["defaultFields"]["firstName"] for c in result[("659", "02")]}
         assert names == {"Aidan", "Mary", "Incoming"}
 

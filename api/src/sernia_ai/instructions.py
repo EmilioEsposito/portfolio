@@ -5,6 +5,7 @@ Static instructions are a plain string.
 Dynamic instruction functions take a RunContext[SerniaDeps] and return a string.
 Both are passed to Agent(instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS]).
 """
+
 from datetime import datetime
 from pathlib import Path
 

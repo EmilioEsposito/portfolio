@@ -7,6 +7,7 @@ TLS-intercepting egress gateway. See api/src/google/common/ca_bundle.py.
 
 Pure unit tests — no network, no live marker.
 """
+
 import os
 
 import pytest

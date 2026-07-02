@@ -1,4 +1,5 @@
 """Pydantic result models for ``core`` functions."""
+
 from pydantic import BaseModel
 
 

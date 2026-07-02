@@ -4,25 +4,25 @@ Exposes core functionality from the Gmail service.
 """
 
 from api.src.google.gmail.service import (
-    send_email,
-    get_gmail_service,
-    setup_gmail_watch,
-    stop_gmail_watch,
+    create_message,
+    extract_email_body,
     get_email_changes,
     get_email_content,
+    get_gmail_service,
     process_single_message,
-    extract_email_body,
-    create_message
+    send_email,
+    setup_gmail_watch,
+    stop_gmail_watch,
 )
 
 __all__ = [
-    'send_email',
-    'get_gmail_service',
-    'setup_gmail_watch',
-    'stop_gmail_watch',
-    'get_email_changes',
-    'get_email_content',
-    'process_single_message',
-    'extract_email_body',
-    'create_message'
+    "send_email",
+    "get_gmail_service",
+    "setup_gmail_watch",
+    "stop_gmail_watch",
+    "get_email_changes",
+    "get_email_content",
+    "process_single_message",
+    "extract_email_body",
+    "create_message",
 ]

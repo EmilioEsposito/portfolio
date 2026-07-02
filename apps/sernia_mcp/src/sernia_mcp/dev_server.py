@@ -19,6 +19,7 @@ exercise with any phone/email. Mocks print to stdout so you can confirm what
 
 This file is a dev harness ONLY. Not wired into the production server.
 """
+
 from __future__ import annotations
 
 from fastmcp import FastMCP
@@ -31,6 +32,7 @@ from sernia_mcp.tools import approvals
 # `approvals` holds module-level references to these names; Python resolves
 # them at call time, so rebinding on the module captures calls at runtime.
 # -----------------------------------------------------------------------------
+
 
 async def _fake_resolve_sms_routing_core(to_phone: str) -> SmsRouting:
     """Pretend every phone resolves. Mark numbers starting with ``+1555`` as

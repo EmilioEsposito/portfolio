@@ -15,6 +15,7 @@ A {"$file": "relative/path.sql"} object anywhere in the template is replaced
 with the file's contents (as a string). Paths are resolved relative to the
 template file. No other template syntax is supported — keep it boring.
 """
+
 from __future__ import annotations
 
 import argparse

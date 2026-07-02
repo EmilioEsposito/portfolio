@@ -1,13 +1,10 @@
-from dotenv import load_dotenv, find_dotenv
 import asyncio
-import json
-import logfire
 import os
+
+import logfire
 
 # NOTE: the SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY bridge lives in
 # api/__init__.py so every entry point (app, pytest, scripts) gets it.
-
-import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 ensure_logfire_configured(mode="prod", service_name="fastapi")
@@ -27,11 +24,9 @@ logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc
 # logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
 # SQLAlchemy instrumentation for query-level tracing (app engines only)
 with logfire.span("Database"):
-    from api.src.database.database import (
-        engine as async_engine,
-        sync_engine,
-        test_database_connections
-    )
+    from api.src.database.database import check_database_connections, sync_engine
+    from api.src.database.database import engine as async_engine
+
     engines_to_instrument = [async_engine]
     if sync_engine is not None:
         engines_to_instrument.append(sync_engine)
@@ -43,13 +38,15 @@ with logfire.span("Database"):
 
 logfire.info("Logfire configured with comprehensive instrumentation")
 
-from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
+
+import strawberry
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
-import strawberry
-from starlette.middleware.sessions import SessionMiddleware
+
 logfire.info("STARTUP1")
 
 # Import from api.src
@@ -57,14 +54,22 @@ with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
     from api.src.sernia_ai.routes import router as sernia_ai_router
 
-from api.src.open_phone.routes import router as open_phone_router
-from api.src.cron import router as cron_router
-from api.src.google.common.routes import router as google_router
-from api.src.examples.routes import router as examples_router
-from api.src.push.routes import router as push_router
-from api.src.user.routes import router as user_router
-from api.src.contact.routes import router as contact_router
 from api.src.apscheduler_service.routes import router as apscheduler_router
+from api.src.apscheduler_service.service import get_scheduler, register_hello_apscheduler_jobs
+from api.src.clickup.service import register_clickup_apscheduler_jobs
+from api.src.contact.routes import router as contact_router
+from api.src.cron import router as cron_router
+from api.src.examples.routes import router as examples_router
+from api.src.examples.schema import Mutation as ExamplesMutation
+
+# Import all GraphQL schemas
+from api.src.examples.schema import Query as ExamplesQuery
+from api.src.google.common.routes import router as google_router
+from api.src.open_phone.routes import router as open_phone_router
+from api.src.push.routes import router as push_router
+from api.src.schedulers.routes import router as schedulers_router
+from api.src.sernia_ai.config import WORKSPACE_PATH
+
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
 # from api.src.dbos_service.routes import router as dbos_router
@@ -72,17 +77,9 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 # from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
-
 from api.src.sernia_ai.memory import initialize_workspace
-from api.src.sernia_ai.config import WORKSPACE_PATH
-from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
-from api.src.clickup.service import register_clickup_apscheduler_jobs
-from api.src.zillow_email.service import register_zillow_apscheduler_jobs
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
-from api.src.schedulers.routes import router as schedulers_router
-
-# Import all GraphQL schemas
-from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
+from api.src.user.routes import router as user_router
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
@@ -91,15 +88,10 @@ from api.src.examples.schema import Query as ExamplesQuery, Mutation as Examples
 # Verify critical environment variables
 required_env_vars = {
     "SESSION_SECRET_KEY": (
-        "Required for secure session handling. "
-        "Generate unique values for each environmen!:\n"
+        "Required for secure session handling. Generate unique values for each environmen!:\n"
     ),
-    "GOOGLE_OAUTH_CLIENT_ID": (
-        "Required for Google OAuth. Set up in Google Cloud Console.\n"
-    ),
-    "GOOGLE_OAUTH_CLIENT_SECRET": (
-        "Required for Google OAuth. Set up in Google Cloud Console.\n"
-    ),
+    "GOOGLE_OAUTH_CLIENT_ID": ("Required for Google OAuth. Set up in Google Cloud Console.\n"),
+    "GOOGLE_OAUTH_CLIENT_SECRET": ("Required for Google OAuth. Set up in Google Cloud Console.\n"),
     "GOOGLE_OAUTH_REDIRECT_URI": (
         "Required for Google OAuth. Must match the URIs configured in Google Cloud Console.\n"
     ),
@@ -114,10 +106,7 @@ for var, description in required_env_vars.items():
         missing_vars.append(f"- {var}:\n{description}\n")
 
 if missing_vars:
-    raise ValueError(
-        "Missing required environment variables:\n\n"
-        + "\n".join(missing_vars)
-    )
+    raise ValueError("Missing required environment variables:\n\n" + "\n".join(missing_vars))
 
 # --- Lifespan Event Handler ---
 
@@ -168,6 +157,7 @@ async def _apscheduler_startup_async() -> None:
         # if started inside a span, all its internal DB polling (job store SELECTs/UPDATEs)
         # become children of that span forever, producing orphaned spans in Logfire.
         from opentelemetry import context as otel_context
+
         token = otel_context.attach(otel_context.Context())
         try:
             if not apscheduler.running:
@@ -191,6 +181,7 @@ async def lifespan(app: FastAPI):
 
             # Clean up stale DuckDB/CSV data from previous conversations
             from api.src.sernia_ai.tools.duckdb_tools import cleanup_stale_data
+
             cleanup_stale_data(max_age_hours=24)
 
             # Skip DB connection test in local dev to speed up hot reloads.
@@ -198,7 +189,7 @@ async def lifespan(app: FastAPI):
             # sequentially for sync + async engines = ~3-5s blocked startup).
             # On Railway the test still runs so a bad deploy fails the health check.
             if is_hosted:
-                await test_database_connections()
+                await check_database_connections()
             else:
                 logfire.info("Skipping DB connection test (local dev)")
 
@@ -233,7 +224,7 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
 
     # Shutdown APScheduler
@@ -270,13 +261,14 @@ async def lifespan(app: FastAPI):
     #     import os
     #     os._exit(0)
 
+
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 logfire.instrument_fastapi(app)
 
 # --- Middleware Registration ---
 
-is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
+is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME", "")) > 0
 
 # Add session middleware - MUST be added before CORS middleware
 app.add_middleware(
@@ -331,6 +323,7 @@ app.include_router(apscheduler_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 
+
 @app.get("/api/hello")
 async def hello_fast_api():
     logfire.info("Hello from FastAPI")
@@ -340,6 +333,7 @@ async def hello_fast_api():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
 
 @app.get("/api/error")
 async def error_500_check():
@@ -365,4 +359,3 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("api.index:app", host="0.0.0.0", port=port, reload=True)
-

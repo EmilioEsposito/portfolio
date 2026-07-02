@@ -163,7 +163,7 @@ class RateLimitedTransport(httpx.AsyncBaseTransport):
                 delay = (
                     retry_after
                     if retry_after is not None
-                    else min(BASE_BACKOFF * (2 ** attempt), MAX_BACKOFF)
+                    else min(BASE_BACKOFF * (2**attempt), MAX_BACKOFF)
                 )
                 # Discard the throttled response body before retrying.
                 await response.aclose()

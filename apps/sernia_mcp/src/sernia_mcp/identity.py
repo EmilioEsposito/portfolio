@@ -5,6 +5,7 @@ is no multi-tenant story yet. When the JWT-claims path is wired up, this
 will switch to extracting the caller's email from the Clerk token via
 ``get_access_token()`` instead of falling back to the env default.
 """
+
 from sernia_mcp.config import GOOGLE_DELEGATION_EMAIL
 
 

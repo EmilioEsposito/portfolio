@@ -5,6 +5,7 @@ conversation-scoped CSV export (sernia_ai writes large sheets to a per-conv
 DuckDB-friendly CSV; the MCP server has no equivalent conversation context,
 so we just format and cap the inline output).
 """
+
 from __future__ import annotations
 
 import io
@@ -84,9 +85,7 @@ async def search_drive_core(
     lines: list[str] = []
     for f in files:
         mime = f.get("mimeType", "")
-        type_label = type_label_map.get(
-            mime, mime.split("/")[-1] if "/" in mime else mime
-        )
+        type_label = type_label_map.get(mime, mime.split("/")[-1] if "/" in mime else mime)
         lines.append(
             f"- {f['name']} ({type_label})\n"
             f"  Modified: {f.get('modifiedTime', '?')}\n"
@@ -240,8 +239,7 @@ async def read_drive_pdf_core(file_id: str, *, user_email: str) -> str:
 
     if not text.strip():
         return (
-            f"PDF '{name}' appears to be image-based "
-            f"(no extractable text). {len(pdf_bytes)} bytes."
+            f"PDF '{name}' appears to be image-based (no extractable text). {len(pdf_bytes)} bytes."
         )
 
     if len(text) > _CONTENT_CAP:

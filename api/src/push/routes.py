@@ -1,41 +1,47 @@
-import logfire
-from fastapi import APIRouter, HTTPException, Body
 from typing import Annotated
+
+import logfire
+from fastapi import APIRouter, Body, HTTPException
 
 from api.src.database.database import DBSession
 from api.src.utils.clerk import AuthUser
+
 from . import service
-from .models import PushToken
 
 router = APIRouter(prefix="/push", tags=["push"])
 
+
 @router.post("/register", status_code=201)
 async def register_push_token(
-    token_body: Annotated[dict, Body(embed=True, examples=[{"token": "ExponentPushToken[...token..."}])],
+    token_body: Annotated[
+        dict, Body(embed=True, examples=[{"token": "ExponentPushToken[...token..."}])
+    ],
     user: AuthUser,
-    db: DBSession
+    db: DBSession,
 ):
     """Registers an Expo push token for the currently authenticated user."""
     token = token_body.get("token")
     if not token or not isinstance(token, str) or not token.startswith("ExponentPushToken"):
         raise HTTPException(status_code=400, detail="Invalid push token provided.")
-    
+
     # Extract primary email from Clerk user object
     primary_email = None
     if user.email_addresses:
         for email_obj in user.email_addresses:
             # Assuming the first verified email is the one to use
             # You might have different logic based on primary email ID if available
-            if email_obj.verification and email_obj.verification.status == 'verified':
-                 primary_email = email_obj.email_address
-                 break 
+            if email_obj.verification and email_obj.verification.status == "verified":
+                primary_email = email_obj.email_address
+                break
         # Fallback to the first email if none are verified (adjust as needed)
         if not primary_email:
-             primary_email = user.email_addresses[0].email_address
-             logfire.warn(f"No verified email found for user {user.id}, using first email: {primary_email}")
+            primary_email = user.email_addresses[0].email_address
+            logfire.warn(
+                f"No verified email found for user {user.id}, using first email: {primary_email}"
+            )
 
     if not primary_email:
-         raise HTTPException(status_code=400, detail="Could not determine user email.")
+        raise HTTPException(status_code=400, detail="Could not determine user email.")
 
     try:
         # Register using the determined email
@@ -45,4 +51,3 @@ async def register_push_token(
         # Catch potential errors during registration (e.g., database issues)
         # logger happens in the service layer
         raise HTTPException(status_code=500, detail=f"Failed to register token: {str(e)}")
-

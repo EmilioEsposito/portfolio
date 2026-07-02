@@ -9,6 +9,7 @@ Run:
     python -m api.src.sernia_ai.ab_tests.model_comparison_search \\
         --experiment-name sernia-search-$(date +%Y-%m-%d)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +21,6 @@ ensure_logfire_configured(mode="prod", service_name="sernia_ai_ab_test")
 
 from api.src.sernia_ai.ab_tests._cli import build_parser, resolve_variants
 from api.src.sernia_ai.ab_tests._core import run_experiment
-
 
 PROMPTS: list[str] = [
     "Search zillow.com for rentals near Pittsburgh PA 15213 under $2000 and summarize the top 3 in 2-3 bullet points each. Use web search.",

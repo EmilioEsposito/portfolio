@@ -28,16 +28,16 @@ The ``workspace_read`` / ``workspace_write`` tools that previously existed
 are gone — their purpose is now served by ``sernia_context``,
 ``read_resource``, ``edit_resource``, and ``write_resource``.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 from typing import Annotated
 
+import logfire
 from fastmcp.exceptions import ToolError
 from pydantic import AliasChoices, Field
-
-import logfire
 
 from sernia_mcp.clients.git_sync import commit_and_push, pull_workspace
 from sernia_mcp.config import WORKSPACE_PATH
@@ -88,15 +88,14 @@ def _resolve_uri(uri: str) -> tuple[str, str | None]:
         return ("memory", None)
 
     if uri.startswith(_SKILL_URI_PREFIX):
-        suffix = uri[len(_SKILL_URI_PREFIX):]
+        suffix = uri[len(_SKILL_URI_PREFIX) :]
         if not suffix.endswith("/SKILL.md"):
             raise ToolError(f"skill URI must end with /SKILL.md, got {uri!r}")
         name = suffix[: -len("/SKILL.md")]
         return ("skill", name)
 
     raise ToolError(
-        f"unsupported URI {uri!r}. Use 'memory://current' or "
-        "'skill://<name>/SKILL.md'."
+        f"unsupported URI {uri!r}. Use 'memory://current' or 'skill://<name>/SKILL.md'."
     )
 
 
@@ -136,6 +135,7 @@ def _write_uri(uri: str, content: str) -> str:
 # =============================================================================
 # Doorway tool
 # =============================================================================
+
 
 @mcp.tool
 async def sernia_context() -> str:
@@ -180,8 +180,7 @@ async def sernia_context() -> str:
         {
             "memory": memory,
             "skills": [
-                {"name": s.name, "uri": s.uri, "description": s.description}
-                for s in skills
+                {"name": s.name, "uri": s.uri, "description": s.description} for s in skills
             ],
             "instructions": (
                 "Always treat 'memory' as authoritative current state. "
@@ -197,6 +196,7 @@ async def sernia_context() -> str:
 # =============================================================================
 # Read
 # =============================================================================
+
 
 @mcp.tool
 async def read_resource(uri: str) -> str:
@@ -220,6 +220,7 @@ async def read_resource(uri: str) -> str:
 # =============================================================================
 # Resources — for hosts that DO surface native resources/read
 # =============================================================================
+
 
 @mcp.resource(
     uri=_MEMORY_URI,
@@ -259,6 +260,7 @@ async def skill_resource(name: str) -> str:
 # =============================================================================
 # Edit (string substitution) — mirrors Claude Code's Edit tool
 # =============================================================================
+
 
 @mcp.tool
 async def edit_resource(
@@ -337,6 +339,7 @@ async def edit_resource(
 # =============================================================================
 # Write (full overwrite) — mirrors Claude Code's Write tool
 # =============================================================================
+
 
 @mcp.tool
 async def write_resource(uri: str, content: str) -> str:

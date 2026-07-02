@@ -1,10 +1,10 @@
 from functools import wraps
 from types import MethodType
-from api.src.ai_demos.models import persist_agent_run_result
-from pydantic_ai import Agent
+
 import logfire
-import pytest
-import asyncio
+
+from api.src.ai_demos.models import persist_agent_run_result
+
 
 def patch_run_with_persistence(agent):
     original = agent.run
@@ -34,23 +34,3 @@ def patch_run_with_persistence(agent):
         return result
 
     agent.run = MethodType(run, agent)
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_agent_run_with_persistence():
-    agent = Agent(
-        name="test_agent",
-        model="gpt-4o-mini",
-        system_prompt="You are a test agent.",
-        output_type=str,
-    )
-    patch_run_with_persistence(agent)
-    result = await agent.run(
-        user_prompt="Hello, world!",
-        deps={"conversation_id": "123"},
-    )
-    print(f"Result: {result}")
-
-if __name__ == "__main__":
-    asyncio.run(test_agent_run_with_persistence())

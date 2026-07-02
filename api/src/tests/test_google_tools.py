@@ -22,20 +22,17 @@ load_dotenv(find_dotenv(".env"), override=False)
 
 from api.src.sernia_ai.tools.google_tools import (
     _clean_zillow_email,
-    _html_to_markdown,
     _is_zillow_content,
-    _read_email,
     _strip_quoted_replies,
     _summarize_if_long,
     read_email_thread,
     search_emails,
-    google_toolset,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _FakeDeps:
@@ -48,6 +45,7 @@ class _FakeDeps:
 
 class _FakeRunContext:
     """Minimal RunContext stand-in for unit tests."""
+
     def __init__(self, user_email: str = "emilio@serniacapital.com"):
         self.deps = _FakeDeps(user_email=user_email)
 
@@ -73,16 +71,22 @@ def _make_gmail_message(
     parts = []
     if body_text:
         import base64
-        parts.append({
-            "mimeType": "text/plain",
-            "body": {"data": base64.urlsafe_b64encode(body_text.encode()).decode()},
-        })
+
+        parts.append(
+            {
+                "mimeType": "text/plain",
+                "body": {"data": base64.urlsafe_b64encode(body_text.encode()).decode()},
+            }
+        )
     if body_html:
         import base64
-        parts.append({
-            "mimeType": "text/html",
-            "body": {"data": base64.urlsafe_b64encode(body_html.encode()).decode()},
-        })
+
+        parts.append(
+            {
+                "mimeType": "text/html",
+                "body": {"data": base64.urlsafe_b64encode(body_html.encode()).decode()},
+            }
+        )
 
     payload = {"headers": headers}
     if len(parts) == 1:
@@ -113,21 +117,30 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id=thread_id,
-                    from_addr="lead@zillow.com", to_addr="all@serniacapital.com",
-                    subject="Inquiry about 123 Main St", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id=thread_id,
+                    from_addr="lead@zillow.com",
+                    to_addr="all@serniacapital.com",
+                    subject="Inquiry about 123 Main St",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text="Hi, I'm interested in the apartment.",
                 ),
                 _make_gmail_message(
-                    msg_id="msg2", thread_id=thread_id,
-                    from_addr="all@serniacapital.com", to_addr="lead@zillow.com",
-                    subject="Re: Inquiry about 123 Main St", date="Mon, 01 Jan 2026 11:00:00 +0000",
+                    msg_id="msg2",
+                    thread_id=thread_id,
+                    from_addr="all@serniacapital.com",
+                    to_addr="lead@zillow.com",
+                    subject="Re: Inquiry about 123 Main St",
+                    date="Mon, 01 Jan 2026 11:00:00 +0000",
                     body_text="Thanks for reaching out! When would you like to tour?",
                 ),
                 _make_gmail_message(
-                    msg_id="msg3", thread_id=thread_id,
-                    from_addr="lead@zillow.com", to_addr="all@serniacapital.com",
-                    subject="Re: Inquiry about 123 Main St", date="Mon, 01 Jan 2026 12:00:00 +0000",
+                    msg_id="msg3",
+                    thread_id=thread_id,
+                    from_addr="lead@zillow.com",
+                    to_addr="all@serniacapital.com",
+                    subject="Re: Inquiry about 123 Main St",
+                    date="Mon, 01 Jan 2026 12:00:00 +0000",
                     body_text="How about Saturday at 2pm?",
                 ),
             ]
@@ -136,8 +149,12 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id=thread_id)
 
@@ -163,8 +180,12 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_empty")
 
@@ -176,9 +197,12 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id="thread_html",
-                    from_addr="lead@zillow.com", to_addr="all@serniacapital.com",
-                    subject="HTML test", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id="thread_html",
+                    from_addr="lead@zillow.com",
+                    to_addr="all@serniacapital.com",
+                    subject="HTML test",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_html="<p>Hello <strong>world</strong></p>",
                 ),
             ]
@@ -187,8 +211,12 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_html")
 
@@ -203,9 +231,12 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id="thread_long",
-                    from_addr="a@b.com", to_addr="c@d.com",
-                    subject="Long email", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id="thread_long",
+                    from_addr="a@b.com",
+                    to_addr="c@d.com",
+                    subject="Long email",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text=long_body,
                 ),
             ]
@@ -220,9 +251,16 @@ class TestReadEmailThreadMock:
                 return content[:max_chars] + "\n...[SUMMARIZED]"
             return content
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service), \
-             patch("api.src.sernia_ai.tools.google_tools._summarize_if_long", side_effect=fake_summarize):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+            patch(
+                "api.src.sernia_ai.tools.google_tools._summarize_if_long",
+                side_effect=fake_summarize,
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_long")
 
@@ -237,9 +275,12 @@ class TestReadEmailThreadMock:
         for i in range(20):
             messages.append(
                 _make_gmail_message(
-                    msg_id=f"msg{i}", thread_id="thread_huge",
-                    from_addr="a@b.com", to_addr="c@d.com",
-                    subject=f"Message {i}", date=f"Mon, 01 Jan 2026 {10+i}:00:00 +0000",
+                    msg_id=f"msg{i}",
+                    thread_id="thread_huge",
+                    from_addr="a@b.com",
+                    to_addr="c@d.com",
+                    subject=f"Message {i}",
+                    date=f"Mon, 01 Jan 2026 {10 + i}:00:00 +0000",
                     body_text="y" * 2000,
                 )
             )
@@ -253,9 +294,16 @@ class TestReadEmailThreadMock:
                 return content[:max_chars] + "\n...[SUMMARIZED]"
             return content
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service), \
-             patch("api.src.sernia_ai.tools.google_tools._summarize_if_long", side_effect=fake_summarize):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+            patch(
+                "api.src.sernia_ai.tools.google_tools._summarize_if_long",
+                side_effect=fake_summarize,
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_huge")
 
@@ -268,9 +316,12 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id="thread_inbox",
-                    from_addr="a@b.com", to_addr="c@d.com",
-                    subject="Test", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id="thread_inbox",
+                    from_addr="a@b.com",
+                    to_addr="c@d.com",
+                    subject="Test",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text="test",
                 ),
             ]
@@ -280,10 +331,16 @@ class TestReadEmailThreadMock:
         mock_service.users().threads().get().execute.return_value = thread_data
 
         mock_get_creds = MagicMock()
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials", mock_get_creds), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials", mock_get_creds),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-            await read_email_thread(ctx, thread_id="thread_inbox", user_email_account="all@serniacapital.com")
+            await read_email_thread(
+                ctx, thread_id="thread_inbox", user_email_account="all@serniacapital.com"
+            )
 
         # Should use the explicit user_email_account, not ctx.deps.user_email
         mock_get_creds.assert_called_once()
@@ -305,15 +362,21 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id=thread_id,
-                    from_addr="lead@example.com", to_addr="all@serniacapital.com",
-                    subject="Tour request", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id=thread_id,
+                    from_addr="lead@example.com",
+                    to_addr="all@serniacapital.com",
+                    subject="Tour request",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text="Can I tour Thursday at 1:20pm?\nI saw the listing on Zillow.\nLooking forward to it.",
                 ),
                 _make_gmail_message(
-                    msg_id="msg2", thread_id=thread_id,
-                    from_addr="all@serniacapital.com", to_addr="lead@example.com",
-                    subject="Re: Tour request", date="Mon, 01 Jan 2026 11:00:00 +0000",
+                    msg_id="msg2",
+                    thread_id=thread_id,
+                    from_addr="all@serniacapital.com",
+                    to_addr="lead@example.com",
+                    subject="Re: Tour request",
+                    date="Mon, 01 Jan 2026 11:00:00 +0000",
                     body_text=reply_body,
                 ),
             ]
@@ -322,8 +385,12 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id=thread_id)
 
@@ -342,9 +409,12 @@ class TestReadEmailThreadMock:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="msg1", thread_id="thread_single",
-                    from_addr="lead@zillow.com", to_addr="all@serniacapital.com",
-                    subject="Lead inquiry", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="msg1",
+                    thread_id="thread_single",
+                    from_addr="lead@zillow.com",
+                    to_addr="all@serniacapital.com",
+                    subject="Lead inquiry",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text="I'm interested in the unit.",
                 ),
             ]
@@ -353,8 +423,12 @@ class TestReadEmailThreadMock:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_single")
 
@@ -422,11 +496,7 @@ class TestStripQuotedReplies:
 
     def test_preserves_short_quotes(self):
         """1-2 '>' lines should be kept (could be inline quotes)."""
-        text = (
-            "I agree with your point:\n"
-            "> We should meet at 2pm\n"
-            "That works for me.\n"
-        )
+        text = "I agree with your point:\n> We should meet at 2pm\nThat works for me.\n"
         result = _strip_quoted_replies(text)
         assert "> We should meet at 2pm" in result
         assert "That works for me" in result
@@ -555,9 +625,7 @@ class TestCleanZillowEmail:
 
     def test_strips_utm_lines(self):
         content = (
-            "Great message.\n"
-            "utm_source=email&utm_campaign=unified&utm_content=stuff\n"
-            "Real text."
+            "Great message.\nutm_source=email&utm_campaign=unified&utm_content=stuff\nReal text."
         )
         result = _clean_zillow_email(content)
         assert "Great message." in result
@@ -643,9 +711,12 @@ class TestReadEmailThreadMessageIds:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="abc123", thread_id="thread1",
-                    from_addr="a@b.com", to_addr="c@d.com",
-                    subject="Test", date="Mon, 01 Jan 2026 10:00:00 +0000",
+                    msg_id="abc123",
+                    thread_id="thread1",
+                    from_addr="a@b.com",
+                    to_addr="c@d.com",
+                    subject="Test",
+                    date="Mon, 01 Jan 2026 10:00:00 +0000",
                     body_text="Hello",
                 ),
             ]
@@ -655,8 +726,12 @@ class TestReadEmailThreadMessageIds:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread1")
 
@@ -675,7 +750,8 @@ class TestReadEmailThreadMessageIds:
         thread_data = {
             "messages": [
                 _make_gmail_message(
-                    msg_id="z1", thread_id="thread_z",
+                    msg_id="z1",
+                    thread_id="thread_z",
                     from_addr="lead@convo.zillow.com",
                     to_addr="emilio@serniacapital.com",
                     subject="Inquiry about 659 Maryland Ave",
@@ -689,8 +765,12 @@ class TestReadEmailThreadMessageIds:
         mock_service = MagicMock()
         mock_service.users().threads().get().execute.return_value = thread_data
 
-        with patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"), \
-             patch("api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service):
+        with (
+            patch("api.src.sernia_ai.tools.google_tools.get_delegated_credentials"),
+            patch(
+                "api.src.sernia_ai.tools.google_tools.get_gmail_service", return_value=mock_service
+            ),
+        ):
             ctx = _FakeRunContext()
             result = await read_email_thread(ctx, thread_id="thread_z")
 
@@ -758,7 +838,8 @@ class TestReadEmailThreadLive:
         """
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
         result = await read_email_thread(
-            ctx, thread_id=_SAMANTHA_THREAD_ID_ALL,
+            ctx,
+            thread_id=_SAMANTHA_THREAD_ID_ALL,
             user_email_account="all@serniacapital.com",
         )
 
@@ -810,6 +891,7 @@ class TestNelsonChangThreadLive:
     cleanup + summarization keep the thread complete, and that message IDs are
     present for daisy-chaining with send_email.
     """
+
     pytestmark = _live
 
     @pytest.mark.asyncio
@@ -852,6 +934,7 @@ class TestNelsonChangThreadLive:
 
         # Message IDs should be in the format "(ID: <hex>)"
         import re
+
         id_matches = re.findall(r"\(ID: ([a-f0-9]+)\)", result)
         assert len(id_matches) >= 2, (
             f"Expected at least 2 message IDs, found {len(id_matches)}: {id_matches}"
@@ -868,6 +951,7 @@ class TestSendHtmlEmailLive:
     alternative body (intro + table with hyperlinked cells + signature).
     Recipient is Emilio's personal address.
     """
+
     pytestmark = _live
 
     @pytest.mark.asyncio
@@ -881,18 +965,18 @@ class TestSendHtmlEmailLive:
         subject = f"[Sernia AI test] HTML email — {timestamp}"
 
         plain_body = (
-            f"Hi Emilio,\n\n"
-            f"This is a test of the new HTML-bodied send_email tool. The HTML "
-            f"version of this message includes a formatted vacancy status table "
-            f"with hyperlinked listing columns.\n\n"
-            f"Property        Unit   Status            Listing\n"
-            f"320 S Mathilda  02     Available         https://www.zillow.com/homedetails/320-S-Mathilda/\n"
-            f"324 S Mathilda  04     Tour scheduled    https://www.zillow.com/homedetails/324-S-Mathilda/\n"
-            f"659 Maryland    03     Available         https://drive.google.com/drive/folders/photos\n\n"
-            f"Best,\n"
-            f"Sernia AI Intern\n"
-            f"Sernia Capital LLC\n"
-            f"emilio@serniacapital.com | (412) 910-1989"
+            "Hi Emilio,\n\n"
+            "This is a test of the new HTML-bodied send_email tool. The HTML "
+            "version of this message includes a formatted vacancy status table "
+            "with hyperlinked listing columns.\n\n"
+            "Property        Unit   Status            Listing\n"
+            "320 S Mathilda  02     Available         https://www.zillow.com/homedetails/320-S-Mathilda/\n"
+            "324 S Mathilda  04     Tour scheduled    https://www.zillow.com/homedetails/324-S-Mathilda/\n"
+            "659 Maryland    03     Available         https://drive.google.com/drive/folders/photos\n\n"
+            "Best,\n"
+            "Sernia AI Intern\n"
+            "Sernia Capital LLC\n"
+            "emilio@serniacapital.com | (412) 910-1989"
         )
 
         html_body = """\

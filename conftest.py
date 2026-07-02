@@ -7,6 +7,7 @@ environments without real keys. Default test runs never hit real model APIs
 (`live` tests are excluded via pytest.ini addopts), so dummy fallbacks are
 safe. `setdefault` keeps real keys intact when present (needed for -m live).
 """
+
 import os
 
 os.environ.setdefault("OPENAI_API_KEY", "test-openai-key")

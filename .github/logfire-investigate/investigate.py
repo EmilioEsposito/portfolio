@@ -24,9 +24,10 @@ Actions cron. On any given run it:
 Why no watermark? Recurring errors emit new rows daily, so they would clear any
 watermark and fire anyway -- the watermark only avoided re-reading the *same*
 rows, at the cost of a fragile boundary and a commit-back-to-main step. A fixed
-lookback with a buffer is simpler and never misses a boundary event. The only
-persisted state is ``history.log`` (append-only audit of actual fires), which the
-workflow commits back when (and only when) a routine fired.
+lookback with a buffer is simpler and never misses a boundary event. Nothing is
+persisted in git: when a routine fires, the audit record goes to the Actions job
+summary (``write_summary``) and ``history.log`` is written in the run workspace
+and uploaded as a workflow artifact.
 """
 
 from __future__ import annotations
@@ -35,16 +36,14 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
 # --- Constants --------------------------------------------------------------
 
 LOGFIRE_BASE_DEFAULT = "https://logfire-us.pydantic.dev"
-ANTHROPIC_FIRE_URL = (
-    "https://api.anthropic.com/v1/claude_code/routines/{routine_id}/fire"
-)
+ANTHROPIC_FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/{routine_id}/fire"
 ANTHROPIC_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "experimental-cc-routine-2026-04-01"
 
@@ -194,7 +193,7 @@ def window_start() -> str:
         hours = float(os.environ.get("LOOKBACK_HOURS", "") or LOOKBACK_HOURS)
     except ValueError:
         hours = LOOKBACK_HOURS
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
 
 
 def load_ignore_patterns() -> list[str]:
@@ -250,14 +249,12 @@ def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[d
     last_exc: requests.RequestException | None = None
     for attempt in range(1, QUERY_MAX_ATTEMPTS + 1):
         try:
-            resp = requests.get(
-                url, headers=headers, params=params, timeout=HTTP_TIMEOUT
-            )
+            resp = requests.get(url, headers=headers, params=params, timeout=HTTP_TIMEOUT)
         except (requests.ConnectionError, requests.Timeout) as exc:
             # Network-level blip (DNS/connect/read timeout): retry.
             last_exc = exc
             if attempt < QUERY_MAX_ATTEMPTS:
-                backoff = 2 ** attempt
+                backoff = 2**attempt
                 log(f"Logfire query network error ({exc}); retry {attempt} in {backoff}s")
                 time.sleep(backoff)
                 continue
@@ -268,7 +265,7 @@ def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[d
 
         # Transient gateway/timeout statuses: back off and retry.
         if resp.status_code in QUERY_RETRY_STATUSES and attempt < QUERY_MAX_ATTEMPTS:
-            backoff = 2 ** attempt
+            backoff = 2**attempt
             log(
                 f"Logfire query failed: HTTP {resp.status_code} "
                 f"(transient); retry {attempt} in {backoff}s"
@@ -349,7 +346,7 @@ def extract_rows(data) -> list[dict]:
 
     # Shape 3: rows as positional arrays + column names.
     if rows and names and isinstance(rows[0], (list, tuple)):
-        return [dict(zip(names, r)) for r in rows]
+        return [dict(zip(names, r, strict=False)) for r in rows]
 
     # Shape 2: columnar with values embedded in each column object. This is the
     # API default and MUST be handled, or every result silently becomes 0 rows.
@@ -357,7 +354,10 @@ def extract_rows(data) -> list[dict]:
         value_lists = [c.get("values") or [] for c in cols]
         n = max((len(v) for v in value_lists), default=0)
         return [
-            {name: (vals[i] if i < len(vals) else None) for name, vals in zip(names, value_lists)}
+            {
+                name: (vals[i] if i < len(vals) else None)
+                for name, vals in zip(names, value_lists, strict=False)
+            }
             for i in range(n)
         ]
 
@@ -440,8 +440,7 @@ def build_payload(groups: list[dict], window_hours: float) -> str:
         if g["fingerprint"]:
             lines.append(f"    fingerprint: {g['fingerprint']}")
         lines.append(
-            f"    hits: {g['hits']}   first_seen: {g['first_seen']}"
-            f"   last_seen: {g['last_seen']}"
+            f"    hits: {g['hits']}   first_seen: {g['first_seen']}   last_seen: {g['last_seen']}"
         )
         lines.append(f"    sample traces: {traces}")
         lines.append("")
@@ -475,8 +474,7 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Do everything EXCEPT the fire POST; just print the payload that "
-        "would be sent.",
+        help="Do everything EXCEPT the fire POST; just print the payload that would be sent.",
     )
     args = parser.parse_args()
 
@@ -494,7 +492,9 @@ def main() -> int:
         return 1
 
     min_timestamp = window_start()
-    window_hours = (datetime.now(timezone.utc) - datetime.fromisoformat(min_timestamp)).total_seconds() / 3600
+    window_hours = (
+        datetime.now(UTC) - datetime.fromisoformat(min_timestamp)
+    ).total_seconds() / 3600
     log(f"Logfire base:   {base}")
     log(f"Window start (min_timestamp): {min_timestamp}  (~{window_hours:g}h lookback)")
     log(f"Dry run:        {dry_run}")
@@ -547,7 +547,7 @@ def main() -> int:
         # Fall back to constructing the URL from the id if the API omits it.
         if not session_url and session_id:
             session_url = f"https://claude.ai/code/{session_id}"
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         append_history(
             f"{now}  fired  session={session_id}  groups={len(groups)}  hits={total_hits}"
         )

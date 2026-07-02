@@ -1,17 +1,18 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import MetaData
-from sqlalchemy.pool import QueuePool
 import os
-import logfire
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv, find_dotenv
-from typing import AsyncGenerator, Annotated
-from fastapi import Depends
-from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
+from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from sqlalchemy import text
-import pytest
+
+import logfire
+from dotenv import find_dotenv, load_dotenv
+from fastapi import Depends
+from sqlalchemy import MetaData, text
+from sqlalchemy import create_engine as create_sync_engine  # Explicit import for clarity
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import QueuePool
+
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 # Load .env file if present (for local dev, alembic migrations, worktrees)
@@ -26,7 +27,7 @@ convention = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s"
+    "pk": "pk_%(table_name)s",
 }
 
 # Create metadata with naming convention
@@ -119,15 +120,14 @@ logfire.info("Creating session factory...")
 
 # Session factory for FastAPI app
 AsyncSessionFactory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autoflush=False
+    bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
 )
+
 
 # Base class for models
 class Base(DeclarativeBase):
     metadata = metadata
+
 
 # --- Synchronous Engine for APScheduler and Alembic migrations ---
 # Uses QueuePool (pool_size=2) instead of NullPool so APScheduler reuses
@@ -142,7 +142,7 @@ if DATABASE_URL_UNPOOLED:
     sync_db_url = _remove_unsupported_query_params(DATABASE_URL_UNPOOLED)
     if sync_db_url.startswith("postgresql+asyncpg://"):
         sync_db_url = sync_db_url.replace("postgresql+asyncpg://", "postgresql://")
-    elif sync_db_url.startswith("postgres://"): # Normalize postgres:// to postgresql://
+    elif sync_db_url.startswith("postgres://"):  # Normalize postgres:// to postgresql://
         sync_db_url = sync_db_url.replace("postgres://", "postgresql://")
     # else, assume it's already a suitable synchronous URL like "postgresql://..."
 
@@ -155,10 +155,14 @@ if DATABASE_URL_UNPOOLED:
             sync_url_for_logging = sync_url_for_logging.replace(credentials_part, "<credentials>")
 
     logfire.info(f"Attempting to create synchronous engine with URL: {sync_url_for_logging}")
-    logfire.info(f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}")
+    logfire.info(
+        f"DATABASE_REQUIRE_SSL value: {os.environ.get('DATABASE_REQUIRE_SSL', 'NOT SET')}, parsed as: {DATABASE_REQUIRE_SSL}"
+    )
     try:
         # See module-level comment above for why QueuePool over NullPool.
-        sync_connect_args = {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {"sslmode": "disable"}
+        sync_connect_args = (
+            {"sslmode": "require"} if DATABASE_REQUIRE_SSL else {"sslmode": "disable"}
+        )
         logfire.info(f"Using sync_connect_args: {sync_connect_args}")
         sync_engine = create_sync_engine(
             sync_db_url,
@@ -171,12 +175,15 @@ if DATABASE_URL_UNPOOLED:
             connect_args=sync_connect_args,
         )
         ssl_status = "with SSL" if DATABASE_REQUIRE_SSL else "without SSL"
-        logfire.info(f"Synchronous SQLAlchemy engine created successfully with QueuePool {ssl_status}.")
+        logfire.info(
+            f"Synchronous SQLAlchemy engine created successfully with QueuePool {ssl_status}."
+        )
     except Exception as e:
         logfire.exception(f"Failed to create synchronous SQLAlchemy engine: {e}")
-        sync_engine = None # Ensure it's None if creation failed
+        sync_engine = None  # Ensure it's None if creation failed
 elif not DATABASE_URL_UNPOOLED:
     logfire.warn("DATABASE_URL_UNPOOLED not set, synchronous engine cannot be created.")
+
 
 @asynccontextmanager
 async def session_context() -> AsyncGenerator[AsyncSession, None]:
@@ -191,6 +198,7 @@ async def session_context() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")
             raise
+
 
 # Session dependency for FastAPI
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -222,12 +230,15 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 #   async def my_route(session: AsyncSession = Depends(get_session)):
 DBSession = Annotated[AsyncSession, Depends(get_session)]
 
+
 @asynccontextmanager
-async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator[AsyncSession, None]:
+async def provide_session(
+    session: AsyncSession | None = None,
+) -> AsyncGenerator[AsyncSession, None]:
     """
     Context manager that yields the provided session if it exists,
     or creates a new one using AsyncSessionFactory.
-    
+
     Useful for functions that can be called either with an existing session (e.g. from a route)
     or standalone (e.g. from a script).
     """
@@ -237,14 +248,15 @@ async def provide_session(session: AsyncSession | None = None) -> AsyncGenerator
         async with AsyncSessionFactory() as new_session:
             yield new_session
 
+
 @logfire.instrument("test-sync-engine-select-one")
-def test_sync_engine_select_one():
+def check_sync_engine_select_one():
     """Run a SELECT 1 from the synchronous engine to verify it's working."""
     try:
         with sync_engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
             result = result.fetchone()[0]
-            assert result==1, f"Synchronous engine SELECT 1 test failed. Result: {result}"
+            assert result == 1, f"Synchronous engine SELECT 1 test failed. Result: {result}"
             logfire.info("SUCCESS: Synchronous engine SELECT 1 test passed successfully.")
     except Exception as e:
         logfire.exception(f"FAILURE: Synchronous engine SELECT 1 test failed! Exception: {e}")
@@ -254,18 +266,19 @@ def test_sync_engine_select_one():
 def wait_for_db(max_retries=10, delay=1):
     """Wait for database to be ready with simple retry logic."""
     import time
+
     for i in range(max_retries):
         try:
-            test_sync_engine_select_one()
+            check_sync_engine_select_one()
             return
-        except:
+        except Exception:
             if i == max_retries - 1:
                 raise
             time.sleep(delay)
 
-@pytest.mark.asyncio
+
 @logfire.instrument("test-async-engine-select-one")
-async def test_async_engine_select_one():
+async def check_async_engine_select_one():
     """Run a SELECT 1 from the async engine to verify it's working."""
     # The module-level engine's pool can hold connections bound to a previous
     # test's (now closed) event loop — pytest-asyncio uses one loop per test.
@@ -283,12 +296,12 @@ async def test_async_engine_select_one():
         logfire.exception(f"FAILURE: Async engine SELECT 1 test failed! Exception: {e}")
         raise Exception(f"Async engine SELECT 1 test failed: {e}")
 
-@pytest.mark.asyncio
+
 @logfire.instrument("test-database-connections")
-async def test_database_connections():
+async def check_database_connections():
     try:
-        test_sync_engine_select_one()
-        await test_async_engine_select_one()
+        check_sync_engine_select_one()
+        await check_async_engine_select_one()
     except Exception as e:
         logfire.exception(f"Error during database connection test: {e}")
         raise Exception(f"Error during database connection test: {e}")

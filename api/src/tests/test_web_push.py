@@ -18,10 +18,10 @@ class TestSmoke:
 
     def test_service_functions_import(self):
         from api.src.sernia_ai.push.service import (
-            save_subscription,
-            remove_subscription,
             notify_all_sernia_users,
             notify_pending_approval,
+            remove_subscription,
+            save_subscription,
         )
 
         assert callable(save_subscription)
@@ -64,17 +64,16 @@ async def test_send_push_notification():
     Run with: pytest -m live api/src/tests/test_web_push.py::test_send_push_notification -v -s
     Requires: VAPID keys in .env, at least one subscription in DB.
     """
-    from api.src.sernia_ai.push.service import notify_all_sernia_users, _vapid
+    from sqlalchemy import func, select
+
     from api.src.database.database import AsyncSessionFactory
     from api.src.sernia_ai.push.models import WebPushSubscription
-    from sqlalchemy import select, func
+    from api.src.sernia_ai.push.service import _vapid, notify_all_sernia_users
 
     assert _vapid, "VAPID_PRIVATE_KEY not set or failed to load — add to .env"
 
     async with AsyncSessionFactory() as session:
-        count = await session.scalar(
-            select(func.count()).select_from(WebPushSubscription)
-        )
+        count = await session.scalar(select(func.count()).select_from(WebPushSubscription))
 
     assert count and count > 0, (
         "No subscriptions in DB. Go to /sernia-chat and click the bell icon first."

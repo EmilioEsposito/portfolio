@@ -1,14 +1,17 @@
-from dotenv import load_dotenv, find_dotenv
 import asyncio
 import time
-from typing import Annotated, Dict, Any
+from typing import Annotated, Any
+
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=True)
-from fastapi import Depends, HTTPException, Header, Request, status
-from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState, User
 import os
-from google.oauth2.credentials import Credentials
+
 import logfire
+from clerk_backend_api import AuthenticateRequestOptions, Clerk, RequestState, Session, User
+from fastapi import Depends, HTTPException, Request, status
+from google.oauth2.credentials import Credentials
+
 from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.service import get_oauth_credentials, save_oauth_credentials
 
@@ -23,7 +26,7 @@ clerk_client = Clerk(bearer_auth=clerk_secret_key)
 
 # TTL cache for Clerk user lookups — avoids hitting Clerk API on every request.
 # Key: user_id, Value: {"user": User, "ts": float}
-_user_cache: Dict[str, Dict[str, Any]] = {}
+_user_cache: dict[str, dict[str, Any]] = {}
 _USER_CACHE_TTL = 300  # 5 minutes
 
 
@@ -113,6 +116,7 @@ async def get_auth_user(request: Request) -> User:
 #   async def my_route(user: AuthUser):
 AuthUser = Annotated[User, Depends(get_auth_user)]
 
+
 async def verify_domain(request: Request, domain: str) -> User:
     """
     FastAPI dependency that verifies if the user has a verified email from a specific domain.
@@ -126,8 +130,14 @@ async def verify_domain(request: Request, domain: str) -> User:
     """
     user: User = await get_auth_user(request)
     for email in user.email_addresses:
-        if email.email_address.endswith(domain) and email.verification and email.verification.status == "verified":
-            logfire.info(f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}.") # Log success
+        if (
+            email.email_address.endswith(domain)
+            and email.verification
+            and email.verification.status == "verified"
+        ):
+            logfire.info(
+                f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}."
+            )  # Log success
             return user  # Return the user instead of True
 
     # If the loop completes, it means no verified email for the domain was found.
@@ -135,6 +145,7 @@ async def verify_domain(request: Request, domain: str) -> User:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=f"User is not authorized to access this resource. Please use a verified {domain} email.",
     )
+
 
 async def verify_serniacapital_user(request: Request) -> User:
     """
@@ -146,7 +157,8 @@ async def verify_serniacapital_user(request: Request) -> User:
 
 # Type alias for Sernia Capital authenticated users - combines auth + domain verification in one call
 SerniaUser = Annotated[User, Depends(verify_serniacapital_user)]
-    
+
+
 async def get_google_credentials(request: Request) -> Credentials:
     """
     FastAPI dependency that returns the Google credentials for the authenticated user.
@@ -166,7 +178,7 @@ async def get_google_credentials(request: Request) -> Credentials:
     # Check database for existing credentials
     async with AsyncSessionFactory() as session:
         db_creds = await get_oauth_credentials(session, user_id, provider)
-        
+
         # If we have valid credentials in the database, use them
         if db_creds and not db_creds.is_expired():
             print(f"Using existing credentials from database, expires at: {db_creds.expires_at}")
@@ -178,9 +190,9 @@ async def get_google_credentials(request: Request) -> Credentials:
                 token_uri="https://oauth2.googleapis.com/token",
                 client_id=os.getenv("GOOGLE_CLIENT_ID"),
                 client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-                refresh_token=db_creds.refresh_token
+                refresh_token=db_creds.refresh_token,
             )
-        
+
         # Get new credentials from Clerk
         print("Getting fresh credentials from Clerk")
         list_creds_responses = await clerk_client.users.get_o_auth_access_token_async(
@@ -193,16 +205,11 @@ async def get_google_credentials(request: Request) -> Credentials:
                 detail="User has no Google credentials.",
             )
         elif len(list_creds_responses) > 1:
-            logfire.warn(
-                f"User {user_id} has multiple Google credentials, using the first one."
-            )
+            logfire.warn(f"User {user_id} has multiple Google credentials, using the first one.")
 
         for creds_response in list_creds_responses:
             db_creds = await save_oauth_credentials(
-                session=session,
-                user_id=user_id,
-                provider=provider,
-                creds_response=creds_response
+                session=session, user_id=user_id, provider=provider, creds_response=creds_response
             )
 
         # Return last saved Google credentials object # TODO: Return all credentials?
@@ -215,5 +222,5 @@ async def get_google_credentials(request: Request) -> Credentials:
             token_uri="https://oauth2.googleapis.com/token",
             client_id=os.getenv("GOOGLE_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-            refresh_token=db_creds.refresh_token
+            refresh_token=db_creds.refresh_token,
         )
