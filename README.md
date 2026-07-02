@@ -130,7 +130,14 @@ This project uses Railway for deployment and environment variable management.
 
 Locally, the file that takes all precedence is `.env`. 
 
-TODO: Document Railway CLI commands for env variables so AI can help
+Deployed environment variables live in Railway and can be managed with the CLI:
+
+```bash
+railway link                                  # pick project/environment/service to operate on
+railway variables                             # list vars for the linked service/environment
+railway variables --set "KEY=value"           # set a var (triggers a redeploy)
+railway variables --service fastapi --environment production   # target explicitly
+```
 
 Expo-go will need the local IP address of the machine running the backend. Run this to update the environment variable in .env:
 ```bash
@@ -181,6 +188,8 @@ Quo (fka OpenPhone) and Google PubSub webhooks are pointing to the production en
 
 
 # Deprecation Candidates
+
+> Last reviewed: 2026-07-02 — still accurate, none started.
 
 * Google PubSub (replace with Oauth)
 * app/components/google/account-switcher.tsx (replace with Clerk)
