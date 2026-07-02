@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 import warnings
-from typing import Optional
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
@@ -14,7 +13,7 @@ from opentelemetry import trace as otel_trace
 from api.src.utils.llm_cost_breakdown import CostBreakdownSpanProcessor
 
 _CONFIGURED: bool = False
-_CONFIGURED_MODE: Optional[str] = None  # e.g. "prod", "test"
+_CONFIGURED_MODE: str | None = None  # e.g. "prod", "test"
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +77,7 @@ def ensure_logfire_configured(
     *,
     mode: str = "prod",
     service_name: str = "fastapi",
-    environment: Optional[str] = None,
+    environment: str | None = None,
 ) -> None:
     """
     Configure Logfire exactly once per process.

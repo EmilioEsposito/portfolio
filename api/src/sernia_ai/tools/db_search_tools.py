@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import logfire
 from pydantic_ai import FunctionToolset, RunContext
-from sqlalchemy import cast, select, String, or_, and_
+from sqlalchemy import String, and_, cast, or_, select
 
 from api.src.ai_demos.models import AgentConversation
 from api.src.database.database import AsyncSessionFactory

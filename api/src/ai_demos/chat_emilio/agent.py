@@ -4,12 +4,14 @@ Portfolio Chatbot Agent using PydanticAI
 This agent can answer questions about the developer's portfolio, skills, and projects.
 Each information source has its own tool that fetches from a specific URL.
 """
-import logfire
 from dataclasses import dataclass
+
+import httpx
+import logfire
+from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import Instrumentation
-from dotenv import load_dotenv
-import httpx
+
 load_dotenv('.env')
 
 

@@ -2,30 +2,25 @@
 FastAPI routes for Gmail-specific endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, List
+import os
+
 import logfire
+from fastapi import APIRouter, Depends, HTTPException
 from openai import AsyncOpenAI
-from sqlalchemy import select, func
-from api.src.utils.dependencies import verify_cron_or_admin
+from sqlalchemy import func, select
+
 from api.src.database.database import DBSession
-from api.src.google.gmail.service import (
-    send_email,
-    setup_gmail_watch,
-    stop_gmail_watch,
-    get_gmail_service,
-    get_delegated_credentials,
-    get_email_changes,
-    get_email_content,
-    process_single_message
-)
 from api.src.google.gmail.models import EmailMessage
 from api.src.google.gmail.schema import (
-    ZillowEmailResponse,
     GenerateResponseRequest,
-    OptionalPassword
+    OptionalPassword,
+    ZillowEmailResponse,
 )
-import os
+from api.src.google.gmail.service import (
+    setup_gmail_watch,
+    stop_gmail_watch,
+)
+from api.src.utils.dependencies import verify_cron_or_admin
 
 client = AsyncOpenAI()  # Create async client instance
 
@@ -33,7 +28,7 @@ client = AsyncOpenAI()  # Create async client instance
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
 @router.get("/get_zillow_emails")
-async def get_zillow_emails(session: DBSession) -> List[ZillowEmailResponse]:
+async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
     """
     Fetch 5 random Zillow inquiry emails, excluding daily listing emails.
 

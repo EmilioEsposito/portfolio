@@ -1,18 +1,20 @@
 from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from api.src.oauth.models import OAuthCredential
-from fastapi import HTTPException
-from typing import Optional, List
-from clerk_backend_api import OAuthAccessToken
-from typing import Union
+
 import pytz
+from clerk_backend_api import OAuthAccessToken
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.src.oauth.models import OAuthCredential
+
+
 async def save_oauth_credentials(
     session: AsyncSession,
     user_id: str,
     provider: str,
-    creds_response: Union[OAuthAccessToken, dict] = None,
-    creds_dict: Union[dict, None] = None
+    creds_response: OAuthAccessToken | dict = None,
+    creds_dict: dict | None = None
 ) -> OAuthCredential:
     """
     Save or update OAuth credentials in database
@@ -95,7 +97,7 @@ async def get_oauth_credentials(
     session: AsyncSession,
     user_id: str,
     provider: str
-) -> Optional[OAuthCredential]:
+) -> OAuthCredential | None:
     """
     Get OAuth credentials from database
     
@@ -117,7 +119,7 @@ async def get_oauth_credentials(
 async def get_all_user_credentials(
     session: AsyncSession,
     user_id: str
-) -> List[OAuthCredential]:
+) -> list[OAuthCredential]:
     """
     Get all OAuth credentials for a user
     

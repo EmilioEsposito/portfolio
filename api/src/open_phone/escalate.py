@@ -1,23 +1,22 @@
 import os
 import re  # Added for normalization function
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=True)
-import requests
-from typing import List, Optional, Union
-from fastapi import HTTPException
-import logfire
-from api.src.google.sheets import get_sheet_as_json
 import json
+import random
+
+import logfire
 
 # from twilio.rest import Client # removed to reduce bundle size
 import pytz
-import random
+import requests
+from fastapi import HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
-from pprint import pprint
-from api.src.contact.service import get_contact_by_slug
 
+from api.src.contact.service import get_contact_by_slug
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -169,12 +168,14 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
 
 @logfire.instrument()
 async def analyze_for_twilio_escalation(
-    open_phone_event: dict, escalate_to_numbers: list[str] = [], mock: bool = False
+    open_phone_event: dict, escalate_to_numbers: list[str] = None, mock: bool = False
 ):
     """
     Analyzes an OpenPhone event and potentially triggers a Twilio Studio Flow execution.
     """
 
+    if escalate_to_numbers is None:
+        escalate_to_numbers = []
     should_escalate = False  # default to false
     successful_escalations = 0
 

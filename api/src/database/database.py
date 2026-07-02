@@ -1,16 +1,18 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import MetaData
-from sqlalchemy.pool import QueuePool
 import os
-import logfire
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv, find_dotenv
-from typing import AsyncGenerator, Annotated
-from fastapi import Depends
-from sqlalchemy import create_engine as create_sync_engine # Explicit import for clarity
+from typing import Annotated
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from sqlalchemy import text
+
+import logfire
+from dotenv import find_dotenv, load_dotenv
+from fastapi import Depends
+from sqlalchemy import MetaData, text
+from sqlalchemy import create_engine as create_sync_engine  # Explicit import for clarity
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import QueuePool
+
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 # Load .env file if present (for local dev, alembic migrations, worktrees)
@@ -257,7 +259,7 @@ def wait_for_db(max_retries=10, delay=1):
         try:
             check_sync_engine_select_one()
             return
-        except:
+        except Exception:
             if i == max_retries - 1:
                 raise
             time.sleep(delay)

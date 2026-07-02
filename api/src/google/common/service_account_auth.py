@@ -2,14 +2,15 @@
 Shared authentication utilities for Google APIs.
 """
 
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv('.env'))
-from google.oauth2 import service_account
-import os
-import json
 import base64
-from typing import List, Optional
+import json
+import os
+
 from fastapi import HTTPException
+from google.oauth2 import service_account
 
 from api.src.google.common.ca_bundle import configure_httplib2_ca_bundle
 
@@ -29,7 +30,7 @@ SERVICE_ACCOUNT_DEFAULT_SCOPES = [
 ]
 
 
-def get_service_credentials(scopes: Optional[List[str]] = None) -> service_account.Credentials:
+def get_service_credentials(scopes: list[str] | None = None) -> service_account.Credentials:
     """
     Get credentials for service account authentication.
     This can be used across multiple Google services.
@@ -102,7 +103,7 @@ def get_service_credentials(scopes: Optional[List[str]] = None) -> service_accou
 
 def get_delegated_credentials(
     user_email: str,
-    scopes: Optional[List[str]] = None
+    scopes: list[str] | None = None
 ) -> service_account.Credentials:
     """
     Get service account credentials delegated to act as a specific user.

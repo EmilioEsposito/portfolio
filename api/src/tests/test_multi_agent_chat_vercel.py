@@ -3,8 +3,10 @@ Integration tests for the multi-agent chat endpoint that streams responses via V
 """
 import json
 import uuid
+
 import pytest
 from fastapi.testclient import TestClient
+
 from api.index import app
 
 
@@ -137,7 +139,7 @@ def test_multi_agent_chat_routes_to_weather(client):
             assert "id" in delta_event, "text-delta event missing id field"
         
         print(f"\n✓ Received {len(parsed_events)} events")
-        print(f"✓ Stream format is correct")
+        print("✓ Stream format is correct")
 
 
 @pytest.mark.live

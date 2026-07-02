@@ -1,16 +1,15 @@
-import logfire
 import os
-from pprint import pprint
-from api.src.open_phone.service import send_message, upsert_openphone_contact
-from api.src.database.database import AsyncSessionFactory
-from api.src.contact.service import ContactCreate
-from sqlalchemy import text
-from api.src.contact.service import get_contact_by_slug
-from pydantic import BaseModel, EmailStr
-from typing import List, Optional
 from datetime import datetime, timedelta
+
+import logfire
 import openai
 import pytz
+from bs4 import BeautifulSoup
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import text
+
+from api.src.contact.service import ContactCreate, get_contact_by_slug
+from api.src.database.database import AsyncSessionFactory
 from api.src.google.calendar.service import (
     CalendarAttendee,
     CalendarEventInput,
@@ -19,7 +18,8 @@ from api.src.google.calendar.service import (
     create_calendar_event,
     get_calendar_service,
 )
-from bs4 import BeautifulSoup
+from api.src.open_phone.service import send_message, upsert_openphone_contact
+
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
 # from dbos import DBOS
@@ -72,7 +72,7 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
             if sql.endswith(".sql"):
                 logfire.info(f"sql parameter '{sql}' ends with .sql, attempting to read file.")
                 try:
-                    with open(sql, "r") as f:
+                    with open(sql) as f:
                         sql_query = f.read()
                     logfire.info(f"Successfully read SQL query from file: {sql}")
                 except FileNotFoundError:
@@ -158,7 +158,7 @@ class EmailMessageDetail(BaseModel):
     from_address: EmailStr # Or str if not strictly email
     # Assuming to_address from your SQL might be a single string or needs parsing to a list.
     # For simplicity, keeping as string for now. Adjust if it's an array/list in DB.
-    to_address: Optional[str] = None 
+    to_address: str | None = None 
     # Add other relevant fields from your email_data if needed
 
 class ShouldReply(BaseModel):
@@ -166,7 +166,7 @@ class ShouldReply(BaseModel):
     reason: str
     appointment_scheduled: bool
 
-def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
+def get_clean_zillow_thread_str(messages: list[EmailMessageDetail]):
 
     # Cleanup
     for message in messages:
@@ -190,7 +190,7 @@ def get_clean_zillow_thread_str(messages: List[EmailMessageDetail]):
 
     return thread_str
 
-async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
+async def ai_assess_thread(thread_id: str, messages: list[EmailMessageDetail]):
 
     ai_instructions = """
     # Context
@@ -266,18 +266,18 @@ async def ai_assess_thread(thread_id: str, messages: List[EmailMessageDetail]):
 
 
 class CollectedThreadInfo(BaseModel):
-    building_number: Optional[int] = None
-    unit_number: Optional[int] = None
-    lead_first_name: Optional[str] = None
-    lead_last_name: Optional[str] = None
-    lead_phone_number: Optional[str] = None
-    appointment_date: Optional[str] = None
-    appointment_time: Optional[str] = None
+    building_number: int | None = None
+    unit_number: int | None = None
+    lead_first_name: str | None = None
+    lead_last_name: str | None = None
+    lead_phone_number: str | None = None
+    appointment_date: str | None = None
+    appointment_time: str | None = None
 
 
-async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDetail]):
+async def ai_collect_thread_info(thread_id: str, messages: list[EmailMessageDetail]):
 
-    ai_instructions = f"""# Context
+    ai_instructions = """# Context
     You are a helpful assistant that works for Sernia Capital Property Management (all@serniacapital.com). 
     
     Note: Any email from all@serniacapital.com is considered a response from "Sernia". all@serniacapital.com 
@@ -303,7 +303,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
 
     # Response Format. Return your response in JSON. 
     # Examples:
-    {{
+    {
         "building_number": 332,
         "unit_number": 1,
         "lead_first_name": "John",
@@ -311,7 +311,7 @@ async def ai_collect_thread_info(thread_id: str, messages: List[EmailMessageDeta
         "lead_phone_number": "+14125551212",
         "appointment_date": "2024-01-01",
         "appointment_time": "10:00 AM"
-    }}
+    }
     """
 
     logfire.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
@@ -355,7 +355,7 @@ async def check_email_threads(overwrite_calendar_events=False):
         target_phone_number = target_contact.phone_number
 
         should_sernia_reply = False
-        with open("api/src/zillow_email/zillow_email_threads.sql", "r") as f:
+        with open("api/src/zillow_email/zillow_email_threads.sql") as f:
             sql_query = f.read()
 
             result = await session.execute(text(sql_query))
@@ -397,7 +397,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                 should_sernia_reply, reason, appointment_scheduled = await ai_assess_thread(thread_id, messages)
 
                 if should_sernia_reply:
-                    alert_message = f'📬 Sernia-AI detected unreplied Zillow email 📬'
+                    alert_message = '📬 Sernia-AI detected unreplied Zillow email 📬'
                     alert_message += f'\n\nSubject: {messages[0].subject}'
                     alert_message += f'\n\nReason: {reason}'
 
@@ -473,7 +473,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                             event_description += f"\nUnit: {unit_number_padded}"
                             event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
                             event_description += f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
-                            event_description += f"\nSource: Zillow Email."
+                            event_description += "\nSource: Zillow Email."
                             event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
 
                             calendar_service = await get_calendar_service(user_email=target_contact.email) # TODO: make user_email dynamic or from config
@@ -498,7 +498,7 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 created_event = await create_calendar_event(calendar_service, event_input, overwrite=overwrite_calendar_events)
                                 logfire.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
                             else:
-                                logfire.info(f"Skipping Google Calendar event creation in hosted non-production environment.")
+                                logfire.info("Skipping Google Calendar event creation in hosted non-production environment.")
                         else:
                             logfire.warn(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
                             notes.append("Missing appointment date/time — calendar event not created.")

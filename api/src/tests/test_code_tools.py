@@ -1,6 +1,7 @@
 """Tests for run_python code tool — verifies print capture and helper functions."""
 
 import pytest
+
 from api.src.sernia_ai.tools.code_tools import run_python
 
 

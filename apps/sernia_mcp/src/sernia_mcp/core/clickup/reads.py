@@ -17,7 +17,6 @@ from sernia_mcp.config import (
 from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError
 
-
 # ---------------------------------------------------------------------------
 # Workspace browse
 # ---------------------------------------------------------------------------

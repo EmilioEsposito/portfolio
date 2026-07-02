@@ -1,10 +1,10 @@
 """
 Swagger/OpenAPI schema utilities for FastAPI compatibility
 """
-from typing import Any, Dict
+from typing import Any
 
 
-def expand_json_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+def expand_json_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """
     Expand JSON schema by inlining all $defs references.
     

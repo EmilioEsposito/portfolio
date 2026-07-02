@@ -1,13 +1,10 @@
-from dotenv import load_dotenv, find_dotenv
 import asyncio
-import json
-import logfire
 import os
+
+import logfire
 
 # NOTE: the SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY bridge lives in
 # api/__init__.py so every entry point (app, pytest, scripts) gets it.
-
-import logfire
 from api.src.utils.logfire_config import ensure_logfire_configured
 
 ensure_logfire_configured(mode="prod", service_name="fastapi")
@@ -27,11 +24,8 @@ logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc
 # logfire.instrument_asyncpg()  # Low-level asyncpg driver tracing
 # SQLAlchemy instrumentation for query-level tracing (app engines only)
 with logfire.span("Database"):
-    from api.src.database.database import (
-        engine as async_engine,
-        sync_engine,
-        check_database_connections
-    )
+    from api.src.database.database import check_database_connections, sync_engine
+    from api.src.database.database import engine as async_engine
     engines_to_instrument = [async_engine]
     if sync_engine is not None:
         engines_to_instrument.append(sync_engine)
@@ -43,13 +37,15 @@ with logfire.span("Database"):
 
 logfire.info("Logfire configured with comprehensive instrumentation")
 
-from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
+
+import strawberry
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from strawberry.fastapi import GraphQLRouter
 from strawberry.tools import merge_types
-import strawberry
-from starlette.middleware.sessions import SessionMiddleware
+
 logfire.info("STARTUP1")
 
 # Import from api.src
@@ -57,14 +53,22 @@ with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
     from api.src.sernia_ai.routes import router as sernia_ai_router
 
-from api.src.open_phone.routes import router as open_phone_router
-from api.src.cron import router as cron_router
-from api.src.google.common.routes import router as google_router
-from api.src.examples.routes import router as examples_router
-from api.src.push.routes import router as push_router
-from api.src.user.routes import router as user_router
-from api.src.contact.routes import router as contact_router
 from api.src.apscheduler_service.routes import router as apscheduler_router
+from api.src.apscheduler_service.service import get_scheduler, register_hello_apscheduler_jobs
+from api.src.clickup.service import register_clickup_apscheduler_jobs
+from api.src.contact.routes import router as contact_router
+from api.src.cron import router as cron_router
+from api.src.examples.routes import router as examples_router
+from api.src.examples.schema import Mutation as ExamplesMutation
+
+# Import all GraphQL schemas
+from api.src.examples.schema import Query as ExamplesQuery
+from api.src.google.common.routes import router as google_router
+from api.src.open_phone.routes import router as open_phone_router
+from api.src.push.routes import router as push_router
+from api.src.schedulers.routes import router as schedulers_router
+from api.src.sernia_ai.config import WORKSPACE_PATH
+
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
 # from api.src.dbos_service.routes import router as dbos_router
@@ -72,17 +76,9 @@ from api.src.apscheduler_service.routes import router as apscheduler_router
 # from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
-
 from api.src.sernia_ai.memory import initialize_workspace
-from api.src.sernia_ai.config import WORKSPACE_PATH
-from api.src.apscheduler_service.service import register_hello_apscheduler_jobs, get_scheduler
-from api.src.clickup.service import register_clickup_apscheduler_jobs
-from api.src.zillow_email.service import register_zillow_apscheduler_jobs
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
-from api.src.schedulers.routes import router as schedulers_router
-
-# Import all GraphQL schemas
-from api.src.examples.schema import Query as ExamplesQuery, Mutation as ExamplesMutation
+from api.src.user.routes import router as user_router
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
@@ -233,7 +229,7 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
 
     # Shutdown APScheduler

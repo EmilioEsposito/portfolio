@@ -15,39 +15,36 @@ The approval flow is the same for both:
 - Frontend shows approval UI
 - Approval triggers second run with DeferredToolResults
 """
+import functools
 import json
 import uuid
-import functools
-import asyncio
-import logfire
 
-from fastapi import APIRouter, HTTPException, Depends
-from starlette.requests import Request
-from starlette.responses import Response
+import logfire
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+from starlette.requests import Request
+from starlette.responses import Response
 
 from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
-    hitl_sms_agent,
+    ApprovalDecision,
     HITLAgentContext,
-    resume_with_approvals,
     extract_pending_approvals,
     extract_tool_results,
-    ApprovalDecision,
+    hitl_sms_agent,
+    resume_with_approvals,
 )
 from api.src.ai_demos.models import (
-    persist_agent_run_result,
-    list_user_conversations,
-    get_conversation_messages,
     delete_conversation,
-    list_pending_conversations,
-    get_conversation_with_pending,
     extract_pending_approval_from_messages,
+    get_conversation_messages,
+    get_conversation_with_pending,
+    list_pending_conversations,
+    list_user_conversations,
+    persist_agent_run_result,
 )
-from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.clerk import SerniaUser
 from api.src.database.database import DBSession
+from api.src.utils.clerk import SerniaUser
 
 router = APIRouter(
     prefix="/hitl-agent",

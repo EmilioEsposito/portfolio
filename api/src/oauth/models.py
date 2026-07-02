@@ -1,10 +1,10 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, func, JSON, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
-from api.src.database.database import Base
-from typing import Optional
-import pytz
 
+import pytz
+from sqlalchemy import JSON, DateTime, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from api.src.database.database import Base
 
 
 class OAuthCredential(Base):
@@ -16,12 +16,12 @@ class OAuthCredential(Base):
     provider: Mapped[str] = mapped_column(String, index=True)  # e.g. 'oauth_google', 'oauth_github'
     provider_user_id: Mapped[str] = mapped_column(String)  # Provider's user ID
     access_token: Mapped[str] = mapped_column(String)
-    refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(String, nullable=True)
     token_type: Mapped[str] = mapped_column(String)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False)) # Google expects naive datetime
     scopes: Mapped[list] = mapped_column(JSON)  # Store granted scopes
     raw_response: Mapped[dict] = mapped_column(JSON)  # Store complete provider response
-    label: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # Optional label from provider
+    label: Mapped[str | None] = mapped_column(String, nullable=True)  # Optional label from provider
     
     # Metadata timestamps
     created_at: Mapped[datetime] = mapped_column(

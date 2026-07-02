@@ -21,8 +21,6 @@ PAT injected via env var so ``commit_and_push`` doesn't no-op.
 """
 from __future__ import annotations
 
-import asyncio
-import os
 import subprocess
 from pathlib import Path
 
@@ -366,7 +364,7 @@ async def test_pull_workspace_does_not_push(patched_remote):
     await pull_workspace(local)
 
     # Local commit was made (so pull could merge)
-    rc, log_out, _ = (
+    _rc, log_out, _ = (
         0,
         subprocess.run(
             ["git", "log", "--format=%s"], cwd=local,

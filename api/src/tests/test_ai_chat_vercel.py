@@ -3,8 +3,10 @@ Tests for the VercelAIAdapter-based chat endpoint.
 """
 import json
 import uuid
+
 import pytest
 from fastapi.testclient import TestClient
+
 from api.index import app
 
 
@@ -143,7 +145,7 @@ def test_chat_emilio_endpoint_streaming_format(client):
         
         print(f"\n✓ Received {len(parsed_events)} events")
         # print(f"✓ Event types: {event_types}")
-        print(f"✓ Stream format is correct")
+        print("✓ Stream format is correct")
 
 
 def test_chat_emilio_endpoint_empty_messages(client):

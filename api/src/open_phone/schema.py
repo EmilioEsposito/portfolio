@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class BaseOpenPhoneObject(BaseModel):
@@ -8,39 +9,39 @@ class BaseOpenPhoneObject(BaseModel):
     object: str
     createdAt: datetime
     userId: str
-    phoneNumberId: Optional[str] = None
-    conversationId: Optional[str] = None
+    phoneNumberId: str | None = None
+    conversationId: str | None = None
 
 class MessageObject(BaseOpenPhoneObject):
     from_: str = Field(..., alias="from")
     to: str
     body: str
-    media: List[Any] = []
+    media: list[Any] = []
     status: str
-    createdBy: Optional[str] = None
+    createdBy: str | None = None
     direction: str
 
 class CallObject(BaseOpenPhoneObject):
     from_: str = Field(..., alias="from")
     to: str
     direction: str
-    media: List[Any] = []
-    voicemail: Optional[Any] = None
+    media: list[Any] = []
+    voicemail: Any | None = None
     status: str
-    answeredAt: Optional[datetime] = None
-    answeredBy: Optional[str] = None
-    completedAt: Optional[datetime] = None
+    answeredAt: datetime | None = None
+    answeredBy: str | None = None
+    completedAt: datetime | None = None
 
 class ContactObject(BaseOpenPhoneObject):
-    firstName: Optional[str] = ""
-    lastName: Optional[str] = ""
-    company: Optional[str] = ""
-    role: Optional[str] = ""
-    pictureUrl: Optional[str] = ""
-    fields: Optional[Dict[str, Any]] = []
-    notes: List[Any] = []
-    sharedWith: List[str]
-    clientId: Optional[str] = ""
+    firstName: str | None = ""
+    lastName: str | None = ""
+    company: str | None = ""
+    role: str | None = ""
+    pictureUrl: str | None = ""
+    fields: dict[str, Any] | None = []
+    notes: list[Any] = []
+    sharedWith: list[str]
+    clientId: str | None = ""
     updatedAt: datetime
 
 class CallSummaryObject(BaseModel):
@@ -57,26 +58,26 @@ class CallSummaryObject(BaseModel):
     object: str
     callId: str
     status: str
-    summary: List[str]
-    nextSteps: List[str]
+    summary: list[str]
+    nextSteps: list[str]
 
 class DialogueEntry(BaseModel):
     end: float
     start: float
     content: str
     identifier: str
-    userId: Optional[str] = None
+    userId: str | None = None
 
 class CallTranscriptObject(BaseModel):
     object: str
     callId: str
     createdAt: datetime
-    dialogue: List[DialogueEntry]
+    dialogue: list[DialogueEntry]
     duration: float
     status: str
 
 class OpenPhoneEventData(BaseModel):
-    object: Union[MessageObject, CallObject, ContactObject, CallSummaryObject, CallTranscriptObject]
+    object: MessageObject | CallObject | ContactObject | CallSummaryObject | CallTranscriptObject
 
 class OpenPhoneWebhookPayload(BaseModel):
     id: str

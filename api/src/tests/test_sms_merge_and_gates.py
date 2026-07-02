@@ -10,7 +10,6 @@ Tests:
 real SMS to external contacts from tests. See CLAUDE.md.
 """
 
-import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -20,13 +19,12 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from api.src.sernia_ai.tools.quo_tools import _is_internal_contact
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _extract_text_contents,
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.tools.quo_tools import _is_internal_contact
-
 
 # ---------------------------------------------------------------------------
 # Helpers

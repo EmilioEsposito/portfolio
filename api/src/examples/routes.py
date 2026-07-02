@@ -1,15 +1,21 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends, Request
-from clerk_backend_api import Session
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-
-from api.src.utils.clerk import is_signed_in, get_auth_session, get_google_credentials, AuthUser, verify_serniacapital_user
-from api.src.google.gmail import get_gmail_service
-from pprint import pprint
-import pytz
 from datetime import datetime
+from pprint import pprint
+from typing import Annotated
+
 import logfire
+import pytz
+from clerk_backend_api import Session
+from fastapi import APIRouter, Depends, Request
+from google.oauth2.credentials import Credentials
+
+from api.src.google.gmail import get_gmail_service
+from api.src.utils.clerk import (
+    AuthUser,
+    get_auth_session,
+    get_google_credentials,
+    is_signed_in,
+    verify_serniacapital_user,
+)
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 
 router = APIRouter(prefix="/examples", tags=["examples"])

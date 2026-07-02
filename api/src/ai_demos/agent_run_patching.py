@@ -1,7 +1,10 @@
 from functools import wraps
 from types import MethodType
-from api.src.ai_demos.models import persist_agent_run_result
+
 import logfire
+
+from api.src.ai_demos.models import persist_agent_run_result
+
 
 def patch_run_with_persistence(agent):
     original = agent.run

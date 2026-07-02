@@ -19,7 +19,6 @@ from api.src.apscheduler_service.service import get_scheduler
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools.google_tools import (
     GMAIL_SCOPES,
-    EmailRouting,
     _get_threading_headers,
     resolve_email_routing,
 )

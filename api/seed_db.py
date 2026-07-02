@@ -19,12 +19,12 @@ Environment variables for seed data:
     SERNIA_PHONE - Phone for Sernia contact
 """
 
-import asyncio
 import argparse
+import asyncio
 import os
 import sys
-from typing import Optional
 from dataclasses import dataclass
+from datetime import UTC
 
 
 def log_info(msg: str) -> None:
@@ -43,11 +43,11 @@ class ContactSeed:
     slug: str
     first_name: str
     last_name: str
-    email: Optional[str] = None
-    phone_number: Optional[str] = None
-    notes: Optional[str] = None
-    company: Optional[str] = None
-    role: Optional[str] = None
+    email: str | None = None
+    phone_number: str | None = None
+    notes: str | None = None
+    company: str | None = None
+    role: str | None = None
 
 
 def get_contact_seeds() -> list[ContactSeed]:
@@ -85,10 +85,11 @@ def get_contact_seeds() -> list[ContactSeed]:
 async def seed_contacts(dry_run: bool = False) -> None:
     """Seed contacts into the database."""
     # Import here to avoid circular imports and ensure env is loaded
-    from api.src.database.database import AsyncSessionFactory
+    from sqlalchemy.future import select
+
     from api.src.contact.models import Contact
     from api.src.contact.service import ContactCreate, create_contact
-    from sqlalchemy.future import select
+    from api.src.database.database import AsyncSessionFactory
 
     seeds = get_contact_seeds()
 
@@ -160,7 +161,7 @@ def _build_sample_conversations() -> list[dict]:
     JSON), so they always match the persistence format the UI and history
     loaders expect — including tool call/return pairs.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from pydantic_ai.messages import (
         ModelRequest,
@@ -171,7 +172,7 @@ def _build_sample_conversations() -> list[dict]:
         UserPromptPart,
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     web_chat_messages = [
         ModelRequest(parts=[UserPromptPart(

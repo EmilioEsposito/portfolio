@@ -1,7 +1,10 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, func, JSON, Text, ARRAY, Integer
+
+from sqlalchemy import ARRAY, JSON, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
+
 from api.src.database.database import Base
+
 
 class EmailMessage(Base):
     """SQLAlchemy model for storing Gmail messages"""

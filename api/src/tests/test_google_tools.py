@@ -22,16 +22,12 @@ load_dotenv(find_dotenv(".env"), override=False)
 
 from api.src.sernia_ai.tools.google_tools import (
     _clean_zillow_email,
-    _html_to_markdown,
     _is_zillow_content,
-    _read_email,
     _strip_quoted_replies,
     _summarize_if_long,
     read_email_thread,
     search_emails,
-    google_toolset,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -881,18 +877,18 @@ class TestSendHtmlEmailLive:
         subject = f"[Sernia AI test] HTML email — {timestamp}"
 
         plain_body = (
-            f"Hi Emilio,\n\n"
-            f"This is a test of the new HTML-bodied send_email tool. The HTML "
-            f"version of this message includes a formatted vacancy status table "
-            f"with hyperlinked listing columns.\n\n"
-            f"Property        Unit   Status            Listing\n"
-            f"320 S Mathilda  02     Available         https://www.zillow.com/homedetails/320-S-Mathilda/\n"
-            f"324 S Mathilda  04     Tour scheduled    https://www.zillow.com/homedetails/324-S-Mathilda/\n"
-            f"659 Maryland    03     Available         https://drive.google.com/drive/folders/photos\n\n"
-            f"Best,\n"
-            f"Sernia AI Intern\n"
-            f"Sernia Capital LLC\n"
-            f"emilio@serniacapital.com | (412) 910-1989"
+            "Hi Emilio,\n\n"
+            "This is a test of the new HTML-bodied send_email tool. The HTML "
+            "version of this message includes a formatted vacancy status table "
+            "with hyperlinked listing columns.\n\n"
+            "Property        Unit   Status            Listing\n"
+            "320 S Mathilda  02     Available         https://www.zillow.com/homedetails/320-S-Mathilda/\n"
+            "324 S Mathilda  04     Tour scheduled    https://www.zillow.com/homedetails/324-S-Mathilda/\n"
+            "659 Maryland    03     Available         https://drive.google.com/drive/folders/photos\n\n"
+            "Best,\n"
+            "Sernia AI Intern\n"
+            "Sernia Capital LLC\n"
+            "emilio@serniacapital.com | (412) 910-1989"
         )
 
         html_body = """\

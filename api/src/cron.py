@@ -1,16 +1,8 @@
-import logfire
-from aiohttp_retry import Union
-from fastapi import APIRouter, Request, HTTPException, Depends
 from datetime import datetime
-import os
-from api.src.utils.dependencies import verify_cron_or_admin
-from sqlalchemy import text
-from api.src.database.database import get_session
-from sqlalchemy.ext.asyncio import AsyncSession
-from api.src.open_phone.service import send_message
-from fastapi.responses import JSONResponse
-from api.src.contact.service import get_contact_by_slug
 
+from fastapi import APIRouter, Depends
+
+from api.src.utils.dependencies import verify_cron_or_admin
 
 router = APIRouter(
     prefix="/cron",  # All endpoints here will be under /cron

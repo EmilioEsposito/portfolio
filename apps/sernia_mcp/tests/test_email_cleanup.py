@@ -7,7 +7,6 @@ Pins the cleanup pipeline used by ``read_email_thread_core``:
 """
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # html_to_markdown
 # ---------------------------------------------------------------------------

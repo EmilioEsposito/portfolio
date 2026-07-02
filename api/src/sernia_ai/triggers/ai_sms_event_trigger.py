@@ -17,12 +17,11 @@ Flow:
   5. Send agent's text response back via SMS, or handle HITL pause
 """
 
-import asyncio
 import os
 import re
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import logfire
@@ -36,9 +35,13 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from api.src.ai_demos.hitl_utils import extract_pending_approvals
+from api.src.ai_demos.models import (
+    get_conversation_messages,
+    save_agent_conversation,
+)
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.model_config import resolve_active_run_kwargs
+from api.src.open_phone.service import find_contacts_by_phone, send_message
 from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -49,20 +52,14 @@ from api.src.sernia_ai.config import (
     SMS_HISTORY_MIN_DAYS,
     SMS_HISTORY_MIN_MESSAGES,
     TRIGGER_BOT_ID,
-    TRIGGER_BOT_NAME,
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.memory.git_sync import commit_and_push
+from api.src.sernia_ai.model_config import resolve_active_run_kwargs
+from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
-from api.src.ai_demos.hitl_utils import extract_pending_approvals
-from api.src.ai_demos.models import (
-    get_conversation_messages,
-    save_agent_conversation,
-)
-from api.src.open_phone.service import send_message, find_contacts_by_phone
-
 
 # ---------------------------------------------------------------------------
 # Sliding-window rate limiter — allows up to AI_SMS_RATE_LIMIT_MAX_CALLS
@@ -311,7 +308,7 @@ def _trim_sms_history(
     if not messages or len(messages) <= min_messages:
         return messages, 0
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     time_cutoff = now - timedelta(days=min_days)
 
     # --- Time-based cutoff ---
@@ -327,7 +324,7 @@ def _trim_sms_history(
         if ts is not None:
             ts_found += 1
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             if ts < time_cutoff:
                 # This message is outside the window; keep from the next one
                 time_keep_from = i + 1

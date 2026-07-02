@@ -34,10 +34,9 @@ import asyncio
 import json
 from typing import Annotated
 
+import logfire
 from fastmcp.exceptions import ToolError
 from pydantic import AliasChoices, Field
-
-import logfire
 
 from sernia_mcp.clients.git_sync import commit_and_push, pull_workspace
 from sernia_mcp.config import WORKSPACE_PATH

@@ -3,21 +3,22 @@ FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
 import asyncio
+import json
 import os
 
-from fastapi import APIRouter, HTTPException, Request, Response
 import logfire
-import json
+from fastapi import APIRouter, Request, Response
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.src.google.pubsub.service import verify_pubsub_token, decode_pubsub_message
-from api.src.google.gmail.service import process_single_message
 from api.src.database.database import session_context
-from api.src.google.gmail.db_ops import save_email_message, get_email_by_message_id
-from api.src.google.gmail.service import get_gmail_service, get_email_changes, get_email_content
 from api.src.google.common.service_account_auth import get_delegated_credentials
-
+from api.src.google.gmail.db_ops import save_email_message
+from api.src.google.gmail.service import (
+    get_email_changes,
+    get_email_content,
+    get_gmail_service,
+    process_single_message,
+)
+from api.src.google.pubsub.service import decode_pubsub_message, verify_pubsub_token
 
 router = APIRouter(prefix="/pubsub", tags=["pubsub"])
 
@@ -222,7 +223,9 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                             from_address=from_addr,
                             subject=processed_email_message.get("subject", ""),
                         )
-                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import queue_zillow_email_event
+                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                            queue_zillow_email_event,
+                        )
                         asyncio.create_task(
                             queue_zillow_email_event(
                                 thread_id=processed_email_message.get("thread_id", ""),

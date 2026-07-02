@@ -1,7 +1,8 @@
-from typing import List, Optional
-import strawberry
 from datetime import datetime
-from sqlalchemy import select, desc
+
+import strawberry
+from sqlalchemy import desc, select
+
 from api.src.database.database import session_context
 from api.src.examples.models import Example as ExampleModel
 
@@ -30,18 +31,18 @@ class ExampleError:
 
 @strawberry.type
 class ExampleResponse:
-    example: Optional[Example] = None
-    error: Optional[ExampleError] = None
+    example: Example | None = None
+    error: ExampleError | None = None
 
 @strawberry.type
 class ExamplesResponse:
-    examples: List[Example]
-    error: Optional[ExampleError] = None
+    examples: list[Example]
+    error: ExampleError | None = None
 
 @strawberry.type
 class Query:
     @strawberry.field
-    async def examples(self) -> List[Example]:
+    async def examples(self) -> list[Example]:
         async with session_context() as session:
             result = await session.execute(
                 select(ExampleModel).order_by(desc(ExampleModel.created_at))
@@ -49,7 +50,7 @@ class Query:
             return result.scalars().all()
     
     @strawberry.field
-    async def example(self, id: int) -> Optional[Example]:
+    async def example(self, id: int) -> Example | None:
         async with session_context() as session:
             result = await session.execute(
                 select(ExampleModel).filter(ExampleModel.id == id)
@@ -69,8 +70,8 @@ class Mutation:
     
     @strawberry.mutation
     async def update_example(
-        self, id: int, title: Optional[str] = None, content: Optional[str] = None
-    ) -> Optional[Example]:
+        self, id: int, title: str | None = None, content: str | None = None
+    ) -> Example | None:
         async with session_context() as session:
             example = await session.get(ExampleModel, id)
             if not example:

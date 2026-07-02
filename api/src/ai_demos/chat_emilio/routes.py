@@ -1,30 +1,21 @@
 """
 Routes for PydanticAI-powered portfolio chatbot
 """
-import logfire
-from typing import List
-from fastapi import APIRouter
-from starlette.requests import Request
-from starlette.responses import Response
-from pydantic import BaseModel
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse, 
-    UserPromptPart,
-    TextPart,
-)
-from pydantic_ai.agent import AgentRunResult
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from pydantic_ai.ui.vercel_ai.request_types import RequestData, SubmitMessage
-
-from api.src.ai_demos.chat_emilio.agent import agent, PortfolioContext
-from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.input_sanitization import sanitize_request_json
-from api.src.ai_demos.models import persist_agent_run_result
 import functools
 import json
+
+import logfire
+from fastapi import APIRouter
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+from starlette.requests import Request
+from starlette.responses import Response
+
+from api.src.ai_demos.chat_emilio.agent import PortfolioContext, agent
+from api.src.ai_demos.models import persist_agent_run_result
 from api.src.database.database import DBSession
+from api.src.utils.input_sanitization import sanitize_request_json
+from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-emilio", tags=["ai"])
 

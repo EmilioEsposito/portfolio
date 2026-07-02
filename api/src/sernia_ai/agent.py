@@ -10,7 +10,6 @@ and spread the result into ``agent.run()`` / ``VercelAIAdapter.dispatch_request(
 The ``model``/``model_settings`` passed at run-time override what's configured
 here. Web search/fetch are provider-adaptive capabilities on the agent itself.
 """
-import logfire
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory, WebFetch, WebSearch
@@ -25,23 +24,22 @@ class NoAction(BaseModel):
 from pydantic_ai_skills import SkillsCapability
 
 from api.src.sernia_ai.config import (
+    AGENT_NAME,
     MAIN_AGENT_MODEL,
     WEB_SEARCH_ALLOWED_DOMAINS,
-    AGENT_NAME,
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
+from api.src.sernia_ai.sub_agents import compact_history, summarize_tool_results
 from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
-from api.src.sernia_ai.tools.quo_tools import quo_toolset
-from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
-from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
 from api.src.sernia_ai.tools.code_tools import code_toolset
+from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
 from api.src.sernia_ai.tools.duckdb_tools import duckdb_toolset
+from api.src.sernia_ai.tools.google_tools import google_toolset
+from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
-from api.src.sernia_ai.sub_agents import summarize_tool_results, compact_history
-
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)

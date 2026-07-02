@@ -36,7 +36,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -195,7 +195,7 @@ def window_start() -> str:
         hours = float(os.environ.get("LOOKBACK_HOURS", "") or LOOKBACK_HOURS)
     except ValueError:
         hours = LOOKBACK_HOURS
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
 
 
 def load_ignore_patterns() -> list[str]:
@@ -350,7 +350,7 @@ def extract_rows(data) -> list[dict]:
 
     # Shape 3: rows as positional arrays + column names.
     if rows and names and isinstance(rows[0], (list, tuple)):
-        return [dict(zip(names, r)) for r in rows]
+        return [dict(zip(names, r, strict=False)) for r in rows]
 
     # Shape 2: columnar with values embedded in each column object. This is the
     # API default and MUST be handled, or every result silently becomes 0 rows.
@@ -358,7 +358,7 @@ def extract_rows(data) -> list[dict]:
         value_lists = [c.get("values") or [] for c in cols]
         n = max((len(v) for v in value_lists), default=0)
         return [
-            {name: (vals[i] if i < len(vals) else None) for name, vals in zip(names, value_lists)}
+            {name: (vals[i] if i < len(vals) else None) for name, vals in zip(names, value_lists, strict=False)}
             for i in range(n)
         ]
 
@@ -495,7 +495,7 @@ def main() -> int:
         return 1
 
     min_timestamp = window_start()
-    window_hours = (datetime.now(timezone.utc) - datetime.fromisoformat(min_timestamp)).total_seconds() / 3600
+    window_hours = (datetime.now(UTC) - datetime.fromisoformat(min_timestamp)).total_seconds() / 3600
     log(f"Logfire base:   {base}")
     log(f"Window start (min_timestamp): {min_timestamp}  (~{window_hours:g}h lookback)")
     log(f"Dry run:        {dry_run}")
@@ -548,7 +548,7 @@ def main() -> int:
         # Fall back to constructing the URL from the id if the API omits it.
         if not session_url and session_id:
             session_url = f"https://claude.ai/code/{session_id}"
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         append_history(
             f"{now}  fired  session={session_id}  groups={len(groups)}  hits={total_hits}"
         )

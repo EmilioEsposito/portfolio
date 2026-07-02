@@ -9,25 +9,34 @@ Simple dual-run pattern:
 DBOS is optional and only for crash recovery resilience.
 """
 import uuid
-import logfire
 from dataclasses import dataclass
 
+import logfire
+from dbos import DBOS
 from pydantic_ai import Agent, AgentRunResult, DeferredToolRequests
 from pydantic_ai.capabilities import Instrumentation
-from pydantic_ai.durable_exec.dbos import DBOSAgent
-from dbos import DBOS
 from pydantic_ai.models.openai import OpenAIChatModel
-from api.src.open_phone.service import send_message
-from api.src.contact.service import get_contact_by_slug
-from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
+from api.src.ai_demos.hitl_utils import (
+    ApprovalDecision,
+)
+from api.src.ai_demos.hitl_utils import (
+    extract_pending_approval as _extract_pending_approval,
+)
 from api.src.ai_demos.hitl_utils import (
     extract_pending_approvals as _extract_pending_approvals,
-    extract_pending_approval as _extract_pending_approval,
+)
+from api.src.ai_demos.hitl_utils import (
     extract_tool_results as _extract_tool_results,
-    ApprovalDecision,
+)
+from api.src.ai_demos.hitl_utils import (
     resume_with_approvals as _resume_with_approvals_generic,
 )
+from api.src.contact.service import get_contact_by_slug
+from api.src.open_phone.service import send_message
+
 
 # --- Context ---
 @dataclass
@@ -158,7 +167,7 @@ if __name__ == "__main__":
                 clerk_user_id="demo_user",
             )
 
-            print(f"✓ Agent resumed and completed")
+            print("✓ Agent resumed and completed")
             print(f"  Final output: {final.output}\n")
         else:
             print(f"Result (no approval needed): {result.output}")

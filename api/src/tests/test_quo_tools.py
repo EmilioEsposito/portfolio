@@ -293,7 +293,7 @@ async def test_search_contacts_impl_returns_json(quo_client: httpx.AsyncClient):
     """search_contacts_impl should return a JSON string with matching contacts."""
     result = await search_contacts_impl(quo_client, "Sernia")
     _save_fixture("quo_search_contacts.json", result)
-    print(f"\nsearch_contacts_impl('Sernia') → saved to fixtures/quo_search_contacts.json")
+    print("\nsearch_contacts_impl('Sernia') → saved to fixtures/quo_search_contacts.json")
     assert isinstance(result, str)
     parsed = json.loads(result)
     assert len(parsed) > 0, "Expected at least one match for 'Sernia'"
@@ -313,7 +313,7 @@ async def test_list_active_threads_impl_returns_threads(quo_client: httpx.AsyncC
     """list_active_threads_impl should return enriched thread listing."""
     result = await list_active_threads_impl(quo_client)
     _save_fixture("quo_active_threads.md", result)
-    print(f"\nlist_active_threads_impl() → saved to fixtures/quo_active_threads.md")
+    print("\nlist_active_threads_impl() → saved to fixtures/quo_active_threads.md")
     assert isinstance(result, str)
     assert "Active threads" in result or "No active" in result
 

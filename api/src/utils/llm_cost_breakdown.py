@@ -16,10 +16,11 @@ tiered-pricing correctness (tier is chosen from real total_input_tokens).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from genai_prices import data_snapshot, types as gp_types
+from genai_prices import data_snapshot
+from genai_prices import types as gp_types
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def compute_cost_breakdown(
         return None
     # `prices` may be a ModelPrice or a list of ConditionalPrice entries —
     # `get_prices(timestamp)` normalizes to a single ModelPrice for a given time.
-    prices = model_info.get_prices(datetime.now(tz=timezone.utc))
+    prices = model_info.get_prices(datetime.now(tz=UTC))
 
     uncached_input = max(input_tokens - cache_read_tokens - cache_write_tokens, 0)
     total_input = input_tokens  # tier lookup uses the real total

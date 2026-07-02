@@ -1,26 +1,25 @@
 import asyncio
+import json
 from datetime import datetime
 from typing import Any
-from sqlalchemy import String, Integer, Float, DateTime, func, JSON, select, desc, Index
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from pydantic_core import to_jsonable_python
+
+import logfire
+from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
-    TextPart,
-    UserPromptPart,
     ToolCallPart,
     ToolReturnPart,
 )
-import json
-from pydantic_ai.agent import AgentRunResult
-import logfire
+from pydantic_core import to_jsonable_python
+from sqlalchemy import JSON, DateTime, Float, Index, Integer, String, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column
 
-from api.src.database.database import Base, AsyncSessionFactory, provide_session
+from api.src.database.database import Base, provide_session
+
 
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
@@ -244,7 +243,8 @@ async def _get_user_email_from_clerk(user_id: str) -> str | None:
 def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float | None:
     """Compute USD cost using genai-prices. Returns None on failure."""
     try:
-        from genai_prices import Usage as GPUsage, calc_price
+        from genai_prices import Usage as GPUsage
+        from genai_prices import calc_price
         price = calc_price(GPUsage(input_tokens=input_tokens, output_tokens=output_tokens), model_ref=model_ref)
         return float(round(price.total_price, 6)) if price else None
     except Exception:

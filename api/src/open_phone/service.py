@@ -1,17 +1,21 @@
 import os
 import time
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv(".env"), override=True)
+from typing import Any
+
 import httpx
-import requests
-from typing import Any, Dict, List, Optional, Union
-from fastapi import HTTPException
 import logfire
-from api.src.google.sheets import get_sheet_as_json
-from api.src.contact.service import get_contact_by_slug, create_contact, ContactCreate
-from api.src.database.database import AsyncSessionFactory
-from api.src.contact.models import Contact
+import requests
+from fastapi import HTTPException
 from sqlalchemy import select
+
+from api.src.contact.models import Contact
+from api.src.contact.service import ContactCreate, create_contact, get_contact_by_slug
+from api.src.database.database import AsyncSessionFactory
+from api.src.google.sheets import get_sheet_as_json
 
 # ---------------------------------------------------------------------------
 # TTL-cached contact store (central — used by tools + triggers)
@@ -114,7 +118,7 @@ async def find_contact_by_phone(
 async def send_message(
     message: str,
     to_phone_number: str,
-    from_phone_number: Union[str, None] = None
+    from_phone_number: str | None = None
 ):
     """
     Send a message to a phone number using the OpenPhone API.
@@ -237,9 +241,9 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
     return final_response
 
 async def get_contacts_by_external_ids(
-    external_ids: List[str],
-    sources: Optional[List[str]] = None,
-    page_token: Optional[str] = None,
+    external_ids: list[str],
+    sources: list[str] | None = None,
+    page_token: str | None = None,
 ):
     """Internal function version without Query dependencies"""
     max_results = 49
@@ -269,11 +273,11 @@ async def get_contacts_by_external_ids(
         raise
 
 
-_contacts_sheet_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
+_contacts_sheet_cache: dict[str, Any] = {"data": None, "ts": 0.0}
 _CONTACTS_SHEET_CACHE_TTL = 300  # 5 minutes
 
 
-def get_contacts_sheet_as_json(bypass_cache: bool = False) -> List[Dict[str, Any]]:
+def get_contacts_sheet_as_json(bypass_cache: bool = False) -> list[dict[str, Any]]:
     now = time.time()
     if (
         not bypass_cache

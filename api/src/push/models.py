@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, func, Index
-from sqlalchemy.dialects.postgresql import TEXT # Use TEXT for potentially long tokens
-from api.src.database.database import Base # Import Base from the correct location
+from sqlalchemy import Column, DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import TEXT  # Use TEXT for potentially long tokens
+
+from api.src.database.database import Base  # Import Base from the correct location
+
 
 class PushToken(Base):
     __tablename__ = 'push_tokens'

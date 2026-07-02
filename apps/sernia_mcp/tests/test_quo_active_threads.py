@@ -446,7 +446,7 @@ async def test_get_thread_messages_group_uses_last_activity_id():
                 resp.json = lambda: {"data": []}
         elif url == "/v1/calls":
             resp.json = lambda: {"data": []}
-        elif url == f"/v1/messages/ACgroupmsg":
+        elif url == "/v1/messages/ACgroupmsg":
             resp.json = lambda: fake_group_msg
         elif url == "/v1/calls/ACgroupmsg":
             # 404 for the call lookup so the message branch wins.

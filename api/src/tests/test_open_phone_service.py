@@ -24,7 +24,6 @@ from api.src.open_phone.escalate import analyze_for_twilio_escalation
 from api.src.open_phone.routes import contains_emoji
 from api.src.open_phone.service import send_message, upsert_openphone_contact
 
-
 # ---------------------------------------------------------------------------
 # Escalation tests (from api/src/open_phone/escalate.py)
 # ---------------------------------------------------------------------------

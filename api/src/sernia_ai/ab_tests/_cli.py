@@ -7,7 +7,7 @@ identical across experiments without duplication.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from api.src.sernia_ai.ab_tests._core import DEFAULT_VARIANTS
 
@@ -21,7 +21,7 @@ def build_parser(description: str, *, default_experiment_prefix: str) -> argpars
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "--experiment-name",
-        default=f"{default_experiment_prefix}-{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%S')}",
+        default=f"{default_experiment_prefix}-{datetime.now(UTC).strftime('%Y-%m-%dT%H%M%S')}",
         help="Tag applied (via metadata + Dataset name) to every run in the experiment.",
     )
     parser.add_argument(

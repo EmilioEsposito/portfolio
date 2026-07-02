@@ -1,7 +1,10 @@
 from datetime import datetime
-from sqlalchemy import String, DateTime, func, JSON
+
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
+
 from api.src.database.database import Base
+
 
 class OpenPhoneEvent(Base):
     __tablename__ = "open_phone_events"

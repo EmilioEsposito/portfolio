@@ -10,9 +10,9 @@ Google credentials to talk to the Gmail API):
     pytest api/src/tests/test_gmail_db_ops.py -v -s
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession

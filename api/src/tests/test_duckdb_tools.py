@@ -7,13 +7,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from api.src.sernia_ai.tools.data_export import (
-    DATA_BASE,
     _sanitize_name,
     _validate_conversation_id,
     write_dataset,
 )
 from api.src.sernia_ai.tools.duckdb_tools import (
-    DUCKDB_BASE,
     _format_result,
     _get_connection,
     cleanup_stale_data,
@@ -23,7 +21,6 @@ from api.src.sernia_ai.tools.duckdb_tools import (
     load_dataset,
     run_sql,
 )
-
 
 # =============================================================================
 # Smoke Tests
@@ -35,8 +32,6 @@ class TestSmoke:
 
     def test_module_imports(self):
         """duckdb_tools and data_export modules import without error."""
-        import api.src.sernia_ai.tools.duckdb_tools
-        import api.src.sernia_ai.tools.data_export
 
     def test_toolset_has_four_tools(self):
         """duckdb_toolset exposes exactly 4 tools."""
@@ -347,7 +342,8 @@ class TestCleanup:
         db_dir.mkdir()
         stale_file = db_dir / "old.duckdb"
         stale_file.write_text("stale")
-        import os, time
+        import os
+        import time
         old_time = time.time() - 48 * 3600  # 48 hours ago
         os.utime(stale_file, (old_time, old_time))
 

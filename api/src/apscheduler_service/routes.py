@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+import logfire
 from apscheduler.job import Job
 from apscheduler.jobstores.base import JobLookupError
-from typing import List
-import logfire
+from fastapi import APIRouter, Depends, HTTPException
 
 # Assuming the scheduler instance is globally available or accessible via a dependency
 # We'll need to import it from where it's defined, likely service.py
 from api.src.apscheduler_service.service import get_scheduler
 from api.src.utils.clerk import verify_serniacapital_user
-from datetime import datetime, timedelta
 
 router = APIRouter(
     prefix="/apscheduler",
@@ -32,7 +32,7 @@ def job_to_dict(job: Job) -> dict:
         "pending": job.pending,
     }
 
-@router.get("/get_jobs", response_model=List[dict])
+@router.get("/get_jobs", response_model=list[dict])
 async def get_jobs():
     """
     Retrieve all scheduled jobs.

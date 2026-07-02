@@ -6,16 +6,16 @@ Inherits the _sernia_gate auth dependency from the parent router.
 
 import os
 
+from clerk_backend_api import User
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
-from clerk_backend_api import User
 
-from api.src.sernia_ai.push.service import (
-    save_subscription,
-    remove_subscription,
-    notify_all_sernia_users,
-)
 from api.src.database.database import DBSession
+from api.src.sernia_ai.push.service import (
+    notify_all_sernia_users,
+    remove_subscription,
+    save_subscription,
+)
 
 router = APIRouter(prefix="/push", tags=["sernia-ai-push"])
 

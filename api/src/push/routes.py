@@ -1,11 +1,12 @@
-import logfire
-from fastapi import APIRouter, HTTPException, Body
 from typing import Annotated
+
+import logfire
+from fastapi import APIRouter, Body, HTTPException
 
 from api.src.database.database import DBSession
 from api.src.utils.clerk import AuthUser
+
 from . import service
-from .models import PushToken
 
 router = APIRouter(prefix="/push", tags=["push"])
 

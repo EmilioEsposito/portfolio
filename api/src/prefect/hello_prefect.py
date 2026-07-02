@@ -1,8 +1,10 @@
-from prefect import flow, task
 import random
-from api.src.google.gmail.service import send_email
+
+from prefect import flow, task
+
 from api.src.google.common.service_account_auth import get_delegated_credentials
-import asyncio
+from api.src.google.gmail.service import send_email
+
 
 @task
 def get_customer_ids() -> list[str]:

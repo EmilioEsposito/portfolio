@@ -1,14 +1,17 @@
-from dotenv import load_dotenv, find_dotenv
 import asyncio
 import time
-from typing import Annotated, Dict, Any
+from typing import Annotated, Any
+
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=True)
-from fastapi import Depends, HTTPException, Header, Request, status
-from clerk_backend_api import Clerk, Session, AuthenticateRequestOptions, RequestState, User
 import os
-from google.oauth2.credentials import Credentials
+
 import logfire
+from clerk_backend_api import AuthenticateRequestOptions, Clerk, RequestState, Session, User
+from fastapi import Depends, HTTPException, Request, status
+from google.oauth2.credentials import Credentials
+
 from api.src.database.database import AsyncSessionFactory
 from api.src.oauth.service import get_oauth_credentials, save_oauth_credentials
 
@@ -23,7 +26,7 @@ clerk_client = Clerk(bearer_auth=clerk_secret_key)
 
 # TTL cache for Clerk user lookups — avoids hitting Clerk API on every request.
 # Key: user_id, Value: {"user": User, "ts": float}
-_user_cache: Dict[str, Dict[str, Any]] = {}
+_user_cache: dict[str, dict[str, Any]] = {}
 _USER_CACHE_TTL = 300  # 5 minutes
 
 

@@ -1,29 +1,27 @@
+import re
 import uuid
-from typing import List, Optional, AsyncGenerator
-from sqlalchemy.orm import Session
+
+import logfire
+from fastapi import HTTPException, status
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from fastapi import HTTPException, status
-import logfire
-
 
 from api.src.contact.models import Contact
-from api.src.user.models import User # For type hinting if needed for user_id validation
-from pydantic import BaseModel, EmailStr, Field, field_validator
 from api.src.database.database import AsyncSessionFactory
-import re
+from api.src.user.models import User  # For type hinting if needed for user_id validation
 
 
 # Pydantic Schemas for Contact
 class ContactBase(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
-    slug: Optional[str] = Field(default=None, min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact. Will be stored in lowercase.")
-    email: Optional[EmailStr] = None
-    phone_number: Optional[str] = Field(default=None, description="Phone number, will be normalized to +1XXXXXXXXXX format for US numbers.")
-    notes: Optional[str] = None
-    openphone_contact_id: Optional[str] = None
-    user_id: Optional[uuid.UUID] = None
+    slug: str | None = Field(default=None, min_length=1, max_length=50, pattern="^[a-zA-Z0-9_-]+$", description="Unique, URL-friendly identifier for the contact. Will be stored in lowercase.")
+    email: EmailStr | None = None
+    phone_number: str | None = Field(default=None, description="Phone number, will be normalized to +1XXXXXXXXXX format for US numbers.")
+    notes: str | None = None
+    openphone_contact_id: str | None = None
+    user_id: uuid.UUID | None = None
 
     @field_validator('slug', mode='before')
     @classmethod
@@ -53,12 +51,12 @@ class ContactCreate(ContactBase):
     pass
 
 class ContactUpdate(BaseModel):
-    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    email: Optional[EmailStr] = None
-    phone_number: Optional[str] = Field(default=None, max_length=20)
-    notes: Optional[str] = None
-    user_id: Optional[uuid.UUID] = None # Allow updating user_id, though slug remains immutable for a created contact
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    phone_number: str | None = Field(default=None, max_length=20)
+    notes: str | None = None
+    user_id: uuid.UUID | None = None # Allow updating user_id, though slug remains immutable for a created contact
 
 class ContactResponse(ContactBase):
     id: uuid.UUID
@@ -113,7 +111,7 @@ async def create_contact(db: AsyncSession, contact_create: ContactCreate) -> Con
     logfire.info(f"Successfully created contact with ID: {db_contact.id}, slug: {db_contact.slug}")
     return db_contact
 
-async def get_contact_by_id(db: AsyncSession, contact_id: uuid.UUID) -> Optional[Contact]:
+async def get_contact_by_id(db: AsyncSession, contact_id: uuid.UUID) -> Contact | None:
     logfire.info(f"Attempting to get contact by ID: {contact_id}")
     query = select(Contact).where(Contact.id == contact_id)
     result = await db.execute(query)
@@ -124,7 +122,7 @@ async def get_contact_by_id(db: AsyncSession, contact_id: uuid.UUID) -> Optional
         logfire.warn(f"Contact with ID: {contact_id} not found.")
     return contact
 
-async def get_contact_by_slug(slug: str) -> Optional[Contact]:
+async def get_contact_by_slug(slug: str) -> Contact | None:
     """
     Get a contact by slug.
     """
@@ -141,7 +139,7 @@ async def get_contact_by_slug(slug: str) -> Optional[Contact]:
             logfire.error(f"Contact with slug: {slug} not found.")
         return contact
 
-async def get_clerk_user_id_by_slug(slug: str) -> Optional[str]:
+async def get_clerk_user_id_by_slug(slug: str) -> str | None:
     """Look up a contact's clerk_user_id by slug (contacts → users join)."""
     async with AsyncSessionFactory() as session:
         result = await session.execute(
@@ -153,7 +151,7 @@ async def get_clerk_user_id_by_slug(slug: str) -> Optional[str]:
         return result.scalar_one_or_none()
 
 
-async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[Contact]:
+async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[Contact]:
     logfire.info(f"Attempting to get all contacts with skip: {skip}, limit: {limit}")
     query = select(Contact).offset(skip).limit(limit)
     result = await db.execute(query)
@@ -161,7 +159,7 @@ async def get_all_contacts(db: AsyncSession, skip: int = 0, limit: int = 100) ->
     logfire.info(f"Retrieved {len(contacts)} contacts.")
     return contacts
 
-async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update: ContactUpdate) -> Optional[Contact]:
+async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update: ContactUpdate) -> Contact | None:
     logfire.info(f"Attempting to update contact with ID: {contact_id}. Update data: {contact_update.model_dump(exclude_unset=True)}")
     db_contact = await get_contact_by_id(db, contact_id)
     if not db_contact:
@@ -185,7 +183,7 @@ async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update
                 # Email provided, but no user found, so unlink
                 final_user_id_for_update = None
         else:
-            logfire.info(f"Email explicitly set to None during contact update. Unlinking user.")
+            logfire.info("Email explicitly set to None during contact update. Unlinking user.")
             # Email is explicitly set to None, so unlink
             final_user_id_for_update = None
 
@@ -219,7 +217,7 @@ async def update_contact(db: AsyncSession, contact_id: uuid.UUID, contact_update
     logfire.info(f"Successfully updated contact with ID: {contact_id}. New user_id: {db_contact.user_id}")
     return db_contact
 
-async def delete_contact(db: AsyncSession, contact_id: uuid.UUID) -> Optional[Contact]:
+async def delete_contact(db: AsyncSession, contact_id: uuid.UUID) -> Contact | None:
     logfire.info(f"Attempting to delete contact with ID: {contact_id}")
     db_contact = await get_contact_by_id(db, contact_id)
     if not db_contact:

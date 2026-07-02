@@ -12,34 +12,39 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Annotated
 
+import logfire
 import pytz
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
-import logfire
+from pydantic import EmailStr
+from pydantic.fields import Field
 from pydantic_ai import Agent, ApprovalRequired, FunctionToolset, RunContext
 from pydantic_ai.capabilities import Instrumentation
 
 from api.src.google.calendar.service import (
     CalendarEventInput,
-    create_calendar_event as _create_calendar_event,
-    delete_calendar_event as _delete_calendar_event,
     get_calendar_service,
 )
-from api.src.google.common.service_account_auth import get_delegated_credentials
-from pydantic import EmailStr
-from pydantic.fields import Field
-
-from api.src.sernia_ai.config import (
-    SHARED_EXTERNAL_EMAIL,
-    INTERNAL_EMAIL_DOMAIN,
-    SUB_AGENT_MODEL,
+from api.src.google.calendar.service import (
+    create_calendar_event as _create_calendar_event,
 )
+from api.src.google.calendar.service import (
+    delete_calendar_event as _delete_calendar_event,
+)
+from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import (
     extract_email_body,
     get_email_content,
     get_gmail_service,
+)
+from api.src.google.gmail.service import (
     send_email as _send_email,
+)
+from api.src.sernia_ai.config import (
+    INTERNAL_EMAIL_DOMAIN,
+    SHARED_EXTERNAL_EMAIL,
+    SUB_AGENT_MODEL,
 )
 from api.src.sernia_ai.deps import SerniaDeps
 
@@ -63,6 +68,7 @@ def _html_to_markdown(html: str) -> str:
     (keeping their text) and remove non-content elements before converting.
     """
     import re
+
     from bs4 import BeautifulSoup
     from markdownify import markdownify as md
 
@@ -349,7 +355,7 @@ async def _get_threading_headers(message_id: str, user_email: str) -> dict:
             "in_reply_to": rfc_message_id,
             "references": new_refs,
         }
-    except Exception as e:
+    except Exception:
         logfire.exception("Failed to fetch threading headers", message_id=message_id)
         return {}
 
@@ -952,7 +958,7 @@ async def read_google_sheet(
     # Export CSV for DuckDB analysis (best-effort, >5 rows threshold)
     dataset_info = ""
     if len(rows) > 5 and ctx.deps.conversation_id:
-        from api.src.sernia_ai.tools.data_export import write_dataset, _sanitize_name
+        from api.src.sernia_ai.tools.data_export import _sanitize_name, write_dataset
         ds_name = _sanitize_name(sheet_name or "sheet")
         try:
             _, rows_written = write_dataset(
@@ -962,7 +968,7 @@ async def read_google_sheet(
             sample = rows[1] if len(rows) > 1 else []
             sample_padded = sample + [""] * (len(rows[0]) - len(sample))
             sample_pairs = ", ".join(
-                f"{h}={v!r}" for h, v in zip(rows[0][:6], sample_padded[:6])
+                f"{h}={v!r}" for h, v in zip(rows[0][:6], sample_padded[:6], strict=False)
             )
             if len(rows[0]) > 6:
                 sample_pairs += ", ..."

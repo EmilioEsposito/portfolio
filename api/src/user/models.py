@@ -1,10 +1,12 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Index, JSON
+
+from sqlalchemy import JSON, Column, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func # For server-side default timestamps
+from sqlalchemy.sql import func  # For server-side default timestamps
 
 # Import Base from the correct location
 from api.src.database.database import Base
+
 
 class User(Base):
     __tablename__ = "users"

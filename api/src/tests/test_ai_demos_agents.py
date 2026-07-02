@@ -17,7 +17,8 @@ from starlette.responses import Response
 
 from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
 from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent
-from api.src.ai_demos.chat_weather.agent import ChatContext, agent as weather_agent
+from api.src.ai_demos.chat_weather.agent import ChatContext
+from api.src.ai_demos.chat_weather.agent import agent as weather_agent
 from api.src.ai_demos.multi_agent_chat.decision_agent import (
     AgentName,
     RoutingDecision,
@@ -28,7 +29,6 @@ from api.src.ai_demos.multi_agent_chat.graph import (
     MultiAgentState,
     multi_agent_graph,
 )
-
 
 # ---------------------------------------------------------------------------
 # From api/src/ai_demos/agent_run_patching.py

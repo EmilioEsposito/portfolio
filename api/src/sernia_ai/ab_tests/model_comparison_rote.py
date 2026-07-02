@@ -21,7 +21,6 @@ ensure_logfire_configured(mode="prod", service_name="sernia_ai_ab_test")
 from api.src.sernia_ai.ab_tests._cli import build_parser, resolve_variants
 from api.src.sernia_ai.ab_tests._core import run_experiment
 
-
 PROMPTS: list[str] = [
     "DO NOT USE ANY TOOLS. Answer in one sentence: what is rental real estate?",
     "DO NOT USE ANY TOOLS. List 5 common maintenance issues in apartment rentals. Plain text, one per line.",

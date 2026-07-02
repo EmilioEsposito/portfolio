@@ -1,8 +1,9 @@
+from datetime import UTC, datetime
+
 import logfire
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import NoResultFound, IntegrityError
-from datetime import datetime, timezone
 
 from api.src.user.models import User
 
@@ -24,7 +25,7 @@ def _timestamp_ms_to_datetime(timestamp_ms: int | None) -> datetime | None:
     try:
         # Convert milliseconds to seconds
         timestamp_sec = timestamp_ms / 1000.0
-        return datetime.fromtimestamp(timestamp_sec, tz=timezone.utc).replace(tzinfo=None)
+        return datetime.fromtimestamp(timestamp_sec, tz=UTC).replace(tzinfo=None)
     except (ValueError, TypeError):
         logfire.warn(f"Could not convert timestamp: {timestamp_ms}")
         return None

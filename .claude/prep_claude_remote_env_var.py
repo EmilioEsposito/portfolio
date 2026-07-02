@@ -1,6 +1,5 @@
 import os
 
-
 # Local PostgreSQL connection string for remote Claude Code environment
 # Matches docker-compose.yml: postgresql://portfolio:portfolio@postgres:5432/portfolio
 # but uses localhost since we're running PostgreSQL directly (not in Docker)
@@ -28,7 +27,7 @@ def parse_zprofile_secrets(keys):
     if not os.path.exists(zprofile_path):
         return {}
 
-    with open(zprofile_path, 'r') as file:
+    with open(zprofile_path) as file:
         lines = file.read().splitlines()
 
     wanted = set(keys)
@@ -57,7 +56,7 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(current_dir)
 
-    with open(os.path.join(repo_root, '.env'), 'r') as file:
+    with open(os.path.join(repo_root, '.env')) as file:
         env_var_file_str = file.read()
 
     # Convert to strict .env format: no comments, no empty lines, no trailing whitespace, no quotes around values

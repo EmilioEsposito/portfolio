@@ -8,40 +8,31 @@ Uses DBOS's recv/send pattern for durable human-in-the-loop workflows:
 
 No custom database tables needed - DBOS handles all state persistence.
 """
-from pydantic_ai.tools import DeferredToolRequests
+import asyncio
+import json
 
-
-import os
-import time
 import logfire
-
-from dbos import DBOS, SetWorkflowID
+from dbos import DBOS
 from pydantic_ai import (
-    Agent, 
-    DeferredToolRequests, 
-    DeferredToolResults, 
-    ToolDenied, 
-    ToolApproved, 
-    ApprovalRequired, 
+    Agent,
     AgentRunResult,
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
 )
 from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.messages import ModelMessagesTypeAdapter
-from api.src.open_phone.service import send_message
-import secrets
+
 from api.src.contact.service import get_contact_by_slug
-import asyncio
-import json
-from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
-import uuid
+from api.src.dbos_service.dbos_config import launch_dbos
+from api.src.open_phone.service import send_message
 
 # --- Agent Definition ---
 hitl_agent2 = Agent(
     OpenAIChatModel("gpt-4o-mini"),
     name="hitl_agent2",
-    system_prompt=f"""You are a helpful assistant that sends SMS messages.
+    system_prompt="""You are a helpful assistant that sends SMS messages.
 When asked to send an SMS or text message, IMMEDIATELY use the send_sms tool.
 Be creative and write engaging, personalized messages.
 The default recipient will be Emilio unless otherwise specified.

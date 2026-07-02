@@ -5,29 +5,45 @@ All routes are gated to @serniacapital.com users via a router-level dependency.
 The verified Clerk User object is stashed on request.state.sernia_user by the
 gate and retrieved by individual handlers via the SerniaUser dependency.
 """
-import asyncio
 import json
-import functools
 from typing import Literal
 
 import anthropic
-import openai
 import logfire
-from pydantic_ai import capture_run_messages
+import openai
+from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.responses import Response
+from pydantic_ai import capture_run_messages
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from clerk_backend_api import User
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from starlette.responses import Response
 
+from api.src.ai_demos.hitl_utils import (
+    ApprovalDecision,
+    extract_pending_approvals,
+    extract_tool_results,
+    resume_with_approvals,
+)
+from api.src.ai_demos.models import (
+    delete_conversation,
+    extract_pending_approval_from_messages,
+    get_agent_conversation,
+    get_conversation_messages,
+    get_conversation_with_pending,
+    list_pending_conversations,
+    list_user_conversations,
+    persist_agent_run_result,
+    save_agent_conversation,
+)
+from api.src.database.database import DBSession
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
-    DEFAULT_MODEL_KEY,
     DEFAULT_THINKING_EFFORT,
     ModelKey,
     ThinkingEffort,
@@ -36,38 +52,16 @@ from api.src.sernia_ai.model_config import (
     get_model_choice,
     resolve_active_run_kwargs,
 )
-from api.src.sernia_ai.models import _IS_PRODUCTION
-from api.src.sernia_ai.models import AppSetting
-from api.src.sernia_ai.deps import SerniaDeps
-from api.src.ai_demos.hitl_utils import (
-    extract_pending_approvals,
-    extract_tool_results,
-    ApprovalDecision,
-    resume_with_approvals,
-)
-from api.src.ai_demos.models import (
-    persist_agent_run_result,
-    save_agent_conversation,
-    get_agent_conversation,
-    list_user_conversations,
-    get_conversation_messages,
-    delete_conversation,
-    list_pending_conversations,
-    get_conversation_with_pending,
-    extract_pending_approval_from_messages,
-)
+from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
+from api.src.sernia_ai.push.routes import router as push_router
+from api.src.sernia_ai.push.service import notify_pending_approval
+from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.push.routes import router as push_router
-from api.src.sernia_ai.push.service import notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.database.database import DBSession
-
 
 # =============================================================================
 # SMS history merge helper
@@ -751,7 +745,7 @@ async def get_admin_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
+    from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     resolved_name = user_name or _display_name(user)
 
@@ -819,8 +813,8 @@ async def get_conversation_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS, DYNAMIC_INSTRUCTIONS
-    from api.src.sernia_ai.config import TRIGGER_BOT_ID, TRIGGER_BOT_NAME, GOOGLE_DELEGATION_EMAIL
+    from api.src.sernia_ai.config import GOOGLE_DELEGATION_EMAIL, TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
     if not conv:

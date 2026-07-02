@@ -1,13 +1,12 @@
 """Tests for _repair_orphaned_tool_calls in ai_demos/models.py."""
 
-import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    UserPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 
 from api.src.ai_demos.models import _repair_orphaned_tool_calls

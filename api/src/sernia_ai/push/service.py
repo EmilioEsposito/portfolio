@@ -7,8 +7,8 @@ import os
 import httpx
 import logfire
 from py_vapid import Vapid
-from pywebpush import webpush, WebPushException
-from sqlalchemy import select, delete
+from pywebpush import WebPushException, webpush
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -359,11 +359,11 @@ async def notify_team_sms(
 
     Failures are logged but never re-raised — SMS should not block trigger flow.
     """
+    from api.src.open_phone.service import send_message
     from api.src.sernia_ai.config import (
         FRONTEND_BASE_URL,
         QUO_SERNIA_AI_PHONE_ID,
     )
-    from api.src.open_phone.service import send_message
 
     try:
         to_phone = await _get_shared_team_phone()

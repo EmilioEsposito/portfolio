@@ -14,9 +14,9 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
-    UserPromptPart,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 
 from api.src.sernia_ai.config import SUB_AGENT_MODEL, TOKEN_COMPACTION_THRESHOLD

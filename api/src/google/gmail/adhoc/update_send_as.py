@@ -1,8 +1,9 @@
+from pprint import pprint
+
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import json
-from pprint import pprint
+
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
 
@@ -33,7 +34,7 @@ def update_send_as(
         creds.refresh(google.auth.transport.requests.Request())
 
         if creds.valid:
-            print(f"Credentials obtained successfully:")
+            print("Credentials obtained successfully:")
         else:
             raise ValueError(
                 f"Credentials for {user_email} are not valid. Does {user_email} exist?"

@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # search_drive_core
 # ---------------------------------------------------------------------------
@@ -189,7 +188,7 @@ async def test_read_sheet_invalid_range_returns_available_sheet_names():
 async def test_read_sheet_caps_at_100_data_rows():
     headers = ["Col"]
     data = [[str(i)] for i in range(250)]
-    fake_service = _mock_sheets_service(values_response={"values": [headers] + data})
+    fake_service = _mock_sheets_service(values_response={"values": [headers, *data]})
     with patch(
         "sernia_mcp.core.google.drive.build", return_value=fake_service
     ), patch(

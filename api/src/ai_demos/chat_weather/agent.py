@@ -3,9 +3,10 @@ Chat Agent using PydanticAI with weather tool
 
 This agent provides a general-purpose chat assistant with weather functionality.
 """
+from dataclasses import dataclass
+
 import logfire
 import requests
-from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 

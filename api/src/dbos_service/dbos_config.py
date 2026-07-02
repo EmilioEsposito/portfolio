@@ -1,6 +1,7 @@
-from dbos import DBOS, DBOSConfig
 import os
+
 import logfire
+from dbos import DBOS, DBOSConfig
 
 # --- DBOS Configuration ---
 

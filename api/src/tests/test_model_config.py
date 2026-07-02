@@ -38,7 +38,7 @@ def test_build_run_kwargs_anthropic_shape():
 
 
 def test_build_run_kwargs_unknown_key_falls_back_to_default():
-    from api.src.sernia_ai.model_config import build_run_kwargs, DEFAULT_MODEL_KEY
+    from api.src.sernia_ai.model_config import DEFAULT_MODEL_KEY, build_run_kwargs
 
     assert DEFAULT_MODEL_KEY == "gpt-5.4"
     assert build_run_kwargs(None)["model"] == "openai-responses:gpt-5.4"
@@ -73,8 +73,8 @@ def test_unified_thinking_maps_to_adaptive_on_anthropic():
     """Guard the provider translation we rely on: with no explicit
     `anthropic_thinking`, pydantic-ai turns unified thinking into adaptive
     thinking + effort on models that support it (Sonnet 4.6 / Opus 4.7)."""
-    from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.models import ModelRequestParameters
+    from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.providers.anthropic import AnthropicProvider
 
     from api.src.sernia_ai.model_config import build_run_kwargs

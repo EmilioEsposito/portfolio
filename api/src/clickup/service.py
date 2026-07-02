@@ -1,14 +1,17 @@
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv('.env'))
-import os
-import requests
-from pprint import pprint
-from datetime import datetime
-import pytz
-from api.src.open_phone.service import send_message
-import logfire
-from api.src.contact.service import get_contact_by_slug
 import json
+import os
+from datetime import datetime
+
+import logfire
+import pytz
+import requests
+
+from api.src.contact.service import get_contact_by_slug
+from api.src.open_phone.service import send_message
+
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
 # from dbos import DBOS
@@ -79,10 +82,10 @@ async def get_peppino_view_tasks():
         for task in tasks_filtered:
             is_maintenance_task = task['list']['id'] == "901312027371"
             # format the tasks_filtered nicely for an AI to read
-            task_template = f"\n-------------"
+            task_template = "\n-------------"
             task_template += f"\nTask: {task['name']}"
             if is_maintenance_task:
-                task_template += f"(Maintenance Request)"
+                task_template += "(Maintenance Request)"
             task_template += f"\nDue: {task['due_date_pretty']}"
 
             if is_maintenance_task:
@@ -121,8 +124,9 @@ def register_clickup_apscheduler_jobs():
 
     Runs at 8am and 5pm ET.
     """
-    from api.src.apscheduler_service.service import get_scheduler, upsert_job
     from zoneinfo import ZoneInfo
+
+    from api.src.apscheduler_service.service import get_scheduler, upsert_job
 
     scheduler = get_scheduler()
     upsert_job(

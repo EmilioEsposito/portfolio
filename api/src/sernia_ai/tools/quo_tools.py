@@ -24,22 +24,15 @@ Core routing and sending logic (``SmsRouting``, ``resolve_sms_routing``,
 
 import json
 import os
-import time
+import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date
 
 import httpx
-from pydantic import BaseModel, Field
-from api.src.open_phone.service import (
-    get_all_contacts,
-    find_contact_by_phone,
-    invalidate_contact_cache,
-)
-import re
-
 import logfire
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
+from pydantic import BaseModel, Field
 from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
@@ -51,6 +44,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.toolsets import CombinedToolset
 from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
+from api.src.open_phone.service import (
+    find_contact_by_phone,
+    get_all_contacts,
+    invalidate_contact_cache,
+)
 from api.src.sernia_ai.config import (
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
@@ -742,9 +740,9 @@ async def list_active_threads_impl(
             ("excludeInactive", "true"),
         ]
         if updated_after_days is not None:
-            from datetime import datetime, timedelta, timezone
+            from datetime import datetime, timedelta
             cutoff = (
-                datetime.now(timezone.utc) - timedelta(days=updated_after_days)
+                datetime.now(UTC) - timedelta(days=updated_after_days)
             ).strftime("%Y-%m-%dT%H:%M:%SZ")
             params.append(("updatedAfter", cutoff))
         if page_token:
@@ -820,7 +818,7 @@ async def list_active_threads_impl(
     # Index by conversation id so we don't lose group-thread snippets to
     # phone-key collisions when two conversations share a participant.
     snippet_map: dict[str, dict] = {}
-    for conv, result in zip(conversations, snippet_results):
+    for conv, result in zip(conversations, snippet_results, strict=False):
         if isinstance(result, dict):
             snippet_map[conv.get("id", "")] = result
 
@@ -1096,7 +1094,7 @@ async def get_thread_messages_impl(
         out.append("_(no recent group activity available)_")
 
     out.append("")
-    for phone, result in zip(participants_in, per_participant):
+    for phone, result in zip(participants_in, per_participant, strict=False):
         contact_name = phone_map.get(phone, phone)
         out.append(f"## 1:1 thread with {contact_name}")
         if isinstance(result, str):

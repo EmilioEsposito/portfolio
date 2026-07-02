@@ -1,12 +1,12 @@
 import os
-import json
+
 import logfire
-from fastapi import APIRouter, Request, HTTPException, Header, Response
-from svix.webhooks import Webhook, WebhookVerificationError
 from dotenv import load_dotenv
+from fastapi import APIRouter, Header, HTTPException, Request, Response
+from svix.webhooks import Webhook, WebhookVerificationError
 
 from api.src.database.database import DBSession
-from api.src.user.service import upsert_user, delete_user
+from api.src.user.service import delete_user, upsert_user
 
 # Load environment variables (especially CLERK_WEBHOOK_SIGNING_SECRET)
 load_dotenv()

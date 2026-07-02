@@ -1,9 +1,11 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, Index, Text
-from sqlalchemy.dialects.postgresql import UUID
+
+from sqlalchemy import Column, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
-from api.src.database.database import Base # Assuming your Base is here
-from sqlalchemy.dialects.postgresql import JSONB
+
+from api.src.database.database import Base  # Assuming your Base is here
+
 
 class Contact(Base):
     __tablename__ = "contacts"

@@ -1,18 +1,8 @@
-from fastapi import APIRouter, Request, Body, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, conint
-import json
-import logging
-from pprint import pprint
 import os
-import base64
-import hmac
+from pprint import pprint
+
 import requests
-from typing import List, Optional, Union, Dict, Any
-from datetime import datetime
-import time
-from api.src.utils.password import verify_admin_auth
-from api.src.google.sheets import get_sheet_as_json
+
 
 # using main() prevents pytest from running this file upon discovery
 def main():
@@ -83,7 +73,7 @@ def main():
         try:
             print(response.status_code)
             # pprint(response.json())
-        except:
+        except Exception:
             print(response.status_code)
 
 

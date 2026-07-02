@@ -4,12 +4,14 @@ Utility script to prepare Google service account credentials for .env file.
 Usage: python prepare_credentials.py path/to/service-account.json
 E.g. python ~/portfolio/api/google/scripts/prepare_credentials.py ~/downloads/portfolio-450200-34e7805b4547.json
 """
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv('.env'))
+import base64
 import json
 import sys
 from pathlib import Path
-import base64
+
 
 def prepare_credentials(json_path: str) -> str:
     """
@@ -18,7 +20,7 @@ def prepare_credentials(json_path: str) -> str:
     """
     try:
         # Read and parse the JSON file
-        with open(json_path, 'r') as f:
+        with open(json_path) as f:
             creds = json.load(f)
         
         # Base64 encode the entire credentials to avoid escaping issues
@@ -55,7 +57,7 @@ def main():
     print("\nDebug Info:")
     print("----------------------------------------")
     print("1. Original JSON structure:")
-    with open(json_path, 'r') as f:
+    with open(json_path) as f:
         print(json.dumps(json.load(f), indent=2))
     
     print("\n2. Base64 format (what will be in .env):")

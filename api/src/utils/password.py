@@ -1,9 +1,12 @@
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv('.env'))
-import os
 import hmac
 import json
+import os
+
 from fastapi import HTTPException, Request
+
 
 def adhoc_generate_new_password():
     import hashlib
@@ -17,7 +20,7 @@ def adhoc_generate_new_password():
     password_bytes = (password + salt).encode('utf-8')
     password_hash = hashlib.sha256(password_bytes).hexdigest()
 
-    print(f"Add these to your .env file:")
+    print("Add these to your .env file:")
     print(f"ADMIN_PASSWORD_SALT={salt}")
     print(f"ADMIN_PASSWORD_HASH={password_hash}")
 

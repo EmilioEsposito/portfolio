@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
-import logfire
 from datetime import datetime
 
-from api.src.dbos_service.dbos_scheduler import get_scheduled_jobs, get_scheduled_job, get_workflow_func
+import logfire
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.src.dbos_service.dbos_scheduler import (
+    get_scheduled_job,
+    get_scheduled_jobs,
+    get_workflow_func,
+)
 from api.src.utils.clerk import verify_serniacapital_user
 
 router = APIRouter(
@@ -13,7 +17,7 @@ router = APIRouter(
 )
 
 
-@router.get("/get_jobs", response_model=List[dict])
+@router.get("/get_jobs", response_model=list[dict])
 async def get_jobs():
     """
     Retrieve all DBOS scheduled workflows.

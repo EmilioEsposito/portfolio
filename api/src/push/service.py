@@ -1,12 +1,13 @@
-import requests
 import json
+
 import logfire
+import requests
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, insert, update, func
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from api.src.database.database import AsyncSessionFactory  # Ensure this is imported
 
 from .models import PushToken
-from api.src.database.database import AsyncSessionFactory # Ensure this is imported
 
 # The endpoint for Expo's Push API
 EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send"

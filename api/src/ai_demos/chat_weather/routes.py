@@ -1,20 +1,21 @@
 """
 Routes for general-purpose chat with weather tool support
 """
-from fastapi import APIRouter
-from starlette.requests import Request
-from starlette.responses import Response
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
-
-from api.src.ai_demos.chat_weather.agent import agent, ChatContext
-from api.src.utils.swagger_schema import expand_json_schema
-from api.src.utils.input_sanitization import sanitize_request_json
-from api.src.ai_demos.models import persist_agent_run_result
-import logfire
 import functools
 import json
+
+import logfire
+from fastapi import APIRouter
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
+from starlette.requests import Request
+from starlette.responses import Response
+
+from api.src.ai_demos.chat_weather.agent import ChatContext, agent
+from api.src.ai_demos.models import persist_agent_run_result
 from api.src.database.database import DBSession
+from api.src.utils.input_sanitization import sanitize_request_json
+from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-weather", tags=["ai"])
 

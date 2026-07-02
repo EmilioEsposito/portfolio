@@ -2,22 +2,23 @@
 Graph definition for routing messages to specialized agents using Pydantic AI Graph Beta API
 """
 
-import logfire
 from dataclasses import dataclass
 from typing import Literal
 
+import logfire
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_graph.graph_builder import GraphBuilder
 from pydantic_graph.step import StepContext
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent, PortfolioContext as EmilioContext
-from api.src.ai_demos.chat_weather.agent import agent as weather_agent, ChatContext as WeatherContext
+from api.src.ai_demos.chat_emilio.agent import PortfolioContext as EmilioContext
+from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent
+from api.src.ai_demos.chat_weather.agent import ChatContext as WeatherContext
+from api.src.ai_demos.chat_weather.agent import agent as weather_agent
 from api.src.ai_demos.multi_agent_chat.decision_agent import AgentName, router_agent
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
-
 
 load_dotenv(".env")
 

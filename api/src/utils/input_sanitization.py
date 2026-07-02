@@ -5,8 +5,8 @@ Protects against SSRF and other attacks by sanitizing user-provided message part
 before they reach AI agents.
 """
 from typing import Any
-import logfire
 
+import logfire
 
 # Message part types that should be stripped for security
 # document-url: Can be used for SSRF attacks (fetch arbitrary URLs)

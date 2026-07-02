@@ -63,7 +63,7 @@ def analyze_conversations(limit: int = 200):
 
     rows = cur.fetchall()
     print(f"\n{'='*70}")
-    print(f"SERNIA AI INPUT TOKEN ANALYSIS")
+    print("SERNIA AI INPUT TOKEN ANALYSIS")
     print(f"{'='*70}")
     print(f"Conversations analyzed: {len(rows)}")
 
@@ -178,10 +178,10 @@ def analyze_conversations(limit: int = 200):
     print(f"{'─'*30} {'─'*12} {'─'*8}")
     print(f"{'TOTAL':<30} {grand_total:>12,} {'100.0%':>8}")
 
-    print(f"\n  NOTE: system_prompt = 0 is expected. PydanticAI injects system prompt")
-    print(f"  and tool descriptions directly into each API call — they're NOT stored")
-    print(f"  in the conversation messages. Add ~7,500 tokens/call for those.")
-    print(f"  (See sections below for system prompt + tool description estimates.)")
+    print("\n  NOTE: system_prompt = 0 is expected. PydanticAI injects system prompt")
+    print("  and tool descriptions directly into each API call — they're NOT stored")
+    print("  in the conversation messages. Add ~7,500 tokens/call for those.")
+    print("  (See sections below for system prompt + tool description estimates.)")
 
     # User prompt size distribution
     user_sizes = []
@@ -192,7 +192,7 @@ def analyze_conversations(limit: int = 200):
                for c in per_conversation if c.get("user_prompt", 0) > 1000]
         if big:
             print(f"\n{'─'*70}")
-            print(f"USER PROMPT OUTLIERS (>1,000 tokens) — likely trigger payloads")
+            print("USER PROMPT OUTLIERS (>1,000 tokens) — likely trigger payloads")
             print(f"{'─'*70}")
             for tokens, cid, modality in sorted(big, key=lambda x: -x[0])[:10]:
                 print(f"  {tokens:>10,} tokens  conv={cid}  modality={modality}")
@@ -202,7 +202,7 @@ def analyze_conversations(limit: int = 200):
     if tool_cats:
         tool_total = sum(tool_cats.values())
         print(f"\n{'─'*70}")
-        print(f"TOOL RESULT BREAKDOWN (what's inside 'tool_result' tokens)")
+        print("TOOL RESULT BREAKDOWN (what's inside 'tool_result' tokens)")
         print(f"{'─'*70}")
         print(f"{'Tool Name':<40} {'Tokens':>12} {'% of tools':>10} {'Calls':>8}")
         print(f"{'─'*40} {'─'*12} {'─'*10} {'─'*8}")
@@ -227,7 +227,7 @@ def analyze_conversations(limit: int = 200):
 
     # Per-conversation stats
     print(f"\n{'─'*70}")
-    print(f"PER-CONVERSATION STATS")
+    print("PER-CONVERSATION STATS")
     print(f"{'─'*70}")
 
     conv_tool_results = [c.get("tool_result", 0) for c in per_conversation]
@@ -253,7 +253,7 @@ def analyze_conversations(limit: int = 200):
 
     # Largest tool results
     print(f"\n{'─'*70}")
-    print(f"LARGEST TOOL RESULTS (>500 tokens)")
+    print("LARGEST TOOL RESULTS (>500 tokens)")
     print(f"{'─'*70}")
     for tool_name, examples in sorted(part_type_examples.items(), key=lambda x: -max(e["tokens"] for e in x[1])):
         top = sorted(examples, key=lambda x: -x["tokens"])[:3]
@@ -263,10 +263,10 @@ def analyze_conversations(limit: int = 200):
 
     # Multi-turn analysis: how much is "re-sent history"?
     print(f"\n{'─'*70}")
-    print(f"MULTI-TURN HISTORY GROWTH")
+    print("MULTI-TURN HISTORY GROWTH")
     print(f"{'─'*70}")
-    print(f"  In multi-turn conversations, ALL prior messages are re-sent as input.")
-    print(f"  This means a 5-turn conversation sends turns 1-4 as input for turn 5.")
+    print("  In multi-turn conversations, ALL prior messages are re-sent as input.")
+    print("  This means a 5-turn conversation sends turns 1-4 as input for turn 5.")
     print()
 
     multi_turn = [c for c in per_conversation if c.get("run_count", 1) > 1]
@@ -292,10 +292,10 @@ def analyze_conversations(limit: int = 200):
 def analyze_tool_descriptions():
     """Estimate tokens consumed by tool definitions (sent with every LLM call)."""
     print(f"\n{'='*70}")
-    print(f"TOOL DESCRIPTION TOKEN OVERHEAD")
+    print("TOOL DESCRIPTION TOKEN OVERHEAD")
     print(f"{'='*70}")
-    print(f"Tool descriptions (JSON schemas) are sent with EVERY LLM API call.")
-    print(f"These are NOT stored in conversation messages but count as input tokens.\n")
+    print("Tool descriptions (JSON schemas) are sent with EVERY LLM API call.")
+    print("These are NOT stored in conversation messages but count as input tokens.\n")
 
     # Try to import the sernia agent and inspect tools
     try:
@@ -332,11 +332,11 @@ def analyze_tool_descriptions():
 
     except Exception as e:
         print(f"  Could not import sernia agent: {e}")
-        print(f"  (This is expected if running outside the full app context)")
-        print(f"\n  Based on codebase analysis (~49 tools):")
-        print(f"  Estimated tool description overhead: ~3,500-4,000 tokens per LLM call")
-        print(f"  With Anthropic prompt caching, subsequent calls in same conversation")
-        print(f"  may use cached versions (reducing effective cost significantly).")
+        print("  (This is expected if running outside the full app context)")
+        print("\n  Based on codebase analysis (~49 tools):")
+        print("  Estimated tool description overhead: ~3,500-4,000 tokens per LLM call")
+        print("  With Anthropic prompt caching, subsequent calls in same conversation")
+        print("  may use cached versions (reducing effective cost significantly).")
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ def analyze_tool_descriptions():
 def analyze_system_prompt():
     """Estimate system prompt token overhead."""
     print(f"\n{'='*70}")
-    print(f"SYSTEM PROMPT TOKEN OVERHEAD")
+    print("SYSTEM PROMPT TOKEN OVERHEAD")
     print(f"{'='*70}")
 
     instructions_path = Path(__file__).resolve().parents[1] / "sernia_ai" / "instructions.py"
@@ -358,14 +358,14 @@ def analyze_system_prompt():
     total_static = count_tokens(content)
 
     print(f"  instructions.py file: ~{total_static:,} tokens (includes Python code)")
-    print(f"\n  The system prompt is composed of:")
-    print(f"    - Static instructions: ~2,000-2,500 tokens (role, rules, tool guidance)")
-    print(f"    - inject_context(): ~100 tokens (datetime, user, modality)")
-    print(f"    - inject_memory(): MEMORY.md verbatim (warns past 100K chars)")
-    print(f"    - inject_filetree(): up to ~800 tokens (workspace tree, capped at 3K chars)")
-    print(f"    - inject_modality_guidance(): ~200-400 tokens (SMS/email/web rules)")
-    print(f"\n  Estimated total system prompt: ~3,500-5,500 tokens per LLM call")
-    print(f"  With prompt caching, only the first call pays full cost.")
+    print("\n  The system prompt is composed of:")
+    print("    - Static instructions: ~2,000-2,500 tokens (role, rules, tool guidance)")
+    print("    - inject_context(): ~100 tokens (datetime, user, modality)")
+    print("    - inject_memory(): MEMORY.md verbatim (warns past 100K chars)")
+    print("    - inject_filetree(): up to ~800 tokens (workspace tree, capped at 3K chars)")
+    print("    - inject_modality_guidance(): ~200-400 tokens (SMS/email/web rules)")
+    print("\n  Estimated total system prompt: ~3,500-5,500 tokens per LLM call")
+    print("  With prompt caching, only the first call pays full cost.")
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +374,9 @@ def analyze_system_prompt():
 def cost_projection():
     """Show where the money actually goes."""
     print(f"\n{'='*70}")
-    print(f"INPUT TOKEN COST DRIVERS (SUMMARY)")
+    print("INPUT TOKEN COST DRIVERS (SUMMARY)")
     print(f"{'='*70}")
-    print(f"""
+    print("""
   For a SINGLE LLM API call, input tokens come from:
 
   ┌─────────────────────────────────────────────────────────────┐

@@ -1,7 +1,7 @@
-from dbos import DBOS
 import datetime
-import logfire
 
+import logfire
+from dbos import DBOS
 
 
 # 1. Hello world DBOS (unrelated to this demo)

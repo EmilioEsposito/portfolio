@@ -1,31 +1,35 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks, Security
-from fastapi.security import APIKeyHeader
-import logfire
-import os
 import base64
 import hmac
-from sqlalchemy import select
-from typing import List, Union
+import os
+import re
+import time
+from datetime import date, datetime
+from pprint import pprint
+
+import httpx as _httpx
+import logfire
+import requests
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import DBSession
+from api.src.open_phone.escalate import analyze_for_twilio_escalation
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
-from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
-from api.src.open_phone.escalate import analyze_for_twilio_escalation
-from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
+from api.src.open_phone.service import (
+    get_contacts_by_external_ids,
+    get_contacts_sheet_as_json,
+    send_message,
+)
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
-from api.src.utils.password import verify_admin_password
-from datetime import datetime, date
-from sqlalchemy.exc import IntegrityError
-from pprint import pprint
-import time
-import requests
-import httpx as _httpx
-from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.contact.service import get_contact_by_slug
-import re
-
+from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.password import verify_admin_password
 
 # ---------------------------------------------------------------------------
 # Cached AI phone number lookup (circular trigger guard)
@@ -181,7 +185,7 @@ async def webhook(
         sernia_contact = await get_contact_by_slug("sernia")
 
         if not sernia_contact:
-            logfire.error(f"Sernia contact not found for slug 'sernia'")
+            logfire.error("Sernia contact not found for slug 'sernia'")
             raise HTTPException(500, "Sernia contact not found")
 
         # Analyze messages to Sernia for potential Twilio escalation before saving to DB
@@ -197,7 +201,7 @@ async def webhook(
                 logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
             else:
                 # Run analysis in the background
-                logfire.info(f"AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
+                logfire.info("AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
         # AI SMS conversation: messages to the AI's phone number directly
         elif (
@@ -268,9 +272,9 @@ async def send_message_endpoint(body: SendMessageRequest):
 
 @router.get("/contacts", dependencies=[Depends(verify_serniacapital_user)])
 async def route_get_contacts_by_external_ids(
-    external_ids: List[str] = Query(...),
-    sources: Union[List[str], None] = Query(default=None),
-    page_token: Union[str, None] = None,
+    external_ids: list[str] = Query(...),
+    sources: list[str] | None = Query(default=None),
+    page_token: str | None = None,
 ):
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 

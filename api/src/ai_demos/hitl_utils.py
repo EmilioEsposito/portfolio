@@ -8,6 +8,7 @@ import dataclasses
 import json
 from dataclasses import dataclass
 
+import logfire
 from pydantic_ai import (
     Agent,
     AgentRunResult,
@@ -23,10 +24,9 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     ToolCallPart,
 )
-from pydantic_ai.models import Model, KnownModelName
+from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy.ext.asyncio import AsyncSession
-import logfire
 
 from api.src.ai_demos.models import (
     extract_pending_approval_from_messages,

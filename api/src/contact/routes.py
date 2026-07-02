@@ -1,16 +1,13 @@
 import uuid
-from typing import List
 
+import logfire
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-import logfire
 
-from api.src.database.database import get_session
 from api.src.contact import service as contact_service
 from api.src.contact.service import ContactCreate, ContactResponse, ContactUpdate
+from api.src.database.database import get_session
 from api.src.utils.clerk import verify_serniacapital_user
-
-
 
 router = APIRouter(
     prefix="/contacts",
@@ -45,7 +42,7 @@ async def create_new_contact(
         logfire.error(f"Unexpected error creating contact: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
-@router.get("/", response_model=List[ContactResponse])
+@router.get("/", response_model=list[ContactResponse])
 async def read_all_contacts(
     skip: int = 0,
     limit: int = 100,

@@ -36,7 +36,6 @@ from api.src.google.common.service_account_auth import (
 from api.src.google.gmail.service import send_email
 from api.src.google.sheets.service import get_sheet_as_json
 
-
 # ---------------------------------------------------------------------------
 # Calendar (from api/src/google/calendar/service.py)
 # ---------------------------------------------------------------------------
@@ -152,5 +151,5 @@ async def test_get_zillow_emails(client):
     emails = response.json()
 
     # Verify the response structure
-    assert type(emails) == list
+    assert isinstance(emails, list)
     # assert len(emails) > 0 # Needed to comment this out now that we are using a local database that can be empty.

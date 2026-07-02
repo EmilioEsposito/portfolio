@@ -6,8 +6,8 @@ Uses realistic tool result formats matching actual ClickUp, Gmail, and DB search
 """
 
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import RunContext
@@ -15,25 +15,25 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RequestUsage,
     TextPart,
-    UserPromptPart,
     ToolCallPart,
     ToolReturnPart,
-    RequestUsage,
+    UserPromptPart,
 )
 
 from api.src.sernia_ai.config import SUMMARIZATION_CHAR_THRESHOLD, TOKEN_COMPACTION_THRESHOLD
-from api.src.sernia_ai.sub_agents.summarize_tool_results import (
-    summarize_tool_results,
-    _find_current_turn_boundary,
-    _MAX_SUMMARIZER_INPUT_CHARS,
-)
 from api.src.sernia_ai.sub_agents.compact_history import (
-    compact_history,
+    _MIN_RECENT_MESSAGES,
     _estimate_tokens,
     _find_split_point,
     _messages_to_text,
-    _MIN_RECENT_MESSAGES,
+    compact_history,
+)
+from api.src.sernia_ai.sub_agents.summarize_tool_results import (
+    _MAX_SUMMARIZER_INPUT_CHARS,
+    _find_current_turn_boundary,
+    summarize_tool_results,
 )
 
 
@@ -171,9 +171,9 @@ class TestSmoke:
 
     def test_sub_agent_models_configured(self):
         """Sub-agents should use the configured SUB_AGENT_MODEL."""
-        from api.src.sernia_ai.sub_agents.summarize_tool_results import _summarizer
-        from api.src.sernia_ai.sub_agents.compact_history import _compactor
         from api.src.sernia_ai.config import SUB_AGENT_MODEL
+        from api.src.sernia_ai.sub_agents.compact_history import _compactor
+        from api.src.sernia_ai.sub_agents.summarize_tool_results import _summarizer
 
         assert _summarizer.model.model_name == SUB_AGENT_MODEL.split(":")[-1]
         assert _compactor.model.model_name == SUB_AGENT_MODEL.split(":")[-1]

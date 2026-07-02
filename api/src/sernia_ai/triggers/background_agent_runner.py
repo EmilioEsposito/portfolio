@@ -15,10 +15,10 @@ import uuid
 import logfire
 from pydantic_ai import capture_run_messages
 
+from api.src.ai_demos.hitl_utils import extract_pending_approvals
+from api.src.ai_demos.models import save_agent_conversation
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.model_config import resolve_active_run_kwargs
-from api.src.sernia_ai.agent import sernia_agent
+from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
     AGENT_NAME,
     GOOGLE_DELEGATION_EMAIL,
@@ -27,12 +27,11 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.agent import NoAction
 from api.src.sernia_ai.memory.git_sync import commit_and_push
+from api.src.sernia_ai.model_config import resolve_active_run_kwargs
+from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
-from api.src.ai_demos.models import save_agent_conversation
-from api.src.ai_demos.hitl_utils import extract_pending_approvals
 
 # ---------------------------------------------------------------------------
 # Rate limiter — prevents the same trigger key from firing more than once

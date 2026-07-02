@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.src.sernia_ai.instructions import (
-    _build_filetree,
     _COLLAPSED_PATHS,
+    _build_filetree,
     _pulled_conversation_ids,
     refresh_from_remote,
 )

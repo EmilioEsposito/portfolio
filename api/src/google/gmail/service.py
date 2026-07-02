@@ -2,30 +2,25 @@
 Gmail service functionality for interacting with Gmail API.
 """
 
-from googleapiclient.discovery import build
+import asyncio
+import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import base64
-import os
-from typing import Optional, Union, Dict, Any, List
-from fastapi import HTTPException
-from google.oauth2.credentials import Credentials
-from google.oauth2 import service_account
-from google_auth_oauthlib.flow import Flow
-import logfire
-import asyncio
 from email.utils import parsedate_to_datetime
-from googleapiclient.discovery_cache.base import Cache
+from typing import Any
+
 import googleapiclient.errors
+import logfire
+from fastapi import HTTPException
+from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
 from api.src.google.common.service_account_auth import (
-    get_service_credentials,
     get_delegated_credentials,
+    get_service_credentials,
 )
 from api.src.oauth.service import get_oauth_credentials
-
-
-
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
@@ -35,7 +30,7 @@ SCOPES = [
 ]
 
 
-def get_gmail_service(credentials: Union[Credentials, service_account.Credentials]):
+def get_gmail_service(credentials: Credentials | service_account.Credentials):
     """
     Creates and returns an authorized Gmail API service instance.
 
@@ -52,7 +47,7 @@ def get_gmail_service(credentials: Union[Credentials, service_account.Credential
         )
 
 
-def _build_mime(message_text: str, message_html: Optional[str]):
+def _build_mime(message_text: str, message_html: str | None):
     """Build the body MIME object — multipart/alternative when HTML is given,
     plain text otherwise. The text part stays as the fallback for clients that
     don't render HTML, per RFC 2046."""
@@ -69,7 +64,7 @@ def create_message(
     to: str,
     subject: str,
     message_text: str,
-    message_html: Optional[str] = None,
+    message_html: str | None = None,
 ):
     """
     Creates a message for an email.
@@ -104,7 +99,7 @@ def create_reply_message(
     message_text: str,
     in_reply_to: str,
     references: str,
-    message_html: Optional[str] = None,
+    message_html: str | None = None,
 ) -> dict:
     """Create a MIME message with threading headers for replying."""
     message = _build_mime(message_text, message_html)
@@ -121,13 +116,13 @@ async def send_email(
     to: str,
     subject: str,
     message_text: str,
-    sender: Optional[str] = None,
-    credentials: Optional[Union[Credentials, service_account.Credentials]] = None,
-    credentials_json: Optional[dict] = None,
-    thread_id: Optional[str] = None,
-    in_reply_to: Optional[str] = None,
-    references: Optional[str] = None,
-    message_html: Optional[str] = None,
+    sender: str | None = None,
+    credentials: Credentials | service_account.Credentials | None = None,
+    credentials_json: dict | None = None,
+    thread_id: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
+    message_html: str | None = None,
 ):
     """
     Sends an email using the Gmail API.
@@ -355,7 +350,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
         raise
 
 
-def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
+def extract_email_body(message: dict[str, Any]) -> dict[str, str]:
     """
     Extracts both plain text and HTML body from a Gmail message.
 
@@ -379,7 +374,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
             logfire.error(f"Failed to decode body: {str(e)}")
             return ""
 
-    def extract_parts(payload: Dict[str, Any]) -> Dict[str, str]:
+    def extract_parts(payload: dict[str, Any]) -> dict[str, str]:
         """Recursively extract body parts"""
         body = {"text": "", "html": ""}
 
@@ -407,7 +402,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
     return extract_parts(payload)
 
 
-async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
+async def process_single_message(message: dict[str, Any]) -> dict[str, Any]:
     """
     Process a single Gmail message into our standard format.
 
@@ -505,7 +500,7 @@ def setup_gmail_watch(
             ],
         )
         logfire.info(
-            f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com"
+            "✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com"
         )
 
         # Create Gmail service

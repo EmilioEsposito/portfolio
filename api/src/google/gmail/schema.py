@@ -2,15 +2,15 @@
 Pydantic schemas for Gmail-related operations.
 """
 
-from pydantic import BaseModel
-from typing import Union
 from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
-from typing import Optional, Dict, Any
+
 
 class OptionalPassword(BaseModel):
     """Request model for endpoints that optionally require a password."""
-    password: Union[str, None] = None
+    password: str | None = None
 
 class GenerateResponseRequest(BaseModel):
     """Request model for generating AI responses."""
@@ -23,7 +23,7 @@ class ZillowEmailResponse(BaseModel):
     subject: str
     sender: str
     received_at: datetime
-    body_html: Optional[str] = None 
+    body_html: str | None = None 
 
 
 class EmailMessageBase(BaseModel):
@@ -34,9 +34,9 @@ class EmailMessageBase(BaseModel):
     from_address: str
     to_address: str
     received_date: datetime
-    body_text: Optional[str] = None
-    body_html: Optional[str] = None
-    raw_payload: Dict[str, Any]
+    body_text: str | None = None
+    body_html: str | None = None
+    raw_payload: dict[str, Any]
 
 class EmailMessageCreate(EmailMessageBase):
     """Pydantic model for creating email messages"""

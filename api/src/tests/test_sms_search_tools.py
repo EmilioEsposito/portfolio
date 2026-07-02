@@ -5,7 +5,7 @@ All database queries and OpenPhone API calls are mocked.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,16 +13,15 @@ from pydantic_ai import RunContext
 
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.sernia_ai.tools.db_search_tools import (
-    get_contact_sms_history,
-    search_sms_history,
-    _resolve_contact_phones,
     _build_contact_map,
+    _build_date_filters,
     _enrich_phone,
     _format_sms_event,
     _parse_date,
-    _build_date_filters,
+    _resolve_contact_phones,
+    get_contact_sms_history,
+    search_sms_history,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / Helpers
@@ -89,7 +88,7 @@ def _make_sms_event(
     evt.to_number = to_number
     evt.message_text = text
     evt.conversation_id = conversation_id
-    evt.event_timestamp = ts or datetime(2025, 6, 15, 14, 30 + id, tzinfo=timezone.utc)
+    evt.event_timestamp = ts or datetime(2025, 6, 15, 14, 30 + id, tzinfo=UTC)
     evt.created_at = evt.event_timestamp
     evt.event_data = {}
     evt.user_id = None
@@ -100,29 +99,29 @@ def _make_sms_event(
 # A realistic SMS thread about a maintenance issue
 FAKE_THREAD = [
     _make_sms_event(1, "+14155550100", "+14155559999", "Hey, is maintenance coming today?",
-                    datetime(2025, 6, 15, 14, 30, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 30, tzinfo=UTC)),
     _make_sms_event(2, "+14155559999", "+14155550100", "Yes, the plumber is scheduled for 3pm",
-                    datetime(2025, 6, 15, 14, 32, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 32, tzinfo=UTC)),
     _make_sms_event(3, "+14155550100", "+14155559999", "Great, the leak has gotten worse since yesterday",
-                    datetime(2025, 6, 15, 14, 33, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 33, tzinfo=UTC)),
     _make_sms_event(4, "+14155559999", "+14155550100", "I'll let them know to prioritize it",
-                    datetime(2025, 6, 15, 14, 35, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 35, tzinfo=UTC)),
     _make_sms_event(5, "+14155550100", "+14155559999", "Thanks! The water damage is spreading to the hallway",
-                    datetime(2025, 6, 15, 14, 40, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 40, tzinfo=UTC)),
     _make_sms_event(6, "+14155559999", "+14155550100", "I'm sending emergency maintenance right now",
-                    datetime(2025, 6, 15, 14, 42, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 14, 42, tzinfo=UTC)),
     _make_sms_event(7, "+14155550100", "+14155559999", "They just arrived, thank you!",
-                    datetime(2025, 6, 15, 15, 10, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 15, 10, tzinfo=UTC)),
     _make_sms_event(8, "+14155559999", "+14155550100", "Glad to hear it. Let me know if the leak is fully fixed",
-                    datetime(2025, 6, 15, 15, 15, tzinfo=timezone.utc)),
+                    datetime(2025, 6, 15, 15, 15, tzinfo=UTC)),
 ]
 
 # Second conversation thread — different contact
 FAKE_THREAD_2 = [
     _make_sms_event(20, "+14155550200", "+14155559999", "Hi, my rent payment bounced, what do I do?",
-                    datetime(2025, 6, 10, 9, 0, tzinfo=timezone.utc), conversation_id="conv_002"),
+                    datetime(2025, 6, 10, 9, 0, tzinfo=UTC), conversation_id="conv_002"),
     _make_sms_event(21, "+14155559999", "+14155550200", "Please re-submit via the portal. No late fee this time.",
-                    datetime(2025, 6, 10, 9, 5, tzinfo=timezone.utc), conversation_id="conv_002"),
+                    datetime(2025, 6, 10, 9, 5, tzinfo=UTC), conversation_id="conv_002"),
 ]
 
 

@@ -10,10 +10,10 @@ Call `capture_scheduled_workflows()` before `DBOS.launch()`.
 """
 
 from datetime import datetime
-from typing import Optional
+
+import dbos._dbos as _dbos_module
 import logfire
 from croniter import croniter
-import dbos._dbos as _dbos_module
 
 # Storage for captured scheduled workflow info (populated before DBOS.launch())
 _captured_workflows: list[dict] = []
@@ -106,7 +106,7 @@ def get_scheduled_jobs() -> list[dict]:
     return jobs
 
 
-def get_scheduled_job(job_id: str) -> Optional[dict]:
+def get_scheduled_job(job_id: str) -> dict | None:
     """Get a specific scheduled job by ID."""
     jobs = get_scheduled_jobs()
     for job in jobs:
@@ -138,16 +138,10 @@ def get_workflow_func(job_id: str):
 
 if __name__ == '__main__':
     # For testing: import everything needed to populate the registry
-    from api.src.utils.logfire_config import ensure_logfire_configured
     from api.src.dbos_service.dbos_config import launch_dbos
+    from api.src.utils.logfire_config import ensure_logfire_configured
+
     # Import scheduled workflows to register them
-    from api.src.zillow_email.service import (
-        zillow_test_job_scheduled,
-        zillow_email_new_unreplied_scheduled,
-        zillow_email_threads_ai_scheduled,
-    )
-    from api.src.clickup.service import clickup_peppino_tasks_scheduled
-    from api.src.dbos_service.examples.hello_dbos import scheduled_workflow_example
 
     ensure_logfire_configured(mode='test')
 

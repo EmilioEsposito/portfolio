@@ -18,8 +18,8 @@ Logfire terminology reminder:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Iterable
 
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.settings import ModelSettings
@@ -35,7 +35,6 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-
 
 # Default variants — shared across experiments unless an experiment overrides.
 # Use `openai-responses:` (not `openai:`) so WebSearchTool works.

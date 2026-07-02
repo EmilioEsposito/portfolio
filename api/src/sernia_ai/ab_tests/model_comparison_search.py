@@ -21,7 +21,6 @@ ensure_logfire_configured(mode="prod", service_name="sernia_ai_ab_test")
 from api.src.sernia_ai.ab_tests._cli import build_parser, resolve_variants
 from api.src.sernia_ai.ab_tests._core import run_experiment
 
-
 PROMPTS: list[str] = [
     "Search zillow.com for rentals near Pittsburgh PA 15213 under $2000 and summarize the top 3 in 2-3 bullet points each. Use web search.",
     "Use web search on rentometer.com to check typical rent for a 2-bedroom apartment in Squirrel Hill, Pittsburgh PA. Summarize what you find in under 50 words.",

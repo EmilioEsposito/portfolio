@@ -11,7 +11,6 @@ import importlib
 
 import pytest
 
-
 _VALID_TOKEN = "X" * 48  # >= 32 chars, length-only check
 _OTHER_TOKEN = "Y" * 48
 

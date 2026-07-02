@@ -2,22 +2,23 @@
 Database operations for Gmail-related functionality.
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, literal_column
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from datetime import datetime
-import pytz
-from typing import Dict, Any, Optional
-from api.src.google.gmail.models import EmailMessage
+from typing import Any
+
 import logfire
-from typing import List
+import pytz
+from sqlalchemy import func, literal_column, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.src.google.gmail.models import EmailMessage
 
 
 async def save_email_message(
     session: AsyncSession,
-    message_data: Dict[str, Any],
-    history_id: Optional[int] = None
-) -> tuple[Optional[EmailMessage], bool]:
+    message_data: dict[str, Any],
+    history_id: int | None = None
+) -> tuple[EmailMessage | None, bool]:
     """
     Save a Gmail message to the database.
 
@@ -109,7 +110,7 @@ async def save_email_message(
 async def get_email_by_message_id(
     session: AsyncSession,
     message_id: str
-) -> Optional[EmailMessage]:
+) -> EmailMessage | None:
     """
     Retrieve an email message by its Gmail message ID.
     
@@ -141,7 +142,7 @@ async def get_email_by_message_id(
 async def get_emails_by_thread_id(
     session: AsyncSession,
     thread_id: str
-) -> List[EmailMessage]:
+) -> list[EmailMessage]:
     """
     Retrieve all email messages in a thread.
     

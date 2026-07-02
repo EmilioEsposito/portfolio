@@ -1,13 +1,14 @@
 """
 Service functionality for Google Sheets operations.
 """
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv('.env'))
-from googleapiclient.discovery import build
-import os
-from typing import List, Any, Dict
-from fastapi import HTTPException
+from typing import Any
+
 import logfire
+from fastapi import HTTPException
+from googleapiclient.discovery import build
 
 from api.src.google.common.service_account_auth import get_service_credentials
 
@@ -28,7 +29,7 @@ def get_sheets_service():
             detail=f"Failed to initialize Google Sheets service: {str(e)}"
         )
 
-def read_sheet(spreadsheet_id: str, range_name: str) -> List[List[Any]]:
+def read_sheet(spreadsheet_id: str, range_name: str) -> list[list[Any]]:
     """
     Reads data from a Google Sheet.
     
@@ -49,8 +50,8 @@ def read_sheet(spreadsheet_id: str, range_name: str) -> List[List[Any]]:
         return result.get('values', [])
     
     except Exception as e:
-        message = f"Failed to read Google Sheet."
-        message += f"\nDid you share it with account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com?"
+        message = "Failed to read Google Sheet."
+        message += "\nDid you share it with account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com?"
         message += f"\nError: {str(e)}"
         logfire.error(message)
         raise HTTPException(
@@ -58,7 +59,7 @@ def read_sheet(spreadsheet_id: str, range_name: str) -> List[List[Any]]:
             detail=message
         )
 
-def get_sheet_as_json(spreadsheet_id: str, sheet_name: str = 'Sheet1') -> List[Dict[str, Any]]:
+def get_sheet_as_json(spreadsheet_id: str, sheet_name: str = 'Sheet1') -> list[dict[str, Any]]:
     """
     Reads a Google Sheet and converts it to a list of dictionaries.
     Assumes the first row contains headers which will be used as dictionary keys.
@@ -96,7 +97,7 @@ def get_sheet_as_json(spreadsheet_id: str, sheet_name: str = 'Sheet1') -> List[D
         for row in data[1:]:
             # Pad row with empty strings if it's shorter than headers
             row_padded = row + [''] * (len(headers) - len(row))
-            row_dict = dict(zip(headers, row_padded))
+            row_dict = dict(zip(headers, row_padded, strict=False))
             result.append(row_dict)
         
         return result

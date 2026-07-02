@@ -12,15 +12,16 @@ Requires:
 import asyncio
 import json
 
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(), override=False)
 
-from api.src.sernia_ai.push.service import _vapid, VAPID_CLAIMS_EMAIL
+from pywebpush import WebPushException, webpush
+from sqlalchemy import select
+
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.push.models import WebPushSubscription
-from pywebpush import webpush, WebPushException
-from sqlalchemy import select
+from api.src.sernia_ai.push.service import VAPID_CLAIMS_EMAIL, _vapid
 
 
 async def main():

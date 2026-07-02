@@ -1,32 +1,32 @@
-from dotenv import load_dotenv, find_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from api.src.google.common.service_account_auth import get_delegated_credentials
 
 load_dotenv(find_dotenv(".env"), override=True)
-import os
-import logfire
-import threading
-import functools
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.jobstores.memory import MemoryJobStore
-from apscheduler.job import Job
-from apscheduler.jobstores.base import JobLookupError, ConflictingIdError
-from apscheduler.events import EVENT_JOB_ERROR
-from datetime import datetime, timedelta, timezone
-from api.src.push.service import send_push_to_user
 import asyncio
-from opentelemetry import context as otel_context
-from api.src.open_phone.service import send_message
-from api.src.google.gmail.service import send_email
-from api.src.push.service import send_push_to_user
-from pydantic import BaseModel
+import functools
+import os
+import threading
+from datetime import datetime, timedelta
 from typing import Literal
+
+import logfire
 import pytz
+from apscheduler.events import EVENT_JOB_ERROR
+from apscheduler.job import Job
+from apscheduler.jobstores.base import JobLookupError
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from opentelemetry import context as otel_context
+
 from api.src.contact.service import get_contact_by_slug
 
 # Import the synchronous engine from database.py
 from api.src.database.database import sync_engine
+from api.src.google.gmail.service import send_email
+from api.src.open_phone.service import send_message
+from api.src.push.service import send_push_to_user
 
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- START
 # Store the original __str__ method in case it's ever needed for reversion or comparison

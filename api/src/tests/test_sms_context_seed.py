@@ -7,10 +7,10 @@ Tests _seed_sms_conversation and verifies the context flows correctly.
 real SMS to external contacts from tests. See CLAUDE.md.
 """
 
-import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,

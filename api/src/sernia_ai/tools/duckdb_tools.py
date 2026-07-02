@@ -5,7 +5,6 @@ Each conversation gets a file-backed DuckDB at /tmp/sernia_duckdb/<conversation_
 """
 
 import csv
-import os
 import time
 from pathlib import Path
 

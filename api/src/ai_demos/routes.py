@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends
 
 from api.src.ai_demos.chat_emilio.routes import router as chat_emilio_router
 from api.src.ai_demos.chat_weather.routes import router as chat_weather_router
-from api.src.ai_demos.multi_agent_chat.routes import router as multi_agent_chat_router
 from api.src.ai_demos.hitl_agents.routes import router as hitl_agents_router
+from api.src.ai_demos.multi_agent_chat.routes import router as multi_agent_chat_router
 from api.src.utils.rate_limit import RateLimiter
 
 # Public demo endpoints: 20 requests per minute per IP

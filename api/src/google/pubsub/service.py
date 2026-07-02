@@ -2,14 +2,14 @@
 Service functionality for Google Pub/Sub operations.
 """
 
-import logfire
-import time
 import json
+import time
+from typing import Any
+
+import logfire
 import requests
 from fastapi import HTTPException
 from google.auth import jwt
-from typing import Dict, Any
-
 
 # Cache for Google's public keys
 _GOOGLE_PUBLIC_KEYS = None
@@ -101,7 +101,7 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
         logfire.error(f"Pub/Sub token verification failed: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Token verification failed: {str(e)}")
 
-def decode_pubsub_message(message_data: str) -> Dict[str, Any]:
+def decode_pubsub_message(message_data: str) -> dict[str, Any]:
     """
     Decodes a base64-encoded Pub/Sub message.
     

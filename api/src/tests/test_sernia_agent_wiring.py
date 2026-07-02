@@ -16,7 +16,6 @@ These tests guard the wiring and the provider-adaptive behavior we rely on,
 plus a synthetic end-to-end run (TestModel, no network) that exercises the
 full pipeline: dynamic instructions, capabilities, and output handling.
 """
-import dataclasses
 from pathlib import Path
 
 import pytest
