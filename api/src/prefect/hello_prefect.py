@@ -11,23 +11,26 @@ def get_customer_ids() -> list[str]:
     # Fetch customer IDs from a database or API
     return [f"customer{n}" for n in random.choices(range(100), k=10)]
 
+
 @task
 def process_customer(customer_id: str) -> str:
     # Process a single customer
     return f"Processed {customer_id}"
 
+
 @task
 async def send_email_task(body: str) -> None:
     await send_email(
         to="espo412@gmail.com",
-        subject="Hello from Prefect", 
-        message_text=body, 
+        subject="Hello from Prefect",
+        message_text=body,
         credentials=get_delegated_credentials(
-        user_email="emilio@serniacapital.com",
-        scopes=["https://mail.google.com"],
+            user_email="emilio@serniacapital.com",
+            scopes=["https://mail.google.com"],
+        ),
     )
-    )
-    
+
+
 @flow
 async def main() -> list[str]:
     customer_ids = get_customer_ids()
@@ -48,7 +51,7 @@ if __name__ == "__main__":
     # This runs long running worker process
     main.serve(
         name="hello-prefect-deployment",
-        cron="0 0 * * *"  # Runs daily at 12:00 AM UTC
+        cron="0 0 * * *",  # Runs daily at 12:00 AM UTC
     )
 
     # # 2. TODO: Fix this. Use a Prefect cloud managed pool. Not Working yet.

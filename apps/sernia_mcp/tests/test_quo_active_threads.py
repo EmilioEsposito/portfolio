@@ -6,6 +6,7 @@ The actual Quo API integration is covered by the live-marker tests in the
 parent monorepo (``api/src/tests/test_quo_tools.py``); duplicating those
 here would just couple the MCP service tightly to upstream Quo behavior.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -43,7 +44,9 @@ async def test_filters_done_threads_and_sorts_by_recency():
         "nextPageToken": None,
     }
 
-    fake_messages = {"data": [{"direction": "incoming", "text": "hello", "createdAt": "2026-04-26T00:00:00Z"}]}
+    fake_messages = {
+        "data": [{"direction": "incoming", "text": "hello", "createdAt": "2026-04-26T00:00:00Z"}]
+    }
     fake_calls = {"data": []}
 
     async def fake_get(url, params=None):
@@ -154,13 +157,15 @@ async def test_list_active_threads_surfaces_call_id_when_call_is_latest():
         "data": [{"direction": "outgoing", "text": "old text", "createdAt": "2026-04-28T00:00:00Z"}]
     }
     fake_calls = {
-        "data": [{
-            "id": "ACcall123",
-            "direction": "incoming",
-            "duration": 42,
-            "status": "completed",
-            "createdAt": "2026-04-30T00:00:00Z",
-        }]
+        "data": [
+            {
+                "id": "ACcall123",
+                "direction": "incoming",
+                "duration": 42,
+                "status": "completed",
+                "createdAt": "2026-04-30T00:00:00Z",
+            }
+        ]
     }
 
     async def fake_get(url, params=None):
@@ -276,7 +281,12 @@ async def test_get_call_details_renders_summary_and_transcript():
         "data": {
             "dialogue": [
                 {"start": 0.5, "content": "Hello?", "identifier": "+15553334444", "userId": "U1"},
-                {"start": 2.0, "content": "Hi, calling about the tour.", "identifier": "+15551112222", "userId": None},
+                {
+                    "start": 2.0,
+                    "content": "Hi, calling about the tour.",
+                    "identifier": "+15551112222",
+                    "userId": None,
+                },
             ]
         }
     }
@@ -322,8 +332,12 @@ async def test_get_call_details_truncation_marker():
     from sernia_mcp.core.quo.contacts import get_call_details_core
 
     long_dialogue = [
-        {"start": float(i), "content": "This is a long line of dialogue " * 5,
-         "identifier": "+15551112222", "userId": None}
+        {
+            "start": float(i),
+            "content": "This is a long line of dialogue " * 5,
+            "identifier": "+15551112222",
+            "userId": None,
+        }
         for i in range(50)
     ]
     fake_call = {"data": {"id": "ACcall2", "direction": "incoming"}}
@@ -409,14 +423,24 @@ async def test_get_thread_messages_group_uses_last_activity_id():
     }
     fake_aidan_msgs = {
         "data": [
-            {"createdAt": "2026-04-01T00:00:00Z", "direction": "incoming",
-             "from": AIDAN, "to": ["+14129101989"], "text": "Aidan 1:1 hi"},
+            {
+                "createdAt": "2026-04-01T00:00:00Z",
+                "direction": "incoming",
+                "from": AIDAN,
+                "to": ["+14129101989"],
+                "text": "Aidan 1:1 hi",
+            },
         ]
     }
     fake_adeline_msgs = {
         "data": [
-            {"createdAt": "2026-04-02T00:00:00Z", "direction": "outgoing",
-             "from_": "+14129101989", "to": [ADELINE], "text": "Adeline 1:1 reply"},
+            {
+                "createdAt": "2026-04-02T00:00:00Z",
+                "direction": "outgoing",
+                "from_": "+14129101989",
+                "to": [ADELINE],
+                "text": "Adeline 1:1 reply",
+            },
         ]
     }
     fake_group_msg = {
@@ -451,8 +475,10 @@ async def test_get_thread_messages_group_uses_last_activity_id():
         elif url == "/v1/calls/ACgroupmsg":
             # 404 for the call lookup so the message branch wins.
             import httpx as _httpx
+
             def _raise():
                 raise _httpx.HTTPError("not a call")
+
             resp.raise_for_status = _raise
         return resp
 
@@ -526,8 +552,10 @@ async def test_get_thread_messages_group_input_order_independent():
             resp.json = lambda: fake_group_msg
         elif url == "/v1/calls/ACgroupmsg":
             import httpx as _httpx
+
             def _raise():
                 raise _httpx.HTTPError("not a call")
+
             resp.raise_for_status = _raise
         return resp
 
@@ -546,7 +574,8 @@ async def test_get_thread_messages_group_input_order_independent():
         forward = await get_thread_messages_core([AIDAN, ADELINE], max_results=3)
         reverse = await get_thread_messages_core([ADELINE, AIDAN], max_results=3)
         duped = await get_thread_messages_core(
-            [AIDAN, ADELINE, AIDAN], max_results=3,
+            [AIDAN, ADELINE, AIDAN],
+            max_results=3,
         )
 
     assert forward == reverse, "group output must not depend on input order"
@@ -606,8 +635,10 @@ async def test_list_active_threads_group_uses_last_activity_id():
             resp.json = lambda: fake_group_msg
         elif url == "/v1/calls/ACgroupmsg":
             import httpx as _httpx
+
             def _raise():
                 raise _httpx.HTTPError("not a call")
+
             resp.raise_for_status = _raise
         return resp
 

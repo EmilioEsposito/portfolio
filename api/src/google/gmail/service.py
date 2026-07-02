@@ -42,9 +42,7 @@ def get_gmail_service(credentials: Credentials | service_account.Credentials):
         return service
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to initialize Gmail service: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to initialize Gmail service: {str(e)}")
 
 
 def _build_mime(message_text: str, message_html: str | None):
@@ -181,17 +179,13 @@ async def send_email(
                 message_html=message_html,
             )
         else:
-            message = create_message(
-                sender, to, subject, message_text, message_html=message_html
-            )
+            message = create_message(sender, to, subject, message_text, message_html=message_html)
 
         if thread_id:
             message["threadId"] = thread_id
 
         # Send the email
-        sent_message = (
-            service.users().messages().send(userId="me", body=message).execute()
-        )
+        sent_message = service.users().messages().send(userId="me", body=message).execute()
 
         return sent_message
 
@@ -334,10 +328,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
     try:
         # Get the email message
         message = (
-            service.users()
-            .messages()
-            .get(userId=user_id, id=message_id, format="full")
-            .execute()
+            service.users().messages().get(userId=user_id, id=message_id, format="full").execute()
         )
 
         return message
@@ -415,8 +406,7 @@ async def process_single_message(message: dict[str, Any]) -> dict[str, Any]:
     try:
         # Extract headers for easier access
         headers = {
-            h["name"].lower(): h["value"]
-            for h in message.get("payload", {}).get("headers", [])
+            h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])
         }
 
         # Extract body content
@@ -440,9 +430,7 @@ async def process_single_message(message: dict[str, Any]) -> dict[str, Any]:
             "thread_id": message.get("threadId"),
             "label_ids": message.get("labelIds"),
             "subject": headers.get("subject"),
-            "from_address": headers.get(
-                "from"
-            ),  # Aligned with model's from_address field
+            "from_address": headers.get("from"),  # Aligned with model's from_address field
             "to_address": headers.get("to"),  # Aligned with model's to_address field
             "date": parsed_date.isoformat(),  # Convert to ISO format for consistency
             "body_text": body["text"],
@@ -509,7 +497,7 @@ def setup_gmail_watch(
 
         # Set up the watch request
         request = {
-            "labelIds": ["INBOX", "Label_5289438082921996324"], # INBOX and Zillow listings
+            "labelIds": ["INBOX", "Label_5289438082921996324"],  # INBOX and Zillow listings
             "topicName": topic_name,
             "labelFilterAction": "include",
         }
@@ -520,6 +508,4 @@ def setup_gmail_watch(
 
     except Exception as e:
         logfire.error(f"\n❌ Watch setup failed: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to set up Gmail watch: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to set up Gmail watch: {str(e)}")

@@ -4,6 +4,7 @@ Each experiment module imports `build_parser()` and `resolve_variants()` so the
 CLI surface (`--experiment-name`, `--variant`, `--with-tools`, etc.) is
 identical across experiments without duplication.
 """
+
 from __future__ import annotations
 
 import argparse

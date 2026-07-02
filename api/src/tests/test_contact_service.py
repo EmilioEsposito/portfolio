@@ -25,9 +25,10 @@ from api.src.user.models import User
 # IMPORTANT: These tests assume that the database schema (tables)
 # has already been created (e.g., via Alembic migrations) in the test database.
 
+
 @pytest.mark.asyncio
-async def test_basic_create_contact(): # Removed db_session parameter
-    async with AsyncSessionFactory() as session: # Use AsyncSessionFactory directly
+async def test_basic_create_contact():  # Removed db_session parameter
+    async with AsyncSessionFactory() as session:  # Use AsyncSessionFactory directly
         print(f"Type of session in test_basic_create_contact: {type(session)}")
         # ... (rest of the existing test logic, using 'session')
         existing_contact_query = select(Contact).where(Contact.slug == "test-contact")
@@ -37,7 +38,13 @@ async def test_basic_create_contact(): # Removed db_session parameter
             await session.delete(contact_to_delete)
             await session.commit()
 
-        contact_create_data = ContactCreate(slug="test-contact", first_name="Test", last_name="Contact", email="basic@example.com", phone_number="0 00-31 23 45(67) 890")
+        contact_create_data = ContactCreate(
+            slug="test-contact",
+            first_name="Test",
+            last_name="Contact",
+            email="basic@example.com",
+            phone_number="0 00-31 23 45(67) 890",
+        )
         created_contact = await create_contact(session, contact_create_data)
         await session.refresh(created_contact)
 
@@ -63,13 +70,20 @@ async def test_basic_update_contact():
         existing_contact_result = await session.execute(existing_contact_query)
         existing_contact = existing_contact_result.scalars().first()
         if not existing_contact:
-            contact_create_data = ContactCreate(slug="test-contact", first_name="Test", last_name="Contact", email="basic@example.com")
+            contact_create_data = ContactCreate(
+                slug="test-contact",
+                first_name="Test",
+                last_name="Contact",
+                email="basic@example.com",
+            )
             created_contact = await create_contact(session, contact_create_data)
             await session.refresh(created_contact)
             existing_contact = created_contact
 
         # Update the contact
-        update_data = ContactUpdate(first_name="Updated", last_name="Contact", email="updated@example.com")
+        update_data = ContactUpdate(
+            first_name="Updated", last_name="Contact", email="updated@example.com"
+        )
         updated_contact = await update_contact(session, existing_contact.id, update_data)
         await session.refresh(updated_contact)
 

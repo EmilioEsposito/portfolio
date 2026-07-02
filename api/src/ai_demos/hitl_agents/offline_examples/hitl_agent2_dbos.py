@@ -8,6 +8,7 @@ Uses DBOS's recv/send pattern for durable human-in-the-loop workflows:
 
 No custom database tables needed - DBOS handles all state persistence.
 """
+
 import asyncio
 import json
 
@@ -71,9 +72,10 @@ async def send_sms(body: str, to: str | None = None) -> str:
         return error_msg
 
 
-hitl_agent2_dbos = DBOSAgent(hitl_agent2, name="hitl_agent2_dbos") # DBOS-tag (can comment out)
+hitl_agent2_dbos = DBOSAgent(hitl_agent2, name="hitl_agent2_dbos")  # DBOS-tag (can comment out)
 
-@DBOS.step() # DBOS-tag (can comment out)
+
+@DBOS.step()  # DBOS-tag (can comment out)
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
     logfire.info("Handling deferred tool requests...", result=result)
     tool_call_id = result.output.approvals[0].tool_call_id
@@ -83,31 +85,32 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
     override_args = {"body": "Orig body overridden by approval. Orignal body: " + body}
 
     deferred_tool_results = DeferredToolResults(
-        approvals={
-            tool_call_id: ToolApproved(override_args=override_args)
-        }
+        approvals={tool_call_id: ToolApproved(override_args=override_args)}
     )
     return deferred_tool_results
 
-@DBOS.workflow() # DBOS-tag (can comment out)
+
+@DBOS.workflow()  # DBOS-tag (can comment out)
 async def hitl_agent2_dbos_workflow(prompt: str) -> str:
     first_run_result = await hitl_agent2_dbos.run(user_prompt=prompt)
     deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
-    resumed = await hitl_agent2_dbos.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
+    resumed = await hitl_agent2_dbos.run(
+        message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results
+    )
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
+
 
 # async def start_workflow(prompt: str, workflow_id: str) -> str:
 #     # Set the workflow ID for the next started workflow
 #     with SetWorkflowID(workflow_id):
 #         handle = await DBOS.start_workflow_async(func=hitl_agent2_dbos_workflow, prompt=prompt)
-    
 
 
 #     wf_status = await handle.get_status()
 #     print(f"Workflow status: {wf_status.status}")
-    
+
 #     # Wait for the workflow to complete to ensure the script doesn't exit early
 #     # This prevents 'cancelled' errors from the main workflow shutting down prematurely
 #     print(f"Waiting for workflow to complete...")
@@ -122,7 +125,7 @@ async def hitl_agent2_dbos_workflow(prompt: str) -> str:
 #     return wf_status.workflow_id
 
 if __name__ == "__main__":
-    launch_dbos() # DBOS-tag (can comment out)
+    launch_dbos()  # DBOS-tag (can comment out)
 
     # simple run
     asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))

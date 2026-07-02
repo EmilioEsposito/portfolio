@@ -10,11 +10,7 @@ from api.src.dbos_service.dbos_scheduler import (
 )
 from api.src.utils.clerk import verify_serniacapital_user
 
-router = APIRouter(
-    prefix="/dbos",
-    tags=["dbos"],
-    dependencies=[Depends(verify_serniacapital_user)]
-)
+router = APIRouter(prefix="/dbos", tags=["dbos"], dependencies=[Depends(verify_serniacapital_user)])
 
 
 @router.get("/get_jobs", response_model=list[dict])
@@ -44,11 +40,7 @@ async def run_job_now(job_id: str):
         now = datetime.now()
         logfire.info(f"Manually triggering DBOS workflow: {job_id}")
         await workflow_func(now, now)
-        return {
-            "message": f"Job {job_id} has been triggered to run now.",
-            "job_details": job
-        }
+        return {"message": f"Job {job_id} has been triggered to run now.", "job_details": job}
     except Exception as e:
         logfire.exception(f"Failed to run job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to run job {job_id}: {str(e)}")
-

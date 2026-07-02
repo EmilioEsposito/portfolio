@@ -1,6 +1,6 @@
 from dotenv import find_dotenv, load_dotenv
 
-load_dotenv(find_dotenv('.env'))
+load_dotenv(find_dotenv(".env"))
 import json
 import os
 from datetime import datetime
@@ -17,17 +17,13 @@ from api.src.open_phone.service import send_message
 # from dbos import DBOS
 
 
-
 CLICKUP_API_KEY = os.getenv("CLICKUP_API_KEY")
 
 if not CLICKUP_API_KEY:
     raise ValueError("CLICKUP_API_KEY must be set")
 
 
-headers = {
-    "accept": "application/json",
-    "Authorization": CLICKUP_API_KEY
-}
+headers = {"accept": "application/json", "Authorization": CLICKUP_API_KEY}
 
 
 async def get_peppino_view_tasks():
@@ -38,31 +34,32 @@ async def get_peppino_view_tasks():
     url = f"https://api.clickup.com/api/v2/view/{peppino_view_id}/task"
 
     response = requests.get(url, headers=headers)
-    tasks = response.json()['tasks']
-    #filter for tasks due today OR overdue
-    today_et = datetime.now(pytz.timezone('US/Eastern'))
+    tasks = response.json()["tasks"]
+    # filter for tasks due today OR overdue
+    today_et = datetime.now(pytz.timezone("US/Eastern"))
     tasks_filtered = []
 
     logfire.info(f"Found {len(tasks)} tasks")
     logfire.info(f"Today's date: {today_et.date()}")
     logfire.info(f"Today's weekday: {today_et.weekday()}")
-    
 
     # filter for tasks (due today or overdue) AND not completed
     for task in tasks:
-        due_date = task.get('due_date') or 0 # in case due_date is None
+        due_date = task.get("due_date") or 0  # in case due_date is None
         task_due_date = datetime.fromtimestamp(int(due_date) / 1000)
-        task['due_date_pretty'] = task_due_date.strftime("%Y-%m-%d")
-        logfire.debug(f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}")
+        task["due_date_pretty"] = task_due_date.strftime("%Y-%m-%d")
+        logfire.debug(
+            f"Task: {task['name']}, Due: {task['due_date_pretty']}, Status: {task['status']['status']}, List ID: {task['list']['id']}"
+        )
         # filter for tasks due today
         if task_due_date.date() <= today_et.date():
             # filter out completed tasks
-            if task['status']['status'] != 'complete':
+            if task["status"]["status"] != "complete":
                 pretty_task_str = json.dumps(task, indent=4)
                 logfire.info(f"task payload: {pretty_task_str}")
 
                 # for low overdue priority tasks, only append if it's Friday
-                if task.get('priority') and task.get('priority', {}).get('priority','') == 'low':
+                if task.get("priority") and task.get("priority", {}).get("priority", "") == "low":
                     if today_et.weekday() == 4:
                         tasks_filtered.append(task)
                     continue
@@ -70,17 +67,14 @@ async def get_peppino_view_tasks():
                 else:
                     tasks_filtered.append(task)
 
-
-
     # sort tasks by due date
-    tasks_filtered.sort(key=lambda x: x['due_date_pretty'])
+    tasks_filtered.sort(key=lambda x: x["due_date_pretty"])
 
     filtered_tasks_str = "Sernia Task Reminder - Reply with updates"
 
-    if len(tasks_filtered) > 0 or os.getenv("RAILWAY_ENVIRONMENT_NAME","local")!='production':
-
+    if len(tasks_filtered) > 0 or os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") != "production":
         for task in tasks_filtered:
-            is_maintenance_task = task['list']['id'] == "901312027371"
+            is_maintenance_task = task["list"]["id"] == "901312027371"
             # format the tasks_filtered nicely for an AI to read
             task_template = "\n-------------"
             task_template += f"\nTask: {task['name']}"
@@ -90,14 +84,14 @@ async def get_peppino_view_tasks():
 
             if is_maintenance_task:
                 task_template += f"\nSee details: {task['url']}"
-            
+
             filtered_tasks_str += task_template
-        
+
         logfire.info(filtered_tasks_str)
 
         # send message to sernia
-        env = os.getenv("RAILWAY_ENVIRONMENT_NAME","local")
-        if env=="production":
+        env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
+        if env == "production":
             target_contact = await get_contact_by_slug("peppino")
         else:
             target_contact = await get_contact_by_slug("emilio")
@@ -107,7 +101,7 @@ async def get_peppino_view_tasks():
         await send_message(
             message=filtered_tasks_str,
             to_phone_number=to_phone_number,
-            from_phone_number="+14129101500"
+            from_phone_number="+14129101500",
         )
         logfire.info(f"Sent Task Reminder message to {to_phone_number}")
     else:
@@ -116,8 +110,8 @@ async def get_peppino_view_tasks():
     return filtered_tasks_str
 
 
-
 # --- APScheduler Job Registration ---
+
 
 def register_clickup_apscheduler_jobs():
     """Register ClickUp scheduled jobs with APScheduler.

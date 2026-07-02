@@ -43,9 +43,7 @@ import requests
 # --- Constants --------------------------------------------------------------
 
 LOGFIRE_BASE_DEFAULT = "https://logfire-us.pydantic.dev"
-ANTHROPIC_FIRE_URL = (
-    "https://api.anthropic.com/v1/claude_code/routines/{routine_id}/fire"
-)
+ANTHROPIC_FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/{routine_id}/fire"
 ANTHROPIC_VERSION = "2023-06-01"
 ANTHROPIC_BETA = "experimental-cc-routine-2026-04-01"
 
@@ -251,14 +249,12 @@ def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[d
     last_exc: requests.RequestException | None = None
     for attempt in range(1, QUERY_MAX_ATTEMPTS + 1):
         try:
-            resp = requests.get(
-                url, headers=headers, params=params, timeout=HTTP_TIMEOUT
-            )
+            resp = requests.get(url, headers=headers, params=params, timeout=HTTP_TIMEOUT)
         except (requests.ConnectionError, requests.Timeout) as exc:
             # Network-level blip (DNS/connect/read timeout): retry.
             last_exc = exc
             if attempt < QUERY_MAX_ATTEMPTS:
-                backoff = 2 ** attempt
+                backoff = 2**attempt
                 log(f"Logfire query network error ({exc}); retry {attempt} in {backoff}s")
                 time.sleep(backoff)
                 continue
@@ -269,7 +265,7 @@ def query_logfire(base: str, token: str, sql: str, min_timestamp: str) -> list[d
 
         # Transient gateway/timeout statuses: back off and retry.
         if resp.status_code in QUERY_RETRY_STATUSES and attempt < QUERY_MAX_ATTEMPTS:
-            backoff = 2 ** attempt
+            backoff = 2**attempt
             log(
                 f"Logfire query failed: HTTP {resp.status_code} "
                 f"(transient); retry {attempt} in {backoff}s"
@@ -358,7 +354,10 @@ def extract_rows(data) -> list[dict]:
         value_lists = [c.get("values") or [] for c in cols]
         n = max((len(v) for v in value_lists), default=0)
         return [
-            {name: (vals[i] if i < len(vals) else None) for name, vals in zip(names, value_lists, strict=False)}
+            {
+                name: (vals[i] if i < len(vals) else None)
+                for name, vals in zip(names, value_lists, strict=False)
+            }
             for i in range(n)
         ]
 
@@ -441,8 +440,7 @@ def build_payload(groups: list[dict], window_hours: float) -> str:
         if g["fingerprint"]:
             lines.append(f"    fingerprint: {g['fingerprint']}")
         lines.append(
-            f"    hits: {g['hits']}   first_seen: {g['first_seen']}"
-            f"   last_seen: {g['last_seen']}"
+            f"    hits: {g['hits']}   first_seen: {g['first_seen']}   last_seen: {g['last_seen']}"
         )
         lines.append(f"    sample traces: {traces}")
         lines.append("")
@@ -476,8 +474,7 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Do everything EXCEPT the fire POST; just print the payload that "
-        "would be sent.",
+        help="Do everything EXCEPT the fire POST; just print the payload that would be sent.",
     )
     args = parser.parse_args()
 
@@ -495,7 +492,9 @@ def main() -> int:
         return 1
 
     min_timestamp = window_start()
-    window_hours = (datetime.now(UTC) - datetime.fromisoformat(min_timestamp)).total_seconds() / 3600
+    window_hours = (
+        datetime.now(UTC) - datetime.fromisoformat(min_timestamp)
+    ).total_seconds() / 3600
     log(f"Logfire base:   {base}")
     log(f"Window start (min_timestamp): {min_timestamp}  (~{window_hours:g}h lookback)")
     log(f"Dry run:        {dry_run}")

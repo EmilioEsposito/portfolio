@@ -12,6 +12,7 @@ Covers:
 All Google calls patch the discovery-built service mock; ClickUp calls
 patch the shared ``clickup_request`` helper. No network.
 """
+
 from __future__ import annotations
 
 import io
@@ -42,11 +43,12 @@ async def test_read_google_doc_extracts_text_from_paragraph_runs():
             ]
         },
     }
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_doc_core
 
@@ -63,11 +65,12 @@ async def test_read_google_doc_empty_returns_friendly_message():
         "title": "Blank",
         "body": {"content": []},
     }
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_doc_core
 
@@ -91,15 +94,17 @@ async def test_read_pdf_delegates_to_doc_when_mime_is_google_doc():
         "name": "Mistake.docx",
         "mimeType": "application/vnd.google-apps.document",
     }
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
-    ), patch(
-        "sernia_mcp.core.google.drive.read_google_doc_core",
-        new=AsyncMock(return_value="<doc body>"),
-    ) as fake_doc_read:
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "sernia_mcp.core.google.drive.read_google_doc_core",
+            new=AsyncMock(return_value="<doc body>"),
+        ) as fake_doc_read,
+    ):
         from sernia_mcp.core.google.drive import read_drive_pdf_core
 
         out = await read_drive_pdf_core("file1", user_email="x@s.com")
@@ -127,14 +132,15 @@ async def test_read_pdf_extracts_text_via_pypdf():
     fake_reader = MagicMock(pages=[fake_page])
     fake_pypdf = MagicMock(PdfReader=MagicMock(return_value=fake_reader))
 
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
-    ), patch(
-        "sernia_mcp.core.google.drive.MediaIoBaseDownload", fake_downloader_cls
-    ), patch.dict("sys.modules", {"pypdf": fake_pypdf}):
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
+        patch("sernia_mcp.core.google.drive.MediaIoBaseDownload", fake_downloader_cls),
+        patch.dict("sys.modules", {"pypdf": fake_pypdf}),
+    ):
         from sernia_mcp.core.google.drive import read_drive_pdf_core
 
         out = await read_drive_pdf_core("pdf1", user_email="x@s.com")
@@ -159,15 +165,18 @@ async def test_read_pdf_image_only_returns_no_text_notice():
     fake_reader = MagicMock(pages=[fake_page])
     fake_pypdf = MagicMock(PdfReader=MagicMock(return_value=fake_reader))
 
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
-    ), patch(
-        "sernia_mcp.core.google.drive.MediaIoBaseDownload",
-        return_value=fake_downloader,
-    ), patch.dict("sys.modules", {"pypdf": fake_pypdf}):
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "sernia_mcp.core.google.drive.MediaIoBaseDownload",
+            return_value=fake_downloader,
+        ),
+        patch.dict("sys.modules", {"pypdf": fake_pypdf}),
+    ):
         # Provide some bytes via the buffer so the byte-count line renders
         with patch(
             "sernia_mcp.core.google.drive.io.BytesIO",
@@ -213,17 +222,19 @@ async def test_read_email_thread_renders_messages_in_order():
             },
         ]
     }
-    with patch(
-        "sernia_mcp.core.google.gmail.get_gmail_service", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.gmail.get_delegated_credentials",
-        return_value=MagicMock(),
-    ), patch(
-        "sernia_mcp.core.google.gmail.extract_body",
-        side_effect=[
-            {"text": "First message body"},
-            {"text": "Reply body"},
-        ],
+    with (
+        patch("sernia_mcp.core.google.gmail.get_gmail_service", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.gmail.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "sernia_mcp.core.google.gmail.extract_body",
+            side_effect=[
+                {"text": "First message body"},
+                {"text": "Reply body"},
+            ],
+        ),
     ):
         from sernia_mcp.core.google.gmail import read_email_thread_core
 
@@ -244,11 +255,12 @@ async def test_read_email_thread_404_returns_helpful_message():
     fake_service = MagicMock()
     fake_service.users().threads().get().execute.side_effect = err
 
-    with patch(
-        "sernia_mcp.core.google.gmail.get_gmail_service", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.gmail.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.gmail.get_gmail_service", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.gmail.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.gmail import read_email_thread_core
 
@@ -277,11 +289,12 @@ async def test_list_calendar_events_renders_event_lines():
             }
         ]
     }
-    with patch(
-        "sernia_mcp.core.google.calendar.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.calendar.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.calendar.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.calendar.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.calendar import list_calendar_events_core
 
@@ -296,17 +309,16 @@ async def test_list_calendar_events_renders_event_lines():
 async def test_list_calendar_events_empty_message_includes_window():
     fake_service = MagicMock()
     fake_service.events().list().execute.return_value = {"items": []}
-    with patch(
-        "sernia_mcp.core.google.calendar.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.calendar.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.calendar.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.calendar.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.calendar import list_calendar_events_core
 
-        out = await list_calendar_events_core(
-            user_email="x@s.com", days_ahead=14, days_behind=3
-        )
+        out = await list_calendar_events_core(user_email="x@s.com", days_ahead=14, days_behind=3)
 
     assert "next 14 days" in out
     assert "3 days back" in out
@@ -334,9 +346,7 @@ async def test_list_clickup_lists_renders_hierarchy():
                     "folders": [
                         {
                             "name": "Tenant Ops",
-                            "lists": [
-                                {"id": "L1", "name": "Maintenance", "task_count": 3}
-                            ],
+                            "lists": [{"id": "L1", "name": "Maintenance", "task_count": 3}],
                         }
                     ]
                 }

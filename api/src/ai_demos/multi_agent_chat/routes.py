@@ -1,6 +1,7 @@
 """
 Routes for Graph-based router agent that dynamically routes to Emilio or Weather agents
 """
+
 import json
 
 import logfire
@@ -51,13 +52,13 @@ data: [DONE]"""
         "headers": {
             "x-vercel-ai-ui-message-stream": {
                 "description": "Vercel AI SDK stream version",
-                "schema": {"type": "string", "example": "v1"}
+                "schema": {"type": "string", "example": "v1"},
             },
             "X-Accel-Buffering": {
                 "description": "Disables buffering for streaming",
-                "schema": {"type": "string", "example": "no"}
-            }
-        }
+                "schema": {"type": "string", "example": "no"},
+            },
+        },
     }
 }
 
@@ -73,15 +74,10 @@ _MULTI_AGENT_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440001",
                     "role": "user",
-                    "parts": [
-                        {
-                            "type": "text",
-                            "text": "What's the weather in San Francisco?"
-                        }
-                    ]
+                    "parts": [{"type": "text", "text": "What's the weather in San Francisco?"}],
                 }
-            ]
-        }
+            ],
+        },
     },
     "emilio_question": {
         "summary": "Question about Emilio",
@@ -93,16 +89,11 @@ _MULTI_AGENT_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440003",
                     "role": "user",
-                    "parts": [
-                        {
-                            "type": "text",
-                            "text": "Tell me about Emilio's projects"
-                        }
-                    ]
+                    "parts": [{"type": "text", "text": "Tell me about Emilio's projects"}],
                 }
-            ]
-        }
-    }
+            ],
+        },
+    },
 }
 
 _MULTI_AGENT_OPENAPI_EXTRA = {
@@ -110,10 +101,10 @@ _MULTI_AGENT_OPENAPI_EXTRA = {
         "content": {
             "application/json": {
                 "schema": expand_json_schema(SubmitMessage.model_json_schema()),
-                "examples": _MULTI_AGENT_REQUEST_EXAMPLES
+                "examples": _MULTI_AGENT_REQUEST_EXAMPLES,
             }
         },
-        "required": True
+        "required": True,
     }
 }
 
@@ -128,14 +119,14 @@ _MULTI_AGENT_OPENAPI_EXTRA = {
 async def multi_agent_chat(request: Request) -> Response:
     """
     Unified chat endpoint using PydanticAI's Graph Beta API for dynamic routing.
-    
+
     This endpoint automatically routes user messages to the appropriate specialized agent:
     - **Emilio Agent**: For questions about Emilio Esposito, portfolio, skills, projects, etc.
     - **Weather Agent**: For weather-related questions and forecasts
-    
+
     The routing is handled by Pydantic AI's Graph Beta API with decisions, which uses an LLM-based router agent
     to analyze the message and route it to the correct agent based on content.
-    
+
     **Response:**
     Returns a Server-Sent Events (SSE) stream with Content-Type: `text/event-stream`.
     Each event follows the Vercel AI SDK Data Stream Protocol format.
@@ -156,7 +147,7 @@ async def multi_agent_chat(request: Request) -> Response:
     # DB-loaded history) — raw Vercel UI dicts are rejected by pydantic-ai
     # >=1.9x ("'dict' object has no attribute 'parts'").
 
-    if sanitized_json.get('trigger') == 'submit-message':
+    if sanitized_json.get("trigger") == "submit-message":
         logfire.info(
             "new multi-agent chat message",
             slack_alert=True,
@@ -179,5 +170,5 @@ async def multi_agent_chat(request: Request) -> Response:
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    
+
     return response

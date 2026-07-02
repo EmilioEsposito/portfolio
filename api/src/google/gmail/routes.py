@@ -27,6 +27,7 @@ client = AsyncOpenAI()  # Create async client instance
 
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
+
 @router.get("/get_zillow_emails")
 async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
     """
@@ -47,13 +48,17 @@ async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
     try:
         # Step 1: cheap candidate lookup on the inline `subject` column only.
         candidate_ids = (
-            await session.execute(
-                select(EmailMessage.id).where(
-                    EmailMessage.subject.like('%is requesting%'),  # Only inquiries
-                    ~EmailMessage.subject.like('Re%'),  # is NOT a reply
+            (
+                await session.execute(
+                    select(EmailMessage.id).where(
+                        EmailMessage.subject.like("%is requesting%"),  # Only inquiries
+                        ~EmailMessage.subject.like("Re%"),  # is NOT a reply
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         if not candidate_ids:
             return []
@@ -64,7 +69,7 @@ async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
             select(EmailMessage)
             .where(
                 EmailMessage.id.in_(candidate_ids),
-                EmailMessage.body_html.ilike('%zillow%'),
+                EmailMessage.body_html.ilike("%zillow%"),
             )
             .order_by(func.random())
             .limit(5)
@@ -80,7 +85,7 @@ async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
                 "subject": email.subject,
                 "sender": email.from_address,
                 "received_at": email.received_date.isoformat(),
-                "body_html": email.body_html
+                "body_html": email.body_html,
             }
             for email in emails
         ]
@@ -90,10 +95,8 @@ async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
         # captured. The previous str(e) was empty for the timeout error,
         # producing a blank "Failed to fetch Zillow emails: " message.
         logfire.exception("Error fetching Zillow emails")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch Zillow emails: {e!r}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to fetch Zillow emails: {e!r}")
+
 
 @router.post("/generate_email_response")
 async def generate_email_response(request: GenerateResponseRequest):
@@ -114,21 +117,19 @@ Please generate a professional and appropriate response:"""
             model="gpt-5.4-mini",
             messages=[
                 {"role": "system", "content": "You are a professional real estate assistant."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             temperature=0.7,
-            max_tokens=500
+            max_tokens=500,
         )
-        
+
         response_text = openai_response.choices[0].message.content
         return {"response": response_text}
-        
+
     except Exception as e:
         logfire.error(f"Error generating email response: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate email response: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to generate email response: {str(e)}")
+
 
 # Cron job route - supports both GET and POST
 @router.post("/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
@@ -141,10 +142,8 @@ async def stop_watch(payload: OptionalPassword = None):
         result = stop_gmail_watch()
         return {"success": result}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to stop Gmail watch: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to stop Gmail watch: {str(e)}")
+
 
 # Cron job route - supports both GET and POST
 @router.post("/watch/start", dependencies=[Depends(verify_cron_or_admin)])
@@ -157,14 +156,12 @@ async def start_watch(payload: OptionalPassword = None):
         result = setup_gmail_watch()
         return {
             "success": True,
-            "expiration": result.get('expiration'),
-            "historyId": result.get('historyId')
+            "expiration": result.get("expiration"),
+            "historyId": result.get("historyId"),
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to start Gmail watch: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to start Gmail watch: {str(e)}")
+
 
 # Cron job route to refresh Gmail watch - supports both GET and POST
 @router.post("/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
@@ -192,15 +189,12 @@ async def refresh_watch(payload: OptionalPassword = None):
             # Start a new watch
             result = setup_gmail_watch()
             logfire.info(f"✓ Started new watch (expires: {result.get('expiration')})")
-            
+
             return {
                 "success": True,
                 "message": "Watch refreshed successfully",
-                "expiration": result.get('expiration'),
-                "historyId": result.get('historyId')
+                "expiration": result.get("expiration"),
+                "historyId": result.get("historyId"),
             }
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to refresh Gmail watch: {str(e)}"
-        ) 
+        raise HTTPException(status_code=500, detail=f"Failed to refresh Gmail watch: {str(e)}")

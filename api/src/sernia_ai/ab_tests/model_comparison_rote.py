@@ -9,6 +9,7 @@ Run:
     python -m api.src.sernia_ai.ab_tests.model_comparison_rote \\
         --experiment-name sernia-rote-$(date +%Y-%m-%d)
 """
+
 from __future__ import annotations
 
 import asyncio

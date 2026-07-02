@@ -125,7 +125,7 @@ def _clean_zillow_email(content: str) -> str:
     says_pattern = re.compile(r"[A-Z]\w+(?:\s+\w+)*\s+says:\s*")
     matches = list(says_pattern.finditer(content))
     if matches:
-        message = content[matches[-1].end():].strip()
+        message = content[matches[-1].end() :].strip()
         if message:
             # Strip trailing boilerplate that may follow the message
             message = _strip_zillow_tail(message)
@@ -152,19 +152,17 @@ def _strip_zillow_tail(content: str) -> str:
     content = re.sub(r"\[Send Application\]\([^)]*\)", "", content)
 
     # Flatten remaining markdown links — keep text, strip syntax
-    content = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", content)   # [text](url) → text
-    content = re.sub(r"\[([^\]]+)\]\(\s*", r"\1", content)       # [text]( → text
-    content = re.sub(r"\[\]\([^)]*\)", "", content)               # [](url) → remove
-    content = re.sub(r"\[\]\(\s*", "", content)                   # []( → remove
+    content = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", content)  # [text](url) → text
+    content = re.sub(r"\[([^\]]+)\]\(\s*", r"\1", content)  # [text]( → text
+    content = re.sub(r"\[\]\([^)]*\)", "", content)  # [](url) → remove
+    content = re.sub(r"\[\]\(\s*", "", content)  # []( → remove
 
     # Known boilerplate phrases
     for pat in _ZILLOW_BOILERPLATE_COMPILED:
         content = pat.sub("", content)
 
     # Action button text (plain text variants, for cases without link syntax)
-    content = re.sub(
-        r"You can also reply directly to this (?:email|message)\.?\s*", "", content
-    )
+    content = re.sub(r"You can also reply directly to this (?:email|message)\.?\s*", "", content)
 
     # Standalone button text
     content = re.sub(r"^\s*(?:Yes|No)\s*$", "", content, flags=re.MULTILINE)
@@ -257,9 +255,7 @@ def resolve_email_routing(to: list[str], user_email: str) -> EmailRouting:
     All @serniacapital.com → internal (user's mailbox, no approval).
     Any external → external (shared mailbox, requires approval).
     """
-    all_internal = all(
-        addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to
-    )
+    all_internal = all(addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to)
     if all_internal:
         return EmailRouting(
             is_internal=True,
@@ -320,9 +316,7 @@ async def _get_threading_headers(message_id: str, user_email: str) -> dict:
     import logfire
 
     try:
-        service = get_gmail_service(
-            get_delegated_credentials(user_email, GMAIL_SCOPES)
-        )
+        service = get_gmail_service(get_delegated_credentials(user_email, GMAIL_SCOPES))
         msg = (
             service.users()
             .messages()
@@ -335,16 +329,11 @@ async def _get_threading_headers(message_id: str, user_email: str) -> dict:
             .execute()
         )
 
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
         rfc_message_id = headers.get("message-id", "")
 
         if not rfc_message_id:
-            logfire.warn(
-                "No Message-ID header found for reply", message_id=message_id
-            )
+            logfire.warn("No Message-ID header found for reply", message_id=message_id)
             return {}
 
         existing_refs = headers.get("references", "")
@@ -410,14 +399,10 @@ async def send_email(
     thread_kwargs: dict = {}
     if reply_to_message_id:
         if routing.is_internal:
-            thread_kwargs = await _get_threading_headers(
-                reply_to_message_id, ctx.deps.user_email
-            )
+            thread_kwargs = await _get_threading_headers(reply_to_message_id, ctx.deps.user_email)
         else:
             # Try shared mailbox first (send mailbox), fall back to user's mailbox
-            thread_kwargs = await _get_threading_headers(
-                reply_to_message_id, SHARED_EXTERNAL_EMAIL
-            )
+            thread_kwargs = await _get_threading_headers(reply_to_message_id, SHARED_EXTERNAL_EMAIL)
             if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
                 logfire.info(
                     "reply_to_message_id not found in shared mailbox, trying user account",
@@ -474,10 +459,7 @@ async def search_emails(
     service = get_gmail_service(credentials)
 
     results = (
-        service.users()
-        .messages()
-        .list(userId="me", q=query, maxResults=max_results)
-        .execute()
+        service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     )
     messages = results.get("messages", [])
     if not messages:
@@ -488,14 +470,15 @@ async def search_emails(
         msg = (
             service.users()
             .messages()
-            .get(userId="me", id=msg_ref["id"], format="metadata",
-                 metadataHeaders=["Subject", "From", "Date"])
+            .get(
+                userId="me",
+                id=msg_ref["id"],
+                format="metadata",
+                metadataHeaders=["Subject", "From", "Date"],
+            )
             .execute()
         )
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
         lines.append(
             f"[{headers.get('date', '?')}] From: {headers.get('from', '?')}\n"
             f"  Subject: {headers.get('subject', '(no subject)')}\n"
@@ -516,10 +499,7 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
     if not message:
         return f"Email {message_id} not found (may have been deleted)."
 
-    headers = {
-        h["name"].lower(): h["value"]
-        for h in message.get("payload", {}).get("headers", [])
-    }
+    headers = {h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])}
     body = extract_email_body(message)
     content = body.get("text") or body.get("html") or "(no body)"
 
@@ -543,6 +523,7 @@ async def _read_email(message_id: str, user_email: str, text_only: bool = True) 
         f"{content}"
     )
 
+
 @google_toolset.tool
 async def read_email(
     ctx: RunContext[SerniaDeps],
@@ -565,6 +546,7 @@ async def read_email(
         result = await _summarize_if_long(result, 5000)
 
     return result
+
 
 def _strip_quoted_replies(text: str) -> str:
     """Strip quoted reply blocks from email text.
@@ -631,12 +613,7 @@ async def read_email_thread(
     service = get_gmail_service(credentials)
 
     try:
-        thread = (
-            service.users()
-            .threads()
-            .get(userId="me", id=thread_id, format="full")
-            .execute()
-        )
+        thread = service.users().threads().get(userId="me", id=thread_id, format="full").execute()
     except HttpError as e:
         if e.resp.status == 404:
             return (
@@ -651,10 +628,7 @@ async def read_email_thread(
 
     parts: list[str] = []
     for i, msg in enumerate(messages, 1):
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
         body = extract_email_body(msg)
         content = body.get("text") or body.get("html") or "(no body)"
         if content == body.get("html"):
@@ -959,6 +933,7 @@ async def read_google_sheet(
     dataset_info = ""
     if len(rows) > 5 and ctx.deps.conversation_id:
         from api.src.sernia_ai.tools.data_export import _sanitize_name, write_dataset
+
         ds_name = _sanitize_name(sheet_name or "sheet")
         try:
             _, rows_written = write_dataset(
@@ -974,7 +949,7 @@ async def read_google_sheet(
                 sample_pairs += ", ..."
             dataset_info = (
                 f"[Dataset saved as '{ds_name}' ({rows_written} rows, "
-                f"{len(rows[0])} cols). Use load_dataset(\"{ds_name}\") then "
+                f'{len(rows[0])} cols). Use load_dataset("{ds_name}") then '
                 f"run_sql() for filtering/aggregation.]\n"
                 f"[Columns: {', '.join(rows[0])}]\n"
                 f"[Sample: {sample_pairs}]\n\n"
@@ -1036,6 +1011,7 @@ async def read_drive_pdf(
     # Try to extract text with pypdf
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(io.BytesIO(pdf_bytes))
         text_parts = []
         for page in reader.pages:
@@ -1047,7 +1023,9 @@ async def read_drive_pdf(
         return f"PDF '{name}' downloaded ({len(pdf_bytes)} bytes) but pypdf is not installed for text extraction."
 
     if not text.strip():
-        return f"PDF '{name}' appears to be image-based (no extractable text). {len(pdf_bytes)} bytes."
+        return (
+            f"PDF '{name}' appears to be image-based (no extractable text). {len(pdf_bytes)} bytes."
+        )
 
     if len(text) > _DOC_CONTENT_CAP:
         text = text[:_DOC_CONTENT_CAP] + "\n...(truncated)"

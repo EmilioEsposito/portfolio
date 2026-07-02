@@ -73,6 +73,7 @@ never_escalate_from_numbers = [
     "+16266125747",
 ]
 
+
 # --- Normalization function ---
 def normalize_text_for_keyword_search(text: str) -> str:
     if not text:
@@ -157,7 +158,9 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
         except Exception as e:
             last_exception = e
             if attempt < max_retries:
-                logfire.warn(f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+                logfire.warn(
+                    f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}"
+                )
             else:
                 logfire.exception(f"OpenAI API call failed after {max_retries + 1} attempts: {e}")
 
@@ -165,6 +168,7 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
     # False escalations cause more harm (alarm fatigue) than missed ones.
     error_snippet = str(last_exception)[:100]
     return False, f"AI assessment failed: {error_snippet}"
+
 
 @logfire.instrument()
 async def analyze_for_twilio_escalation(
@@ -213,7 +217,9 @@ async def analyze_for_twilio_escalation(
     # Allow an AI Agent to assess if this should be escalated
     try:
         should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
-        logfire.info(f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}")
+        logfire.info(
+            f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}"
+        )
     except Exception as e:
         logfire.error(f"AI Error assessing for escalation: {e}")
 
@@ -226,7 +232,7 @@ async def analyze_for_twilio_escalation(
     #     reason = f"Keyword fallback escalation triggered for event_id={event_id}"
     #     logfire.info(f"Explicit keyword escalation triggered. event_id={event_id} message_text={event_message_text}")
 
-    escalate_from_number = "+14129001989" 
+    escalate_from_number = "+14129001989"
     event_message_text = (
         f"URGENT! {event_from_number} said: {event_message_text}"  # Prepend identifier
     )
@@ -240,7 +246,9 @@ async def analyze_for_twilio_escalation(
     # override should_escalate if the from number is in the never_escalate_from_numbers list
     if should_escalate and event_from_number in never_escalate_from_numbers:
         should_escalate = False
-        logfire.info(f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating")
+        logfire.info(
+            f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating"
+        )
 
     if should_escalate:
         logfire.info(
@@ -248,12 +256,9 @@ async def analyze_for_twilio_escalation(
         )
         try:
             # Construct the API URL
-            studio_api_url = (
-                f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
-            )
+            studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
             for escalate_to_number in escalate_to_numbers:
-
                 # Prepare the payload
                 payload = {
                     "To": escalate_to_number,

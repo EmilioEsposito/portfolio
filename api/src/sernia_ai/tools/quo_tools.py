@@ -68,27 +68,32 @@ OPENPHONE_SPEC_URL = (
 # MCP-generated tools that mutate data and require human approval.
 # createContact_v1 / updateContactById_v1 replaced by custom tools with
 # proper Pydantic types, first-class tags, and read-merge-write safety.
-_MCP_WRITE_TOOLS = frozenset({
-    "deleteContact_v1",
-})
+_MCP_WRITE_TOOLS = frozenset(
+    {
+        "deleteContact_v1",
+    }
+)
 
 # Tools to keep from the MCP toolset (the rest are filtered out to save tokens).
 # Contact create/update/search → custom tools; keep delete + field defs.
 # getCallSummary_v1 / getCallTranscript_v1 are intentionally NOT kept — the
 # custom ``get_call_details`` tool wraps both into a single curated response.
-_KEEP_TOOLS = frozenset({
-    # Contacts
-    "deleteContact_v1",
-    "getContactCustomFields_v1",
-    # Calls
-    "listCalls_v1",
-    "getCallById_v1",
-})
+_KEEP_TOOLS = frozenset(
+    {
+        # Contacts
+        "deleteContact_v1",
+        "getContactCustomFields_v1",
+        # Calls
+        "listCalls_v1",
+        "getCallById_v1",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # OpenAPI spec helpers
 # ---------------------------------------------------------------------------
+
 
 def _fetch_and_patch_spec() -> dict:
     """Fetch the Quo (OpenPhone) OpenAPI spec, patch schema issues, and trim for tokens."""
@@ -122,7 +127,9 @@ def _fetch_and_patch_spec() -> dict:
     return spec
 
 
-_PYTHON_KEYWORDS = frozenset({"from", "import", "class", "return", "global", "pass", "raise", "yield", "del", "assert"})
+_PYTHON_KEYWORDS = frozenset(
+    {"from", "import", "class", "return", "global", "pass", "raise", "yield", "del", "assert"}
+)
 
 
 def _rename_keyword_fields(obj: dict | list, _depth: int = 0) -> None:
@@ -170,9 +177,7 @@ def _simplify_schemas(spec: dict) -> None:
         if not isinstance(method_val, dict):
             continue
         params = method_val.get("parameters", [])
-        method_val["parameters"] = [
-            p for p in params if not p.get("deprecated")
-        ]
+        method_val["parameters"] = [p for p in params if not p.get("deprecated")]
 
 
 def _simplify_custom_fields(obj, _depth: int = 0) -> None:
@@ -227,7 +232,6 @@ def _strip_examples(obj: dict | list | str, _depth: int = 0) -> None:
 # ---------------------------------------------------------------------------
 # Contact helpers — delegated to central open_phone.service
 # ---------------------------------------------------------------------------
-
 
 
 def _get_contact_unit(contact: dict) -> tuple[str, str] | None:
@@ -407,8 +411,13 @@ async def execute_sms(
     Delegates to ``_send_sms`` which handles chunking.
     """
     return await _send_sms(
-        client, tool_name, phone, message,
-        from_phone_id, line_name, conversation_id,
+        client,
+        tool_name,
+        phone,
+        message,
+        from_phone_id,
+        line_name,
+        conversation_id,
     )
 
 
@@ -454,7 +463,8 @@ def _is_done_conversation(conv: dict) -> bool:
 
 
 async def search_contacts_impl(
-    client: httpx.AsyncClient, query: str,
+    client: httpx.AsyncClient,
+    query: str,
 ) -> str:
     """Core implementation of contact search (no RunContext dependency)."""
     contacts = await get_all_contacts(client)
@@ -475,7 +485,8 @@ def _format_call_snippet(call: dict) -> str:
 
 
 async def _fetch_latest_message(
-    client: httpx.AsyncClient, phone: str,
+    client: httpx.AsyncClient,
+    phone: str,
 ) -> dict | None:
     """Fetch the most recent SMS for a phone on the shared team line."""
     try:
@@ -495,7 +506,8 @@ async def _fetch_latest_message(
 
 
 async def _fetch_latest_call(
-    client: httpx.AsyncClient, phone: str,
+    client: httpx.AsyncClient,
+    phone: str,
 ) -> dict | None:
     """Fetch the most recent call for a phone on the shared team line."""
     try:
@@ -515,7 +527,8 @@ async def _fetch_latest_call(
 
 
 async def _fetch_message_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     # Suppress instrumentation: this is a probe call that may return 404/400
     # when the ID is a call, not a message. Expected failures shouldn't log.
@@ -529,7 +542,8 @@ async def _fetch_message_by_id(
 
 
 async def _fetch_call_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     # Suppress instrumentation: this is a probe call that may return 404/400
     # when the ID is a message, not a call. Expected failures shouldn't log.
@@ -543,7 +557,8 @@ async def _fetch_call_by_id(
 
 
 async def _fetch_activity_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     """Fetch a Quo activity (message or call) by its ``AC...`` ID.
 
@@ -579,8 +594,10 @@ async def _fetch_activity_by_id(
 # when OpenPhone exposes a ``conversationId`` filter or per-conv messages
 # endpoint.
 
+
 async def _fetch_group_thread_from_events_table(
-    conv_id: str, max_results: int,
+    conv_id: str,
+    max_results: int,
 ) -> list[dict]:
     """Pull group-thread activities for a conversation from our local
     ``open_phone_events`` table (populated by OpenPhone webhooks).
@@ -596,17 +613,29 @@ async def _fetch_group_thread_from_events_table(
     from api.src.open_phone.models import OpenPhoneEvent
 
     async with AsyncSessionFactory() as session:
-        rows = (await session.execute(
-            select(OpenPhoneEvent)
-            .where(OpenPhoneEvent.conversation_id == conv_id)
-            .where(OpenPhoneEvent.event_type.in_([
-                "message.received", "message.delivered", "call.completed",
-            ]))
-            .order_by(OpenPhoneEvent.event_timestamp.asc())
-            # Over-fetch: webhooks deliver duplicates and a single call/msg
-            # often lands as multiple rows. We dedup below.
-            .limit(max_results * 4)
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(OpenPhoneEvent)
+                    .where(OpenPhoneEvent.conversation_id == conv_id)
+                    .where(
+                        OpenPhoneEvent.event_type.in_(
+                            [
+                                "message.received",
+                                "message.delivered",
+                                "call.completed",
+                            ]
+                        )
+                    )
+                    .order_by(OpenPhoneEvent.event_timestamp.asc())
+                    # Over-fetch: webhooks deliver duplicates and a single call/msg
+                    # often lands as multiple rows. We dedup below.
+                    .limit(max_results * 4)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     seen: set[str] = set()
     activities: list[dict] = []
@@ -619,17 +648,19 @@ async def _fetch_group_thread_from_events_table(
         seen.add(msg_id)
         is_call = r.event_type.startswith("call.")
         to_phones = [p for p in (r.to_number or "").split(",") if p]
-        activities.append({
-            "_kind": "call" if is_call else "message",
-            "id": msg_id,
-            "createdAt": r.event_timestamp.isoformat() if r.event_timestamp else "",
-            "text": r.message_text,
-            "from": r.from_number,
-            "to": to_phones,
-            "direction": obj.get("direction"),
-            "duration": obj.get("duration"),
-            "status": obj.get("status"),
-        })
+        activities.append(
+            {
+                "_kind": "call" if is_call else "message",
+                "id": msg_id,
+                "createdAt": r.event_timestamp.isoformat() if r.event_timestamp else "",
+                "text": r.message_text,
+                "from": r.from_number,
+                "to": to_phones,
+                "direction": obj.get("direction"),
+                "duration": obj.get("duration"),
+                "status": obj.get("status"),
+            }
+        )
     # Most recent N
     return activities[-max_results:]
 
@@ -646,8 +677,7 @@ def _render_group_thread_from_db(
     msg_count = sum(1 for a in activities if a.get("_kind") == "message")
     call_count = sum(1 for a in activities if a.get("_kind") == "call")
     label = ", ".join(
-        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p
-        for p in participants
+        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p for p in participants
     )
     lines.append(
         f"Group thread with {label} — "
@@ -662,18 +692,14 @@ def _render_group_thread_from_db(
             dur = item.get("duration")
             dur_str = f"{dur}s" if isinstance(dur, int) else "?s"
             lines.append(
-                f"[{created}] CALL ({direction}, {dur_str}) — "
-                f"Call ID {item.get('id', '?')}"
+                f"[{created}] CALL ({direction}, {dur_str}) — Call ID {item.get('id', '?')}"
             )
         else:
             sender_phone = item.get("from") or ""
-            sender_name = (
-                phone_map.get(sender_phone, sender_phone) if sender_phone else "?"
-            )
+            sender_name = phone_map.get(sender_phone, sender_phone) if sender_phone else "?"
             to_phones = item.get("to") or []
             to_names = ", ".join(
-                phone_map.get(p, p) if phone_map.get(p, p) != p else p
-                for p in to_phones
+                phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
             )
             text = (item.get("text") or "(no text)")[:500]
             lines.append(f"[{created}] {sender_name} → {to_names}: {text}")
@@ -682,7 +708,8 @@ def _render_group_thread_from_db(
 
 
 async def _find_group_conversation(
-    client: httpx.AsyncClient, participants: list[str],
+    client: httpx.AsyncClient,
+    participants: list[str],
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match
     the given set (regardless of ordering). Returns None if none found.
@@ -741,9 +768,10 @@ async def list_active_threads_impl(
         ]
         if updated_after_days is not None:
             from datetime import datetime, timedelta
-            cutoff = (
-                datetime.now(UTC) - timedelta(days=updated_after_days)
-            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            cutoff = (datetime.now(UTC) - timedelta(days=updated_after_days)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
             params.append(("updatedAfter", cutoff))
         if page_token:
             params.append(("pageToken", page_token))
@@ -846,12 +874,12 @@ async def list_active_threads_impl(
                     if direction == "outgoing":
                         snippet_line = f"\n  Snippet: You: {preview}"
                     else:
-                        sender_phone = (
-                            latest.get("from_") or latest.get("from") or ""
+                        sender_phone = latest.get("from_") or latest.get("from") or ""
+                        sender_label = (
+                            phone_map.get(sender_phone, sender_phone).split(" (")[0]
+                            if sender_phone
+                            else "Them"
                         )
-                        sender_label = phone_map.get(
-                            sender_phone, sender_phone
-                        ).split(" (")[0] if sender_phone else "Them"
                         snippet_line = f"\n  Snippet: {sender_label}: {preview}"
 
         lines.append(
@@ -907,9 +935,9 @@ def _render_thread(
     header_prefix: str = "Thread with",
 ) -> str:
     """Render a chronological thread (SMS + calls interleaved)."""
-    items: list[tuple[str, dict]] = (
-        [("message", m) for m in messages] + [("call", c) for c in calls]
-    )
+    items: list[tuple[str, dict]] = [("message", m) for m in messages] + [
+        ("call", c) for c in calls
+    ]
     items.sort(key=lambda kv: kv[1].get("createdAt", ""))
 
     lines: list[str] = [
@@ -927,7 +955,8 @@ def _render_thread(
             status = item.get("status") or ""
             status_str = f", {status}" if status and status != "completed" else ""
             arrow = (
-                f"{contact_name} → Sernia Capital" if direction == "incoming"
+                f"{contact_name} → Sernia Capital"
+                if direction == "incoming"
                 else f"Sernia Capital → {contact_name}"
             )
             lines.append(
@@ -945,7 +974,8 @@ def _render_thread(
             else:
                 sender_name = (
                     phone_map.get(sender_phone, sender_phone)
-                    if isinstance(sender_phone, str) else "?"
+                    if isinstance(sender_phone, str)
+                    else "?"
                 )
                 recipient_name = "Sernia Capital"
 
@@ -967,20 +997,14 @@ def _format_group_activity_line(
         direction = item.get("direction", "?")
         duration = item.get("duration")
         dur_str = f"{duration}s" if isinstance(duration, int) else "?s"
-        return (
-            f"[{created}] CALL ({direction}, {dur_str}) — "
-            f"Call ID {item.get('id', '?')}"
-        )
+        return f"[{created}] CALL ({direction}, {dur_str}) — Call ID {item.get('id', '?')}"
     text = (item.get("text") or item.get("body") or "(no text)")[:500]
     sender_phone = item.get("from_") or item.get("from") or ""
     sender_name = (
-        phone_map.get(sender_phone, sender_phone)
-        if isinstance(sender_phone, str) else "?"
+        phone_map.get(sender_phone, sender_phone) if isinstance(sender_phone, str) else "?"
     )
     to_phones = item.get("to") or []
-    to_names = ", ".join(
-        phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
-    )
+    to_names = ", ".join(phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones)
     return f"[{created}] {sender_name} → {to_names}: {text}"
 
 
@@ -1029,8 +1053,11 @@ async def get_thread_messages_impl(
         if not messages and not calls:
             return f"No messages or calls found with {only_phone}."
         return _render_thread(
-            messages, calls,
-            phone_map.get(only_phone, only_phone), only_phone, phone_map,
+            messages,
+            calls,
+            phone_map.get(only_phone, only_phone),
+            only_phone,
+            phone_map,
         )
 
     # ---- Group thread path ----
@@ -1043,7 +1070,8 @@ async def get_thread_messages_impl(
         # path that yields full group-thread history.
         try:
             db_activities = await _fetch_group_thread_from_events_table(
-                conv_id, max_results=max_results,
+                conv_id,
+                max_results=max_results,
             )
         except Exception:
             logfire.exception(
@@ -1054,7 +1082,9 @@ async def get_thread_messages_impl(
     if db_activities:
         # Happy path: full group thread history from DB.
         return _render_group_thread_from_db(
-            db_activities, participants_in, phone_map,
+            db_activities,
+            participants_in,
+            phone_map,
         )
 
     # Fallback path: DB empty for this conv (older than webhook ingestion,
@@ -1071,8 +1101,7 @@ async def get_thread_messages_impl(
     )
 
     participant_labels = ", ".join(
-        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p
-        for p in participants_in
+        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p for p in participants_in
     )
     out: list[str] = [
         f"Group thread: {participant_labels}",
@@ -1104,10 +1133,16 @@ async def get_thread_messages_impl(
             if not messages and not calls:
                 out.append(f"_(no 1:1 messages or calls with {phone})_")
             else:
-                out.append(_render_thread(
-                    messages, calls, contact_name, phone, phone_map,
-                    header_prefix="1:1 with",
-                ))
+                out.append(
+                    _render_thread(
+                        messages,
+                        calls,
+                        contact_name,
+                        phone,
+                        phone_map,
+                        header_prefix="1:1 with",
+                    )
+                )
         out.append("")
 
     return "\n".join(out).rstrip()
@@ -1174,7 +1209,9 @@ async def get_call_details_impl(
                 return None
 
     call, summary, transcript = await asyncio.gather(
-        _fetch_call(), _fetch_summary(), _fetch_transcript(),
+        _fetch_call(),
+        _fetch_summary(),
+        _fetch_transcript(),
     )
 
     if call is None and summary is None and transcript is None:
@@ -1294,16 +1331,22 @@ async def _seed_sms_conversation(
     async with AsyncSessionFactory() as session:
         # Load existing conversation (if any) so we append, not overwrite
         existing = await get_conversation_messages(
-            conv_id, clerk_user_id=None, session=session,
+            conv_id,
+            clerk_user_id=None,
+            session=session,
         )
 
         seed: list[ModelMessage] = [
-            ModelRequest(parts=[
-                UserPromptPart(content=f"[Context — not visible to SMS recipient: {context}]"),
-            ]),
-            ModelResponse(parts=[
-                TextPart(content=outbound_text),
-            ]),
+            ModelRequest(
+                parts=[
+                    UserPromptPart(content=f"[Context — not visible to SMS recipient: {context}]"),
+                ]
+            ),
+            ModelResponse(
+                parts=[
+                    TextPart(content=outbound_text),
+                ]
+            ),
         ]
 
         messages = existing + seed
@@ -1342,20 +1385,27 @@ _CF_KEY_EXTERNAL_ID = "67a3fe231c0f12583994d994"
 
 class PhoneNumber(BaseModel):
     """A phone number entry on a Quo contact."""
-    name: str = Field(default="Phone Number", description='Label, e.g. "Phone Number", "Work", "mobile".')
+
+    name: str = Field(
+        default="Phone Number", description='Label, e.g. "Phone Number", "Work", "mobile".'
+    )
     value: str = Field(description="Phone number in E.164 format, e.g. +14125551234.")
 
 
 class Email(BaseModel):
     """An email entry on a Quo contact."""
+
     name: str = Field(default="Email", description='Label, e.g. "Email", "Work".')
     value: str = Field(description="Email address.")
 
 
 class CustomField(BaseModel):
     """A custom field entry. Use getContactCustomFields_v1 to look up keys."""
+
     key: str = Field(description="The 24-char hex custom field key.")
-    value: str | list[str] | None = Field(description="Value — string for text/date fields, list of strings for multi-select (e.g. Tags).")
+    value: str | list[str] | None = Field(
+        description="Value — string for text/date fields, list of strings for multi-select (e.g. Tags)."
+    )
 
 
 def _build_custom_fields(
@@ -1410,14 +1460,10 @@ def _build_contact_payload(
     # List defaultFields — replace when provided
     if phone_numbers is not None:
         df["phoneNumbers"] = [
-            pn.model_dump() if isinstance(pn, PhoneNumber) else pn
-            for pn in phone_numbers
+            pn.model_dump() if isinstance(pn, PhoneNumber) else pn for pn in phone_numbers
         ]
     if emails is not None:
-        df["emails"] = [
-            em.model_dump() if isinstance(em, Email) else em
-            for em in emails
-        ]
+        df["emails"] = [em.model_dump() if isinstance(em, Email) else em for em in emails]
 
     # Custom fields — merge by key
     new_cfs = _build_custom_fields(tags, custom_fields)
@@ -1443,6 +1489,7 @@ async def _get_contact_by_id(client: httpx.AsyncClient, contact_id: str) -> dict
 # ---------------------------------------------------------------------------
 # Build the toolset
 # ---------------------------------------------------------------------------
+
 
 def _build_quo_client() -> httpx.AsyncClient:
     # Shared rate-limited transport keeps the agent's bursty parallel reads
@@ -1473,14 +1520,14 @@ def split_sms(text: str, limit: int = SMS_SPLIT_THRESHOLD) -> list[str]:
             break
         candidate = remaining[:limit]
         split_idx = -1
-        for match in re.finditer(r'[.!?]\s', candidate):
+        for match in re.finditer(r"[.!?]\s", candidate):
             split_idx = match.end()
         if split_idx == -1:
-            nl = candidate.rfind('\n')
+            nl = candidate.rfind("\n")
             if nl > 0:
                 split_idx = nl + 1
         if split_idx == -1:
-            sp = candidate.rfind(' ')
+            sp = candidate.rfind(" ")
             if sp > 0:
                 split_idx = sp + 1
         if split_idx == -1:
@@ -1554,7 +1601,12 @@ async def _send_sms(
         )
     for i, chunk in enumerate(chunks):
         ok, err = await _send_single_sms(
-            client, tool_name, phone, chunk, from_phone_id, conversation_id,
+            client,
+            tool_name,
+            phone,
+            chunk,
+            from_phone_id,
+            conversation_id,
         )
         if not ok:
             part_info = f" (part {i + 1}/{len(chunks)})" if len(chunks) > 1 else ""
@@ -1659,8 +1711,11 @@ def _build_quo_toolset():
         )
 
         send_result = await execute_sms(
-            client, to, message,
-            routing.from_phone_id, routing.line_name,
+            client,
+            to,
+            message,
+            routing.from_phone_id,
+            routing.line_name,
             ctx.deps.conversation_id,
         )
 
@@ -1732,10 +1787,7 @@ def _build_quo_toolset():
         if not grouped:
             unit_desc = f" units {units}" if units else ""
             lease_desc = "" if include_inactive else " with an active lease"
-            return (
-                f"No tenants{lease_desc} found matching properties "
-                f"{properties}{unit_desc}."
-            )
+            return f"No tenants{lease_desc} found matching properties {properties}{unit_desc}."
 
         results: list[str] = []
         failures: list[str] = []
@@ -1778,7 +1830,9 @@ def _build_quo_toolset():
 
         parts: list[str] = []
         if results:
-            parts.append(f"Sent {len(results)} message{'s' if len(results) != 1 else ''}: {'; '.join(results)}.")
+            parts.append(
+                f"Sent {len(results)} message{'s' if len(results) != 1 else ''}: {'; '.join(results)}."
+            )
         if failures:
             parts.append(f"Failed: {'; '.join(failures)}.")
         return " ".join(parts)

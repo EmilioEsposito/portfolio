@@ -106,16 +106,12 @@ async def _verify_internal_contact(phone: str) -> dict | None:
             return None
 
         for contact in contacts:
-            company = (
-                contact.get("defaultFields", {}).get("company", "") or ""
-            )
+            company = contact.get("defaultFields", {}).get("company", "") or ""
             if company.strip().lower() == QUO_INTERNAL_COMPANY.lower():
                 return contact
         return None
     except Exception:
-        logfire.exception(
-            "ai_sms_event: failed to verify contact", phone=phone
-        )
+        logfire.exception("ai_sms_event: failed to verify contact", phone=phone)
         return None
 
 
@@ -158,9 +154,7 @@ async def _fetch_sms_thread(
             messages = resp.json().get("data", [])
             return _sms_to_model_messages(messages)
     except Exception:
-        logfire.exception(
-            "ai_sms_event: failed to fetch SMS thread", from_phone=from_phone
-        )
+        logfire.exception("ai_sms_event: failed to fetch SMS thread", from_phone=from_phone)
         return []
 
 
@@ -202,16 +196,12 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
             part_kwargs: dict = {}
             if ts is not None:
                 part_kwargs["timestamp"] = ts
-            result.append(
-                ModelRequest(parts=[UserPromptPart(content=body, **part_kwargs)])
-            )
+            result.append(ModelRequest(parts=[UserPromptPart(content=body, **part_kwargs)]))
         elif direction == "outgoing":
             resp_kwargs: dict = {}
             if ts is not None:
                 resp_kwargs["timestamp"] = ts
-            result.append(
-                ModelResponse(parts=[TextPart(content=body)], **resp_kwargs)
-            )
+            result.append(ModelResponse(parts=[TextPart(content=body)], **resp_kwargs))
 
     return result
 
@@ -449,9 +439,7 @@ async def _send_sms_reply(to_phone: str, message: str) -> None:
                 from_phone_number=QUO_SERNIA_AI_PHONE_ID,
             )
         except Exception:
-            logfire.exception(
-                "ai_sms_event: failed to send SMS reply", to_phone=to_phone
-            )
+            logfire.exception("ai_sms_event: failed to send SMS reply", to_phone=to_phone)
             return
     logfire.info(
         "ai_sms_event: reply sent",
@@ -475,9 +463,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
     event_id = event_data.get("event_id", "")
 
     if not from_number or not message_text:
-        logfire.info(
-            "ai_sms_event: skipping event with missing data", event_id=event_id
-        )
+        logfire.info("ai_sms_event: skipping event with missing data", event_id=event_id)
         return
 
     # --- Universal kill switch ---
@@ -494,9 +480,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
 
     # Rate limit: sliding window (10 calls per 10 minutes per phone)
     if _is_ai_sms_rate_limited(from_number):
-        logfire.info(
-            "ai_sms_event: rate-limited", from_number=from_number
-        )
+        logfire.info("ai_sms_event: rate-limited", from_number=from_number)
         return
 
     # Gate: verify sender is an internal contact
@@ -515,9 +499,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
     # merge with DB history so the agent has full context even when
     # messages were sent from other conversations (e.g. web chat tool calls).
     async with AsyncSessionFactory() as session:
-        db_history = await get_conversation_messages(
-            conv_id, clerk_user_id=None, session=session
-        )
+        db_history = await get_conversation_messages(conv_id, clerk_user_id=None, session=session)
         sms_thread = await _fetch_sms_thread(from_number)
 
         merged = _merge_sms_into_history(db_history, sms_thread)
@@ -630,9 +612,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             )
         else:
             # Send agent's text response back via SMS
-            output_text = (
-                result.output if isinstance(result.output, str) else ""
-            )
+            output_text = result.output if isinstance(result.output, str) else ""
             if output_text:
                 create_logged_task(
                     _send_sms_reply(from_number, output_text),

@@ -4,6 +4,7 @@ Uses httpx's ASGITransport so we don't need a running uvicorn — the test
 runs the full FastMCP HTTP request/response pipeline against the in-process
 app, which is the same pipeline production traffic hits.
 """
+
 from __future__ import annotations
 
 import httpx

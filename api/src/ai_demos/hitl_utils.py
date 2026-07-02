@@ -4,6 +4,7 @@ Shared HITL (Human-in-the-Loop) utilities for all agents.
 Agent-agnostic helpers for extracting pending approvals and resuming
 agents with approval decisions. Used by hitl_sms_agent and sernia_agent.
 """
+
 import dataclasses
 import json
 from dataclasses import dataclass
@@ -99,6 +100,7 @@ def extract_pending_approval(result: AgentRunResult) -> dict | None:
 @dataclass
 class ApprovalDecision:
     """A single approval/denial decision for a tool call."""
+
     tool_call_id: str
     approved: bool
     override_args: dict | None = None
@@ -152,8 +154,7 @@ async def resume_with_approvals(
     #   2. persisted history reflects what actually ran (the UI shows the
     #      overridden args, not the superseded original)
     pending_args_by_id = {
-        p["tool_call_id"]: p["args"] or {}
-        for p in extract_pending_approval_from_messages(messages)
+        p["tool_call_id"]: p["args"] or {} for p in extract_pending_approval_from_messages(messages)
     }
 
     overrides_by_id: dict[str, dict] = {}
@@ -165,7 +166,9 @@ async def resume_with_approvals(
                 overrides_by_id[decision.tool_call_id] = {**original, **decision.override_args}
             approvals_dict[decision.tool_call_id] = ToolApproved()
         else:
-            approvals_dict[decision.tool_call_id] = ToolDenied(decision.denial_reason or "Denied by user")
+            approvals_dict[decision.tool_call_id] = ToolDenied(
+                decision.denial_reason or "Denied by user"
+            )
 
     if overrides_by_id:
         messages = _apply_arg_overrides(messages, overrides_by_id)
@@ -230,9 +233,7 @@ def _apply_arg_overrides(
             for part in msg.parts:
                 if isinstance(part, ToolCallPart) and part.tool_call_id in overrides_by_id:
                     new_args = overrides_by_id[part.tool_call_id]
-                    new_parts.append(
-                        dataclasses.replace(part, args=json.dumps(new_args))
-                    )
+                    new_parts.append(dataclasses.replace(part, args=json.dumps(new_args)))
                     mutated = True
                 else:
                     new_parts.append(part)

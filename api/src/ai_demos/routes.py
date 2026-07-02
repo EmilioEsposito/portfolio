@@ -10,6 +10,7 @@ Hierarchical structure:
 - /api/ai-demos/multi-agent-chat -> multi_agent_chat/routes.py
 - /api/ai-demos/hitl-agent/*     -> hitl_agents/routes.py
 """
+
 from fastapi import APIRouter, Depends
 
 from api.src.ai_demos.chat_emilio.routes import router as chat_emilio_router

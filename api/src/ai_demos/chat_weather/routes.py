@@ -1,6 +1,7 @@
 """
 Routes for general-purpose chat with weather tool support
 """
+
 import functools
 import json
 
@@ -51,13 +52,13 @@ data: [DONE]"""
         "headers": {
             "x-vercel-ai-ui-message-stream": {
                 "description": "Vercel AI SDK stream version",
-                "schema": {"type": "string", "example": "v1"}
+                "schema": {"type": "string", "example": "v1"},
             },
             "X-Accel-Buffering": {
                 "description": "Disables buffering for streaming",
-                "schema": {"type": "string", "example": "no"}
-            }
-        }
+                "schema": {"type": "string", "example": "no"},
+            },
+        },
     }
 }
 
@@ -73,15 +74,10 @@ _CHAT_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440001",
                     "role": "user",
-                    "parts": [
-                        {
-                            "type": "text",
-                            "text": "What's the weather like in New York?"
-                        }
-                    ]
+                    "parts": [{"type": "text", "text": "What's the weather like in New York?"}],
                 }
-            ]
-        }
+            ],
+        },
     },
     "conversation": {
         "summary": "Conversation with history",
@@ -93,21 +89,21 @@ _CHAT_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440003",
                     "role": "user",
-                    "parts": [{"type": "text", "text": "Hello"}]
+                    "parts": [{"type": "text", "text": "Hello"}],
                 },
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440004",
                     "role": "assistant",
-                    "parts": [{"type": "text", "text": "Hi there! How can I help you?"}]
+                    "parts": [{"type": "text", "text": "Hi there! How can I help you?"}],
                 },
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440005",
                     "role": "user",
-                    "parts": [{"type": "text", "text": "Can you check the weather?"}]
-                }
-            ]
-        }
-    }
+                    "parts": [{"type": "text", "text": "Can you check the weather?"}],
+                },
+            ],
+        },
+    },
 }
 
 _CHAT_OPENAPI_EXTRA = {
@@ -115,10 +111,10 @@ _CHAT_OPENAPI_EXTRA = {
         "content": {
             "application/json": {
                 "schema": expand_json_schema(SubmitMessage.model_json_schema()),
-                "examples": _CHAT_REQUEST_EXAMPLES
+                "examples": _CHAT_REQUEST_EXAMPLES,
             }
         },
-        "required": True
+        "required": True,
     }
 }
 
@@ -154,16 +150,19 @@ async def chat(request: Request, session: DBSession) -> Response:
     # Replace request body so VercelAIAdapter uses sanitized version
     request._body = json.dumps(sanitized_json).encode()
 
-    if sanitized_json.get('trigger') == 'submit-message':
-        messages = sanitized_json.get('messages', [])
+    if sanitized_json.get("trigger") == "submit-message":
+        messages = sanitized_json.get("messages", [])
         # Structured logging for easy querying/alerting in Logfire UI
         latest_message = messages[-1] if messages else {}
-        logfire.info("new chat message",
+        logfire.info(
+            "new chat message",
             slack_alert=True,
             endpoint="/api/ai-demos/chat-weather",
-            message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
+            message_text=latest_message.get("parts", [{}])[0].get("text", "")
+            if latest_message.get("parts")
+            else "",
         )
-    conversation_id = sanitized_json.get('id')
+    conversation_id = sanitized_json.get("id")
 
     # Use functools.partial to create a callback with pre-filled arguments
     # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
@@ -173,7 +172,7 @@ async def chat(request: Request, session: DBSession) -> Response:
         agent_name=agent.name,
         clerk_user_id="visitor",
     )
-    
+
     # Use VercelAIAdapter to handle the request and stream response
     # Note: VercelAIAdapter.dispatch_request expects a raw Request object
     # and handles parsing internally, so we can't use Pydantic validation here
@@ -183,11 +182,11 @@ async def chat(request: Request, session: DBSession) -> Response:
         deps=ChatContext(),
         on_complete=on_complete_callback,
     )
-    
+
     # Add headers to prevent browser/proxy buffering
     # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    
-    return response 
+
+    return response

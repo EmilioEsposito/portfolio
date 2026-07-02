@@ -28,7 +28,10 @@ from api.src.open_phone.service import send_message, upsert_openphone_contact
 
 logfire.info("Zillow unreplied email alerts service loaded")
 
-async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None, target_slugs: list[str]=None, mock=False):
+
+async def check_unreplied_emails(
+    sql: str, target_phone_numbers: list[str] = None, target_slugs: list[str] = None, mock=False
+):
     """
     Check for unreplied Zillow emails and send a summary via OpenPhone.
 
@@ -39,7 +42,9 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
         mock: bool - Whether to mock the sending of the message.
     """
     logfire.info(f"check_unreplied_emails invoked. Received sql='{sql}'")
-    assert target_phone_numbers or target_slugs, "Either target_phone_numbers or target_slugs must be provided"
+    assert target_phone_numbers or target_slugs, (
+        "Either target_phone_numbers or target_slugs must be provided"
+    )
     logfire.info(f"target_phone_numbers='{target_phone_numbers}'")
     logfire.info(f"target_slugs='{target_slugs}'")
     logfire.info(f"mock='{mock}'")
@@ -57,9 +62,7 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
     # Configuration for phone numbers
     from_phone_number = "+14129101500"  # Alert Robot
 
-    logfire.info(
-        f"Running Zillow unreplied email check. Alerts to: {target_phone_numbers}"
-    )
+    logfire.info(f"Running Zillow unreplied email check. Alerts to: {target_phone_numbers}")
     unreplied_count = 0  # Default value
     sent_message_count = 0
 
@@ -76,15 +79,13 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
                         sql_query = f.read()
                     logfire.info(f"Successfully read SQL query from file: {sql}")
                 except FileNotFoundError:
-                    logfire.error(
-                        f"SQL file not found at {sql}. Please check the path."
-                    )
-                    return (
-                        -1
-                    )  # Return -1 if SQL file is not found, test expects a count.
+                    logfire.error(f"SQL file not found at {sql}. Please check the path.")
+                    return -1  # Return -1 if SQL file is not found, test expects a count.
             else:
                 sql_query = sql
-                logfire.info(f"sql parameter '{sql}' does not end with .sql. Using as direct query.")
+                logfire.info(
+                    f"sql parameter '{sql}' does not end with .sql. Using as direct query."
+                )
 
             result = await session.execute(text(sql_query))
             unreplied_emails = result.fetchall()
@@ -95,23 +96,17 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
 
                 formatted_results = []
                 for email in unreplied_emails:
-                    received_date = email[
-                        0
-                    ]  # Assuming structure based on cron.py logic
+                    received_date = email[0]  # Assuming structure based on cron.py logic
                     subject = email[1]
                     formatted_results.append(f"• {received_date}: {subject}")
 
                 message_body = f"📬 Unreplied Zillow Emails 📬\n\nYou have {unreplied_count} unreplied Zillow emails:\n\n"
                 message_body += "\n".join(formatted_results)
-                message_body += (
-                    "\n\nPlease check your email and reply to these messages."
-                )
+                message_body += "\n\nPlease check your email and reply to these messages."
 
                 current_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
                 if current_env not in ["production", "local"]:
-                    logfire.info(
-                        f"Skipping OpenPhone message in '{current_env}' environment."
-                    )
+                    logfire.info(f"Skipping OpenPhone message in '{current_env}' environment.")
                 else:
                     logfire.info(
                         f"Attempting to send OpenPhone message in '{current_env}' environment."
@@ -151,44 +146,49 @@ async def check_unreplied_emails(sql: str, target_phone_numbers: list[str]=None,
 # Define Pydantic models for better structure
 class EmailMessageDetail(BaseModel):
     subject: str
-    email_timestamp_et: datetime # Assuming it's a datetime object after DB conversion
+    email_timestamp_et: datetime  # Assuming it's a datetime object after DB conversion
     email_day_of_week_et_str: str
     body_html: str
     body_text: str = None
-    from_address: EmailStr # Or str if not strictly email
+    from_address: EmailStr  # Or str if not strictly email
     # Assuming to_address from your SQL might be a single string or needs parsing to a list.
     # For simplicity, keeping as string for now. Adjust if it's an array/list in DB.
-    to_address: str | None = None 
+    to_address: str | None = None
     # Add other relevant fields from your email_data if needed
+
 
 class ShouldReply(BaseModel):
     should_reply: bool
     reason: str
     appointment_scheduled: bool
 
+
 def get_clean_zillow_thread_str(messages: list[EmailMessageDetail]):
 
     # Cleanup
     for message in messages:
         # remove redundant replies in each message
-        message.body_text = message.body_html.split(">On")[0]+">"
+        message.body_text = message.body_html.split(">On")[0] + ">"
         # remove html tags from body_html
         message.body_text = BeautifulSoup(message.body_text, "html.parser").get_text()
         # remove the redundant text after "New messageHurrah!" in zillow emails
         message.body_text = message.body_text.split("Hurrah!")[0]
-        # message.body_text = message.body_text.split("Send Application")[0] # commenting out for now. Credit score might be after this. 
+        # message.body_text = message.body_text.split("Send Application")[0] # commenting out for now. Credit score might be after this.
 
     thread_str = "----------------------------------------\n"
     for message in messages:
         thread_str += f"FROM: {message.from_address}\n"
         thread_str += f"TO: {message.to_address}\n"
-        thread_str += f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        thread_str += (
+            f"RECEIVED DATE (ET): {message.email_timestamp_et.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
         thread_str += f"DAY OF WEEK: {message.email_day_of_week_et_str}\n"
         thread_str += f"SUBJECT: {message.subject}\n"
         thread_str += f"BODY: {message.body_text}\n"
         thread_str += "----------------------------------------\n"
 
     return thread_str
+
 
 async def ai_assess_thread(thread_id: str, messages: list[EmailMessageDetail]):
 
@@ -314,11 +314,10 @@ async def ai_collect_thread_info(thread_id: str, messages: list[EmailMessageDeta
     }
     """
 
-    logfire.info(f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}")
+    logfire.info(
+        f"ai_collect_thread_info: Collecting lead info from Zillow email thread: {thread_id}"
+    )
 
-
-
-    
     thread_str = get_clean_zillow_thread_str(messages)
 
     client = openai.OpenAI()
@@ -340,17 +339,16 @@ async def ai_collect_thread_info(thread_id: str, messages: list[EmailMessageDeta
 
     return thread_info, thread_str
 
+
 async def check_email_threads(overwrite_calendar_events=False):
 
     async with AsyncSessionFactory() as session:
-
         if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "production":
             target_contact = await get_contact_by_slug("sernia")
             non_prod_env = None
         else:
             target_contact = await get_contact_by_slug("emilio")
             non_prod_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
-
 
         target_phone_number = target_contact.phone_number
 
@@ -369,17 +367,17 @@ async def check_email_threads(overwrite_calendar_events=False):
                 logfire.info(f"Found {len(email_dicts)} email threads.")
 
                 for email in email_dicts:
-                    thread_id = email['thread_id']
+                    thread_id = email["thread_id"]
 
-                    email_day_of_week_et_str = email['email_timestamp_et'].strftime('%A')
+                    email_day_of_week_et_str = email["email_timestamp_et"].strftime("%A")
 
                     message_detail = {
-                        "subject": email['subject'],
-                        "email_timestamp_et": email['email_timestamp_et'],
+                        "subject": email["subject"],
+                        "email_timestamp_et": email["email_timestamp_et"],
                         "email_day_of_week_et_str": email_day_of_week_et_str,
-                        "body_html": email['body_html'],
-                        "from_address": email['from_address'],
-                        "to_address": email['to_address']
+                        "body_html": email["body_html"],
+                        "from_address": email["from_address"],
+                        "to_address": email["to_address"],
                     }
 
                     if thread_id not in email_threads:
@@ -394,21 +392,23 @@ async def check_email_threads(overwrite_calendar_events=False):
 
             # for each thread, check if it has a reply
             for thread_id, messages in email_threads.items():
-                should_sernia_reply, reason, appointment_scheduled = await ai_assess_thread(thread_id, messages)
+                should_sernia_reply, reason, appointment_scheduled = await ai_assess_thread(
+                    thread_id, messages
+                )
 
                 if should_sernia_reply:
-                    alert_message = '📬 Sernia-AI detected unreplied Zillow email 📬'
-                    alert_message += f'\n\nSubject: {messages[0].subject}'
-                    alert_message += f'\n\nReason: {reason}'
+                    alert_message = "📬 Sernia-AI detected unreplied Zillow email 📬"
+                    alert_message += f"\n\nSubject: {messages[0].subject}"
+                    alert_message += f"\n\nReason: {reason}"
 
                     if non_prod_env:
-                        alert_message = f'ENV: {non_prod_env}\n\n{alert_message}'
+                        alert_message = f"ENV: {non_prod_env}\n\n{alert_message}"
 
                     logfire.info(alert_message)
                     await send_message(
                         message=alert_message,
                         to_phone_number=target_phone_number,
-                        from_phone_number="+14129101500"
+                        from_phone_number="+14129101500",
                     )
 
                 if appointment_scheduled:
@@ -419,7 +419,14 @@ async def check_email_threads(overwrite_calendar_events=False):
                     # pad unit_number with leading zeros
                     unit_number_padded = str(thread_info.unit_number).zfill(2)
 
-                    first_name_aux = 'Lead ' + str(thread_info.building_number) + "-" + unit_number_padded + " " + thread_info.lead_first_name
+                    first_name_aux = (
+                        "Lead "
+                        + str(thread_info.building_number)
+                        + "-"
+                        + unit_number_padded
+                        + " "
+                        + thread_info.lead_first_name
+                    )
 
                     notes: list[str] = []
 
@@ -434,12 +441,16 @@ async def check_email_threads(overwrite_calendar_events=False):
                             )
 
                             # now create a new contact in OpenPhone
-                            openphone_contact_response = await upsert_openphone_contact(contact_create)
+                            openphone_contact_response = await upsert_openphone_contact(
+                                contact_create
+                            )
                             openphone_contact = openphone_contact_response.json()
                             logfire.info(f"Created/updated OpenPhone contact: {openphone_contact}")
                         else:
                             logfire.warn(f"No phone number found for lead: {first_name_aux}")
-                            notes.append("No phone number found for lead — contact not created in OpenPhone.")
+                            notes.append(
+                                "No phone number found for lead — contact not created in OpenPhone."
+                            )
                     except Exception as e:
                         logfire.error(f"Error creating OpenPhone contact: {e}")
                         notes.append(f"Failed to create OpenPhone contact: {e}")
@@ -447,7 +458,9 @@ async def check_email_threads(overwrite_calendar_events=False):
                     try:
                         if thread_info.appointment_date and thread_info.appointment_time:
                             # Combine date and time strings and parse them
-                            appointment_datetime_str = f"{thread_info.appointment_date} {thread_info.appointment_time}"
+                            appointment_datetime_str = (
+                                f"{thread_info.appointment_date} {thread_info.appointment_time}"
+                            )
                             # Assuming appointment_time is like "10:00 AM" or "2:00 PM"
                             # Convert to 24-hour format for parsing if necessary, or ensure consistent format
                             # For simplicity, assuming it's parsable directly or already in a good format from AI
@@ -460,11 +473,15 @@ async def check_email_threads(overwrite_calendar_events=False):
                             # If AI guarantees "YYYY-MM-DD" for date and "HH:MM" (24hr) for time, it's simpler.
                             # Let's assume AI provides date as "YYYY-MM-DD" and time as "HH:MM AM/PM"
 
-                            parsed_datetime = datetime.strptime(appointment_datetime_str, "%Y-%m-%d %I:%M %p")
+                            parsed_datetime = datetime.strptime(
+                                appointment_datetime_str, "%Y-%m-%d %I:%M %p"
+                            )
 
                             # Localize the naive datetime to Eastern Time
                             start_datetime_aware = eastern_tz.localize(parsed_datetime)
-                            end_datetime_aware = start_datetime_aware + timedelta(minutes=30) # Assuming 30-minute appointments
+                            end_datetime_aware = start_datetime_aware + timedelta(
+                                minutes=30
+                            )  # Assuming 30-minute appointments
 
                             event_summary = f"{thread_info.building_number}-{unit_number_padded} Apt Viewing for Lead: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
                             if non_prod_env:
@@ -472,11 +489,15 @@ async def check_email_threads(overwrite_calendar_events=False):
                             event_description = f"Building: {thread_info.building_number}"
                             event_description += f"\nUnit: {unit_number_padded}"
                             event_description += f"\nName: {thread_info.lead_first_name} {thread_info.lead_last_name or ''}"
-                            event_description += f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
+                            event_description += (
+                                f"\nPhone: {thread_info.lead_phone_number or 'N/A'}"
+                            )
                             event_description += "\nSource: Zillow Email."
                             event_description += f"\n\nEMAIL THREAD:\n{thread_str}"
 
-                            calendar_service = await get_calendar_service(user_email=target_contact.email) # TODO: make user_email dynamic or from config
+                            calendar_service = await get_calendar_service(
+                                user_email=target_contact.email
+                            )  # TODO: make user_email dynamic or from config
 
                             event_input = CalendarEventInput(
                                 summary=event_summary,
@@ -494,16 +515,33 @@ async def check_email_threads(overwrite_calendar_events=False):
                                 ],
                             )
 
-                            if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in ["production", "local"]:
-                                created_event = await create_calendar_event(calendar_service, event_input, overwrite=overwrite_calendar_events)
-                                logfire.info(f"Successfully created Google Calendar event: {created_event.get('id')}")
+                            if os.getenv("RAILWAY_ENVIRONMENT_NAME", "local") in [
+                                "production",
+                                "local",
+                            ]:
+                                created_event = await create_calendar_event(
+                                    calendar_service,
+                                    event_input,
+                                    overwrite=overwrite_calendar_events,
+                                )
+                                logfire.info(
+                                    f"Successfully created Google Calendar event: {created_event.get('id')}"
+                                )
                             else:
-                                logfire.info("Skipping Google Calendar event creation in hosted non-production environment.")
+                                logfire.info(
+                                    "Skipping Google Calendar event creation in hosted non-production environment."
+                                )
                         else:
-                            logfire.warn(f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}")
-                            notes.append("Missing appointment date/time — calendar event not created.")
+                            logfire.warn(
+                                f"Cannot create calendar event for thread {thread_id} due to missing appointment date/time. Thread Info: {thread_info}"
+                            )
+                            notes.append(
+                                "Missing appointment date/time — calendar event not created."
+                            )
                     except Exception as e:
-                        logfire.error(f"Error creating Google Calendar event for thread {thread_id}: {e}")
+                        logfire.error(
+                            f"Error creating Google Calendar event for thread {thread_id}: {e}"
+                        )
                         logfire.error(f"Thread Info for calendar event creation: {thread_info}")
                         notes.append(f"Failed to create calendar event: {e}")
 
@@ -521,6 +559,7 @@ async def check_email_threads(overwrite_calendar_events=False):
 
 
 # --- APScheduler Job Registration ---
+
 
 def register_zillow_apscheduler_jobs():
     """Register Zillow email scheduled jobs with APScheduler.

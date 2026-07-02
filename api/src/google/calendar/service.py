@@ -56,18 +56,13 @@ class CalendarEventInput(BaseModel):
     start: datetime.datetime = Field(
         description="Start time in ISO 8601 format (e.g. 2025-06-15T10:00:00-04:00)."
     )
-    end: datetime.datetime = Field(
-        description="End time in ISO 8601 format."
-    )
-    description: str | None = Field(
-        default=None, description="Event description."
-    )
+    end: datetime.datetime = Field(description="End time in ISO 8601 format.")
+    description: str | None = Field(default=None, description="Event description.")
     attendees: list[CalendarAttendee] | None = Field(
-        default=None, description="Event attendees. Use plain emails for required, or set optional=True.",
+        default=None,
+        description="Event attendees. Use plain emails for required, or set optional=True.",
     )
-    location: str | None = Field(
-        default=None, description="Event location."
-    )
+    location: str | None = Field(default=None, description="Event location.")
     reminders: list[CalendarReminder] | None = Field(
         default=None,
         description="Custom reminders. Defaults to push (popup) 1 day before + 1 hour before. Use popup, not email.",
@@ -122,9 +117,7 @@ class CalendarEventInput(BaseModel):
 async def get_calendar_service(user_email: str):
     """Create and return an authorized Calendar API service instance."""
     try:
-        credentials = get_delegated_credentials(
-            user_email=user_email, scopes=CALENDAR_SCOPES
-        )
+        credentials = get_delegated_credentials(user_email=user_email, scopes=CALENDAR_SCOPES)
         service = build("calendar", "v3", credentials=credentials)
         return service
     except Exception as e:
@@ -181,9 +174,7 @@ async def create_calendar_event(
             logfire.info(f"Event does not exist, creating event: {event.summary}")
 
         created = (
-            service.events()
-            .insert(calendarId="primary", body=body, sendUpdates="all")
-            .execute()
+            service.events().insert(calendarId="primary", body=body, sendUpdates="all").execute()
         )
         return created
 

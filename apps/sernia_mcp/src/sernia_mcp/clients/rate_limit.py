@@ -21,6 +21,7 @@ The fix has two parts:
 Wire it up via ``transport=build_rate_limited_transport()`` in
 ``clients/quo.build_quo_client``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -123,7 +124,7 @@ class RateLimitedTransport(httpx.AsyncBaseTransport):
                 delay = (
                     retry_after
                     if retry_after is not None
-                    else min(BASE_BACKOFF * (2 ** attempt), MAX_BACKOFF)
+                    else min(BASE_BACKOFF * (2**attempt), MAX_BACKOFF)
                 )
                 await response.aclose()
                 await asyncio.sleep(delay)

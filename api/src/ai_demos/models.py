@@ -40,7 +40,9 @@ class AgentConversation(Base):
     metadata_: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     # Sernia agent additions
-    modality: Mapped[str | None] = mapped_column(String, index=True, nullable=True, server_default="web_chat")
+    modality: Mapped[str | None] = mapped_column(
+        String, index=True, nullable=True, server_default="web_chat"
+    )
     contact_identifier: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cost_last_run: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -56,6 +58,7 @@ class AgentConversation(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
 
 async def get_agent_conversation(
     session: AsyncSession,
@@ -87,10 +90,13 @@ async def get_agent_conversation(
 
         # Only retry if we didn't find it and have attempts left
         if attempt < retries - 1:
-            logfire.info(f"Conversation {conversation_id} not found for user {clerk_user_id}, retrying ({attempt + 1}/{retries})...")
+            logfire.info(
+                f"Conversation {conversation_id} not found for user {clerk_user_id}, retrying ({attempt + 1}/{retries})..."
+            )
             await asyncio.sleep(retry_delay)
 
     return None
+
 
 async def get_conversation_messages(
     conversation_id: str,
@@ -113,7 +119,9 @@ async def get_conversation_messages(
         )
         if conversation and conversation.messages:
             messages = ModelMessagesTypeAdapter.validate_python(conversation.messages)
-            return _repair_orphaned_tool_calls(messages, conversation_id, include_terminal=include_terminal)
+            return _repair_orphaned_tool_calls(
+                messages, conversation_id, include_terminal=include_terminal
+            )
         return []
 
 
@@ -199,7 +207,8 @@ def _repair_orphaned_tool_calls(
         repaired.append(msg)
         if isinstance(msg, ModelResponse) and i != last_response_idx:
             orphans = [
-                part for part in msg.parts
+                part
+                for part in msg.parts
                 if isinstance(part, ToolCallPart) and part.tool_call_id not in returned_ids
             ]
             if orphans:
@@ -223,10 +232,12 @@ def _repair_orphaned_tool_calls(
 
     return repaired
 
+
 async def _get_user_email_from_clerk(user_id: str) -> str | None:
     """Look up user email from Clerk given a user ID."""
     try:
         from api.src.utils.clerk import clerk_client
+
         user = clerk_client.users.get(user_id=user_id)
         if user and user.email_addresses:
             # Prefer verified email
@@ -245,7 +256,10 @@ def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float |
     try:
         from genai_prices import Usage as GPUsage
         from genai_prices import calc_price
-        price = calc_price(GPUsage(input_tokens=input_tokens, output_tokens=output_tokens), model_ref=model_ref)
+
+        price = calc_price(
+            GPUsage(input_tokens=input_tokens, output_tokens=output_tokens), model_ref=model_ref
+        )
         return float(round(price.total_price, 6)) if price else None
     except Exception:
         return None
@@ -280,7 +294,7 @@ async def save_agent_conversation(
         logfire.error("No agent_name provided for conversation persistence")
 
     try:
-        messages_json = ModelMessagesTypeAdapter.dump_python(messages, mode='json')
+        messages_json = ModelMessagesTypeAdapter.dump_python(messages, mode="json")
     except Exception:
         logfire.exception("Failed to convert messages to JSON, using fallback")
         # Fallback: simple to_jsonable_python which might leave bytes as is,
@@ -291,7 +305,11 @@ async def save_agent_conversation(
     # Look up user email from Clerk for convenience/debugging
     # Skip for placeholder/system user IDs — not real Clerk users
     user_email = None
-    if clerk_user_id and clerk_user_id not in ("visitor",) and not clerk_user_id.startswith("system:"):
+    if (
+        clerk_user_id
+        and clerk_user_id not in ("visitor",)
+        and not clerk_user_id.startswith("system:")
+    ):
         user_email = await _get_user_email_from_clerk(clerk_user_id)
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
@@ -328,6 +346,7 @@ async def save_agent_conversation(
 
     return conversation
 
+
 async def persist_agent_run_result(
     result: AgentRunResult,
     conversation_id: str,
@@ -357,7 +376,9 @@ async def persist_agent_run_result(
         clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
         metadata: Optional metadata to store
     """
-    logfire.info(f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}")
+    logfire.info(
+        f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}"
+    )
     if not conversation_id:
         logfire.warning("No conversation_id provided for persistence")
         return
@@ -367,7 +388,9 @@ async def persist_agent_run_result(
         try:
             async with provide_session() as s:
                 all_messages = result.all_messages()
-                logfire.debug(f"Persisting {len(all_messages)} messages for conversation {conversation_id}")
+                logfire.debug(
+                    f"Persisting {len(all_messages)} messages for conversation {conversation_id}"
+                )
 
                 # Extract token usage and compute cost
                 total_tokens: int | None = None
@@ -397,7 +420,9 @@ async def persist_agent_run_result(
                     estimated_tokens=total_tokens,
                     cost_last_run=cost,
                 )
-            logfire.info(f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}")
+            logfire.info(
+                f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}"
+            )
         except Exception as e:
             logfire.error(f"Failed to save conversation {conversation_id}: {e}")
 
@@ -408,6 +433,7 @@ async def persist_agent_run_result(
     except asyncio.CancelledError:
         # Parent was cancelled (e.g., client disconnected), but task continues
         logfire.info(f"Persistence shielded from cancellation for {conversation_id}")
+
 
 def _sanitize_json(obj: Any) -> Any:
     """Helper to ensure all data is JSON compliant, converting bytes to string placeholder."""
@@ -432,7 +458,12 @@ def _compute_participant(
     if modality == "sms":
         return metadata.get("trigger_contact_name") or contact_identifier or "Unknown"
     if modality in ("email", "zillow_email"):
-        return metadata.get("trigger_contact_name") or metadata.get("from_address") or contact_identifier or "Email"
+        return (
+            metadata.get("trigger_contact_name")
+            or metadata.get("from_address")
+            or contact_identifier
+            or "Email"
+        )
     if modality == "scheduled_check":
         return "Scheduled Check"
     # web_chat or fallback
@@ -546,31 +577,33 @@ async def list_user_conversations(
             metadata = row.metadata_ or {}
             modality = row.modality or "web_chat"
 
-            conv_list.append({
-                "conversation_id": row.id,
-                "agent_name": row.agent_name,
-                "clerk_user_id": row.clerk_user_id,
-                "user_email": row.user_email,
-                "modality": modality,
-                "preview": row.preview or "",
-                "estimated_tokens": row.estimated_tokens or 0,
-                "cost_last_run": row.cost_last_run,
-                "cost_total": row.cost_total or 0,
-                "run_count": row.run_count or 0,
-                "contact_identifier": row.contact_identifier,
-                "participant": _compute_participant(
-                    modality=modality,
-                    user_email=row.user_email,
-                    contact_identifier=row.contact_identifier,
-                    metadata=metadata,
-                ),
-                "pending": pending,
-                "has_pending": has_pending,
-                "trigger_source": metadata.get("trigger_source"),
-                "trigger_contact_name": metadata.get("trigger_contact_name"),
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            })
+            conv_list.append(
+                {
+                    "conversation_id": row.id,
+                    "agent_name": row.agent_name,
+                    "clerk_user_id": row.clerk_user_id,
+                    "user_email": row.user_email,
+                    "modality": modality,
+                    "preview": row.preview or "",
+                    "estimated_tokens": row.estimated_tokens or 0,
+                    "cost_last_run": row.cost_last_run,
+                    "cost_total": row.cost_total or 0,
+                    "run_count": row.run_count or 0,
+                    "contact_identifier": row.contact_identifier,
+                    "participant": _compute_participant(
+                        modality=modality,
+                        user_email=row.user_email,
+                        contact_identifier=row.contact_identifier,
+                        metadata=metadata,
+                    ),
+                    "pending": pending,
+                    "has_pending": has_pending,
+                    "trigger_source": metadata.get("trigger_source"),
+                    "trigger_contact_name": metadata.get("trigger_contact_name"),
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                }
+            )
 
         return conv_list
 
@@ -620,6 +653,7 @@ async def delete_conversation(
 # Pending Approval Utilities
 # =============================================================================
 
+
 def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list[dict]:
     """
     Extract all pending approval info from stored messages.
@@ -649,11 +683,15 @@ def extract_pending_approval_from_messages(messages: list[ModelMessage]) -> list
             for part in msg.parts:
                 if isinstance(part, ToolCallPart):
                     if part.tool_call_id not in returned_tool_ids:
-                        pending.append({
-                            "tool_call_id": part.tool_call_id,
-                            "tool_name": part.tool_name,
-                            "args": json.loads(part.args) if isinstance(part.args, str) else part.args,
-                        })
+                        pending.append(
+                            {
+                                "tool_call_id": part.tool_call_id,
+                                "tool_name": part.tool_name,
+                                "args": json.loads(part.args)
+                                if isinstance(part.args, str)
+                                else part.args,
+                            }
+                        )
     return pending
 
 

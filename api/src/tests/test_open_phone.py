@@ -29,11 +29,15 @@ def mock_background_services_startup():
     Mocks the startup of APScheduler etc to speed up tests in this module.
     Prevents actual scheduler/service startup during testing.
     """
-    with patch('api.index._apscheduler_startup_async', new_callable=AsyncMock) as mock_scheduler_start:
+    with patch(
+        "api.index._apscheduler_startup_async", new_callable=AsyncMock
+    ) as mock_scheduler_start:
         yield mock_scheduler_start
+
 
 async def mock_verify(*args, **kwargs):
     return True
+
 
 # @fixture
 # def mock_db_session():
@@ -43,6 +47,7 @@ async def mock_verify(*args, **kwargs):
 #     session.rollback = AsyncMock()
 #     session.refresh = AsyncMock()
 #     return session
+
 
 @fixture
 def mocked_client():
@@ -57,6 +62,7 @@ def mocked_client():
         yield client
     # Clean up after the test
     app.dependency_overrides.clear()
+
 
 def test_open_phone_webhook_message_received(mocked_client):
     """Test the OpenPhone webhook with a full message-received payload"""
@@ -73,9 +79,7 @@ def test_open_phone_webhook_message_received(mocked_client):
     print("\n\nVALIDATION RESULT:")
     pprint(validation_result)
 
-    response = mocked_client.post(
-        "/api/open_phone/webhook", json=body, headers=headers
-    )
+    response = mocked_client.post("/api/open_phone/webhook", json=body, headers=headers)
 
     response_data = response.json()
     print("\n\nRESPONSE DATA:")
@@ -87,7 +91,7 @@ def test_open_phone_webhook_message_received(mocked_client):
 def test_open_phone_webhook_contact_updated(mocked_client):
     """Test the OpenPhone webhook contact-updated payload validation"""
     with open("api/src/tests/requests/open_phone_contact_updated.json") as f:
-        body = json.load(f)['object']
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -100,7 +104,7 @@ def test_open_phone_webhook_contact_updated(mocked_client):
 def test_open_phone_webhook_call_summary_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
     with open("api/src/tests/requests/open_phone_call_summary_completed.json") as f:
-        body = json.load(f)['object']
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -113,7 +117,7 @@ def test_open_phone_webhook_call_summary_completed(mocked_client):
 def test_open_phone_webhook_call_transcript_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
     with open("api/src/tests/requests/open_phone_call_transcript_completed.json") as f:
-        body = json.load(f)['object']
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -136,5 +140,3 @@ def test_get_contacts_success(mocked_client):
     pprint(response_data)
 
     assert response.status_code == 200
-
-

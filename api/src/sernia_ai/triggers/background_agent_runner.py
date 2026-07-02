@@ -9,6 +9,7 @@ Push notifications are intentionally limited to HITL approval requests
 removed to reduce notification noise — humans pull conversations from web
 chat instead.
 """
+
 import time
 import uuid
 
@@ -52,8 +53,6 @@ def _is_rate_limited(key: str) -> bool:
         return True
     _trigger_cooldowns[key] = now
     return False
-
-
 
 
 async def run_agent_for_trigger(

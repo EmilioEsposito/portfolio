@@ -12,6 +12,7 @@ two integration points:
 Both rely on the standard PAT-unset → no-op contract, so no real network
 or filesystem mutation happens in tests beyond what other tests already do.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -27,9 +28,7 @@ async def test_write_resource_schedules_commit_and_push():
 
     from sernia_mcp.server import mcp
 
-    with patch(
-        "sernia_mcp.tools.context.commit_and_push", new=AsyncMock()
-    ) as push:
+    with patch("sernia_mcp.tools.context.commit_and_push", new=AsyncMock()) as push:
         async with Client(mcp) as c:
             await c.call_tool(
                 "write_resource",
@@ -54,9 +53,7 @@ async def test_edit_resource_schedules_commit_and_push():
 
     write_memory("hello world")
 
-    with patch(
-        "sernia_mcp.tools.context.commit_and_push", new=AsyncMock()
-    ) as push:
+    with patch("sernia_mcp.tools.context.commit_and_push", new=AsyncMock()) as push:
         async with Client(mcp) as c:
             await c.call_tool(
                 "edit_resource",
@@ -82,9 +79,7 @@ async def test_write_resource_skips_git_sync_on_failure():
 
     from sernia_mcp.server import mcp
 
-    with patch(
-        "sernia_mcp.tools.context.commit_and_push", new=AsyncMock()
-    ) as push:
+    with patch("sernia_mcp.tools.context.commit_and_push", new=AsyncMock()) as push:
         async with Client(mcp) as c:
             with pytest.raises(ToolError, match="unsupported URI"):
                 await c.call_tool(
@@ -100,9 +95,7 @@ async def test_lifespan_invokes_ensure_repo():
     """Wired ``ensure_repo`` must run before FastMCP's lifespan yields."""
     from sernia_mcp.app import app as application
 
-    with patch(
-        "sernia_mcp.app.ensure_repo", new=AsyncMock()
-    ) as ensure:
+    with patch("sernia_mcp.app.ensure_repo", new=AsyncMock()) as ensure:
         async with application.lifespan(application):
             pass
 
@@ -123,9 +116,7 @@ async def test_lifespan_continues_when_ensure_repo_raises():
         # If the wrap doesn't swallow the exception, this raises.
         async with application.lifespan(application):
             transport = httpx.ASGITransport(app=application)
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 # Server should still respond to /health despite git_sync failing.
                 resp = await client.get("/health")
                 assert resp.status_code == 200

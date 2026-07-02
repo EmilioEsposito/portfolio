@@ -4,6 +4,7 @@ Mirrors ``api/src/tests/test_openphone_rate_limit.py`` for the self-contained
 MCP service. Guards that bursts stay under the per-key rate limit and that the
 rare residual 429 is retried instead of bubbling up as error-level noise.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -15,7 +15,8 @@ async def verify_cron_secret(request: Request):
     auth_header = request.headers.get("authorization")
     if not auth_header or auth_header != f"Bearer {os.environ.get('CRON_SECRET')}":
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return True 
+    return True
+
 
 async def verify_cron_or_admin(request: Request):
     """
@@ -33,13 +34,14 @@ async def verify_cron_or_admin(request: Request):
             return True
         except HTTPException:
             # If both fail, raise unauthorized
-            raise HTTPException(status_code=401, detail="Unauthorized: Requires either cron secret or admin authentication") 
+            raise HTTPException(
+                status_code=401,
+                detail="Unauthorized: Requires either cron secret or admin authentication",
+            )
 
 
 # Combined dependency for OR logic
-async def verify_admin_or_serniacapital(
-    request: Request
-):
+async def verify_admin_or_serniacapital(request: Request):
     """
     Dependency to verify either admin authentication (password) OR a logged-in user with a verified SerniaCapital email.
     Raises 401/403 if neither auth method succeeds.
@@ -50,13 +52,13 @@ async def verify_admin_or_serniacapital(
     if request.method == "GET":
         logfire.error(
             "Programming_error: 'verify_admin_or_serniacapital' dependency "
-            "was incorrectly used with a GET request for path: %s", 
-            request.url.path
+            "was incorrectly used with a GET request for path: %s",
+            request.url.path,
         )
         # This indicates a server-side misconfiguration
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal Server Error: Endpoint dependency misconfigured for verify_admin_or_serniacapital"
+            detail="Internal Server Error: Endpoint dependency misconfigured for verify_admin_or_serniacapital",
         )
     else:
         try:
@@ -68,12 +70,16 @@ async def verify_admin_or_serniacapital(
             # 400 for bad JSON (e.g. from request.json() if body is missing/malformed for password)
             # 401 for invalid password/no password
             if admin_auth_exception.status_code in [400, 401, 403]:
-                logfire.info(f"Admin password auth failed or not applicable (status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'). Proceeding to SerniaCapital user check.")
+                logfire.info(
+                    f"Admin password auth failed or not applicable (status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'). Proceeding to SerniaCapital user check."
+                )
                 # Fall through to SerniaCapital user check below
             else:
                 # Unexpected error during admin auth
-                logfire.error(f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'")
-                raise admin_auth_exception # Re-raise unexpected exceptions
+                logfire.error(
+                    f"Admin auth failed with unexpected status: {admin_auth_exception.status_code}, detail: '{admin_auth_exception.detail}'"
+                )
+                raise admin_auth_exception  # Re-raise unexpected exceptions
 
     # 2. Attempt SerniaCapital user authentication
     # This part is reached if:
@@ -87,7 +93,7 @@ async def verify_admin_or_serniacapital(
 
         # if above succeeds, is_sernia_user will always be True.
         logfire.info("Authorization successful via SerniaCapital domain verification.")
-        return is_sernia_user # SerniaCapital user is authorized (True)
+        return is_sernia_user  # SerniaCapital user is authorized (True)
 
     except HTTPException as user_auth_exception:
         logfire.warn(f"SerniaCapital auth failed: {user_auth_exception.detail}")
@@ -95,5 +101,7 @@ async def verify_admin_or_serniacapital(
         detail_message = "Unauthorized: Requires admin password (for non-GET requests) or a verified @serniacapital.com user login."
         raise HTTPException(status_code=401, detail=detail_message) from user_auth_exception
     except Exception as e:
-         logfire.exception(f"Unexpected error during SerniaCapital check: {e}")
-         raise HTTPException(status_code=500, detail="Internal server error during authorization check.")
+        logfire.exception(f"Unexpected error during SerniaCapital check: {e}")
+        raise HTTPException(
+            status_code=500, detail="Internal server error during authorization check."
+        )

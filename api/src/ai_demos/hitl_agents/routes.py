@@ -15,6 +15,7 @@ The approval flow is the same for both:
 - Frontend shows approval UI
 - Approval triggers second run with DeferredToolResults
 """
+
 import functools
 import json
 import uuid
@@ -118,7 +119,9 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
         conversation_id, clerk_user_id, session=session, include_terminal=True
     )
 
-    logfire.info(f"Chat conversation_id: {conversation_id}, clerk_user_id: {clerk_user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}")
+    logfire.info(
+        f"Chat conversation_id: {conversation_id}, clerk_user_id: {clerk_user_id}, frontend_msg_count: {len(frontend_messages)}, db_msg_count: {len(backend_message_history)}"
+    )
 
     # Only use the LAST message from frontend (the new user input)
     # Backend DB has the authoritative history
@@ -160,12 +163,14 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
 # Conversation/Approval API (for both chat and workflow UIs)
 # =============================================================================
 
+
 class StartConversationRequest(BaseModel):
     prompt: str
 
 
 class ApprovalDecisionRequest(BaseModel):
     """A single approval decision for one tool call."""
+
     tool_call_id: str
     approved: bool
     reason: str | None = None
@@ -174,6 +179,7 @@ class ApprovalDecisionRequest(BaseModel):
 
 class ApprovalRequest(BaseModel):
     """Batch approval request for one or more tool calls."""
+
     decisions: list[ApprovalDecisionRequest]
 
 
@@ -191,7 +197,9 @@ async def start_workflow(body: StartConversationRequest, user: SerniaUser, sessi
     # Agent has persistence patch applied - automatically saves to DB after run
     result = await hitl_sms_agent.run(
         user_prompt=body.prompt,
-        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session),
+        deps=HITLAgentContext(
+            clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session
+        ),
     )
 
     pending = extract_pending_approvals(result)
@@ -227,7 +235,9 @@ async def get_conversation(conversation_id: str, user: SerniaUser, session: DBSe
 
 
 @router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(conversation_id: str, body: ApprovalRequest, user: SerniaUser, session: DBSession):
+async def approve_conversation(
+    conversation_id: str, body: ApprovalRequest, user: SerniaUser, session: DBSession
+):
     """
     Approve or deny pending tool calls (batch).
     Only accessible by the conversation owner.
@@ -235,7 +245,9 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
     This resumes the agent with approval decisions and returns the result.
     If the agent requests more approvals, they'll be in the pending list.
     """
-    logfire.info(f"Approve request for conversation_id: {conversation_id}, decisions: {len(body.decisions)}")
+    logfire.info(
+        f"Approve request for conversation_id: {conversation_id}, decisions: {len(body.decisions)}"
+    )
     clerk_user_id = user.id
 
     try:
@@ -271,8 +283,7 @@ async def approve_conversation(conversation_id: str, body: ApprovalRequest, user
 
         # Return the decisions with their approval status for UI display
         processed_decisions = [
-            {"tool_call_id": d.tool_call_id, "approved": d.approved}
-            for d in body.decisions
+            {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in body.decisions
         ]
 
         return {
@@ -339,9 +350,7 @@ async def get_conversation_messages_endpoint(
     and resume it. Messages are returned in Vercel AI UIMessage format.
     """
     # Load messages from DB - user_id filter applied in SQL
-    pydantic_messages = await get_conversation_messages(
-        conversation_id, user.id, session=session
-    )
+    pydantic_messages = await get_conversation_messages(conversation_id, user.id, session=session)
 
     if not pydantic_messages:
         return {"messages": [], "conversation_id": conversation_id}

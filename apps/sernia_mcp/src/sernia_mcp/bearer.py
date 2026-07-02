@@ -23,6 +23,7 @@ Design choices:
   - **Minimum length** (32 chars). Enforced at config-read time; weaker
     secrets are refused at boot rather than papered over at runtime.
 """
+
 from __future__ import annotations
 
 import os

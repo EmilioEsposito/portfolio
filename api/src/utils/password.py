@@ -1,6 +1,6 @@
 from dotenv import find_dotenv, load_dotenv
 
-load_dotenv(find_dotenv('.env'))
+load_dotenv(find_dotenv(".env"))
 import hmac
 import json
 import os
@@ -17,32 +17,34 @@ def adhoc_generate_new_password():
     password = input("Type password and hit ENTER: ")
 
     # Create salted hash
-    password_bytes = (password + salt).encode('utf-8')
+    password_bytes = (password + salt).encode("utf-8")
     password_hash = hashlib.sha256(password_bytes).hexdigest()
 
     print("Add these to your .env file:")
     print(f"ADMIN_PASSWORD_SALT={salt}")
     print(f"ADMIN_PASSWORD_HASH={password_hash}")
 
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password using the salt from environment variables."""
     import hashlib
-    
+
     salt = os.getenv("ADMIN_PASSWORD_SALT")
     if not salt:
         raise HTTPException(500, "Password salt not configured")
-    
+
     # Create salted hash
-    password_bytes = (password + salt).encode('utf-8')
+    password_bytes = (password + salt).encode("utf-8")
     return hashlib.sha256(password_bytes).hexdigest()
+
 
 async def verify_admin_password(password_attempt: str) -> bool:
     password_attempt_hash = hash_password(password_attempt)
     correct_hash = os.getenv("ADMIN_PASSWORD_HASH")
-    
+
     if not correct_hash:
         raise HTTPException(500, "Password hash not configured")
-    
+
     is_valid = hmac.compare_digest(password_attempt_hash, correct_hash)
 
     return is_valid
@@ -55,7 +57,7 @@ async def verify_admin_auth(request: Request) -> bool:
         password = body.get("password")
         if not password:
             raise HTTPException(401, "Password required")
-            
+
         is_valid = await verify_admin_password(password)
 
         if is_valid:

@@ -18,6 +18,7 @@ Run:
 Skipped by default (the ``live`` marker is excluded by ``pyproject.toml``'s
 default ``addopts`` — see also `tests/conftest.py` and CLAUDE.md).
 """
+
 from __future__ import annotations
 
 import os
@@ -63,15 +64,9 @@ async def test_samantha_thread_read_via_emilio_mailbox():
 
     # Cleanup invariants — these are the ones that broke when we previously
     # shipped read_email_thread without the cleanup pipeline.
-    assert "New message from a renter" not in result, (
-        "Zillow boilerplate header should be stripped"
-    )
-    assert "Reminder: The federal" not in result, (
-        "Fair Housing reminder block should be stripped"
-    )
-    assert "Other helpful links" not in result, (
-        "Zillow tail-link section should be stripped"
-    )
+    assert "New message from a renter" not in result, "Zillow boilerplate header should be stripped"
+    assert "Reminder: The federal" not in result, "Fair Housing reminder block should be stripped"
+    assert "Other helpful links" not in result, "Zillow tail-link section should be stripped"
 
     print(f"\n--- Samantha thread output ({len(result)} chars) ---")
     print(result[:3000])

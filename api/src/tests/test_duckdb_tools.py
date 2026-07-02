@@ -41,6 +41,7 @@ class TestSmoke:
     def test_agent_imports_with_duckdb_toolset(self):
         """sernia_agent loads with the new toolset registered."""
         from api.src.sernia_ai.agent import sernia_agent
+
         # Just verify it doesn't crash on import
         assert sernia_agent is not None
 
@@ -133,7 +134,9 @@ class TestWriteDataset:
     def test_strips_blank_rows(self, tmp_path, monkeypatch):
         monkeypatch.setattr("api.src.sernia_ai.tools.data_export.DATA_BASE", tmp_path)
         path, count = write_dataset(
-            "conv-123", "blanks", ["A", "B"],
+            "conv-123",
+            "blanks",
+            ["A", "B"],
             [["1", "2"], [], ["", ""], [" ", " "], ["3", "4"]],
         )
         assert count == 2  # only the two non-blank rows
@@ -278,7 +281,9 @@ class TestRunSql:
         conn.close()
 
         ctx = _make_ctx(cid, tmp_path)
-        result = run_sql(ctx, "SELECT unit, SUM(amount) as total FROM sales GROUP BY unit ORDER BY unit")
+        result = run_sql(
+            ctx, "SELECT unit, SUM(amount) as total FROM sales GROUP BY unit ORDER BY unit"
+        )
         assert "A1" in result
         assert "300" in result  # A1 total
         assert "B1" in result
@@ -344,6 +349,7 @@ class TestCleanup:
         stale_file.write_text("stale")
         import os
         import time
+
         old_time = time.time() - 48 * 3600  # 48 hours ago
         os.utime(stale_file, (old_time, old_time))
 

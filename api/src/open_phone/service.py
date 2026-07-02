@@ -115,11 +115,7 @@ async def find_contact_by_phone(
     return matches[0] if matches else None
 
 
-async def send_message(
-    message: str,
-    to_phone_number: str,
-    from_phone_number: str | None = None
-):
+async def send_message(message: str, to_phone_number: str, from_phone_number: str | None = None):
     """
     Send a message to a phone number using the OpenPhone API.
     """
@@ -143,6 +139,7 @@ async def send_message(
         )
     return response
 
+
 async def upsert_openphone_contact(contact_create: ContactCreate):
     """
     Create or update a contact in the OpenPhone system.
@@ -163,7 +160,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
         "Content-Type": "application/json",
     }
 
-    async with AsyncSessionFactory() as db:   
+    async with AsyncSessionFactory() as db:
         # first, check if the contact already exists in our database
         # first check via slug if it exists
         if contact_create.slug:
@@ -175,7 +172,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             stmt = select(Contact).where(Contact.phone_number == contact_create.phone_number)
             result = await db.execute(stmt)
             contact = result.scalars().first()
-        
+
         if not contact:
             # create a new contact
             contact = await create_contact(db, contact_create)
@@ -196,25 +193,32 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             },
             "createdByUserId": "USXAiFJxgv",  # Emilio
             "source": "API-Emilio",
-            "externalId": "api" + contact_create.phone_number[-10:],  # "e" + contact["Phone Number"],   # contact["external_id"]
+            "externalId": "api"
+            + contact_create.phone_number[
+                -10:
+            ],  # "e" + contact["Phone Number"],   # contact["external_id"]
         }
-        
+
         # Check if contact already exists in OpenPhone before creating
         external_id = data["externalId"]
         lookup_response = requests.get(
-            "https://api.openphone.com/v1/contacts", headers=headers, params={"externalIds": [external_id]}
+            "https://api.openphone.com/v1/contacts",
+            headers=headers,
+            params={"externalIds": [external_id]},
         )
-        lookup_results = lookup_response.json().get('data', [])
+        lookup_results = lookup_response.json().get("data", [])
 
         if lookup_results:
             # Contact exists — update it
             if len(lookup_results) > 1:
                 logfire.warn(f"Multiple contacts found for the same externalId: {external_id}")
-            contact.openphone_contact_id = lookup_results[0]['id']
+            contact.openphone_contact_id = lookup_results[0]["id"]
             patch_response = requests.patch(
-                f"https://api.openphone.com/v1/contacts/{contact.openphone_contact_id}", headers=headers, json=data
+                f"https://api.openphone.com/v1/contacts/{contact.openphone_contact_id}",
+                headers=headers,
+                json=data,
             )
-            contact.openphone_json = patch_response.json()['data']
+            contact.openphone_json = patch_response.json()["data"]
             if patch_response.status_code == 200:
                 final_response = patch_response
             else:
@@ -226,19 +230,20 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
                 "https://api.openphone.com/v1/contacts", headers=headers, json=data
             )
             if response.status_code == 201:
-                contact.openphone_contact_id = response.json()['data']['id']
-                contact.openphone_json = response.json()['data']
+                contact.openphone_contact_id = response.json()["data"]["id"]
+                contact.openphone_json = response.json()["data"]
                 final_response = response
             else:
                 logfire.error(f"Failed to create contact: {response.status_code} {response.json()}")
                 final_response = response
-            
+
         # Use merge instead of upsert
         merged_contact = await db.merge(contact)
         await db.commit()
         await db.refresh(merged_contact)
-        
+
     return final_response
+
 
 async def get_contacts_by_external_ids(
     external_ids: list[str],

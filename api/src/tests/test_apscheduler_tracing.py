@@ -74,9 +74,7 @@ async def test_new_trace_detaches_from_parent():
 
     assert parent_trace_id != "", "Parent should have a trace_id"
     assert child_trace_id != "", "Child should have a trace_id"
-    assert child_trace_id != parent_trace_id, (
-        "Wrapped job must NOT inherit parent trace_id"
-    )
+    assert child_trace_id != parent_trace_id, "Wrapped job must NOT inherit parent trace_id"
 
 
 @pytest.mark.asyncio
@@ -90,6 +88,7 @@ async def test_simultaneous_jobs_under_parent_span_all_separate():
         async def job():
             traces[name] = _get_current_trace_id()
             await asyncio.sleep(0.01)  # simulate work
+
         return job
 
     job_a = _new_trace(await make_job("clickup"))

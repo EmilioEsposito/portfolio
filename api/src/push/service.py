@@ -12,6 +12,7 @@ from .models import PushToken
 # The endpoint for Expo's Push API
 EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send"
 
+
 async def register_token(email: str, token: str, db: AsyncSession):
     """Registers or updates an Expo push token for a given email using SELECT-then-UPDATE/INSERT pattern."""
     logfire.info(f"Registering token for email {email}: {token[:15]}...")
@@ -25,16 +26,18 @@ async def register_token(email: str, token: str, db: AsyncSession):
         if existing_token:
             # Update existing token's email and timestamp
             if existing_token.email != email:
-                logfire.info(f"Updating email for existing token {token[:15]}... from {existing_token.email} to {email}")
+                logfire.info(
+                    f"Updating email for existing token {token[:15]}... from {existing_token.email} to {email}"
+                )
                 existing_token.email = email
-            existing_token.updated_at = func.now() # Use func.now() for update
+            existing_token.updated_at = func.now()  # Use func.now() for update
             logfire.info(f"Updated existing token entry for {email}")
         else:
             # Create new token entry
             logfire.info(f"Creating new token entry for {email}")
             new_token = PushToken(
                 email=email,
-                token=token
+                token=token,
                 # created_at and updated_at will use server defaults
             )
             db.add(new_token)
@@ -52,7 +55,7 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
     # (This is the function moved from the example script, with added logger)
     if not token or not token.startswith("ExponentPushToken"):
         logfire.warn(f"Attempted to send to invalid token: {token}")
-        return False # Indicate failure
+        return False  # Indicate failure
 
     logfire.info(f"Sending push to {token[:15]}... Title: {title}")
     message = {
@@ -72,7 +75,9 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
 
     is_success = False
     try:
-        response = requests.post(EXPO_PUSH_ENDPOINT, headers=headers, data=json.dumps(message), timeout=10)
+        response = requests.post(
+            EXPO_PUSH_ENDPOINT, headers=headers, data=json.dumps(message), timeout=10
+        )
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
         try:
@@ -81,32 +86,47 @@ def send_push_message(token: str, title: str, body: str, data: dict = None):
             push_response_data = response_data.get("data")
 
             if isinstance(push_response_data, dict) and push_response_data.get("status") == "ok":
-                logfire.info(f"Push notification ticket generated successfully for {token[:15]}... ID: {push_response_data.get('id')}")
+                logfire.info(
+                    f"Push notification ticket generated successfully for {token[:15]}... ID: {push_response_data.get('id')}"
+                )
                 is_success = True
             elif isinstance(push_response_data, list) and len(push_response_data) > 0:
                 if push_response_data[0].get("status") == "error":
                     error_details = push_response_data[0].get("details", {})
                     error_code = error_details.get("error")
-                    logfire.error(f"Error sending push notification to {token[:15]}...: {error_code}")
+                    logfire.error(
+                        f"Error sending push notification to {token[:15]}...: {error_code}"
+                    )
                     if error_code == "DeviceNotRegistered":
                         logfire.warn(f"Token {token[:15]}... reported as unregistered.")
                         # TODO: Optionally remove this token from DB here
                 elif push_response_data[0].get("status") == "ok":
-                     logfire.info(f"Push notification ticket generated successfully for {token[:15]}... (from list)")
-                     is_success = True
+                    logfire.info(
+                        f"Push notification ticket generated successfully for {token[:15]}... (from list)"
+                    )
+                    is_success = True
                 else:
-                     logfire.warn(f"Could not determine push status for {token[:15]}... from list response.")
+                    logfire.warn(
+                        f"Could not determine push status for {token[:15]}... from list response."
+                    )
             else:
-                 logfire.warn(f"Could not determine push status for {token[:15]}... from response format: {push_response_data}")
+                logfire.warn(
+                    f"Could not determine push status for {token[:15]}... from response format: {push_response_data}"
+                )
         except json.JSONDecodeError:
-            logfire.error(f"Error decoding Expo Push API response for {token[:15]}... Status: {response.status_code}, Text: {response.text}")
+            logfire.error(
+                f"Error decoding Expo Push API response for {token[:15]}... Status: {response.status_code}, Text: {response.text}"
+            )
 
     except requests.exceptions.RequestException as e:
         logfire.error(f"Error sending request to Expo Push API for {token[:15]}...: {e}")
-        
-    return is_success # Return True if sending was likely successful
 
-async def send_push_to_user(email: str, title: str, body: str, data: dict | None = None, db: AsyncSession | None = None):
+    return is_success  # Return True if sending was likely successful
+
+
+async def send_push_to_user(
+    email: str, title: str, body: str, data: dict | None = None, db: AsyncSession | None = None
+):
     """Sends a push notification to all tokens associated with an email.
     If db is None, a new session will be created and managed internally.
     """
@@ -116,7 +136,7 @@ async def send_push_to_user(email: str, title: str, body: str, data: dict | None
         stmt = select(PushToken.token).where(PushToken.email == email)
         result = await session.execute(stmt)
         tokens = result.scalars().all()
-        
+
         if not tokens:
             logfire.warn(f"No push tokens found for email: {email}")
             return
@@ -127,7 +147,9 @@ async def send_push_to_user(email: str, title: str, body: str, data: dict | None
             is_success = send_push_message(token=token_value, title=title, body=body, data=data)
             if is_success:
                 sent_count += 1
-        logfire.info(f"Finished sending notifications to {email}. Successfully sent: {sent_count}/{len(tokens)}")
+        logfire.info(
+            f"Finished sending notifications to {email}. Successfully sent: {sent_count}/{len(tokens)}"
+        )
 
     if db:
         # Use the provided session
@@ -144,6 +166,7 @@ async def send_push_to_user(email: str, title: str, body: str, data: dict | None
         except Exception as e:
             logfire.exception(f"Error in send_push_to_user with internal session for {email}: {e}")
             # Optionally re-raise or handle
+
 
 # The send_push_to_user_internally function can now be removed if this pattern is preferred.
 # async def send_push_to_user_internally(email: str, title: str, body: str, data: dict | None = None):

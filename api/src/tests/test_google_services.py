@@ -69,9 +69,7 @@ async def test_query_calendar_events():
 async def test_create_calendar_event():
     service = await get_calendar_service(user_email="all@serniacapital.com")
     et_tz = pytz.timezone("US/Eastern")
-    start_time = datetime.datetime(year=2026, month=3, day=29, hour=12).astimezone(
-        et_tz
-    )
+    start_time = datetime.datetime(year=2026, month=3, day=29, hour=12).astimezone(et_tz)
     end_time = start_time + datetime.timedelta(hours=1)
 
     event = CalendarEventInput(
@@ -113,7 +111,7 @@ async def test_send_email():
 
 @pytest.mark.live
 def test_get_contacts_sheet_as_json():
-    spreadsheet_id = '1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M'
+    spreadsheet_id = "1Gi0Wrkwm-gfCnAxycuTzHMjdebkB5cDt8wwimdYOr_M"
     return get_sheet_as_json(spreadsheet_id, sheet_name="OpenPhone")
 
 

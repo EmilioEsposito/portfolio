@@ -67,7 +67,7 @@ def _drop_dbos_sqlalchemy_sys_traces(span_info: TailSamplingSpanInfo) -> float:
         or ("dbos_sys" in statement_l)
     )
     if is_dbos_sys:
-        return 0.10 # 10% chance of keeping DBOS internal DB chatter
+        return 0.10  # 10% chance of keeping DBOS internal DB chatter
 
     # Buffer until end so we can decide with full attributes, then include.
     return 1.0 if span_info.event == "end" else 0.0
@@ -95,6 +95,7 @@ def ensure_logfire_configured(
     # OpenTelemetry can emit a noisy warning when some instrumentations try to set attributes
     # on spans after they've been ended (common with buffering/dropping processors).
     warnings.filterwarnings("ignore", message=r".*Setting attribute on ended span\..*")
+
     # In some environments this message is emitted via stdlib logging with a minimal formatter
     # so it shows up as a bare line. Filter it at the root logger to keep other warnings intact.
     class _DropEndedSpanNoise(logging.Filter):
@@ -146,4 +147,3 @@ def ensure_logfire_configured(
 
 def is_logfire_configured() -> bool:
     return _CONFIGURED
-

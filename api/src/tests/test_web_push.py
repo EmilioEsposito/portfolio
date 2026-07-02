@@ -73,9 +73,7 @@ async def test_send_push_notification():
     assert _vapid, "VAPID_PRIVATE_KEY not set or failed to load — add to .env"
 
     async with AsyncSessionFactory() as session:
-        count = await session.scalar(
-            select(func.count()).select_from(WebPushSubscription)
-        )
+        count = await session.scalar(select(func.count()).select_from(WebPushSubscription))
 
     assert count and count > 0, (
         "No subscriptions in DB. Go to /sernia-chat and click the bell icon first."

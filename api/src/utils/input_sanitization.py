@@ -4,6 +4,7 @@ Input sanitization utilities for AI agent endpoints.
 Protects against SSRF and other attacks by sanitizing user-provided message parts
 before they reach AI agents.
 """
+
 from typing import Any
 
 import logfire

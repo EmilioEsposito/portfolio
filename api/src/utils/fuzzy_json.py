@@ -76,7 +76,9 @@ def fuzzy_filter(
 
     # Digit-only queries get special handling (phone number search)
     q_digits = "".join(c for c in q if c.isdigit())
-    is_phone_query = len(q_digits) >= 4 and len(q_digits) == len(q.replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("+", ""))
+    is_phone_query = len(q_digits) >= 4 and len(q_digits) == len(
+        q.replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("+", "")
+    )
 
     scored: list[tuple[dict, int]] = []
     for item in items:

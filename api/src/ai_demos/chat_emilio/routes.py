@@ -1,6 +1,7 @@
 """
 Routes for PydanticAI-powered portfolio chatbot
 """
+
 import functools
 import json
 
@@ -18,7 +19,6 @@ from api.src.utils.input_sanitization import sanitize_request_json
 from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-emilio", tags=["ai"])
-
 
 
 # Use PydanticAI's RequestData for type checking/documentation
@@ -49,13 +49,13 @@ data: [DONE]"""
         "headers": {
             "x-vercel-ai-ui-message-stream": {
                 "description": "Vercel AI SDK stream version",
-                "schema": {"type": "string", "example": "v1"}
+                "schema": {"type": "string", "example": "v1"},
             },
             "X-Accel-Buffering": {
                 "description": "Disables buffering for streaming",
-                "schema": {"type": "string", "example": "no"}
-            }
-        }
+                "schema": {"type": "string", "example": "no"},
+            },
+        },
     }
 }
 
@@ -71,15 +71,10 @@ _CHAT_EMILIO_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440001",
                     "role": "user",
-                    "parts": [
-                        {
-                            "type": "text",
-                            "text": "What technologies does Emilio work with?"
-                        }
-                    ]
+                    "parts": [{"type": "text", "text": "What technologies does Emilio work with?"}],
                 }
-            ]
-        }
+            ],
+        },
     },
     "conversation": {
         "summary": "Conversation with history",
@@ -91,21 +86,21 @@ _CHAT_EMILIO_REQUEST_EXAMPLES = {
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440003",
                     "role": "user",
-                    "parts": [{"type": "text", "text": "Hello"}]
+                    "parts": [{"type": "text", "text": "Hello"}],
                 },
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440004",
                     "role": "assistant",
-                    "parts": [{"type": "text", "text": "Hi there! How can I help you?"}]
+                    "parts": [{"type": "text", "text": "Hi there! How can I help you?"}],
                 },
                 {
                     "id": "550e8400-e29b-41d4-a716-446655440005",
                     "role": "user",
-                    "parts": [{"type": "text", "text": "Tell me about Emilio's projects"}]
-                }
-            ]
-        }
-    }
+                    "parts": [{"type": "text", "text": "Tell me about Emilio's projects"}],
+                },
+            ],
+        },
+    },
 }
 
 _CHAT_EMILIO_OPENAPI_EXTRA = {
@@ -113,14 +108,12 @@ _CHAT_EMILIO_OPENAPI_EXTRA = {
         "content": {
             "application/json": {
                 "schema": expand_json_schema(SubmitMessage.model_json_schema()),
-                "examples": _CHAT_EMILIO_REQUEST_EXAMPLES
+                "examples": _CHAT_EMILIO_REQUEST_EXAMPLES,
             }
         },
-        "required": True
+        "required": True,
     }
 }
-
-
 
 
 # https://ai.pydantic.dev/ui/vercel-ai/
@@ -150,24 +143,29 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
     # Replace request body so VercelAIAdapter uses sanitized version
     request._body = json.dumps(sanitized_json).encode()
 
-    conversation_id = sanitized_json.get('id')
+    conversation_id = sanitized_json.get("id")
 
     # Validate that there are messages to process — the Anthropic API rejects
     # requests with an empty messages array ("at least one message is required").
-    messages = sanitized_json.get('messages', [])
+    messages = sanitized_json.get("messages", [])
     if not messages:
-        logfire.warn("chat_emilio: empty messages array in request", conversation_id=conversation_id)
+        logfire.warn(
+            "chat_emilio: empty messages array in request", conversation_id=conversation_id
+        )
         return Response(status_code=400, content="messages array is empty")
 
     # Log new messages
-    if sanitized_json.get('trigger') == 'submit-message':
+    if sanitized_json.get("trigger") == "submit-message":
         if messages:
             # Structured logging for easy querying/alerting in Logfire UI
             latest_message = messages[-1]
-            logfire.info("new chat message",
+            logfire.info(
+                "new chat message",
                 slack_alert=True,
                 endpoint="/api/ai-demos/chat-emilio",
-                message_text=latest_message.get('parts', [{}])[0].get('text', '') if latest_message.get('parts') else '',
+                message_text=latest_message.get("parts", [{}])[0].get("text", "")
+                if latest_message.get("parts")
+                else "",
             )
 
     # Use functools.partial to create a callback with pre-filled arguments
@@ -186,11 +184,11 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
         deps=PortfolioContext(user_name="visitor"),
         on_complete=on_complete_callback,
     )
-    
+
     # Add headers to prevent browser/proxy buffering
     # X-Accel-Buffering: no tells nginx and browsers not to buffer the response
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    
+
     return response

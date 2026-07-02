@@ -5,6 +5,7 @@ authoritative calc_price() — which is what pydantic_ai uses to set
 `operation.cost` on LLM spans. If these drift, the dashboard v2 panel will
 diverge from the totals panel.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal

@@ -3,6 +3,7 @@
 No network, no DB — pure functions plus the graceful-skip behavior that CI
 and credential-less environments rely on.
 """
+
 import pytest
 
 from api.src.utils.seed_bucket import get_seed_bucket

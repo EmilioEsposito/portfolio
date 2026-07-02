@@ -11,10 +11,9 @@ from api.src.apscheduler_service.service import get_scheduler
 from api.src.utils.clerk import verify_serniacapital_user
 
 router = APIRouter(
-    prefix="/apscheduler",
-    tags=["apscheduler"],
-    dependencies=[Depends(verify_serniacapital_user)]
+    prefix="/apscheduler", tags=["apscheduler"], dependencies=[Depends(verify_serniacapital_user)]
 )
+
 
 # Helper to convert APScheduler Job to a more FastAPI-friendly dict
 def job_to_dict(job: Job) -> dict:
@@ -31,6 +30,7 @@ def job_to_dict(job: Job) -> dict:
         "misfire_grace_time": job.misfire_grace_time,
         "pending": job.pending,
     }
+
 
 @router.get("/get_jobs", response_model=list[dict])
 async def get_jobs():
@@ -56,15 +56,18 @@ async def run_job_now(job_id: str):
     job = scheduler.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job with id {job_id} not found")
-    
+
     try:
         job.modify(next_run_time=datetime.now(), misfire_grace_time=300)
         # scheduler.modify_job(job_id, next_run_time=datetime.now()+timedelta(seconds=2))
-        updated_job = scheduler.get_job(job_id) # This will be the modified job
-        return {"message": f"Job {job_id} has been triggered to run now.", "job_details": job_to_dict(updated_job) if updated_job else None}
+        updated_job = scheduler.get_job(job_id)  # This will be the modified job
+        return {
+            "message": f"Job {job_id} has been triggered to run now.",
+            "job_details": job_to_dict(updated_job) if updated_job else None,
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to run job {job_id}: {str(e)}") 
-    
+        raise HTTPException(status_code=500, detail=f"Failed to run job {job_id}: {str(e)}")
+
 
 @router.delete("/delete_job/{job_id}", response_model=dict)
 async def delete_job(job_id: str):

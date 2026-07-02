@@ -14,22 +14,24 @@ async def save_oauth_credentials(
     user_id: str,
     provider: str,
     creds_response: OAuthAccessToken | dict = None,
-    creds_dict: dict | None = None
+    creds_dict: dict | None = None,
 ) -> OAuthCredential:
     """
     Save or update OAuth credentials in database
-    
+
     Args:
         session: SQLAlchemy async session
         user_id: Clerk user ID
         provider: OAuth provider (e.g. 'oauth_google')
         creds_response: Clerk OAuth response,
         creds_dict: dict
-        
+
     Returns:
         Saved OAuthCredential instance
     """
-    assert creds_dict or creds_response, "Either creds_dict or creds_response must be provided, but not both"
+    assert creds_dict or creds_response, (
+        "Either creds_dict or creds_response must be provided, but not both"
+    )
     try:
         if creds_response:
             # Convert response to dict for storage
@@ -39,8 +41,7 @@ async def save_oauth_credentials(
 
         # Check for existing credentials
         stmt = select(OAuthCredential).where(
-            OAuthCredential.user_id == user_id,
-            OAuthCredential.provider == provider
+            OAuthCredential.user_id == user_id, OAuthCredential.provider == provider
         )
         result = await session.execute(stmt)
         creds = result.scalar_one_or_none()
@@ -49,7 +50,7 @@ async def save_oauth_credentials(
         # Convert to UTC datetime and then make it timezone-naive for Google
         expires_at_timestamp = creds_dict["expires_at"] / 1000
         expires_at = datetime.fromtimestamp(expires_at_timestamp, tz=pytz.UTC).replace(tzinfo=None)
-        
+
         # Log the conversion for debugging
         print(f"Original expires_at (ms): {creds_dict['expires_at']}")
         print(f"Converted to UTC datetime: {expires_at}")
@@ -73,11 +74,13 @@ async def save_oauth_credentials(
                 provider=provider,
                 provider_user_id=creds_dict["provider_user_id"],
                 access_token=creds_dict["token"],
-                token_type=creds_dict.get("token_type", "Bearer"),  # Default to Bearer if not specified
+                token_type=creds_dict.get(
+                    "token_type", "Bearer"
+                ),  # Default to Bearer if not specified
                 expires_at=expires_at,
                 scopes=creds_dict["scopes"],
                 label=creds_dict.get("label"),
-                raw_response=creds_dict
+                raw_response=creds_dict,
             )
             session.add(creds)
 
@@ -87,46 +90,38 @@ async def save_oauth_credentials(
 
     except Exception as e:
         await session.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save OAuth credentials: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to save OAuth credentials: {str(e)}")
 
 
 async def get_oauth_credentials(
-    session: AsyncSession,
-    user_id: str,
-    provider: str
+    session: AsyncSession, user_id: str, provider: str
 ) -> OAuthCredential | None:
     """
     Get OAuth credentials from database
-    
+
     Args:
         session: SQLAlchemy async session
         user_id: Clerk user ID
         provider: OAuth provider (e.g. 'oauth_google')
-        
+
     Returns:
         OAuthCredential instance if found, None otherwise
     """
     stmt = select(OAuthCredential).where(
-        OAuthCredential.user_id == user_id,
-        OAuthCredential.provider == provider
+        OAuthCredential.user_id == user_id, OAuthCredential.provider == provider
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
-async def get_all_user_credentials(
-    session: AsyncSession,
-    user_id: str
-) -> list[OAuthCredential]:
+
+async def get_all_user_credentials(session: AsyncSession, user_id: str) -> list[OAuthCredential]:
     """
     Get all OAuth credentials for a user
-    
+
     Args:
         session: SQLAlchemy async session
         user_id: Clerk user ID
-        
+
     Returns:
         List of OAuthCredential instances
     """
@@ -134,39 +129,32 @@ async def get_all_user_credentials(
     result = await session.execute(stmt)
     return result.scalars().all()
 
-async def delete_oauth_credentials(
-    session: AsyncSession,
-    user_id: str,
-    provider: str
-) -> bool:
+
+async def delete_oauth_credentials(session: AsyncSession, user_id: str, provider: str) -> bool:
     """
     Delete OAuth credentials from database
-    
+
     Args:
         session: SQLAlchemy async session
         user_id: Clerk user ID
         provider: OAuth provider (e.g. 'oauth_google')
-        
+
     Returns:
         True if credentials were deleted, False if not found
     """
     try:
         stmt = select(OAuthCredential).where(
-            OAuthCredential.user_id == user_id,
-            OAuthCredential.provider == provider
+            OAuthCredential.user_id == user_id, OAuthCredential.provider == provider
         )
         result = await session.execute(stmt)
         creds = result.scalar_one_or_none()
-        
+
         if creds:
             await session.delete(creds)
             await session.commit()
             return True
         return False
-        
+
     except Exception as e:
         await session.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to delete OAuth credentials: {str(e)}"
-        ) 
+        raise HTTPException(status_code=500, detail=f"Failed to delete OAuth credentials: {str(e)}")

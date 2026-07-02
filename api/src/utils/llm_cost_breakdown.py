@@ -13,6 +13,7 @@ Approach: look up the model's `ModelPrice` once, then call `calc_mtok_price`
 per bucket. This mirrors `ModelPrice.calc_price` in genai-prices and preserves
 tiered-pricing correctness (tier is chosen from real total_input_tokens).
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,8 +69,12 @@ def compute_cost_breakdown(
     total_input = input_tokens  # tier lookup uses the real total
 
     cost_input_non_cached = gp_types.calc_mtok_price(prices.input_mtok, uncached_input, total_input)
-    cost_cache_read = gp_types.calc_mtok_price(prices.cache_read_mtok, cache_read_tokens, total_input)
-    cost_cache_write = gp_types.calc_mtok_price(prices.cache_write_mtok, cache_write_tokens, total_input)
+    cost_cache_read = gp_types.calc_mtok_price(
+        prices.cache_read_mtok, cache_read_tokens, total_input
+    )
+    cost_cache_write = gp_types.calc_mtok_price(
+        prices.cache_write_mtok, cache_write_tokens, total_input
+    )
     cost_output = gp_types.calc_mtok_price(prices.output_mtok, output_tokens, total_input)
 
     return {

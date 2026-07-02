@@ -32,9 +32,11 @@ from api.src.push.service import send_push_to_user
 # Store the original __str__ method in case it's ever needed for reversion or comparison
 _original_apscheduler_job_str = Job.__str__
 
+
 def custom_apscheduler_job_str(self):
     # self is an apscheduler.job.Job instance
     return f"{self.name} (job_id: {self.id})"
+
 
 Job.__str__ = custom_apscheduler_job_str
 logfire.info("APScheduler Job.__str__ has been monkey-patched to include job_id.")
@@ -80,14 +82,10 @@ def get_scheduler() -> AsyncIOScheduler:
                 raise Exception(
                     "Synchronous engine not available. Scheduler cannot be initialized."
                 )
-            logfire.info(
-                "Creating APScheduler (AsyncIOScheduler) with SQLAlchemyJobStore."
-            )
+            logfire.info("Creating APScheduler (AsyncIOScheduler) with SQLAlchemyJobStore.")
             jobstores = {"default": SQLAlchemyJobStore(engine=sync_engine)}
         else:
-            logfire.info(
-                "Creating APScheduler (AsyncIOScheduler) with MemoryJobStore (local dev)."
-            )
+            logfire.info("Creating APScheduler (AsyncIOScheduler) with MemoryJobStore (local dev).")
             jobstores = {"default": MemoryJobStore()}
 
         scheduler = AsyncIOScheduler(
@@ -104,6 +102,7 @@ def get_scheduler() -> AsyncIOScheduler:
         _scheduler = scheduler
         return _scheduler
 
+
 def _new_trace(func):
     """Wrap an async job function so it runs in a fresh OpenTelemetry trace.
 
@@ -111,6 +110,7 @@ def _new_trace(func):
     pile up under a single 'LIFESPAN: FastAPI index.py' trace that runs for
     hours, making individual job runs impossible to find in Logfire.
     """
+
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         # Detach from the current (lifespan) trace context so logfire.span
@@ -192,7 +192,7 @@ async def handle_job_error(event):
     except Exception:
         logfire.exception(f"Failed to get delegated credentials for job {job_id} error email")
         logfire.info(f"--- handle_job_error END (credential failure) for job {job_id} ---")
-        return # Stop if we can't get credentials
+        return  # Stop if we can't get credentials
 
     message_text = f"APScheduler Job Error: {job_id} raised an exception: {exception}\nTraceback: {traceback_str}"
 
@@ -206,20 +206,26 @@ async def handle_job_error(event):
             credentials=credentials,
         )
         logfire.info(f"Successfully sent error notification email for job {job_id}.")
-        
+
         # Add a small delay here to allow underlying I/O of send_email to complete before the test process potentially exits
-        logfire.info(f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}.")
-        await asyncio.sleep(3) 
+        logfire.info(
+            f"Adding a short delay (3s) in handle_job_error for email to finalise sending for job {job_id}."
+        )
+        await asyncio.sleep(3)
         logfire.info(f"Short delay completed in handle_job_error for job {job_id}.")
 
     except Exception:
         logfire.exception(f"Failed to send error notification email for job {job_id}")
     logfire.info(f"--- handle_job_error END for job {job_id} ---")
 
+
 # Synchronous wrapper for the async error handler
 def sync_error_listener_wrapper(event):
-    logfire.info(f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---")
+    logfire.info(
+        f"--- sync_error_listener_wrapper received event for job {event.job_id}, creating task for handle_job_error ---"
+    )
     asyncio.create_task(handle_job_error(event))
+
 
 # --- Centralized Job Error Handling --- END
 
@@ -320,6 +326,7 @@ async def schedule_email(
 
     return is_scheduled
 
+
 def register_hello_apscheduler_jobs():
     """Register hello world test job.
 
@@ -370,7 +377,7 @@ async def schedule_push(
     #         body="This is a test notification from pytest.",
     #         data={"test": True},
     #     )
-    
+
     try:
         scheduler.add_job(
             func=send_push_to_user,
@@ -426,6 +433,7 @@ async def schedule_push(
 
 # TESTING
 
+
 @logfire.instrument()
 async def run_hello_world(name: str):
-  logfire.info(f"Hello {name} from apscheduler run_hello_world executed at {datetime.now()}")
+    logfire.info(f"Hello {name} from apscheduler run_hello_world executed at {datetime.now()}")

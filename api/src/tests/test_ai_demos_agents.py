@@ -74,7 +74,9 @@ async def test_chat_emilio_agent():
 @pytest.mark.asyncio
 async def test_chat_weather_agent():
     """Test the agent directly"""
-    result = await weather_agent.run("What's the weather like at coordinates 40.7128, -74.0060?", deps=ChatContext())
+    result = await weather_agent.run(
+        "What's the weather like at coordinates 40.7128, -74.0060?", deps=ChatContext()
+    )
     assert result.output is not None
 
 
@@ -127,14 +129,9 @@ async def test_multi_agent_graph_routes_to_weather_vercel_ai():
             {
                 "id": "msg-1",
                 "role": "user",
-                "parts": [
-                    {
-                        "type": "text",
-                        "text": "What's the weather in Tokyo?"
-                    }
-                ]
+                "parts": [{"type": "text", "text": "What's the weather in Tokyo?"}],
             }
-        ]
+        ],
     }
     vercel_request = build_test_vercel_request(request_payload)
     state = MultiAgentState(agent_run_method="vercel_ai", vercel_ai_request=vercel_request)

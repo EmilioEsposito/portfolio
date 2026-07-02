@@ -53,11 +53,13 @@ def capture_scheduled_workflows() -> None:
             func_ref = f"{func_module}:{func_name}" if func_module else func_name
 
             _workflow_funcs[func_name] = workflow_func
-            _captured_workflows.append({
-                "func_name": func_name,
-                "func_ref": func_ref,
-                "cron": cron,
-            })
+            _captured_workflows.append(
+                {
+                    "func_name": func_name,
+                    "func_ref": func_ref,
+                    "cron": cron,
+                }
+            )
 
     logfire.info(f"Captured {len(_captured_workflows)} DBOS scheduled workflows")
 
@@ -86,20 +88,22 @@ def get_scheduled_jobs() -> list[dict]:
         except Exception as e:
             logfire.error(f"Error calculating next run time for {wf['func_name']}: {e}")
 
-        jobs.append({
-            "id": wf["func_name"],
-            "name": wf["func_name"],
-            "func_ref": wf["func_ref"],
-            "args": [],
-            "kwargs": {},
-            "trigger": f"cron[{wf['cron']}]",
-            "next_run_time": next_run.isoformat() if next_run else None,
-            "coalesce": True,
-            "executor": "dbos",
-            "max_instances": 1,
-            "misfire_grace_time": 300,
-            "pending": False,
-        })
+        jobs.append(
+            {
+                "id": wf["func_name"],
+                "name": wf["func_name"],
+                "func_ref": wf["func_ref"],
+                "args": [],
+                "kwargs": {},
+                "trigger": f"cron[{wf['cron']}]",
+                "next_run_time": next_run.isoformat() if next_run else None,
+                "coalesce": True,
+                "executor": "dbos",
+                "max_instances": 1,
+                "misfire_grace_time": 300,
+                "pending": False,
+            }
+        )
 
     # Sort by job id
     jobs.sort(key=lambda x: x["id"])
@@ -136,14 +140,14 @@ def get_workflow_func(job_id: str):
     return None
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # For testing: import everything needed to populate the registry
     from api.src.dbos_service.dbos_config import launch_dbos
     from api.src.utils.logfire_config import ensure_logfire_configured
 
     # Import scheduled workflows to register them
 
-    ensure_logfire_configured(mode='test')
+    ensure_logfire_configured(mode="test")
 
     # Capture workflows BEFORE launch
     capture_scheduled_workflows()

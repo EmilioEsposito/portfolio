@@ -47,11 +47,13 @@ async def main():
         print(f"    auth={sub.auth}")
         print(f"    created={sub.created_at}")
 
-    payload = json.dumps({
-        "title": "Test from Sernia AI",
-        "body": "Push notifications are working!",
-        "data": {"url": "/sernia-chat", "conversation_id": "test"},
-    })
+    payload = json.dumps(
+        {
+            "title": "Test from Sernia AI",
+            "body": "Push notifications are working!",
+            "data": {"url": "/sernia-chat", "conversation_id": "test"},
+        }
+    )
 
     for sub in subs:
         print(f"\nSending to {sub.endpoint[:60]}...")

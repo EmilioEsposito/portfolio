@@ -26,6 +26,7 @@ logfire.instrument_requests()  # Sync requests library (used by Google APIs, etc
 with logfire.span("Database"):
     from api.src.database.database import check_database_connections, sync_engine
     from api.src.database.database import engine as async_engine
+
     engines_to_instrument = [async_engine]
     if sync_engine is not None:
         engines_to_instrument.append(sync_engine)
@@ -87,15 +88,10 @@ from api.src.user.routes import router as user_router
 # Verify critical environment variables
 required_env_vars = {
     "SESSION_SECRET_KEY": (
-        "Required for secure session handling. "
-        "Generate unique values for each environmen!:\n"
+        "Required for secure session handling. Generate unique values for each environmen!:\n"
     ),
-    "GOOGLE_OAUTH_CLIENT_ID": (
-        "Required for Google OAuth. Set up in Google Cloud Console.\n"
-    ),
-    "GOOGLE_OAUTH_CLIENT_SECRET": (
-        "Required for Google OAuth. Set up in Google Cloud Console.\n"
-    ),
+    "GOOGLE_OAUTH_CLIENT_ID": ("Required for Google OAuth. Set up in Google Cloud Console.\n"),
+    "GOOGLE_OAUTH_CLIENT_SECRET": ("Required for Google OAuth. Set up in Google Cloud Console.\n"),
     "GOOGLE_OAUTH_REDIRECT_URI": (
         "Required for Google OAuth. Must match the URIs configured in Google Cloud Console.\n"
     ),
@@ -110,10 +106,7 @@ for var, description in required_env_vars.items():
         missing_vars.append(f"- {var}:\n{description}\n")
 
 if missing_vars:
-    raise ValueError(
-        "Missing required environment variables:\n\n"
-        + "\n".join(missing_vars)
-    )
+    raise ValueError("Missing required environment variables:\n\n" + "\n".join(missing_vars))
 
 # --- Lifespan Event Handler ---
 
@@ -164,6 +157,7 @@ async def _apscheduler_startup_async() -> None:
         # if started inside a span, all its internal DB polling (job store SELECTs/UPDATEs)
         # become children of that span forever, producing orphaned spans in Logfire.
         from opentelemetry import context as otel_context
+
         token = otel_context.attach(otel_context.Context())
         try:
             if not apscheduler.running:
@@ -187,6 +181,7 @@ async def lifespan(app: FastAPI):
 
             # Clean up stale DuckDB/CSV data from previous conversations
             from api.src.sernia_ai.tools.duckdb_tools import cleanup_stale_data
+
             cleanup_stale_data(max_age_hours=24)
 
             # Skip DB connection test in local dev to speed up hot reloads.
@@ -266,13 +261,14 @@ async def lifespan(app: FastAPI):
     #     import os
     #     os._exit(0)
 
+
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 logfire.instrument_fastapi(app)
 
 # --- Middleware Registration ---
 
-is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME","")) > 0
+is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME", "")) > 0
 
 # Add session middleware - MUST be added before CORS middleware
 app.add_middleware(
@@ -327,6 +323,7 @@ app.include_router(apscheduler_router, prefix="/api")
 app.include_router(schedulers_router, prefix="/api")
 # app.include_router(clickup_router, prefix="/api")
 
+
 @app.get("/api/hello")
 async def hello_fast_api():
     logfire.info("Hello from FastAPI")
@@ -336,6 +333,7 @@ async def hello_fast_api():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
 
 @app.get("/api/error")
 async def error_500_check():
@@ -361,4 +359,3 @@ if __name__ == "__main__":
 
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("api.index:app", host="0.0.0.0", port=port, reload=True)
-

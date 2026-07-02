@@ -60,14 +60,14 @@ async def test_days_between():
 @pytest.mark.asyncio
 async def test_slot_filtering_pattern():
     """Reproduces the exact pattern the agent uses for Zillow tour slot filtering."""
-    code = '''
+    code = """
 slots = ["Sat 1PM", "Sun 4:50PM", "Mon 10:45AM"]
 available = []
 for s in slots:
     available.append(s)
     print(f"  - {s}")
 print(f"Total: {len(available)}")
-'''
+"""
     result = await run_python(CTX, code)
     assert "Sat 1PM" in result
     assert "Sun 4:50PM" in result

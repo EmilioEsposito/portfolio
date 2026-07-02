@@ -28,6 +28,7 @@ httplib2 resolves its CA path once at import (``httplib2.CA_CERTS``) and also
 honors the ``HTTPLIB2_CA_CERTS`` env var (see ``httplib2/certs.py``). We set
 both so the result is independent of import order.
 """
+
 import os
 
 

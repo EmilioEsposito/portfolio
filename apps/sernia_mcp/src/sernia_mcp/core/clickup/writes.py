@@ -5,6 +5,7 @@ require HITL approval in sernia_ai (only ``delete_task`` does), so the
 MCP wrappers expose them directly. Per the auth model, both Clerk-OAuth
 human callers AND internal-bearer service callers may invoke these.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -60,15 +61,10 @@ async def create_task_core(
 
     resp = await clickup_request("POST", f"/list/{list_id}/task", json=body)
     if resp.status_code not in (200, 201):
-        raise ExternalServiceError(
-            f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}"
-        )
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}")
 
     data = resp.json()
-    return (
-        f"Task created: {data.get('name')} (id: {data.get('id')})\n"
-        f"URL: {data.get('url', 'N/A')}"
-    )
+    return f"Task created: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
 
 
 async def update_task_core(
@@ -102,15 +98,10 @@ async def update_task_core(
 
     resp = await clickup_request("PUT", f"/task/{task_id}", json=body)
     if resp.status_code != 200:
-        raise ExternalServiceError(
-            f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}"
-        )
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}")
 
     data = resp.json()
-    return (
-        f"Task updated: {data.get('name')} (id: {data.get('id')})\n"
-        f"URL: {data.get('url', 'N/A')}"
-    )
+    return f"Task updated: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
 
 
 async def set_task_custom_field_core(
@@ -122,11 +113,7 @@ async def set_task_custom_field_core(
 
     For drop-down fields, ``value`` must be the option UUID, not the label.
     """
-    resp = await clickup_request(
-        "POST", f"/task/{task_id}/field/{field_id}", json={"value": value}
-    )
+    resp = await clickup_request("POST", f"/task/{task_id}/field/{field_id}", json={"value": value})
     if resp.status_code != 200:
-        raise ExternalServiceError(
-            f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}"
-        )
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:300]}")
     return f"Custom field {field_id} set on task {task_id}."

@@ -62,7 +62,6 @@ def update_send_as(
             print(f"Alias {target_alias_email} not found for user {user_email}.")
             input_resp = input("Would you like to create it? (y/n)")
             if input_resp == "y":
-
                 send_as_configuration["sendAsEmail"] = target_alias_email
 
                 result = (
@@ -108,7 +107,6 @@ def update_send_as(
 
 
 if __name__ == "__main__":
-
     # INPUTS
     first_names = [
         "Example",

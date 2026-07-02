@@ -5,6 +5,7 @@ capabilities on the agent itself (see test_sernia_agent_wiring.py), and
 thinking depth uses the unified ``thinking`` model setting instead of the
 provider-specific ``anthropic_thinking``/``openai_reasoning_effort`` knobs.
 """
+
 import pytest
 
 
@@ -80,9 +81,7 @@ def test_unified_thinking_maps_to_adaptive_on_anthropic():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     kw = build_run_kwargs("sonnet-4-6", "high")
-    model = AnthropicModel(
-        "claude-sonnet-4-6", provider=AnthropicProvider(api_key="test-key")
-    )
+    model = AnthropicModel("claude-sonnet-4-6", provider=AnthropicProvider(api_key="test-key"))
     params = ModelRequestParameters(thinking=kw["model_settings"].get("thinking"))
     translated = model._translate_thinking(kw["model_settings"], params)  # noqa: SLF001
     assert translated == {"type": "adaptive"}

@@ -8,6 +8,7 @@ Uses DBOS's recv/send pattern for durable human-in-the-loop workflows:
 
 No custom database tables needed - DBOS handles all state persistence.
 """
+
 import asyncio
 import json
 import uuid
@@ -45,7 +46,6 @@ Do not ask for confirmation - the tool has approval safeguards.""",
 )
 
 
-
 @hitl_agent1.tool_plain(requires_approval=True)
 async def send_sms(body: str, to: str | None = None) -> str:
     """
@@ -77,22 +77,22 @@ async def run_agent():
     # Use a fixed ID or generate one. For this demo, let's generate one.
     conversation_id = str(uuid.uuid4())
     print(f"Starting conversation {conversation_id}")
-    
+
     prompt = "send funny haiku to Emilio"
     result = await hitl_agent1.run(user_prompt=prompt)
-    
+
     # Save conversation state to DB after first run
     await persist_agent_run_result(
         result=result,
         conversation_id=conversation_id,
         agent_name=hitl_agent1.name,
-        user_id="emilio_dev"
+        user_id="emilio_dev",
     )
     print("Saved conversation state after first run")
-    
+
     assert isinstance(result.output, DeferredToolRequests)
     assert result.output.approvals[0].tool_name == "send_sms"
-    assert len(result.output.approvals[0].args)>0
+    assert len(result.output.approvals[0].args) > 0
 
     tool_call_id = result.output.approvals[0].tool_call_id
 
@@ -101,36 +101,33 @@ async def run_agent():
     override_args = {"body": "Original body overridden by approval. Orignal body: " + body}
 
     deferred_results = DeferredToolResults(
-        approvals={
-            tool_call_id: ToolApproved(override_args=override_args)
-        }
+        approvals={tool_call_id: ToolApproved(override_args=override_args)}
     )
 
     # In a real app, we would use the conversation_id to load messages from DB here if this was a separate process
     loaded_messages = []
     async with AsyncSessionFactory() as session:
         loaded_messages = await get_conversation_messages(conversation_id, session=session)
-    
+
     resumed = await hitl_agent1.run(
-        message_history=loaded_messages,
-        deferred_tool_results=deferred_results
+        message_history=loaded_messages, deferred_tool_results=deferred_results
     )
-    
+
     # # If we didn't save the conversation state to DB, we could just use the result in memory:
     # resumed = await hitl_agent1.run(
     #     message_history=result.all_messages(),
     #     deferred_tool_results=deferred_results
     # )
-    
+
     # Save final state to DB
     await persist_agent_run_result(
         result=resumed,
         conversation_id=conversation_id,
         agent_name=hitl_agent1.name,
-        user_id="emilio_dev"
+        user_id="emilio_dev",
     )
     print("Saved final conversation state")
-        
+
     return resumed
 
 

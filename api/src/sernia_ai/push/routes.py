@@ -29,6 +29,7 @@ async def _get_sernia_user(request: Request) -> User:
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
+
 class SubscribeRequest(BaseModel):
     endpoint: str
     p256dh: str
@@ -40,6 +41,7 @@ class UnsubscribeRequest(BaseModel):
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @router.get("/vapid-public-key")
 async def get_vapid_public_key():

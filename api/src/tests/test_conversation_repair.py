@@ -24,8 +24,12 @@ class TestRepairOrphanedToolCalls:
     def test_no_op_when_all_tool_calls_returned(self):
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="send email")]),
-            ModelResponse(parts=[ToolCallPart(tool_name="send_email", args='{}', tool_call_id="tc1")]),
-            ModelRequest(parts=[ToolReturnPart(tool_name="send_email", content="sent", tool_call_id="tc1")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="send_email", args="{}", tool_call_id="tc1")]
+            ),
+            ModelRequest(
+                parts=[ToolReturnPart(tool_name="send_email", content="sent", tool_call_id="tc1")]
+            ),
             ModelResponse(parts=[TextPart(content="done")]),
         ]
         result = _repair_orphaned_tool_calls(msgs)
@@ -35,7 +39,9 @@ class TestRepairOrphanedToolCalls:
         """Tool call in last ModelResponse is a pending approval — leave it alone."""
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="send email")]),
-            ModelResponse(parts=[ToolCallPart(tool_name="send_email", args='{}', tool_call_id="tc1")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="send_email", args="{}", tool_call_id="tc1")]
+            ),
         ]
         result = _repair_orphaned_tool_calls(msgs)
         # Should NOT inject anything — this is a pending approval
@@ -45,7 +51,9 @@ class TestRepairOrphanedToolCalls:
         """Tool call without return followed by more messages — truly orphaned."""
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="send email")]),
-            ModelResponse(parts=[ToolCallPart(tool_name="send_email", args='{}', tool_call_id="tc1")]),
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="send_email", args="{}", tool_call_id="tc1")]
+            ),
             # Conversation continued without tool return — orphaned
             ModelRequest(parts=[UserPromptPart(content="what happened?")]),
             ModelResponse(parts=[TextPart(content="sorry, let me try again")]),
@@ -64,10 +72,12 @@ class TestRepairOrphanedToolCalls:
     def test_handles_multiple_orphans_mid_conversation(self):
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="do stuff")]),
-            ModelResponse(parts=[
-                ToolCallPart(tool_name="tool_a", args='{}', tool_call_id="tc1"),
-                ToolCallPart(tool_name="tool_b", args='{}', tool_call_id="tc2"),
-            ]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="tool_a", args="{}", tool_call_id="tc1"),
+                    ToolCallPart(tool_name="tool_b", args="{}", tool_call_id="tc2"),
+                ]
+            ),
             # Conversation continued
             ModelRequest(parts=[UserPromptPart(content="next")]),
             ModelResponse(parts=[TextPart(content="ok")]),
@@ -84,11 +94,15 @@ class TestRepairOrphanedToolCalls:
         """One tool call returned, one orphaned mid-conversation."""
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="do stuff")]),
-            ModelResponse(parts=[
-                ToolCallPart(tool_name="tool_a", args='{}', tool_call_id="tc1"),
-                ToolCallPart(tool_name="tool_b", args='{}', tool_call_id="tc2"),
-            ]),
-            ModelRequest(parts=[ToolReturnPart(tool_name="tool_a", content="ok", tool_call_id="tc1")]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="tool_a", args="{}", tool_call_id="tc1"),
+                    ToolCallPart(tool_name="tool_b", args="{}", tool_call_id="tc2"),
+                ]
+            ),
+            ModelRequest(
+                parts=[ToolReturnPart(tool_name="tool_a", content="ok", tool_call_id="tc1")]
+            ),
             ModelResponse(parts=[TextPart(content="partial")]),
             # More messages after — tc2 is orphaned
             ModelRequest(parts=[UserPromptPart(content="continue")]),
@@ -105,7 +119,7 @@ class TestRepairOrphanedToolCalls:
     def test_idempotent(self):
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="send")]),
-            ModelResponse(parts=[ToolCallPart(tool_name="t", args='{}', tool_call_id="tc1")]),
+            ModelResponse(parts=[ToolCallPart(tool_name="t", args="{}", tool_call_id="tc1")]),
             ModelRequest(parts=[UserPromptPart(content="what happened?")]),
             ModelResponse(parts=[TextPart(content="error")]),
         ]
@@ -120,12 +134,16 @@ class TestRepairOrphanedToolCalls:
         """Earlier tool call completed, terminal one is pending — don't touch terminal."""
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="step 1")]),
-            ModelResponse(parts=[ToolCallPart(tool_name="search", args='{}', tool_call_id="tc1")]),
-            ModelRequest(parts=[ToolReturnPart(tool_name="search", content="results", tool_call_id="tc1")]),
-            ModelResponse(parts=[
-                TextPart(content="Found it. Let me send the email."),
-                ToolCallPart(tool_name="send_email", args='{}', tool_call_id="tc2"),
-            ]),
+            ModelResponse(parts=[ToolCallPart(tool_name="search", args="{}", tool_call_id="tc1")]),
+            ModelRequest(
+                parts=[ToolReturnPart(tool_name="search", content="results", tool_call_id="tc1")]
+            ),
+            ModelResponse(
+                parts=[
+                    TextPart(content="Found it. Let me send the email."),
+                    ToolCallPart(tool_name="send_email", args="{}", tool_call_id="tc2"),
+                ]
+            ),
         ]
         result = _repair_orphaned_tool_calls(msgs)
         # tc2 is in the last ModelResponse — pending approval, don't patch
@@ -139,9 +157,11 @@ class TestRepairOrphanedToolCalls:
         """
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="step 1")]),
-            ModelResponse(parts=[
-                ToolCallPart(tool_name="delete_event", args='{}', tool_call_id="tc1"),
-            ]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="delete_event", args="{}", tool_call_id="tc1"),
+                ]
+            ),
         ]
         # Default: terminal is preserved
         result_default = _repair_orphaned_tool_calls(msgs)
@@ -166,9 +186,13 @@ class TestRepairOrphanedToolCalls:
         """
         msgs = [
             # ToolReturnPart references a tool call that doesn't exist in history
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="old_tool", content="result", tool_call_id="toolu_orphan"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="old_tool", content="result", tool_call_id="toolu_orphan"
+                    ),
+                ]
+            ),
             ModelRequest(parts=[UserPromptPart(content="hello")]),
             ModelResponse(parts=[TextPart(content="hi")]),
         ]
@@ -183,10 +207,14 @@ class TestRepairOrphanedToolCalls:
     def test_removes_orphaned_tool_return_keeps_other_parts(self):
         """When a ModelRequest has both orphaned returns and valid parts, keep valid parts."""
         msgs = [
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="old_tool", content="result", tool_call_id="toolu_orphan"),
-                UserPromptPart(content="hello"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="old_tool", content="result", tool_call_id="toolu_orphan"
+                    ),
+                    UserPromptPart(content="hello"),
+                ]
+            ),
             ModelResponse(parts=[TextPart(content="hi")]),
         ]
         result = _repair_orphaned_tool_calls(msgs)
@@ -205,13 +233,15 @@ class TestRepairOrphanedToolCalls:
         """
         msgs = [
             # This simulates trimmed history where ToolCallPart was cut off
-            ModelRequest(parts=[
-                ToolReturnPart(
-                    tool_name="send_sms",
-                    content="sent",
-                    tool_call_id="toolu_012dE58Mgx5qBuz7yjcZCkpk",  # Anthropic format
-                ),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="send_sms",
+                        content="sent",
+                        tool_call_id="toolu_012dE58Mgx5qBuz7yjcZCkpk",  # Anthropic format
+                    ),
+                ]
+            ),
             ModelRequest(parts=[UserPromptPart(content="thanks")]),
             ModelResponse(parts=[TextPart(content="you're welcome")]),
         ]
@@ -225,13 +255,19 @@ class TestRepairOrphanedToolCalls:
         """Some returns are valid (have matching calls), some are orphaned."""
         msgs = [
             ModelRequest(parts=[UserPromptPart(content="do two things")]),
-            ModelResponse(parts=[
-                ToolCallPart(tool_name="tool_a", args='{}', tool_call_id="tc1"),
-            ]),
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="tool_a", content="ok", tool_call_id="tc1"),
-                ToolReturnPart(tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"),
-            ]),
+            ModelResponse(
+                parts=[
+                    ToolCallPart(tool_name="tool_a", args="{}", tool_call_id="tc1"),
+                ]
+            ),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="tool_a", content="ok", tool_call_id="tc1"),
+                    ToolReturnPart(
+                        tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"
+                    ),
+                ]
+            ),
             ModelResponse(parts=[TextPart(content="done")]),
         ]
         result = _repair_orphaned_tool_calls(msgs)
@@ -245,10 +281,12 @@ class TestRepairOrphanedToolCalls:
     def test_removes_request_if_only_orphaned_returns(self):
         """If a ModelRequest only contains orphaned ToolReturnParts, remove it entirely."""
         msgs = [
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
-                ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
+                    ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
+                ]
+            ),
             ModelRequest(parts=[UserPromptPart(content="hello")]),
             ModelResponse(parts=[TextPart(content="hi")]),
         ]

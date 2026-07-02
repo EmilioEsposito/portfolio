@@ -5,8 +5,4 @@ Exposes core functionality from the Sheets service.
 
 from api.src.google.sheets.service import get_sheet_as_json, get_sheets_service, read_sheet
 
-__all__ = [
-    'get_sheets_service',
-    'read_sheet',
-    'get_sheet_as_json'
-]
+__all__ = ["get_sheets_service", "read_sheet", "get_sheet_as_json"]

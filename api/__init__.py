@@ -11,6 +11,7 @@ gets it: the FastAPI app, pytest (pytest.ini collects inline tests from all
 api/ modules, many of which construct Agents at import), seed_db.py, and ad
 hoc scripts.
 """
+
 import os
 
 from dotenv import load_dotenv

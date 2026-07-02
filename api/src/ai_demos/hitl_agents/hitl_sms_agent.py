@@ -8,6 +8,7 @@ Simple dual-run pattern:
 
 DBOS is optional and only for crash recovery resilience.
 """
+
 import uuid
 from dataclasses import dataclass
 
@@ -42,6 +43,7 @@ from api.src.open_phone.service import send_message
 @dataclass
 class HITLAgentContext:
     """Context passed to the agent during execution."""
+
     clerk_user_id: str = "anonymous"
     conversation_id: str | None = None
     db_session: AsyncSession | None = None
@@ -60,6 +62,7 @@ Do not ask for confirmation - the tool has approval safeguards built in.""",
     retries=2,
     capabilities=[Instrumentation()],
 )
+
 
 @DBOS.step()
 @hitl_sms_agent.tool_plain(requires_approval=True)
@@ -86,6 +89,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
         error_msg = f"Failed to send SMS: {response.status_code} - {response.text}"
         logfire.error(error_msg)
         return error_msg
+
 
 # Apply persistence patch - automatically persists conversation after each run
 patch_run_with_persistence(hitl_sms_agent)
@@ -118,7 +122,9 @@ async def resume_with_approvals(
         agent=hitl_sms_agent,
         conversation_id=conversation_id,
         decisions=decisions,
-        deps=HITLAgentContext(clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session),
+        deps=HITLAgentContext(
+            clerk_user_id=clerk_user_id, conversation_id=conversation_id, db_session=session
+        ),
         clerk_user_id=clerk_user_id,
         session=session,
     )
@@ -146,7 +152,9 @@ if __name__ == "__main__":
 
         pending_list = extract_pending_approvals(result)
         if pending_list:
-            print(f"✓ Agent returned DeferredToolRequests with {len(pending_list)} pending approval(s)")
+            print(
+                f"✓ Agent returned DeferredToolRequests with {len(pending_list)} pending approval(s)"
+            )
             for p in pending_list:
                 print(f"  - Tool: {p['tool_name']}, Args: {p['args']}")
 
@@ -156,7 +164,9 @@ if __name__ == "__main__":
                 ApprovalDecision(
                     tool_call_id=p["tool_call_id"],
                     approved=True,
-                    override_args={"body": f"[APPROVED] {p['args'].get('body', '')}"} if p['tool_name'] == 'send_sms' else None,
+                    override_args={"body": f"[APPROVED] {p['args'].get('body', '')}"}
+                    if p["tool_name"] == "send_sms"
+                    else None,
                 )
                 for p in pending_list
             ]

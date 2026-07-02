@@ -134,9 +134,9 @@ def test_run_hello_world():
 
 
 async def job_that_will_fail():
-    x=5
+    x = 5
     logfire.info(f"job_that_will_fail: Executing, x = {x}")
-    print(f"job_that_will_fail: print x = {x}") # For quick visual check in console
+    print(f"job_that_will_fail: print x = {x}")  # For quick visual check in console
     logfire.info("job_that_will_fail: About to raise ValueError for testing error handler.")
     raise ValueError("This job is designed to fail for testing the error handler.")
 
@@ -157,33 +157,41 @@ async def test_job_that_will_fail():
 
     # Use job's target timezone for creating run_date and schedule a bit further out
     ny_tz = pytz.timezone("America/New_York")
-    run_date_ny = datetime.now(ny_tz) + timedelta(seconds=4) # Increased to 4 seconds
+    run_date_ny = datetime.now(ny_tz) + timedelta(seconds=4)  # Increased to 4 seconds
 
-    logfire.info(f"Adding failing job '{failing_job_id}' to run at {run_date_ny.isoformat()} (TZ: America/New_York) for error handler test.")
+    logfire.info(
+        f"Adding failing job '{failing_job_id}' to run at {run_date_ny.isoformat()} (TZ: America/New_York) for error handler test."
+    )
 
     scheduler.add_job(
         func=job_that_will_fail,
         trigger="date",
         id=failing_job_id,
-        run_date=run_date_ny, # Use the NY-aware datetime
+        run_date=run_date_ny,  # Use the NY-aware datetime
         replace_existing=True,
-        timezone=ny_tz, # Explicitly set, matches run_date's tz
+        timezone=ny_tz,  # Explicitly set, matches run_date's tz
     )
 
     failing_job = scheduler.get_job(job_id=failing_job_id)
     assert failing_job is not None, f"Failing job {failing_job_id} was not added successfully."
-    logfire.info(f"Failing job added: {failing_job} (Next run: {failing_job.next_run_time.isoformat() if failing_job.next_run_time else 'N/A'})")
+    logfire.info(
+        f"Failing job added: {failing_job} (Next run: {failing_job.next_run_time.isoformat() if failing_job.next_run_time else 'N/A'})"
+    )
 
     # Wait long enough for the job to execute and the error handler (including email) to fire
     # Increased sleep duration to give more time for all async operations.
     logfire.info("Waiting for job to run and error handler to complete (approx 12s)...")
-    await asyncio.sleep(12) # Increased from 10 to 12
+    await asyncio.sleep(12)  # Increased from 10 to 12
 
     # The job should have run, failed, and been caught by the error handler.
     # Date-triggered jobs are typically removed after execution (or attempted execution).
     failing_job_after_run = scheduler.get_job(job_id=failing_job_id)
-    assert failing_job_after_run is None, f"Failing job {failing_job_id} should have been removed after attempting to run."
-    logfire.info(f"Failing job {failing_job_id} was correctly removed after execution attempt (expected for date trigger).")
+    assert failing_job_after_run is None, (
+        f"Failing job {failing_job_id} should have been removed after attempting to run."
+    )
+    logfire.info(
+        f"Failing job {failing_job_id} was correctly removed after execution attempt (expected for date trigger)."
+    )
 
     # Ensure scheduler is shutdown after this test
     if scheduler.running:

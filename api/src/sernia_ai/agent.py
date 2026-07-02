@@ -10,6 +10,7 @@ and spread the result into ``agent.run()`` / ``VercelAIAdapter.dispatch_request(
 The ``model``/``model_settings`` passed at run-time override what's configured
 here. Web search/fetch are provider-adaptive capabilities on the agent itself.
 """
+
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
 from pydantic_ai.capabilities import Instrumentation, ProcessHistory, WebFetch, WebSearch
@@ -19,7 +20,9 @@ from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, Sa
 
 class NoAction(BaseModel):
     """Agent decided no human action is needed."""
+
     reason: str
+
 
 from pydantic_ai_skills import SkillsCapability
 
@@ -45,16 +48,20 @@ from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
 
 # Sandboxed filesystem toolset for agent memory (.workspace/)
-_sandbox = Sandbox(SandboxConfig(mounts=[
-    Mount(
-        host_path=WORKSPACE_PATH,
-        mount_point="/workspace",
-        mode="rw",
-        suffixes=[".md", ".txt", ".json"],
-        write_approval=False,
-        read_approval=False,
-    ),
-]))
+_sandbox = Sandbox(
+    SandboxConfig(
+        mounts=[
+            Mount(
+                host_path=WORKSPACE_PATH,
+                mount_point="/workspace",
+                mode="rw",
+                suffixes=[".md", ".txt", ".json"],
+                write_approval=False,
+                read_approval=False,
+            ),
+        ]
+    )
+)
 filesystem_toolset = FileSystemToolset(_sandbox)
 
 # Skills capability — discovers SKILL.md files at .workspace/.claude/skills/,

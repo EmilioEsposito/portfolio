@@ -6,8 +6,9 @@ from dbos import DBOS
 
 # 1. Hello world DBOS (unrelated to this demo)
 @DBOS.step()
-def say_hello(name: str,iteration_number: int):
+def say_hello(name: str, iteration_number: int):
     return f"Hello, {name}! This is iteration {iteration_number}."
+
 
 @DBOS.workflow()
 def hello_workflow(iterations: int):
@@ -16,9 +17,12 @@ def hello_workflow(iterations: int):
 
     return "Hello World Workflow completed"
 
+
 # 2. Scheduled workflow
 # https://docs.dbos.dev/python/tutorials/scheduled-workflows
-@DBOS.scheduled("3 19 * * *") 
+@DBOS.scheduled("3 19 * * *")
 @DBOS.workflow()
-async def scheduled_workflow_example(scheduled_time: datetime.datetime, actual_time: datetime.datetime):
+async def scheduled_workflow_example(
+    scheduled_time: datetime.datetime, actual_time: datetime.datetime
+):
     logfire.info(f"scheduled_workflow_example: Scheduled: {scheduled_time}, actual: {actual_time}")

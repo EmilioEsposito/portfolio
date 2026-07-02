@@ -13,6 +13,7 @@ except Exception:
 
 _dbos_launched: bool = False
 
+
 # idemptotent launcher
 def launch_dbos():
     """Launch DBOS runtime."""

@@ -4,6 +4,7 @@ Portfolio Chatbot Agent using PydanticAI
 This agent can answer questions about the developer's portfolio, skills, and projects.
 Each information source has its own tool that fetches from a specific URL.
 """
+
 from dataclasses import dataclass
 
 import httpx
@@ -12,13 +13,13 @@ from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.capabilities import Instrumentation
 
-load_dotenv('.env')
-
+load_dotenv(".env")
 
 
 @dataclass
 class PortfolioContext:
     """Context for the portfolio chatbot agent"""
+
     user_name: str = "visitor"
 
 
@@ -66,7 +67,9 @@ async def fetch_portfolio_website() -> str:
 @agent.tool_plain
 async def fetch_interview_ai_launch() -> str:
     """Fetch the TechTarget/SearchCIO interview where Emilio talks about an AI project launched at LegalZoom."""
-    return await _fetch_url("https://www.techtarget.com/searchcio/feature/Building-an-internal-AI-call-simulator-Lessons-for-CIOs")
+    return await _fetch_url(
+        "https://www.techtarget.com/searchcio/feature/Building-an-internal-AI-call-simulator-Lessons-for-CIOs"
+    )
 
 
 EMILIO_LINKS = {
@@ -78,6 +81,7 @@ EMILIO_LINKS = {
     "portfolio-website": "https://eesposito.com",
     "resume-website": "https://resume.eesposito.com",
 }
+
 
 @agent.tool
 async def get_emilio_links(ctx: RunContext[PortfolioContext]) -> dict:

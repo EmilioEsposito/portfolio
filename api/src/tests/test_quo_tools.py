@@ -274,7 +274,8 @@ async def test_internal_contacts_have_sernia_company(quo_client: httpx.AsyncClie
 
     contacts = await get_all_contacts(quo_client)
     internal = [
-        c for c in contacts
+        c
+        for c in contacts
         if (c.get("defaultFields", {}).get("company") or "") == QUO_INTERNAL_COMPANY
     ]
     print(f"\nInternal contacts ({QUO_INTERNAL_COMPANY}): {len(internal)}")
@@ -347,7 +348,9 @@ async def test_get_thread_messages_impl_with_known_contact(quo_client: httpx.Asy
     # Sanitize phone from filename
     phone_slug = target_phone.replace("+", "").replace("-", "")
     _save_fixture(f"quo_thread_messages_{phone_slug}.md", result)
-    print(f"\nget_thread_messages_impl('{target_phone}') → saved to fixtures/quo_thread_messages_{phone_slug}.md")
+    print(
+        f"\nget_thread_messages_impl('{target_phone}') → saved to fixtures/quo_thread_messages_{phone_slug}.md"
+    )
     assert isinstance(result, str)
     assert "Thread with" in result or "No messages or calls found" in result
 
@@ -387,7 +390,9 @@ async def test_get_thread_messages_impl_handles_group_thread(
       sections.
     """
     result = await get_thread_messages_impl(
-        quo_client, [AIDAN_PHONE, ADELINE_PHONE], max_results=5,
+        quo_client,
+        [AIDAN_PHONE, ADELINE_PHONE],
+        max_results=5,
     )
     _save_fixture("quo_thread_group_659_02.md", result)
     assert AIDAN_PHONE in result
@@ -452,7 +457,9 @@ def test_render_group_thread_from_db_pins_format():
         "+15553334444": "Adeline",
     }
     out = _render_group_thread_from_db(
-        activities, ["+15551112222", "+15553334444"], phone_map,
+        activities,
+        ["+15551112222", "+15553334444"],
+        phone_map,
     )
     assert "Group thread with Aidan (+15551112222), Adeline (+15553334444)" in out
     assert "2 messages, 1 call" in out
@@ -480,13 +487,19 @@ async def test_get_thread_messages_impl_group_input_order_independent(
     duplicates.
     """
     forward = await get_thread_messages_impl(
-        quo_client, [AIDAN_PHONE, ADELINE_PHONE], max_results=3,
+        quo_client,
+        [AIDAN_PHONE, ADELINE_PHONE],
+        max_results=3,
     )
     reverse = await get_thread_messages_impl(
-        quo_client, [ADELINE_PHONE, AIDAN_PHONE], max_results=3,
+        quo_client,
+        [ADELINE_PHONE, AIDAN_PHONE],
+        max_results=3,
     )
     duped = await get_thread_messages_impl(
-        quo_client, [AIDAN_PHONE, ADELINE_PHONE, AIDAN_PHONE], max_results=3,
+        quo_client,
+        [AIDAN_PHONE, ADELINE_PHONE, AIDAN_PHONE],
+        max_results=3,
     )
 
     def _participant_signature(out: str) -> tuple[str, ...]:
@@ -605,7 +618,9 @@ async def test_get_call_details_impl_truncates_when_limit_set(
     appended and the output should reference the parameter so the caller
     knows how to extend."""
     result = await get_call_details_impl(
-        quo_client, benjamin_call_id, transcript_max_chars=300,
+        quo_client,
+        benjamin_call_id,
+        transcript_max_chars=300,
     )
     assert "transcript truncated at 300 chars" in result
     assert "transcript_max_chars" in result

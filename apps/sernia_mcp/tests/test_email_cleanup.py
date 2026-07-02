@@ -5,6 +5,7 @@ Pins the cleanup pipeline used by ``read_email_thread_core``:
   - Zillow boilerplate stripping via ``[Name] says:`` anchor + tail patterns.
   - Quoted-reply collapsing (3+ ``>`` lines and the ``On ... wrote:`` attribution).
 """
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
@@ -15,10 +16,7 @@ from __future__ import annotations
 def test_html_to_markdown_strips_layout_tables():
     from sernia_mcp.core.google._email_cleanup import html_to_markdown
 
-    html = (
-        "<table><tr><td><strong>Hello</strong></td>"
-        "<td>world</td></tr></table>"
-    )
+    html = "<table><tr><td><strong>Hello</strong></td><td>world</td></tr></table>"
     out = html_to_markdown(html)
     # Layout tags removed, content preserved with markdown emphasis.
     assert "<table" not in out
@@ -30,11 +28,7 @@ def test_html_to_markdown_strips_layout_tables():
 def test_html_to_markdown_drops_scripts_and_styles_entirely():
     from sernia_mcp.core.google._email_cleanup import html_to_markdown
 
-    html = (
-        "<p>Real content</p>"
-        "<script>alert('tracking');</script>"
-        "<style>body{display:none}</style>"
-    )
+    html = "<p>Real content</p><script>alert('tracking');</script><style>body{display:none}</style>"
     out = html_to_markdown(html)
     assert "Real content" in out
     assert "tracking" not in out
@@ -132,11 +126,7 @@ def test_clean_zillow_email_strips_action_button_links():
         "https://www.zillow.com/r/?action=reply&messageId=abc123def456"
         "&utm_source=email&utm_campaign=rental_message&headerOnly=1"
     )
-    raw = (
-        "Anna says:\n"
-        f"Body. [Reply to Anna]({long_url}) "
-        f"[Send Application]({long_url})"
-    )
+    raw = f"Anna says:\nBody. [Reply to Anna]({long_url}) [Send Application]({long_url})"
     out = clean_zillow_email(raw)
     assert "Reply to Anna" not in out
     assert "Send Application" not in out

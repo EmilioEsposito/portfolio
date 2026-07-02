@@ -35,7 +35,7 @@ async def handle_gmail_notifications(
         # Log request details
         logfire.info("=== New Gmail Notification ===")
         logfire.info(f"Headers: {dict(request.headers)}")
-        
+
         # Verify the request is from Google Pub/Sub
         logfire.info("Verifying Pub/Sub token...")
         expected_audience = os.environ.get(
@@ -44,38 +44,42 @@ async def handle_gmail_notifications(
         )
         await verify_pubsub_token(request.headers.get("authorization", ""), expected_audience)
         logfire.info("✓ Token verified")
-        
+
         # Get the raw request body
         pubsub_body = await request.body()
         pubsub_body_str = pubsub_body.decode()
         logfire.info(f"Raw request body: {pubsub_body_str}")
-        
+
         # Parse the message data
         pubsub_data = await request.json()
         logfire.info(f"Parsed JSON data: {json.dumps(pubsub_data, indent=2)}")
-        
-        if 'message' not in pubsub_data:
+
+        if "message" not in pubsub_data:
             logfire.error("No 'message' field in request data")
             return Response(status_code=503, content="Missing message field")
-            
+
         # Extract and decode the message data
-        pubsub_message_data = pubsub_data['message'].get('data', '')
+        pubsub_message_data = pubsub_data["message"].get("data", "")
         if not pubsub_message_data:
             logfire.error("No 'data' field in message")
             return Response(status_code=503, content="Missing message data")
-            
+
         try:
             # Decode and process the notification
             pubsub_decoded_json = decode_pubsub_message(pubsub_message_data)
-            
+
             # Process the notification (uses per-message sessions to avoid pool exhaustion)
             processing_result = await process_gmail_notification(pubsub_decoded_json)
-            
+
             # Handle response based on processing result
             if processing_result["status"] == "success":
                 for email_msg in processing_result["messages"]:
-                    logfire.info(f"Processed email: {email_msg['subject']} from {email_msg['from_address']}")
-                logfire.info(f"✓ Successfully processed {len(processing_result['messages'])} messages")
+                    logfire.info(
+                        f"Processed email: {email_msg['subject']} from {email_msg['from_address']}"
+                    )
+                logfire.info(
+                    f"✓ Successfully processed {len(processing_result['messages'])} messages"
+                )
                 return Response(status_code=204)
             elif processing_result["status"] == "no_messages":
                 logfire.info(f"No messages to process: {processing_result['reason']}")
@@ -88,25 +92,23 @@ async def handle_gmail_notifications(
                 return Response(
                     status_code=429,
                     content=processing_result["reason"],
-                    headers={
-                        "Retry-After": "5",
-                        "X-Retry-Reason": "waiting_for_gmail_history"
-                    }
+                    headers={"Retry-After": "5", "X-Retry-Reason": "waiting_for_gmail_history"},
                 )
-            
+
         except Exception as e:
             logfire.exception("Failed to process notification")
             return Response(
                 status_code=500,
-                content=f"Failed to process notification (unhandled error1): {str(e)}"
+                content=f"Failed to process notification (unhandled error1): {str(e)}",
             )
-        
+
     except Exception as e:
         logfire.exception("Unhandled error in Gmail notification handler")
         return Response(
             status_code=500,
-            content=f"Failed to process Gmail notification (unhandled error2): {str(e)}"
+            content=f"Failed to process Gmail notification (unhandled error2): {str(e)}",
         )
+
 
 async def process_gmail_notification(pubsub_notification_data: dict):
     """
@@ -132,62 +134,64 @@ async def process_gmail_notification(pubsub_notification_data: dict):
     """
     try:
         # Extract relevant information
-        email_address = pubsub_notification_data.get('emailAddress')
-        history_id = pubsub_notification_data.get('historyId')
-        
+        email_address = pubsub_notification_data.get("emailAddress")
+        history_id = pubsub_notification_data.get("historyId")
+
         if not email_address or not history_id:
             return {
                 "status": "retry_needed",
                 "messages": [],
-                "reason": "Missing required fields in pubsub notification"
+                "reason": "Missing required fields in pubsub notification",
             }
-        
+
         logfire.info(f"Processing notification for {email_address} with history ID: {history_id}")
-        
+
         # Get Gmail service with delegated credentials
         credentials = get_delegated_credentials(
-            user_email=email_address,
-            scopes=["https://www.googleapis.com/auth/gmail.readonly"]
+            user_email=email_address, scopes=["https://www.googleapis.com/auth/gmail.readonly"]
         )
         gmail_service = get_gmail_service(credentials)
-        
+
         # Get message IDs from history with status
         email_changes_result = await get_email_changes(gmail_service, history_id)
-        
+
         # If we got a non-success status, pass it through directly
         if email_changes_result["status"] != "success":
-            logfire.info(f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}")
+            logfire.info(
+                f"Email changes status: {email_changes_result['status']} - {email_changes_result['reason']}"
+            )
             return {
                 "status": email_changes_result["status"],
                 "messages": [],
-                "reason": email_changes_result["reason"]
+                "reason": email_changes_result["reason"],
             }
-            
+
         # email_message_ids: ALL messages touched (new + label changes, etc.) — process for DB.
         # added_message_ids: messages Gmail reports as genuinely new (often unreliable/empty).
         email_message_ids = email_changes_result["email_message_ids"]
         added_message_ids: set[str] = set(email_changes_result.get("added_message_ids", []))
         logfire.info(
-            f"Found {len(email_message_ids)} messages to process "
-            f"({len(added_message_ids)} new)"
+            f"Found {len(email_message_ids)} messages to process ({len(added_message_ids)} new)"
         )
-        
+
         processed_email_messages = []
         failed_email_ids = []
         legitimately_skipped_message_ids = []  # Track messages that were not found (404)
-        
+
         # Process each message
         for email_message_id in email_message_ids:
             try:
                 # Fetch and process message
                 email_message = await get_email_content(gmail_service, email_message_id)
-                
+
                 # Skip if message not found (404) - this is expected in some cases
                 if email_message is None:
-                    logfire.info(f"Skipping message {email_message_id} as it was not found (may have been deleted)")
+                    logfire.info(
+                        f"Skipping message {email_message_id} as it was not found (may have been deleted)"
+                    )
                     legitimately_skipped_message_ids.append(email_message_id)
                     continue
-                
+
                 processed_email_message = await process_single_message(email_message)
 
                 # Save to database using a short-lived session (will update if message exists).
@@ -214,7 +218,9 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                     from_addr = processed_email_message.get("from_address", "")
                     is_zillow = bool(
                         from_addr
-                        and ("@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower())
+                        and (
+                            "@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()
+                        )
                     )
                     if is_zillow and was_inserted:
                         logfire.info(
@@ -226,6 +232,7 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                         from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
                             queue_zillow_email_event,
                         )
+
                         asyncio.create_task(
                             queue_zillow_email_event(
                                 thread_id=processed_email_message.get("thread_id", ""),
@@ -245,52 +252,50 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                 else:
                     failed_email_ids.append(email_message_id)
                     logfire.error(f"Failed to save message {email_message_id}")
-                
+
             except Exception as msg_error:
                 failed_email_ids.append(email_message_id)
-                logfire.exception(
-                    f"Failed to process message {email_message_id}: {str(msg_error)}"
-                )
+                logfire.exception(f"Failed to process message {email_message_id}: {str(msg_error)}")
                 continue
-        
+
         # Calculate the number of messages we actually attempted to process
         # (excluding skipped messages that were not found)
         attempted_message_count = len(email_message_ids) - len(legitimately_skipped_message_ids)
-        
+
         # Only override the status if we had issues processing messages
         if attempted_message_count == 0:
             # All messages were skipped due to 404s
             return {
-                "status": "success", 
+                "status": "success",
                 "messages": [],
-                "reason": f"All {len(legitimately_skipped_message_ids)} messages were not found (likely deleted)"
+                "reason": f"All {len(legitimately_skipped_message_ids)} messages were not found (likely deleted)",
             }
         elif len(processed_email_messages) == attempted_message_count:
             # All attempted messages processed successfully
             return {
-                "status": "success", 
+                "status": "success",
                 "messages": processed_email_messages,
-                "reason": f"All {attempted_message_count} messages processed successfully. {len(legitimately_skipped_message_ids)} messages were skipped (not found)."
+                "reason": f"All {attempted_message_count} messages processed successfully. {len(legitimately_skipped_message_ids)} messages were skipped (not found).",
             }
         elif not processed_email_messages:
             # We found message IDs but couldn't process any - need retry
             return {
                 "status": "retry_needed",
                 "messages": [],
-                "reason": f"Found {attempted_message_count} email messages but processed none. Failed IDs: {failed_email_ids}"
+                "reason": f"Found {attempted_message_count} email messages but processed none. Failed IDs: {failed_email_ids}",
             }
         else:
             # Partial success - some messages processed, some failed
             return {
                 "status": "partial_success_failure",
                 "messages": processed_email_messages,
-                "reason": f"Action required. Check logs for details. Processed {len(processed_email_messages)}/{attempted_message_count} email messages. Failed IDs: {failed_email_ids}. {len(legitimately_skipped_message_ids)} messages were skipped (not found)."
+                "reason": f"Action required. Check logs for details. Processed {len(processed_email_messages)}/{attempted_message_count} email messages. Failed IDs: {failed_email_ids}. {len(legitimately_skipped_message_ids)} messages were skipped (not found).",
             }
-        
+
     except Exception as e:
         logfire.exception(f"Failed to process Gmail notification: {str(e)}")
         return {
             "status": "retry_needed",
             "messages": [],
-            "reason": f"Exception during processing: {str(e)}"
+            "reason": f"Exception during processing: {str(e)}",
         }

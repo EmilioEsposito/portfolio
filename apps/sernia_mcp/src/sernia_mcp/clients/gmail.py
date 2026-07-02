@@ -4,6 +4,7 @@ Vendored from api/src/google/gmail/service.py. Trimmed to send + get + body
 extraction — drops the watch-/history-driven webhook plumbing the FastAPI
 monorepo uses for inbound triggers.
 """
+
 from __future__ import annotations
 
 import base64
@@ -50,12 +51,7 @@ async def send_email_via_service(
 def get_message(service, message_id: str) -> dict | None:
     """Fetch a Gmail message by ID. Returns None for 404s (deleted)."""
     try:
-        return (
-            service.users()
-            .messages()
-            .get(userId="me", id=message_id, format="full")
-            .execute()
-        )
+        return service.users().messages().get(userId="me", id=message_id, format="full").execute()
     except googleapiclient.errors.HttpError as error:
         if error.resp.status == 404:
             return None

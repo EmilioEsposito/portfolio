@@ -91,7 +91,9 @@ def _messages_to_text(messages: list[ModelMessage]) -> str:
                 if isinstance(part, UserPromptPart):
                     lines.append(f"USER: {part.content}")
                 elif isinstance(part, ToolReturnPart):
-                    content_str = str(part.content) if not isinstance(part.content, str) else part.content
+                    content_str = (
+                        str(part.content) if not isinstance(part.content, str) else part.content
+                    )
                     # Truncate very long tool results in the transcript
                     if len(content_str) > 2000:
                         content_str = content_str[:2000] + "...(truncated)"
@@ -146,9 +148,7 @@ async def compact_history(
         transcript = transcript[:_MAX_COMPACTOR_INPUT_CHARS] + "\n\n...(transcript truncated)"
 
     try:
-        result = await _compactor.run(
-            f"Summarize this conversation history:\n\n{transcript}"
-        )
+        result = await _compactor.run(f"Summarize this conversation history:\n\n{transcript}")
 
         summary_message = ModelRequest(
             parts=[

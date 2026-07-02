@@ -40,6 +40,7 @@ def log_error(msg: str) -> None:
 @dataclass
 class ContactSeed:
     """Definition for a contact seed."""
+
     slug: str
     first_name: str
     last_name: str
@@ -149,7 +150,11 @@ async def seed_app_settings(dry_run: bool = False) -> None:
         if dry_run:
             log_info("[DRY RUN] Would create app_setting 'model_config'")
             return
-        session.add(AppSetting(key="model_config", value={"model_key": "gpt-5.4", "thinking_effort": "medium"}))
+        session.add(
+            AppSetting(
+                key="model_config", value={"model_key": "gpt-5.4", "thinking_effort": "medium"}
+            )
+        )
         await session.commit()
         log_info("✓ Created app_setting 'model_config' (gpt-5.4 / medium)")
 
@@ -175,69 +180,109 @@ def _build_sample_conversations() -> list[dict]:
     now = datetime.now(UTC)
 
     web_chat_messages = [
-        ModelRequest(parts=[UserPromptPart(
-            content="What maintenance tasks are open at 320?",
-            timestamp=now - timedelta(hours=3),
-        )]),
-        ModelResponse(parts=[ToolCallPart(
-            tool_name="clickup_search_tasks",
-            args={"query": "320 maintenance", "include_closed": False},
-            tool_call_id="seed_call_clickup_1",
-        )]),
-        ModelRequest(parts=[ToolReturnPart(
-            tool_name="clickup_search_tasks",
-            content=(
-                "- Task: Fix dripping faucet Unit 02 (id: seed0001)\n"
-                "  Status: in progress | Priority: normal | Due: 2026-06-15\n"
-                "  Assignees: John\n"
-                "- Task: Replace hallway light bulb (id: seed0002)\n"
-                "  Status: to do | Priority: low | Due: 2026-06-20\n"
-                "  Assignees: Emilio"
-            ),
-            tool_call_id="seed_call_clickup_1",
-            timestamp=now - timedelta(hours=3),
-        )]),
-        ModelResponse(parts=[TextPart(
-            content=(
-                "Two open maintenance tasks at 320:\n\n"
-                "1. **Dripping faucet, Unit 02** — in progress, assigned to John, due Jun 15\n"
-                "2. **Hallway light bulb** — to do, assigned to Emilio, due Jun 20"
-            ),
-        )]),
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    content="What maintenance tasks are open at 320?",
+                    timestamp=now - timedelta(hours=3),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="clickup_search_tasks",
+                    args={"query": "320 maintenance", "include_closed": False},
+                    tool_call_id="seed_call_clickup_1",
+                )
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="clickup_search_tasks",
+                    content=(
+                        "- Task: Fix dripping faucet Unit 02 (id: seed0001)\n"
+                        "  Status: in progress | Priority: normal | Due: 2026-06-15\n"
+                        "  Assignees: John\n"
+                        "- Task: Replace hallway light bulb (id: seed0002)\n"
+                        "  Status: to do | Priority: low | Due: 2026-06-20\n"
+                        "  Assignees: Emilio"
+                    ),
+                    tool_call_id="seed_call_clickup_1",
+                    timestamp=now - timedelta(hours=3),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                TextPart(
+                    content=(
+                        "Two open maintenance tasks at 320:\n\n"
+                        "1. **Dripping faucet, Unit 02** — in progress, assigned to John, due Jun 15\n"
+                        "2. **Hallway light bulb** — to do, assigned to Emilio, due Jun 20"
+                    ),
+                )
+            ]
+        ),
     ]
 
     sms_messages = [
-        ModelRequest(parts=[UserPromptPart(
-            content="did the plumber confirm for tomorrow?",
-            timestamp=now - timedelta(hours=1),
-        )]),
-        ModelResponse(parts=[TextPart(
-            content="Yes — confirmed for 9am tomorrow at 320 Unit 02. He'll text when en route.",
-        )]),
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    content="did the plumber confirm for tomorrow?",
+                    timestamp=now - timedelta(hours=1),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                TextPart(
+                    content="Yes — confirmed for 9am tomorrow at 320 Unit 02. He'll text when en route.",
+                )
+            ]
+        ),
     ]
 
     memory_messages = [
-        ModelRequest(parts=[UserPromptPart(
-            content="Remember that the new dishwasher for Unit 05 arrives June 18.",
-            timestamp=now - timedelta(days=1),
-        )]),
-        ModelResponse(parts=[ToolCallPart(
-            tool_name="workspace_write_file",
-            args={
-                "path": "/workspace/daily_notes/2026-06-09_unit05-dishwasher.md",
-                "content": "Dishwasher delivery for Unit 05 scheduled June 18.",
-            },
-            tool_call_id="seed_call_ws_1",
-        )]),
-        ModelRequest(parts=[ToolReturnPart(
-            tool_name="workspace_write_file",
-            content="Wrote 52 chars to /workspace/daily_notes/2026-06-09_unit05-dishwasher.md",
-            tool_call_id="seed_call_ws_1",
-            timestamp=now - timedelta(days=1),
-        )]),
-        ModelResponse(parts=[TextPart(
-            content="Noted — I saved the June 18 dishwasher delivery for Unit 05 to my daily notes.",
-        )]),
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    content="Remember that the new dishwasher for Unit 05 arrives June 18.",
+                    timestamp=now - timedelta(days=1),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name="workspace_write_file",
+                    args={
+                        "path": "/workspace/daily_notes/2026-06-09_unit05-dishwasher.md",
+                        "content": "Dishwasher delivery for Unit 05 scheduled June 18.",
+                    },
+                    tool_call_id="seed_call_ws_1",
+                )
+            ]
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="workspace_write_file",
+                    content="Wrote 52 chars to /workspace/daily_notes/2026-06-09_unit05-dishwasher.md",
+                    tool_call_id="seed_call_ws_1",
+                    timestamp=now - timedelta(days=1),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[
+                TextPart(
+                    content="Noted — I saved the June 18 dishwasher delivery for Unit 05 to my daily notes.",
+                )
+            ]
+        ),
     ]
 
     return [
@@ -289,7 +334,9 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
         for sample in samples:
             existing = (
                 await session.execute(
-                    select(AgentConversation.id).where(AgentConversation.id == sample["conversation_id"])
+                    select(AgentConversation.id).where(
+                        AgentConversation.id == sample["conversation_id"]
+                    )
                 )
             ).scalar_one_or_none()
             if existing:
@@ -422,9 +469,10 @@ if __name__ == "__main__":
         description="Idempotent database seed script for local development"
     )
     parser.add_argument(
-        "--dry-run", "-d",
+        "--dry-run",
+        "-d",
         action="store_true",
-        help="Show what would be created without making changes"
+        help="Show what would be created without making changes",
     )
 
     args = parser.parse_args()

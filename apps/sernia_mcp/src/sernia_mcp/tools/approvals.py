@@ -24,6 +24,7 @@ State (``_PENDING``) is in-memory; restart loses pending approvals. Each row
 carries a timestamp; rows older than ``_PENDING_TTL_SECONDS`` are rejected on
 confirmation. DB-backed durability is a later concern.
 """
+
 from __future__ import annotations
 
 import time
@@ -69,6 +70,7 @@ approvals_app = FastMCPApp("sernia_approvals")
 # -----------------------------------------------------------------------------
 # SMS
 # -----------------------------------------------------------------------------
+
 
 @approvals_app.ui()
 async def quo_send_sms(to_phone: str, message: str) -> PrefabApp:
@@ -171,6 +173,7 @@ async def _confirm_send_sms(pending_id: str, decision: str) -> str:
 # Email
 # -----------------------------------------------------------------------------
 
+
 @approvals_app.ui()
 async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp:
     """Send an email (internal or external recipients).
@@ -188,9 +191,7 @@ async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp
         raise ToolError("to[] is empty")
 
     pid = uuid.uuid4().hex[:12]
-    all_internal = all(
-        addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to
-    )
+    all_internal = all(addr.strip().lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}") for addr in to)
     _PENDING[pid] = {
         "type": "email",
         "to": list(to),
@@ -200,9 +201,7 @@ async def google_send_email(to: list[str], subject: str, body: str) -> PrefabApp
         "created_at": time.time(),
     }
 
-    audience = (
-        f"INTERNAL (all @{INTERNAL_EMAIL_DOMAIN})" if all_internal else "EXTERNAL"
-    )
+    audience = f"INTERNAL (all @{INTERNAL_EMAIL_DOMAIN})" if all_internal else "EXTERNAL"
     with Card(css_class="max-w-xl") as view:
         with CardHeader():
             CardTitle(f"Send email: {subject}")

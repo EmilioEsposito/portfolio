@@ -31,7 +31,5 @@ async def test_save_oauth_credentials():
     provider = "oauth_google"
 
     session = AsyncSessionFactory()
-    await save_oauth_credentials(
-        session, user_id, provider, creds_response=creds_response
-    )
+    await save_oauth_credentials(session, user_id, provider, creds_response=creds_response)
     await session.close()

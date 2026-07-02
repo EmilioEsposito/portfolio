@@ -4,12 +4,13 @@ Router Agent using PydanticAI
 This agent determines which specialized agent should handle a user's message.
 It uses structured output to return either "emilio" or "weather".
 """
+
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 
-load_dotenv('.env')
+load_dotenv(".env")
 from enum import StrEnum
 
 # @dataclass
@@ -20,12 +21,14 @@ from enum import StrEnum
 
 class AgentName(StrEnum):
     """Agent name enum for routing decisions"""
+
     emilio = "emilio"
     weather = "weather"
 
 
 class RoutingDecision(BaseModel):
     """Structured output for routing decisions"""
+
     agent_name: AgentName
 
 

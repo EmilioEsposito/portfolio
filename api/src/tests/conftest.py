@@ -6,4 +6,4 @@ from api.index import app
 
 @pytest.fixture
 def client():
-    return TestClient(app) 
+    return TestClient(app)

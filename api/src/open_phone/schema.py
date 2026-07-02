@@ -12,6 +12,7 @@ class BaseOpenPhoneObject(BaseModel):
     phoneNumberId: str | None = None
     conversationId: str | None = None
 
+
 class MessageObject(BaseOpenPhoneObject):
     from_: str = Field(..., alias="from")
     to: str
@@ -20,6 +21,7 @@ class MessageObject(BaseOpenPhoneObject):
     status: str
     createdBy: str | None = None
     direction: str
+
 
 class CallObject(BaseOpenPhoneObject):
     from_: str = Field(..., alias="from")
@@ -31,6 +33,7 @@ class CallObject(BaseOpenPhoneObject):
     answeredAt: datetime | None = None
     answeredBy: str | None = None
     completedAt: datetime | None = None
+
 
 class ContactObject(BaseOpenPhoneObject):
     firstName: str | None = ""
@@ -44,10 +47,11 @@ class ContactObject(BaseOpenPhoneObject):
     clientId: str | None = ""
     updatedAt: datetime
 
+
 class CallSummaryObject(BaseModel):
     """
     Represents a summary of a call, including its status, key points, and next steps.
-    
+
     Attributes:
         object (str): The type of object, typically "call_summary".
         callId (str): The unique identifier for the call.
@@ -55,11 +59,13 @@ class CallSummaryObject(BaseModel):
         summary (List[str]): A list of key points or highlights from the call.
         nextSteps (List[str]): A list of recommended next steps following the call.
     """
+
     object: str
     callId: str
     status: str
     summary: list[str]
     nextSteps: list[str]
+
 
 class DialogueEntry(BaseModel):
     end: float
@@ -67,6 +73,7 @@ class DialogueEntry(BaseModel):
     content: str
     identifier: str
     userId: str | None = None
+
 
 class CallTranscriptObject(BaseModel):
     object: str
@@ -76,8 +83,10 @@ class CallTranscriptObject(BaseModel):
     duration: float
     status: str
 
+
 class OpenPhoneEventData(BaseModel):
     object: MessageObject | CallObject | ContactObject | CallSummaryObject | CallTranscriptObject
+
 
 class OpenPhoneWebhookPayload(BaseModel):
     id: str
@@ -86,5 +95,3 @@ class OpenPhoneWebhookPayload(BaseModel):
     apiVersion: str
     type: str
     data: OpenPhoneEventData
-
-    

@@ -6,7 +6,7 @@ import requests
 
 # using main() prevents pytest from running this file upon discovery
 def main():
-    # get custom fields 
+    # get custom fields
     # https://api.openphone.com/v1/contact-custom-fields
     url = "https://api.openphone.com/v1/contact-custom-fields"
     api_key = os.getenv("OPEN_PHONE_API_KEY")
@@ -34,7 +34,7 @@ def main():
     #            'type': 'date'}]}
 
     contact_ids = [
-    '67e9817f1540b3794e60fccb',
+        "67e9817f1540b3794e60fccb",
     ]
     contact_id = contact_ids[0]
     # delete contacts
@@ -48,7 +48,7 @@ def main():
         }
         response = requests.get(url, headers=headers)
         # pprint(response.json())
-        json_response = response.json()['data']
+        json_response = response.json()["data"]
         pprint(json_response)
 
     # Hide child attributes
@@ -71,16 +71,20 @@ def main():
     # Example:
     # "66d0d87d534de8fd1c433cec3"
 
-    json_response['customFields'].append({
-        'key': 'Lease Start Date',
-        'id': '67e97df0dd6d4a9758c1e430',
-        'value': '2025-03-30T16:00:00.000+0000'
-    })
-    json_response['customFields'].append({
-        'key': 'Lease End Date',
-        'id': '67e97dfadd6d4a9758c1e433',
-        'value': '2025-06-30T16:00:00.000+0000'
-    })
+    json_response["customFields"].append(
+        {
+            "key": "Lease Start Date",
+            "id": "67e97df0dd6d4a9758c1e430",
+            "value": "2025-03-30T16:00:00.000+0000",
+        }
+    )
+    json_response["customFields"].append(
+        {
+            "key": "Lease End Date",
+            "id": "67e97dfadd6d4a9758c1e433",
+            "value": "2025-06-30T16:00:00.000+0000",
+        }
+    )
 
     pprint(json_response)
 
@@ -152,12 +156,11 @@ def main():
     # update contact with patch
     url = f"https://api.openphone.com/v1/contacts/{contact_id}"
 
-    json_response['source'] = 'api-patch'
+    json_response["source"] = "api-patch"
 
     # Send PATCH request
     response = requests.patch(url, headers=headers, json=json_response)
     pprint(response.json())
-
 
 
 if __name__ == "__main__":

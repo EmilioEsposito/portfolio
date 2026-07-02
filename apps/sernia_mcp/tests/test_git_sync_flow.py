@@ -19,6 +19,7 @@ The two load-bearing properties under test:
 All tests share the same fixture pattern: bare remote + working clone +
 PAT injected via env var so ``commit_and_push`` doesn't no-op.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -110,6 +111,7 @@ def patched_remote(two_repos, monkeypatch):
 # Property 1: commit-before-pull ordering
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_dirty_working_tree_does_not_block_sync(patched_remote):
     """The bug from Logfire issue #86 timeline: a dirty working tree caused
@@ -188,6 +190,7 @@ async def test_no_local_changes_no_op(patched_remote):
 # Property 2: conflict-marker preservation
 # ============================================================================
 
+
 @pytest.mark.asyncio
 async def test_conflict_markers_preserved_through_to_remote(patched_remote):
     """When local and remote modify the same file in incompatible ways, the
@@ -229,6 +232,7 @@ async def test_conflict_markers_preserved_through_to_remote(patched_remote):
 # ============================================================================
 # Helper unit test: _has_unmerged_files
 # ============================================================================
+
 
 def test_has_unmerged_files_recognizes_porcelain_codes():
     """``UU file`` etc are unmerged. ``M  file`` / `` M file`` etc are not."""
@@ -297,9 +301,7 @@ async def test_failed_push_emits_logfire_exception(monkeypatch, patched_remote):
 
 
 @pytest.mark.asyncio
-async def test_successful_push_does_not_emit_logfire_exception(
-    monkeypatch, patched_remote
-):
+async def test_successful_push_does_not_emit_logfire_exception(monkeypatch, patched_remote):
     """The happy path must NOT fire logfire.exception — we don't want
     every successful push creating an Issue + Slack ping."""
     from unittest.mock import patch
@@ -318,6 +320,7 @@ async def test_successful_push_does_not_emit_logfire_exception(
 # ============================================================================
 # pull_workspace (the pre-read freshening primitive)
 # ============================================================================
+
 
 @pytest.mark.asyncio
 async def test_pull_workspace_picks_up_remote_changes(patched_remote):
@@ -367,8 +370,11 @@ async def test_pull_workspace_does_not_push(patched_remote):
     _rc, log_out, _ = (
         0,
         subprocess.run(
-            ["git", "log", "--format=%s"], cwd=local,
-            check=True, capture_output=True, text=True,
+            ["git", "log", "--format=%s"],
+            cwd=local,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip(),
         "",
     )

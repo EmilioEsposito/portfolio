@@ -44,7 +44,9 @@ class TestSeedSmsConversation:
             patch(_SAVE_CONV, new_callable=AsyncMock) as mock_save,
         ):
             await _seed_sms_conversation(
-                "+14125551234", "Is the faucet fixed?", "Emilio asked to follow up",
+                "+14125551234",
+                "Is the faucet fixed?",
+                "Emilio asked to follow up",
             )
 
             mock_get.assert_called_once()
@@ -84,7 +86,9 @@ class TestSeedSmsConversation:
             patch(_SAVE_CONV, new_callable=AsyncMock) as mock_save,
         ):
             await _seed_sms_conversation(
-                "+14125551234", "Any update?", "Following up on lease",
+                "+14125551234",
+                "Any update?",
+                "Following up on lease",
             )
 
             saved_messages = mock_save.call_args[1]["messages"]
@@ -106,7 +110,9 @@ class TestSeedSmsConversation:
             patch(_SAVE_CONV, new_callable=AsyncMock),
         ):
             await _seed_sms_conversation(
-                "+1 (412) 555-1234", "Hello", "context",
+                "+1 (412) 555-1234",
+                "Hello",
+                "context",
             )
             mock_get.assert_called_once()
             assert mock_get.call_args[0][0] == "ai_sms_from_14125551234"

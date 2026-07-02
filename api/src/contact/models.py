@@ -16,9 +16,9 @@ class Contact(Base):
     last_name = Column(String, nullable=False)
     email = Column(String, nullable=True, index=True)
     phone_number = Column(String, nullable=True)
-    
+
     # Optional notes or description for the contact
-    notes = Column(Text, nullable=True) 
+    notes = Column(Text, nullable=True)
 
     company = Column(String, nullable=True)
     role = Column(String, nullable=True)
@@ -28,14 +28,15 @@ class Contact(Base):
 
     # Foreign key to User table
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    user = relationship("User") # Establishes the relationship to the User model
+    user = relationship("User")  # Establishes the relationship to the User model
 
     # Add extend_existing=True to handle cases where the model might be registered multiple times during test collection
-    __table_args__ = ({'extend_existing': True})
+    __table_args__ = {"extend_existing": True}
 
     # It's good practice to have a __repr__ method for debugging
     def __repr__(self):
         return f"<Contact(id={self.id}, slug='{self.slug}', name='{self.name}')>"
+
 
 # It might be useful to have an index on user_id if you plan to query contacts by user frequently.
 # __table_args__ = (

@@ -16,6 +16,7 @@ These tests guard the wiring and the provider-adaptive behavior we rely on,
 plus a synthetic end-to-end run (TestModel, no network) that exercises the
 full pipeline: dynamic instructions, capabilities, and output handling.
 """
+
 from pathlib import Path
 
 import pytest
@@ -55,9 +56,7 @@ class TestCapabilityWiring:
         assert wf.local is False
 
     def test_history_processors_wired_in_order(self):
-        processors = [
-            c.processor for c in _agent_capabilities() if isinstance(c, ProcessHistory)
-        ]
+        processors = [c.processor for c in _agent_capabilities() if isinstance(c, ProcessHistory)]
         assert processors == [summarize_tool_results, compact_history]
 
     def test_instrumentation_enabled(self):
@@ -165,9 +164,7 @@ class TestSyntheticRun:
             calls.append("summarize")
             return messages
 
-        async def fake_compact(
-            ctx: RunContext, messages: list[ModelMessage]
-        ) -> list[ModelMessage]:
+        async def fake_compact(ctx: RunContext, messages: list[ModelMessage]) -> list[ModelMessage]:
             calls.append("compact")
             return messages
 

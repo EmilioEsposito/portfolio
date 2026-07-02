@@ -38,7 +38,9 @@ class MultiAgentState:
     def __post_init__(self):
         """Conditionally require vercel_ai_request based on agent_run_method."""
         if self.agent_run_method == "vercel_ai" and self.vercel_ai_request is None:
-            raise ValueError("vercel_ai_request must be provided when agent_run_method is 'vercel_ai'.")
+            raise ValueError(
+                "vercel_ai_request must be provided when agent_run_method is 'vercel_ai'."
+            )
 
     def require_vercel_request(self) -> Request:
         """Return the Request needed for Vercel AI runs, ensuring it exists."""
@@ -66,9 +68,7 @@ class MultiAgentOutput(BaseModel):
 
 # Initialize the graph builder
 g = GraphBuilder(
-    state_type=MultiAgentState,
-    input_type=MultiAgentInput,
-    output_type=MultiAgentOutput
+    state_type=MultiAgentState, input_type=MultiAgentInput, output_type=MultiAgentOutput
 )
 
 
@@ -83,7 +83,7 @@ async def route_message(ctx: StepContext[MultiAgentState, None, MultiAgentInput]
     # Store message and history in state
     ctx.state.message = ctx.inputs.message
     ctx.state.message_history = ctx.inputs.message_history
-    
+
     logfire.info("Routing message", message=ctx.state.message[:100])
 
     # Use the router agent to make the routing decision
@@ -168,22 +168,20 @@ g.add(
     g.edge_from(g.start_node).to(route_message),
     g.edge_from(route_message).to(
         g.decision()
-            .branch(
-                g.match(route_message, matches=lambda output: output == AgentName.emilio).to(
-                    run_emilio_agent
-                )
+        .branch(
+            g.match(route_message, matches=lambda output: output == AgentName.emilio).to(
+                run_emilio_agent
             )
-            .branch(
-                g.match(route_message, matches=lambda output: output == AgentName.weather).to(
-                    run_weather_agent
-                )
+        )
+        .branch(
+            g.match(route_message, matches=lambda output: output == AgentName.weather).to(
+                run_weather_agent
             )
-        ),
-    g.edge_from(run_emilio_agent, run_weather_agent).to(g.end_node)
-    )
-    
+        )
+    ),
+    g.edge_from(run_emilio_agent, run_weather_agent).to(g.end_node),
+)
 
 
 # Build the graph
 multi_agent_graph = g.build()
-

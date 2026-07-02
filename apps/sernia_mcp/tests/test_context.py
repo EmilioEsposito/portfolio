@@ -4,6 +4,7 @@ The conftest's ``_isolate_environment`` fixture points
 ``SERNIA_MCP_WORKSPACE_PATH`` at a per-test ``tmp_path``, so all filesystem
 ops are scoped and parallel-safe.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ import pytest
 from fastmcp import Client
 
 # ---------------------------------------------------------- core: list_skills
+
 
 def test_list_skills_returns_empty_when_no_dir():
     from sernia_mcp.core.skills import list_skills
@@ -25,10 +27,7 @@ def test_list_skills_parses_frontmatter_description(tmp_path):
     skill = tmp_path / ".claude" / "skills" / "communications" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(
-        "---\n"
-        "description: How to talk to tenants\n"
-        "---\n\n"
-        "# Communications\n",
+        "---\ndescription: How to talk to tenants\n---\n\n# Communications\n",
         encoding="utf-8",
     )
 
@@ -64,6 +63,7 @@ def test_list_skills_skips_dirs_without_skill_md(tmp_path):
 
 
 # ---------------------------------------------------------- core: read/write
+
 
 def test_read_skill_returns_full_content(tmp_path):
     from sernia_mcp.core.skills import read_skill
@@ -111,6 +111,7 @@ def test_write_memory_and_read_memory_roundtrip(tmp_path):
 
 # ------------------------------------------------------- doorway tool over MCP
 
+
 @pytest.fixture
 async def mcp_client():
     from sernia_mcp.server import mcp
@@ -155,9 +156,7 @@ async def test_sernia_context_calls_pull_workspace_first(mcp_client):
     """
     from unittest.mock import AsyncMock, patch
 
-    with patch(
-        "sernia_mcp.tools.context.pull_workspace", new=AsyncMock()
-    ) as fake_pull:
+    with patch("sernia_mcp.tools.context.pull_workspace", new=AsyncMock()) as fake_pull:
         await mcp_client.call_tool("sernia_context", {})
 
     fake_pull.assert_awaited_once()
@@ -183,6 +182,7 @@ async def test_sernia_context_succeeds_when_pull_fails(mcp_client):
 
 
 # ---------------------------------------------------------------- resources
+
 
 @pytest.mark.asyncio
 async def test_memory_resource_listed_and_readable(tmp_path, mcp_client):
@@ -217,15 +217,14 @@ async def test_skill_resource_template_listed(mcp_client):
 
 # ---------------------------------------------------------- read_resource tool
 
+
 @pytest.mark.asyncio
 async def test_read_resource_returns_memory_content(tmp_path, mcp_client):
     from sernia_mcp.core.skills import write_memory
 
     write_memory("the operating memory body")
 
-    result = await mcp_client.call_tool(
-        "read_resource", {"uri": "memory://current"}
-    )
+    result = await mcp_client.call_tool("read_resource", {"uri": "memory://current"})
     assert result.content[0].text == "the operating memory body"
 
 
@@ -235,9 +234,7 @@ async def test_read_resource_returns_skill_content(tmp_path, mcp_client):
 
     write_skill("comms", "---\ndescription: how to message\n---\n\nBody.")
 
-    result = await mcp_client.call_tool(
-        "read_resource", {"uri": "skill://comms/SKILL.md"}
-    )
+    result = await mcp_client.call_tool("read_resource", {"uri": "skill://comms/SKILL.md"})
     assert "Body." in result.content[0].text
     assert "description: how to message" in result.content[0].text
 
@@ -247,9 +244,7 @@ async def test_read_resource_rejects_unknown_scheme(mcp_client):
     from fastmcp.exceptions import ToolError
 
     with pytest.raises(ToolError, match="unsupported URI"):
-        await mcp_client.call_tool(
-            "read_resource", {"uri": "file:///etc/passwd"}
-        )
+        await mcp_client.call_tool("read_resource", {"uri": "file:///etc/passwd"})
 
 
 @pytest.mark.asyncio
@@ -257,9 +252,7 @@ async def test_read_resource_rejects_skill_uri_without_skill_md_suffix(mcp_clien
     from fastmcp.exceptions import ToolError
 
     with pytest.raises(ToolError, match=r"must end with /SKILL\.md"):
-        await mcp_client.call_tool(
-            "read_resource", {"uri": "skill://comms/notes.md"}
-        )
+        await mcp_client.call_tool("read_resource", {"uri": "skill://comms/notes.md"})
 
 
 @pytest.mark.asyncio
@@ -267,12 +260,11 @@ async def test_read_resource_missing_skill_raises_not_found(mcp_client):
     from fastmcp.exceptions import ToolError
 
     with pytest.raises(ToolError, match="skill not found"):
-        await mcp_client.call_tool(
-            "read_resource", {"uri": "skill://nonexistent/SKILL.md"}
-        )
+        await mcp_client.call_tool("read_resource", {"uri": "skill://nonexistent/SKILL.md"})
 
 
 # --------------------------------------------------------- write_resource tool
+
 
 @pytest.mark.asyncio
 async def test_write_resource_updates_memory(tmp_path, mcp_client):
@@ -335,6 +327,7 @@ async def test_write_resource_rejects_path_traversal(mcp_client):
 
 
 # ------------------------------------ edit_resource tool (string substitution)
+
 
 @pytest.mark.asyncio
 async def test_edit_resource_replaces_unique_substring(tmp_path, mcp_client):
@@ -529,6 +522,7 @@ async def test_edit_resource_schema_advertises_canonical_names(mcp_client):
 
 # ----------------------------------------- write-then-read round-trip via MCP
 
+
 @pytest.mark.asyncio
 async def test_edit_then_sernia_context_reflects_change(tmp_path, mcp_client):
     """The full self-improving loop: write a skill, see it in the doorway
@@ -539,10 +533,7 @@ async def test_edit_then_sernia_context_reflects_change(tmp_path, mcp_client):
         {
             "uri": "skill://reporting/SKILL.md",
             "content": (
-                "---\n"
-                "description: Generate monthly reports\n"
-                "---\n\n"
-                "# Reporting playbook\n"
+                "---\ndescription: Generate monthly reports\n---\n\n# Reporting playbook\n"
             ),
         },
     )

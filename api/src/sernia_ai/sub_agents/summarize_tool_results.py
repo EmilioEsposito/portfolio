@@ -49,6 +49,7 @@ def _should_skip_summarization(tool_name: str) -> bool:
         return True
     return any(tool_name.startswith(p) for p in _NEVER_SUMMARIZE_PREFIXES)
 
+
 # Stable summary cache keyed by tool_call_id (unique per Anthropic tool call across all
 # runs/processes). Pydantic-AI's history_processors run before EVERY model request,
 # including each tool-loop iteration within a single run, and Haiku output is non-
@@ -140,7 +141,9 @@ async def summarize_tool_results(
                 if isinstance(part, ToolReturnPart):
                     if _should_skip_summarization(part.tool_name):
                         continue
-                    content_str = str(part.content) if not isinstance(part.content, str) else part.content
+                    content_str = (
+                        str(part.content) if not isinstance(part.content, str) else part.content
+                    )
                     if len(content_str) > SUMMARIZATION_CHAR_THRESHOLD:
                         oversized.append((msg_idx, part_idx, part))
 

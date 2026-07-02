@@ -4,6 +4,7 @@ Lifted from ``api/src/sernia_ai/tools/quo_tools.py``. Only ``create_contact``
 is here for now — sernia_ai's ``update_contact`` is HITL-gated and will land
 with the approval-flow batch (see ``apps/sernia_mcp/TODOS.md``).
 """
+
 from __future__ import annotations
 
 import httpx
@@ -41,8 +42,7 @@ class CustomField(BaseModel):
     key: str = Field(description="The 24-char hex custom field key.")
     value: str | list[str] | None = Field(
         description=(
-            "Value — string for text/date fields, list of strings for "
-            "multi-select (e.g. Tags)."
+            "Value — string for text/date fields, list of strings for multi-select (e.g. Tags)."
         )
     )
 
@@ -126,11 +126,6 @@ async def create_contact_core(
     if resp.status_code in (200, 201):
         invalidate_contact_cache()
         created = resp.json().get("data", {})
-        return (
-            f"Contact created: {first_name} {last_name} "
-            f"(id: {created.get('id', '?')})"
-        )
+        return f"Contact created: {first_name} {last_name} (id: {created.get('id', '?')})"
 
-    raise ExternalServiceError(
-        f"Quo API HTTP {resp.status_code}: {resp.text[:300]}"
-    )
+    raise ExternalServiceError(f"Quo API HTTP {resp.status_code}: {resp.text[:300]}")
