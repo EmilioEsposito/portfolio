@@ -7,10 +7,10 @@ alwaysApply: true
 This is a repo for me to put various projects and tools in. Some bits I build for purely learning, but I also then use those bits to build useful production apps for my rental business, Sernia Capital, and at some point I decide to scale out some of the apps I've dogfooded to be a publicly marketable SaaS product(s). I like to keep things simple and clean. 
 
 ## Tech Stack:
-* Frontend: Next.js
-    * UI: [Shadcn UI](mdc:https:/ui.shadcn.com/docs) & Tailwind CSS
-* Backend: [FastAPI](mdc:https:/fastapi.tiangolo.com) - contained under `/api/` directory 
-    * Database: [Neon Postgres](mdc:https:/neon.tech)
+* Frontend: React Router v7 (framework mode) + Vite + React 19 - under `apps/web-react-router/`
+    * UI: [Shadcn UI](mdc:https://ui.shadcn.com/docs) & Tailwind CSS
+* Backend: [FastAPI](mdc:https://fastapi.tiangolo.com) - contained under `/api/` directory
+    * Database: [Neon Postgres](mdc:https://neon.tech)
 * Deployment: @Railway
 * Package Managers: pnpm and uv
 * Roadmap: Refer to the [roadmap.md](mdc:roadmap.md) file to understand the context of what was recently done, what is in progress, and what the future entails. 
@@ -23,7 +23,7 @@ This is a repo for me to put various projects and tools in. Some bits I build fo
 - Do NOT remove functionality (e.g. remove an API route import) without asking me first. 
 - Only suggest code that is safe to deploy to main branch and production. Nothing that would require code to change on diff environments.
 - For imports, use absolute paths and avoid relative imports if possible. It makes refactoring easier.
-- The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add add <component>`. Old way gives errors.
+- The new way to install Shadcn UI is `pnpm dlx @shadcn/ui@latest add <component>` (run from `apps/web-react-router/`). Old way gives errors.
 - Do not make unrelated changes to the task at hand without asking me first.
 - Do not EVER remove my comments if the comment is still valid. 
 - Do not EVER modify the .env file. You can suggest edits to it if they are wrong. 

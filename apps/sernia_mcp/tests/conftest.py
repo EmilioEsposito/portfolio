@@ -4,6 +4,7 @@ Tests run unauthenticated and isolated from the host environment — we strip
 any inherited Clerk OAuth vars and any inherited workspace path so the suite
 is deterministic regardless of the developer's local ``.env``.
 """
+
 from __future__ import annotations
 
 import os

@@ -1,10 +1,12 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Index, JSON
+
+from sqlalchemy import JSON, Column, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func # For server-side default timestamps
+from sqlalchemy.sql import func  # For server-side default timestamps
 
 # Import Base from the correct location
 from api.src.database.database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -14,13 +16,13 @@ class User(Base):
 
     # Clerk specific identifiers
     clerk_user_id = Column(String, nullable=False)
-    environment = Column(String, nullable=False) # e.g., "development" or "production"
+    environment = Column(String, nullable=False)  # e.g., "development" or "production"
 
     # Basic user info from Clerk (allow nulls initially)
     email = Column(String, nullable=True, index=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
-    image_url = Column(String, nullable=True) # Clerk's profile image url
+    image_url = Column(String, nullable=True)  # Clerk's profile image url
 
     # Timestamps from Clerk event data (store as naive UTC, handle timezone on interpretation if needed)
     # Clerk sends timestamps in milliseconds since epoch (Unix time)
@@ -30,7 +32,7 @@ class User(Base):
 
     # Metadata (optional, store as JSON)
     public_metadata = Column(JSON, nullable=True)
-    private_metadata = Column(JSON, nullable=True) # Be cautious storing private metadata
+    private_metadata = Column(JSON, nullable=True)  # Be cautious storing private metadata
 
     # Store the raw payload from the webhook event
     raw_payload = Column(JSON, nullable=True)
@@ -43,9 +45,9 @@ class User(Base):
     __table_args__ = (
         Index(
             "uq_user_clerk_id_env",  # New, descriptive index name
-            "clerk_user_id",         # First column in the composite index
-            "environment",           # Second column in the composite index
-            unique=True
+            "clerk_user_id",  # First column in the composite index
+            "environment",  # Second column in the composite index
+            unique=True,
         ),
     )
 

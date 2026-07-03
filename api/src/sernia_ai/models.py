@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 import logfire
-from sqlalchemy import String, DateTime, func, select
+from sqlalchemy import DateTime, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 

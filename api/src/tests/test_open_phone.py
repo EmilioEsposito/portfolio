@@ -1,9 +1,10 @@
 import json
+import os
 from pprint import pprint
+
+import pytest
 from fastapi.testclient import TestClient
 from pytest import fixture
-import pytest
-import os
 
 # Payload fixtures are real webhook captures and are gitignored
 # (api/src/tests/requests/* in .gitignore). Skip the whole module where
@@ -12,18 +13,15 @@ pytestmark = pytest.mark.skipif(
     not os.path.isdir("api/src/tests/requests"),
     reason="requires gitignored fixture payloads in api/src/tests/requests/",
 )
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+import uuid
+from unittest.mock import AsyncMock, patch
+
 from api.index import app
 from api.src.open_phone.routes import OpenPhoneWebhookPayload, verify_open_phone_signature
-from api.src.utils.password import verify_admin_auth
-from api.src.utils.dependencies import verify_cron_or_admin
-from datetime import datetime
-from pprint import pprint
-from sqlalchemy.ext.asyncio import AsyncSession
-from api.src.database.database import get_session
-import uuid
-from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.clerk import verify_serniacapital_user
+from api.src.utils.dependencies import verify_admin_or_serniacapital, verify_cron_or_admin
+from api.src.utils.password import verify_admin_auth
+
 
 @pytest.fixture(autouse=True, scope="module")
 def mock_background_services_startup():
@@ -31,11 +29,15 @@ def mock_background_services_startup():
     Mocks the startup of APScheduler etc to speed up tests in this module.
     Prevents actual scheduler/service startup during testing.
     """
-    with patch('api.index._apscheduler_startup_async', new_callable=AsyncMock) as mock_scheduler_start:
+    with patch(
+        "api.index._apscheduler_startup_async", new_callable=AsyncMock
+    ) as mock_scheduler_start:
         yield mock_scheduler_start
+
 
 async def mock_verify(*args, **kwargs):
     return True
+
 
 # @fixture
 # def mock_db_session():
@@ -45,6 +47,7 @@ async def mock_verify(*args, **kwargs):
 #     session.rollback = AsyncMock()
 #     session.refresh = AsyncMock()
 #     return session
+
 
 @fixture
 def mocked_client():
@@ -60,9 +63,10 @@ def mocked_client():
     # Clean up after the test
     app.dependency_overrides.clear()
 
-def test_open_phone_webhook(mocked_client):
-    """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json", "r") as f:
+
+def test_open_phone_webhook_message_received(mocked_client):
+    """Test the OpenPhone webhook with a full message-received payload"""
+    with open("api/src/tests/requests/open_phone_message_received_FULL_PAYLOAD.json") as f:
         request = json.load(f)
 
     # create random event id
@@ -75,9 +79,7 @@ def test_open_phone_webhook(mocked_client):
     print("\n\nVALIDATION RESULT:")
     pprint(validation_result)
 
-    response = mocked_client.post(
-        "/api/open_phone/webhook", json=body, headers=headers
-    )
+    response = mocked_client.post("/api/open_phone/webhook", json=body, headers=headers)
 
     response_data = response.json()
     print("\n\nRESPONSE DATA:")
@@ -86,10 +88,10 @@ def test_open_phone_webhook(mocked_client):
     assert response.status_code == 200
 
 
-def test_open_phone_webhook(mocked_client):
-    """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_contact_updated.json", "r") as f:
-        body = json.load(f)['object']
+def test_open_phone_webhook_contact_updated(mocked_client):
+    """Test the OpenPhone webhook contact-updated payload validation"""
+    with open("api/src/tests/requests/open_phone_contact_updated.json") as f:
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -101,8 +103,8 @@ def test_open_phone_webhook(mocked_client):
 
 def test_open_phone_webhook_call_summary_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_call_summary_completed.json", "r") as f:
-        body = json.load(f)['object']
+    with open("api/src/tests/requests/open_phone_call_summary_completed.json") as f:
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -114,8 +116,8 @@ def test_open_phone_webhook_call_summary_completed(mocked_client):
 
 def test_open_phone_webhook_call_transcript_completed(mocked_client):
     """Test the OpenPhone webhook message received endpoint"""
-    with open("api/src/tests/requests/open_phone_call_transcript_completed.json", "r") as f:
-        body = json.load(f)['object']
+    with open("api/src/tests/requests/open_phone_call_transcript_completed.json") as f:
+        body = json.load(f)["object"]
 
     try:
         OpenPhoneWebhookPayload.model_validate(body)
@@ -138,5 +140,3 @@ def test_get_contacts_success(mocked_client):
     pprint(response_data)
 
     assert response.status_code == 200
-
-

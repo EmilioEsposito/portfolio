@@ -51,7 +51,8 @@ async def _run_git(
 ) -> tuple[int, str, str]:
     """Run a git command asynchronously. Returns (returncode, stdout, stderr)."""
     proc = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -156,25 +157,42 @@ async def ensure_repo(workspace_path: Path) -> None:
         if "U " in (status_out or "") or " U" in (status_out or ""):
             logfire.warn("git_sync: found unmerged files on startup, committing as-is to unblock")
             await _run_git("add", "-A", cwd=workspace_path)
-            await _run_git("commit", "-m", "agent: commit unmerged files on startup", cwd=workspace_path)
+            await _run_git(
+                "commit", "-m", "agent: commit unmerged files on startup", cwd=workspace_path
+            )
 
         rc, stdout, stderr = await _run_git(
-            "pull", "--rebase=false", "origin", "main",
-            cwd=workspace_path, pat=pat,
+            "pull",
+            "--rebase=false",
+            "origin",
+            "main",
+            cwd=workspace_path,
+            pat=pat,
         )
         if rc != 0 and "unrelated histories" in stderr:
-            logfire.warn("git_sync: unrelated histories on startup, retrying with --allow-unrelated-histories")
+            logfire.warn(
+                "git_sync: unrelated histories on startup, retrying with --allow-unrelated-histories"
+            )
             rc, stdout, stderr = await _run_git(
-                "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
-                "origin", "main",
-                cwd=workspace_path, pat=pat,
+                "pull",
+                "--rebase=false",
+                "--allow-unrelated-histories",
+                "--no-edit",
+                "origin",
+                "main",
+                cwd=workspace_path,
+                pat=pat,
             )
             # The merge may leave conflicts — commit them as-is to unblock
             if rc != 0 or "CONFLICT" in (stdout or ""):
-                logfire.warn("git_sync: conflicts after unrelated-histories merge, committing as-is")
+                logfire.warn(
+                    "git_sync: conflicts after unrelated-histories merge, committing as-is"
+                )
                 await _run_git("add", "-A", cwd=workspace_path)
                 await _run_git(
-                    "commit", "-m", "agent: commit conflicted files from unrelated-histories merge",
+                    "commit",
+                    "-m",
+                    "agent: commit conflicted files from unrelated-histories merge",
                     cwd=workspace_path,
                 )
                 rc = 0  # resolved
@@ -188,9 +206,11 @@ async def ensure_repo(workspace_path: Path) -> None:
         return
 
     # Check if directory has existing files (besides .git)
-    has_files = any(
-        p.name != ".git" for p in workspace_path.iterdir()
-    ) if workspace_path.exists() else False
+    has_files = (
+        any(p.name != ".git" for p in workspace_path.iterdir())
+        if workspace_path.exists()
+        else False
+    )
 
     if not has_files:
         # Empty directory - clone directly
@@ -198,8 +218,11 @@ async def ensure_repo(workspace_path: Path) -> None:
         # Clone into a temp name, then move contents
         # (git clone won't clone into non-empty dir)
         rc, stdout, stderr = await _run_git(
-            "clone", _remote_url(pat), str(workspace_path),
-            cwd=workspace_path.parent, pat=pat,
+            "clone",
+            _remote_url(pat),
+            str(workspace_path),
+            cwd=workspace_path.parent,
+            pat=pat,
         )
         if rc != 0:
             # Clone may fail if repo is empty (no commits yet)
@@ -222,8 +245,12 @@ async def ensure_repo(workspace_path: Path) -> None:
         if rc == 0:
             # Try to merge remote history (may fail if unrelated histories)
             rc2, _, stderr2 = await _run_git(
-                "merge", "origin/main", "--allow-unrelated-histories", "--no-edit",
-                cwd=workspace_path, pat=pat,
+                "merge",
+                "origin/main",
+                "--allow-unrelated-histories",
+                "--no-edit",
+                cwd=workspace_path,
+                pat=pat,
             )
             if rc2 != 0:
                 logfire.warn(f"git_sync: merge failed (will commit local state): {stderr2}")
@@ -260,7 +287,9 @@ async def pull_workspace(workspace_path: Path) -> None:
         try:
             # Stage + commit any local changes BEFORE pulling.
             rc, status_out, _ = await _run_git(
-                "status", "--porcelain", cwd=workspace_path,
+                "status",
+                "--porcelain",
+                cwd=workspace_path,
             )
             if rc == 0 and status_out.strip():
                 await _stage_and_commit_dirty(
@@ -270,15 +299,25 @@ async def pull_workspace(workspace_path: Path) -> None:
 
             # Pull.
             rc, _, stderr = await _run_git(
-                "pull", "--rebase=false", "--no-edit", "origin", "main",
-                cwd=workspace_path, pat=pat,
+                "pull",
+                "--rebase=false",
+                "--no-edit",
+                "origin",
+                "main",
+                cwd=workspace_path,
+                pat=pat,
             )
             if rc != 0 and "unrelated histories" in stderr:
                 logfire.warn("git_sync: unrelated histories on pull, retrying")
                 rc, _, stderr = await _run_git(
-                    "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
-                    "origin", "main",
-                    cwd=workspace_path, pat=pat,
+                    "pull",
+                    "--rebase=false",
+                    "--allow-unrelated-histories",
+                    "--no-edit",
+                    "origin",
+                    "main",
+                    cwd=workspace_path,
+                    pat=pat,
                 )
             if rc != 0:
                 logfire.warn(
@@ -290,7 +329,9 @@ async def pull_workspace(workspace_path: Path) -> None:
             # If pull left conflict markers, commit them as-is so the
             # working tree is consistent. Markers are informative.
             rc, status_out, _ = await _run_git(
-                "status", "--porcelain", cwd=workspace_path,
+                "status",
+                "--porcelain",
+                cwd=workspace_path,
             )
             if rc == 0 and _has_unmerged_files(status_out):
                 logfire.warn(
@@ -351,7 +392,9 @@ async def commit_and_push(workspace_path: Path) -> None:
             # 1. Stage + commit any local changes BEFORE pulling, so pull
             # operates on a clean working tree.
             rc, status_out, _ = await _run_git(
-                "status", "--porcelain", cwd=workspace_path,
+                "status",
+                "--porcelain",
+                cwd=workspace_path,
             )
             if rc != 0:
                 return
@@ -370,15 +413,25 @@ async def commit_and_push(workspace_path: Path) -> None:
 
             # 2. Pull. Local commits + remote commits merge here.
             rc, _, stderr = await _run_git(
-                "pull", "--rebase=false", "--no-edit", "origin", "main",
-                cwd=workspace_path, pat=pat,
+                "pull",
+                "--rebase=false",
+                "--no-edit",
+                "origin",
+                "main",
+                cwd=workspace_path,
+                pat=pat,
             )
             if rc != 0 and "unrelated histories" in stderr:
                 logfire.warn("git_sync: unrelated histories, retrying pull")
                 rc, _, stderr = await _run_git(
-                    "pull", "--rebase=false", "--allow-unrelated-histories", "--no-edit",
-                    "origin", "main",
-                    cwd=workspace_path, pat=pat,
+                    "pull",
+                    "--rebase=false",
+                    "--allow-unrelated-histories",
+                    "--no-edit",
+                    "origin",
+                    "main",
+                    cwd=workspace_path,
+                    pat=pat,
                 )
             if rc != 0:
                 logfire.error(f"git_sync: pull failed: {stderr}")
@@ -387,12 +440,12 @@ async def commit_and_push(workspace_path: Path) -> None:
             # In a knowledge-only repo the markers are informative — the
             # agent or human reads them later and decides how to resolve.
             rc, status_out, _ = await _run_git(
-                "status", "--porcelain", cwd=workspace_path,
+                "status",
+                "--porcelain",
+                cwd=workspace_path,
             )
             if rc == 0 and _has_unmerged_files(status_out):
-                logfire.warn(
-                    "git_sync: conflict markers preserved as-is for human/agent review"
-                )
+                logfire.warn("git_sync: conflict markers preserved as-is for human/agent review")
                 await _stage_and_commit_dirty(
                     workspace_path,
                     "agent: commit conflicted files from merge (markers preserved)",
@@ -400,8 +453,11 @@ async def commit_and_push(workspace_path: Path) -> None:
 
             # 4. Push, but only if we have local commits ahead of remote.
             rc_ahead, ahead_out, _ = await _run_git(
-                "rev-list", "--count", "origin/main..HEAD",
-                cwd=workspace_path, pat=pat,
+                "rev-list",
+                "--count",
+                "origin/main..HEAD",
+                cwd=workspace_path,
+                pat=pat,
             )
             if rc_ahead != 0 or ahead_out.strip() == "0":
                 return
@@ -412,8 +468,12 @@ async def commit_and_push(workspace_path: Path) -> None:
                 ahead_count = -1
 
             rc, _, stderr = await _run_git(
-                "push", "-u", "origin", "main",
-                cwd=workspace_path, pat=pat,
+                "push",
+                "-u",
+                "origin",
+                "main",
+                cwd=workspace_path,
+                pat=pat,
             )
             if rc == 0:
                 logfire.info("git_sync: pushed successfully")

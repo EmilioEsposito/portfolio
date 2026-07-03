@@ -1,4 +1,5 @@
 """Gmail search / read / send via Google domain-wide delegation."""
+
 from __future__ import annotations
 
 from googleapiclient.errors import HttpError
@@ -32,10 +33,7 @@ async def search_emails_core(
     service = get_gmail_service(creds)
 
     results = (
-        service.users()
-        .messages()
-        .list(userId="me", q=query, maxResults=max_results)
-        .execute()
+        service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
     )
     messages = results.get("messages", [])
     if not messages:
@@ -54,10 +52,7 @@ async def search_emails_core(
             )
             .execute()
         )
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
         lines.append(
             f"[{headers.get('date', '?')}] From: {headers.get('from', '?')}\n"
             f"  Subject: {headers.get('subject', '(no subject)')}\n"
@@ -75,10 +70,7 @@ async def read_email_core(message_id: str, *, user_email: str) -> str:
     if not message:
         return f"Email {message_id} not found (may have been deleted)."
 
-    headers = {
-        h["name"].lower(): h["value"]
-        for h in message.get("payload", {}).get("headers", [])
-    }
+    headers = {h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])}
     body = extract_body(message)
     content = body.get("text") or body.get("html") or "(no body)"
     thread_id = message.get("threadId", "?")
@@ -121,12 +113,7 @@ async def read_email_thread_core(thread_id: str, *, user_email: str) -> str:
     service = get_gmail_service(creds)
 
     try:
-        thread = (
-            service.users()
-            .threads()
-            .get(userId="me", id=thread_id, format="full")
-            .execute()
-        )
+        thread = service.users().threads().get(userId="me", id=thread_id, format="full").execute()
     except HttpError as e:
         if e.resp.status == 404:
             return (
@@ -141,10 +128,7 @@ async def read_email_thread_core(thread_id: str, *, user_email: str) -> str:
 
     parts: list[str] = []
     for i, msg in enumerate(messages, 1):
-        headers = {
-            h["name"].lower(): h["value"]
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
         body = extract_body(msg)
         text = body.get("text")
         html = body.get("html")

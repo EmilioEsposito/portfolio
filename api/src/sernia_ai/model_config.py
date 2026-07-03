@@ -20,6 +20,7 @@ runs). Thinking depth uses the unified ``thinking`` model setting, which
 pydantic-ai maps to adaptive thinking + effort on Anthropic and
 ``reasoning_effort`` on OpenAI.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

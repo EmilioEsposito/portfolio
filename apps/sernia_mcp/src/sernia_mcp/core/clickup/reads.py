@@ -5,6 +5,7 @@ custom-field map is hardcoded here (same values as sernia_ai); if Quo or
 ClickUp ever rotates these UUIDs, both copies need updating until the
 sernia_ai → sernia_mcp migration completes (see ``apps/sernia_mcp/TODOS.md``).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,7 +17,6 @@ from sernia_mcp.config import (
 )
 from sernia_mcp.core.clickup._client import clickup_request
 from sernia_mcp.core.errors import ExternalServiceError
-
 
 # ---------------------------------------------------------------------------
 # Workspace browse
@@ -49,9 +49,7 @@ async def list_clickup_lists_core() -> str:
                 lines.append(f"  📁 {folder_name}")
                 for lst in folder.get("lists", []):
                     task_count = lst.get("task_count", "?")
-                    lines.append(
-                        f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})"
-                    )
+                    lines.append(f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})")
 
         resp_lists = await clickup_request("GET", f"/space/{space_id}/list")
         if resp_lists.status_code == 200:
@@ -60,9 +58,7 @@ async def list_clickup_lists_core() -> str:
                 lines.append("  📁 (no folder)")
                 for lst in folderless:
                     task_count = lst.get("task_count", "?")
-                    lines.append(
-                        f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})"
-                    )
+                    lines.append(f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})")
 
         lines.append("")
 
@@ -90,9 +86,7 @@ async def get_tasks_core(list_or_view_id: str | None = None) -> str:
         resp = await clickup_request("GET", f"/view/{target_id}/task")
 
     if resp.status_code != 200:
-        raise ExternalServiceError(
-            f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}"
-        )
+        raise ExternalServiceError(f"ClickUp API HTTP {resp.status_code}: {resp.text[:200]}")
 
     tasks = resp.json().get("tasks", [])
     if not tasks:
@@ -208,9 +202,7 @@ async def get_maintenance_field_options_core() -> str:
         "",
     ]
     for field_name, field_def in MAINTENANCE_CUSTOM_FIELDS.items():
-        lines.append(
-            f"**{field_name}** (id: {field_def['id']}, type: {field_def['type']})"
-        )
+        lines.append(f"**{field_name}** (id: {field_def['id']}, type: {field_def['type']})")
         options = field_def.get("options")
         if options:
             for label, uuid_val in options.items():

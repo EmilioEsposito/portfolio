@@ -2,33 +2,27 @@
 Gmail service functionality for interacting with Gmail API.
 """
 
-from googleapiclient.discovery import build
-import httplib2
-import google_auth_httplib2
+import asyncio
+import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-import base64
-import os
-from typing import Optional, Union, Dict, Any, List
-from fastapi import HTTPException
-from google.oauth2.credentials import Credentials
-from google.oauth2 import service_account
-from google_auth_oauthlib.flow import Flow
-import logfire
-import asyncio
 from email.utils import parsedate_to_datetime
-from googleapiclient.discovery_cache.base import Cache
+from typing import Any
+
+import google_auth_httplib2
 import googleapiclient.errors
-import pytest
+import httplib2
+import logfire
+from fastapi import HTTPException
+from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
 from api.src.google.common.service_account_auth import (
-    get_service_credentials,
     get_delegated_credentials,
+    get_service_credentials,
 )
 from api.src.oauth.service import get_oauth_credentials
-
-
-
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
@@ -46,7 +40,7 @@ SCOPES = [
 GMAIL_HTTP_TIMEOUT_SECONDS = 30
 
 
-def get_gmail_service(credentials: Union[Credentials, service_account.Credentials]):
+def get_gmail_service(credentials: Credentials | service_account.Credentials):
     """
     Creates and returns an authorized Gmail API service instance.
 
@@ -65,12 +59,10 @@ def get_gmail_service(credentials: Union[Credentials, service_account.Credential
         return service
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to initialize Gmail service: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to initialize Gmail service: {str(e)}")
 
 
-def _build_mime(message_text: str, message_html: Optional[str]):
+def _build_mime(message_text: str, message_html: str | None):
     """Build the body MIME object — multipart/alternative when HTML is given,
     plain text otherwise. The text part stays as the fallback for clients that
     don't render HTML, per RFC 2046."""
@@ -87,7 +79,7 @@ def create_message(
     to: str,
     subject: str,
     message_text: str,
-    message_html: Optional[str] = None,
+    message_html: str | None = None,
 ):
     """
     Creates a message for an email.
@@ -122,7 +114,7 @@ def create_reply_message(
     message_text: str,
     in_reply_to: str,
     references: str,
-    message_html: Optional[str] = None,
+    message_html: str | None = None,
 ) -> dict:
     """Create a MIME message with threading headers for replying."""
     message = _build_mime(message_text, message_html)
@@ -139,13 +131,13 @@ async def send_email(
     to: str,
     subject: str,
     message_text: str,
-    sender: Optional[str] = None,
-    credentials: Optional[Union[Credentials, service_account.Credentials]] = None,
-    credentials_json: Optional[dict] = None,
-    thread_id: Optional[str] = None,
-    in_reply_to: Optional[str] = None,
-    references: Optional[str] = None,
-    message_html: Optional[str] = None,
+    sender: str | None = None,
+    credentials: Credentials | service_account.Credentials | None = None,
+    credentials_json: dict | None = None,
+    thread_id: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
+    message_html: str | None = None,
 ):
     """
     Sends an email using the Gmail API.
@@ -204,34 +196,18 @@ async def send_email(
                 message_html=message_html,
             )
         else:
-            message = create_message(
-                sender, to, subject, message_text, message_html=message_html
-            )
+            message = create_message(sender, to, subject, message_text, message_html=message_html)
 
         if thread_id:
             message["threadId"] = thread_id
 
         # Send the email
-        sent_message = (
-            service.users().messages().send(userId="me", body=message).execute()
-        )
+        sent_message = service.users().messages().send(userId="me", body=message).execute()
 
         return sent_message
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_send_email():
-    await send_email(
-        to="espo412@gmail.com",
-        subject="Test email",
-        message_text="This is a test email",
-        credentials=get_delegated_credentials(
-            user_email="emilio@serniacapital.com", scopes=["https://mail.google.com"]
-        ),
-    )
 
 
 async def get_email_changes(gmail_service, history_id: str, user_id: str = "me"):
@@ -378,10 +354,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
     try:
         # Get the email message
         message = (
-            service.users()
-            .messages()
-            .get(userId=user_id, id=message_id, format="full")
-            .execute()
+            service.users().messages().get(userId=user_id, id=message_id, format="full").execute()
         )
 
         return message
@@ -394,7 +367,7 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
         raise
 
 
-def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
+def extract_email_body(message: dict[str, Any]) -> dict[str, str]:
     """
     Extracts both plain text and HTML body from a Gmail message.
 
@@ -418,7 +391,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
             logfire.error(f"Failed to decode body: {str(e)}")
             return ""
 
-    def extract_parts(payload: Dict[str, Any]) -> Dict[str, str]:
+    def extract_parts(payload: dict[str, Any]) -> dict[str, str]:
         """Recursively extract body parts"""
         body = {"text": "", "html": ""}
 
@@ -446,7 +419,7 @@ def extract_email_body(message: Dict[str, Any]) -> Dict[str, str]:
     return extract_parts(payload)
 
 
-async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
+async def process_single_message(message: dict[str, Any]) -> dict[str, Any]:
     """
     Process a single Gmail message into our standard format.
 
@@ -459,8 +432,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Extract headers for easier access
         headers = {
-            h["name"].lower(): h["value"]
-            for h in message.get("payload", {}).get("headers", [])
+            h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])
         }
 
         # Extract body content
@@ -484,9 +456,7 @@ async def process_single_message(message: Dict[str, Any]) -> Dict[str, Any]:
             "thread_id": message.get("threadId"),
             "label_ids": message.get("labelIds"),
             "subject": headers.get("subject"),
-            "from_address": headers.get(
-                "from"
-            ),  # Aligned with model's from_address field
+            "from_address": headers.get("from"),  # Aligned with model's from_address field
             "to_address": headers.get("to"),  # Aligned with model's to_address field
             "date": parsed_date.isoformat(),  # Convert to ISO format for consistency
             "body_text": body["text"],
@@ -544,7 +514,7 @@ def setup_gmail_watch(
             ],
         )
         logfire.info(
-            f"✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com"
+            "✓ Using service account: portfolio-app-service-account@portfolio-450200.iam.gserviceaccount.com"
         )
 
         # Create Gmail service
@@ -553,7 +523,7 @@ def setup_gmail_watch(
 
         # Set up the watch request
         request = {
-            "labelIds": ["INBOX", "Label_5289438082921996324"], # INBOX and Zillow listings
+            "labelIds": ["INBOX", "Label_5289438082921996324"],  # INBOX and Zillow listings
             "topicName": topic_name,
             "labelFilterAction": "include",
         }
@@ -564,6 +534,4 @@ def setup_gmail_watch(
 
     except Exception as e:
         logfire.error(f"\n❌ Watch setup failed: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to set up Gmail watch: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to set up Gmail watch: {str(e)}")

@@ -2,6 +2,7 @@
 
 Send tools live in ``approvals.py``.
 """
+
 from fastmcp.exceptions import ToolError
 
 from sernia_mcp.core.errors import CoreError

@@ -4,6 +4,7 @@ Used by the Quo contact / ClickUp task search tools to rank items by best
 fuzzy match across all string values, with phone-digit substring as a fast
 path for numeric queries.
 """
+
 from __future__ import annotations
 
 import json
@@ -50,10 +51,8 @@ def fuzzy_filter(
         return []
 
     q_digits = "".join(c for c in q if c.isdigit())
-    is_phone_query = (
-        len(q_digits) >= 4
-        and len(q_digits)
-        == len(q.replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("+", ""))
+    is_phone_query = len(q_digits) >= 4 and len(q_digits) == len(
+        q.replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("+", "")
     )
 
     scored: list[tuple[dict, float]] = []

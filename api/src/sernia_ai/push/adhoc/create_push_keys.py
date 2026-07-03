@@ -19,11 +19,15 @@ from cryptography.hazmat.primitives.serialization import (
 private_key = ec.generate_private_key(ec.SECP256R1())
 
 # PEM private key (for pywebpush vapid_private_key param)
-private_pem = private_key.private_bytes(
-    encoding=Encoding.PEM,
-    format=PrivateFormat.PKCS8,
-    encryption_algorithm=NoEncryption(),
-).decode().strip()
+private_pem = (
+    private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.PKCS8,
+        encryption_algorithm=NoEncryption(),
+    )
+    .decode()
+    .strip()
+)
 
 # URL-safe base64 public key (for browser applicationServerKey)
 public_raw = private_key.public_key().public_bytes(

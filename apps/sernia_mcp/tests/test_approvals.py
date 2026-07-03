@@ -16,6 +16,7 @@ NOT covered (would require a real MCP Apps host):
   * Button-click → CallTool → ``_confirm_send_*`` round-trip from an
     Apps-capable client. Use ``fastmcp dev apps`` in a browser for that.
 """
+
 from __future__ import annotations
 
 import time
@@ -53,6 +54,7 @@ async def mcp_client():
 
 # ---------------------------------------------------------- backend confirm_*
 
+
 class TestConfirmSendSms:
     @pytest.mark.asyncio
     async def test_reject_consumes_pending_without_sending(self):
@@ -64,24 +66,16 @@ class TestConfirmSendSms:
             "is_internal": True,
             "created_at": time.time(),
         }
-        with patch(
-            "sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()
-        ) as send:
-            out = await approvals._confirm_send_sms(
-                pending_id="pid", decision="reject"
-            )
+        with patch("sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()) as send:
+            out = await approvals._confirm_send_sms(pending_id="pid", decision="reject")
         assert "Cancelled" in out
         assert "pid" not in approvals._PENDING
         send.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unknown_id_is_graceful_and_no_send(self):
-        with patch(
-            "sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()
-        ) as send:
-            out = await approvals._confirm_send_sms(
-                pending_id="nope", decision="approve"
-            )
+        with patch("sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()) as send:
+            out = await approvals._confirm_send_sms(pending_id="nope", decision="approve")
         assert "Unknown" in out
         send.assert_not_called()
 
@@ -106,9 +100,7 @@ class TestConfirmSendSms:
             "sernia_mcp.tools.approvals.send_sms_core",
             new=AsyncMock(return_value=fake),
         ) as send:
-            out = await approvals._confirm_send_sms(
-                pending_id="pid", decision="approve"
-            )
+            out = await approvals._confirm_send_sms(pending_id="pid", decision="approve")
         assert send.await_count == 1
         send.assert_awaited_with("+15551230002", "hello")
         assert "SMS sent to Bob" in out
@@ -126,12 +118,8 @@ class TestConfirmSendEmail:
             "all_internal": False,
             "created_at": time.time(),
         }
-        with patch(
-            "sernia_mcp.tools.approvals.send_email_core", new=AsyncMock()
-        ) as send:
-            out = await approvals._confirm_send_email(
-                pending_id="eid", decision="reject"
-            )
+        with patch("sernia_mcp.tools.approvals.send_email_core", new=AsyncMock()) as send:
+            out = await approvals._confirm_send_email(pending_id="eid", decision="reject")
         assert "Cancelled email" in out
         assert "eid" not in approvals._PENDING
         send.assert_not_called()
@@ -156,14 +144,13 @@ class TestConfirmSendEmail:
             "sernia_mcp.tools.approvals.send_email_core",
             new=AsyncMock(return_value=fake),
         ) as send:
-            out = await approvals._confirm_send_email(
-                pending_id="eid", decision="approve"
-            )
+            out = await approvals._confirm_send_email(pending_id="eid", decision="approve")
         assert send.await_count == 1
         assert "MID123" in out
 
 
 # ----------------------------------------- structural isolation (over protocol)
+
 
 class TestHiddenToolEnforcement:
     """Hidden ``@app.tool()`` tools must be structurally uncallable.
@@ -200,13 +187,12 @@ class TestHiddenToolEnforcement:
 
 # ------------------------------------------------ entry-point queues PrefabApp
 
+
 class TestEntryPointQueuesPrefab:
     """Entry-point tool queues a pending row and returns a PrefabApp payload."""
 
     @pytest.mark.asyncio
-    async def test_quo_send_sms_queues_and_returns_prefab(
-        self, mcp_client, monkeypatch
-    ):
+    async def test_quo_send_sms_queues_and_returns_prefab(self, mcp_client, monkeypatch):
         monkeypatch.setattr(
             approvals,
             "resolve_sms_routing_core",
@@ -264,11 +250,7 @@ class TestPendingTTL:
             "is_internal": True,
             "created_at": 0.0,  # epoch — definitely > TTL old
         }
-        with patch(
-            "sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()
-        ) as send:
-            out = await approvals._confirm_send_sms(
-                pending_id="old", decision="approve"
-            )
+        with patch("sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()) as send:
+            out = await approvals._confirm_send_sms(pending_id="old", decision="approve")
         assert "expired" in out
         send.assert_not_called()

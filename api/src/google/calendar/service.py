@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import datetime
 from enum import StrEnum
-from pprint import pprint
 
 import logfire
-import pytz
-import pytest
 from fastapi import HTTPException
 from googleapiclient.discovery import build
 from pydantic import BaseModel, EmailStr, Field, field_serializer
@@ -59,18 +56,13 @@ class CalendarEventInput(BaseModel):
     start: datetime.datetime = Field(
         description="Start time in ISO 8601 format (e.g. 2025-06-15T10:00:00-04:00)."
     )
-    end: datetime.datetime = Field(
-        description="End time in ISO 8601 format."
-    )
-    description: str | None = Field(
-        default=None, description="Event description."
-    )
+    end: datetime.datetime = Field(description="End time in ISO 8601 format.")
+    description: str | None = Field(default=None, description="Event description.")
     attendees: list[CalendarAttendee] | None = Field(
-        default=None, description="Event attendees. Use plain emails for required, or set optional=True.",
+        default=None,
+        description="Event attendees. Use plain emails for required, or set optional=True.",
     )
-    location: str | None = Field(
-        default=None, description="Event location."
-    )
+    location: str | None = Field(default=None, description="Event location.")
     reminders: list[CalendarReminder] | None = Field(
         default=None,
         description="Custom reminders. Defaults to push (popup) 1 day before + 1 hour before. Use popup, not email.",
@@ -125,9 +117,7 @@ class CalendarEventInput(BaseModel):
 async def get_calendar_service(user_email: str):
     """Create and return an authorized Calendar API service instance."""
     try:
-        credentials = get_delegated_credentials(
-            user_email=user_email, scopes=CALENDAR_SCOPES
-        )
+        credentials = get_delegated_credentials(user_email=user_email, scopes=CALENDAR_SCOPES)
         service = build("calendar", "v3", credentials=credentials)
         return service
     except Exception as e:
@@ -184,9 +174,7 @@ async def create_calendar_event(
             logfire.info(f"Event does not exist, creating event: {event.summary}")
 
         created = (
-            service.events()
-            .insert(calendarId="primary", body=body, sendUpdates="all")
-            .execute()
+            service.events().insert(calendarId="primary", body=body, sendUpdates="all").execute()
         )
         return created
 
@@ -209,55 +197,3 @@ async def delete_calendar_event(service, event_id: str):
         return True
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ------------------------------------------------------------------------------------------------
-# ------------------------------ TESTS -----------------------------------------------------------
-# ------------------------------------------------------------------------------------------------
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_query_calendar_events():
-    service = await get_calendar_service(user_email="emilio@serniacapital.com")
-    now = datetime.datetime.now(tz=pytz.timezone("US/Eastern"))
-    now_str = now.isoformat()
-    print("Getting the upcoming 3 events")
-    events_result = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=now_str,
-            maxResults=3,
-            singleEvents=True,
-            orderBy="startTime",
-        )
-        .execute()
-    )
-    events = events_result.get("items", [])
-
-    assert len(events) == 3
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_create_calendar_event():
-    service = await get_calendar_service(user_email="all@serniacapital.com")
-    et_tz = pytz.timezone("US/Eastern")
-    start_time = datetime.datetime(year=2026, month=3, day=29, hour=12).astimezone(
-        et_tz
-    )
-    end_time = start_time + datetime.timedelta(hours=1)
-
-    event = CalendarEventInput(
-        summary="Test Event3",
-        description="This is a test event",
-        start=start_time,
-        end=end_time,
-        attendees=[CalendarAttendee(email="emilio@serniacapital.com")],
-    )
-    new_event = await create_calendar_event(
-        service, event, organizer_email="all@serniacapital.com", overwrite=True
-    )
-    pprint(new_event)
-    assert new_event["summary"] == event.summary

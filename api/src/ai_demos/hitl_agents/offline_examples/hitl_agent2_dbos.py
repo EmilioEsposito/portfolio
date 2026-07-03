@@ -8,40 +8,32 @@ Uses DBOS's recv/send pattern for durable human-in-the-loop workflows:
 
 No custom database tables needed - DBOS handles all state persistence.
 """
-from pydantic_ai.tools import DeferredToolRequests
 
+import asyncio
+import json
 
-import os
-import time
 import logfire
-
-from dbos import DBOS, SetWorkflowID
+from dbos import DBOS
 from pydantic_ai import (
-    Agent, 
-    DeferredToolRequests, 
-    DeferredToolResults, 
-    ToolDenied, 
-    ToolApproved, 
-    ApprovalRequired, 
+    Agent,
     AgentRunResult,
+    DeferredToolRequests,
+    DeferredToolResults,
+    ToolApproved,
 )
 from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.durable_exec.dbos import DBOSAgent
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.messages import ModelMessagesTypeAdapter
-from api.src.open_phone.service import send_message
-import secrets
+
 from api.src.contact.service import get_contact_by_slug
-import asyncio
-import json
-from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
-import uuid
+from api.src.dbos_service.dbos_config import launch_dbos
+from api.src.open_phone.service import send_message
 
 # --- Agent Definition ---
 hitl_agent2 = Agent(
     OpenAIChatModel("gpt-4o-mini"),
     name="hitl_agent2",
-    system_prompt=f"""You are a helpful assistant that sends SMS messages.
+    system_prompt="""You are a helpful assistant that sends SMS messages.
 When asked to send an SMS or text message, IMMEDIATELY use the send_sms tool.
 Be creative and write engaging, personalized messages.
 The default recipient will be Emilio unless otherwise specified.
@@ -80,9 +72,10 @@ async def send_sms(body: str, to: str | None = None) -> str:
         return error_msg
 
 
-hitl_agent2_dbos = DBOSAgent(hitl_agent2, name="hitl_agent2_dbos") # DBOS-tag (can comment out)
+hitl_agent2_dbos = DBOSAgent(hitl_agent2, name="hitl_agent2_dbos")  # DBOS-tag (can comment out)
 
-@DBOS.step() # DBOS-tag (can comment out)
+
+@DBOS.step()  # DBOS-tag (can comment out)
 async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolResults:
     logfire.info("Handling deferred tool requests...", result=result)
     tool_call_id = result.output.approvals[0].tool_call_id
@@ -92,31 +85,32 @@ async def handle_deferred_tool_requests(result: AgentRunResult) -> DeferredToolR
     override_args = {"body": "Orig body overridden by approval. Orignal body: " + body}
 
     deferred_tool_results = DeferredToolResults(
-        approvals={
-            tool_call_id: ToolApproved(override_args=override_args)
-        }
+        approvals={tool_call_id: ToolApproved(override_args=override_args)}
     )
     return deferred_tool_results
 
-@DBOS.workflow() # DBOS-tag (can comment out)
+
+@DBOS.workflow()  # DBOS-tag (can comment out)
 async def hitl_agent2_dbos_workflow(prompt: str) -> str:
     first_run_result = await hitl_agent2_dbos.run(user_prompt=prompt)
     deferred_tool_results = await handle_deferred_tool_requests(first_run_result)
-    resumed = await hitl_agent2_dbos.run(message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results)
+    resumed = await hitl_agent2_dbos.run(
+        message_history=first_run_result.all_messages(), deferred_tool_results=deferred_tool_results
+    )
     messages = resumed.all_messages()
     for i, message in enumerate(messages):
         print(f"Message {i}:\n{str(message)}\n")
+
 
 # async def start_workflow(prompt: str, workflow_id: str) -> str:
 #     # Set the workflow ID for the next started workflow
 #     with SetWorkflowID(workflow_id):
 #         handle = await DBOS.start_workflow_async(func=hitl_agent2_dbos_workflow, prompt=prompt)
-    
 
 
 #     wf_status = await handle.get_status()
 #     print(f"Workflow status: {wf_status.status}")
-    
+
 #     # Wait for the workflow to complete to ensure the script doesn't exit early
 #     # This prevents 'cancelled' errors from the main workflow shutting down prematurely
 #     print(f"Waiting for workflow to complete...")
@@ -131,7 +125,7 @@ async def hitl_agent2_dbos_workflow(prompt: str) -> str:
 #     return wf_status.workflow_id
 
 if __name__ == "__main__":
-    launch_dbos() # DBOS-tag (can comment out)
+    launch_dbos()  # DBOS-tag (can comment out)
 
     # simple run
     asyncio.run(hitl_agent2_dbos_workflow(prompt="send funny haiku to Emilio"))

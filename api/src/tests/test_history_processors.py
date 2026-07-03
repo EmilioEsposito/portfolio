@@ -6,8 +6,8 @@ Uses realistic tool result formats matching actual ClickUp, Gmail, and DB search
 """
 
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
 from dataclasses import dataclass
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic_ai import RunContext
@@ -15,25 +15,25 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RequestUsage,
     TextPart,
-    UserPromptPart,
     ToolCallPart,
     ToolReturnPart,
-    RequestUsage,
+    UserPromptPart,
 )
 
 from api.src.sernia_ai.config import SUMMARIZATION_CHAR_THRESHOLD, TOKEN_COMPACTION_THRESHOLD
-from api.src.sernia_ai.sub_agents.summarize_tool_results import (
-    summarize_tool_results,
-    _find_current_turn_boundary,
-    _MAX_SUMMARIZER_INPUT_CHARS,
-)
 from api.src.sernia_ai.sub_agents.compact_history import (
-    compact_history,
+    _MIN_RECENT_MESSAGES,
     _estimate_tokens,
     _find_split_point,
     _messages_to_text,
-    _MIN_RECENT_MESSAGES,
+    compact_history,
+)
+from api.src.sernia_ai.sub_agents.summarize_tool_results import (
+    _MAX_SUMMARIZER_INPUT_CHARS,
+    _find_current_turn_boundary,
+    summarize_tool_results,
 )
 
 
@@ -56,6 +56,7 @@ def _clear_summary_cache():
 # ---------------------------------------------------------------------------
 # Realistic tool result generators
 # ---------------------------------------------------------------------------
+
 
 def _fake_clickup_tasks(n: int = 100) -> str:
     """Generate a realistic ClickUp search_tasks result with N tasks."""
@@ -108,6 +109,7 @@ def _fake_drive_doc() -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_ctx() -> RunContext:
     """Build a minimal RunContext mock for the processors."""
     ctx = MagicMock(spec=RunContext)
@@ -132,9 +134,7 @@ def _tool_call_response(tool_name: str, call_id: str, args: str = "{}") -> Model
     )
 
 
-def _tool_return_request(
-    tool_name: str, content: str, call_id: str
-) -> ModelRequest:
+def _tool_return_request(tool_name: str, content: str, call_id: str) -> ModelRequest:
     return ModelRequest(
         parts=[ToolReturnPart(tool_name=tool_name, content=content, tool_call_id=call_id)],
     )
@@ -171,9 +171,9 @@ class TestSmoke:
 
     def test_sub_agent_models_configured(self):
         """Sub-agents should use the configured SUB_AGENT_MODEL."""
-        from api.src.sernia_ai.sub_agents.summarize_tool_results import _summarizer
-        from api.src.sernia_ai.sub_agents.compact_history import _compactor
         from api.src.sernia_ai.config import SUB_AGENT_MODEL
+        from api.src.sernia_ai.sub_agents.compact_history import _compactor
+        from api.src.sernia_ai.sub_agents.summarize_tool_results import _summarizer
 
         assert _summarizer.model.model_name == SUB_AGENT_MODEL.split(":")[-1]
         assert _compactor.model.model_name == SUB_AGENT_MODEL.split(":")[-1]
@@ -226,9 +226,7 @@ class TestSummarizeToolResults:
             "Priorities range from urgent to none. Due dates span Jan-Dec 2025."
         )
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(return_value=mock_result)
             result = await summarize_tool_results(ctx, messages)
 
@@ -261,9 +259,7 @@ class TestSummarizeToolResults:
             "~33 maintenance requests. Tenants range from tenant0 to tenant49."
         )
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(return_value=mock_result)
             result = await summarize_tool_results(ctx, messages)
 
@@ -291,9 +287,7 @@ class TestSummarizeToolResults:
             "Response times: Emergency 2hrs, Urgent 24hrs, Normal 5 business days."
         )
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(return_value=mock_result)
             result = await summarize_tool_results(ctx, messages)
 
@@ -313,9 +307,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock()
             result = await summarize_tool_results(ctx, messages)
             mock_agent.run.assert_not_called()
@@ -332,7 +324,9 @@ class TestSummarizeToolResults:
             _user_msg("hello"),
             _assistant_msg("hi there"),
             _user_msg("Find all overdue maintenance and related tasks"),
-            _tool_call_response("search_emails", "tc1", json.dumps({"query": "maintenance overdue"})),
+            _tool_call_response(
+                "search_emails", "tc1", json.dumps({"query": "maintenance overdue"})
+            ),
             _tool_return_request("search_emails", big_emails, "tc1"),
             _tool_call_response("search_tasks", "tc2", json.dumps({"statuses": ["overdue"]})),
             _tool_return_request("search_tasks", big_tasks, "tc2"),
@@ -340,9 +334,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock()
             result = await summarize_tool_results(ctx, messages)
             mock_agent.run.assert_not_called()
@@ -383,9 +375,7 @@ class TestSummarizeToolResults:
                 return FakeRunResult(output="100 tasks summary")
             return FakeRunResult(output="50 emails summary")
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(side_effect=_mock_run)
             result = await summarize_tool_results(ctx, messages)
 
@@ -407,9 +397,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(side_effect=RuntimeError("Haiku rate limit"))
             result = await summarize_tool_results(ctx, messages)
 
@@ -429,9 +417,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(return_value=FakeRunResult(output="Condensed"))
             result = await summarize_tool_results(ctx, messages)
 
@@ -468,9 +454,7 @@ class TestSummarizeToolResults:
             captured_prompt = prompt
             return FakeRunResult(output="summary")
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(side_effect=_capture_run)
             await summarize_tool_results(ctx, messages)
 
@@ -496,9 +480,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock()
             result = await summarize_tool_results(ctx, messages)
             mock_agent.run.assert_not_called()
@@ -520,9 +502,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock()
             result = await summarize_tool_results(ctx, messages)
             mock_agent.run.assert_not_called()
@@ -550,9 +530,7 @@ class TestSummarizeToolResults:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.summarize_tool_results._summarizer") as mock_agent:
             mock_agent.run = AsyncMock(return_value=FakeRunResult(output="email summary"))
             result = await summarize_tool_results(ctx, messages)
             # Only called once (for the big email result)
@@ -675,7 +653,9 @@ class TestCompactHistory:
             _user_msg("What's the SLA for emergency repairs?"),
             _assistant_msg("Emergency repairs have a 2-hour SLA", input_tokens=120_000),
             _user_msg("Draft an email to all tenants about the new policy"),
-            _assistant_msg("Here's a draft email...", input_tokens=TOKEN_COMPACTION_THRESHOLD + 5_000),
+            _assistant_msg(
+                "Here's a draft email...", input_tokens=TOKEN_COMPACTION_THRESHOLD + 5_000
+            ),
             _user_msg("Send it"),
         ]
 
@@ -687,9 +667,7 @@ class TestCompactHistory:
             "- Draft email to tenants about new policy was prepared"
         )
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.compact_history._compactor"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.compact_history._compactor") as mock_agent:
             mock_agent.run = AsyncMock(return_value=mock_result)
             result = await compact_history(ctx, messages)
 
@@ -720,9 +698,7 @@ class TestCompactHistory:
         messages.append(_user_msg("One more question"))
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.compact_history._compactor"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.compact_history._compactor") as mock_agent:
             mock_agent.run = AsyncMock(return_value=FakeRunResult(output="Summary"))
             result = await compact_history(ctx, messages)
 
@@ -746,9 +722,7 @@ class TestCompactHistory:
 
         ctx = _make_ctx()
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.compact_history._compactor"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.compact_history._compactor") as mock_agent:
             mock_agent.run = AsyncMock(return_value=FakeRunResult(output="Summary"))
             result = await compact_history(ctx, messages)
 
@@ -770,9 +744,7 @@ class TestCompactHistory:
         ]
 
         ctx = _make_ctx()
-        with patch(
-            "api.src.sernia_ai.sub_agents.compact_history._compactor"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.compact_history._compactor") as mock_agent:
             mock_agent.run = AsyncMock(side_effect=RuntimeError("Haiku overloaded"))
             result = await compact_history(ctx, messages)
 
@@ -796,7 +768,9 @@ class TestCompactHistory:
         messages: list[ModelMessage] = [
             _user_msg("Find tasks"),
             _tool_call_response("search_tasks", "tc1"),
-            _tool_return_request("search_tasks", "3 tasks found: fix sink, paint wall, replace lock", "tc1"),
+            _tool_return_request(
+                "search_tasks", "3 tasks found: fix sink, paint wall, replace lock", "tc1"
+            ),
             _assistant_msg("Found 3 maintenance tasks", input_tokens=5000),
             _user_msg("What about emails?"),
             _tool_call_response("search_emails", "tc2"),
@@ -813,9 +787,7 @@ class TestCompactHistory:
             captured_prompt = prompt
             return FakeRunResult(output="Summary")
 
-        with patch(
-            "api.src.sernia_ai.sub_agents.compact_history._compactor"
-        ) as mock_agent:
+        with patch("api.src.sernia_ai.sub_agents.compact_history._compactor") as mock_agent:
             mock_agent.run = AsyncMock(side_effect=_capture)
             await compact_history(ctx, messages)
 
@@ -865,11 +837,11 @@ class TestFindSplitPoint:
 
     def test_snaps_forward_to_model_request(self):
         messages: list[ModelMessage] = [
-            _user_msg("1"),       # 0
+            _user_msg("1"),  # 0
             _assistant_msg("2"),  # 1
-            _user_msg("3"),       # 2
+            _user_msg("3"),  # 2
             _assistant_msg("4"),  # 3
-            _user_msg("5"),       # 4
+            _user_msg("5"),  # 4
             _assistant_msg("6"),  # 5
         ]
         # Target index 3 (ModelResponse) should snap forward to index 4 (ModelRequest)
@@ -891,13 +863,13 @@ class TestFindSplitPoint:
     def test_exact_model_request_target(self):
         """If target already is a ModelRequest, use it directly."""
         messages: list[ModelMessage] = [
-            _user_msg("1"),       # 0
+            _user_msg("1"),  # 0
             _assistant_msg("2"),  # 1
-            _user_msg("3"),       # 2
+            _user_msg("3"),  # 2
             _assistant_msg("4"),  # 3
-            _user_msg("5"),       # 4
+            _user_msg("5"),  # 4
             _assistant_msg("6"),  # 5
-            _user_msg("7"),       # 6
+            _user_msg("7"),  # 6
             _assistant_msg("8"),  # 7
         ]
         split = _find_split_point(messages, 4)

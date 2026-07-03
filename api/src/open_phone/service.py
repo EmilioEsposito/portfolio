@@ -1,18 +1,21 @@
 import os
 import time
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
+
 load_dotenv(find_dotenv(".env"), override=True)
+from typing import Any
+
 import httpx
-import requests
-from typing import Any, Dict, List, Optional, Union
-from fastapi import HTTPException
 import logfire
-from api.src.google.sheets import get_sheet_as_json
-from api.src.contact.service import get_contact_by_slug, create_contact, ContactCreate
-from api.src.database.database import AsyncSessionFactory
-from api.src.contact.models import Contact
-import pytest
+import requests
+from fastapi import HTTPException
 from sqlalchemy import select
+
+from api.src.contact.models import Contact
+from api.src.contact.service import ContactCreate, create_contact, get_contact_by_slug
+from api.src.database.database import AsyncSessionFactory
+from api.src.google.sheets import get_sheet_as_json
 
 # ---------------------------------------------------------------------------
 # TTL-cached contact store (central — used by tools + triggers)
@@ -112,11 +115,7 @@ async def find_contact_by_phone(
     return matches[0] if matches else None
 
 
-async def send_message(
-    message: str,
-    to_phone_number: str,
-    from_phone_number: Union[str, None] = None
-):
+async def send_message(message: str, to_phone_number: str, from_phone_number: str | None = None):
     """
     Send a message to a phone number using the OpenPhone API.
     """
@@ -140,6 +139,7 @@ async def send_message(
         )
     return response
 
+
 async def upsert_openphone_contact(contact_create: ContactCreate):
     """
     Create or update a contact in the OpenPhone system.
@@ -160,7 +160,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
         "Content-Type": "application/json",
     }
 
-    async with AsyncSessionFactory() as db:   
+    async with AsyncSessionFactory() as db:
         # first, check if the contact already exists in our database
         # first check via slug if it exists
         if contact_create.slug:
@@ -172,7 +172,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             stmt = select(Contact).where(Contact.phone_number == contact_create.phone_number)
             result = await db.execute(stmt)
             contact = result.scalars().first()
-        
+
         if not contact:
             # create a new contact
             contact = await create_contact(db, contact_create)
@@ -193,25 +193,32 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
             },
             "createdByUserId": "USXAiFJxgv",  # Emilio
             "source": "API-Emilio",
-            "externalId": "api" + contact_create.phone_number[-10:],  # "e" + contact["Phone Number"],   # contact["external_id"]
+            "externalId": "api"
+            + contact_create.phone_number[
+                -10:
+            ],  # "e" + contact["Phone Number"],   # contact["external_id"]
         }
-        
+
         # Check if contact already exists in OpenPhone before creating
         external_id = data["externalId"]
         lookup_response = requests.get(
-            "https://api.openphone.com/v1/contacts", headers=headers, params={"externalIds": [external_id]}
+            "https://api.openphone.com/v1/contacts",
+            headers=headers,
+            params={"externalIds": [external_id]},
         )
-        lookup_results = lookup_response.json().get('data', [])
+        lookup_results = lookup_response.json().get("data", [])
 
         if lookup_results:
             # Contact exists — update it
             if len(lookup_results) > 1:
                 logfire.warn(f"Multiple contacts found for the same externalId: {external_id}")
-            contact.openphone_contact_id = lookup_results[0]['id']
+            contact.openphone_contact_id = lookup_results[0]["id"]
             patch_response = requests.patch(
-                f"https://api.openphone.com/v1/contacts/{contact.openphone_contact_id}", headers=headers, json=data
+                f"https://api.openphone.com/v1/contacts/{contact.openphone_contact_id}",
+                headers=headers,
+                json=data,
             )
-            contact.openphone_json = patch_response.json()['data']
+            contact.openphone_json = patch_response.json()["data"]
             if patch_response.status_code == 200:
                 final_response = patch_response
             else:
@@ -223,54 +230,25 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
                 "https://api.openphone.com/v1/contacts", headers=headers, json=data
             )
             if response.status_code == 201:
-                contact.openphone_contact_id = response.json()['data']['id']
-                contact.openphone_json = response.json()['data']
+                contact.openphone_contact_id = response.json()["data"]["id"]
+                contact.openphone_json = response.json()["data"]
                 final_response = response
             else:
                 logfire.error(f"Failed to create contact: {response.status_code} {response.json()}")
                 final_response = response
-            
+
         # Use merge instead of upsert
         merged_contact = await db.merge(contact)
         await db.commit()
         await db.refresh(merged_contact)
-        
+
     return final_response
 
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_upsert_openphone_contact():
-    contact_create = ContactCreate(
-        slug="test-lead-contact-random",
-        phone_number="+19291231234",
-        first_name="Test First",
-        last_name="Test Last",
-        email="test@test.com",
-        notes="API-Test",
-        company="Test",
-        role="Test",
-    )
-
-    response = await upsert_openphone_contact(contact_create)
-    print(response.json())
-    assert response.status_code == 201 or response.status_code == 200
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_send_message():
-    response = await send_message(
-        message="Hello, this is a test message",
-        to_phone_number="+14123703550",
-        from_phone_number="+14129101500",
-    )
-    print(response.json())
-    assert response.status_code == 202
 
 async def get_contacts_by_external_ids(
-    external_ids: List[str],
-    sources: Optional[List[str]] = None,
-    page_token: Optional[str] = None,
+    external_ids: list[str],
+    sources: list[str] | None = None,
+    page_token: str | None = None,
 ):
     """Internal function version without Query dependencies"""
     max_results = 49
@@ -300,11 +278,11 @@ async def get_contacts_by_external_ids(
         raise
 
 
-_contacts_sheet_cache: Dict[str, Any] = {"data": None, "ts": 0.0}
+_contacts_sheet_cache: dict[str, Any] = {"data": None, "ts": 0.0}
 _CONTACTS_SHEET_CACHE_TTL = 300  # 5 minutes
 
 
-def get_contacts_sheet_as_json(bypass_cache: bool = False) -> List[Dict[str, Any]]:
+def get_contacts_sheet_as_json(bypass_cache: bool = False) -> list[dict[str, Any]]:
     now = time.time()
     if (
         not bypass_cache

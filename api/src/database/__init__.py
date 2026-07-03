@@ -2,4 +2,4 @@
 Database module for SQLAlchemy setup and session management
 """
 
-from api.src.database.database import Base, get_session, engine, AsyncSessionFactory 
+from api.src.database.database import AsyncSessionFactory, Base, engine, get_session

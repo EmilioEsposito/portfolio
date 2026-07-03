@@ -4,6 +4,7 @@ Vendored from api/src/open_phone/service.py and api/src/tool_core/quo/_client.py
 Drops the DB-backed sync helpers and the upsert path the monorepo uses — we
 only need read + send for MCP tools.
 """
+
 from __future__ import annotations
 
 import os

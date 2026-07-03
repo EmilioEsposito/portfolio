@@ -5,7 +5,6 @@ Each conversation gets a file-backed DuckDB at /tmp/sernia_duckdb/<conversation_
 """
 
 import csv
-import os
 import time
 from pathlib import Path
 
@@ -71,8 +70,7 @@ def list_datasets(ctx: RunContext[SerniaDeps]) -> str:
                 row_count = sum(1 for _ in reader)
             lines.append(
                 f"- {f.stem} ({row_count} rows, {len(headers)} cols)\n"
-                f"  Columns: {', '.join(headers[:20])}"
-                + (" ..." if len(headers) > 20 else "")
+                f"  Columns: {', '.join(headers[:20])}" + (" ..." if len(headers) > 20 else "")
             )
         except Exception as e:
             lines.append(f"- {f.stem} (error reading: {e})")
@@ -106,15 +104,15 @@ def load_dataset(
     tbl = table_name or dataset_name
     conn = _get_connection(cid)
     try:
-        conn.execute(f"DROP TABLE IF EXISTS \"{tbl}\"")
+        conn.execute(f'DROP TABLE IF EXISTS "{tbl}"')
         conn.execute(
             f"CREATE TABLE \"{tbl}\" AS SELECT * FROM read_csv('{csv_path}', "
             f"header=true, auto_detect=true, null_padding=true, "
             f"ignore_errors=true, parallel=false)"
         )
         # Get schema info
-        schema = conn.execute(f"DESCRIBE \"{tbl}\"").fetchall()
-        row_count = conn.execute(f"SELECT count(*) FROM \"{tbl}\"").fetchone()[0]
+        schema = conn.execute(f'DESCRIBE "{tbl}"').fetchall()
+        row_count = conn.execute(f'SELECT count(*) FROM "{tbl}"').fetchone()[0]
         col_info = ", ".join(f"{col[0]} ({col[1]})" for col in schema)
         return f"Table '{tbl}' created ({row_count} rows). Columns: {col_info}"
     finally:
@@ -139,12 +137,12 @@ def describe_table(
                 return "No tables loaded. Use load_dataset to import a CSV first."
             lines: list[str] = []
             for (tbl,) in tables:
-                count = conn.execute(f"SELECT count(*) FROM \"{tbl}\"").fetchone()[0]
+                count = conn.execute(f'SELECT count(*) FROM "{tbl}"').fetchone()[0]
                 lines.append(f"- {tbl} ({count} rows)")
             return "Tables:\n" + "\n".join(lines)
         else:
-            schema = conn.execute(f"DESCRIBE \"{table_name}\"").fetchall()
-            row_count = conn.execute(f"SELECT count(*) FROM \"{table_name}\"").fetchone()[0]
+            schema = conn.execute(f'DESCRIBE "{table_name}"').fetchall()
+            row_count = conn.execute(f'SELECT count(*) FROM "{table_name}"').fetchone()[0]
             lines = [f"Table '{table_name}' ({row_count} rows):", ""]
             lines.append("Column | Type | Nullable")
             lines.append("--- | --- | ---")

@@ -5,12 +5,12 @@ agent, future tools) call the MCP server without doing the Clerk OAuth dance.
 The bearer is a single shared secret; matches synthesize an ``AccessToken``
 that *passes* the email-domain authorization layer rather than bypassing it.
 """
+
 from __future__ import annotations
 
 import importlib
 
 import pytest
-
 
 _VALID_TOKEN = "X" * 48  # >= 32 chars, length-only check
 _OTHER_TOKEN = "Y" * 48
@@ -113,9 +113,7 @@ def test_synthesized_email_uses_first_allowed_domain(monkeypatch):
     Only the FIRST entry is used — that's the deterministic choice; tests
     pin it so the order isn't accidentally changed.
     """
-    monkeypatch.setenv(
-        "SERNIA_MCP_ALLOWED_EMAIL_DOMAINS", "partner.example,serniacapital.com"
-    )
+    monkeypatch.setenv("SERNIA_MCP_ALLOWED_EMAIL_DOMAINS", "partner.example,serniacapital.com")
     monkeypatch.setenv("SERNIA_MCP_INTERNAL_BEARER_TOKEN", _VALID_TOKEN)
     bearer = _reload_bearer()
 

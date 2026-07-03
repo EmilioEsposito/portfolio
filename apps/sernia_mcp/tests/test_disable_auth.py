@@ -5,6 +5,7 @@ sets ``SERNIA_MCP_WORKSPACE_PATH`` per-test. We layer additional env tweaks
 on top via ``monkeypatch`` and reload ``sernia_mcp.config`` + the
 ``_disable_auth_requested`` callable to pick them up.
 """
+
 from __future__ import annotations
 
 import importlib

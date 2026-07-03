@@ -17,6 +17,7 @@ The check runs as a FastMCP ``AuthMiddleware`` — it filters list responses
 Without this, any authenticated Clerk user — including users who signed in to
 the same Clerk instance for an unrelated app — could call MCP tools.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -58,9 +59,7 @@ def require_allowed_email_domain(ctx: AuthContext) -> bool:
         raise AuthorizationError(f"malformed email claim: {email!r}")
     domain = email.rsplit("@", 1)[1]
     if domain not in ALLOWED_EMAIL_DOMAINS:
-        raise AuthorizationError(
-            f"access denied: email domain {domain!r} is not in the allowlist"
-        )
+        raise AuthorizationError(f"access denied: email domain {domain!r} is not in the allowlist")
     return True
 
 

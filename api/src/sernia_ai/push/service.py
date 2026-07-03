@@ -7,8 +7,8 @@ import os
 import httpx
 import logfire
 from py_vapid import Vapid
-from pywebpush import webpush, WebPushException
-from sqlalchemy import select, delete
+from pywebpush import WebPushException, webpush
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,20 +73,24 @@ async def save_subscription(
 ) -> None:
     """Upsert a web push subscription (keyed by endpoint)."""
     async with provide_session(session) as s:
-        stmt = pg_insert(WebPushSubscription).values(
-            clerk_user_id=clerk_user_id,
-            endpoint=endpoint,
-            p256dh=p256dh,
-            auth=auth,
-            user_agent=user_agent,
-        ).on_conflict_do_update(
-            index_elements=["endpoint"],
-            set_={
-                "clerk_user_id": clerk_user_id,
-                "p256dh": p256dh,
-                "auth": auth,
-                "user_agent": user_agent,
-            },
+        stmt = (
+            pg_insert(WebPushSubscription)
+            .values(
+                clerk_user_id=clerk_user_id,
+                endpoint=endpoint,
+                p256dh=p256dh,
+                auth=auth,
+                user_agent=user_agent,
+            )
+            .on_conflict_do_update(
+                index_elements=["endpoint"],
+                set_={
+                    "clerk_user_id": clerk_user_id,
+                    "p256dh": p256dh,
+                    "auth": auth,
+                    "user_agent": user_agent,
+                },
+            )
         )
         await s.execute(stmt)
         await s.commit()
@@ -207,9 +211,7 @@ async def notify_user_push(
 
     async with AsyncSessionFactory() as session:
         result = await session.execute(
-            select(WebPushSubscription).where(
-                WebPushSubscription.clerk_user_id == clerk_user_id
-            )
+            select(WebPushSubscription).where(WebPushSubscription.clerk_user_id == clerk_user_id)
         )
         subs = result.scalars().all()
 
@@ -222,7 +224,12 @@ async def notify_user_push(
             await notify_all_sernia_users(title=title, body=body, data=data)
             return
 
-        logfire.info("web push sending (user-targeted)", sub_count=len(subs), title=title, clerk_user_id=clerk_user_id)
+        logfire.info(
+            "web push sending (user-targeted)",
+            sub_count=len(subs),
+            title=title,
+            clerk_user_id=clerk_user_id,
+        )
 
         for sub in subs:
             subscription_info = {
@@ -344,7 +351,9 @@ async def _get_shared_team_phone() -> str | None:
                 _shared_team_phone = phones[0].get("value")
                 logfire.info("cached shared team phone", phone=_shared_team_phone)
                 return _shared_team_phone
-            logfire.error("shared team contact has no phone numbers", contact_id=QUO_SHARED_TEAM_CONTACT_ID)
+            logfire.error(
+                "shared team contact has no phone numbers", contact_id=QUO_SHARED_TEAM_CONTACT_ID
+            )
     except Exception:
         logfire.exception("failed to look up shared team phone number")
     return None
@@ -359,11 +368,11 @@ async def notify_team_sms(
 
     Failures are logged but never re-raised — SMS should not block trigger flow.
     """
+    from api.src.open_phone.service import send_message
     from api.src.sernia_ai.config import (
         FRONTEND_BASE_URL,
         QUO_SERNIA_AI_PHONE_ID,
     )
-    from api.src.open_phone.service import send_message
 
     try:
         to_phone = await _get_shared_team_phone()

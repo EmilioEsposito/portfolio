@@ -80,9 +80,11 @@ def test_get_gmail_service_sets_explicit_timeout():
     """The Gmail transport must be built with an explicit httplib2 timeout so a
     stalled connection fails fast instead of hanging indefinitely."""
     fake_http = MagicMock()
-    with patch("api.src.google.gmail.service.httplib2.Http", return_value=fake_http) as mock_http, \
-         patch("api.src.google.gmail.service.google_auth_httplib2.AuthorizedHttp") as mock_authed, \
-         patch("api.src.google.gmail.service.build") as mock_build:
+    with (
+        patch("api.src.google.gmail.service.httplib2.Http", return_value=fake_http) as mock_http,
+        patch("api.src.google.gmail.service.google_auth_httplib2.AuthorizedHttp") as mock_authed,
+        patch("api.src.google.gmail.service.build") as mock_build,
+    ):
         get_gmail_service(MagicMock())
 
     mock_http.assert_called_once_with(timeout=GMAIL_HTTP_TIMEOUT_SECONDS)

@@ -1,8 +1,8 @@
-import asyncio
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Literal
+from typing import Literal
 
-from api.src.utils.clerk import verify_serniacapital_user
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.src.apscheduler_service.routes import delete_job as apscheduler_delete_job
 
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
@@ -10,8 +10,7 @@ from api.src.utils.clerk import verify_serniacapital_user
 # from api.src.dbos_service.routes import run_job_now as dbos_run_job_now
 from api.src.apscheduler_service.routes import get_jobs as apscheduler_get_jobs
 from api.src.apscheduler_service.routes import run_job_now as apscheduler_run_job_now
-from api.src.apscheduler_service.routes import delete_job as apscheduler_delete_job
-
+from api.src.utils.clerk import verify_serniacapital_user
 
 SchedulerService = Literal["dbos", "apscheduler"]
 
@@ -31,7 +30,7 @@ def _with_service(job: dict, service: SchedulerService) -> dict:
     return j
 
 
-@router.get("/get_jobs", response_model=List[dict])
+@router.get("/get_jobs", response_model=list[dict])
 async def get_jobs():
     """
     Retrieve scheduled jobs from APScheduler.

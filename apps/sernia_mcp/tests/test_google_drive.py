@@ -5,12 +5,12 @@ run without API keys. Pins the contract sernia_ai had: invalid sheet
 name falls back to listing available sheet names; large sheets are
 capped; empty sheets return a clear message.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # search_drive_core
@@ -31,17 +31,16 @@ async def test_search_drive_returns_formatted_listing():
             },
         ]
     }
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import search_drive_core
 
-        out = await search_drive_core(
-            "Tenants", user_email="agent@serniacapital.com"
-        )
+        out = await search_drive_core("Tenants", user_email="agent@serniacapital.com")
 
     assert "Tenants 2026.gsheet" in out
     assert "Google Sheet" in out
@@ -52,17 +51,16 @@ async def test_search_drive_returns_formatted_listing():
 async def test_search_drive_handles_empty_results():
     fake_service = MagicMock()
     fake_service.files().list().execute.return_value = {"files": []}
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import search_drive_core
 
-        out = await search_drive_core(
-            "no-such-thing", user_email="agent@serniacapital.com"
-        )
+        out = await search_drive_core("no-such-thing", user_email="agent@serniacapital.com")
 
     assert "No Drive files found" in out
 
@@ -98,11 +96,12 @@ async def test_read_sheet_with_explicit_sheet_and_range():
             ]
         }
     )
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_sheet_core
 
@@ -128,17 +127,16 @@ async def test_read_sheet_defaults_to_first_sheet_when_no_args():
         values_response={"values": [["A", "B"], ["1", "2"]]},
         meta_response={"sheets": [{"properties": {"title": "Main"}}]},
     )
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_sheet_core
 
-        out = await read_google_sheet_core(
-            "abc123", user_email="agent@serniacapital.com"
-        )
+        out = await read_google_sheet_core("abc123", user_email="agent@serniacapital.com")
 
     assert "A | B" in out
     fake_service.spreadsheets().values().get.assert_called_with(
@@ -166,11 +164,12 @@ async def test_read_sheet_invalid_range_returns_available_sheet_names():
             {"properties": {"title": "Vendors"}},
         ]
     }
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_sheet_core
 
@@ -189,12 +188,13 @@ async def test_read_sheet_invalid_range_returns_available_sheet_names():
 async def test_read_sheet_caps_at_100_data_rows():
     headers = ["Col"]
     data = [[str(i)] for i in range(250)]
-    fake_service = _mock_sheets_service(values_response={"values": [headers] + data})
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    fake_service = _mock_sheets_service(values_response={"values": [headers, *data]})
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_sheet_core
 
@@ -211,11 +211,12 @@ async def test_read_sheet_caps_at_100_data_rows():
 @pytest.mark.asyncio
 async def test_read_sheet_empty_returns_message():
     fake_service = _mock_sheets_service(values_response={"values": []})
-    with patch(
-        "sernia_mcp.core.google.drive.build", return_value=fake_service
-    ), patch(
-        "sernia_mcp.core.google.drive.get_delegated_credentials",
-        return_value=MagicMock(),
+    with (
+        patch("sernia_mcp.core.google.drive.build", return_value=fake_service),
+        patch(
+            "sernia_mcp.core.google.drive.get_delegated_credentials",
+            return_value=MagicMock(),
+        ),
     ):
         from sernia_mcp.core.google.drive import read_google_sheet_core
 
