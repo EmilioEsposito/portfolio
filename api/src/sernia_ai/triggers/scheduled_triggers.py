@@ -12,6 +12,7 @@ Schedule is configurable via the ``schedule_config`` AppSetting (JSONB):
 
 Falls back to DEFAULT_SCHEDULE_* constants in config.py when no DB row exists.
 """
+
 from __future__ import annotations
 
 from zoneinfo import ZoneInfo
@@ -44,6 +45,7 @@ async def run_scheduled_checks() -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _apply_schedule(days_of_week: list[int], hours: list[int]) -> None:
     """Register, re-register, or remove the APScheduler cron job.
@@ -119,6 +121,7 @@ async def apply_schedule_from_db() -> None:
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
+
 
 async def register_scheduled_triggers() -> None:
     """Register Sernia AI scheduled trigger with APScheduler (reads config from DB)."""

@@ -8,6 +8,7 @@ This module just walks the directory and parses the minimum metadata needed
 for the doorway tool's skill listing — full content goes through the
 ``skill://{name}/SKILL.md`` resource template, not through here.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -42,7 +43,7 @@ def _parse_frontmatter_description(text: str) -> str:
     for raw_line in front.splitlines():
         line = raw_line.strip()
         if line.startswith("description:"):
-            return line[len("description:"):].strip().strip("\"'")
+            return line[len("description:") :].strip().strip("\"'")
     return ""
 
 

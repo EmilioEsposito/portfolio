@@ -1,10 +1,13 @@
 """
 Integration tests for the multi-agent chat endpoint that streams responses via Vercel AI SDK.
 """
+
 import json
 import uuid
+
 import pytest
 from fastapi.testclient import TestClient
+
 from api.index import app
 
 
@@ -18,7 +21,7 @@ def client():
 def test_multi_agent_chat_routes_to_weather(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes weather questions correctly.
-    
+
     Verifies:
     - Response status is 200
     - Content-Type is text/event-stream
@@ -39,9 +42,9 @@ def test_multi_agent_chat_routes_to_weather(client):
                     }
                 ],
             }
-        ]
+        ],
     }
-    
+
     # Make streaming request
     with client.stream(
         "POST",
@@ -57,32 +60,32 @@ def test_multi_agent_chat_routes_to_weather(client):
             print(f"\nError response (status {response.status_code}): {error_body}")
             print(f"Response headers: {dict(response.headers)}")
             pytest.fail(f"Expected 200, got {response.status_code}: {error_body}")
-        
+
         assert response.status_code == 200
-        
+
         # Verify content type
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
-        
+
         # Verify Vercel AI header
         assert response.headers.get("x-vercel-ai-ui-message-stream") == "v1"
-        
+
         # Verify buffering headers
         assert response.headers.get("X-Accel-Buffering") == "no"
-        
+
         # Collect all SSE events and print raw streaming output
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("RAW STREAMING OUTPUT (Weather):")
-        print("="*80)
+        print("=" * 80)
         events = []
         for line in response.iter_lines():
             if line:
                 events.append(line)
                 print(line)
-        print("="*80 + "\n")
-        
+        print("=" * 80 + "\n")
+
         # Verify we got events
         assert len(events) > 0, "No events received in stream"
-        
+
         # Parse SSE events (format: "data: {...}" or "data: [DONE]")
         parsed_events = []
         for event_line in events:
@@ -96,55 +99,55 @@ def test_multi_agent_chat_routes_to_weather(client):
                     except json.JSONDecodeError:
                         # Skip malformed JSON
                         continue
-        
+
         # Verify we have parsed events
         assert len(parsed_events) > 0, "No valid events parsed from stream"
-        
+
         # Verify event sequence
         event_types = [event.get("type") for event in parsed_events if isinstance(event, dict)]
-        
+
         # Should have start event
         assert "start" in event_types, f"Missing 'start' event. Got: {event_types}"
-        
+
         # Should have text-start event
         assert "text-start" in event_types, f"Missing 'text-start' event. Got: {event_types}"
-        
+
         # Should have text-delta events (at least one)
         assert "text-delta" in event_types, f"Missing 'text-delta' event. Got: {event_types}"
-        
+
         # Should have text-end event
         assert "text-end" in event_types, f"Missing 'text-end' event. Got: {event_types}"
-        
+
         # Should have finish event
         assert "finish" in event_types, f"Missing 'finish' event. Got: {event_types}"
-        
+
         # Should end with [DONE]
         assert parsed_events[-1].get("type") == "done", "Stream should end with [DONE]"
-        
+
         # Verify text events have consistent id
         text_start = next((e for e in parsed_events if e.get("type") == "text-start"), None)
         text_end = next((e for e in parsed_events if e.get("type") == "text-end"), None)
-        
+
         if text_start and text_end:
             assert "id" in text_start, "text-start missing id"
             assert "id" in text_end, "text-end missing id"
             assert text_start["id"] == text_end["id"], "text-start and text-end should have same id"
-        
+
         # Verify text-delta events have delta field
         text_deltas = [e for e in parsed_events if e.get("type") == "text-delta"]
         for delta_event in text_deltas:
             assert "delta" in delta_event, "text-delta event missing delta field"
             assert "id" in delta_event, "text-delta event missing id field"
-        
+
         print(f"\n✓ Received {len(parsed_events)} events")
-        print(f"✓ Stream format is correct")
+        print("✓ Stream format is correct")
 
 
 @pytest.mark.live
 def test_multi_agent_chat_routes_to_emilio(client):
     """
     Test that the /api/ai-demos/multi-agent-chat endpoint routes Emilio questions correctly.
-    
+
     Verifies:
     - Response status is 200
     - Content-Type is text/event-stream
@@ -164,9 +167,9 @@ def test_multi_agent_chat_routes_to_emilio(client):
                     }
                 ],
             }
-        ]
+        ],
     }
-    
+
     # Make streaming request
     with client.stream(
         "POST",
@@ -177,15 +180,15 @@ def test_multi_agent_chat_routes_to_emilio(client):
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
         assert response.headers.get("x-vercel-ai-ui-message-stream") == "v1"
-        
+
         # Collect events
         events = []
         for line in response.iter_lines():
             if line:
                 events.append(line)
-        
+
         assert len(events) > 0, "No events received in stream"
-        
+
         # Parse and verify events
         parsed_events = []
         for event_line in events:
@@ -198,16 +201,16 @@ def test_multi_agent_chat_routes_to_emilio(client):
                         parsed_events.append(json.loads(data_content))
                     except json.JSONDecodeError:
                         continue
-        
+
         event_types = [event.get("type") for event in parsed_events if isinstance(event, dict)]
-        
+
         assert "start" in event_types
         assert "text-start" in event_types
         assert "text-delta" in event_types
         assert "text-end" in event_types
         assert "finish" in event_types
         assert parsed_events[-1].get("type") == "done"
-        
+
         print(f"\n✓ Emilio routing: Received {len(parsed_events)} events")
 
 
@@ -233,9 +236,9 @@ def test_multi_agent_chat_handles_conversation_history(client):
                 "role": "user",
                 "parts": [{"type": "text", "text": "What's the weather like?"}],
             },
-        ]
+        ],
     }
-    
+
     with client.stream(
         "POST",
         "/api/ai-demos/multi-agent-chat",
@@ -244,25 +247,21 @@ def test_multi_agent_chat_handles_conversation_history(client):
     ) as response:
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
-        
+
         # Should receive valid stream
         events = []
         for line in response.iter_lines():
             if line and line.startswith("data: "):
                 events.append(line)
-        
+
         assert len(events) > 0
 
 
 @pytest.mark.live
 def test_multi_agent_chat_handles_empty_messages(client):
     """Test endpoint handles empty messages gracefully"""
-    request_body = {
-        "trigger": "submit-message",
-        "id": str(uuid.uuid4()),
-        "messages": []
-    }
-    
+    request_body = {"trigger": "submit-message", "id": str(uuid.uuid4()), "messages": []}
+
     with client.stream(
         "POST",
         "/api/ai-demos/multi-agent-chat",
@@ -271,12 +270,11 @@ def test_multi_agent_chat_handles_empty_messages(client):
     ) as response:
         # Should still return 200, but may have error event
         assert response.status_code == 200
-        
+
         events = []
         for line in response.iter_lines():
             if line:
                 events.append(line)
-        
+
         # Should have some response (even if error)
         assert len(events) > 0
-

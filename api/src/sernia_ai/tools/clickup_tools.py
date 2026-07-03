@@ -103,9 +103,7 @@ async def list_clickup_lists(ctx: RunContext[SerniaDeps]) -> str:
                 # 3. Lists inside each folder
                 for lst in folder.get("lists", []):
                     task_count = lst.get("task_count", "?")
-                    lines.append(
-                        f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})"
-                    )
+                    lines.append(f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})")
 
         # 2b. Folderless lists
         resp_lists = await _clickup_request("GET", f"/space/{space_id}/list")
@@ -115,9 +113,7 @@ async def list_clickup_lists(ctx: RunContext[SerniaDeps]) -> str:
                 lines.append("  📁 (no folder)")
                 for lst in folderless:
                     task_count = lst.get("task_count", "?")
-                    lines.append(
-                        f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})"
-                    )
+                    lines.append(f"    - {lst['name']} (id: {lst['id']}, tasks: {task_count})")
 
         lines.append("")  # blank line between spaces
 
@@ -160,9 +156,7 @@ async def get_tasks(
         due_date = task.get("due_date")
         due_str = "no due date"
         if due_date:
-            due_str = datetime.fromtimestamp(int(due_date) / 1000).strftime(
-                "%Y-%m-%d"
-            )
+            due_str = datetime.fromtimestamp(int(due_date) / 1000).strftime("%Y-%m-%d")
         url_link = task.get("url", "")
 
         lines.append(
@@ -233,9 +227,7 @@ async def search_tasks(
     if subtasks:
         params["subtasks"] = "true"
 
-    resp = await _clickup_request_params(
-        "GET", f"/team/{CLICKUP_TEAM_ID}/task", params=params
-    )
+    resp = await _clickup_request_params("GET", f"/team/{CLICKUP_TEAM_ID}/task", params=params)
     if resp.status_code != 200:
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:200]}"
 
@@ -258,14 +250,10 @@ async def search_tasks(
         due_date = task.get("due_date")
         due_str = "no due date"
         if due_date:
-            due_str = datetime.fromtimestamp(int(due_date) / 1000).strftime(
-                "%Y-%m-%d"
-            )
+            due_str = datetime.fromtimestamp(int(due_date) / 1000).strftime("%Y-%m-%d")
         assignees = task.get("assignees", [])
         assignee_str = (
-            ", ".join(a.get("username", "?") for a in assignees)
-            if assignees
-            else "unassigned"
+            ", ".join(a.get("username", "?") for a in assignees) if assignees else "unassigned"
         )
         url_link = task.get("url", "")
 
@@ -329,10 +317,7 @@ async def create_task(
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
 
     data = resp.json()
-    return (
-        f"Task created: {data.get('name')} (id: {data.get('id')})\n"
-        f"URL: {data.get('url', 'N/A')}"
-    )
+    return f"Task created: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
 
 
 @clickup_toolset.tool
@@ -379,10 +364,7 @@ async def update_task(
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
 
     data = resp.json()
-    return (
-        f"Task updated: {data.get('name')} (id: {data.get('id')})\n"
-        f"URL: {data.get('url', 'N/A')}"
-    )
+    return f"Task updated: {data.get('name')} (id: {data.get('id')})\nURL: {data.get('url', 'N/A')}"
 
 
 @clickup_toolset.tool

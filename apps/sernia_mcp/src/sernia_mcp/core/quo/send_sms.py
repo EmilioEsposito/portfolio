@@ -4,6 +4,7 @@ Routing rule: contacts with the configured internal company are sent via the
 Sernia AI line; everyone else goes through the shared team line. The MCP tool
 wrappers gate external sends behind an approval card.
 """
+
 from __future__ import annotations
 
 import re
@@ -44,8 +45,7 @@ async def resolve_sms_routing_core(to_phone: str) -> SmsRouting:
         contact = await find_contact_by_phone(to_phone, client)
     if contact is None:
         raise NotFoundError(
-            f"{to_phone} is not a Quo contact. "
-            "Messages can only be sent to numbers stored in Quo."
+            f"{to_phone} is not a Quo contact. Messages can only be sent to numbers stored in Quo."
         )
     is_internal = _is_internal_contact(contact)
     return SmsRouting(

@@ -3,6 +3,7 @@
 Patches ``clickup_request`` (the shared httpx caller) so each test pins the
 exact request shape sent to ClickUp's v2 API. No network.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -55,9 +56,7 @@ async def test_create_task_minimal():
 
 @pytest.mark.asyncio
 async def test_create_task_includes_optional_fields_and_due_date():
-    fake = AsyncMock(
-        return_value=_ok_response({"id": "x", "name": "Task", "url": "u"})
-    )
+    fake = AsyncMock(return_value=_ok_response({"id": "x", "name": "Task", "url": "u"}))
     with patch("sernia_mcp.core.clickup.writes.clickup_request", fake):
         from sernia_mcp.core.clickup.writes import create_task_core
 
@@ -83,9 +82,7 @@ async def test_create_task_includes_optional_fields_and_due_date():
 @pytest.mark.asyncio
 async def test_create_task_invalid_due_date_raises_validation():
     """Bad ISO strings shouldn't reach ClickUp — fail fast with ValidationError."""
-    with patch(
-        "sernia_mcp.core.clickup.writes.clickup_request", AsyncMock()
-    ) as fake:
+    with patch("sernia_mcp.core.clickup.writes.clickup_request", AsyncMock()) as fake:
         from sernia_mcp.core.clickup.writes import create_task_core
 
         with pytest.raises(ValidationError, match="ISO 8601"):
@@ -110,11 +107,7 @@ async def test_create_task_http_failure_raises_external_service():
 
 @pytest.mark.asyncio
 async def test_update_task_with_all_fields():
-    fake = AsyncMock(
-        return_value=_ok_response(
-            {"id": "T1", "name": "Renamed", "url": "https://x"}
-        )
-    )
+    fake = AsyncMock(return_value=_ok_response({"id": "T1", "name": "Renamed", "url": "https://x"}))
     with patch("sernia_mcp.core.clickup.writes.clickup_request", fake):
         from sernia_mcp.core.clickup.writes import update_task_core
 
@@ -140,9 +133,7 @@ async def test_update_task_with_all_fields():
 @pytest.mark.asyncio
 async def test_update_task_due_date_empty_string_clears():
     """Per sernia_ai contract: empty string clears the due date (sends None)."""
-    fake = AsyncMock(
-        return_value=_ok_response({"id": "T1", "name": "x", "url": "u"})
-    )
+    fake = AsyncMock(return_value=_ok_response({"id": "T1", "name": "x", "url": "u"}))
     with patch("sernia_mcp.core.clickup.writes.clickup_request", fake):
         from sernia_mcp.core.clickup.writes import update_task_core
 
@@ -177,9 +168,7 @@ async def test_set_custom_field_sends_post_with_value():
         result = await set_task_custom_field_core("T1", "field-uuid", "opt-uuid")
 
     assert "Custom field field-uuid set on task T1." in result
-    fake.assert_awaited_once_with(
-        "POST", "/task/T1/field/field-uuid", json={"value": "opt-uuid"}
-    )
+    fake.assert_awaited_once_with("POST", "/task/T1/field/field-uuid", json={"value": "opt-uuid"})
 
 
 @pytest.mark.asyncio

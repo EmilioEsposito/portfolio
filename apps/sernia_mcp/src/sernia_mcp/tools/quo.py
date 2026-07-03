@@ -3,6 +3,7 @@
 Send tools live in ``approvals.py`` — they use the FastMCPApp pattern for
 deterministic server-side enforcement (tool-visibility split).
 """
+
 from fastmcp.exceptions import ToolError
 
 from sernia_mcp.core.errors import CoreError
@@ -48,7 +49,8 @@ async def quo_get_call_details(call_id: str, transcript_max_chars: int = 4000) -
     """
     try:
         return await get_call_details_core(
-            call_id, transcript_max_chars=transcript_max_chars,
+            call_id,
+            transcript_max_chars=transcript_max_chars,
         )
     except CoreError as e:
         raise ToolError(f"quo_get_call_details failed: {e}") from e

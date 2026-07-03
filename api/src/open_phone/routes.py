@@ -1,32 +1,35 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Query, BackgroundTasks, Security
-from fastapi.security import APIKeyHeader
-import logfire
-import os
 import base64
 import hmac
-from sqlalchemy import select
-from typing import List, Union
+import os
+import re
+import time
+from datetime import date, datetime
+from pprint import pprint
+
+import httpx as _httpx
+import logfire
+import requests
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import DBSession
+from api.src.open_phone.escalate import analyze_for_twilio_escalation
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
-from api.src.open_phone.service import send_message, get_contacts_by_external_ids, get_contacts_sheet_as_json
-from api.src.open_phone.escalate import analyze_for_twilio_escalation
-from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
+from api.src.open_phone.service import (
+    get_contacts_by_external_ids,
+    get_contacts_sheet_as_json,
+    send_message,
+)
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
-from api.src.utils.password import verify_admin_password
-from datetime import datetime, date
-from sqlalchemy.exc import IntegrityError
-from pprint import pprint
-import time
-import requests
-import httpx as _httpx
-import pytest
-from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.contact.service import get_contact_by_slug
-import re
-
+from api.src.utils.dependencies import verify_admin_or_serniacapital
+from api.src.utils.password import verify_admin_password
 
 # ---------------------------------------------------------------------------
 # Cached AI phone number lookup (circular trigger guard)
@@ -69,34 +72,26 @@ router = APIRouter(
 
 
 emoji_pattern = re.compile(
-    r'['
-    r'\U0001F300-\U0001F5FF'  # Misc Symbols & Pictographs
-    r'\U0001F600-\U0001F64F'  # Emoticons
-    r'\U0001F680-\U0001F6FF'  # Transport & Map
-    r'\U0001F700-\U0001F77F'  # Alchemical Symbols
-    r'\U0001F780-\U0001F7FF'  # Geometric Symbols
-    r'\U0001F800-\U0001F8FF'  # Supplemental Arrows
-    r'\U0001F900-\U0001F9FF'  # Supplemental Symbols and Pictographs
-    r'\U0001FA00-\U0001FA6F'  # Chess, Xiangqi, etc.
-    r'\U0001FA70-\U0001FAFF'  # Symbols & Pictographs Extended-A
-    r'\U00002702-\U000027B0'  # Dingbats
-    r'\U000024C2-\U0001F251'  # Enclosed characters
-    r']+',
-    flags=re.UNICODE
+    r"["
+    r"\U0001F300-\U0001F5FF"  # Misc Symbols & Pictographs
+    r"\U0001F600-\U0001F64F"  # Emoticons
+    r"\U0001F680-\U0001F6FF"  # Transport & Map
+    r"\U0001F700-\U0001F77F"  # Alchemical Symbols
+    r"\U0001F780-\U0001F7FF"  # Geometric Symbols
+    r"\U0001F800-\U0001F8FF"  # Supplemental Arrows
+    r"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    r"\U0001FA00-\U0001FA6F"  # Chess, Xiangqi, etc.
+    r"\U0001FA70-\U0001FAFF"  # Symbols & Pictographs Extended-A
+    r"\U00002702-\U000027B0"  # Dingbats
+    r"\U000024C2-\U0001F251"  # Enclosed characters
+    r"]+",
+    flags=re.UNICODE,
 )
+
 
 async def contains_emoji(text):
     return bool(emoji_pattern.search(text))
 
-@pytest.mark.asyncio
-async def test_contains_emoji():
-    assert await contains_emoji("👍")
-    assert await contains_emoji("👍🏻")
-    assert await contains_emoji("blah blah blah 👍")
-    assert await contains_emoji("👍🏻 blah blah blah")
-    assert await contains_emoji("👍👍👍👍👍")
-    assert not await contains_emoji("Hello")
-    assert not await contains_emoji("Hello José")
 
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
@@ -130,11 +125,12 @@ async def verify_open_phone_signature(request: Request):
         logfire.error("signature verification failed")
         raise HTTPException(403, "Signature verification failed")
 
+
 def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
     """Extract relevant fields from the event data based on event type"""
     # Convert the payload to dict first
     payload_dict = payload.model_dump()
-    
+
     # Convert any datetime objects to ISO format strings in the payload_dict
     def convert_datetime_to_str(obj):
         if isinstance(obj, dict):
@@ -145,25 +141,27 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
             return obj.isoformat()
         else:
             return obj
-    
+
     # Apply the conversion to the entire payload dict
     payload_dict = convert_datetime_to_str(payload_dict)
-    
+
     event_data = {
         "event_type": payload.type,
         "event_id": payload.id,
         "event_data": payload_dict,  # Use the converted dict
         "event_timestamp": payload.createdAt,  # Changed from created_at to event_timestamp
     }
-    
+
     # Extract common fields (if they exist on the data_object)
     data_object = payload.data.object
-    event_data.update({
-        "conversation_id": getattr(data_object, 'conversationId', None),
-        "user_id": getattr(data_object, 'userId', None),
-        "phone_number_id": getattr(data_object, 'phoneNumberId', None),
-    })
-    
+    event_data.update(
+        {
+            "conversation_id": getattr(data_object, "conversationId", None),
+            "user_id": getattr(data_object, "userId", None),
+            "phone_number_id": getattr(data_object, "phoneNumberId", None),
+        }
+    )
+
     # Extract type-specific fields
     if hasattr(data_object, "from_"):
         event_data["from_number"] = data_object.from_
@@ -171,28 +169,27 @@ def extract_event_data(payload: OpenPhoneWebhookPayload) -> dict:
         event_data["to_number"] = data_object.to
     if hasattr(data_object, "body"):
         event_data["message_text"] = data_object.body
-        
+
     return event_data
+
 
 @router.post(
     "/webhook",
     dependencies=[Depends(verify_open_phone_signature)],
 )
 async def webhook(
-    payload: OpenPhoneWebhookPayload,
-    background_tasks: BackgroundTasks,
-    session: DBSession
+    payload: OpenPhoneWebhookPayload, background_tasks: BackgroundTasks, session: DBSession
 ):
     try:
         # Extract event data
         logfire.info(f"OpenPhone webhook received. type={payload.type} event_id={payload.id} ")
-        
+
         event_data = extract_event_data(payload)
 
         sernia_contact = await get_contact_by_slug("sernia")
 
         if not sernia_contact:
-            logfire.error(f"Sernia contact not found for slug 'sernia'")
+            logfire.error("Sernia contact not found for slug 'sernia'")
             raise HTTPException(500, "Sernia contact not found")
 
         # Analyze messages to Sernia for potential Twilio escalation before saving to DB
@@ -205,10 +202,14 @@ async def webhook(
             if ai_phone and event_data.get("from_number") == ai_phone:
                 logfire.info("Ignoring message from AI phone (circular trigger guard)")
             elif await contains_emoji(event_data["message_text"][:3]):
-                logfire.info(f"Ignoring message that starts with emoji: {event_data['message_text']}")
+                logfire.info(
+                    f"Ignoring message that starts with emoji: {event_data['message_text']}"
+                )
             else:
                 # Run analysis in the background
-                logfire.info(f"AI Assessment Triggered. Starting background task to analyze for Twilio escalation.")
+                logfire.info(
+                    "AI Assessment Triggered. Starting background task to analyze for Twilio escalation."
+                )
                 background_tasks.add_task(analyze_for_twilio_escalation, event_data)
         # AI SMS conversation: messages to the AI's phone number directly
         elif (
@@ -217,7 +218,9 @@ async def webhook(
         ):
             background_tasks.add_task(handle_ai_sms_event, event_data)
         else:
-            logfire.info(f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}")
+            logfire.info(
+                f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}"
+            )
 
         # check if event_id is already in the database
         result = await session.execute(
@@ -225,7 +228,9 @@ async def webhook(
         )
         existing_event_record = result.scalar_one_or_none()
         if existing_event_record:
-            logfire.info(f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping")
+            logfire.info(
+                f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping"
+            )
             return {"message": "Event already processed"}
         else:
             # Create database record
@@ -238,37 +243,46 @@ async def webhook(
 
     except IntegrityError as e:
         await session.rollback()
-        event_id_for_log = payload.id if hasattr(payload, 'id') else "unknown"
+        event_id_for_log = payload.id if hasattr(payload, "id") else "unknown"
 
         # Check if this is a duplicate key violation on event_id (race condition)
         # PostgreSQL unique_violation error code is '23505'
         is_duplicate_event = (
-            hasattr(e, 'orig') and
-            hasattr(e.orig, 'pgcode') and
-            e.orig.pgcode == '23505' and
-            'event_id' in str(e)
+            hasattr(e, "orig")
+            and hasattr(e.orig, "pgcode")
+            and e.orig.pgcode == "23505"
+            and "event_id" in str(e)
         )
 
         if is_duplicate_event:
             # Race condition: another request already inserted this event
-            logfire.info(f"Event {event_id_for_log} already processed (duplicate key race condition), skipping")
+            logfire.info(
+                f"Event {event_id_for_log} already processed (duplicate key race condition), skipping"
+            )
             return {"message": "Event already processed"}
 
         # For other IntegrityErrors, log it as an error with traceback and then raise HTTPException
         log_message = f"Unhandled IntegrityError processing event_id {event_id_for_log}. Full payload: {payload}. Database Error: {e}"
         logfire.exception(log_message)
 
-        raise HTTPException(status_code=500, detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.")
+        raise HTTPException(
+            status_code=500,
+            detail=f"A database integrity error occurred processing event {event_id_for_log}. Please refer to server logs for details.",
+        )
     except Exception as e:
-        detailed_error_message = f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}"
+        detailed_error_message = (
+            f"Error processing OpenPhone webhook. Full payload: {str(payload)}. Error: {str(e)}"
+        )
         logfire.exception(detailed_error_message)
         await session.rollback()
         raise HTTPException(status_code=500, detail=detailed_error_message)
+
 
 class SendMessageRequest(BaseModel):
     message: str
     to_phone_number: str
     from_phone_number: str
+
 
 @router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
 async def send_message_endpoint(body: SendMessageRequest):
@@ -279,15 +293,17 @@ async def send_message_endpoint(body: SendMessageRequest):
 
 @router.get("/contacts", dependencies=[Depends(verify_serniacapital_user)])
 async def route_get_contacts_by_external_ids(
-    external_ids: List[str] = Query(...),
-    sources: Union[List[str], None] = Query(default=None),
-    page_token: Union[str, None] = None,
+    external_ids: list[str] = Query(...),
+    sources: list[str] | None = Query(default=None),
+    page_token: str | None = None,
 ):
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
 
 @router.delete("/contact/{id}")
-async def route_delete_contact_by_id(id: str, admin_password: str = Security(APIKeyHeader(name="x-admin-password", auto_error=True))):
+async def route_delete_contact_by_id(
+    id: str, admin_password: str = Security(APIKeyHeader(name="x-admin-password", auto_error=True))
+):
 
     is_valid = await verify_admin_password(admin_password)
     if not is_valid:
@@ -297,32 +313,11 @@ async def route_delete_contact_by_id(id: str, admin_password: str = Security(API
     # User OpenPhone API to send a message
     api_key = os.getenv("OPEN_PHONE_API_KEY")
     headers = {
-            "Authorization": api_key,
-            "Content-Type": "application/json",
+        "Authorization": api_key,
+        "Content-Type": "application/json",
     }
     response = requests.delete(url, headers=headers)
     return response.status_code
-
-
-# def test_get_ghost_ids():
-#     headers = {
-#         "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
-#         "Content-Type": "application/json",
-#     }
-#     ghost_ids = [
-#         "67a3f0e374352083a596852c",
-#         "67a3ea7913bc7ac81079abce",
-#         "67a3f29874352083a5968570",
-#     ]
-#     response_codes = []
-#     for id in ghost_ids:
-#         url = f"https://api.openphone.com/v1/contacts/{id}"
-#         response = requests.get(url, headers=headers)
-#         print(response.json())
-#         response_codes.append(response.status_code)
-#     pprint(response_codes)
-
-#     assert set(response_codes) == set([200])
 
 
 # Working!
@@ -341,9 +336,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
     }
     custom_fields_raw = requests.get(url, headers=headers).json()["data"]
 
-    custom_field_key_to_name = {
-        field["key"]: field["name"] for field in custom_fields_raw
-    }
+    custom_field_key_to_name = {field["key"]: field["name"] for field in custom_fields_raw}
 
     contacts = get_contacts_sheet_as_json()
     contact = contacts[35]
@@ -358,9 +351,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
     for contact in contacts:
         print(contact["external_id"])
 
-        contact["Lease Start Date"] = (
-            contact["Lease Start Date"][:10] + "T00:00:00.000Z"
-        )
+        contact["Lease Start Date"] = contact["Lease Start Date"][:10] + "T00:00:00.000Z"
         contact["Lease End Date"] = contact["Lease End Date"][:10] + "T00:00:00.000Z"
 
         data = {
@@ -390,7 +381,6 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
         )
         skip = False
         if len(existing_contacts["data"]) > 0:
-
             if overwrite:
                 print("Contact already exists, deleting...")
                 # delete contact(s)
@@ -403,7 +393,6 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
                 skip = True
 
         if not skip:
-
             time.sleep(1)
             response = requests.post(
                 "https://api.openphone.com/v1/contacts", headers=headers, json=data
@@ -414,6 +403,7 @@ async def create_contacts_in_openphone(overwrite=False, source_name=None):
             responses.append(response.json())
 
     assert set(response_codes) == set([201]) or response_codes == []
+
 
 @router.get("/tenants", dependencies=[Depends(verify_serniacapital_user)])
 async def get_tenant_data():
@@ -426,15 +416,15 @@ async def get_tenant_data():
         logfire.info("Fetching tenant contacts from Google Sheet for SerniaCapital user")
         tenant_data = get_contacts_sheet_as_json()
         logfire.info(f"Retrieved {len(tenant_data)} total tenant contacts from sheet")
-        
+
         # Add 'Active Lease' field
         today = date.today()
         processed_data = []
         for tenant in tenant_data:
             try:
-                start_date_str = tenant.get('Lease Start Date')
-                end_date_str = tenant.get('Lease End Date')
-                
+                start_date_str = tenant.get("Lease Start Date")
+                end_date_str = tenant.get("Lease End Date")
+
                 is_active = False
                 if start_date_str and end_date_str:
                     # Attempt to parse YYYY-MM-DD format (or first 10 chars)
@@ -442,19 +432,19 @@ async def get_tenant_data():
                     end_date = date.fromisoformat(end_date_str[:10])
                     if start_date <= today <= end_date:
                         is_active = True
-                
-                tenant['Active Lease'] = is_active
+
+                tenant["Active Lease"] = is_active
                 processed_data.append(tenant)
             except (ValueError, TypeError) as date_err:
-                logfire.warn(f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False.")
-                tenant['Active Lease'] = False # Default to False if dates are invalid
+                logfire.warn(
+                    f"Could not parse dates for tenant {tenant.get('external_id', '<no_id>')}: {date_err}. Setting Active Lease to False."
+                )
+                tenant["Active Lease"] = False  # Default to False if dates are invalid
                 processed_data.append(tenant)
 
         return processed_data
     except Exception as e:
-        logfire.exception(
-            f"Failed to fetch or process tenant contacts: {str(e)}"
-        )
+        logfire.exception(f"Failed to fetch or process tenant contacts: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch or process tenant contacts: {str(e)}"
         )

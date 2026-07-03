@@ -15,11 +15,12 @@ Logfire terminology reminder:
     Classical DS "experiment" = pydantic-evals `Dataset`
     Classical DS "variant / arm" = pydantic-evals `Experiment` (one evaluate() call)
 """
+
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from contextlib import asynccontextmanager, contextmanager
-from typing import Iterable
 
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.settings import ModelSettings
@@ -35,7 +36,6 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-
 
 # Default variants — shared across experiments unless an experiment overrides.
 # Use `openai-responses:` (not `openai:`) so WebSearchTool works.
@@ -222,9 +222,15 @@ async def run_experiment(
     print(f"      AND (attributes -> 'metadata' ->> 'experiment_name') = '{experiment_name}'")
     print("  )")
     print("  SELECT v.variant,")
-    print("         sum((r.attributes ->> 'operation.cost')::float)                          AS cost_usd,")
-    print("         sum(coalesce((r.attributes ->> 'gen_ai.usage.input_tokens')::float,  0)) AS input_tokens,")
-    print("         sum(coalesce((r.attributes ->> 'gen_ai.usage.output_tokens')::float, 0)) AS output_tokens,")
+    print(
+        "         sum((r.attributes ->> 'operation.cost')::float)                          AS cost_usd,"
+    )
+    print(
+        "         sum(coalesce((r.attributes ->> 'gen_ai.usage.input_tokens')::float,  0)) AS input_tokens,"
+    )
+    print(
+        "         sum(coalesce((r.attributes ->> 'gen_ai.usage.output_tokens')::float, 0)) AS output_tokens,"
+    )
     print("         count(*) AS n_calls")
     print("  FROM records r")
     print("  JOIN variants v ON r.trace_id = v.trace_id")

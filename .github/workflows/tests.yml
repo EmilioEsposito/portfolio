@@ -58,6 +58,11 @@ jobs:
       - name: Install dependencies
         run: uv sync -p 3.11
 
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
       - name: Run migrations
         run: uv run alembic upgrade head
 

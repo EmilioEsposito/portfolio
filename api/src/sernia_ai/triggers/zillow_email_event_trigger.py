@@ -30,6 +30,7 @@ state changes). We dedupe by Gmail ``message_id`` at two levels:
 
 Naming convention: all public symbols use the ``zillow_email_event`` root.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -86,8 +87,12 @@ async def get_zillow_email_config() -> dict:
             row = result.scalar_one_or_none()
             if isinstance(row, dict):
                 return {
-                    "debounce_seconds": int(row.get("debounce_seconds", defaults["debounce_seconds"])),
-                    "require_approval": bool(row.get("require_approval", defaults["require_approval"])),
+                    "debounce_seconds": int(
+                        row.get("debounce_seconds", defaults["debounce_seconds"])
+                    ),
+                    "require_approval": bool(
+                        row.get("require_approval", defaults["require_approval"])
+                    ),
                 }
     except Exception:
         logfire.warn("Failed to read zillow_email_config from DB, using defaults")
@@ -99,23 +104,30 @@ def _prune_recently_fired(now: float | None = None) -> None:
     if now is None:
         now = time.monotonic()
     expired = [
-        mid for mid, ts in _recently_fired_message_ids.items()
+        mid
+        for mid, ts in _recently_fired_message_ids.items()
         if (now - ts) > RECENTLY_FIRED_TTL_SECONDS
     ]
     for mid in expired:
         _recently_fired_message_ids.pop(mid, None)
+
 
 def is_zillow_email(from_address: str) -> bool:
     """Return True if the sender is a Zillow email address."""
     if not from_address:
         return False
     addr = from_address.lower()
-    return addr.endswith("@zillow.com") or "@" in addr and addr.split("@", 1)[1].endswith(".zillow.com")
+    return (
+        addr.endswith("@zillow.com")
+        or "@" in addr
+        and addr.split("@", 1)[1].endswith(".zillow.com")
+    )
 
 
 # ---------------------------------------------------------------------------
 # Public API — called from pubsub webhook
 # ---------------------------------------------------------------------------
+
 
 async def queue_zillow_email_event(
     *,
@@ -222,6 +234,7 @@ async def _debounced_fire(debounce_seconds: int) -> None:
 # Trigger execution
 # ---------------------------------------------------------------------------
 
+
 async def _fire_batched_trigger(emails: list[dict]) -> str | None:
     """Run the agent once for a batch of Zillow emails."""
     conv_id = str(uuid.uuid4())
@@ -240,12 +253,14 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
                 body_snippet += "..."
         email_details = dedent(f"""\
             **Email details:**
-            - Gmail Message ID (all@ account): {email['message_id']}
-            - Thread ID (Gmail): {email['thread_id']}
-            - Subject: {email['subject']}
-            - From: {email['from_address']}
+            - Gmail Message ID (all@ account): {email["message_id"]}
+            - Thread ID (Gmail): {email["thread_id"]}
+            - Subject: {email["subject"]}
+            - From: {email["from_address"]}
             - Body preview: {body_snippet}""")
-        reply_hint = f'When replying, pass reply_to_message_id="{email["message_id"]}" to thread correctly.'
+        reply_hint = (
+            f'When replying, pass reply_to_message_id="{email["message_id"]}" to thread correctly.'
+        )
     else:
         lines = []
         for i, email in enumerate(emails, 1):
@@ -254,9 +269,7 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
                 f"| Message ID: {email['message_id']} | Thread ID: {email['thread_id']}"
             )
         email_details = "**Emails received (oldest first):**\n" + "\n".join(lines)
-        reply_hint = (
-            "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
-        )
+        reply_hint = "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
 
     trigger_prompt = dedent(f"""\
         {len(emails)} new Zillow email(s) arrived. Load the zillow-auto-reply skill and follow it.

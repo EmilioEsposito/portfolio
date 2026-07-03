@@ -19,7 +19,6 @@ from api.src.apscheduler_service.service import get_scheduler
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools.google_tools import (
     GMAIL_SCOPES,
-    EmailRouting,
     _get_threading_headers,
     resolve_email_routing,
 )
@@ -77,7 +76,11 @@ async def _execute_scheduled_sms(
     client = _build_quo_client()
     try:
         result = await execute_sms(
-            client, phone, message, from_phone_id, line_name,
+            client,
+            phone,
+            message,
+            from_phone_id,
+            line_name,
             conversation_id="scheduled",
             tool_name="scheduled_sms",
         )
@@ -246,13 +249,9 @@ async def schedule_email(
     thread_kwargs: dict | None = None
     if reply_to_message_id:
         if routing.is_internal:
-            thread_kwargs = await _get_threading_headers(
-                reply_to_message_id, ctx.deps.user_email
-            )
+            thread_kwargs = await _get_threading_headers(reply_to_message_id, ctx.deps.user_email)
         else:
-            thread_kwargs = await _get_threading_headers(
-                reply_to_message_id, routing.send_as_email
-            )
+            thread_kwargs = await _get_threading_headers(reply_to_message_id, routing.send_as_email)
             if not thread_kwargs and ctx.deps.user_email != routing.send_as_email:
                 thread_kwargs = await _get_threading_headers(
                     reply_to_message_id, ctx.deps.user_email
@@ -310,7 +309,8 @@ async def list_scheduled_messages(
     """
     scheduler = get_scheduler()
     jobs = [
-        j for j in scheduler.get_jobs()
+        j
+        for j in scheduler.get_jobs()
         if j.id.startswith(_SMS_JOB_PREFIX) or j.id.startswith(_EMAIL_JOB_PREFIX)
     ]
 
@@ -335,8 +335,7 @@ async def list_scheduled_messages(
             detail = f"\n  Subject: {kwargs.get('subject', '?')}"
 
         send_at_str = (
-            job.next_run_time.strftime("%B %d, %Y at %I:%M %p %Z")
-            if job.next_run_time else "?"
+            job.next_run_time.strftime("%B %d, %Y at %I:%M %p %Z") if job.next_run_time else "?"
         )
 
         lines.append(

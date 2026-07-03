@@ -3,6 +3,7 @@
 Centralizes the auth header, timeout, and error wrapping so each tool's
 core function focuses on building the request body / parsing the response.
 """
+
 from __future__ import annotations
 
 import os

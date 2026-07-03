@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.src.sernia_ai.instructions import (
-    _build_filetree,
     _COLLAPSED_PATHS,
+    _build_filetree,
     _pulled_conversation_ids,
     refresh_from_remote,
 )
@@ -92,6 +92,7 @@ def test_filetree_only_collapses_at_top_level(tmp_path: Path):
 # refresh_from_remote — pull only on first turn of each conversation
 # =====================================================================
 
+
 @pytest.fixture(autouse=True)
 def _clear_pulled_conversation_cache():
     """The pulled-conversations set is process-global; clear before each test."""
@@ -115,9 +116,7 @@ def _ctx(conversation_id: str, workspace_path: Path) -> SimpleNamespace:
 @pytest.mark.asyncio
 async def test_refresh_pulls_on_first_turn(tmp_path):
     """First call for a conversation_id triggers pull_workspace."""
-    with patch(
-        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
-    ) as fake_pull:
+    with patch("api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()) as fake_pull:
         result = await refresh_from_remote(_ctx("conv-A", tmp_path))
 
     assert result == ""
@@ -130,9 +129,7 @@ async def test_refresh_skips_pull_on_followup_turn(tmp_path):
     the whole point of the optimization. Avoids ~300-500ms latency on
     every user message after the first.
     """
-    with patch(
-        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
-    ) as fake_pull:
+    with patch("api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()) as fake_pull:
         await refresh_from_remote(_ctx("conv-A", tmp_path))
         await refresh_from_remote(_ctx("conv-A", tmp_path))
         await refresh_from_remote(_ctx("conv-A", tmp_path))
@@ -143,9 +140,7 @@ async def test_refresh_skips_pull_on_followup_turn(tmp_path):
 @pytest.mark.asyncio
 async def test_refresh_pulls_per_conversation(tmp_path):
     """Different conversations each get one pull on their first turn."""
-    with patch(
-        "api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()
-    ) as fake_pull:
+    with patch("api.src.sernia_ai.memory.git_sync.pull_workspace", new=AsyncMock()) as fake_pull:
         await refresh_from_remote(_ctx("conv-A", tmp_path))
         await refresh_from_remote(_ctx("conv-B", tmp_path))
         await refresh_from_remote(_ctx("conv-A", tmp_path))  # follow-up

@@ -9,6 +9,7 @@ Run:
     python -m api.src.sernia_ai.ab_tests.model_comparison_rote \\
         --experiment-name sernia-rote-$(date +%Y-%m-%d)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +21,6 @@ ensure_logfire_configured(mode="prod", service_name="sernia_ai_ab_test")
 
 from api.src.sernia_ai.ab_tests._cli import build_parser, resolve_variants
 from api.src.sernia_ai.ab_tests._core import run_experiment
-
 
 PROMPTS: list[str] = [
     "DO NOT USE ANY TOOLS. Answer in one sentence: what is rental real estate?",

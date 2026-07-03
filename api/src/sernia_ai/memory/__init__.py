@@ -3,6 +3,7 @@ Memory system for the Sernia AI agent.
 
 Manages the .workspace/ directory structure for persistent memory.
 """
+
 from pathlib import Path
 
 import logfire

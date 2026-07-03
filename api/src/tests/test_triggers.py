@@ -4,19 +4,23 @@ Smoke + unit tests for the Sernia AI trigger system.
 Smoke: Verify all trigger modules import cleanly and are wired correctly.
 Unit:  Test trigger logic with mocked agent runs and push notifications.
 """
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+
+from datetime import UTC
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import httpx
-from httpx import Response, Request
+import pytest
+from httpx import Request, Response
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 
 @pytest.fixture(autouse=True)
 def _clear_trigger_cooldowns():
     """Reset the in-memory rate-limit cooldowns and dedupe state between tests."""
-    from api.src.sernia_ai.triggers.background_agent_runner import _trigger_cooldowns
-    from api.src.sernia_ai.triggers.ai_sms_event_trigger import _ai_sms_call_timestamps
     import api.src.sernia_ai.triggers.zillow_email_event_trigger as zillow_mod
+    from api.src.sernia_ai.triggers.ai_sms_event_trigger import _ai_sms_call_timestamps
+    from api.src.sernia_ai.triggers.background_agent_runner import _trigger_cooldowns
+
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
     zillow_mod._pending_emails.clear()
@@ -39,13 +43,13 @@ class TestSmoke:
     """Verify trigger components import and are wired correctly."""
 
     def test_background_agent_runner_imports(self):
-        from api.src.sernia_ai.triggers.background_agent_runner import (
-            run_agent_for_trigger,
-            RATE_LIMIT_SECONDS,
-            _is_rate_limited,
-        )
         from api.src.sernia_ai.agent import NoAction
         from api.src.sernia_ai.config import TRIGGER_BOT_ID
+        from api.src.sernia_ai.triggers.background_agent_runner import (
+            RATE_LIMIT_SECONDS,
+            _is_rate_limited,
+            run_agent_for_trigger,
+        )
 
         assert callable(run_agent_for_trigger)
         assert RATE_LIMIT_SECONDS == 120
@@ -55,8 +59,8 @@ class TestSmoke:
 
     def test_scheduled_triggers_imports(self):
         from api.src.sernia_ai.triggers.scheduled_triggers import (
-            run_scheduled_checks,
             register_scheduled_triggers,
+            run_scheduled_checks,
         )
 
         assert callable(run_scheduled_checks)
@@ -64,7 +68,8 @@ class TestSmoke:
 
     def test_noaction_model_in_agent_output_type(self):
         """NoAction is included in the agent's output_type union."""
-        from api.src.sernia_ai.agent import sernia_agent, NoAction
+        from api.src.sernia_ai.agent import NoAction, sernia_agent
+
         assert NoAction in sernia_agent.output_type
 
     def test_notify_trigger_alert_imports(self):
@@ -81,24 +86,28 @@ class TestSmoke:
 
     def test_zillow_email_event_trigger_imports(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+            _fire_batched_trigger,
             is_zillow_email,
             queue_zillow_email_event,
-            _fire_batched_trigger,
         )
+
         assert callable(is_zillow_email)
         assert callable(queue_zillow_email_event)
         assert callable(_fire_batched_trigger)
 
     def test_notify_user_push_imports(self):
         from api.src.sernia_ai.push.service import notify_user_push
+
         assert callable(notify_user_push)
 
     def test_config_has_emilio_contact_slug(self):
         from api.src.sernia_ai.config import EMILIO_CONTACT_SLUG
+
         assert EMILIO_CONTACT_SLUG == "emilio"
 
     def test_get_clerk_user_id_by_slug_imports(self):
         from api.src.contact.service import get_clerk_user_id_by_slug
+
         assert callable(get_clerk_user_id_by_slug)
 
     def test_background_runner_only_fires_pending_approval_push(self):
@@ -112,7 +121,7 @@ class TestSmoke:
 
     def test_config_has_shared_team_contact_id(self):
         """Config should have QUO_SHARED_TEAM_CONTACT_ID and FRONTEND_BASE_URL."""
-        from api.src.sernia_ai.config import QUO_SHARED_TEAM_CONTACT_ID, FRONTEND_BASE_URL
+        from api.src.sernia_ai.config import FRONTEND_BASE_URL, QUO_SHARED_TEAM_CONTACT_ID
 
         assert isinstance(QUO_SHARED_TEAM_CONTACT_ID, str)
         assert len(QUO_SHARED_TEAM_CONTACT_ID) > 0
@@ -137,6 +146,7 @@ class TestSmoke:
     def test_list_user_conversations_accepts_none_clerk_user_id(self):
         """list_user_conversations should accept clerk_user_id=None."""
         import inspect
+
         from api.src.ai_demos.models import list_user_conversations
 
         sig = inspect.signature(list_user_conversations)
@@ -163,14 +173,26 @@ class TestBackgroundAgentRunner:
         mock_result.all_messages.return_value = []
 
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
+            ) as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"
+            ) as mock_save,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval") as mock_pending,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"
+            ) as mock_pending,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals",
+                return_value=[],
+            ),
         ):
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -193,15 +215,23 @@ class TestBackgroundAgentRunner:
     async def test_silent_processing_returns_none(self):
         """When agent returns NoAction, conversation is saved but returns None."""
         from api.src.sernia_ai.agent import NoAction
+
         mock_result = MagicMock()
         mock_result.output = NoAction(reason="routine ack")
 
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
+            ) as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"
+            ) as mock_save,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
         ):
             mock_session = AsyncMock()
@@ -224,9 +254,14 @@ class TestBackgroundAgentRunner:
     async def test_handles_agent_error_gracefully(self):
         """When the agent raises an exception, return None without crashing."""
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_session_factory,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
+            ) as mock_session_factory,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
         ):
@@ -245,13 +280,15 @@ class TestBackgroundAgentRunner:
 
             assert conv_id is None
 
-
     @pytest.mark.asyncio
     async def test_triggers_disabled_returns_none(self):
         """When is_sernia_ai_enabled() returns False, return None without running agent."""
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=False),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
@@ -272,27 +309,31 @@ class TestRateLimiter:
     def test_first_call_not_limited(self):
         """First call for a key should not be rate-limited."""
         from api.src.sernia_ai.triggers.background_agent_runner import _is_rate_limited
+
         assert _is_rate_limited("sms:+14155550100") is False
 
     def test_immediate_repeat_is_limited(self):
         """Second call for the same key within the window should be rate-limited."""
         from api.src.sernia_ai.triggers.background_agent_runner import _is_rate_limited
+
         assert _is_rate_limited("sms:+14155550100") is False
         assert _is_rate_limited("sms:+14155550100") is True
 
     def test_different_keys_not_limited(self):
         """Different keys should not block each other."""
         from api.src.sernia_ai.triggers.background_agent_runner import _is_rate_limited
+
         assert _is_rate_limited("sms:+14155550100") is False
         assert _is_rate_limited("sms:+14155550200") is False
 
     def test_expired_cooldown_allows_retry(self):
         """After the cooldown expires, the key should be allowed again."""
+        import time
+
         from api.src.sernia_ai.triggers.background_agent_runner import (
             _is_rate_limited,
             _trigger_cooldowns,
         )
-        import time
 
         key = "sms:+14155550100"
         assert _is_rate_limited(key) is False
@@ -308,14 +349,22 @@ class TestRateLimiter:
         mock_result.all_messages.return_value = []
 
         with (
-            patch("api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory") as mock_sf,
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
+            ) as mock_sf,
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation") as mock_save,
+            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
             patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals", return_value=[]),
+            patch(
+                "api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals",
+                return_value=[],
+            ),
         ):
             mock_session = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -350,14 +399,16 @@ class TestAiSmsRateLimiter:
 
     def test_first_call_not_limited(self):
         from api.src.sernia_ai.triggers.ai_sms_event_trigger import _is_ai_sms_rate_limited
+
         assert _is_ai_sms_rate_limited("+14155550100") is False
 
     def test_allows_up_to_max_calls(self):
         """Should allow up to AI_SMS_RATE_LIMIT_MAX_CALLS within the window."""
         from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
-            _is_ai_sms_rate_limited,
             AI_SMS_RATE_LIMIT_MAX_CALLS,
+            _is_ai_sms_rate_limited,
         )
+
         phone = "+14155550100"
         for _ in range(AI_SMS_RATE_LIMIT_MAX_CALLS):
             assert _is_ai_sms_rate_limited(phone) is False
@@ -367,17 +418,19 @@ class TestAiSmsRateLimiter:
     def test_different_phones_independent(self):
         """Different phone numbers should not block each other."""
         from api.src.sernia_ai.triggers.ai_sms_event_trigger import _is_ai_sms_rate_limited
+
         assert _is_ai_sms_rate_limited("+14155550100") is False
         assert _is_ai_sms_rate_limited("+14155550200") is False
 
     def test_expired_timestamps_pruned(self):
         """After the window expires, old timestamps should be pruned and calls allowed."""
-        from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
-            _is_ai_sms_rate_limited,
-            _ai_sms_call_timestamps,
-            AI_SMS_RATE_LIMIT_MAX_CALLS,
-        )
         import time
+
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
+            AI_SMS_RATE_LIMIT_MAX_CALLS,
+            _ai_sms_call_timestamps,
+            _is_ai_sms_rate_limited,
+        )
 
         phone = "+14155550100"
         # Fill up the window
@@ -397,7 +450,9 @@ class TestScheduledTriggers:
     @pytest.mark.asyncio
     async def test_scheduled_checks_calls_runner(self):
         """run_scheduled_checks should call run_agent_for_trigger with scheduled-checks skill reference."""
-        with patch("api.src.sernia_ai.triggers.scheduled_triggers.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.scheduled_triggers.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = None
 
             from api.src.sernia_ai.triggers.scheduled_triggers import run_scheduled_checks
@@ -418,6 +473,7 @@ class TestNotifyTeamSms:
     def _clear_phone_cache(self):
         """Reset the cached phone number between tests."""
         import api.src.sernia_ai.push.service as svc
+
         svc._shared_team_phone = None
         yield
         svc._shared_team_phone = None
@@ -491,6 +547,7 @@ class TestNotifyTeamSms:
     async def test_caches_phone_number(self):
         """Phone number should be cached after first lookup."""
         import api.src.sernia_ai.push.service as svc
+
         svc._shared_team_phone = "+14125559999"
 
         with (
@@ -516,6 +573,7 @@ class TestNotifyTeamSms:
     async def test_failure_does_not_raise(self):
         """Even if send_message raises, notify_team_sms should not propagate."""
         import api.src.sernia_ai.push.service as svc
+
         svc._shared_team_phone = "+14125559999"
 
         with patch("api.src.open_phone.service.send_message") as mock_send:
@@ -541,16 +599,17 @@ class TestAiSmsEventTriggerSmoke:
 
     def test_ai_sms_event_trigger_imports(self):
         from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
-            handle_ai_sms_event,
-            _verify_internal_contact,
-            _fetch_sms_thread,
-            _sms_to_model_messages,
-            _trim_sms_history,
-            _send_sms_reply,
-            _is_ai_sms_rate_limited,
             AI_SMS_RATE_LIMIT_MAX_CALLS,
             AI_SMS_RATE_LIMIT_WINDOW_SECONDS,
+            _fetch_sms_thread,
+            _is_ai_sms_rate_limited,
+            _send_sms_reply,
+            _sms_to_model_messages,
+            _trim_sms_history,
+            _verify_internal_contact,
+            handle_ai_sms_event,
         )
+
         assert callable(handle_ai_sms_event)
         assert callable(_verify_internal_contact)
         assert callable(_fetch_sms_thread)
@@ -563,11 +622,13 @@ class TestAiSmsEventTriggerSmoke:
 
     def test_config_has_sms_conversation_max_messages(self):
         from api.src.sernia_ai.config import SMS_CONVERSATION_MAX_MESSAGES
+
         assert isinstance(SMS_CONVERSATION_MAX_MESSAGES, int)
         assert SMS_CONVERSATION_MAX_MESSAGES > 0
 
     def test_config_has_sms_history_trimming_constants(self):
         from api.src.sernia_ai.config import SMS_HISTORY_MIN_DAYS, SMS_HISTORY_MIN_MESSAGES
+
         assert isinstance(SMS_HISTORY_MIN_DAYS, int)
         assert SMS_HISTORY_MIN_DAYS > 0
         assert isinstance(SMS_HISTORY_MIN_MESSAGES, int)
@@ -576,6 +637,7 @@ class TestAiSmsEventTriggerSmoke:
     def test_ai_sms_event_trigger_wired_in_webhook(self):
         """handle_ai_sms_event should be imported in open_phone routes."""
         import api.src.open_phone.routes as routes_module
+
         assert hasattr(routes_module, "handle_ai_sms_event")
 
 
@@ -716,14 +778,16 @@ class TestTrimSmsHistory:
     """Test _trim_sms_history reduces conversation history to recent window."""
 
     def _make_user_msg(self, text: str, days_ago: int = 0) -> ModelRequest:
-        from datetime import datetime, timedelta, timezone
-        ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        from datetime import datetime, timedelta
+
+        ts = datetime.now(UTC) - timedelta(days=days_ago)
         # Timestamp must be on UserPromptPart (ModelRequest.timestamp is always None after ser/deser)
         return ModelRequest(parts=[UserPromptPart(content=text, timestamp=ts)])
 
     def _make_assistant_msg(self, text: str, days_ago: int = 0) -> ModelResponse:
-        from datetime import datetime, timedelta, timezone
-        ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        from datetime import datetime, timedelta
+
+        ts = datetime.now(UTC) - timedelta(days=days_ago)
         return ModelResponse(parts=[TextPart(content=text)], timestamp=ts)
 
     def test_no_trim_when_few_messages(self):
@@ -905,21 +969,33 @@ class TestHandleAiSmsEvent:
         }
 
         with (
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
-                  return_value=internal_contact),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
+                return_value=internal_contact,
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
-                  return_value=[]),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread",
-                  return_value=[]),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation") as mock_save,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply") as mock_reply,
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
+                return_value=[],
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread", return_value=[]
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"
+            ) as mock_save,
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply"),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
-                  return_value=[]),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                return_value=[],
+            ),
         ):
             mock_session = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -928,11 +1004,13 @@ class TestHandleAiSmsEvent:
 
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
-            await handle_ai_sms_event({
-                "from_number": "+14155550100",
-                "message_text": "Can you check the lease?",
-                "event_id": "evt_ai_1",
-            })
+            await handle_ai_sms_event(
+                {
+                    "from_number": "+14155550100",
+                    "message_text": "Can you check the lease?",
+                    "event_id": "evt_ai_1",
+                }
+            )
 
             mock_agent.run.assert_called_once()
             mock_save.assert_called_once()
@@ -945,26 +1023,35 @@ class TestHandleAiSmsEvent:
     async def test_blocks_external_contacts(self):
         """Messages from external/unknown contacts should be silently ignored."""
         with (
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
-                  return_value=None),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
+                return_value=None,
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
-            await handle_ai_sms_event({
-                "from_number": "+19995550000",
-                "message_text": "Who is this?",
-                "event_id": "evt_external",
-            })
+            await handle_ai_sms_event(
+                {
+                    "from_number": "+19995550000",
+                    "message_text": "Who is this?",
+                    "event_id": "evt_external",
+                }
+            )
 
             mock_agent.run.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_missing_data(self):
         """Events with missing from_number or message_text should be skipped."""
-        with patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact") as mock_verify:
+        with patch(
+            "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact"
+        ) as mock_verify:
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
             await handle_ai_sms_event({"event_id": "evt_no_data"})
@@ -994,20 +1081,31 @@ class TestHandleAiSmsEvent:
         }
 
         with (
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
-                  return_value=internal_contact),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
+                return_value=internal_contact,
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
-                  return_value=existing_history) as mock_get_msgs,
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
+                return_value=existing_history,
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread") as mock_fetch,
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread"
+            ) as mock_fetch,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
-                  return_value=[]),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                return_value=[],
+            ),
         ):
             mock_session = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -1016,11 +1114,13 @@ class TestHandleAiSmsEvent:
 
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
-            await handle_ai_sms_event({
-                "from_number": "+14155550100",
-                "message_text": "Follow-up question",
-                "event_id": "evt_followup",
-            })
+            await handle_ai_sms_event(
+                {
+                    "from_number": "+14155550100",
+                    "message_text": "Follow-up question",
+                    "event_id": "evt_followup",
+                }
+            )
 
             # Should have fetched SMS thread for merging (always fetched now)
             mock_fetch.assert_called_once()
@@ -1035,7 +1135,9 @@ class TestHandleAiSmsEvent:
         mock_result.output = None
         mock_result.all_messages.return_value = []
 
-        pending = [{"tool_call_id": "tc_1", "tool_name": "send_email", "args": {"to": "test@test.com"}}]
+        pending = [
+            {"tool_call_id": "tc_1", "tool_name": "send_email", "args": {"to": "test@test.com"}}
+        ]
 
         internal_contact = {
             "defaultFields": {
@@ -1046,22 +1148,32 @@ class TestHandleAiSmsEvent:
         }
 
         with (
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
-                  new_callable=AsyncMock, return_value=True),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
-                  return_value=internal_contact),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
+                return_value=internal_contact,
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
-                  return_value=[]),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread",
-                  return_value=[]),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
+                return_value=[],
+            ),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread", return_value=[]
+            ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply") as mock_reply,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.notify_pending_approval") as mock_notify,
+            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.notify_pending_approval"),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
-                  return_value=pending),
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                return_value=pending,
+            ),
         ):
             mock_session = AsyncMock()
             mock_sf.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -1070,11 +1182,13 @@ class TestHandleAiSmsEvent:
 
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
-            await handle_ai_sms_event({
-                "from_number": "+14155550100",
-                "message_text": "Send an email to the tenant",
-                "event_id": "evt_hitl",
-            })
+            await handle_ai_sms_event(
+                {
+                    "from_number": "+14155550100",
+                    "message_text": "Send an email to the tenant",
+                    "event_id": "evt_hitl",
+                }
+            )
 
             # Should NOT have sent SMS reply (waiting for approval)
             mock_reply.assert_not_called()
@@ -1090,18 +1204,21 @@ class TestIsZillowEmail:
 
     def test_zillow_from_address(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+
         assert is_zillow_email("noreply@zillow.com") is True
         assert is_zillow_email("leads@messaging.zillow.com") is True
         assert is_zillow_email("NOREPLY@ZILLOW.COM") is True
 
     def test_non_zillow_from_address(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+
         assert is_zillow_email("tenant@gmail.com") is False
         assert is_zillow_email("zillow-impersonator@evil.com") is False
         assert is_zillow_email("user@notzillow.com") is False
 
     def test_empty_and_none(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+
         assert is_zillow_email("") is False
         # is_zillow_email requires str, but guard handles falsy
         assert is_zillow_email("") is False
@@ -1171,6 +1288,7 @@ class TestQueueZillowEmailEventDedup:
     async def test_recently_fired_ttl_blocks_requeue(self):
         """A message_id marked as recently fired should be rejected on re-queue."""
         import time as _time
+
         import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
 
         mod._recently_fired_message_ids["msg_just_fired"] = _time.monotonic()
@@ -1196,6 +1314,7 @@ class TestQueueZillowEmailEventDedup:
     async def test_recently_fired_prunes_expired(self):
         """TTL cache entries older than RECENTLY_FIRED_TTL_SECONDS should be pruned."""
         import time as _time
+
         import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
 
         # Entry from three hours ago — older than the 2h TTL
@@ -1228,18 +1347,22 @@ class TestZillowEmailBatchedTrigger:
     @pytest.mark.asyncio
     async def test_single_email_calls_runner_with_correct_source(self):
         """Single-email batch should call run_agent_for_trigger with correct source and metadata."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = "conv-zillow-1"
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            emails = [{
-                "thread_id": "thread_abc123",
-                "message_id": "msg_1",
-                "subject": "Rental Inquiry - 320 S Mathilda",
-                "from_address": "noreply@zillow.com",
-                "body_text": "Hi, I'm interested in the 1BR unit.",
-            }]
+            emails = [
+                {
+                    "thread_id": "thread_abc123",
+                    "message_id": "msg_1",
+                    "subject": "Rental Inquiry - 320 S Mathilda",
+                    "from_address": "noreply@zillow.com",
+                    "body_text": "Hi, I'm interested in the 1BR unit.",
+                }
+            ]
 
             result = await _fire_batched_trigger(emails)
 
@@ -1256,18 +1379,24 @@ class TestZillowEmailBatchedTrigger:
     @pytest.mark.asyncio
     async def test_includes_body_snippet_in_prompt(self):
         """Single-email trigger prompt should include a preview of the email body."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = None
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await _fire_batched_trigger([{
-                "thread_id": "thread_xyz",
-                "message_id": "msg_2",
-                "subject": "Inquiry",
-                "from_address": "noreply@zillow.com",
-                "body_text": "I have great credit and want to move in July.",
-            }])
+            await _fire_batched_trigger(
+                [
+                    {
+                        "thread_id": "thread_xyz",
+                        "message_id": "msg_2",
+                        "subject": "Inquiry",
+                        "from_address": "noreply@zillow.com",
+                        "body_text": "I have great credit and want to move in July.",
+                    }
+                ]
+            )
 
             call_kwargs = mock_run.call_args[1]
             assert "great credit" in call_kwargs["trigger_prompt"]
@@ -1275,54 +1404,72 @@ class TestZillowEmailBatchedTrigger:
     @pytest.mark.asyncio
     async def test_handles_none_body_text(self):
         """Should not crash when body_text is None."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = None
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await _fire_batched_trigger([{
-                "thread_id": "thread_null",
-                "message_id": "msg_3",
-                "subject": "Test",
-                "from_address": "noreply@zillow.com",
-                "body_text": None,
-            }])
+            await _fire_batched_trigger(
+                [
+                    {
+                        "thread_id": "thread_null",
+                        "message_id": "msg_3",
+                        "subject": "Test",
+                        "from_address": "noreply@zillow.com",
+                        "body_text": None,
+                    }
+                ]
+            )
 
             mock_run.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_agent_takes_no_action(self):
         """When run_agent_for_trigger returns None (NoAction), should return None."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = None
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            result = await _fire_batched_trigger([{
-                "thread_id": "thread_cold",
-                "message_id": "msg_4",
-                "subject": "Re: Tour - 320 S Mathilda",
-                "from_address": "noreply@zillow.com",
-                "body_text": "Thanks, we'll let you know.",
-            }])
+            result = await _fire_batched_trigger(
+                [
+                    {
+                        "thread_id": "thread_cold",
+                        "message_id": "msg_4",
+                        "subject": "Re: Tour - 320 S Mathilda",
+                        "from_address": "noreply@zillow.com",
+                        "body_text": "Thanks, we'll let you know.",
+                    }
+                ]
+            )
 
             assert result is None
 
     @pytest.mark.asyncio
     async def test_prompt_has_deeplink_and_skill_reference(self):
         """Trigger prompt should reference the skill and include a deeplink."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = None
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
-            await _fire_batched_trigger([{
-                "thread_id": "t1",
-                "message_id": "msg_6",
-                "subject": "Test",
-                "from_address": "noreply@zillow.com",
-                "body_text": "Test body",
-            }])
+            await _fire_batched_trigger(
+                [
+                    {
+                        "thread_id": "t1",
+                        "message_id": "msg_6",
+                        "subject": "Test",
+                        "from_address": "noreply@zillow.com",
+                        "body_text": "Test body",
+                    }
+                ]
+            )
 
             call_kwargs = mock_run.call_args[1]
             prompt = call_kwargs["trigger_prompt"]
@@ -1333,14 +1480,28 @@ class TestZillowEmailBatchedTrigger:
     @pytest.mark.asyncio
     async def test_multi_email_batch_prompt(self):
         """Multi-email batch should list all emails in the prompt."""
-        with patch("api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger") as mock_run:
+        with patch(
+            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
+        ) as mock_run:
             mock_run.return_value = "conv-batch"
 
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
 
             emails = [
-                {"thread_id": "t1", "message_id": "m1", "subject": "Inquiry A", "from_address": "a@zillow.com", "body_text": "A"},
-                {"thread_id": "t2", "message_id": "m2", "subject": "Inquiry B", "from_address": "b@zillow.com", "body_text": "B"},
+                {
+                    "thread_id": "t1",
+                    "message_id": "m1",
+                    "subject": "Inquiry A",
+                    "from_address": "a@zillow.com",
+                    "body_text": "A",
+                },
+                {
+                    "thread_id": "t2",
+                    "message_id": "m2",
+                    "subject": "Inquiry B",
+                    "from_address": "b@zillow.com",
+                    "body_text": "B",
+                },
             ]
 
             result = await _fire_batched_trigger(emails)
@@ -1368,18 +1529,24 @@ class TestUniversalKillSwitch:
         with (
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger.is_sernia_ai_enabled",
-                new_callable=AsyncMock, return_value=False,
+                new_callable=AsyncMock,
+                return_value=False,
             ),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact", new_callable=AsyncMock) as mock_verify,
+            patch(
+                "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
+                new_callable=AsyncMock,
+            ) as mock_verify,
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
-            await handle_ai_sms_event({
-                "from_number": "+14155550100",
-                "message_text": "Hello",
-                "event_id": "evt_disabled",
-            })
+            await handle_ai_sms_event(
+                {
+                    "from_number": "+14155550100",
+                    "message_text": "Hello",
+                    "event_id": "evt_disabled",
+                }
+            )
 
             # Kill switch blocks before contact verification
             mock_verify.assert_not_called()
@@ -1391,7 +1558,8 @@ class TestUniversalKillSwitch:
         with (
             patch(
                 "api.src.sernia_ai.triggers.background_agent_runner.is_sernia_ai_enabled",
-                new_callable=AsyncMock, return_value=False,
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
         ):

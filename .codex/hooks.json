@@ -1,0 +1,81 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__Railway__link-environment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/railway-link-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__delete_branch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__delete_project",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__run_sql",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__run_sql_transaction",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__complete_database_migration",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__Neon__complete_query_tuning",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/eesposito/portfolio/.codex/hooks/neon-guard.sh'"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/setup_remote.sh",
+            "timeout": 60000
+          }
+        ]
+      }
+    ]
+  }
+}

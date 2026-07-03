@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import logfire
 from pydantic_ai import FunctionToolset, RunContext
-from sqlalchemy import cast, select, String, or_, and_
+from sqlalchemy import String, and_, cast, or_, select
 
 from api.src.ai_demos.models import AgentConversation
 from api.src.database.database import AsyncSessionFactory
@@ -22,6 +22,7 @@ db_search_toolset = FunctionToolset()
 # ---------------------------------------------------------------------------
 # Shared SMS helpers
 # ---------------------------------------------------------------------------
+
 
 async def _resolve_contact_phones(contact_name: str) -> tuple[str, list[str]]:
     """Fuzzy-match a contact name to a display name and list of E.164 phone numbers.
@@ -133,8 +134,8 @@ def _build_date_filters(after: str | None, before: str | None) -> list:
     if before_dt:
         # Include the entire "before" day
         filters.append(
-            OpenPhoneEvent.event_timestamp < before_dt.replace(hour=0, minute=0, second=0)
-            + timedelta(days=1)
+            OpenPhoneEvent.event_timestamp
+            < before_dt.replace(hour=0, minute=0, second=0) + timedelta(days=1)
         )
     return filters
 
@@ -192,10 +193,7 @@ async def search_conversations(
         ts = conv.updated_at.strftime("%Y-%m-%d %I:%M %p") if conv.updated_at else "?"
         # Extract a snippet from messages containing the query
         snippet = _extract_snippet(conv.messages, query)
-        lines.append(
-            f"[{ts}] agent: {conv.agent_name}, id: {conv.id}\n"
-            f"  {snippet}"
-        )
+        lines.append(f"[{ts}] agent: {conv.agent_name}, id: {conv.id}\n  {snippet}")
     return "\n\n".join(lines)
 
 
@@ -413,4 +411,3 @@ async def search_sms_history(
             sections.append("\n".join(lines))
 
     return "\n\n".join(sections)
-

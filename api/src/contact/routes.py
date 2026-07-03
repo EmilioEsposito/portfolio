@@ -1,29 +1,26 @@
 import uuid
-from typing import List
 
+import logfire
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-import logfire
 
-from api.src.database.database import get_session
 from api.src.contact import service as contact_service
 from api.src.contact.service import ContactCreate, ContactResponse, ContactUpdate
+from api.src.database.database import get_session
 from api.src.utils.clerk import verify_serniacapital_user
-
-
 
 router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
-    dependencies=[Depends(verify_serniacapital_user)] # can't use verify_admin_or_serniacapital here because it's not a dependency
+    dependencies=[
+        Depends(verify_serniacapital_user)
+    ],  # can't use verify_admin_or_serniacapital here because it's not a dependency
 )
 
+
 @router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
-async def create_new_contact(
-    contact: ContactCreate,
-    db: Session = Depends(get_session)
-):
+async def create_new_contact(contact: ContactCreate, db: Session = Depends(get_session)):
     """
     Create a new contact.
     - **slug**: Unique, URL-friendly identifier (e.g., 'john-doe', 'internal-support').
@@ -43,14 +40,13 @@ async def create_new_contact(
         raise
     except Exception as e:
         logfire.error(f"Unexpected error creating contact: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
 
-@router.get("/", response_model=List[ContactResponse])
-async def read_all_contacts(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_session)
-):
+
+@router.get("/", response_model=list[ContactResponse])
+async def read_all_contacts(skip: int = 0, limit: int = 100, db: Session = Depends(get_session)):
     """
     Retrieve all contacts with pagination.
     """
@@ -61,13 +57,13 @@ async def read_all_contacts(
         return contacts
     except Exception as e:
         logfire.error(f"Unexpected error reading all contacts: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
+
 
 @router.get("/id/{contact_id}", response_model=ContactResponse)
-async def read_contact_by_id(
-    contact_id: uuid.UUID,
-    db: Session = Depends(get_session)
-):
+async def read_contact_by_id(contact_id: uuid.UUID, db: Session = Depends(get_session)):
     """
     Get a specific contact by its UUID.
     """
@@ -82,18 +78,18 @@ async def read_contact_by_id(
     except HTTPException as e:
         # This will catch the 404 from above and re-raise it, logging is already done.
         # Or, if service layer raises an HTTPException for other reasons.
-        if e.status_code != status.HTTP_404_NOT_FOUND: # Avoid double logging 404
-             logfire.error(f"Error reading contact by ID {contact_id}: {e.detail}")
+        if e.status_code != status.HTTP_404_NOT_FOUND:  # Avoid double logging 404
+            logfire.error(f"Error reading contact by ID {contact_id}: {e.detail}")
         raise
     except Exception as e:
         logfire.error(f"Unexpected error reading contact by ID {contact_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
 
 
 @router.get("/slug/{slug}", response_model=ContactResponse)
-async def read_contact_by_slug(
-    slug: str
-):
+async def read_contact_by_slug(slug: str):
     """
     Get a specific contact by its unique slug.
     """
@@ -102,7 +98,10 @@ async def read_contact_by_slug(
         db_contact = await contact_service.get_contact_by_slug(slug=slug)
         if db_contact is None:
             logfire.warn(f"Contact with slug: '{slug}' not found.")
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Contact with slug '{slug}' not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Contact with slug '{slug}' not found",
+            )
         logfire.info(f"Successfully retrieved contact with slug: {slug}")
         return db_contact
     except HTTPException as e:
@@ -111,13 +110,14 @@ async def read_contact_by_slug(
         raise
     except Exception as e:
         logfire.error(f"Unexpected error reading contact by slug {slug}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
+
 
 @router.put("/{contact_id}", response_model=ContactResponse)
 async def update_existing_contact(
-    contact_id: uuid.UUID,
-    contact: ContactUpdate,
-    db: Session = Depends(get_session)
+    contact_id: uuid.UUID, contact: ContactUpdate, db: Session = Depends(get_session)
 ):
     """
     Update an existing contact by its UUID. Fields not provided will remain unchanged.
@@ -125,7 +125,9 @@ async def update_existing_contact(
     """
     logfire.info(f"Attempting to update contact with ID: {contact_id}")
     try:
-        updated_contact = await contact_service.update_contact(db, contact_id=contact_id, contact_update=contact)
+        updated_contact = await contact_service.update_contact(
+            db, contact_id=contact_id, contact_update=contact
+        )
         if updated_contact is None:
             logfire.warn(f"Contact with ID: {contact_id} not found for update.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
@@ -133,17 +135,19 @@ async def update_existing_contact(
         return updated_contact
     except HTTPException as e:
         if e.status_code != status.HTTP_404_NOT_FOUND:
-             logfire.error(f"Error updating contact {contact_id}: {e.detail}")
+            logfire.error(f"Error updating contact {contact_id}: {e.detail}")
         raise
     except Exception as e:
         logfire.error(f"Unexpected error updating contact {contact_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )
 
-@router.delete("/{contact_id}", response_model=ContactResponse) # Or just status_code=204 if no body is returned
-async def remove_contact(
-    contact_id: uuid.UUID,
-    db: Session = Depends(get_session)
-):
+
+@router.delete(
+    "/{contact_id}", response_model=ContactResponse
+)  # Or just status_code=204 if no body is returned
+async def remove_contact(contact_id: uuid.UUID, db: Session = Depends(get_session)):
     """
     Delete a contact by its UUID.
     """
@@ -154,11 +158,13 @@ async def remove_contact(
             logfire.warn(f"Contact with ID: {contact_id} not found for deletion.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
         logfire.info(f"Successfully deleted contact with ID: {contact_id}")
-        return deleted_contact # Or return a message like {"detail": "Contact deleted"}
+        return deleted_contact  # Or return a message like {"detail": "Contact deleted"}
     except HTTPException as e:
         if e.status_code != status.HTTP_404_NOT_FOUND:
             logfire.error(f"Error deleting contact {contact_id}: {e.detail}")
         raise
     except Exception as e:
         logfire.error(f"Unexpected error deleting contact {contact_id}: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error"
+        )

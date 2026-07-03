@@ -1,4 +1,5 @@
 """Quo contact search + conversation thread retrieval (SMS + calls)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -51,7 +52,8 @@ def _format_call_snippet(call: dict) -> str:
 
 
 async def _fetch_latest_message(
-    client: httpx.AsyncClient, phone: str,
+    client: httpx.AsyncClient,
+    phone: str,
 ) -> dict | None:
     """Fetch the most recent SMS for a phone on the shared team line."""
     try:
@@ -71,7 +73,8 @@ async def _fetch_latest_message(
 
 
 async def _fetch_latest_call(
-    client: httpx.AsyncClient, phone: str,
+    client: httpx.AsyncClient,
+    phone: str,
 ) -> dict | None:
     """Fetch the most recent call for a phone on the shared team line."""
     try:
@@ -91,7 +94,8 @@ async def _fetch_latest_call(
 
 
 async def _fetch_message_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     try:
         resp = await client.get(f"/v1/messages/{activity_id}")
@@ -102,7 +106,8 @@ async def _fetch_message_by_id(
 
 
 async def _fetch_call_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     try:
         resp = await client.get(f"/v1/calls/{activity_id}")
@@ -113,7 +118,8 @@ async def _fetch_call_by_id(
 
 
 async def _fetch_activity_by_id(
-    client: httpx.AsyncClient, activity_id: str,
+    client: httpx.AsyncClient,
+    activity_id: str,
 ) -> dict | None:
     """Fetch a Quo activity (message or call) by its ``AC...`` ID.
 
@@ -135,7 +141,8 @@ async def _fetch_activity_by_id(
 
 
 async def _find_group_conversation(
-    client: httpx.AsyncClient, participants: list[str],
+    client: httpx.AsyncClient,
+    participants: list[str],
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match the
     given set (regardless of ordering). Returns None if none found. Pages
@@ -190,6 +197,7 @@ async def get_call_details_core(
     caller can pass a larger value for the full text of long calls.
     """
     async with build_quo_client() as client:
+
         async def _fetch_call() -> dict | None:
             try:
                 resp = await client.get(f"/v1/calls/{call_id}")
@@ -215,14 +223,13 @@ async def get_call_details_core(
                 return None
 
         call, summary, transcript = await asyncio.gather(
-            _fetch_call(), _fetch_summary(), _fetch_transcript(),
+            _fetch_call(),
+            _fetch_summary(),
+            _fetch_transcript(),
         )
 
         if call is None and summary is None and transcript is None:
-            return (
-                f"No call found with ID {call_id} "
-                "(or transcript/summary not yet ready)."
-            )
+            return f"No call found with ID {call_id} (or transcript/summary not yet ready)."
 
         try:
             contacts = await get_all_contacts(client)
@@ -338,9 +345,9 @@ async def list_active_threads_core(
                 ("excludeInactive", "true"),
             ]
             if updated_after_days is not None:
-                cutoff = (
-                    datetime.now(UTC) - timedelta(days=updated_after_days)
-                ).strftime("%Y-%m-%dT%H:%M:%SZ")
+                cutoff = (datetime.now(UTC) - timedelta(days=updated_after_days)).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
                 params.append(("updatedAfter", cutoff))
             if page_token:
                 params.append(("pageToken", page_token))
@@ -440,12 +447,12 @@ async def list_active_threads_core(
                     if direction == "outgoing":
                         snippet_line = f"\n  Snippet: You: {preview}"
                     else:
-                        sender_phone = (
-                            latest.get("from_") or latest.get("from") or ""
+                        sender_phone = latest.get("from_") or latest.get("from") or ""
+                        sender_label = (
+                            phone_map.get(sender_phone, sender_phone).split(" (")[0]
+                            if sender_phone
+                            else "Them"
                         )
-                        sender_label = phone_map.get(
-                            sender_phone, sender_phone
-                        ).split(" (")[0] if sender_phone else "Them"
                         snippet_line = f"\n  Snippet: {sender_label}: {preview}"
 
         lines.append(
@@ -466,6 +473,7 @@ async def _fetch_one_to_one_thread(
 
     Returns ``(messages, calls)`` on success, or an error string on failure.
     """
+
     async def _fetch(path: str) -> dict:
         resp = await client.get(
             path,
@@ -499,9 +507,9 @@ def _render_thread(
     header_prefix: str = "Thread with",
 ) -> str:
     """Render a chronological thread (SMS + calls interleaved)."""
-    items: list[tuple[str, dict]] = (
-        [("message", m) for m in messages] + [("call", c) for c in calls]
-    )
+    items: list[tuple[str, dict]] = [("message", m) for m in messages] + [
+        ("call", c) for c in calls
+    ]
     items.sort(key=lambda kv: kv[1].get("createdAt", ""))
 
     lines: list[str] = [
@@ -519,7 +527,8 @@ def _render_thread(
             status = item.get("status") or ""
             status_str = f", {status}" if status and status != "completed" else ""
             arrow = (
-                f"{contact_name} → Sernia Capital" if direction == "incoming"
+                f"{contact_name} → Sernia Capital"
+                if direction == "incoming"
                 else f"Sernia Capital → {contact_name}"
             )
             lines.append(
@@ -537,7 +546,8 @@ def _render_thread(
             else:
                 sender_name = (
                     phone_map.get(sender_phone, sender_phone)
-                    if isinstance(sender_phone, str) else "?"
+                    if isinstance(sender_phone, str)
+                    else "?"
                 )
                 recipient_name = "Sernia Capital"
 
@@ -559,20 +569,14 @@ def _format_group_activity_line(
         direction = item.get("direction", "?")
         duration = item.get("duration")
         dur_str = f"{duration}s" if isinstance(duration, int) else "?s"
-        return (
-            f"[{created}] CALL ({direction}, {dur_str}) — "
-            f"Call ID {item.get('id', '?')}"
-        )
+        return f"[{created}] CALL ({direction}, {dur_str}) — Call ID {item.get('id', '?')}"
     text = (item.get("text") or item.get("body") or "(no text)")[:500]
     sender_phone = item.get("from_") or item.get("from") or ""
     sender_name = (
-        phone_map.get(sender_phone, sender_phone)
-        if isinstance(sender_phone, str) else "?"
+        phone_map.get(sender_phone, sender_phone) if isinstance(sender_phone, str) else "?"
     )
     to_phones = item.get("to") or []
-    to_names = ", ".join(
-        phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
-    )
+    to_names = ", ".join(phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones)
     return f"[{created}] {sender_name} → {to_names}: {text}"
 
 
@@ -620,8 +624,11 @@ async def get_thread_messages_core(
             if not messages and not calls:
                 return f"No messages or calls found with {only_phone}."
             return _render_thread(
-                messages, calls,
-                phone_map.get(only_phone, only_phone), only_phone, phone_map,
+                messages,
+                calls,
+                phone_map.get(only_phone, only_phone),
+                only_phone,
+                phone_map,
             )
 
         # ---- Group thread path ----
@@ -652,8 +659,7 @@ async def get_thread_messages_core(
         )
 
     participant_labels = ", ".join(
-        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p
-        for p in participants_in
+        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p for p in participants_in
     )
     out: list[str] = [
         f"Group thread: {participant_labels}",
@@ -685,10 +691,16 @@ async def get_thread_messages_core(
             if not messages and not calls:
                 out.append(f"_(no 1:1 messages or calls with {phone})_")
             else:
-                out.append(_render_thread(
-                    messages, calls, contact_name, phone, phone_map,
-                    header_prefix="1:1 with",
-                ))
+                out.append(
+                    _render_thread(
+                        messages,
+                        calls,
+                        contact_name,
+                        phone,
+                        phone_map,
+                        header_prefix="1:1 with",
+                    )
+                )
         out.append("")
 
     return "\n".join(out).rstrip()

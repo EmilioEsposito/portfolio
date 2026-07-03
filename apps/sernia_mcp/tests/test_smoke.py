@@ -3,6 +3,7 @@
 These verify the server module loads, all MCP tools register, the approvals
 provider is mounted, and the public tool surface is what we expect.
 """
+
 from __future__ import annotations
 
 import pytest

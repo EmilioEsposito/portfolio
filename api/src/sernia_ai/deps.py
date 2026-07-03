@@ -1,6 +1,7 @@
 """
 Dependencies dataclass for the Sernia AI agent.
 """
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal

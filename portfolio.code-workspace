@@ -9,12 +9,8 @@
 			"path": "./api/src/sernia_ai/workspace"
 		},
 		{
-			"name": "portfolio-docuform",
-			"path": "../portfolio-docuform"
-		},
-		{
 			"name": "ai-workflows",
-			"path": "../ai-workflows"
+			"path": "../../ai-workflows"
 		},
 		{
 			"name": "scratch",
@@ -26,18 +22,18 @@
 		},
 		{
 			"name": "pricing",
-			"path": "../code/pricing"
+			"path": "../pricing"
 		},
 		{
 			"name": "genai-prices",
-			"path": "../code/genai-prices"
+			"path": "../genai-prices"
 		},
 		{
 			"name": "659 Sale",
 			"path": "/Users/eesposito/Library/CloudStorage/GoogleDrive-emilio@serniacapital.com/My Drive/SerniaCapital/Projects/659 Sale"
 		},
 		{
-			"path": "../code/opencode-claude-code-bridge"
+			"path": "../opencode-claude-code-bridge"
 		}
 	],
 	"settings": {

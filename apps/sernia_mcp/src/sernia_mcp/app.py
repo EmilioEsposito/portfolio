@@ -15,6 +15,7 @@ This module exposes a single ``app`` callable that:
      inbound request surfaces in Logfire with method, path, status, latency.
   2. Logs unhandled exceptions explicitly (Starlette swallows some).
 """
+
 from __future__ import annotations
 
 import time

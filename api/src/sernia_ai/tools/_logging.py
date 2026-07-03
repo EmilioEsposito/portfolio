@@ -1,7 +1,8 @@
 """Shared error-logging helpers for Sernia AI tools."""
 
 import asyncio
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 import logfire
 from pydantic_ai import RunContext

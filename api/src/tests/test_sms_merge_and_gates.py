@@ -10,7 +10,6 @@ Tests:
 real SMS to external contacts from tests. See CLAUDE.md.
 """
 
-import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -20,17 +19,17 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from api.src.sernia_ai.tools.quo_tools import _is_internal_contact
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _extract_text_contents,
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.tools.quo_tools import _is_internal_contact
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _user(text: str) -> ModelRequest:
     return ModelRequest(parts=[UserPromptPart(content=text)])
@@ -74,14 +73,16 @@ class TestExtractTextContents:
 
     def test_skips_tool_call_parts(self):
         """Tool calls and returns don't have plain text to extract."""
-        msg = ModelRequest(parts=[
-            UserPromptPart(content="visible"),
-            ToolReturnPart(
-                tool_name="some_tool",
-                content="tool output",
-                tool_call_id="tc1",
-            ),
-        ])
+        msg = ModelRequest(
+            parts=[
+                UserPromptPart(content="visible"),
+                ToolReturnPart(
+                    tool_name="some_tool",
+                    content="tool output",
+                    tool_call_id="tc1",
+                ),
+            ]
+        )
         result = _extract_text_contents([msg])
         assert result == {"visible"}
 
@@ -128,13 +129,15 @@ class TestMergeSmsIntoHistory:
 
     def test_preserves_db_tool_context(self):
         """DB history with tool calls is preserved intact — not deduplicated."""
-        tool_msg = ModelRequest(parts=[
-            ToolReturnPart(
-                tool_name="search_contacts",
-                content="[{...}]",
-                tool_call_id="tc1",
-            ),
-        ])
+        tool_msg = ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="search_contacts",
+                    content="[{...}]",
+                    tool_call_id="tc1",
+                ),
+            ]
+        )
         db = [_user("Find Anna"), tool_msg, _assistant("Found her")]
         sms = [_user("Find Anna"), _assistant("Found her")]
         result = _merge_sms_into_history(db, sms)
@@ -154,8 +157,8 @@ class TestMergeSmsIntoHistory:
         """Only messages whose text is absent from DB get prepended."""
         db = [_user("Msg A"), _assistant("Reply A")]
         sms = [
-            _user("Msg Z"),       # missing — prepend
-            _user("Msg A"),       # in DB — skip
+            _user("Msg Z"),  # missing — prepend
+            _user("Msg A"),  # in DB — skip
             _assistant("Reply A"),  # in DB — skip
             _assistant("Reply Z"),  # missing — prepend
         ]
@@ -177,7 +180,9 @@ class TestMergeSmsIntoHistory:
         # "Yes all good" is missing — prepended
         assert len(result) == 3
         assert result[0].parts[0].content == "Yes all good"
-        assert result[1].parts[0].content == "[Context — not visible to SMS recipient: some context]"
+        assert (
+            result[1].parts[0].content == "[Context — not visible to SMS recipient: some context]"
+        )
         assert result[2].parts[0].content == "Is the faucet fixed?"
 
 
@@ -221,11 +226,13 @@ class TestIsInternalContact:
 
 
 def _tool_call(name: str, call_id: str) -> ModelResponse:
-    return ModelResponse(parts=[ToolCallPart(tool_name=name, args='{}', tool_call_id=call_id)])
+    return ModelResponse(parts=[ToolCallPart(tool_name=name, args="{}", tool_call_id=call_id)])
 
 
 def _tool_return(name: str, call_id: str, content: str = "ok") -> ModelRequest:
-    return ModelRequest(parts=[ToolReturnPart(tool_name=name, content=content, tool_call_id=call_id)])
+    return ModelRequest(
+        parts=[ToolReturnPart(tool_name=name, content=content, tool_call_id=call_id)]
+    )
 
 
 class TestSanitizeToolCalls:
@@ -305,8 +312,11 @@ class TestSanitizeToolCalls:
         assert len(result) == 4
         # Check the return that remains is the valid one
         returns = [
-            p for msg in result if isinstance(msg, ModelRequest)
-            for p in msg.parts if isinstance(p, ToolReturnPart)
+            p
+            for msg in result
+            if isinstance(msg, ModelRequest)
+            for p in msg.parts
+            if isinstance(p, ToolReturnPart)
         ]
         assert len(returns) == 1
         assert returns[0].tool_call_id == "tc1"
@@ -314,10 +324,12 @@ class TestSanitizeToolCalls:
     def test_request_removed_if_only_orphaned_returns(self):
         """ModelRequest with only orphaned ToolReturnParts is removed entirely."""
         msgs = [
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
-                ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="tool_a", content="stale", tool_call_id="toolu_1"),
+                    ToolReturnPart(tool_name="tool_b", content="stale", tool_call_id="toolu_2"),
+                ]
+            ),
             _user("hello"),
             _assistant("hi"),
         ]
@@ -329,10 +341,14 @@ class TestSanitizeToolCalls:
     def test_request_keeps_non_orphan_parts(self):
         """ModelRequest with both orphaned returns and valid parts keeps valid parts."""
         msgs = [
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"),
-                UserPromptPart(content="hello"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="old_tool", content="stale", tool_call_id="toolu_orphan"
+                    ),
+                    UserPromptPart(content="hello"),
+                ]
+            ),
             _assistant("hi"),
         ]
         result = _sanitize_tool_calls(msgs)

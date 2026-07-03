@@ -1,6 +1,5 @@
 import os
 
-
 # Local PostgreSQL connection string for remote Claude Code environment
 # Matches docker-compose.yml: postgresql://portfolio:portfolio@postgres:5432/portfolio
 # but uses localhost since we're running PostgreSQL directly (not in Docker)
@@ -28,7 +27,7 @@ def parse_zprofile_secrets(keys):
     if not os.path.exists(zprofile_path):
         return {}
 
-    with open(zprofile_path, 'r') as file:
+    with open(zprofile_path) as file:
         lines = file.read().splitlines()
 
     wanted = set(keys)
@@ -39,7 +38,7 @@ def parse_zprofile_secrets(keys):
             stripped = segment.strip()
             if not stripped.startswith("export "):
                 continue
-            assignment = stripped[len("export "):]
+            assignment = stripped[len("export ") :]
             if "=" not in assignment:
                 continue
             key, value = assignment.split("=", 1)
@@ -47,7 +46,9 @@ def parse_zprofile_secrets(keys):
             if key not in wanted:
                 continue
             value = value.strip()
-            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+            if (value.startswith("'") and value.endswith("'")) or (
+                value.startswith('"') and value.endswith('"')
+            ):
                 value = value[1:-1]
             found[key] = value
     return found
@@ -57,7 +58,7 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(current_dir)
 
-    with open(os.path.join(repo_root, '.env'), 'r') as file:
+    with open(os.path.join(repo_root, ".env")) as file:
         env_var_file_str = file.read()
 
     # Convert to strict .env format: no comments, no empty lines, no trailing whitespace, no quotes around values
@@ -74,11 +75,15 @@ def main():
             key = key.strip()
             value = value.strip()
             # Remove leading/trailing quotes
-            if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+            if (value.startswith("'") and value.endswith("'")) or (
+                value.startswith('"') and value.endswith('"')
+            ):
                 value = value[1:-1]
 
             if key in SKIP_KEYS:
-                print(f"Warning: skipping {key} — collides with Claude Cloud's own env var. Rename in app code/Railway/.env to remove this skip.")
+                print(
+                    f"Warning: skipping {key} — collides with Claude Cloud's own env var. Rename in app code/Railway/.env to remove this skip."
+                )
                 continue
 
             # Override database URLs when running in remote environment
@@ -110,10 +115,11 @@ def main():
 
     new_env_var_format = "\n".join(strict_lines)
 
-    file_path = os.path.join(repo_root, '.claude/.env.claude.remote')
-    with open(file_path, 'w') as file:
+    file_path = os.path.join(repo_root, ".claude/.env.claude.remote")
+    with open(file_path, "w") as file:
         file.write(new_env_var_format)
     print(f"Done writing to {file_path}")
+
 
 if __name__ == "__main__":
     main()

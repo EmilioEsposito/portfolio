@@ -3,6 +3,7 @@ Configuration for the Sernia AI agent.
 
 Keep tunables here so they're easy to find and tweak.
 """
+
 import os
 from pathlib import Path
 
@@ -87,8 +88,10 @@ QUO_SHARED_TEAM_CONTACT_ID = "699b78b18371c26349b453ab"
 # Frontend base URL — environment-aware absolute URLs for deeplinks in SMS.
 _RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
 FRONTEND_BASE_URL = (
-    "https://eesposito.com" if _RAILWAY_ENV == "production"
-    else "https://dev.eesposito.com" if _RAILWAY_ENV == "development"
+    "https://eesposito.com"
+    if _RAILWAY_ENV == "production"
+    else "https://dev.eesposito.com"
+    if _RAILWAY_ENV == "development"
     else "http://localhost:5173"
 )
 

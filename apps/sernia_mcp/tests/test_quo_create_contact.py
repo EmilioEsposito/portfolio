@@ -5,6 +5,7 @@ Quo's ``/v1/contacts``. The Tags multi-select hex key is hard-pinned to
 match the production Quo workspace; if Quo ever rotates it, this test
 catches the drift before it reaches prod.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -58,9 +59,7 @@ def test_payload_serializes_phone_numbers_and_emails():
     assert payload["defaultFields"]["phoneNumbers"] == [
         {"name": "Phone Number", "value": "+14125551234"}
     ]
-    assert payload["defaultFields"]["emails"] == [
-        {"name": "Email", "value": "a@example.com"}
-    ]
+    assert payload["defaultFields"]["emails"] == [{"name": "Email", "value": "a@example.com"}]
 
 
 def test_payload_tags_collide_with_explicit_custom_field_tags_key():
@@ -108,12 +107,15 @@ async def test_create_contact_success_invalidates_cache():
         )
     )
     invalidate = MagicMock()
-    with patch(
-        "sernia_mcp.core.quo.contact_writes.build_quo_client",
-        _make_async_client_cm(post),
-    ), patch(
-        "sernia_mcp.core.quo.contact_writes.invalidate_contact_cache",
-        invalidate,
+    with (
+        patch(
+            "sernia_mcp.core.quo.contact_writes.build_quo_client",
+            _make_async_client_cm(post),
+        ),
+        patch(
+            "sernia_mcp.core.quo.contact_writes.invalidate_contact_cache",
+            invalidate,
+        ),
     ):
         from sernia_mcp.core.quo.contact_writes import create_contact_core
 
@@ -138,12 +140,15 @@ async def test_create_contact_http_error_raises_external_service():
         )
     )
     invalidate = MagicMock()
-    with patch(
-        "sernia_mcp.core.quo.contact_writes.build_quo_client",
-        _make_async_client_cm(post),
-    ), patch(
-        "sernia_mcp.core.quo.contact_writes.invalidate_contact_cache",
-        invalidate,
+    with (
+        patch(
+            "sernia_mcp.core.quo.contact_writes.build_quo_client",
+            _make_async_client_cm(post),
+        ),
+        patch(
+            "sernia_mcp.core.quo.contact_writes.invalidate_contact_cache",
+            invalidate,
+        ),
     ):
         from sernia_mcp.core.quo.contact_writes import create_contact_core
 

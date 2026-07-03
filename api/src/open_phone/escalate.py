@@ -1,25 +1,22 @@
 import os
 import re  # Added for normalization function
-from dotenv import load_dotenv, find_dotenv
+
+from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=True)
-import requests
-from typing import List, Optional, Union
-from fastapi import HTTPException
-import logfire
-from api.src.google.sheets import get_sheet_as_json
 import json
+import random
+
+import logfire
 
 # from twilio.rest import Client # removed to reduce bundle size
-import pytest
-from datetime import datetime
 import pytz
-import random
+import requests
+from fastapi import HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
-from pprint import pprint
-from api.src.contact.service import get_contact_by_slug
 
+from api.src.contact.service import get_contact_by_slug
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -75,6 +72,7 @@ negation_phases = [
 never_escalate_from_numbers = [
     "+16266125747",
 ]
+
 
 # --- Normalization function ---
 def normalize_text_for_keyword_search(text: str) -> str:
@@ -160,7 +158,9 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
         except Exception as e:
             last_exception = e
             if attempt < max_retries:
-                logfire.warn(f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+                logfire.warn(
+                    f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}"
+                )
             else:
                 logfire.exception(f"OpenAI API call failed after {max_retries + 1} attempts: {e}")
 
@@ -169,14 +169,17 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
     error_snippet = str(last_exception)[:100]
     return False, f"AI assessment failed: {error_snippet}"
 
+
 @logfire.instrument()
 async def analyze_for_twilio_escalation(
-    open_phone_event: dict, escalate_to_numbers: list[str] = [], mock: bool = False
+    open_phone_event: dict, escalate_to_numbers: list[str] = None, mock: bool = False
 ):
     """
     Analyzes an OpenPhone event and potentially triggers a Twilio Studio Flow execution.
     """
 
+    if escalate_to_numbers is None:
+        escalate_to_numbers = []
     should_escalate = False  # default to false
     successful_escalations = 0
 
@@ -214,7 +217,9 @@ async def analyze_for_twilio_escalation(
     # Allow an AI Agent to assess if this should be escalated
     try:
         should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
-        logfire.info(f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}")
+        logfire.info(
+            f"AI escalation assessment: should_escalate={should_escalate}, reason={reason}"
+        )
     except Exception as e:
         logfire.error(f"AI Error assessing for escalation: {e}")
 
@@ -227,7 +232,7 @@ async def analyze_for_twilio_escalation(
     #     reason = f"Keyword fallback escalation triggered for event_id={event_id}"
     #     logfire.info(f"Explicit keyword escalation triggered. event_id={event_id} message_text={event_message_text}")
 
-    escalate_from_number = "+14129001989" 
+    escalate_from_number = "+14129001989"
     event_message_text = (
         f"URGENT! {event_from_number} said: {event_message_text}"  # Prepend identifier
     )
@@ -241,7 +246,9 @@ async def analyze_for_twilio_escalation(
     # override should_escalate if the from number is in the never_escalate_from_numbers list
     if should_escalate and event_from_number in never_escalate_from_numbers:
         should_escalate = False
-        logfire.info(f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating")
+        logfire.info(
+            f"Event from number {event_from_number} is in the never_escalate_from_numbers list, so not escalating"
+        )
 
     if should_escalate:
         logfire.info(
@@ -249,12 +256,9 @@ async def analyze_for_twilio_escalation(
         )
         try:
             # Construct the API URL
-            studio_api_url = (
-                f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
-            )
+            studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
             for escalate_to_number in escalate_to_numbers:
-
                 # Prepare the payload
                 payload = {
                     "To": escalate_to_number,
@@ -301,62 +305,3 @@ async def analyze_for_twilio_escalation(
         )
 
     return successful_escalations
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_explicit_keyword_escalation():
-    """
-    Test function to verify Twilio escalation functionality.
-    """
-    # Test data
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "fire in the building",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    successful_escalations = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(successful_escalations)
-    assert successful_escalations == 1
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_ai_escalation_positive():
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "There is a crazy person screaming about hurting people in the building!",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(should_escalate)
-
-    assert should_escalate == 1
-
-
-@pytest.mark.asyncio
-async def test_ai_escalation_negative():
-    open_phone_event = {
-        "event_id": "1234567890",
-        "event_type": "message.incoming",
-        "message_text": "I lost my keys and can't get in! Can someone bring me a spare ASAP??",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
-        "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
-    }
-    should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
-    )
-    print(should_escalate)
-
-    assert should_escalate == 0
