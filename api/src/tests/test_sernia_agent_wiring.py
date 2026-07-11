@@ -81,7 +81,7 @@ class TestProviderAdaptiveNativeTools:
         from pydantic_ai.models.openai import OpenAIResponsesModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        model = OpenAIResponsesModel("gpt-5.4", provider=OpenAIProvider(api_key="test-key"))
+        model = OpenAIResponsesModel("gpt-5.6-luna", provider=OpenAIProvider(api_key="test-key"))
         assert WebSearchTool in model.profile.supported_native_tools
         assert WebFetchTool not in model.profile.supported_native_tools
 

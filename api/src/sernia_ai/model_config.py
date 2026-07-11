@@ -32,10 +32,15 @@ from pydantic_ai.models.openai import OpenAIResponsesModelSettings
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
 
-ModelKey = Literal["gpt-5.4", "sonnet-4-6", "opus-4-7"]
-ThinkingEffort = Literal["low", "medium", "high"]
+ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
+# Effort tiers map onto pydantic-ai's unified `thinking` ThinkingLevel
+# (minimal/low/medium/high/xhigh). "xhigh" is the maximum reasoning depth —
+# surfaced in the UI as "Max".
+ThinkingEffort = Literal["low", "medium", "high", "xhigh"]
 
-DEFAULT_MODEL_KEY: ModelKey = "gpt-5.4"
+DEFAULT_MODEL_KEY: ModelKey = "gpt-5.6-luna"
+# Safe fallback only — used when the DB lookup fails or is bypassed. The active
+# effort is the DB-backed `model_config` row (seeded/migrated to "xhigh").
 DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium"
 _VALID_EFFORTS: frozenset[str] = frozenset(get_args(ThinkingEffort))
 
@@ -45,16 +50,16 @@ class ModelChoice:
     key: ModelKey
     label: str
     provider: Literal["openai", "anthropic"]
-    model_string: str  # e.g. "openai-responses:gpt-5.4"
+    model_string: str  # e.g. "openai-responses:gpt-5.6-luna"
     cost_note: str | None = None
 
 
 AVAILABLE_MODELS: tuple[ModelChoice, ...] = (
     ModelChoice(
-        key="gpt-5.4",
-        label="GPT-5.4",
+        key="gpt-5.6-luna",
+        label="GPT-5.6 Luna",
         provider="openai",
-        model_string="openai-responses:gpt-5.4",
+        model_string="openai-responses:gpt-5.6-luna",
     ),
     ModelChoice(
         key="sonnet-4-6",
@@ -93,12 +98,13 @@ def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
     The only provider-specific parts left are the prompt-cache knobs; web
     search/fetch live on the agent as provider-adaptive capabilities.
 
-    ``effort`` controls reasoning depth — low/medium/high — via the unified
-    ``thinking`` model setting. On Sonnet 4.6 and Opus 4.7 pydantic-ai maps it
-    to adaptive thinking + effort
+    ``effort`` controls reasoning depth — low/medium/high/xhigh ("Max") — via
+    the unified ``thinking`` model setting. On Sonnet 4.6 and Opus 4.7
+    pydantic-ai maps it to adaptive thinking + effort
     (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking),
-    where Claude decides per-request whether and how much to think. On GPT-5.4
-    it maps to ``reasoning_effort``. Defaults to medium.
+    where Claude decides per-request whether and how much to think. On GPT-5.6
+    Luna it maps to ``reasoning_effort``. Falls back to medium for a
+    missing/unknown value.
     """
     choice = get_model_choice(key)
     resolved_effort = get_thinking_effort(effort)

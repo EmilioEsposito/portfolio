@@ -69,7 +69,7 @@ interface ModelChoice {
   cost_note: string | null;
 }
 
-type ThinkingEffort = "low" | "medium" | "high";
+type ThinkingEffort = "low" | "medium" | "high" | "xhigh";
 
 interface ModelConfig {
   model_key: string;
@@ -80,6 +80,7 @@ const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] =
   { value: "low", label: "Low", hint: "Fast, minimal thinking. Skips simple queries." },
   { value: "medium", label: "Medium", hint: "Balanced. Sensible default for chat." },
   { value: "high", label: "High", hint: "Deeper reasoning. Slower, more tokens." },
+  { value: "xhigh", label: "Max", hint: "Maximum reasoning depth. Slowest, most tokens." },
 ];
 
 const DEFAULT_EFFORT: ThinkingEffort = "medium";
@@ -97,9 +98,9 @@ interface Settings {
   available_models: ModelChoice[];
 }
 
-const DEFAULT_MODEL_KEY = "gpt-5.4";
+const DEFAULT_MODEL_KEY = "gpt-5.6-luna";
 const FALLBACK_MODELS: ModelChoice[] = [
-  { key: "gpt-5.4", label: "GPT-5.4", provider: "openai", cost_note: null },
+  { key: "gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", cost_note: null },
   { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
   { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },
 ];

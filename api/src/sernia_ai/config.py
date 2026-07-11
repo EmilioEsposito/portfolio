@@ -30,8 +30,8 @@ WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
 ]
 
 # Compaction: trigger at ~85% of context window token estimate.
-# All currently supported models (GPT-5.4, Claude Sonnet 4.6, Claude Opus 4.7)
-# have a 200k context window; adjust if adding a smaller model.
+# All currently supported models (GPT-5.6 Luna, Claude Sonnet 4.6, Claude Opus
+# 4.7) have a 200k context window; adjust if adding a smaller model.
 TOKEN_COMPACTION_THRESHOLD = 170_000
 
 # Summarization: tool results larger than this (chars) get summarized by the sub-agent.
@@ -43,7 +43,7 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 # as a fallback if the DB lookup fails or is bypassed.
 # Keep this an `openai-responses:` model so WebSearchTool (baked in at Agent
 # construction) works on the Chat Completions-incompatible Responses API.
-MAIN_AGENT_MODEL = "openai-responses:gpt-5.4"
+MAIN_AGENT_MODEL = "openai-responses:gpt-5.6-luna"
 
 # Sub-agent model (cheaper, no builtin tool dependency)
 SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
