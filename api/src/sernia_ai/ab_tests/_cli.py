@@ -29,7 +29,7 @@ def build_parser(description: str, *, default_experiment_prefix: str) -> argpars
         "--variant",
         action="append",
         default=None,
-        help="Variant as name=model_string. Repeat for multiple. Default: sonnet-4-6 + gpt-5.4.",
+        help="Variant as name=model_string. Repeat for multiple. Default: sonnet-4-6 + gpt-5.6-luna.",
     )
     parser.add_argument(
         "--with-tools",
