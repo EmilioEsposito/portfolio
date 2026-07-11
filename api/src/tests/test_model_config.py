@@ -12,8 +12,8 @@ import pytest
 def test_build_run_kwargs_openai_shape():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    kw = build_run_kwargs("gpt-5.4")
-    assert kw["model"] == "openai-responses:gpt-5.4"
+    kw = build_run_kwargs("gpt-5.6-luna")
+    assert kw["model"] == "openai-responses:gpt-5.6-luna"
     # No per-run native tools anymore — web search/fetch live on the agent
     # as provider-adaptive capabilities.
     assert "builtin_tools" not in kw
@@ -41,9 +41,9 @@ def test_build_run_kwargs_anthropic_shape():
 def test_build_run_kwargs_unknown_key_falls_back_to_default():
     from api.src.sernia_ai.model_config import DEFAULT_MODEL_KEY, build_run_kwargs
 
-    assert DEFAULT_MODEL_KEY == "gpt-5.4"
-    assert build_run_kwargs(None)["model"] == "openai-responses:gpt-5.4"
-    assert build_run_kwargs("nonsense")["model"] == "openai-responses:gpt-5.4"
+    assert DEFAULT_MODEL_KEY == "gpt-5.6-luna"
+    assert build_run_kwargs(None)["model"] == "openai-responses:gpt-5.6-luna"
+    assert build_run_kwargs("nonsense")["model"] == "openai-responses:gpt-5.6-luna"
 
 
 def test_default_thinking_effort_is_medium():
@@ -52,7 +52,7 @@ def test_default_thinking_effort_is_medium():
     assert DEFAULT_THINKING_EFFORT == "medium"
 
 
-@pytest.mark.parametrize("key", ["gpt-5.4", "sonnet-4-6", "opus-4-7"])
+@pytest.mark.parametrize("key", ["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"])
 def test_unified_thinking_defaults_to_medium(key: str):
     """All models get the unified `thinking` setting (pydantic-ai maps it to
     adaptive thinking + effort on Anthropic, reasoning_effort on OpenAI)."""
@@ -62,11 +62,12 @@ def test_unified_thinking_defaults_to_medium(key: str):
     assert kw["model_settings"].get("thinking") == "medium", key
 
 
-@pytest.mark.parametrize("effort", ["low", "medium", "high"])
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
 def test_explicit_effort_threads_through_for_both_providers(effort: str):
+    """Includes ``xhigh`` — the "Max" effort tier surfaced in the settings UI."""
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    assert build_run_kwargs("gpt-5.4", effort)["model_settings"].get("thinking") == effort
+    assert build_run_kwargs("gpt-5.6-luna", effort)["model_settings"].get("thinking") == effort
     assert build_run_kwargs("sonnet-4-6", effort)["model_settings"].get("thinking") == effort
 
 
@@ -91,14 +92,14 @@ def test_unknown_effort_falls_back_to_medium():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     assert build_run_kwargs("sonnet-4-6", "ultra")["model_settings"].get("thinking") == "medium"
-    assert build_run_kwargs("gpt-5.4", None)["model_settings"].get("thinking") == "medium"
+    assert build_run_kwargs("gpt-5.6-luna", None)["model_settings"].get("thinking") == "medium"
 
 
 def test_available_models_cover_all_keys():
     from api.src.sernia_ai.model_config import AVAILABLE_MODELS
 
     keys = {m.key for m in AVAILABLE_MODELS}
-    assert keys == {"gpt-5.4", "sonnet-4-6", "opus-4-7"}
+    assert keys == {"gpt-5.6-luna", "sonnet-4-6", "opus-4-7"}
     providers = {m.provider for m in AVAILABLE_MODELS}
     assert providers == {"openai", "anthropic"}
     # Opus carries a cost note so the UI can warn users.

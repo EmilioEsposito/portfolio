@@ -41,7 +41,7 @@ from api.src.sernia_ai.deps import SerniaDeps
 # Use `openai-responses:` (not `openai:`) so WebSearchTool works.
 DEFAULT_VARIANTS: dict[str, str] = {
     "sonnet-4-6": "anthropic:claude-sonnet-4-6",
-    "gpt-5.4": "openai-responses:gpt-5.4",
+    "gpt-5.6-luna": "openai-responses:gpt-5.6-luna",
 }
 
 

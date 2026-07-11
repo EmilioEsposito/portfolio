@@ -29,7 +29,7 @@ python -m api.src.sernia_ai.ab_tests.model_comparison_rote
 # Override variants, reasoning, concurrency:
 python -m api.src.sernia_ai.ab_tests.model_comparison_search \
     --variant sonnet=anthropic:claude-sonnet-4-6 \
-    --variant gpt5=openai-responses:gpt-5.4 \
+    --variant gpt5=openai-responses:gpt-5.6-luna \
     --thinking high \
     --max-concurrency 2
 ```
@@ -53,7 +53,7 @@ pydantic-evals inverts the usual data-science terminology — be aware:
 
 | Classical DS | pydantic-evals |
 |---|---|
-| **Experiment** (the A/B test itself: "compare Sonnet vs GPT-5.4 on these prompts") | **Dataset** |
+| **Experiment** (the A/B test itself: "compare Sonnet vs GPT-5.6 Luna on these prompts") | **Dataset** |
 | **Variant / arm** (one model + settings) | **Experiment** |
 
 So the harness sets **`Dataset(name=<experiment_name>)`** to group all variants, and each call to **`evaluate(name=<variant>)`** is one arm. In the Logfire UI, navigate to *Datasets → `<experiment_name>` → Experiments* to see variants side-by-side.
