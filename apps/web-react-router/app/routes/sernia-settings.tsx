@@ -69,18 +69,21 @@ interface ModelChoice {
   cost_note: string | null;
 }
 
-type ThinkingEffort = "low" | "medium" | "high" | "xhigh";
+type ThinkingEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface ModelConfig {
   model_key: string;
   thinking_effort: ThinkingEffort;
 }
 
+// Ascending effort. "Max" is GPT-5.6's top reasoning tier (above X-High). It is
+// OpenAI-only — on Anthropic models it clamps to X-High (see model_config.py).
 const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] = [
   { value: "low", label: "Low", hint: "Fast, minimal thinking. Skips simple queries." },
   { value: "medium", label: "Medium", hint: "Balanced. Sensible default for chat." },
   { value: "high", label: "High", hint: "Deeper reasoning. Slower, more tokens." },
-  { value: "xhigh", label: "Max", hint: "Maximum reasoning depth. Slowest, most tokens." },
+  { value: "xhigh", label: "X-High", hint: "Very deep reasoning. Slower, many more tokens." },
+  { value: "max", label: "Max", hint: "Maximum reasoning (GPT-5.6). Most exploration, slowest, most tokens." },
 ];
 
 const DEFAULT_EFFORT: ThinkingEffort = "medium";
