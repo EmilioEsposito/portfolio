@@ -52,6 +52,7 @@ priced as (
       when model like 'gpt-5.4-nano%' then 0.20
       when model like 'gpt-5.4-mini%' then 0.75
       when model like 'gpt-5.4%' then 2.5
+      when model like 'gpt-5.6-luna%' then 1.0
       else 0
     end) / 1e6 as cost_input_non_cached,
     cache_read_tokens * (case
@@ -62,6 +63,7 @@ priced as (
       when model like 'gpt-5.4-nano%' then 0.02
       when model like 'gpt-5.4-mini%' then 0.075
       when model like 'gpt-5.4%' then 0.25
+      when model like 'gpt-5.6-luna%' then 0.10
       else 0
     end) / 1e6 as cost_cache_input,
     cache_write_tokens * (case
@@ -79,6 +81,7 @@ priced as (
       when model like 'gpt-5.4-nano%' then 1.25
       when model like 'gpt-5.4-mini%' then 4.5
       when model like 'gpt-5.4%' then 15.0
+      when model like 'gpt-5.6-luna%' then 6.0
       else 0
     end) / 1e6 as cost_output
   from base
