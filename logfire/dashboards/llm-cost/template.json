@@ -317,6 +317,32 @@
           ]
         }
       },
+      "UnpricedModels": {
+        "kind": "Panel",
+        "spec": {
+          "display": {
+            "name": "Unpriced Models (usage but no priced cost)",
+            "description": "Models with LLM token usage but no operation.cost — genai-prices doesn't price them, so they're dropped from the cost panels (which filter operation.cost is not null). If a model appears here, bump genai-prices (and add a v1 hardcoded tier). A CI guardrail (api/src/tests/test_model_pricing.py) catches models added in code."
+          },
+          "plugin": {
+            "kind": "Table",
+            "spec": {}
+          },
+          "queries": [
+            {
+              "kind": "NonTimeSeriesQuery",
+              "spec": {
+                "plugin": {
+                  "kind": "LogfireNonTimeSeriesQuery",
+                  "spec": {
+                    "query": { "$file": "queries/unpriced_models.sql" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
       "RunTraceSample": {
         "kind": "Panel",
         "spec": {
@@ -437,6 +463,15 @@
               "height": 13,
               "content": {
                 "$ref": "#/spec/panels/LLMCostByEnv-4"
+              }
+            },
+            {
+              "x": 0,
+              "y": 22,
+              "width": 17,
+              "height": 9,
+              "content": {
+                "$ref": "#/spec/panels/UnpricedModels"
               }
             }
           ]

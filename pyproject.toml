@@ -26,7 +26,8 @@ dependencies = [
     "openai>=2.45.0",
     "pydantic>=2.11.2",
     # >=1.106: core capabilities API (WebSearch/WebFetch/Thinking) + harness-ready (>=1.95.1)
-    "pydantic-ai[dbos]>=1.106.0",
+    # <2: stay on the v1 line (API-stable) until a deliberate v2 migration.
+    "pydantic-ai[dbos]>=1.107.1,<2",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=0.0.7",
     "fastmcp[apps]>=3.2.4",
@@ -67,7 +68,9 @@ dependencies = [
     "griffe>=1.0.0,<2.0.0", # pydantic-ai uses old griffe import path; 2.0 split the package
     "markdownify>=1.2.2",
     "pydantic-ai-skills>=0.5.1",
-    "genai-prices>=0.0.50",
+    # >=0.0.71: adds GPT-5.6 family pricing (sol/terra/luna). Powers operation.cost
+    # + the v2 cost-breakdown dashboard; without it gpt-5.6-luna has no priced cost.
+    "genai-prices>=0.0.71",
 ]
 
 [dependency-groups]
