@@ -1,9 +1,13 @@
 """Smoke tests for sernia_ai.model_config — keeps the runtime model picker honest.
 
-Since the pydantic-ai 1.106 upgrade, web search/fetch are provider-adaptive
-capabilities on the agent itself (see test_sernia_agent_wiring.py), and
-thinking depth uses the unified ``thinking`` model setting instead of the
-provider-specific ``anthropic_thinking``/``openai_reasoning_effort`` knobs.
+Effort tiers are provider-routed (see ``model_config.build_run_kwargs``):
+- OpenAI (GPT-5.6 Luna): the effort is passed through as the native
+  ``openai_reasoning_effort`` knob, so the full ladder — including ``max``,
+  GPT-5.6's top tier above ``xhigh`` — works regardless of the pinned
+  pydantic-ai's unified ``thinking`` map (which only knows up to xhigh).
+- Anthropic (Sonnet 4.6 / Opus 4.7): the effort feeds the unified ``thinking``
+  setting (mapped to adaptive thinking). ``max`` is OpenAI-only, so it clamps
+  to ``xhigh`` there.
 """
 
 import pytest
@@ -17,8 +21,12 @@ def test_build_run_kwargs_openai_shape():
     # No per-run native tools anymore — web search/fetch live on the agent
     # as provider-adaptive capabilities.
     assert "builtin_tools" not in kw
+    settings = kw["model_settings"]
     # OpenAI Responses settings include the cache retention knob.
-    assert kw["model_settings"].get("openai_prompt_cache_retention") == "24h"
+    assert settings.get("openai_prompt_cache_retention") == "24h"
+    # Effort routes through the native reasoning-effort knob, not unified thinking.
+    assert settings.get("openai_reasoning_effort") == "medium"
+    assert "thinking" not in settings
 
 
 def test_build_run_kwargs_anthropic_shape():
@@ -52,23 +60,41 @@ def test_default_thinking_effort_is_medium():
     assert DEFAULT_THINKING_EFFORT == "medium"
 
 
-@pytest.mark.parametrize("key", ["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"])
-def test_unified_thinking_defaults_to_medium(key: str):
-    """All models get the unified `thinking` setting (pydantic-ai maps it to
-    adaptive thinking + effort on Anthropic, reasoning_effort on OpenAI)."""
+def test_effort_defaults_to_medium_for_both_providers():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    kw = build_run_kwargs(key)
-    assert kw["model_settings"].get("thinking") == "medium", key
+    openai_settings = build_run_kwargs("gpt-5.6-luna")["model_settings"]
+    assert openai_settings.get("openai_reasoning_effort") == "medium"
+    anthropic_settings = build_run_kwargs("sonnet-4-6")["model_settings"]
+    assert anthropic_settings.get("thinking") == "medium"
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
+def test_openai_effort_uses_reasoning_effort_knob(effort: str):
+    """All tiers — including ``max`` (GPT-5.6's top tier, newer than the pinned
+    pydantic-ai's unified ``thinking`` map) — pass through the native knob."""
+    from api.src.sernia_ai.model_config import build_run_kwargs
+
+    settings = build_run_kwargs("gpt-5.6-luna", effort)["model_settings"]
+    assert settings.get("openai_reasoning_effort") == effort
+    assert "thinking" not in settings
 
 
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
-def test_explicit_effort_threads_through_for_both_providers(effort: str):
-    """Includes ``xhigh`` — the "Max" effort tier surfaced in the settings UI."""
+def test_anthropic_effort_uses_unified_thinking(effort: str):
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    assert build_run_kwargs("gpt-5.6-luna", effort)["model_settings"].get("thinking") == effort
     assert build_run_kwargs("sonnet-4-6", effort)["model_settings"].get("thinking") == effort
+
+
+def test_max_effort_is_native_on_openai_and_clamps_on_anthropic():
+    """``max`` is OpenAI-only; on Claude models it clamps to xhigh."""
+    from api.src.sernia_ai.model_config import build_run_kwargs
+
+    openai_settings = build_run_kwargs("gpt-5.6-luna", "max")["model_settings"]
+    assert openai_settings.get("openai_reasoning_effort") == "max"
+    anthropic_settings = build_run_kwargs("sonnet-4-6", "max")["model_settings"]
+    assert anthropic_settings.get("thinking") == "xhigh"
 
 
 def test_unified_thinking_maps_to_adaptive_on_anthropic():
@@ -91,8 +117,10 @@ def test_unified_thinking_maps_to_adaptive_on_anthropic():
 def test_unknown_effort_falls_back_to_medium():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    assert build_run_kwargs("sonnet-4-6", "ultra")["model_settings"].get("thinking") == "medium"
-    assert build_run_kwargs("gpt-5.6-luna", None)["model_settings"].get("thinking") == "medium"
+    anthropic_settings = build_run_kwargs("sonnet-4-6", "ultra")["model_settings"]
+    assert anthropic_settings.get("thinking") == "medium"
+    openai_settings = build_run_kwargs("gpt-5.6-luna", None)["model_settings"]
+    assert openai_settings.get("openai_reasoning_effort") == "medium"
 
 
 def test_available_models_cover_all_keys():

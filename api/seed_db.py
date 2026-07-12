@@ -153,11 +153,11 @@ async def seed_app_settings(dry_run: bool = False) -> None:
         session.add(
             AppSetting(
                 key="model_config",
-                value={"model_key": "gpt-5.6-luna", "thinking_effort": "xhigh"},
+                value={"model_key": "gpt-5.6-luna", "thinking_effort": "max"},
             )
         )
         await session.commit()
-        log_info("✓ Created app_setting 'model_config' (gpt-5.6-luna / xhigh)")
+        log_info("✓ Created app_setting 'model_config' (gpt-5.6-luna / max)")
 
 
 def _build_sample_conversations() -> list[dict]:

@@ -16,9 +16,12 @@ provider.
 Web search/fetch are no longer attached here: the agent's ``WebSearch`` /
 ``WebFetch`` capabilities (see ``agent.py``) adapt to the active provider
 automatically (native web fetch is Anthropic-only and is dropped on OpenAI
-runs). Thinking depth uses the unified ``thinking`` model setting, which
-pydantic-ai maps to adaptive thinking + effort on Anthropic and
-``reasoning_effort`` on OpenAI.
+runs). Reasoning depth (low/medium/high/xhigh/max) is provider-routed: on
+OpenAI it is passed through as the native ``openai_reasoning_effort`` (so
+GPT-5.6's ``max`` tier, newer than the pinned pydantic-ai's unified
+``thinking`` map, works); on Anthropic it feeds the unified ``thinking``
+setting, mapped to adaptive thinking + effort (``max`` clamps to ``xhigh``,
+being OpenAI-only).
 """
 
 from __future__ import annotations
@@ -33,14 +36,18 @@ from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
 
 ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
-# Effort tiers map onto pydantic-ai's unified `thinking` ThinkingLevel
-# (minimal/low/medium/high/xhigh). "xhigh" is the maximum reasoning depth —
-# surfaced in the UI as "Max".
-ThinkingEffort = Literal["low", "medium", "high", "xhigh"]
+# Reasoning-effort tiers, ascending. low/medium/high/xhigh come from OpenAI's
+# reasoning_effort scale; "max" is GPT-5.6's top tier (added *above* xhigh — it
+# gives the model even more time to explore alternatives, run checks, and
+# revise). On OpenAI models the tier is passed straight through as
+# `openai_reasoning_effort`; the pinned pydantic-ai's unified `thinking` map
+# only knows up to xhigh, so "max" must use the native knob. "max" is
+# OpenAI-only — on Anthropic models it clamps to "xhigh" (see build_run_kwargs).
+ThinkingEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
 DEFAULT_MODEL_KEY: ModelKey = "gpt-5.6-luna"
 # Safe fallback only — used when the DB lookup fails or is bypassed. The active
-# effort is the DB-backed `model_config` row (seeded/migrated to "xhigh").
+# effort is the DB-backed `model_config` row (seeded/migrated to "max").
 DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium"
 _VALID_EFFORTS: frozenset[str] = frozenset(get_args(ThinkingEffort))
 
@@ -98,12 +105,16 @@ def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
     The only provider-specific parts left are the prompt-cache knobs; web
     search/fetch live on the agent as provider-adaptive capabilities.
 
-    ``effort`` controls reasoning depth — low/medium/high/xhigh ("Max") — via
-    the unified ``thinking`` model setting. On Sonnet 4.6 and Opus 4.7
-    pydantic-ai maps it to adaptive thinking + effort
+    ``effort`` controls reasoning depth — low/medium/high/xhigh/max, ascending.
+    On GPT-5.6 Luna it is passed through as ``openai_reasoning_effort`` (the
+    Responses API's native knob), so the full tier list — including ``max``,
+    GPT-5.6's highest — works regardless of the pinned pydantic-ai's unified
+    ``thinking`` map (which only knows up to xhigh). On Sonnet 4.6 and Opus 4.7
+    the effort feeds the unified ``thinking`` setting, which pydantic-ai maps to
+    adaptive thinking + effort
     (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking),
-    where Claude decides per-request whether and how much to think. On GPT-5.6
-    Luna it maps to ``reasoning_effort``. Falls back to medium for a
+    where Claude decides per-request whether and how much to think; ``max`` is
+    OpenAI-only, so it clamps to ``xhigh`` there. Falls back to medium for a
     missing/unknown value.
     """
     choice = get_model_choice(key)
@@ -111,17 +122,24 @@ def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
     settings: ModelSettings
 
     if choice.provider == "anthropic":
+        # "max" is an OpenAI-only tier; Anthropic's highest adaptive effort is
+        # "xhigh", so clamp it there for Claude models.
+        anthropic_effort = "xhigh" if resolved_effort == "max" else resolved_effort
         settings = AnthropicModelSettings(
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
-            thinking=resolved_effort,
+            thinking=anthropic_effort,
         )
     else:  # openai
+        # Route effort through the native ``openai_reasoning_effort`` knob rather
+        # than the unified ``thinking`` field: GPT-5.6's "max" tier is newer than
+        # the pinned pydantic-ai's ThinkingLevel map (which tops out at xhigh),
+        # and the native knob is forwarded verbatim to the Responses API.
         # `openai_prompt_cache_retention="24h"` extends the default ~5–10 min
         # in-memory cache to 24h so infrequent scheduled runs still hit cache.
         settings = OpenAIResponsesModelSettings(
-            thinking=resolved_effort,
+            openai_reasoning_effort=resolved_effort,
             openai_prompt_cache_retention="24h",
         )
 
