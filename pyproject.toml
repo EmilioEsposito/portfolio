@@ -22,7 +22,8 @@ dependencies = [
     "psycopg2-binary>=2.9.10",
     "alembic>=1.13.1",
     # AI / LLM
-    "openai>=1.77.0",
+    # >=2.45.0: ReasoningEffort includes GPT-5.6's "max" tier (above "xhigh").
+    "openai>=2.45.0",
     "pydantic>=2.11.2",
     # >=1.106: core capabilities API (WebSearch/WebFetch/Thinking) + harness-ready (>=1.95.1)
     "pydantic-ai[dbos]>=1.106.0",
