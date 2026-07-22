@@ -182,8 +182,26 @@ async def search_conversations(
             .order_by(AgentConversation.updated_at.desc())
             .limit(limit)
         )
-        result = await session.execute(stmt)
-        conversations = result.scalars().all()
+        try:
+            result = await session.execute(stmt)
+            conversations = result.scalars().all()
+        except TimeoutError:
+            # This search is an unindexed full-table ILIKE over the cast JSON
+            # `messages` column, so its cost grows with the conversation table
+            # and a broad query can exceed asyncpg's command_timeout (10s,
+            # database.py). Degrade gracefully with actionable feedback instead
+            # of raising — an unhandled TimeoutError here aborts the whole agent
+            # run and trips the error-level alert.
+            logfire.warning(
+                "search_conversations timed out; query too broad to scan",
+                query=query,
+                limit=limit,
+            )
+            return (
+                f"Search for '{query}' timed out — the conversation history is too "
+                "large to scan for that term. Try a more specific or longer keyword, "
+                "or narrow the search another way (e.g. a distinctive name or phrase)."
+            )
 
     if not conversations:
         return f"No conversations found matching '{query}'."
