@@ -706,3 +706,108 @@ async def test_tool_exposes_via_mcp_client():
     async with Client(mcp) as c:
         names = {t.name for t in await c.list_tools()}
         assert "quo_list_active_sms_threads" in names
+
+
+# --------------------------------------------------------------------------- #
+# Relative-age annotation + stale-thread flagging (the false-report fix)
+# --------------------------------------------------------------------------- #
+
+from datetime import UTC, datetime  # noqa: E402
+
+NOW = datetime(2026, 7, 23, 13, 0, 0, tzinfo=UTC)
+YEAR_AGO = "2025-07-23T08:58:00Z"
+
+
+@pytest.mark.parametrize(
+    ("created", "expected"),
+    [
+        (YEAR_AGO, "1 year ago"),
+        ("2026-07-23T12:59:30Z", "just now"),
+        ("2026-07-20T13:00:00Z", "3 days ago"),
+        ("2026-05-23T13:00:00Z", "2 months ago"),
+        ("not-a-date", ""),
+        (None, ""),
+    ],
+)
+def test_relative_age_buckets(created, expected):
+    from sernia_mcp.core.quo.contacts import _relative_age
+
+    assert _relative_age(created, NOW) == expected
+
+
+def test_ts_appends_age_and_falls_back():
+    from sernia_mcp.core.quo.contacts import _ts
+
+    assert _ts(YEAR_AGO, NOW) == f"{YEAR_AGO} · 1 year ago"
+    assert _ts(None, NOW) == "?"
+
+
+def test_render_thread_annotates_year_old_message():
+    from sernia_mcp.core.quo.contacts import _render_thread
+
+    out = _render_thread(
+        [{"createdAt": YEAR_AGO, "direction": "incoming", "text": "leak this morning", "from": "+1"}],
+        [],
+        "James Gammiere",
+        "+1",
+        {"+1": "James Gammiere"},
+        now=NOW,
+    )
+    assert "1 year ago" in out
+    assert YEAR_AGO in out
+
+
+@pytest.mark.asyncio
+async def test_list_active_threads_flags_stale_thread():
+    """A year-old thread that was never marked 'done' still lists as active —
+    it must be flagged STALE with a header warning so the model doesn't treat
+    it as a new report (root cause of the false ClickUp task)."""
+    from sernia_mcp.core.quo.contacts import list_active_threads_core
+
+    fake_conversations = {
+        "data": [
+            {
+                "id": "conv-fresh",
+                "participants": ["+15550000010"],
+                "lastActivityAt": "2026-07-21T13:00:00Z",  # ~2 days ago
+                "snoozedUntil": None,
+            },
+            {
+                "id": "conv-stale",
+                "participants": ["+14125379335"],
+                "lastActivityAt": YEAR_AGO,  # dormant, never marked done
+                "snoozedUntil": None,
+            },
+        ],
+        "nextPageToken": None,
+    }
+    fake_messages = {
+        "data": [{"direction": "incoming", "text": "leak this morning", "createdAt": YEAR_AGO}]
+    }
+    fake_calls = {"data": []}
+
+    async def fake_get(url, params=None):
+        resp = AsyncMock()
+        resp.raise_for_status = lambda: None
+        if url == "/v1/conversations":
+            resp.json = lambda: fake_conversations
+        elif url == "/v1/messages":
+            resp.json = lambda: fake_messages
+        elif url == "/v1/calls":
+            resp.json = lambda: fake_calls
+        return resp
+
+    fake_client = AsyncMock()
+    fake_client.get = fake_get
+    fake_client.__aenter__.return_value = fake_client
+    fake_client.__aexit__.return_value = None
+
+    with (
+        patch("sernia_mcp.core.quo.contacts.build_quo_client", return_value=fake_client),
+        patch("sernia_mcp.core.quo.contacts.get_all_contacts", new=AsyncMock(return_value=[])),
+    ):
+        result = await list_active_threads_core(max_results=20)
+
+    assert "⚠️ STALE" in result, result
+    assert "do NOT treat it as a new report" in result, result
+    assert "ago" in result  # last-activity ages are annotated
