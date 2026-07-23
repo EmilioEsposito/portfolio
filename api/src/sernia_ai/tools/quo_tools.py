@@ -26,7 +26,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import UTC, date
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import logfire
@@ -462,6 +462,68 @@ def _is_done_conversation(conv: dict) -> bool:
         return False
 
 
+# Threads whose most recent activity is older than this are flagged as stale in
+# ``list_active_threads_impl``. Quo only auto-archives a thread when someone
+# marks it "done" (snoozed 100+ years); an un-actioned thread stays "active"
+# forever. Without an explicit age signal the agent has read a year-old message
+# as a fresh report — see the ``_relative_age`` docstring.
+STALE_THREAD_DAYS = 30
+
+
+def _parse_iso(created: str | None) -> datetime | None:
+    """Parse a Quo ISO-8601 timestamp to an aware UTC datetime, or None."""
+    if not created or not isinstance(created, str):
+        return None
+    try:
+        ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+
+
+def _relative_age(created: str | None, now: datetime | None = None) -> str:
+    """Human-readable age of an ISO-8601 timestamp, e.g. "3 hours ago",
+    "2 days ago", "1 year ago". Returns "" when ``created`` can't be parsed.
+
+    Every activity timestamp the Quo read tools render is annotated with this
+    so the agent never has to diff raw ISO dates against "today" in its head.
+    That date math is exactly where it has failed before: a message dated
+    ``2025-07-23`` that says "leak this morning", surfaced on ``2026-07-23``
+    (an *exact* one-year collision), got logged as a brand-new maintenance
+    report. A literal "1 year ago" on the line removes that ambiguity.
+    """
+    ts = _parse_iso(created)
+    if ts is None:
+        return ""
+    now = now or datetime.now(UTC)
+    secs = (now - ts).total_seconds()
+    if secs < -60:
+        return "in the future"
+    minutes, hours = secs / 60, secs / 3600
+    days = hours / 24
+    if secs < 90:
+        return "just now"
+    if minutes < 90:
+        return f"{round(minutes)} minutes ago"
+    if hours < 36:
+        return f"{round(hours)} hours ago"
+    if days < 45:
+        return f"{round(days)} days ago"
+    if days < 365:
+        return f"{round(days / 30)} months ago"
+    years = round(days / 365)
+    return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+def _ts(created: str | None, now: datetime | None = None) -> str:
+    """Render a timestamp with its relative age for a thread/activity line:
+    ``2025-07-23T08:58:00Z · 1 year ago``. Falls back to the raw value (or
+    ``?``) when the timestamp is missing or unparseable."""
+    label = created or "?"
+    age = _relative_age(created, now)
+    return f"{label} · {age}" if age else label
+
+
 async def search_contacts_impl(
     client: httpx.AsyncClient,
     query: str,
@@ -669,10 +731,12 @@ def _render_group_thread_from_db(
     activities: list[dict],
     participants: list[str],
     phone_map: dict[str, str],
+    now: datetime | None = None,
 ) -> str:
     """Format a sequence of group-thread activities (from the events table)
     as a single chronological thread, similar to ``_render_thread`` but
     aware that messages can have multiple recipients."""
+    now = now or datetime.now(UTC)
     lines: list[str] = []
     msg_count = sum(1 for a in activities if a.get("_kind") == "message")
     call_count = sum(1 for a in activities if a.get("_kind") == "call")
@@ -686,7 +750,7 @@ def _render_group_thread_from_db(
     )
 
     for item in activities:
-        created = item.get("createdAt") or "?"
+        created = _ts(item.get("createdAt"), now)
         if item.get("_kind") == "call":
             direction = item.get("direction") or "?"
             dur = item.get("duration")
@@ -767,8 +831,6 @@ async def list_active_threads_impl(
             ("excludeInactive", "true"),
         ]
         if updated_after_days is not None:
-            from datetime import datetime, timedelta
-
             cutoff = (datetime.now(UTC) - timedelta(days=updated_after_days)).strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
             )
@@ -850,11 +912,23 @@ async def list_active_threads_impl(
         if isinstance(result, dict):
             snippet_map[conv.get("id", "")] = result
 
+    now = datetime.now(UTC)
     lines: list[str] = []
+    stale_count = 0
     for conv in conversations:
         participants = conv.get("participants", [])
         last_activity = conv.get("lastActivityAt", "?")
         conv_id = conv.get("id", "?")
+
+        # A thread only leaves the Quo "active" set when someone marks it
+        # "done"; nothing ages out on its own. Flag threads whose newest
+        # activity is older than STALE_THREAD_DAYS so the agent doesn't treat
+        # a long-dormant thread as something that needs attention right now.
+        last_ts = _parse_iso(last_activity if last_activity != "?" else None)
+        is_stale = last_ts is not None and (now - last_ts) > timedelta(days=STALE_THREAD_DAYS)
+        if is_stale:
+            stale_count += 1
+        stale_prefix = "⚠️ STALE — " if is_stale else ""
 
         enriched = []
         for phone in participants:
@@ -883,12 +957,21 @@ async def list_active_threads_impl(
                         snippet_line = f"\n  Snippet: {sender_label}: {preview}"
 
         lines.append(
-            f"Thread: {', '.join(enriched)}{snippet_line}\n"
-            f"  Last activity: {last_activity}\n"
+            f"{stale_prefix}Thread: {', '.join(enriched)}{snippet_line}\n"
+            f"  Last activity: {_ts(last_activity if last_activity != '?' else None, now)}\n"
             f"  Conversation ID: {conv_id}"
         )
 
-    return f"Active threads ({len(conversations)}):\n\n" + "\n\n".join(lines)
+    header = f"Active threads ({len(conversations)}):"
+    if stale_count:
+        header += (
+            f"\n\n⚠️ {stale_count} of these thread{'s' if stale_count != 1 else ''} "
+            f"had no activity in over {STALE_THREAD_DAYS} days (marked STALE below). "
+            "Their newest message is old — do NOT treat it as a new report. Check the "
+            "'Last activity' age before acting, and open the thread only to follow up "
+            "on something genuinely unresolved."
+        )
+    return f"{header}\n\n" + "\n\n".join(lines)
 
 
 async def _fetch_one_to_one_thread(
@@ -933,8 +1016,10 @@ def _render_thread(
     phone_map: dict[str, str],
     *,
     header_prefix: str = "Thread with",
+    now: datetime | None = None,
 ) -> str:
     """Render a chronological thread (SMS + calls interleaved)."""
+    now = now or datetime.now(UTC)
     items: list[tuple[str, dict]] = [("message", m) for m in messages] + [
         ("call", c) for c in calls
     ]
@@ -947,7 +1032,7 @@ def _render_thread(
     ]
 
     for kind, item in items:
-        created = item.get("createdAt", "?")
+        created = _ts(item.get("createdAt"), now)
         if kind == "call":
             direction = item.get("direction", "?")
             duration = item.get("duration")
@@ -990,9 +1075,10 @@ def _render_thread(
 def _format_group_activity_line(
     item: dict,
     phone_map: dict[str, str],
+    now: datetime | None = None,
 ) -> str:
     """Render a single group-thread activity (message or call) as one line."""
-    created = item.get("createdAt", "?")
+    created = _ts(item.get("createdAt"), now)
     if item.get("_kind") == "call":
         direction = item.get("direction", "?")
         duration = item.get("duration")
@@ -1240,7 +1326,7 @@ async def get_call_details_impl(
             meta_bits.append(f"**Status:** {status}")
         created = call.get("createdAt")
         if created:
-            meta_bits.append(f"**Created:** {created}")
+            meta_bits.append(f"**Created:** {_ts(created)}")
         participants = call.get("participants") or []
         if participants:
             named = [
@@ -1855,10 +1941,21 @@ def _build_quo_toolset():
         Call snippets include the Call ID — pass it to ``get_call_details`` to
         read the summary + transcript.
 
+        Every "Last activity" timestamp is annotated with its age (e.g.
+        ``· 3 days ago``). Threads with no activity for over 30 days are
+        prefixed ``⚠️ STALE`` — a thread stays "active" until someone marks it
+        done in Quo, so an old dormant thread can still appear here. Treat a
+        STALE thread's newest message as history, NOT a new report.
+
+        For recurring / scheduled inbox sweeps, pass ``updated_after_days``
+        (e.g. 7) so you only see recently-active threads and never re-surface a
+        year-old message as if it just came in.
+
         Args:
             max_results: Max threads to return (default 20).
             updated_after_days: Optional — only include threads updated within
-                this many days. Omit for all active threads (matches Quo inbox).
+                this many days. Omit for all active threads (matches Quo inbox);
+                set it for scheduled checks to exclude dormant threads.
         """
         return await list_active_threads_impl(client, max_results, updated_after_days)
 
@@ -1894,8 +1991,11 @@ def _build_quo_toolset():
         a group thread by passing a list of phone numbers.
 
         Returns SMS messages and calls interleaved in chronological order with
-        contact names enriched. Call entries include the Call ID — pass it to
-        ``get_call_details`` to read the call's summary + transcript.
+        contact names enriched. Each line's timestamp is annotated with its age
+        (e.g. ``· 1 year ago``) — always check it before acting: an old message
+        is history, not a new report, even when its wording says "this morning".
+        Call entries include the Call ID — pass it to ``get_call_details`` to
+        read the call's summary + transcript.
 
         **Group threads** (multiple phones): full group-thread history is
         served from our local webhook events table when available. If the

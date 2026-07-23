@@ -35,6 +35,28 @@ These hooks implement parameter-based permission control for MCP tools. Claude C
 
 **Key insight:** Neon's `branchId` parameter is optional - if omitted, it defaults to the main branch. This is the primary risk vector for accidental production writes.
 
+## Ruff auto-format (`ruff-format.sh`) — PostToolUse
+
+Unlike the guards above (which are `PreToolUse` and gate production), this is a
+`PostToolUse` hook on `Edit|Write|MultiEdit`. After Claude edits a `.py` file it
+runs `ruff check --fix` + `ruff format` on that one file, so formatting is
+*fixed* locally instead of only *checked* in CI.
+
+**Why:** CI runs `ruff check .` + `ruff format --check .`, which fail the build
+but don't fix anything. A Claude-authored edit (or a raw `cat >>` heredoc
+append) could reach CI unformatted and redden the PR for a purely mechanical
+reason. This closes that gap at the source.
+
+| Property | Behavior |
+|----------|----------|
+| Trigger | `PostToolUse` on `Edit`, `Write`, `MultiEdit` |
+| Scope | Only the edited file, and only when it ends in `.py` and exists |
+| Config | Auto-discovers the nearest `pyproject.toml` / `ruff.toml`, so `apps/sernia_mcp/` files use that subproject's config |
+| Failure mode | Fail-soft — always exits 0. Missing ruff, non-`.py` file, or a parse error is a silent no-op; it never blocks an edit |
+
+It does **not** cover human hand-edits (only Claude's tool calls). If you want a
+committer-agnostic guard too, add `pre-commit` with `ruff-pre-commit`.
+
 ## Adding New Hooks
 
 1. Create a bash script in this directory

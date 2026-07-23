@@ -65,8 +65,11 @@ async def quo_get_thread_messages(
     team line, OR a group thread by passing a list of phones.
 
     Returns SMS messages and calls interleaved chronologically, enriched with
-    contact names. Call entries include the Call ID — pass it to
-    ``quo_get_call_details`` to read the call's summary + transcript.
+    contact names. Each line's timestamp is annotated with its age (e.g.
+    ``· 1 year ago``) — always check it before acting: an old message is
+    history, not a new report, even when its wording says "this morning". Call
+    entries include the Call ID — pass it to ``quo_get_call_details`` to read
+    the call's summary + transcript.
 
     **Group threads** (multiple phones, partial data): OpenPhone's public
     API does not list group-thread history by participant filter, so this
@@ -102,13 +105,22 @@ async def quo_list_active_sms_threads(
     is most recent — SMS or call. Call snippets include the Call ID so you
     can pass it to ``quo_get_call_details`` for the summary + transcript.
 
+    Every "Last activity" timestamp is annotated with its age (e.g.
+    ``· 3 days ago``). Threads with no activity for over 30 days are prefixed
+    ``⚠️ STALE`` — a thread stays "active" until someone marks it done in Quo,
+    so an old dormant thread can still appear here. Treat a STALE thread's
+    newest message as history, NOT a new report.
+
     Use this for "what threads need attention right now" — for a specific
-    conversation's full thread history, use ``quo_get_thread_messages``.
+    conversation's full thread history, use ``quo_get_thread_messages``. For
+    recurring / scheduled sweeps, pass ``updated_after_days`` (e.g. 7) so you
+    only see recently-active threads.
 
     Args:
         max_results: Max threads to return (default 20).
         updated_after_days: Optional — only include threads updated within
-            this many days. Omit for all active threads (matches Quo inbox).
+            this many days. Omit for all active threads (matches Quo inbox);
+            set it for scheduled checks to exclude dormant threads.
     """
     try:
         return await list_active_threads_core(
