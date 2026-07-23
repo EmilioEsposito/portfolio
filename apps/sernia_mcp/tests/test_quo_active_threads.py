@@ -746,7 +746,14 @@ def test_render_thread_annotates_year_old_message():
     from sernia_mcp.core.quo.contacts import _render_thread
 
     out = _render_thread(
-        [{"createdAt": YEAR_AGO, "direction": "incoming", "text": "leak this morning", "from": "+1"}],
+        [
+            {
+                "createdAt": YEAR_AGO,
+                "direction": "incoming",
+                "text": "leak this morning",
+                "from": "+1",
+            }
+        ],
         [],
         "James Gammiere",
         "+1",
