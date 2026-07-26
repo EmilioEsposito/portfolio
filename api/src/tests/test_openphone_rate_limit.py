@@ -140,3 +140,58 @@ async def test_token_bucket_allows_initial_burst():
     elapsed = time.monotonic() - start
     # Five tokens were pre-loaded; none should have blocked.
     assert elapsed < 0.05
+
+
+# ---- maxResults clamp (denoise OpenPhone 400s) ----
+
+
+@pytest.mark.asyncio
+async def test_fetch_one_to_one_thread_clamps_max_results():
+    """A caller-chosen max_results above OpenPhone's per-page cap must be
+    clamped to 100 before the request. OpenPhone rejects maxResults > 100 with
+    a 400, which is logged error-level and trips the alert; the agent picks
+    max_results freely, so the clamp keeps every request valid.
+    """
+    from api.src.sernia_ai.tools.quo_tools import (
+        OPENPHONE_MAX_RESULTS_PER_PAGE,
+        _fetch_one_to_one_thread,
+    )
+
+    seen_max_results: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_max_results.append(request.url.params.get("maxResults"))
+        return httpx.Response(200, json={"data": []})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.openphone.com",
+    ) as client:
+        # 200 exceeds the cap — both /v1/messages and /v1/calls must clamp.
+        await _fetch_one_to_one_thread(client, "+14129101500", max_results=200)
+
+    assert seen_max_results, "expected requests to /v1/messages and /v1/calls"
+    assert all(v == str(OPENPHONE_MAX_RESULTS_PER_PAGE) for v in seen_max_results), (
+        f"maxResults not clamped to {OPENPHONE_MAX_RESULTS_PER_PAGE}: {seen_max_results}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_one_to_one_thread_preserves_small_max_results():
+    """A value at or below the cap passes through unchanged."""
+    from api.src.sernia_ai.tools.quo_tools import _fetch_one_to_one_thread
+
+    seen_max_results: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_max_results.append(request.url.params.get("maxResults"))
+        return httpx.Response(200, json={"data": []})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.openphone.com",
+    ) as client:
+        await _fetch_one_to_one_thread(client, "+14129101500", max_results=20)
+
+    assert seen_max_results
+    assert all(v == "20" for v in seen_max_results), seen_max_results
