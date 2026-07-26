@@ -65,6 +65,13 @@ OPENPHONE_SPEC_URL = (
     "/public/openphone-public-api-v1-prod.json"
 )
 
+# OpenPhone's list endpoints (``/v1/messages``, ``/v1/calls``) cap ``maxResults``
+# at 100 per page; anything higher is rejected with an HTTP 400. Tool callers
+# (the agent) pick ``max_results`` freely, so clamp before building the request
+# to avoid an error-level 400 span (which trips the "Error-level records" alert)
+# followed by a self-correcting retry.
+OPENPHONE_MAX_RESULTS_PER_PAGE = 100
+
 # MCP-generated tools that mutate data and require human approval.
 # createContact_v1 / updateContactById_v1 replaced by custom tools with
 # proper Pydantic types, first-class tags, and read-merge-write safety.
@@ -985,13 +992,17 @@ async def _fetch_one_to_one_thread(
     """
     import asyncio
 
+    # OpenPhone rejects maxResults > 100 with a 400; clamp so any caller-chosen
+    # value stays within the API's per-page limit.
+    page_size = max(1, min(max_results, OPENPHONE_MAX_RESULTS_PER_PAGE))
+
     async def _fetch(path: str) -> dict:
         resp = await client.get(
             path,
             params={
                 "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
                 "participants": phone_number,
-                "maxResults": str(max_results),
+                "maxResults": str(page_size),
             },
         )
         resp.raise_for_status()
@@ -2010,7 +2021,8 @@ def _build_quo_toolset():
             phone_number: A single phone in E.164 (1:1 thread) OR a list of
                 phones (group thread).
             max_results: Max items per type to return per participant
-                (default 20 messages + 20 calls).
+                (default 20 messages + 20 calls). Capped at 100 — OpenPhone's
+                per-page limit; higher values are clamped to 100.
         """
         return await get_thread_messages_impl(client, phone_number, max_results)
 
