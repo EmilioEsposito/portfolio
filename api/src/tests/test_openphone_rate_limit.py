@@ -7,6 +7,7 @@ aware) instead of bubbling up as an error-level log that pages the team.
 
 import asyncio
 import time
+from unittest import mock
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ import pytest
 from api.src.open_phone.rate_limit import (
     MAX_RETRIES,
     RateLimitedTransport,
+    _is_retryable_error,
     _level_for_status,
     _parse_retry_after,
     _TokenBucket,
@@ -112,6 +114,149 @@ async def test_transport_passes_through_non_429():
 
     assert resp.status_code == 404
     assert calls["n"] == 1
+
+
+# ---- transient network error retries ----
+
+
+@pytest.mark.parametrize(
+    "exc, method, expected",
+    [
+        # Never reached OpenPhone — safe to replay for any method.
+        (httpx.ConnectError("boom"), "GET", True),
+        (httpx.ConnectError("boom"), "POST", True),
+        (httpx.ConnectTimeout("boom"), "POST", True),
+        (httpx.PoolTimeout("boom"), "POST", True),
+        # Request was sent — replay only when idempotent.
+        (httpx.ReadTimeout("boom"), "GET", True),
+        (httpx.ReadTimeout("boom"), "DELETE", True),
+        (httpx.ReadTimeout("boom"), "POST", False),  # would double-send an SMS
+        (httpx.RemoteProtocolError("boom"), "POST", False),
+        (httpx.WriteTimeout("boom"), "POST", False),
+        # Not a transport blip at all.
+        (ValueError("boom"), "GET", False),
+    ],
+)
+def test_is_retryable_error(exc, method, expected):
+    assert _is_retryable_error(exc, method) is expected
+
+
+@pytest.mark.asyncio
+async def test_transport_retries_read_timeout_on_get():
+    """A transient ReadTimeout on an idempotent GET is retried, not raised."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.get("/v1/contacts")
+
+    assert resp.status_code == 200
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_transport_does_not_retry_read_timeout_on_post():
+    """A POST that timed out mid-flight must NOT be replayed — the message may
+    already have been sent, and a retry would deliver a duplicate SMS."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        with pytest.raises(httpx.ReadTimeout):
+            await client.post("/v1/messages", json={"content": "hi"})
+
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_transport_retries_connect_error_on_post():
+    """A connect-level failure never reached OpenPhone, so even a POST is
+    safe to replay."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("connection refused", request=request)
+        return httpx.Response(202, json={"ok": True})
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.post("/v1/messages", json={"content": "hi"})
+
+    assert resp.status_code == 202
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_transport_gives_up_on_persistent_connect_error():
+    """Retryable network errors still surface once the budget is exhausted."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("connection refused", request=request)
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        with pytest.raises(httpx.ConnectError):
+            await client.get("/v1/contacts")
+
+    assert calls["n"] == MAX_RETRIES + 1
+
+
+@pytest.mark.asyncio
+async def test_send_message_uses_generous_timeout():
+    """Regression guard for the ClickUp reminder job failing with ReadTimeout:
+    ``send_message`` must go through the shared OpenPhone client (long timeout
+    + throttle), not a bare ``httpx.AsyncClient`` with httpx's 5s default."""
+    from api.src.open_phone import service
+
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["method"] = request.method
+        return httpx.Response(202, json={"id": "AC123"})
+
+    real_builder = service._openphone_client
+
+    def _client_with_mock_transport() -> httpx.AsyncClient:
+        client = real_builder()
+        seen["timeout"] = client.timeout
+        client._transport = httpx.MockTransport(handler)
+        return client
+
+    with mock.patch.object(service, "_openphone_client", _client_with_mock_transport):
+        resp = await service.send_message(
+            message="hello",
+            to_phone_number="+14125550123",
+            from_phone_number="+14129101500",
+        )
+
+    assert resp.status_code == 202
+    assert seen["url"] == "https://api.openphone.com/v1/messages"
+    assert seen["method"] == "POST"
+    # httpx's default read timeout is 5s — the job needs more headroom.
+    assert seen["timeout"].read is not None and seen["timeout"].read > 5
 
 
 @pytest.mark.asyncio
