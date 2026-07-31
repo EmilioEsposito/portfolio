@@ -6,6 +6,7 @@ aware) instead of bubbling up as an error-level log that pages the team.
 """
 
 import asyncio
+import gzip
 import time
 from unittest import mock
 
@@ -308,6 +309,57 @@ async def test_buffered_response_preserves_status_headers_and_body():
     assert resp.status_code == 200
     assert resp.headers["X-Custom"] == "abc"
     assert resp.json() == {"data": [1, 2, 3]}
+
+
+class _RawStream(httpx.AsyncByteStream):
+    """Response stream that yields raw (undecoded) wire bytes, so httpx applies
+    the ``Content-Encoding`` decoder on read — mimicking a real gzipped
+    OpenPhone response rather than MockTransport's pre-decoded ``content=``."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def __aiter__(self):
+        yield self._data
+
+    async def aclose(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_buffered_response_decodes_gzip_body():
+    """Regression guard: OpenPhone/Cloudflare gzip their responses. ``aread()``
+    hands back the DECODED body, so rebuilding the buffered response around the
+    original headers (which still say ``Content-Encoding: gzip``) made httpx
+    re-run the gzip decoder on already-plain bytes and raise
+    ``DecodingError: Error -3 while decompressing data: incorrect header
+    check``. The rebuild must strip the stale wire-framing headers."""
+    payload = {"data": [{"id": "AC1", "body": "hello world"}]}
+    body = gzip.compress(b'{"data": [{"id": "AC1", "body": "hello world"}]}')
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "Content-Encoding": "gzip",
+                "Content-Length": str(len(body)),
+                "Content-Type": "application/json",
+            },
+            stream=_RawStream(body),
+        )
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.get("/v1/contacts")
+
+    # Would raise httpx.DecodingError before the fix.
+    assert resp.status_code == 200
+    assert resp.json() == payload
+    # The stale wire-framing header is gone; the body is already decoded.
+    assert "content-encoding" not in resp.headers
+    assert resp.headers["Content-Type"] == "application/json"
 
 
 @pytest.mark.asyncio

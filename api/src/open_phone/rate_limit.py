@@ -176,6 +176,26 @@ def _carryover_extensions(extensions: dict | None) -> dict:
     return {k: extensions[k] for k in SAFE_EXTENSION_KEYS if k in extensions}
 
 
+# Wire-framing headers that describe the *encoded* body on the network, not the
+# decoded bytes ``aread()`` hands back. ``aread()`` returns the body already
+# decompressed, so reattaching e.g. ``Content-Encoding: gzip`` to a rebuilt
+# response makes httpx try to gunzip already-plain bytes on the next read and
+# raise ``DecodingError: Error -3 while decompressing data: incorrect header
+# check``. ``Content-Length`` (the compressed size) and ``Transfer-Encoding``
+# are likewise stale once the body is buffered and decoded. Drop all three and
+# let httpx recompute ``Content-Length`` from the decoded content.
+STALE_BODY_FRAMING_HEADERS = frozenset({"content-encoding", "content-length", "transfer-encoding"})
+
+
+def _headers_for_decoded_body(headers: httpx.Headers) -> list[tuple[bytes, bytes]]:
+    """Original headers minus the wire-framing ones invalidated by decoding."""
+    return [
+        (name, value)
+        for name, value in headers.raw
+        if name.decode("latin-1").lower() not in STALE_BODY_FRAMING_HEADERS
+    ]
+
+
 def _level_for_status(status_code: int) -> str | None:
     """Logfire level for a request's *final* status, or None for the default.
 
@@ -266,10 +286,14 @@ class RateLimitedTransport(httpx.AsyncBaseTransport):
                             continue
                         await response.aclose()
                         # Hand back an already-buffered response so httpx's own
-                        # read() is a no-op and can't fail a second time.
+                        # read() is a no-op and can't fail a second time. The
+                        # buffered `content` is already decoded, so strip the
+                        # wire-framing headers (Content-Encoding etc.) that would
+                        # otherwise make httpx re-decode plain bytes and raise
+                        # DecodingError.
                         response = httpx.Response(
                             response.status_code,
-                            headers=response.headers,
+                            headers=_headers_for_decoded_body(response.headers),
                             content=content,
                             request=request,
                             extensions=_carryover_extensions(response.extensions),
