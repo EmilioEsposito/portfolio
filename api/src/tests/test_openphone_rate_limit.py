@@ -223,6 +223,113 @@ async def test_transport_gives_up_on_persistent_connect_error():
     assert calls["n"] == MAX_RETRIES + 1
 
 
+# ---- body-phase (post-header) failures ----
+
+
+class _FailingStream(httpx.AsyncByteStream):
+    """Response stream that raises partway through the body, mimicking
+    OpenPhone returning headers and then stalling/disconnecting."""
+
+    def __init__(self, exc: Exception, chunks: list[bytes] | None = None) -> None:
+        self._exc = exc
+        self._chunks = chunks or []
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
+        raise self._exc
+
+
+@pytest.mark.asyncio
+async def test_transport_retries_body_read_timeout_on_get():
+    """A transport returns once headers land; the body streams afterwards. A
+    stall mid-body must still be retried for idempotent methods, otherwise the
+    retry guarantee silently doesn't apply to the most common timeout shape."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(
+                200, stream=_FailingStream(httpx.ReadTimeout("stalled", request=request))
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.get("/v1/contacts")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_transport_does_not_retry_body_failure_on_post():
+    """POST bodies are never replayed, even when the failure is body-phase."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(
+            202, stream=_FailingStream(httpx.ReadTimeout("stalled", request=request))
+        )
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        with pytest.raises(httpx.ReadTimeout):
+            await client.post("/v1/messages", json={"content": "hi"})
+
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_buffered_response_preserves_status_headers_and_body():
+    """Rebuilding the response around its buffered body must not lose
+    status, headers, or content."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"X-Custom": "abc", "Content-Type": "application/json"},
+            json={"data": [1, 2, 3]},
+        )
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.get("/v1/contacts")
+
+    assert resp.status_code == 200
+    assert resp.headers["X-Custom"] == "abc"
+    assert resp.json() == {"data": [1, 2, 3]}
+
+
+@pytest.mark.asyncio
+async def test_body_buffering_does_not_swallow_error_statuses():
+    """A 404 body is still buffered and returned, not converted or retried."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(404, json={"error": "not found"})
+
+    transport = RateLimitedTransport(inner=httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://api.openphone.com"
+    ) as client:
+        resp = await client.get("/v1/calls/bogus")
+
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "not found"}
+    assert calls["n"] == 1
+
+
 @pytest.mark.asyncio
 async def test_send_message_uses_generous_timeout():
     """Regression guard for the ClickUp reminder job failing with ReadTimeout:

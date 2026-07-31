@@ -47,6 +47,12 @@ retry is provably safe:
     (GET/HEAD/OPTIONS/PUT/DELETE). For POSTs the correct mitigation is a
     generous client timeout, not a retry — see ``service._openphone_client``.
 
+Note that a transport returns as soon as response *headers* arrive, with the
+body streamed afterwards — so a stall mid-body raises from the caller's
+``aread()``, outside the retry loop. For replayable methods the body is
+therefore buffered inside the retry boundary and handed back as an
+already-read response, so those failures are retried too rather than escaping.
+
 Wire it up by passing ``transport=build_rate_limited_transport()`` when
 constructing the ``httpx.AsyncClient`` — see ``service._openphone_client`` and
 ``quo_tools._build_quo_client``.
@@ -157,6 +163,19 @@ def _parse_retry_after(value: str | None) -> float | None:
         return None
 
 
+# Extension keys worth preserving when a response is rebuilt around its
+# buffered body. Deliberately excludes live-connection objects (e.g.
+# ``network_stream``), which must not outlive the response we just closed.
+SAFE_EXTENSION_KEYS = ("http_version", "reason_phrase")
+
+
+def _carryover_extensions(extensions: dict | None) -> dict:
+    """Metadata-only subset of *extensions*, safe to attach to a new Response."""
+    if not extensions:
+        return {}
+    return {k: extensions[k] for k in SAFE_EXTENSION_KEYS if k in extensions}
+
+
 def _level_for_status(status_code: int) -> str | None:
     """Logfire level for a request's *final* status, or None for the default.
 
@@ -220,6 +239,41 @@ class RateLimitedTransport(httpx.AsyncBaseTransport):
                     continue
 
                 if response.status_code != 429 or attempt == MAX_RETRIES:
+                    # A transport returns as soon as headers land; the body is
+                    # streamed afterwards. If OpenPhone stalls or drops
+                    # mid-body, httpx raises ReadTimeout/ReadError from the
+                    # caller's `aread()` — outside this loop — so the retry
+                    # guarantee above would silently not apply. Buffer the body
+                    # here, inside the retry boundary, for methods we're allowed
+                    # to replay.
+                    if method.upper() in IDEMPOTENT_METHODS:
+                        try:
+                            with logfire.suppress_instrumentation():
+                                content = await response.aread()
+                        except Exception as exc:
+                            await response.aclose()
+                            if attempt == MAX_RETRIES or not _is_retryable_error(exc, method):
+                                span.set_attribute("openphone.attempts", attempts)
+                                raise
+                            logfire.warn(
+                                "openphone response body failed with {error_type}, retrying",
+                                error_type=type(exc).__name__,
+                                method=method,
+                                url=url,
+                                attempt=attempts,
+                            )
+                            await asyncio.sleep(min(BASE_BACKOFF * (2**attempt), MAX_BACKOFF))
+                            continue
+                        await response.aclose()
+                        # Hand back an already-buffered response so httpx's own
+                        # read() is a no-op and can't fail a second time.
+                        response = httpx.Response(
+                            response.status_code,
+                            headers=response.headers,
+                            content=content,
+                            request=request,
+                            extensions=_carryover_extensions(response.extensions),
+                        )
                     break
 
                 retry_after = _parse_retry_after(response.headers.get("Retry-After"))
