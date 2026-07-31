@@ -123,20 +123,18 @@ async def send_message(message: str, to_phone_number: str, from_phone_number: st
         sernia_contact = await get_contact_by_slug("sernia")
         from_phone_number = sernia_contact.phone_number
 
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
-    headers = {
-        "Authorization": api_key,
-        "Content-Type": "application/json",
-    }
     data = {
         "content": message,
         "from": from_phone_number,
         "to": [to_phone_number],
     }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://api.openphone.com/v1/messages", headers=headers, json=data
-        )
+    # Uses the shared OpenPhone client: a generous read timeout (httpx's 5s
+    # default made slow sends raise ReadTimeout and fail the caller — e.g. the
+    # ClickUp reminder job) plus the process-wide rate-limit throttle. A send
+    # is a POST, so a timed-out send is deliberately NOT retried — the message
+    # may already have gone out (see rate_limit.py).
+    async with _openphone_client() as client:
+        response = await client.post("/v1/messages", json=data)
     return response
 
 
