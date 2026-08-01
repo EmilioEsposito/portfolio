@@ -55,7 +55,9 @@ One JSON file per alert, named after the alert (kebab-case). Fields mirror the
 - `error-level-records-non-local.json` — **catch-all.** Fires on any error-level
   record/exception (`level >= 17`) from a non-local environment, with a few
   expected-noise exclusions (Anthropic retries, APScheduler misfires/re-register
-  conflicts, HITL `ApprovalRequired`). The primary "something broke" alert.
+  conflicts, HITL `ApprovalRequired`, and gracefully-handled
+  `db_search_conversations` ILIKE-scan statement timeouts). The primary
+  "something broke" alert.
 - `apscheduler-startup-failure.json` — fires when APScheduler fails to start on a
   non-local env, meaning all scheduled jobs (ClickUp reminders, Sernia scheduled
   checks) are down and a redeploy is likely needed.
