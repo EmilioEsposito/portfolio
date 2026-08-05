@@ -8,6 +8,11 @@
 -- add a pricing tier) so it gets costed. Intentionally global (no $agent_name
 -- filter) — this is a cost-hygiene alarm across all agents.
 --
+-- Exception: OpenRouter routes (`openai/...`) are not in genai-prices at all,
+-- so `SerniaOpenRouterModel` stamps `operation.cost` from OpenRouter's own
+-- usage accounting instead. They should therefore NOT appear here — if one
+-- does, that stamping has broken (see api/src/sernia_ai/model_config.py).
+--
 -- A dev/CI guardrail (api/src/tests/test_model_pricing.py) catches models added
 -- in code; this panel additionally catches anything that reaches prod telemetry
 -- unpriced (e.g. a model selected via the runtime model_config DB row).

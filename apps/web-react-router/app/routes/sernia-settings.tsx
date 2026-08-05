@@ -65,6 +65,7 @@ interface ScheduleConfig {
 interface ModelChoice {
   key: string;
   label: string;
+  /** Gateway the model is reached through ("openrouter" | "anthropic"), not the lab that trained it. */
   provider: string;
   cost_note: string | null;
 }
@@ -77,7 +78,8 @@ interface ModelConfig {
 }
 
 // Ascending effort. "Max" is GPT-5.6's top reasoning tier (above X-High). It is
-// OpenAI-only — on Anthropic models it clamps to X-High (see model_config.py).
+// an OpenAI tier, passed through OpenRouter's reasoning.effort enum — on
+// Anthropic models it clamps to X-High (see model_config.py).
 const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] = [
   { value: "low", label: "Low", hint: "Fast, minimal thinking. Skips simple queries." },
   { value: "medium", label: "Medium", hint: "Balanced. Sensible default for chat." },
@@ -103,7 +105,7 @@ interface Settings {
 
 const DEFAULT_MODEL_KEY = "gpt-5.6-luna";
 const FALLBACK_MODELS: ModelChoice[] = [
-  { key: "gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", cost_note: null },
+  { key: "gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openrouter", cost_note: null },
   { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
   { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },
 ];

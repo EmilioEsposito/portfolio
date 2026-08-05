@@ -16,6 +16,7 @@ from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import capture_run_messages
+from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -78,8 +79,14 @@ _SMS_CONV_PREFIX = "ai_sms_from_"
 
 # Union of provider exception bases we know about. Catching these lets the
 # route handlers stay provider-agnostic as we swap MAIN_AGENT_MODEL between
-# Anthropic and OpenAI Responses.
-LLMAPIError = (anthropic.APIError, openai.APIError)
+# Anthropic and OpenRouter.
+#
+# OpenRouter rides the OpenAI SDK (pydantic-ai's OpenRouterModel extends
+# OpenAIChatModel), so transport/status failures still raise `openai.APIError`.
+# Gateway-level failures are different: OpenRouter can answer HTTP 200 with an
+# error envelope in the body (no upstream capacity, upstream 5xx, moderation),
+# which pydantic-ai re-raises as `ModelHTTPError` carrying the upstream status.
+LLMAPIError = (anthropic.APIError, openai.APIError, ModelHTTPError)
 
 
 def _llm_error_response(
@@ -90,7 +97,7 @@ def _llm_error_response(
 
     Returns (status_code, user_message) tuple.
     """
-    status_error_types = (anthropic.APIStatusError, openai.APIStatusError)
+    status_error_types = (anthropic.APIStatusError, openai.APIStatusError, ModelHTTPError)
     connection_error_types = (
         anthropic.APIConnectionError,
         anthropic.APITimeoutError,
@@ -715,7 +722,7 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
     # Native tools (web search/fetch) contributed by the WebSearch/WebFetch
     # capabilities. The agent collects them on ``_cap_native_tools`` at
     # construction; which ones actually reach the model is resolved per run
-    # based on provider support (e.g. WebFetchTool is dropped on OpenAI).
+    # based on provider support (e.g. WebFetchTool is dropped on OpenRouter).
     builtins: list[dict] = []
     seen: set[str] = set()
     base_builtins = getattr(sernia_agent, "_cap_native_tools", []) or []

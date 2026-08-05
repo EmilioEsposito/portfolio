@@ -132,7 +132,8 @@ pnpm dev-with-fastapi
 - **`apps/web-react-router/.env`** - Frontend only (created automatically for worktrees)
 
 **Required environment variables** (see `.env.example`):
-- `OPENAI_API_KEY` - AI features
+- `OPENAI_API_KEY` - AI demos and direct-SDK callers (zillow_email, escalation, gmail routes)
+- `PORTFOLIO_OPENROUTER_API_KEY` - Sernia AI's GPT model (routed via OpenRouter, not the OpenAI API directly); bridged to `OPENROUTER_API_KEY` in `api/__init__.py`
 - `DATABASE_URL`, `DATABASE_URL_UNPOOLED` - Neon Postgres
 - `CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` - Auth
 - Various integration keys (OpenPhone, Google, etc.)
@@ -181,7 +182,7 @@ pnpm approve-builds <package-name>  # Updates pnpm-workspace.yaml allowBuilds
 - **The default `pytest` run must pass with NO third-party credentials** — only a local Postgres. This is enforced: CI (`.github/workflows/tests.yml`) and Claude Code on web both run the default suite without real keys. If you add a test that needs a real API, mark it `live`.
 - **Default `pytest` run** excludes tests marked `live` (see `pytest.ini` `addopts`).
 - **`live` marker**: Tests that hit real third-party APIs (ClickUp, OpenPhone, Google, real LLM calls, etc.). Run explicitly with `pytest -m live <file>`. Require API keys in `.env`.
-- **Dummy AI keys**: the root `conftest.py` sets placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` if absent — pydantic-ai validates provider keys when an `Agent` is constructed (import time), so collection would otherwise fail without keys.
+- **Dummy AI keys**: the root `conftest.py` sets placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY` if absent — pydantic-ai validates provider keys when an `Agent` is constructed (import time), so collection would otherwise fail without keys.
 - **Gitignored fixtures**: tests that need local-only files (`api/src/tests/requests/`, `api/src/tests/sensitive/`) must `skipif` when the files are missing — see `test_open_phone.py` for the pattern.
 - **Smoke tests** (`TestSmoke` classes): Fast import/wiring checks that verify modules load correctly and components are connected (e.g., agent has history processors wired, sub-agent models configured). No API keys needed.
 - **Unit tests**: Mock all external calls. Use realistic tool result data matching actual output formats (ClickUp task dumps, Gmail search results, etc.), not dummy strings.
@@ -250,6 +251,7 @@ pnpm approve-builds <package-name>  # Updates pnpm-workspace.yaml allowBuilds
 
 **Sernia Agent** (`api/src/sernia_ai/`):
 - Production AI assistant for Sernia Capital
+- GPT models are reached through **OpenRouter** (`openrouter:openai/gpt-5.6-luna`), Claude models directly through Anthropic. See [`api/src/sernia_ai/README.md`](api/src/sernia_ai/README.md#model-gateways) for the gateway table and its caveats (upstream pinning, web-search domain allowlist, cost tracking).
 
 **Endpoints**:
 - `POST /api/ai-demos/multi-agent-chat` - Unified routing

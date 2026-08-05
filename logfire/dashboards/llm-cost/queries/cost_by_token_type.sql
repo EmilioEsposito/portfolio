@@ -42,6 +42,19 @@ priced as (
     -- Anthropic (where genai-prices sums input+cache_read+cache_write into the
     -- top-level input_tokens) and OpenAI (where input_tokens already includes
     -- cached_tokens; cache_write is 0).
+    --
+    -- Rates below are per MTok and mirror genai-prices, which the v2 panel and
+    -- `operation.cost` both use — `api/src/tests/test_dashboard_pricing.py`
+    -- fails if the two drift apart, so update them together.
+    --
+    -- `openai/...` model ids are OpenRouter routes (Sernia AI reaches GPT
+    -- through OpenRouter — see api/src/sernia_ai/model_config.py). They must be
+    -- matched BEFORE the bare `gpt-...` patterns, and priced at OpenRouter's
+    -- own rates: currently a flat 50% of OpenAI list across every bucket (a
+    -- standing OpenRouter discount, confirmed against real billed amounts).
+    -- The bare `gpt-5.6-luna%` tiers stay for spans emitted before the
+    -- migration — those were 5x too high (1.0/0.10/6.0 vs OpenAI's actual
+    -- 0.20/0.02/1.20), which overstated Sernia AI's reported spend ~5x.
     greatest(total_input_tokens - cache_read_tokens - cache_write_tokens, 0) * (case
       when model like 'claude-sonnet%' then 3.0
       when model like 'claude-haiku%' then 1.0
@@ -52,7 +65,13 @@ priced as (
       when model like 'gpt-5.4-nano%' then 0.20
       when model like 'gpt-5.4-mini%' then 0.75
       when model like 'gpt-5.4%' then 2.5
-      when model like 'gpt-5.6-luna%' then 1.0
+      when model like 'openai/gpt-5.6-luna%' then 0.10
+      when model like 'openai/gpt-5.6-terra%' then 1.0
+      when model like 'openai/gpt-5.6-sol%' then 2.5
+      when model like 'gpt-5.6-luna%' then 0.20
+      when model like 'gpt-5.6-terra%' then 2.0
+      when model like 'gpt-5.6-sol%' then 5.0
+      when model like 'claude-opus%' then 5.0
       else 0
     end) / 1e6 as cost_input_non_cached,
     cache_read_tokens * (case
@@ -60,15 +79,30 @@ priced as (
       when model like 'claude-haiku%' then 0.10
       when model like 'gpt-4o-mini%' then 0.075
       when model like 'gpt-4o%' then 1.25
+      when model like 'gpt-4.1-mini%' then 0.10
+      when model like 'gpt-4.1%' then 0.50
       when model like 'gpt-5.4-nano%' then 0.02
       when model like 'gpt-5.4-mini%' then 0.075
       when model like 'gpt-5.4%' then 0.25
-      when model like 'gpt-5.6-luna%' then 0.10
+      when model like 'openai/gpt-5.6-luna%' then 0.01
+      when model like 'openai/gpt-5.6-terra%' then 0.10
+      when model like 'openai/gpt-5.6-sol%' then 0.25
+      when model like 'gpt-5.6-luna%' then 0.02
+      when model like 'gpt-5.6-terra%' then 0.20
+      when model like 'gpt-5.6-sol%' then 0.50
+      when model like 'claude-opus%' then 0.50
       else 0
     end) / 1e6 as cost_cache_input,
     cache_write_tokens * (case
       when model like 'claude-sonnet%' then 3.75
       when model like 'claude-haiku%' then 1.25
+      when model like 'claude-opus%' then 6.25
+      when model like 'openai/gpt-5.6-luna%' then 0.125
+      when model like 'openai/gpt-5.6-terra%' then 1.25
+      when model like 'openai/gpt-5.6-sol%' then 3.125
+      when model like 'gpt-5.6-luna%' then 0.25
+      when model like 'gpt-5.6-terra%' then 2.5
+      when model like 'gpt-5.6-sol%' then 6.25
       else 0
     end) / 1e6 as cost_cache_write,
     output_tokens * (case
@@ -81,7 +115,13 @@ priced as (
       when model like 'gpt-5.4-nano%' then 1.25
       when model like 'gpt-5.4-mini%' then 4.5
       when model like 'gpt-5.4%' then 15.0
-      when model like 'gpt-5.6-luna%' then 6.0
+      when model like 'openai/gpt-5.6-luna%' then 0.60
+      when model like 'openai/gpt-5.6-terra%' then 6.0
+      when model like 'openai/gpt-5.6-sol%' then 15.0
+      when model like 'gpt-5.6-luna%' then 1.20
+      when model like 'gpt-5.6-terra%' then 12.0
+      when model like 'gpt-5.6-sol%' then 30.0
+      when model like 'claude-opus%' then 25.0
       else 0
     end) / 1e6 as cost_output
   from base
