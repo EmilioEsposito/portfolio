@@ -31,7 +31,7 @@ clamps to ``xhigh``, being an OpenAI tier).
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
@@ -39,10 +39,15 @@ from typing import Any, Literal, cast, get_args
 
 import logfire
 from opentelemetry import trace
-from pydantic_ai.messages import ModelResponse
+from pydantic_ai.messages import ModelResponse, ModelResponseStreamEvent
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.anthropic import AnthropicModelSettings
-from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
+from pydantic_ai.models.openrouter import (
+    OpenRouterModel,
+    OpenRouterModelSettings,
+    OpenRouterStreamedResponse,
+    _from_reasoning_detail,  # pyright: ignore[reportPrivateUsage]
+)
 from pydantic_ai.native_tools import WebSearchTool
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
@@ -139,8 +144,58 @@ def get_openrouter_effort(value: str | None) -> str:
 _COST_SPAN_ATTR = "operation.cost"
 
 
+class SerniaOpenRouterStreamedResponse(OpenRouterStreamedResponse):
+    """Streamed response that keeps distinct encrypted reasoning items apart.
+
+    pydantic-ai keys streamed ``reasoning_details`` deltas by type and
+    position-within-chunk — ``f'reasoning_detail_{detail.type}_{i}'`` — so the
+    reasoning item's own id never enters the key. When one streamed response
+    carries TWO encrypted reasoning items (the upstream OpenAI Responses API
+    emits one per reasoning segment when reasoning interleaves with several
+    tool calls), both land on the same vendor key and the parts manager merges
+    them into a single ThinkingPart: the FIRST item's id with the LAST item's
+    encrypted payload (``ThinkingPartDelta`` carries no id and *replaces* the
+    signature). Replaying that Frankenstein part on the next request makes
+    OpenAI reject it with ``invalid_encrypted_content`` ("Encrypted content
+    item_id did not match the target item id"), failing the whole agent run.
+    The bug is streaming-only (the non-streaming path maps each detail to its
+    own ThinkingPart) and is still present on pydantic-ai main as of 2.24.0 —
+    upgrading does not fix it. ``test_model_config.py`` carries a canary test
+    that fails when upstream fixes it, so this subclass can be deleted.
+
+    Fix: key ``reasoning.encrypted`` details by their item id when present.
+    Encrypted payloads always arrive whole (opaque blobs are never
+    delta-streamed — upstream's own delta logic replaces rather than appends
+    signatures), so id-keying cannot split a legitimately-continuing item.
+    Text/summary details keep upstream's keying untouched, including its
+    Gemini multi-type handling.
+    """
+
+    def _map_thinking_delta(self, choice: Any) -> Iterable[ModelResponseStreamEvent]:
+        reasoning_details = getattr(choice.delta, "reasoning_details", None)
+        if not reasoning_details:
+            # No OpenRouter reasoning details on this chunk — upstream falls
+            # back to plain `delta.reasoning` handling; keep that path.
+            yield from super()._map_thinking_delta(choice)
+            return
+        for i, detail in enumerate(reasoning_details):
+            thinking_part = _from_reasoning_detail(detail)
+            if detail.type == "reasoning.encrypted" and detail.id:
+                vendor_id = f"reasoning_detail_{detail.type}_{detail.id}"
+            else:
+                vendor_id = f"reasoning_detail_{detail.type}_{i}"
+            yield from self._parts_manager.handle_thinking_delta(
+                vendor_part_id=vendor_id,
+                id=thinking_part.id,
+                content=thinking_part.content,
+                signature=thinking_part.signature,
+                provider_name=self._provider_name,
+                provider_details=thinking_part.provider_details,
+            )
+
+
 class SerniaOpenRouterModel(OpenRouterModel):
-    """OpenRouter model that keeps two things pydantic-ai drops on this provider.
+    """OpenRouter model that keeps three things pydantic-ai drops or breaks on this provider.
 
     **1. The web-search domain allowlist.** PydanticAI maps a ``WebSearchTool``
     onto OpenRouter's ``web`` plugin (``extra_body["plugins"] = [{"id": "web"}]``)
@@ -161,7 +216,16 @@ class SerniaOpenRouterModel(OpenRouterModel):
     ``build_openrouter_settings``'s ``usage.include`` — so we stamp that. It is
     strictly better data than a price table: it reflects the endpoint actually
     routed to and includes web-plugin charges.
+
+    **3. Distinct encrypted reasoning items in streamed responses.** See
+    :class:`SerniaOpenRouterStreamedResponse` — without it, a streamed
+    response with two encrypted reasoning items is merged into one corrupt
+    ThinkingPart whose replay 400s with ``invalid_encrypted_content``.
     """
+
+    @property
+    def _streamed_response_cls(self) -> type[OpenRouterStreamedResponse]:
+        return SerniaOpenRouterStreamedResponse
 
     def prepare_request(
         self,
