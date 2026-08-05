@@ -52,6 +52,18 @@ Things worth knowing about the OpenRouter path (all handled in
   tool's `allowed_domains`, so `SerniaOpenRouterModel` re-attaches
   `WEB_SEARCH_ALLOWED_DOMAINS` as the plugin's `include_domains` — without it
   the agent could search the whole web.
+- **Streamed encrypted reasoning items are kept distinct.** pydantic-ai's
+  OpenRouter streaming keys `reasoning_details` deltas by type + position, not
+  by reasoning item id — so a streamed response containing two encrypted
+  reasoning items (which OpenAI emits when reasoning interleaves with several
+  tool calls in one turn) merges them into a single ThinkingPart carrying the
+  first item's id and the last item's encrypted payload. Replaying that part
+  fails the whole run with a 400 `invalid_encrypted_content` ("Encrypted
+  content item_id did not match the target item id"). Bug confirmed present
+  upstream through pydantic-ai 2.24.0; `SerniaOpenRouterStreamedResponse`
+  fixes the keying, and a canary test
+  (`test_upstream_still_merges_encrypted_reasoning_items`) fails when upstream
+  fixes it so the subclass can be deleted.
 - **Cost tracking** comes from OpenRouter, not genai-prices. genai-prices has
   no entry for the `openai/gpt-5.6-luna` OpenRouter route, so pydantic-ai's own
   pricing raises `LookupError` and never stamps `operation.cost`. We enable
