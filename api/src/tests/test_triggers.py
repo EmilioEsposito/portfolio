@@ -641,6 +641,57 @@ class TestAiSmsEventTriggerSmoke:
         assert hasattr(routes_module, "handle_ai_sms_event")
 
 
+class TestFetchSmsThreadRequest:
+    """Guard the query parameters _fetch_sms_thread sends to OpenPhone."""
+
+    @pytest.mark.asyncio
+    async def test_uses_unbracketed_participants_param(self):
+        """The participant filter must be ``participants``, not ``participants[]``.
+
+        httpx percent-encodes the brackets to ``participants%5B%5D``, which
+        OpenPhone does not recognise — it answers 400, the thread fetch fails,
+        and the agent replies without any SMS history. Every 200 in production
+        uses the plain key; every bracketed request 400s.
+        """
+        import api.src.sernia_ai.triggers.ai_sms_event_trigger as trigger_mod
+        from api.src.sernia_ai.config import (
+            QUO_SERNIA_AI_PHONE_ID,
+            SMS_CONVERSATION_MAX_MESSAGES,
+        )
+
+        seen: list[httpx.URL] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url)
+            return httpx.Response(200, json={"data": []})
+
+        # Bind the real class before patching — the module reaches the client
+        # through the shared ``httpx`` module, so the patch is global and a
+        # late lookup inside the factory would recurse into itself.
+        real_client_cls = httpx.AsyncClient
+
+        def client_factory(**kwargs):
+            kwargs.pop("transport", None)
+            return real_client_cls(transport=httpx.MockTransport(handler), **kwargs)
+
+        with (
+            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+            patch.object(trigger_mod.httpx, "AsyncClient", client_factory),
+        ):
+            result = await trigger_mod._fetch_sms_thread("+14123703550")
+
+        assert result == []
+        assert len(seen) == 1, f"expected one /v1/messages request, got {seen}"
+        url = seen[0]
+        assert url.params.get("participants") == "+14123703550"
+        assert url.params.get("phoneNumberId") == QUO_SERNIA_AI_PHONE_ID
+        assert url.params.get("maxResults") == str(SMS_CONVERSATION_MAX_MESSAGES)
+        # The encoded bracket form is what OpenPhone rejects — assert on the
+        # raw query string so an accidental re-introduction is caught.
+        assert "participants%5B%5D" not in str(url), f"bracketed participants param sent: {url}"
+        assert "participants[]" not in str(url), f"bracketed participants param sent: {url}"
+
+
 class TestSmsToModelMessages:
     """Test OpenPhone message conversion to PydanticAI format."""
 
