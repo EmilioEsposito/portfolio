@@ -145,8 +145,15 @@ async def _fetch_sms_thread(
             resp = await client.get(
                 "/v1/messages",
                 params={
+                    # Plain ``participants``, NOT ``participants[]``: httpx
+                    # percent-encodes the brackets to ``participants%5B%5D``,
+                    # which OpenPhone does not recognise and rejects with a
+                    # 400. (Literal brackets work in curl, which is why the
+                    # bracketed form looks right in the API docs.) Every other
+                    # call site in the codebase uses the plain key — see
+                    # ``quo_tools._fetch_latest_message``.
                     "phoneNumberId": QUO_SERNIA_AI_PHONE_ID,
-                    "participants[]": from_phone,
+                    "participants": from_phone,
                     "maxResults": SMS_CONVERSATION_MAX_MESSAGES,
                 },
             )

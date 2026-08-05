@@ -91,7 +91,9 @@ Whenever a call appears in either tool's output, the Call ID (`AC...`) is includ
 
 ### Group Threads
 
-OpenPhone supports multi-participant conversations (e.g. two roommates sharing one Quo thread), but the public API does **not** let you list a group thread's messages by participant: `/v1/messages?participants[]=A&participants[]=B` silently filters to the 1:1 conversation with the *first* participant, regardless of how many are passed. The group conversation is real (it appears in `/v1/conversations`), and individual messages can be fetched by ID via `/v1/messages/{id}`, but you can't enumerate them.
+OpenPhone supports multi-participant conversations (e.g. two roommates sharing one Quo thread), but the public API does **not** let you list a group thread's messages by participant: `/v1/messages?participants[]=A&participants[]=B` silently filters to the 1:1 conversation with the *first* participant, regardless of how many are passed.
+
+> **Gotcha — send `participants`, not `participants[]`, from Python.** The bracketed form above is *curl* syntax, where the brackets go over the wire literally. httpx percent-encodes them to `participants%5B%5D`, which OpenPhone does not recognise and answers with a **400**. Every call site here uses the plain `participants` key; `test_triggers.py::TestFetchSmsThreadRequest` guards the one that regressed. The group conversation is real (it appears in `/v1/conversations`), and individual messages can be fetched by ID via `/v1/messages/{id}`, but you can't enumerate them.
 
 Workarounds in this codebase:
 
