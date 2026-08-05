@@ -306,3 +306,114 @@ def test_stamp_openrouter_cost_is_a_noop_without_cost():
 
     (span,) = exporter.get_finished_spans()
     assert "operation.cost" not in (span.attributes or {})
+
+
+# ---------------------------------------------------------------------------
+# Streamed encrypted-reasoning integrity (SerniaOpenRouterStreamedResponse)
+# ---------------------------------------------------------------------------
+#
+# Root cause of the production `invalid_encrypted_content` 400 (2026-08-05,
+# trace 019fcff60d3999d40125ebed3a7929be): pydantic-ai's OpenRouter streaming
+# keys reasoning_details deltas by type + position-within-chunk, so two
+# encrypted reasoning items with different `rs_...` ids in one streamed
+# response merge into a single ThinkingPart — first item's id, last item's
+# encrypted payload. OpenAI then rejects the replay because the encrypted blob
+# decrypts to a different item id than the part claims.
+
+
+def _encrypted_chunk_choice(item_id: str, data: str, index: int):
+    """A real _OpenRouterChunkChoice carrying one encrypted reasoning detail."""
+    from pydantic_ai.models.openrouter import (
+        _OpenRouterChunkChoice,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    return _OpenRouterChunkChoice.model_validate(
+        {
+            "index": 0,
+            "delta": {
+                "reasoning_details": [
+                    {
+                        "type": "reasoning.encrypted",
+                        "id": item_id,
+                        "format": "openai-responses-v1",
+                        "index": index,
+                        "data": data,
+                    }
+                ]
+            },
+            "finish_reason": None,
+        }
+    )
+
+
+def _drain_thinking_deltas(response_cls, choices):
+    """Feed chunk choices through a streamed-response class's thinking mapper.
+
+    Builds the instance without running the dataclass __init__ (it wants a live
+    HTTP stream); _map_thinking_delta only touches _parts_manager (derived from
+    model_request_parameters) and _provider_name.
+    """
+    from pydantic_ai.messages import ThinkingPart
+    from pydantic_ai.models import ModelRequestParameters
+
+    resp = object.__new__(response_cls)
+    resp.model_request_parameters = ModelRequestParameters()
+    resp._provider_name = "openrouter"
+    for choice in choices:
+        for _ in resp._map_thinking_delta(choice):
+            pass
+    return [p for p in resp._parts_manager.get_parts() if isinstance(p, ThinkingPart)]
+
+
+def test_streamed_encrypted_reasoning_items_stay_distinct():
+    """Two encrypted reasoning items must survive streaming as two parts.
+
+    Each keeps its own id↔payload pairing, so the replayed reasoning_details
+    are exactly what OpenAI produced and verification passes.
+    """
+    from api.src.sernia_ai.model_config import SerniaOpenRouterStreamedResponse
+
+    parts = _drain_thinking_deltas(
+        SerniaOpenRouterStreamedResponse,
+        [
+            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=0),
+            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=1),
+        ],
+    )
+
+    assert [(p.id, p.signature) for p in parts] == [
+        ("rs_AAA", "ENCRYPTED_BLOB_OF_AAA"),
+        ("rs_BBB", "ENCRYPTED_BLOB_OF_BBB"),
+    ]
+
+
+def test_streamed_response_class_is_wired():
+    """SerniaOpenRouterModel must actually stream through the fixed class."""
+    from api.src.sernia_ai.model_config import (
+        SerniaOpenRouterStreamedResponse,
+        resolve_model,
+    )
+
+    model = resolve_model("openrouter:openai/gpt-5.6-luna")
+    assert model._streamed_response_cls is SerniaOpenRouterStreamedResponse
+
+
+def test_upstream_still_merges_encrypted_reasoning_items():
+    """CANARY: upstream OpenRouterStreamedResponse still has the merge bug.
+
+    When this test FAILS, pydantic-ai has fixed the vendor-key collision
+    upstream — delete SerniaOpenRouterStreamedResponse (and these tests) and
+    rely on the library. Until then, this documents exactly what the subclass
+    protects against: one part, first id, last payload.
+    """
+    from pydantic_ai.models.openrouter import OpenRouterStreamedResponse
+
+    parts = _drain_thinking_deltas(
+        OpenRouterStreamedResponse,
+        [
+            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=0),
+            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=1),
+        ],
+    )
+
+    assert [(p.id, p.signature) for p in parts] == [("rs_AAA", "ENCRYPTED_BLOB_OF_BBB")]
