@@ -29,7 +29,7 @@ python -m api.src.sernia_ai.ab_tests.model_comparison_rote
 # Override variants, reasoning, concurrency:
 python -m api.src.sernia_ai.ab_tests.model_comparison_search \
     --variant sonnet=anthropic:claude-sonnet-4-6 \
-    --variant gpt5=openai-responses:gpt-5.6-luna \
+    --variant gpt5=openrouter:openai/gpt-5.6-luna \
     --thinking high \
     --max-concurrency 2
 ```
@@ -93,4 +93,5 @@ To run with the full toolset (e.g. to compare tool-calling behaviour), pass `--w
 
 - `thinking` is PydanticAI's unified reasoning-effort setting — supported by Anthropic, OpenAI Responses, Google, Groq, Bedrock, xAI, etc. Use `minimal` / `low` / `medium` / `high` / `xhigh`.
 - `anthropic_cache_*` fields are still passed for Anthropic variants (so the harness mirrors production caching behaviour there); they're silently ignored on other providers.
-- `WebSearchTool` is kept for all providers that support it (Anthropic, OpenAI Responses, Groq, Google, xAI, OpenRouter). Rote mode clears it entirely via `disable_builtin_tools=True`.
+- `openrouter:` variants reuse production's OpenRouter settings verbatim via `model_config.build_openrouter_settings()` — reasoning effort, upstream provider pinning, and usage accounting — so an experiment measures the model, not a differently-configured gateway. The `thinking` value is used as the OpenRouter `reasoning.effort` tier (`max` also works there).
+- `WebSearchTool` is kept for all providers that support it (Anthropic, OpenRouter via its `web` plugin, OpenAI Responses, Groq, Google, xAI). On OpenRouter variants the domain allowlist is carried by `SerniaOpenRouterModel`. Rote mode clears it entirely via `disable_builtin_tools=True`.
