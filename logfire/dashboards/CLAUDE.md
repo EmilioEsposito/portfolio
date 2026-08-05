@@ -60,4 +60,4 @@ mcp__logfire__dashboard_update(
 
 ## Current snapshots
 
-- `llm-cost/` — LLM Cost dashboard. 24h default time range; declares `resolution` ListVariable; panels: cost by env, cost by token type (v1 with hard-coded gpt-4.x/5.x pricing incl. gpt-5.6-luna; v2 reads genai-prices cost attrs), cost/runs/cost-per-run by trigger source, sample records, run trace sample.
+- `llm-cost/` — LLM Cost dashboard. 24h default time range; declares `resolution` ListVariable; panels: cost by env, cost by token type (v1 with hard-coded gpt-4.x/5.x pricing incl. both `gpt-5.6-luna` and the OpenRouter route `openai/gpt-5.6-luna`, which is priced at OpenRouter's rates; v2 reads genai-prices cost attrs and so has no OpenRouter data — genai-prices doesn't know those routes), cost/runs/cost-per-run by trigger source, sample records, run trace sample.

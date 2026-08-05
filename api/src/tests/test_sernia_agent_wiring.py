@@ -6,8 +6,8 @@ to the core capabilities API:
 - `WebSearch` / `WebFetch` capabilities replace the per-run
   `builtin_tools` juggling that lived in `model_config.build_run_kwargs()`.
   They adapt per provider: native web fetch is Anthropic-only and is dropped
-  automatically on OpenAI runs (no local fallback — `local=False` — because
-  the domain allowlist is only enforced natively).
+  automatically on OpenRouter runs (no local fallback — `local=False` —
+  because the domain allowlist is only enforced natively).
 - `ProcessHistory` wraps the existing custom history processors
   (summarize_tool_results, compact_history) unchanged.
 - `Instrumentation` replaces `instrument=True`.
@@ -72,16 +72,20 @@ class TestProviderAdaptiveNativeTools:
     """Guard the provider behavior that replaced per-run WebFetchTool attachment.
 
     `model_config.build_run_kwargs()` used to add WebFetchTool only on
-    Anthropic runs because OpenAI Responses raises UserError on it. The
+    Anthropic runs because the GPT provider raises UserError on it. The
     WebFetch capability now handles this by checking the model profile —
     these tests pin the profile facts that make that safe.
     """
 
-    def test_openai_responses_supports_search_but_not_fetch(self):
-        from pydantic_ai.models.openai import OpenAIResponsesModel
-        from pydantic_ai.providers.openai import OpenAIProvider
+    def test_openrouter_supports_search_but_not_fetch(self):
+        """OpenRouter serves web search via its `web` plugin; it has no web fetch.
 
-        model = OpenAIResponsesModel("gpt-5.6-luna", provider=OpenAIProvider(api_key="test-key"))
+        This is what makes `optional=True` on the WebFetchTool load-bearing on
+        the default (GPT) model — the tool is dropped rather than raising.
+        """
+        from api.src.sernia_ai.model_config import build_run_kwargs
+
+        model = build_run_kwargs("gpt-5.6-luna")["model"]
         assert WebSearchTool in model.profile.supported_native_tools
         assert WebFetchTool not in model.profile.supported_native_tools
 

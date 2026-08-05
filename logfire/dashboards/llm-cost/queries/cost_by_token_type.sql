@@ -42,6 +42,12 @@ priced as (
     -- Anthropic (where genai-prices sums input+cache_read+cache_write into the
     -- top-level input_tokens) and OpenAI (where input_tokens already includes
     -- cached_tokens; cache_write is 0).
+    --
+    -- `openai/...` model ids are OpenRouter routes (Sernia AI reaches GPT
+    -- through OpenRouter — see api/src/sernia_ai/model_config.py). They must be
+    -- matched BEFORE the bare `gpt-...` patterns, and priced at OpenRouter's
+    -- rates, which are not OpenAI's list rates. The bare `gpt-5.6-luna%` tiers
+    -- stay for spans emitted before the migration.
     greatest(total_input_tokens - cache_read_tokens - cache_write_tokens, 0) * (case
       when model like 'claude-sonnet%' then 3.0
       when model like 'claude-haiku%' then 1.0
@@ -52,6 +58,7 @@ priced as (
       when model like 'gpt-5.4-nano%' then 0.20
       when model like 'gpt-5.4-mini%' then 0.75
       when model like 'gpt-5.4%' then 2.5
+      when model like 'openai/gpt-5.6-luna%' then 0.10
       when model like 'gpt-5.6-luna%' then 1.0
       else 0
     end) / 1e6 as cost_input_non_cached,
@@ -63,12 +70,14 @@ priced as (
       when model like 'gpt-5.4-nano%' then 0.02
       when model like 'gpt-5.4-mini%' then 0.075
       when model like 'gpt-5.4%' then 0.25
+      when model like 'openai/gpt-5.6-luna%' then 0.01
       when model like 'gpt-5.6-luna%' then 0.10
       else 0
     end) / 1e6 as cost_cache_input,
     cache_write_tokens * (case
       when model like 'claude-sonnet%' then 3.75
       when model like 'claude-haiku%' then 1.25
+      when model like 'openai/gpt-5.6-luna%' then 0.125
       else 0
     end) / 1e6 as cost_cache_write,
     output_tokens * (case
@@ -81,6 +90,7 @@ priced as (
       when model like 'gpt-5.4-nano%' then 1.25
       when model like 'gpt-5.4-mini%' then 4.5
       when model like 'gpt-5.4%' then 15.0
+      when model like 'openai/gpt-5.6-luna%' then 0.60
       when model like 'gpt-5.6-luna%' then 6.0
       else 0
     end) / 1e6 as cost_output

@@ -34,6 +34,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
+from api.src.sernia_ai.model_config import resolve_model
 from api.src.sernia_ai.sub_agents import compact_history, summarize_tool_results
 from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
@@ -82,7 +83,11 @@ skills_capability = SkillsCapability(
 )
 
 sernia_agent = Agent(
-    MAIN_AGENT_MODEL,
+    # `resolve_model` turns the `openrouter:` string into the SerniaOpenRouterModel
+    # subclass that carries WEB_SEARCH_ALLOWED_DOMAINS onto OpenRouter's `web`
+    # plugin — so even the fallback default (when the DB lookup is bypassed)
+    # keeps the domain allowlist enforced.
+    resolve_model(MAIN_AGENT_MODEL),
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
@@ -99,16 +104,18 @@ sernia_agent = Agent(
     capabilities=[
         skills_capability,
         # Provider-adaptive web tools (pydantic-ai core capabilities). Native
-        # web search works on both OpenAI Responses and Anthropic. Native web
-        # fetch is Anthropic-only — `optional=True` silently drops a tool on
-        # models that don't support it, which replaces the old per-run
+        # web search works on OpenRouter (via its `web` plugin) and Anthropic.
+        # Native web fetch is Anthropic-only — `optional=True` silently drops a
+        # tool on models that don't support it, which replaces the old per-run
         # WebFetchTool attachment in model_config.build_run_kwargs().
         # local=False keeps behavior identical to the old builtin_tools
         # setup: no local fallback tool (allowed_domains is only enforced by
         # native tools, so a local fallback would bypass the domain
         # allowlist). The domains are set on the native tool instances, not
         # the capability, because capability-level domain constraints force
-        # native-required mode, which raises instead of dropping.
+        # native-required mode, which raises instead of dropping. On OpenRouter
+        # runs SerniaOpenRouterModel reads `allowed_domains` back off the tool
+        # and maps it to the `web` plugin's `include_domains`.
         WebSearch(
             native=WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True),
             local=False,

@@ -11,6 +11,8 @@ from pathlib import Path
 # Used by the WebSearch (native on Anthropic, OpenAI Responses, Groq, Google,
 # xAI, OpenRouter) and WebFetch (native on Anthropic, Google) capabilities —
 # see pydantic_ai.capabilities and agent.py.
+# On OpenRouter the allowlist is carried by `SerniaOpenRouterModel` in
+# model_config.py, which maps it onto the `web` plugin's `include_domains`.
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "zillow.com",
     "redfin.com",
@@ -41,9 +43,20 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 # this via `model_config.resolve_active_run_kwargs()` — the DB-backed
 # `model_config` app_setting is the source of truth. This constant only acts
 # as a fallback if the DB lookup fails or is bypassed.
-# Keep this an `openai-responses:` model so WebSearchTool (baked in at Agent
-# construction) works on the Chat Completions-incompatible Responses API.
-MAIN_AGENT_MODEL = "openai-responses:gpt-5.6-luna"
+# GPT models are reached through OpenRouter rather than the OpenAI API
+# directly; `openrouter:` model strings take OpenRouter's `<vendor>/<model>`
+# ids. OpenRouter serves WebSearchTool through its `web` plugin, so the tool
+# baked in at Agent construction still resolves natively.
+MAIN_AGENT_MODEL = "openrouter:openai/gpt-5.6-luna"
+
+# OpenRouter provider routing for the main agent. OpenRouter load-balances a
+# model across every upstream that serves it (for gpt-5.6-luna: OpenAI, Azure,
+# Amazon Bedrock), and those upstreams differ in price by up to ~10x and in
+# supported parameters (Bedrock drops `response_format`/`structured_outputs`).
+# Pinning to OpenAI keeps the served compute identical to the pre-OpenRouter
+# setup — same model, same upstream, just a different gateway. Widen this list
+# (or drop it for full load balancing / failover) once that's the goal.
+OPENROUTER_ALLOWED_PROVIDERS: list[str] = ["openai"]
 
 # Sub-agent model (cheaper, no builtin tool dependency)
 SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"

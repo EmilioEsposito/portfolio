@@ -36,21 +36,22 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
 
 # Default variants — shared across experiments unless an experiment overrides.
-# Use `openai-responses:` (not `openai:`) so WebSearchTool works.
+# GPT goes through OpenRouter (same gateway as production; see model_config.py).
 DEFAULT_VARIANTS: dict[str, str] = {
     "sonnet-4-6": "anthropic:claude-sonnet-4-6",
-    "gpt-5.6-luna": "openai-responses:gpt-5.6-luna",
+    "gpt-5.6-luna": "openrouter:openai/gpt-5.6-luna",
 }
 
 
 def _model_settings_for(model: str, thinking: str) -> ModelSettings | AnthropicModelSettings:
     """Provider-appropriate model_settings with a shared thinking level.
 
-    For Anthropic we preserve production cache settings so behaviour mirrors
-    the live agent; for other providers we pass only the unified `thinking`
-    field (anthropic_cache_* are silently ignored, but we omit them for clarity).
+    For Anthropic and OpenRouter we preserve the production settings so
+    behaviour mirrors the live agent; for anything else we pass only the
+    unified `thinking` field.
     """
     if model.startswith("anthropic:"):
         return AnthropicModelSettings(
@@ -59,6 +60,12 @@ def _model_settings_for(model: str, thinking: str) -> ModelSettings | AnthropicM
             anthropic_cache_messages=True,
             thinking=thinking,
         )
+    if model.startswith("openrouter:"):
+        # Reuse production's OpenRouter settings (reasoning effort, provider
+        # pinning, usage accounting) so an experiment measures the model, not a
+        # different gateway configuration. The effort ladder is the same
+        # vocabulary as `thinking` here.
+        return build_openrouter_settings(thinking)
     return ModelSettings(thinking=thinking)
 
 
@@ -66,7 +73,8 @@ def _model_settings_for(model: str, thinking: str) -> ModelSettings | AnthropicM
 def _filter_builtin_tools_for_provider(agent, model: str, *, disable_all: bool = False):
     """Strip builtin tools the target provider doesn't support.
 
-    - WebSearchTool: Anthropic, OpenAI Responses, Groq, Google, xAI, OpenRouter.
+    - WebSearchTool: Anthropic, OpenRouter (via its `web` plugin), OpenAI
+      Responses, Groq, Google, xAI.
     - `disable_all=True` clears everything (used for rote experiments so the
       only thing in context is the system prompt + user text).
     """
@@ -91,7 +99,10 @@ async def _agent_run_context(
 ):
     """Apply model + model_settings + toolset overrides for a single run."""
     overrides: dict = {
-        "model": model,
+        # `resolve_model` keeps the web-search domain allowlist on OpenRouter
+        # variants (see model_config.SerniaOpenRouterModel); non-OpenRouter
+        # strings pass through untouched.
+        "model": resolve_model(model),
         "model_settings": _model_settings_for(model, thinking),
     }
     if not with_tools:

@@ -28,7 +28,7 @@
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **LLM (main agent)** | Runtime-switchable via the `model_config` app_setting (default GPT-5.6 Luna at max effort). Supported: `openai-responses:gpt-5.6-luna`, `anthropic:claude-sonnet-4-6`, `anthropic:claude-opus-4-7`. See `model_config.py`. | Native web search works across all three providers. Native web fetch is Anthropic-only; the `WebFetch` capability drops it automatically on OpenAI runs. |
+| **LLM (main agent)** | Runtime-switchable via the `model_config` app_setting (default GPT-5.6 Luna at max effort). Supported: `openrouter:openai/gpt-5.6-luna`, `anthropic:claude-sonnet-4-6`, `anthropic:claude-opus-4-7`. See `model_config.py`. | GPT is reached through OpenRouter (one gateway for billing/rate limits/availability); Claude stays direct for its richer cache + adaptive-thinking knobs. Native web search works on both; native web fetch is Anthropic-only and the `WebFetch` capability drops it automatically on OpenRouter runs. |
 | **LLM (sub-agents)** | Claude Haiku 4.5 (`anthropic:claude-haiku-4-5-20251001`) | Cost savings for summarization/compaction. |
 | **Framework** | PydanticAI (latest stable API) | `instructions` list, `FileSystemToolset`, capabilities (`WebSearch`/`WebFetch`/`ProcessHistory`/`Instrumentation`/skills). |
 | **Code location** | `api/src/sernia_ai/` | Dedicated module. Imports from existing services. |
