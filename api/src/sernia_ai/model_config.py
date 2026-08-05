@@ -118,6 +118,22 @@ def get_thinking_effort(value: str | None) -> ThinkingEffort:
     return DEFAULT_THINKING_EFFORT
 
 
+# OpenRouter's `reasoning.effort` enum — validated server-side, 400 on anything
+# else. A strict superset of ThinkingEffort: the settings UI only offers
+# low..max, but the A/B CLI also accepts "minimal" (see ab_tests/_cli.py), and
+# coercing that to "medium" would silently run the OpenRouter variant at a
+# different depth than its Anthropic counterpart and corrupt the comparison.
+# "none" is deliberately excluded — it contradicts the `enabled: True` we send.
+_OPENROUTER_EFFORTS: frozenset[str] = _VALID_EFFORTS | {"minimal"}
+
+
+def get_openrouter_effort(value: str | None) -> str:
+    """Coerce an effort to one OpenRouter accepts, defaulting to medium."""
+    if value in _OPENROUTER_EFFORTS:
+        return cast(str, value)
+    return DEFAULT_THINKING_EFFORT
+
+
 # OTel attribute pydantic-ai normally stamps from genai-prices. The LLM-cost
 # dashboard filters on `operation.cost is not null`.
 _COST_SPAN_ATTR = "operation.cost"
@@ -275,7 +291,9 @@ def build_openrouter_settings(effort: str | None = None) -> OpenRouterModelSetti
     """Production OpenRouter settings for a given reasoning effort.
 
     Shared by ``build_run_kwargs`` and the A/B harness so an experiment measures
-    the model, not a differently-configured gateway.
+    the model, not a differently-configured gateway. ``effort`` is coerced
+    against OpenRouter's enum rather than ``ThinkingEffort``, so the A/B CLI's
+    ``minimal`` tier survives instead of being silently rounded up to medium.
 
     Effort goes through ``openrouter_reasoning`` (the gateway's own ``reasoning``
     body field) rather than the unified ``thinking`` setting, which pydantic-ai's
@@ -294,7 +312,7 @@ def build_openrouter_settings(effort: str | None = None) -> OpenRouterModelSetti
     see ``test_model_pricing.py``.
     """
     return OpenRouterModelSettings(
-        openrouter_reasoning=cast(Any, {"effort": get_thinking_effort(effort), "enabled": True}),
+        openrouter_reasoning=cast(Any, {"effort": get_openrouter_effort(effort), "enabled": True}),
         openrouter_provider={"only": cast(Any, list(OPENROUTER_ALLOWED_PROVIDERS))},
         openrouter_usage={"include": True},
     )

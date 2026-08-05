@@ -117,6 +117,50 @@ def test_openrouter_effort_uses_reasoning_knob(effort: str):
     assert "thinking" not in settings
 
 
+def test_openrouter_preserves_minimal_effort_for_ab_tests():
+    """`minimal` must survive to OpenRouter instead of rounding up to medium.
+
+    The A/B CLI accepts `--thinking minimal`, but it is below the settings UI's
+    `ThinkingEffort` ladder. Coercing it to `medium` would run the OpenRouter
+    variant deeper than its Anthropic counterpart and corrupt the comparison.
+    OpenRouter's own enum accepts `minimal`, so it passes through.
+    """
+    from api.src.sernia_ai.model_config import build_openrouter_settings
+
+    settings = build_openrouter_settings("minimal")
+    assert settings["openrouter_reasoning"] == {"effort": "minimal", "enabled": True}
+
+
+def test_ab_cli_thinking_choices_all_reach_openrouter_intact():
+    """Every tier the A/B CLI exposes must survive the settings builder.
+
+    Reads the choices off the real parser, so adding a tier to the CLI without
+    teaching OpenRouter about it fails here rather than skewing an experiment.
+    """
+    from api.src.sernia_ai.ab_tests._cli import build_parser
+    from api.src.sernia_ai.model_config import build_openrouter_settings
+
+    parser = build_parser("test", default_experiment_prefix="test")
+    action = next(a for a in parser._actions if "--thinking" in a.option_strings)  # noqa: SLF001
+    choices = tuple(action.choices or ())
+
+    assert choices, "expected --thinking to declare choices"
+    for effort in choices:
+        settings = build_openrouter_settings(effort)
+        assert settings["openrouter_reasoning"]["effort"] == effort, (
+            f"A/B CLI allows --thinking {effort!r} but the OpenRouter settings builder "
+            f"silently changed it to {settings['openrouter_reasoning']['effort']!r}"
+        )
+
+
+def test_unknown_effort_still_falls_back_on_openrouter():
+    """Widening the accepted set must not turn it into a passthrough."""
+    from api.src.sernia_ai.model_config import build_openrouter_settings
+
+    assert build_openrouter_settings("ludicrous")["openrouter_reasoning"]["effort"] == "medium"
+    assert build_openrouter_settings(None)["openrouter_reasoning"]["effort"] == "medium"
+
+
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
 def test_anthropic_effort_uses_unified_thinking(effort: str):
     from api.src.sernia_ai.model_config import build_run_kwargs

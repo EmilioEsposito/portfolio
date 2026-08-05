@@ -96,7 +96,7 @@
         "spec": {
           "display": {
             "name": "LLM Cost By Token Type",
-            "description": "Cost breakdown by token bucket (input_non_cached, cache_input, cache_write, output). Computed from token counts × per-model list prices; totals reconcile to ~0.01% of operation.cost."
+            "description": "Cost breakdown by token bucket (input_non_cached, cache_input, cache_write, output). Computed from token counts × per-model rates mirrored from genai-prices; api/src/tests/test_dashboard_pricing.py fails if the two drift apart. Rates corrected 2026-08: gpt-5.6-luna was priced at $1.00/$6.00 per MTok vs OpenAI's actual $0.20/$1.20 (~5x overstatement), claude-opus had no branch at all (costed as $0), and gpt-4.1 cache reads were unpriced. `openai/...` ids are OpenRouter routes, billed at 50% of OpenAI list."
           },
           "plugin": {
             "kind": "TimeSeriesChart",

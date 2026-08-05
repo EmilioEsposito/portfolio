@@ -60,4 +60,7 @@ mcp__logfire__dashboard_update(
 
 ## Current snapshots
 
-- `llm-cost/` — LLM Cost dashboard. 24h default time range; declares `resolution` ListVariable; panels: cost by env, cost by token type (v1 with hard-coded gpt-4.x/5.x pricing incl. both `gpt-5.6-luna` and the OpenRouter route `openai/gpt-5.6-luna`, which is priced at OpenRouter's rates; v2 reads genai-prices cost attrs and so has no OpenRouter data — genai-prices doesn't know those routes), cost/runs/cost-per-run by trigger source, sample records, run trace sample.
+- `llm-cost/` — LLM Cost dashboard. 24h default time range; declares `resolution` ListVariable; panels: cost by env, cost by token type (v1 + v2), cost/runs/cost-per-run by trigger source, sample records, run trace sample, unpriced models.
+  - **v1** (`cost_by_token_type.sql`) hard-codes per-MTok rates. They are a copy of genai-prices and are guarded by `api/src/tests/test_dashboard_pricing.py`, which re-derives every rate and fails on drift — add a `model like` branch there too, or the test rejects it. Rates were corrected in 2026-08: `gpt-5.6-luna` had been 5x too high ($1.00/$6.00 vs OpenAI's $0.20/$1.20), `claude-opus` had no branch (costed as $0), and `gpt-4.1` cache reads were unpriced.
+  - **v2** (`cost_by_token_type_v2.sql`) reads the `gen_ai.cost.*` attrs from `CostBreakdownSpanProcessor`. It has no data for OpenRouter routes (`openai/...`) because genai-prices doesn't know them — v1 is the only by-bucket source for those, so don't retire it yet.
+  - Because `operation.cost` is stamped at emit time, already-written spans keep whatever price was current then. v1 recomputes from token counts and so corrects retroactively; panels reading `operation.cost` do not.

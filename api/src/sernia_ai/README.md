@@ -58,8 +58,29 @@ Things worth knowing about the OpenRouter path (all handled in
   OpenRouter usage accounting (`usage.include`) and stamp the exact billed
   amount instead. Known gap: the per-token-type breakdown
   (`utils/llm_cost_breakdown.py`) still needs genai-prices to split a total
-  across buckets, so OpenRouter runs show total cost but not the by-bucket
-  panel. `test_model_pricing.py` guards both halves.
+  across buckets, so OpenRouter runs show total cost but not the v2 by-bucket
+  panel (the v1 panel covers them via hard-coded tiers).
+  `test_model_pricing.py` guards both halves.
+- **OpenRouter bills 50% of OpenAI list** on this route today — a standing
+  discount, verified against real billed amounts. The dashboard's `openai/...`
+  tiers encode that; `test_dashboard_pricing.py` fails if it ends.
+
+### A note on reported LLM cost
+
+Reported spend for GPT-5.6 Luna was **5x too high** until 2026-08. genai-prices
+`0.0.71` (the old pin) priced it at $1.00/$6.00 per MTok when OpenAI actually
+charges $0.20/$1.20, and pydantic-ai stamps `operation.cost` from that data —
+so ~$67 of reported production spend over 13 days was really ~$13.38. The same
+wrong rates were hard-coded in the dashboard's v1 panel, and `claude-opus` had
+no branch there at all (an Opus run costed as $0).
+
+Fixed by pinning `genai-prices>=0.1.1` and correcting the v1 tiers, with
+`api/src/tests/test_dashboard_pricing.py` re-deriving every hard-coded rate from
+genai-prices so the two can't silently drift again. Note that already-emitted
+telemetry keeps its wrong `operation.cost` — panels that read that attribute
+(cost by env / by trigger source) stay 5x high for historical Luna spans, while
+the v1 by-token-type panel recomputes from token counts and so corrects
+retroactively.
 - **Prompt-cache retention is shorter.** OpenRouter reaches OpenAI over Chat
   Completions, where caching is automatic but the Responses-only
   `prompt_cache_retention="24h"` extension isn't available — infrequent

@@ -70,7 +70,11 @@ dependencies = [
     "pydantic-ai-skills>=0.5.1",
     # >=0.0.71: adds GPT-5.6 family pricing (sol/terra/luna). Powers operation.cost
     # + the v2 cost-breakdown dashboard; without it gpt-5.6-luna has no priced cost.
-    "genai-prices>=0.0.71",
+    # >=0.1.1: 0.0.71 priced gpt-5.6-luna at $1/$6 per MTok when OpenAI
+    # actually charges $0.20/$1.20, overstating Sernia AI spend ~5x on the
+    # LLM-cost dashboard. 0.1.1 matches OpenAI's published rates and adds
+    # the >272k long-context tiers.
+    "genai-prices>=0.1.1",
 ]
 
 [dependency-groups]
