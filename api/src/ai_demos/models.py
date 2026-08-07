@@ -353,7 +353,7 @@ async def persist_agent_run_result(
     agent_name: str,
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> None:
+) -> bool:
     """
     Convenience function to persist an agent run result to the database.
     Handles session creation and error logging.
@@ -375,15 +375,19 @@ async def persist_agent_run_result(
         agent_name: Name of the agent
         clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
         metadata: Optional metadata to store
+
+    Returns:
+        True only when the conversation was successfully committed. Existing
+        callers may continue to ignore the return value.
     """
     logfire.info(
         f"persist_agent_run_result called: conversation_id={conversation_id}, agent_name={agent_name}"
     )
     if not conversation_id:
         logfire.warning("No conversation_id provided for persistence")
-        return
+        return False
 
-    async def _do_persist():
+    async def _do_persist() -> bool:
         """Inner function that does the actual persistence."""
         try:
             async with provide_session() as s:
@@ -423,16 +427,26 @@ async def persist_agent_run_result(
             logfire.info(
                 f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}"
             )
+            return True
         except Exception as e:
             logfire.error(f"Failed to save conversation {conversation_id}: {e}")
+            return False
 
     # Spawn as a background task and shield from cancellation
     task = asyncio.create_task(_do_persist())
     try:
-        await asyncio.shield(task)
+        return await asyncio.shield(task)
     except asyncio.CancelledError:
-        # Parent was cancelled (e.g., client disconnected), but task continues
+        # Parent was cancelled (e.g., client disconnected), but shield kept the
+        # DB task alive. Wait for that same task so callers can distinguish a
+        # confirmed commit from a failure before dispatching notifications.
         logfire.info(f"Persistence shielded from cancellation for {conversation_id}")
+        try:
+            return await task
+        except asyncio.CancelledError:
+            # The persistence task itself was cancelled independently.
+            logfire.warn(f"Persistence task cancelled for {conversation_id}")
+            return False
 
 
 def _sanitize_json(obj: Any) -> Any:

@@ -14,14 +14,14 @@ import {
   useIsStandalonePwa,
 } from "~/hooks/use-pull-to-refresh";
 import { cn } from "~/lib/utils";
+import {
+  serverHasResponseForRequest,
+  userMessageFingerprint,
+  type PendingRequestMarker,
+} from "~/lib/sernia-chat-recovery";
 import { Markdown } from "~/components/markdown";
 import { AuthGuard } from "~/components/auth-guard";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "~/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "~/components/ui/tabs";
 import {
   AlertCircle,
   Building,
@@ -53,13 +53,62 @@ import {
   FilePreviewStrip,
 } from "~/components/chat/file-attachment-area";
 import { FileMessageDisplay } from "~/components/chat/file-message-display";
-import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
+import {
+  SidebarProvider,
+  SidebarInset,
+  useSidebar,
+} from "~/components/ui/sidebar";
 import {
   ConversationSidebar,
   prefetchConversations,
 } from "~/components/sernia/conversation-sidebar";
 
 const API_BASE = "/api/sernia-ai";
+const PENDING_REQUEST_STORAGE_PREFIX = "sernia-pending-request-";
+
+function pendingRequestStorageKey(conversationId: string): string {
+  return `${PENDING_REQUEST_STORAGE_PREFIX}${conversationId}`;
+}
+
+function clearPendingRequestMarkerStorage(conversationId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(pendingRequestStorageKey(conversationId));
+  } catch {
+    // In-memory recovery still works if storage is unavailable.
+  }
+}
+
+function readPendingRequestMarker(
+  conversationId: string,
+): PendingRequestMarker | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(
+      pendingRequestStorageKey(conversationId),
+    );
+    if (!raw) return null;
+    const marker = JSON.parse(raw);
+    if (
+      typeof marker?.fingerprint === "string" &&
+      Number.isInteger(marker?.occurrence) &&
+      marker.occurrence > 0
+    ) {
+      return {
+        fingerprint: marker.fingerprint,
+        occurrence: marker.occurrence,
+        createdAt:
+          typeof marker.createdAt === "number" &&
+          Number.isFinite(marker.createdAt)
+            ? marker.createdAt
+            : Date.now(),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -88,35 +137,53 @@ const suggestedPrompts = [
 ];
 
 // ---------------------------------------------------------------------------
-// Typing indicator — shown while waiting on the backend's first response byte
+// Thinking state
 // ---------------------------------------------------------------------------
 
-function TypingIndicator() {
+function AssistantAvatar({ active = false }: { active?: boolean }) {
+  return (
+    <div className="relative w-8 h-8 shrink-0" aria-hidden="true">
+      {active && (
+        <span className="absolute -inset-1 animate-sernia-thinking-orbit">
+          <span className="absolute left-1/2 top-0 w-1.5 h-1.5 -translate-x-1/2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--background))]" />
+        </span>
+      )}
+    <div
+        className={cn(
+          "relative w-8 h-8 rounded-full bg-primary flex items-center justify-center",
+          active &&
+            "ring-1 ring-primary/25 ring-offset-2 ring-offset-background",
+        )}
+    >
+          <Building className="w-4 h-4 text-primary-foreground" />
+        </div>
+      </div>
+  );
+}
+
+function ThinkingBubble({
+  label = "Sernia AI is thinking",
+}: {
+  label?: string;
+}) {
+  return (
+    <div className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm text-sm text-muted-foreground">
+      {label}
+      <span aria-hidden="true">…</span>
+      </div>
+  );
+}
+
+function ThinkingIndicator({ label }: { label?: string }) {
   return (
     <div
       className="flex gap-3 justify-start"
       role="status"
-      aria-label="Sernia AI is typing"
+      aria-live="polite"
+      aria-atomic="true"
     >
-      <div className="shrink-0">
-        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-          <Building className="w-4 h-4 text-primary-foreground" />
-        </div>
-      </div>
-      <div className="bg-muted/50 rounded-2xl px-4 py-3 shadow-sm flex items-center gap-1.5">
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
-          style={{ animationDelay: "0ms" }}
-        />
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
-          style={{ animationDelay: "150ms" }}
-        />
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-typing-dot"
-          style={{ animationDelay: "300ms" }}
-        />
-      </div>
+      <AssistantAvatar active />
+      <ThinkingBubble label={label} />
     </div>
   );
 }
@@ -149,7 +216,7 @@ function messagesSignature(msgs: any[]): string {
             ? p.text
             : p.toolCallId
               ? `${p.toolCallId}:${p.state ?? ""}`
-              : p.type
+              : p.type,
         )
         .join("\u0000");
       return `${m.role}:${content}`;
@@ -168,6 +235,7 @@ function ChatView({
   initialAllPending,
   getToken,
   readOnly = false,
+  onMountedChange,
 }: {
   conversationId: string;
   initialMessages: any[];
@@ -175,15 +243,27 @@ function ChatView({
   initialAllPending?: PendingApproval[];
   getToken: () => Promise<string | null>;
   readOnly?: boolean;
+  onMountedChange?: (mounted: boolean) => void;
 }) {
   const [pendingApproval, setPendingApproval] =
     useState<PendingApproval | null>(initialPending);
-  const [allPendingApprovals, setAllPendingApprovals] =
-    useState<PendingApproval[]>(initialAllPending || (initialPending ? [initialPending] : []));
+  const [allPendingApprovals, setAllPendingApprovals] = useState<
+    PendingApproval[]
+  >(initialAllPending || (initialPending ? [initialPending] : []));
   const [isProcessingApproval, setIsProcessingApproval] = useState(false);
+  const [recoveryState, setRecoveryState] = useState<
+    "idle" | "checking" | "failed"
+  >("idle");
+  const [recoveryCycle, setRecoveryCycle] = useState(0);
+  const [isPreparingRequest, setIsPreparingRequest] = useState(false);
+  const [pendingRequestMarker, setPendingRequestMarker] =
+    useState<PendingRequestMarker | null>(() =>
+      readPendingRequestMarker(conversationId),
+    );
   const draftKey = `sernia-draft-${conversationId}`;
   const [input, setInput] = useState(
-    () => (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || ""
+    () =>
+      (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || "",
   );
   // Persist draft to sessionStorage so it survives component remounts
   useEffect(() => {
@@ -198,6 +278,12 @@ function ChatView({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>();
   const attachment = useFileAttachments();
+  const lastChatHttpStatusRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onMountedChange?.(true);
+    return () => onMountedChange?.(false);
+  }, [onMountedChange]);
 
   // Track the actual height of the input bar so the messages list reserves
   // matching bottom padding. The input bar is position:fixed on mobile, so
@@ -207,10 +293,7 @@ function ChatView({
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       const h = entries[0]?.contentRect.height ?? 0;
-      document.documentElement.style.setProperty(
-        "--chat-input-h",
-        `${h}px`
-      );
+      document.documentElement.style.setProperty("--chat-input-h", `${h}px`);
     });
     observer.observe(el);
     return () => {
@@ -232,6 +315,15 @@ function ChatView({
   const transport = useRef(
     new DefaultChatTransport({
       api: `${API_BASE}/chat`,
+      fetch: async (input, init) => {
+        // A non-2xx response is a terminal server rejection, while a fetch
+        // failure or a broken 2xx stream may still finish and persist in the
+        // backend. Recovery polling is limited to the latter cases.
+        lastChatHttpStatusRef.current = null;
+        const response = await fetch(input, init);
+        lastChatHttpStatusRef.current = response.status;
+        return response;
+      },
       headers: async () => {
         const token = await getToken();
         return { Authorization: `Bearer ${token}` };
@@ -260,11 +352,18 @@ function ChatView({
           },
         };
       },
-    })
+    }),
   ).current;
 
-  const { messages, sendMessage, status, stop, setMessages, error, clearError } =
-    useChat({
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    setMessages,
+    error,
+    clearError,
+  } = useChat({
       id: conversationId,
       messages: initialMessages,
       transport,
@@ -277,30 +376,151 @@ function ChatView({
   isProcessingApprovalRef.current = isProcessingApproval;
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const authoritativeMessagesRef = useRef(initialMessages);
+  const pendingRequestRef = useRef<PendingRequestMarker | null>(
+    pendingRequestMarker,
+  );
+  const syncGenerationRef = useRef(0);
+  const syncAbortControllerRef = useRef<AbortController | null>(null);
+  const isPreparingRequestRef = useRef(false);
+
+  const invalidateServerSync = useCallback(() => {
+    syncGenerationRef.current += 1;
+    syncAbortControllerRef.current?.abort();
+    syncAbortControllerRef.current = null;
+  }, []);
+
+  const handleApprovalProcessingChange = useCallback(
+    (processing: boolean) => {
+      isProcessingApprovalRef.current = processing;
+      if (processing) invalidateServerSync();
+      setIsProcessingApproval(processing);
+    },
+    [invalidateServerSync],
+  );
+
+  const storePendingRequest = useCallback(
+    (marker: PendingRequestMarker | null) => {
+      pendingRequestRef.current = marker;
+      setPendingRequestMarker(marker);
+      if (marker) {
+        try {
+          sessionStorage.setItem(
+            pendingRequestStorageKey(conversationId),
+            JSON.stringify(marker),
+          );
+        } catch {
+          // Keep the in-memory marker if browser storage is unavailable.
+        }
+      } else {
+        clearPendingRequestMarkerStorage(conversationId);
+      }
+    },
+    [conversationId],
+  );
+
+  const rememberPendingRequest = useCallback(
+    async (parts: any[]) => {
+      invalidateServerSync();
+      isPreparingRequestRef.current = true;
+      setIsPreparingRequest(true);
+      try {
+        const fingerprint = await userMessageFingerprint({
+          role: "user",
+          parts,
+        });
+        let occurrence = 1;
+        for (const message of authoritativeMessagesRef.current) {
+          if ((await userMessageFingerprint(message)) === fingerprint) {
+            occurrence += 1;
+          }
+        }
+        storePendingRequest({
+          fingerprint,
+          occurrence,
+          createdAt: Date.now(),
+        });
+      } finally {
+        isPreparingRequestRef.current = false;
+        setIsPreparingRequest(false);
+      }
+    },
+    [invalidateServerSync, storePendingRequest],
+  );
+
+  const handleStop = useCallback(() => {
+    stop();
+  }, [stop]);
 
   // Re-sync the chat from the DB (the authoritative source). useChat only
   // reads its `messages` option at mount, so without this any response that
   // finishes after the stream dies client-side (mobile tab suspension,
   // network blip, provider error) stays invisible until a full page reload.
-  const syncFromServer = useCallback(async () => {
-    const busy = () =>
-      statusRef.current === "submitted" ||
-      statusRef.current === "streaming" ||
-      isProcessingApprovalRef.current;
-    if (busy()) return;
+  const syncFromServer = useCallback(
+    async (allowWhileActive = false) => {
+      const chatActive = () =>
+        statusRef.current === "submitted" || statusRef.current === "streaming";
+      const busy = () => chatActive() || isProcessingApprovalRef.current;
+      if (isProcessingApprovalRef.current || (!allowWhileActive && busy())) {
+        return false;
+      }
+      const generation = syncGenerationRef.current + 1;
+      syncGenerationRef.current = generation;
+      syncAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      syncAbortControllerRef.current = controller;
+      const pendingRequestAtStart = pendingRequestRef.current;
     try {
       const token = await getToken();
       const res = await fetch(
         `${API_BASE}/conversation/${conversationId}/messages`,
-        { headers: { Authorization: `Bearer ${token}` } }
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
       );
-      if (!res.ok) return;
+        if (!res.ok) return false;
       const data = await res.json();
       // Re-check after the awaits — the user may have hit send meanwhile.
-      if (busy()) return;
+        if (
+          controller.signal.aborted ||
+          generation !== syncGenerationRef.current ||
+          isProcessingApprovalRef.current ||
+          (!allowWhileActive && busy())
+        ) {
+          return false;
+        }
       const serverMessages: any[] = data.messages || [];
       // Empty server copy = nothing persisted yet; keep local state.
-      if (serverMessages.length === 0) return;
+        if (serverMessages.length === 0) return false;
+
+        // Never let an early recovery fetch replace the optimistic user turn
+        // with an older DB snapshot. Persistence happens only after the agent
+        // finishes, so wait until the exact submitted turn and a later assistant
+        // response are both present.
+        const pendingRequest =
+          pendingRequestRef.current ?? pendingRequestAtStart;
+        if (
+          pendingRequest &&
+          !(await serverHasResponseForRequest(serverMessages, pendingRequest))
+        ) {
+          return false;
+        }
+        // Digest comparison is asynchronous; a new request may have started
+        // while it was running even though the fetch itself had completed.
+        if (
+          controller.signal.aborted ||
+          generation !== syncGenerationRef.current ||
+          (pendingRequestAtStart !== null &&
+            pendingRequestRef.current !== pendingRequestAtStart)
+        ) {
+          return false;
+        }
+
+        if (allowWhileActive && chatActive()) {
+          stop();
+        }
+
       if (
         messagesSignature(serverMessages) !==
         messagesSignature(messagesRef.current)
@@ -310,17 +530,60 @@ function ChatView({
         setPendingApproval(allPending[0] ?? null);
         setAllPendingApprovals(allPending);
       }
+        authoritativeMessagesRef.current = serverMessages;
+        storePendingRequest(null);
+        if (statusRef.current === "error") {
+          clearError();
+        }
+        setRecoveryState("idle");
+        return true;
     } catch {
       // Network failure — keep whatever we have.
+        return false;
+      } finally {
+        if (syncAbortControllerRef.current === controller) {
+          syncAbortControllerRef.current = null;
+        }
     }
-  }, [conversationId, getToken, setMessages]);
+    },
+    [
+      clearError,
+      conversationId,
+      getToken,
+      setMessages,
+      stop,
+      storePendingRequest,
+    ],
+  );
 
-  // Sync when the tab regains visibility or the network comes back.
+  // A push completion signal can arrive in the narrow window before an
+  // approval request leaves its processing state. Reconcile once processing
+  // ends so that signal cannot be lost if the HTTP response itself broke.
+  const wasProcessingApprovalRef = useRef(false);
+  useEffect(() => {
+    const wasProcessing = wasProcessingApprovalRef.current;
+    wasProcessingApprovalRef.current = isProcessingApproval;
+    if (wasProcessing && !isProcessingApproval) {
+      void syncFromServer(true);
+    }
+  }, [isProcessingApproval, syncFromServer]);
+
+  useEffect(
+    () => () => {
+      syncGenerationRef.current += 1;
+      syncAbortControllerRef.current?.abort();
+    },
+    [],
+  );
+
+  // Sync when the tab regains visibility or the network comes back. Allow an
+  // authoritative completed response to replace a locally stuck stream — a
+  // suspended mobile tab can retain "submitted"/"streaming" indefinitely.
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") syncFromServer();
+      if (document.visibilityState === "visible") syncFromServer(true);
     };
-    const handleOnline = () => syncFromServer();
+    const handleOnline = () => syncFromServer(true);
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("online", handleOnline);
     return () => {
@@ -329,13 +592,114 @@ function ChatView({
     };
   }, [syncFromServer]);
 
-  // If the stream errors, the run may still have completed server-side (the
-  // backend persists via on_complete) — pull the authoritative copy.
+  // When this view is mounted, apply focused completion signals in place so
+  // attachments, drafts, scroll state, and the selected admin tab are kept.
   useEffect(() => {
-    if (status === "error") {
-      syncFromServer();
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const isCompletionSignal =
+        event.data?.type === "response-ready" ||
+        event.data?.type === "notification-click";
+      if (
+        isCompletionSignal &&
+        event.data.data?.conversation_id === conversationId
+      ) {
+        void syncFromServer(true);
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener(
+      "message",
+      handleServiceWorkerMessage,
+    );
+    return () =>
+      navigator.serviceWorker?.removeEventListener(
+        "message",
+        handleServiceWorkerMessage,
+      );
+  }, [conversationId, syncFromServer]);
+
+  // Confirm every submitted turn against the authoritative DB copy. The
+  // marker survives remounts, so switching tabs/conversations or reloading
+  // cannot unlock a conversation while its backend run is still active.
+  useEffect(() => {
+    const isRecoverableInterruption =
+      lastChatHttpStatusRef.current === null ||
+      (lastChatHttpStatusRef.current >= 200 &&
+        lastChatHttpStatusRef.current < 300);
+
+    if (status === "submitted" || status === "streaming") {
+      setRecoveryState("idle");
+      return;
     }
-  }, [status, syncFromServer]);
+
+    if (status === "error" && !isRecoverableInterruption) {
+      // A non-2xx response means the server rejected the request before a run
+      // began, so there is no background work to protect from overlap.
+      storePendingRequest(null);
+      setRecoveryState("failed");
+      return;
+    }
+
+    if (status !== "ready" && status !== "error") {
+      setRecoveryState("idle");
+      return;
+    }
+
+    if (!pendingRequestMarker) {
+      setRecoveryState(status === "error" ? "failed" : "idle");
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // Long tool-heavy runs regularly take close to a minute. Keep checking
+    // for ~85 seconds before asking the user to intervene.
+    const retryDelays = [
+      0, 1000, 2000, 4000, 8000, 10000, 10000, 10000, 10000, 10000, 10000,
+      10000,
+    ];
+
+    const wait = (delay: number) =>
+      new Promise<void>((resolve) => {
+        retryTimer = setTimeout(resolve, delay);
+      });
+
+    const recover = async () => {
+      setRecoveryState("checking");
+
+      for (const delay of retryDelays) {
+        if (delay > 0) await wait(delay);
+        const currentStatus = statusRef.current;
+        if (
+          cancelled ||
+          pendingRequestRef.current === null ||
+          (currentStatus !== "ready" && currentStatus !== "error")
+        ) {
+          return;
+        }
+
+        const recovered = await syncFromServer();
+        if (recovered) {
+          return;
+        }
+    }
+
+      if (!cancelled) setRecoveryState("failed");
+    };
+
+    void recover();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [
+    pendingRequestMarker,
+    recoveryCycle,
+    status,
+    storePendingRequest,
+    syncFromServer,
+  ]);
 
   // Extract ALL pending approvals from latest assistant message
   // PydanticAI requires results for all deferred tool calls, so we need to track all of them
@@ -378,6 +742,23 @@ function ChatView({
     }
   }, [messages, status]);
 
+  const isRecoverableStreamError =
+    status === "error" &&
+    (lastChatHttpStatusRef.current === null ||
+      (lastChatHttpStatusRef.current >= 200 &&
+        lastChatHttpStatusRef.current < 300));
+  const canRecoverResponse =
+    pendingRequestMarker !== null || isRecoverableStreamError;
+  const isRecoveringResponse =
+    canRecoverResponse &&
+    (status === "ready" || status === "error") &&
+    recoveryState !== "failed";
+  // A recoverable disconnect means the backend may still be executing. Keep
+  // this conversation locked even after automatic polling pauses so a second
+  // run cannot race and overwrite the first run's persisted history. The user
+  // can keep checking or start a separate conversation from the header.
+  const hasUnresolvedResponse = canRecoverResponse || isPreparingRequest;
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -388,7 +769,16 @@ function ChatView({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (status === "submitted" || status === "streaming" || isProcessingApproval) return;
+    if (
+      status === "submitted" ||
+      status === "streaming" ||
+      isProcessingApproval ||
+      hasUnresolvedResponse ||
+      pendingRequestRef.current !== null ||
+      isPreparingRequestRef.current
+    ) {
+      return;
+    }
 
     const text = input.trim();
     const hasContent = text || attachment.hasFiles;
@@ -403,7 +793,7 @@ function ChatView({
     // This also collapses the old two-round-trip flow (deny → wait → type
     // feedback) into one LLM call.
     if (allPendingApprovals.length > 0 && text) {
-      setIsProcessingApproval(true);
+      handleApprovalProcessingChange(true);
       // Render the user's message optimistically so the chat feels responsive.
       // On refresh, the same text will load from the DB as a UserPromptPart;
       // IDs differ but the visible bubble is identical so there is no dupe.
@@ -430,9 +820,11 @@ function ChatView({
       } catch (err) {
         console.error("Deny-with-feedback error:", err);
         alert(err instanceof Error ? err.message : "Failed to submit feedback");
-        setMessages((prev: any[]) => prev.filter((m) => m.id !== optimisticUserMsg.id));
+        setMessages((prev: any[]) =>
+          prev.filter((m) => m.id !== optimisticUserMsg.id),
+        );
       } finally {
-        setIsProcessingApproval(false);
+        handleApprovalProcessingChange(false);
       }
       return;
     }
@@ -450,15 +842,28 @@ function ChatView({
     }
     setPendingApproval(null);
     setAllPendingApprovals([]);
+    await rememberPendingRequest(parts);
     sendMessage({ role: "user", parts });
     setInput("");
     attachment.clearFiles();
   };
 
-  const handleSuggestedPrompt = (prompt: string) => {
+  const handleSuggestedPrompt = async (prompt: string) => {
+    if (
+      status === "submitted" ||
+      status === "streaming" ||
+      isProcessingApproval ||
+      hasUnresolvedResponse ||
+      pendingRequestRef.current !== null ||
+      isPreparingRequestRef.current
+    ) {
+      return;
+    }
+    const parts: any[] = [{ type: "text", text: prompt }];
     setPendingApproval(null);
     setAllPendingApprovals([]);
-    sendMessage({ role: "user", parts: [{ type: "text", text: prompt }] });
+    await rememberPendingRequest(parts);
+    sendMessage({ role: "user", parts });
   };
 
   const handleApprovalComplete = useCallback(
@@ -492,9 +897,13 @@ function ChatView({
 
       setMessages((prev: any[]) => {
         const updated = [...prev];
-        const lastAssistantIdx = updated.findLastIndex(
-          (m: any) => m.role === "assistant"
-        );
+        let lastAssistantIdx = -1;
+        for (let index = updated.length - 1; index >= 0; index -= 1) {
+          if (updated[index].role === "assistant") {
+            lastAssistantIdx = index;
+            break;
+          }
+        }
         if (lastAssistantIdx >= 0) {
           const lastMsg = updated[lastAssistantIdx];
           if (lastMsg.parts) {
@@ -516,7 +925,8 @@ function ChatView({
                   ...part,
                   state: wasApproved ? "output-available" : "output-denied",
                   output:
-                    realResult || (wasApproved ? "Completed" : "Denied by user"),
+                    realResult ||
+                    (wasApproved ? "Completed" : "Denied by user"),
                 };
               }
               return part;
@@ -539,6 +949,7 @@ function ChatView({
           });
         }
 
+        authoritativeMessagesRef.current = updated;
         return updated;
       });
 
@@ -551,14 +962,47 @@ function ChatView({
             toolCallId: p.toolCallId,
             toolName: p.type.replace("tool-", ""),
             args: p.input,
-          })
+          }),
         );
         setPendingApproval(asPendingApprovals[0]);
         setAllPendingApprovals(asPendingApprovals);
       }
     },
-    [setMessages]
+    [setMessages],
   );
+
+  const isAiThinking =
+    status === "submitted" ||
+    status === "streaming" ||
+    isPreparingRequest ||
+    isProcessingApproval ||
+    isRecoveringResponse;
+  const lastMessageIsAssistant =
+    messages[messages.length - 1]?.role === "assistant";
+  const lastAssistantHasVisibleContent =
+    lastMessageIsAssistant &&
+    processMessage(messages[messages.length - 1]).segments.length > 0;
+  const activityLabel = isRecoveringResponse
+    ? status === "ready"
+      ? "Confirming your response"
+      : "Reconnecting to your response"
+    : isProcessingApproval
+      ? "Sernia AI is completing the action"
+      : "Sernia AI is thinking";
+  const allowRetryAfterUnresolvedResponse = useCallback(() => {
+    const confirmed = window.confirm(
+      "The original request may still finish and may already have performed actions. Allow another request in this conversation anyway? Start a new conversation instead if you are unsure.",
+    );
+    if (!confirmed) return;
+
+    invalidateServerSync();
+    storePendingRequest(null);
+    if (statusRef.current === "error") clearError();
+    setRecoveryState("idle");
+  }, [clearError, invalidateServerSync, storePendingRequest]);
+  const showStreamError =
+    (status === "error" && !isRecoverableStreamError) ||
+    (canRecoverResponse && recoveryState === "failed");
 
   return (
     <>
@@ -580,7 +1024,7 @@ function ChatView({
               <RefreshCw
                 className={cn(
                   "w-4 h-4 text-muted-foreground",
-                  pullProgress >= 1 && "text-primary"
+                  pullProgress >= 1 && "text-primary",
                 )}
                 style={{ transform: `rotate(${pullProgress * 360}deg)` }}
               />
@@ -613,43 +1057,43 @@ function ChatView({
             {messages.map((message, index) => {
               const { segments } = processMessage(message);
               const isLastAssistant =
-                message.role === "assistant" &&
-                index === messages.length - 1;
+                message.role === "assistant" && index === messages.length - 1;
 
               return (
                 <div
                   key={message.id || index}
                   className={cn(
                     "flex gap-3",
-                    message.role === "user"
-                      ? "justify-end"
-                      : "justify-start"
+                    message.role === "user" ? "justify-end" : "justify-start",
                   )}
                 >
                   {message.role === "assistant" && (
-                    <div className="shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-                        <Building className="w-4 h-4 text-primary-foreground" />
-                      </div>
-                    </div>
+                    <AssistantAvatar active={isLastAssistant && isAiThinking} />
                   )}
 
                   <div
                     className={cn(
                       "flex flex-col gap-2 max-w-[85%] min-w-0",
-                      message.role === "user" && "items-end"
+                      message.role === "user" && "items-end",
                     )}
                   >
                     {message.role === "user" ? (
                       <>
                         <FileMessageDisplay
-                          files={segments.filter((s) => s.type === "file") as any}
+                          files={
+                            segments.filter((s) => s.type === "file") as any
+                          }
                         />
                         {segments.some((s) => s.type === "text") && (
                           <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden max-w-full">
                             <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                              {segments.find((s) => s.type === "text")?.type === "text"
-                                ? (segments.find((s) => s.type === "text") as any).content
+                              {segments.find((s) => s.type === "text")?.type ===
+                              "text"
+                                ? (
+                                    segments.find(
+                                      (s) => s.type === "text",
+                                    ) as any
+                                  ).content
                                 : ""}
                             </p>
                           </div>
@@ -659,7 +1103,10 @@ function ChatView({
                       <>
                         {segments.map((seg, i) =>
                           seg.type === "text" ? (
-                            <div key={i} className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0">
+                            <div
+                              key={i}
+                              className="bg-muted/50 rounded-2xl px-4 py-2.5 shadow-sm overflow-hidden min-w-0"
+                            >
                               <div className="text-sm prose prose-sm dark:prose-invert max-w-none [overflow-wrap:anywhere]">
                                 <Markdown>{seg.content}</Markdown>
                               </div>
@@ -676,7 +1123,19 @@ function ChatView({
                               }
                               denied={seg.denied}
                             />
-                          ) : null
+                          ) : null,
+                        )}
+
+                        {isLastAssistant &&
+                          isAiThinking &&
+                          (segments.length === 0 || isRecoveringResponse) && (
+                            <div
+                              role="status"
+                              aria-live="polite"
+                              aria-atomic="true"
+                            >
+                              <ThinkingBubble label={activityLabel} />
+                            </div>
                         )}
 
                         {isLastAssistant && pendingApproval && (
@@ -685,6 +1144,7 @@ function ChatView({
                             allPending={allPendingApprovals}
                             conversationId={conversationId}
                             onApprovalComplete={handleApprovalComplete}
+                            onProcessingChange={handleApprovalProcessingChange}
                             isProcessing={isProcessingApproval}
                             getToken={getToken}
                             apiBase={API_BASE}
@@ -704,40 +1164,67 @@ function ChatView({
                 </div>
               );
             })}
-            {(status === "submitted" ||
-              (status === "streaming" &&
-                messages[messages.length - 1]?.role !== "assistant")) && (
-              <TypingIndicator />
-            )}
-            {status === "error" && (
-              <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
-                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p>{formatStreamError(error)}</p>
-                  <p className="text-xs opacity-80 mt-1">
-                    If the response finished in the background, reloading will
-                    show it.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0"
-                  onClick={() => {
-                    clearError();
-                    syncFromServer();
-                  }}
-                >
-                  Reload messages
-                </Button>
-              </div>
-            )}
-            <div
-              ref={messagesEndRef}
-              className="shrink-0 min-w-[24px] min-h-[24px]"
-            />
           </div>
         )}
+        <div className="mx-auto w-full max-w-3xl px-4 space-y-6">
+          {isAiThinking && !lastMessageIsAssistant && (
+            <ThinkingIndicator label={activityLabel} />
+          )}
+          {isAiThinking &&
+            lastMessageIsAssistant &&
+            lastAssistantHasVisibleContent &&
+            !isRecoveringResponse && (
+              <span className="sr-only" role="status" aria-live="polite">
+                {activityLabel}
+              </span>
+          )}
+          {showStreamError && (
+            <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p>{formatStreamError(error)}</p>
+                {canRecoverResponse && (
+                  <p className="text-xs opacity-80 mt-1">
+                    {pendingRequestMarker?.createdAt
+                      ? `Request started at ${new Date(
+                          pendingRequestMarker.createdAt,
+                        ).toLocaleTimeString()}. `
+                      : ""}
+                    The response may still finish in the background. This
+                    conversation stays locked to prevent overlapping runs;
+                    check again, start a new conversation, or explicitly allow
+                    a retry.
+                  </p>
+                )}
+              </div>
+              {canRecoverResponse && (
+                <div className="flex shrink-0 flex-col gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setRecoveryState("checking");
+                      setRecoveryCycle((cycle) => cycle + 1);
+                    }}
+                  >
+                    Check again
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={allowRetryAfterUnresolvedResponse}
+                  >
+                    Allow retry
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <div
+            ref={messagesEndRef}
+            className="shrink-0 min-w-[24px] min-h-[24px]"
+          />
+        </div>
       </div>
 
       {/* Hidden file input */}
@@ -779,6 +1266,12 @@ function ChatView({
                   variant="ghost"
                   type="button"
                   onClick={() => handleSuggestedPrompt(suggestion.prompt)}
+                    disabled={
+                      status === "submitted" ||
+                      status === "streaming" ||
+                      isProcessingApproval ||
+                      hasUnresolvedResponse
+                    }
                   className="text-left border rounded-xl px-4 py-3.5 text-sm h-auto justify-start"
                 >
                   {suggestion.title}
@@ -792,7 +1285,12 @@ function ChatView({
             <div className="flex gap-2 items-end">
               <FileAttachmentButton
                 onClick={attachment.openFilePicker}
-                disabled={status === "submitted" || status === "streaming"}
+                  disabled={
+                    status === "submitted" ||
+                    status === "streaming" ||
+                    isProcessingApproval ||
+                    hasUnresolvedResponse
+                  }
               />
               <Textarea
                 ref={textareaRef}
@@ -810,7 +1308,10 @@ function ChatView({
                 className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                 rows={1}
                 disabled={
-                  status === "submitted" || status === "streaming"
+                    status === "submitted" ||
+                    status === "streaming" ||
+                    isProcessingApproval ||
+                    hasUnresolvedResponse
                 }
               />
               <Button
@@ -820,7 +1321,9 @@ function ChatView({
                 disabled={
                   (!input.trim() && !attachment.hasFiles) ||
                   status === "submitted" ||
-                  status === "streaming"
+                    status === "streaming" ||
+                    isProcessingApproval ||
+                    hasUnresolvedResponse
                 }
                 className="h-9 w-9 shrink-0 rounded-lg"
               >
@@ -832,7 +1335,9 @@ function ChatView({
           <div className="flex flex-col gap-2 w-full">
             {pendingApproval && (
               <p className="text-xs text-amber-700 dark:text-amber-400 px-1">
-                Sending a message will deny the pending action{allPendingApprovals.length > 1 ? "s" : ""} — your text becomes the feedback the AI sees.
+                  Sending a message will deny the pending action
+                  {allPendingApprovals.length > 1 ? "s" : ""} — your text
+                  becomes the feedback the AI sees.
               </p>
             )}
             <FilePreviewStrip
@@ -846,7 +1351,8 @@ function ChatView({
                   status === "submitted" ||
                   status === "streaming" ||
                   !!pendingApproval ||
-                  isProcessingApproval
+                    isProcessingApproval ||
+                    hasUnresolvedResponse
                 }
               />
               <Textarea
@@ -871,13 +1377,14 @@ function ChatView({
                 disabled={
                   status === "submitted" ||
                   status === "streaming" ||
-                  isProcessingApproval
+                    isProcessingApproval ||
+                    hasUnresolvedResponse
                 }
               />
               {status === "streaming" ? (
                 <Button
                   type="button"
-                  onClick={stop}
+                    onClick={handleStop}
                   size="icon"
                   variant="outline"
                   className="h-9 w-9 shrink-0 rounded-lg"
@@ -893,6 +1400,7 @@ function ChatView({
                     (!input.trim() && !attachment.hasFiles) ||
                     status === "submitted" ||
                     isProcessingApproval ||
+                      hasUnresolvedResponse ||
                     (!!pendingApproval && !input.trim())
                   }
                   className="h-9 w-9 shrink-0 rounded-lg"
@@ -968,10 +1476,9 @@ function SystemInstructionsView({
       const token = await getToken();
       const params = new URLSearchParams({ modality });
       if (userName.trim()) params.set("user_name", userName.trim());
-      const res = await fetch(
-        `${API_BASE}/admin/context?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await fetch(`${API_BASE}/admin/context?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       const data = await res.json();
       setSections(data.sections);
@@ -1002,9 +1509,7 @@ function SystemInstructionsView({
                 <>
                   {" "}
                   Model:{" "}
-                  <code className="text-xs bg-muted px-1 rounded">
-                    {model}
-                  </code>
+                  <code className="text-xs bg-muted px-1 rounded">{model}</code>
                 </>
               )}
             </p>
@@ -1093,9 +1598,12 @@ function SystemInstructionsView({
             <div className="flex items-baseline gap-2">
               <h3 className="text-base font-semibold">Tools</h3>
               <p className="text-xs text-muted-foreground">
-                {totalTools} custom + {builtinTools.length} builtin — exactly what
-                pydantic-ai packages for the model via{" "}
-                <code className="bg-muted px-1 rounded">Toolset.get_tools()</code>.
+                {totalTools} custom + {builtinTools.length} builtin — exactly
+                what pydantic-ai packages for the model via{" "}
+                <code className="bg-muted px-1 rounded">
+                  Toolset.get_tools()
+                </code>
+                .
               </p>
             </div>
 
@@ -1109,7 +1617,9 @@ function SystemInstructionsView({
                     <div key={bt.name} className="text-xs space-y-1">
                       <div>
                         <code className="font-mono text-sm">{bt.name}</code>{" "}
-                        <span className="text-muted-foreground">({bt.type})</span>
+                        <span className="text-muted-foreground">
+                          ({bt.type})
+                        </span>
                       </div>
                       {Object.keys(bt.config).length > 0 && (
                         <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto">
@@ -1141,7 +1651,10 @@ function SystemInstructionsView({
                 </summary>
                 <div className="px-4 pb-3 space-y-3">
                   {ts.tools.map((t) => (
-                    <div key={t.name} className="space-y-1 border-t pt-2 first:border-t-0 first:pt-0">
+                    <div
+                      key={t.name}
+                      className="space-y-1 border-t pt-2 first:border-t-0 first:pt-0"
+                    >
                       <div className="flex items-baseline gap-2 flex-wrap">
                         <code className="font-mono text-sm">{t.name}</code>
                         {t.kind && t.kind !== "function" && (
@@ -1149,7 +1662,9 @@ function SystemInstructionsView({
                             {t.kind}
                           </Badge>
                         )}
-                        {t.metadata && (t.metadata as { requires_approval?: boolean }).requires_approval && (
+                        {t.metadata &&
+                          (t.metadata as { requires_approval?: boolean })
+                            .requires_approval && (
                           <Badge variant="destructive" className="text-xs">
                             HITL approval
                           </Badge>
@@ -1282,20 +1797,29 @@ export default function SerniaChatPage() {
     user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
   const urlConversationId = searchParams.get("id");
   const [conversationId, setConversationId] = useState<string>(
-    () => urlConversationId || crypto.randomUUID()
+    () => urlConversationId || crypto.randomUUID(),
   );
 
   // Loaded messages for the current conversation (null = new conversation)
   const [loadedMessages, setLoadedMessages] = useState<any[] | null>(
-    urlConversationId ? null : []
+    urlConversationId ? null : [],
   );
-  const [loadedPending, setLoadedPending] =
-    useState<PendingApproval | null>(null);
-  const [loadedAllPending, setLoadedAllPending] =
-    useState<PendingApproval[]>([]);
+  const [loadedPending, setLoadedPending] = useState<PendingApproval | null>(
+    null,
+  );
+  const [loadedAllPending, setLoadedAllPending] = useState<PendingApproval[]>(
+    [],
+  );
   const [conversationModality, setConversationModality] =
     useState<string>("web_chat");
   const push = usePushNotifications();
+  const intendedConversationIdRef = useRef(conversationId);
+  const conversationLoadGenerationRef = useRef(0);
+  const conversationLoadAbortRef = useRef<AbortController | null>(null);
+  const chatViewMountedRef = useRef(false);
+  const handleChatViewMountedChange = useCallback((mounted: boolean) => {
+    chatViewMountedRef.current = mounted;
+  }, []);
 
   // Track IDs created locally so the URL-change effect skips the API call
   const newConversationIds = useRef<Set<string>>(new Set());
@@ -1315,26 +1839,48 @@ export default function SerniaChatPage() {
   const loadConversation = useCallback(
     async (
       convId: string,
-      opts?: { updateUrl?: boolean; modality?: string }
+      opts?: {
+        updateUrl?: boolean;
+        modality?: string;
+        silent?: boolean;
+        clearPendingMarkerOnSuccess?: boolean;
+      },
     ) => {
-      if (!isSignedIn) return;
-      setLoadedMessages(null);
+      if (!isSignedIn) return false;
+      intendedConversationIdRef.current = convId;
+      const generation = conversationLoadGenerationRef.current + 1;
+      conversationLoadGenerationRef.current = generation;
+      conversationLoadAbortRef.current?.abort();
+      const controller = new AbortController();
+      conversationLoadAbortRef.current = controller;
+      if (!opts?.silent) setLoadedMessages(null);
 
       try {
         const token = await getToken();
-        const res = await fetch(
-          `${API_BASE}/conversation/${convId}/messages`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        if (generation !== conversationLoadGenerationRef.current) return false;
+        const res = await fetch(`${API_BASE}/conversation/${convId}/messages`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
 
+        if (generation !== conversationLoadGenerationRef.current) return false;
         if (!res.ok) {
           console.error("Failed to load conversation");
+          if (!opts?.silent) {
           navigate("/sernia-chat", { replace: true });
           setLoadedMessages([]);
-          return;
+          }
+          return false;
         }
 
         const data = await res.json();
+        if (
+          controller.signal.aborted ||
+          generation !== conversationLoadGenerationRef.current ||
+          intendedConversationIdRef.current !== convId
+        ) {
+          return false;
+        }
         const allPending = convertAllPendingFromApi(data.pending);
         setLoadedPending(allPending.length > 0 ? allPending[0] : null);
         setLoadedAllPending(allPending);
@@ -1342,19 +1888,44 @@ export default function SerniaChatPage() {
         setLoadedMessages(data.messages || []);
         setConversationModality(
           opts?.modality ||
-            (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat")
+            (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat"),
         );
 
         if (opts?.updateUrl !== false) {
           navigate(`/sernia-chat?id=${convId}`, { replace: true });
         }
+        if (opts?.clearPendingMarkerOnSuccess) {
+          clearPendingRequestMarkerStorage(convId);
+        }
+        return true;
       } catch (err) {
+        if (
+          controller.signal.aborted ||
+          generation !== conversationLoadGenerationRef.current
+        ) {
+          return false;
+        }
         console.error("Failed to load conversation:", err);
+        if (!opts?.silent) {
         navigate("/sernia-chat", { replace: true });
         setLoadedMessages([]);
       }
+        return false;
+      } finally {
+        if (conversationLoadAbortRef.current === controller) {
+          conversationLoadAbortRef.current = null;
+        }
+      }
     },
-    [isSignedIn, getToken, navigate]
+    [isSignedIn, getToken, navigate],
+  );
+
+  useEffect(
+    () => () => {
+      conversationLoadGenerationRef.current += 1;
+      conversationLoadAbortRef.current?.abort();
+    },
+    [],
   );
 
   // Load from URL on mount or when URL conversation ID changes
@@ -1377,14 +1948,33 @@ export default function SerniaChatPage() {
   // `messages` option at mount, so updating loadedMessages here wouldn't
   // reach the rendered chat.
 
-  // Listen for service worker messages (notification click)
+  // Listen for service worker completion signals and notification clicks.
+  // This lives outside ChatView so it remains active on the admin Context tab.
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.data?.type === "notification-click" && isSignedIn) {
-        const convId = event.data.data?.conversation_id;
-        if (convId) {
+      if (!isSignedIn) return;
+      const convId = event.data?.data?.conversation_id;
+      if (!convId) return;
+
+      if (event.data?.type === "notification-click") {
+        if (
+          convId !== intendedConversationIdRef.current ||
+          !chatViewMountedRef.current
+        ) {
           loadConversation(convId, { updateUrl: true });
         }
+      } else if (
+        event.data?.type === "response-ready" &&
+        convId === intendedConversationIdRef.current &&
+        !chatViewMountedRef.current
+      ) {
+        // ChatView may be unmounted on the admin Context tab. Refresh its next
+        // initial snapshot silently while preserving the active tab and UI.
+        loadConversation(convId, {
+          updateUrl: false,
+          silent: true,
+          clearPendingMarkerOnSuccess: true,
+        });
       }
     };
     navigator.serviceWorker?.addEventListener("message", handler);
@@ -1394,6 +1984,9 @@ export default function SerniaChatPage() {
 
   const startNewConversation = useCallback(() => {
     const newId = crypto.randomUUID();
+    conversationLoadGenerationRef.current += 1;
+    conversationLoadAbortRef.current?.abort();
+    intendedConversationIdRef.current = newId;
     newConversationIds.current.add(newId);
     setConversationId(newId);
     setLoadedMessages([]);
@@ -1407,7 +2000,7 @@ export default function SerniaChatPage() {
     (convId: string, modality?: string) => {
       loadConversation(convId, { modality });
     },
-    [loadConversation]
+    [loadConversation],
   );
 
   const handleDeleteConversation = useCallback(
@@ -1416,7 +2009,7 @@ export default function SerniaChatPage() {
         startNewConversation();
       }
     },
-    [conversationId, startNewConversation]
+    [conversationId, startNewConversation],
   );
 
   // Loading state (waiting for messages to load from API)
@@ -1475,6 +2068,7 @@ export default function SerniaChatPage() {
                   initialAllPending={loadedAllPending}
                   getToken={getToken}
                   readOnly={conversationModality === "sms"}
+                  onMountedChange={handleChatViewMountedChange}
                 />
               </TabsContent>
 
