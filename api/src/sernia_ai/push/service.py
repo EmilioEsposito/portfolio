@@ -24,6 +24,9 @@ VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@serniacap
 _vapid: Vapid | None = None
 _vapid_loaded: bool = False
 
+_RESPONSE_PREVIEW_MAX_CHARS = 180
+_RESPONSE_READY_FALLBACK = "Your response is ready."
+
 
 def _get_vapid() -> Vapid | None:
     """Return the cached Vapid object, loading from env on first call.
@@ -265,11 +268,11 @@ async def notify_user_push(
 async def notify_chat_response(
     conversation_id: str,
     clerk_user_id: str,
+    response_text: str | None = None,
 ) -> None:
     """Notify only the user who requested a completed web-chat response.
 
-    The notification intentionally contains no response text because OS-level
-    notification previews can be visible on a locked or shared device.
+    The notification includes a short, whitespace-normalized response preview.
     ``notify_user_push`` does not broadcast when the user has no subscription.
     """
     if not conversation_id or not clerk_user_id:
@@ -286,11 +289,17 @@ async def notify_chat_response(
         "type": "response",
     }
 
+    preview = " ".join((response_text or "").split())
+    if not preview:
+        preview = _RESPONSE_READY_FALLBACK
+    elif len(preview) > _RESPONSE_PREVIEW_MAX_CHARS:
+        preview = preview[: _RESPONSE_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
+
     try:
         await notify_user_push(
             clerk_user_id=clerk_user_id,
             title="Sernia AI",
-            body="Your response is ready.",
+            body=preview,
             data=data,
         )
     except Exception:
