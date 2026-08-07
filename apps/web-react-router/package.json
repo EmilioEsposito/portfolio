@@ -7,6 +7,7 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "node server.js",
+    "test": "tsx --test app/lib/*.test.ts test/*.test.mjs",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
@@ -67,6 +68,7 @@
     "@types/react-dom": "^19.2.3",
     "shadcn": "^3.8.5",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.23.9",
     "typescript": "^5.9.3",
     "vite": "^7.3.2",
     "vite-tsconfig-paths": "^5.1.4"

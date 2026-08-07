@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
 
 const API_BASE = "/api/sernia-ai";
+const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -37,15 +38,32 @@ interface PushNotificationState {
 }
 
 export function usePushNotifications(): PushNotificationState {
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn, userId } = useAuth();
   const [isSupported, setIsSupported] = useState(false);
-  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  const [permission, setPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("unsupported");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [needsInstall, setNeedsInstall] = useState(false);
-  const [iosBrowser, setIosBrowser] = useState<"safari" | "chrome" | null>(null);
+  const [iosBrowser, setIosBrowser] = useState<"safari" | "chrome" | null>(
+    null,
+  );
   const [canInstall, setCanInstall] = useState(false);
   const deferredInstallPrompt = useRef<BeforeInstallPromptEvent | null>(null);
+  // Clerk can transition directly between identities. Serialize subscription
+  // ownership updates so an older user's request cannot finish last and take
+  // the endpoint back from the current user.
+  const identitySyncQueue = useRef<Promise<void>>(Promise.resolve());
+  const enqueuePushOperation = useCallback((operation: () => Promise<void>) => {
+    const task = identitySyncQueue.current
+      .catch(() => undefined)
+      .then(operation);
+    // Keep the queue usable after an individual network failure while still
+    // returning that failure to the caller that owns the UI state.
+    identitySyncQueue.current = task.catch(() => undefined);
+    return task;
+  }, []);
 
   // Capture the beforeinstallprompt event (Android Chrome / desktop Chrome)
   useEffect(() => {
@@ -61,7 +79,8 @@ export function usePushNotifications(): PushNotificationState {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
-  // Check support and current state on mount
+  // Check platform support on mount. Subscription ownership is reconciled in
+  // the identity-aware effect below rather than inferred from browser state.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -74,7 +93,8 @@ export function usePushNotifications(): PushNotificationState {
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true);
+      ("standalone" in navigator &&
+        (navigator as { standalone?: boolean }).standalone === true);
 
     if (isIOS && !isStandalone) {
       setNeedsInstall(true);
@@ -84,55 +104,54 @@ export function usePushNotifications(): PushNotificationState {
     }
 
     setPermission(Notification.permission);
-
-    // Check if already subscribed
-    navigator.serviceWorker.ready.then((registration) => {
-      registration.pushManager.getSubscription().then((sub) => {
-        setIsSubscribed(sub !== null);
-      });
-    });
   }, []);
 
-  const subscribe = useCallback(async () => {
-    if (!isSupported || isLoading) return;
+  // A PushSubscription belongs to the signed-in Clerk identity, not merely to
+  // the browser profile. Re-assert that mapping on mount/account changes and
+  // invalidate it locally on logout. Unknown or mismatched legacy ownership is
+  // rotated instead of risking delivery of another user's private alerts.
+  useEffect(() => {
+    if (!isSupported || needsInstall) return;
+
+    let cancelled = false;
     setIsLoading(true);
+    const updateSubscribed = (value: boolean) => {
+      if (!cancelled) setIsSubscribed(value);
+    };
 
-    try {
-      // Register service worker
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
+    const reconcileIdentity = async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      let subscription =
+        (await registration?.pushManager.getSubscription()) ?? null;
+      const boundUserId = localStorage.getItem(PUSH_USER_STORAGE_KEY);
 
-      // Request notification permission
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm !== "granted") {
-        setIsLoading(false);
+      if (!isSignedIn || !userId) {
+        if (subscription) await subscription.unsubscribe();
+        localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+        updateSubscribed(false);
         return;
       }
 
-      // Fetch VAPID public key
+      if (!registration || Notification.permission !== "granted") {
+        updateSubscribed(false);
+        return;
+      }
+
+      if (subscription && boundUserId !== userId) {
+        await subscription.unsubscribe();
+        subscription = null;
+        localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+      }
+
+      if (!subscription) {
+        updateSubscribed(false);
+        return;
+      }
+
       const token = await getToken();
-      const vapidRes = await fetch(`${API_BASE}/push/vapid-public-key`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const { publicKey } = await vapidRes.json();
-
-      if (!publicKey) {
-        console.error("VAPID public key not configured on server");
-        setIsLoading(false);
-        return;
-      }
-
-      // Subscribe to push
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer,
-      });
-
+      if (!token) throw new Error("Not signed in");
       const subJson = subscription.toJSON();
-
-      // Send subscription to backend
-      await fetch(`${API_BASE}/push/subscribe`, {
+      const saveRes = await fetch(`${API_BASE}/push/subscribe`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -144,48 +163,173 @@ export function usePushNotifications(): PushNotificationState {
           auth: subJson.keys?.auth,
         }),
       });
+      if (!saveRes.ok) {
+        throw new Error(
+          `Failed to reconcile notification subscription (${saveRes.status})`,
+        );
+      }
 
-      setIsSubscribed(true);
+      localStorage.setItem(PUSH_USER_STORAGE_KEY, userId);
+      updateSubscribed(true);
+    };
+
+    const task = enqueuePushOperation(reconcileIdentity);
+    void task
+      .catch((err) => {
+        console.error("Push identity sync error:", err);
+        updateSubscribed(false);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enqueuePushOperation,
+    getToken,
+    isSignedIn,
+    isSupported,
+    needsInstall,
+    userId,
+  ]);
+
+  const subscribe = useCallback(async () => {
+    if (!isSupported || isLoading || !isSignedIn || !userId) return;
+    setIsLoading(true);
+
+    try {
+      await enqueuePushOperation(async () => {
+        // Register service worker
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+
+        // Request notification permission
+        const perm = await Notification.requestPermission();
+        setPermission(perm);
+        if (perm !== "granted") return;
+
+        // Fetch VAPID public key
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const vapidRes = await fetch(`${API_BASE}/push/vapid-public-key`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!vapidRes.ok) {
+          throw new Error(
+            `Failed to load notification key (${vapidRes.status})`,
+          );
+        }
+        const { publicKey } = await vapidRes.json();
+
+        if (!publicKey) {
+          throw new Error("VAPID public key not configured on server");
+        }
+
+        // Subscribe to push
+        let subscription = await registration.pushManager.getSubscription();
+        if (
+          subscription &&
+          localStorage.getItem(PUSH_USER_STORAGE_KEY) !== userId
+        ) {
+          await subscription.unsubscribe();
+          subscription = null;
+          localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+        }
+        subscription =
+          subscription ||
+          (await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey)
+              .buffer as ArrayBuffer,
+          }));
+
+        const subJson = subscription.toJSON();
+
+        // Send subscription to backend
+        const saveRes = await fetch(`${API_BASE}/push/subscribe`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            endpoint: subJson.endpoint,
+            p256dh: subJson.keys?.p256dh,
+            auth: subJson.keys?.auth,
+          }),
+        });
+        if (!saveRes.ok) {
+          await subscription.unsubscribe();
+          localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+          throw new Error(
+            `Failed to save notification subscription (${saveRes.status})`,
+          );
+        }
+
+        localStorage.setItem(PUSH_USER_STORAGE_KEY, userId);
+        setIsSubscribed(true);
+      });
     } catch (err) {
       console.error("Push subscribe error:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [isSupported, isLoading, getToken]);
+  }, [
+    enqueuePushOperation,
+    getToken,
+    isLoading,
+    isSignedIn,
+    isSupported,
+    userId,
+  ]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || isLoading) return;
     setIsLoading(true);
 
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
+      await enqueuePushOperation(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
 
-      if (subscription) {
-        const endpoint = subscription.endpoint;
+        if (subscription) {
+          const endpoint = subscription.endpoint;
 
-        // Unsubscribe from browser push
-        await subscription.unsubscribe();
+          // Unsubscribe from browser push before contacting the backend so a
+          // failed cleanup request still cannot deliver to this browser.
+          await subscription.unsubscribe();
+          localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+          setIsSubscribed(false);
 
-        // Notify backend
-        const token = await getToken();
-        await fetch(`${API_BASE}/push/unsubscribe`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ endpoint }),
-        });
-      }
+          // Notify backend
+          const token = await getToken();
+          if (!token) return;
+          const removeRes = await fetch(`${API_BASE}/push/unsubscribe`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ endpoint }),
+          });
+          if (!removeRes.ok) {
+            throw new Error(
+              `Failed to remove notification subscription (${removeRes.status})`,
+            );
+          }
+        }
 
-      setIsSubscribed(false);
+        localStorage.removeItem(PUSH_USER_STORAGE_KEY);
+        setIsSubscribed(false);
+      });
     } catch (err) {
       console.error("Push unsubscribe error:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [isSupported, isLoading, getToken]);
+  }, [enqueuePushOperation, getToken, isLoading, isSupported]);
 
   const promptInstall = useCallback(async () => {
     if (!deferredInstallPrompt.current) return;

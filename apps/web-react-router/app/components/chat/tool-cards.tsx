@@ -138,6 +138,7 @@ export function ToolApprovalCard({
   allPending,
   conversationId,
   onApprovalComplete,
+  onProcessingChange,
   isProcessing,
   getToken,
   apiBase,
@@ -146,6 +147,7 @@ export function ToolApprovalCard({
   allPending?: PendingApproval[];
   conversationId: string;
   onApprovalComplete: (result: any) => void;
+  onProcessingChange?: (processing: boolean) => void;
   isProcessing: boolean;
   getToken: () => Promise<string | null>;
   apiBase: string;
@@ -186,6 +188,7 @@ export function ToolApprovalCard({
     if (!allDecided) return;
 
     setProcessing(true);
+    onProcessingChange?.(true);
     try {
       const decisionList: ApprovalDecisionPayload[] = pendingList.map((p) => {
         const d = decisions[p.toolCallId];
@@ -215,6 +218,7 @@ export function ToolApprovalCard({
       alert(err instanceof Error ? err.message : "Failed to process approval");
     } finally {
       setProcessing(false);
+      onProcessingChange?.(false);
     }
   };
 

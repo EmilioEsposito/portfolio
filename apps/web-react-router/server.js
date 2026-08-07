@@ -24,6 +24,36 @@ app.use(compression());
 app.use(express.static("build/client", { maxAge: "1h" }));
 
 /**
+ * Wait until a downstream response can accept more data.
+ * Returns false if the browser disconnects while backpressure is active.
+ * @param {import("express").Response} res
+ */
+function waitForDrain(res) {
+  if (res.destroyed || res.writableEnded) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      res.off("drain", onDrain);
+      res.off("close", onClose);
+      res.off("error", onClose);
+    };
+    const settle = (drained) => {
+      cleanup();
+      resolve(drained);
+    };
+    const onDrain = () => settle(true);
+    const onClose = () => settle(false);
+
+    res.once("drain", onDrain);
+    res.once("close", onClose);
+    res.once("error", onClose);
+
+    // Close may have raced with listener registration.
+    if (res.destroyed || res.writableEnded) settle(false);
+  });
+}
+
+/**
  * Stream-proxy a request to the backend.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
@@ -51,23 +81,29 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
     }
 
     res.status(response.status);
+    res.flushHeaders?.();
 
     if (response.body) {
       const reader = response.body.getReader();
-      const pump = async () => {
+      try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          res.write(value);
+
+          // If the browser disconnected, keep draining the upstream stream so
+          // the backend can finish its work and persist the conversation.
+          if (res.destroyed || res.writableEnded) continue;
+
+          if (!res.write(value) && !(await waitForDrain(res))) continue;
+          if (!res.destroyed && !res.writableEnded) res.flush?.();
         }
-        res.end();
-      };
-      pump().catch((err) => {
-        console.error(`[${logTag}] Stream error:`, err);
-        if (!res.headersSent) {
-          res.status(502).json({ error: "Proxy Error", detail: err.message });
+
+        if (!res.destroyed && !res.writableEnded) {
+          res.end();
         }
-      });
+      } finally {
+        reader.releaseLock();
+      }
     } else {
       res.end();
     }
@@ -78,6 +114,11 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
         error: "Proxy Error",
         detail: error instanceof Error ? error.message : "Unknown error",
       });
+    } else if (!res.destroyed && !res.writableEnded) {
+      // Headers (and possibly part of an SSE response) are already on the
+      // wire, so an HTTP error body is no longer valid. Terminate the socket
+      // to make the browser's fetch fail instead of hanging indefinitely.
+      res.destroy();
     }
   }
 }

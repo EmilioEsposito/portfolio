@@ -1,4 +1,4 @@
-"""Web Push + SMS notification service for Sernia AI HITL approvals."""
+"""Web Push + SMS notification service for Sernia AI."""
 
 import asyncio
 import json
@@ -217,11 +217,10 @@ async def notify_user_push(
 
         if not subs:
             logfire.info(
-                "web push: no subscriptions for targeted user — falling back to all users",
+                "web push: no subscriptions for targeted user — skipping",
                 clerk_user_id=clerk_user_id,
                 title=title,
             )
-            await notify_all_sernia_users(title=title, body=body, data=data)
             return
 
         logfire.info(
@@ -261,6 +260,45 @@ async def notify_user_push(
             )
             await session.commit()
             logfire.info("cleaned up expired web push subs", count=len(expired_endpoints))
+
+
+async def notify_chat_response(
+    conversation_id: str,
+    clerk_user_id: str,
+) -> None:
+    """Notify only the user who requested a completed web-chat response.
+
+    The notification intentionally contains no response text because OS-level
+    notification previews can be visible on a locked or shared device.
+    ``notify_user_push`` does not broadcast when the user has no subscription.
+    """
+    if not conversation_id or not clerk_user_id:
+        logfire.warn(
+            "notify_chat_response called without conversation or user — skipping",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+        )
+        return
+
+    data = {
+        "url": f"/sernia-chat?id={conversation_id}",
+        "conversation_id": conversation_id,
+        "type": "response",
+    }
+
+    try:
+        await notify_user_push(
+            clerk_user_id=clerk_user_id,
+            title="Sernia AI",
+            body="Your response is ready.",
+            data=data,
+        )
+    except Exception:
+        logfire.exception(
+            "notify_chat_response failed",
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+        )
 
 
 async def notify_pending_approval(
