@@ -418,19 +418,20 @@ body {
   height: calc(var(--chat-vh, 100dvh) - var(--env-banner-h, 0px));
 }
 
-@keyframes typing-dot {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.4;
-  }
-  30% {
-    transform: translateY(-4px);
-    opacity: 1;
+@keyframes sernia-thinking-orbit {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-.animate-typing-dot {
-  animation: typing-dot 1.2s ease-in-out infinite;
+.animate-sernia-thinking-orbit {
+  animation: sernia-thinking-orbit 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sernia-thinking-orbit {
+    animation: none;
+  }
 }
 
 .skeleton {

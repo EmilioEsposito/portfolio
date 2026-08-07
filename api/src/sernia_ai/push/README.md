@@ -1,9 +1,11 @@
 # Notifications (Push + SMS)
 
-Team notifications for Sernia AI's HITL approvals and trigger alerts. Two channels fire in parallel for belt-and-suspenders delivery:
+Notifications for Sernia AI chat responses, HITL approvals, and trigger alerts. Two delivery channels are available:
 
-1. **Web Push** — PWA push notifications to phones and desktops (no native app required)
-2. **SMS to shared team number** — persistent record in the team's OpenPhone thread with a deeplink to web chat
+1. **Web Push** — PWA push notifications to phones and desktops (no native app required). Normal web-chat completions are sent only to the Clerk user who submitted the request. HITL approvals and trigger alerts remain team-wide.
+2. **SMS to shared team number** — persistent record in the team's OpenPhone thread with a deeplink to web chat for trigger alerts
+
+Normal response notifications use a generic body (`Your response is ready.`) rather than response text so sensitive content is not exposed in lock-screen previews. If the requesting user has no active subscription, delivery is skipped; targeted notifications never fall back to broadcasting to all Sernia users.
 
 ## Protocol
 
@@ -40,7 +42,7 @@ sequenceDiagram
     Browser->>Backend: POST /push/subscribe
     Backend->>Backend: Save to web_push_subscriptions
 
-    Note over Backend,OP: Notification Delivery (parallel)
+    Note over Backend,OP: Trigger Notification Delivery (parallel)
     Backend->>Backend: Trigger creates conversation
 
     par Web Push
@@ -54,6 +56,8 @@ sequenceDiagram
 
     Browser->>Browser: Click notification → /sernia-chat?id={conv_id}
 ```
+
+For a normal web-chat completion (including the follow-up after an approval decision), the route persists the completed run and sends Web Push only to the requesting user's subscriptions. The payload has `data.type = "response"`; the service worker uses that type to suppress the OS notification when the matching conversation is already focused.
 
 ## SMS Team Notifications
 
@@ -124,9 +128,9 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 | File | Purpose |
 |------|---------|
 | `models.py` | `WebPushSubscription` SQLAlchemy model — stores browser push endpoints |
-| `service.py` | Subscription CRUD + push sending via `pywebpush` + SMS team notifications |
+| `service.py` | Subscription CRUD + targeted response push, team-wide alert push, and SMS notifications |
 | `routes.py` | 3 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe` |
-| `apps/web-react-router/public/sw.js` | Service worker — handles `push` + `notificationclick` events only (no caching) |
+| `apps/web-react-router/public/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
 | `apps/web-react-router/public/manifest.json` | PWA manifest — enables "Add to Home Screen" on mobile |
 | `apps/web-react-router/app/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
 

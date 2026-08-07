@@ -55,7 +55,7 @@ from api.src.sernia_ai.model_config import (
 )
 from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
 from api.src.sernia_ai.push.routes import router as push_router
-from api.src.sernia_ai.push.service import notify_pending_approval
+from api.src.sernia_ai.push.service import notify_chat_response, notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
@@ -267,7 +267,7 @@ async def chat_sernia(
     )
 
     async def _on_complete(result):
-        await persist_agent_run_result(
+        persisted = await persist_agent_run_result(
             result,
             conversation_id=conversation_id,
             agent_name=AGENT_NAME,
@@ -275,7 +275,18 @@ async def chat_sernia(
         )
         create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
-        # Send push notification if there are pending approvals
+        if not persisted:
+            logfire.warn(
+                "chat push skipped because persistence was not confirmed",
+                conversation_id=conversation_id,
+                clerk_user_id=clerk_user_id,
+            )
+            return
+
+        # Pending approvals remain team-wide operational alerts. Normal chat
+        # completions notify only the Clerk user who submitted the request; the
+        # service worker suppresses response notifications while that chat is
+        # focused.
         pending = extract_pending_approvals(result)
         if pending:
             first = pending[0]
@@ -286,6 +297,14 @@ async def chat_sernia(
                     tool_args=first.get("args"),
                 ),
                 name="notify_pending_approval",
+            )
+        elif isinstance(result.output, str) and result.output.strip():
+            create_logged_task(
+                notify_chat_response(
+                    conversation_id=conversation_id,
+                    clerk_user_id=clerk_user_id,
+                ),
+                name="notify_chat_response",
             )
 
     on_complete = _on_complete
@@ -444,7 +463,7 @@ async def approve_conversation(
 
         # Persist the approval result (tool outputs + agent follow-up) to DB
         # so that subsequent messages have the full conversation history.
-        await persist_agent_run_result(
+        persisted = await persist_agent_run_result(
             result,
             conversation_id=conversation_id,
             agent_name=AGENT_NAME,
@@ -472,6 +491,31 @@ async def approve_conversation(
 
         pending = extract_pending_approvals(result)
         tool_results = extract_tool_results(result)
+
+        if not persisted:
+            logfire.warn(
+                "approval push skipped because persistence was not confirmed",
+                conversation_id=conversation_id,
+                clerk_user_id=clerk_user_id,
+            )
+        elif pending:
+            first = pending[0]
+            create_logged_task(
+                notify_pending_approval(
+                    conversation_id=conversation_id,
+                    tool_name=first["tool_name"],
+                    tool_args=first.get("args"),
+                ),
+                name="notify_pending_approval",
+            )
+        elif isinstance(result.output, str) and result.output.strip():
+            create_logged_task(
+                notify_chat_response(
+                    conversation_id=conversation_id,
+                    clerk_user_id=clerk_user_id,
+                ),
+                name="notify_chat_response",
+            )
 
         return {
             "conversation_id": conversation_id,
