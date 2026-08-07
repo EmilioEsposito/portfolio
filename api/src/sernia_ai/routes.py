@@ -310,6 +310,7 @@ async def chat_sernia(
                 notify_chat_response(
                     conversation_id=conversation_id,
                     clerk_user_id=clerk_user_id,
+                    response_text=result.output,
                 ),
                 name="notify_chat_response",
             )
@@ -520,6 +521,7 @@ async def approve_conversation(
                 notify_chat_response(
                     conversation_id=conversation_id,
                     clerk_user_id=clerk_user_id,
+                    response_text=result.output,
                 ),
                 name="notify_chat_response",
             )

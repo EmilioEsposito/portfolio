@@ -5,7 +5,7 @@ Notifications for Sernia AI chat responses, HITL approvals, and trigger alerts. 
 1. **Web Push** — PWA push notifications to phones and desktops (no native app required). Normal web-chat completions are sent only to the Clerk user who submitted the request. HITL approvals and trigger alerts remain team-wide.
 2. **SMS to shared team number** — persistent record in the team's OpenPhone thread with a deeplink to web chat for trigger alerts
 
-Normal response notifications use a generic body (`Your response is ready.`) rather than response text so sensitive content is not exposed in lock-screen previews. If the requesting user has no active subscription, delivery is skipped; targeted notifications never fall back to broadcasting to all Sernia users.
+Normal response notifications include a whitespace-normalized preview of up to 180 characters and fall back to `Your response is ready.` when no text is available. The preview may be visible on a device lock screen depending on the user's operating-system notification settings. If the requesting user has no active subscription, delivery is skipped; targeted notifications never fall back to broadcasting to all Sernia users.
 
 ## Protocol
 

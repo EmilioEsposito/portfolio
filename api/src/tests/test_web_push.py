@@ -62,7 +62,7 @@ class TestSmoke:
 
 
 @pytest.mark.asyncio
-async def test_chat_response_notification_is_private_and_user_targeted(monkeypatch):
+async def test_chat_response_notification_has_preview_and_is_user_targeted(monkeypatch):
     from api.src.sernia_ai.push import service
 
     notify_user = AsyncMock()
@@ -71,18 +71,44 @@ async def test_chat_response_notification_is_private_and_user_targeted(monkeypat
     await service.notify_chat_response(
         conversation_id="conversation-123",
         clerk_user_id="user-456",
+        response_text="  First line.\n\nSecond line.  ",
     )
 
     notify_user.assert_awaited_once_with(
         clerk_user_id="user-456",
         title="Sernia AI",
-        body="Your response is ready.",
+        body="First line. Second line.",
         data={
             "url": "/sernia-chat?id=conversation-123",
             "conversation_id": "conversation-123",
             "type": "response",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_chat_response_preview_falls_back_and_is_bounded(monkeypatch):
+    from api.src.sernia_ai.push import service
+
+    notify_user = AsyncMock()
+    monkeypatch.setattr(service, "notify_user_push", notify_user)
+
+    await service.notify_chat_response(
+        conversation_id="conversation-123",
+        clerk_user_id="user-456",
+        response_text=" \n ",
+    )
+    assert notify_user.await_args.kwargs["body"] == "Your response is ready."
+
+    notify_user.reset_mock()
+    await service.notify_chat_response(
+        conversation_id="conversation-123",
+        clerk_user_id="user-456",
+        response_text="x" * 240,
+    )
+    preview = notify_user.await_args.kwargs["body"]
+    assert len(preview) == 180
+    assert preview.endswith("…")
 
 
 @pytest.mark.asyncio
@@ -209,6 +235,15 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
     user.last_name = "User"
     user.email_addresses = []
     scheduled_tasks: list[str | None] = []
+    response_notification: dict[str, str] = {}
+
+    def capture_response_notification(**kwargs):
+        response_notification.update(kwargs)
+
+        async def completed():
+            return None
+
+        return completed()
 
     def capture_task(coro, *, name=None):
         scheduled_tasks.append(name)
@@ -222,6 +257,7 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
     monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "extract_pending_approvals", MagicMock(return_value=[]))
+    monkeypatch.setattr(routes, "notify_chat_response", capture_response_notification)
     monkeypatch.setattr(routes, "create_logged_task", capture_task)
     monkeypatch.setattr(routes.VercelAIAdapter, "dispatch_request", dispatch_after_persistence)
 
@@ -241,6 +277,11 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
 
     assert response.status_code == 200
     assert scheduled_tasks == ["git_sync", "notify_chat_response"]
+    assert response_notification == {
+        "conversation_id": "conversation-123",
+        "clerk_user_id": "user-456",
+        "response_text": "Completed response",
+    }
 
 
 @pytest.mark.asyncio
@@ -343,6 +384,75 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
 
     assert response["status"] == "pending_approval"
     assert scheduled_tasks == ["git_sync"]
+
+
+@pytest.mark.asyncio
+async def test_approval_route_schedules_response_preview_after_persistence(monkeypatch):
+    from api.src.sernia_ai import routes
+
+    body = routes.ApprovalRequest(
+        decisions=[
+            routes.ApprovalDecisionRequest(
+                tool_call_id="tool-123",
+                approved=True,
+            )
+        ]
+    )
+    user = MagicMock()
+    user.id = "user-456"
+    user.first_name = "Test"
+    user.last_name = "User"
+    user.email_addresses = []
+
+    result = MagicMock()
+    result.output = "Approval follow-up"
+    scheduled_tasks: list[str | None] = []
+    response_notification: dict[str, str] = {}
+
+    class FakeCaptureContext:
+        def __enter__(self):
+            return []
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    def capture_task(coro, *, name=None):
+        scheduled_tasks.append(name)
+        coro.close()
+        return MagicMock()
+
+    def capture_response_notification(**kwargs):
+        response_notification.update(kwargs)
+
+        async def completed():
+            return None
+
+        return completed()
+
+    monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
+    monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
+    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "extract_pending_approvals", MagicMock(return_value=[]))
+    monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
+    monkeypatch.setattr(routes, "notify_chat_response", capture_response_notification)
+    monkeypatch.setattr(routes, "create_logged_task", capture_task)
+
+    response = await routes.approve_conversation(
+        conversation_id="conversation-123",
+        body=body,
+        user=user,
+        session=MagicMock(),
+    )
+
+    assert response["status"] == "completed"
+    assert scheduled_tasks == ["git_sync", "notify_chat_response"]
+    assert response_notification == {
+        "conversation_id": "conversation-123",
+        "clerk_user_id": "user-456",
+        "response_text": "Approval follow-up",
+    }
 
 
 @pytest.mark.live
