@@ -128,4 +128,4 @@ One-time scheduled SMS and email delivery via APScheduler date trigger.
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
 | `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
 | `code_tools.py` | Python sandbox (pydantic-monty) for math, formatting, data manipulation |
-| `_logging.py` | Shared error logging wrapper for tool failures |
+| `_logging.py` | Shared error logging wrapper for tool failures. Sandbox file-tool errors log at warn (not error) so they don't page; `EditError` also gets a "re-read the file, don't guess whitespace" hint appended to the string the model sees, because blind edit retries have exhausted a run's request budget. |

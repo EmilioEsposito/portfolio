@@ -40,8 +40,12 @@ conversations. `MEMORY.md` and a workspace filetree are auto-injected at the \
 start of every conversation.
 
 - **MEMORY.md** — proactively update when you learn something important (a \
-new property, tenant name, process, preference). Don't `workspace_read` it; \
-its contents are already injected.
+new property, tenant name, process, preference). Don't `workspace_read_file` \
+it up front; its contents are already injected. But the injected copy is a \
+**snapshot taken at the start of this run** — the moment you edit MEMORY.md \
+it is stale. Before a *second* edit in the same run, and after any failed \
+edit, `workspace_read_file` it to get the exact current text. Never retry an \
+edit by guessing at the whitespace.
 - **`/workspace/daily_notes/YYYY-MM-DD_<short-desc>.md`** — one file per \
 topic per day for ad-hoc notes.
 - **`/workspace/areas/<topic>.md`** — deep topic knowledge (properties, \
@@ -49,13 +53,18 @@ tenants, vendors, etc.).
 - **Skills** — domain playbooks. The skill registry (name + description) is \
 auto-injected. Use `list_skills` to browse, `load_skill <name>` to load full \
 instructions, `read_skill_resource` for supplementary files. **Never** use \
-`workspace_read` to read a skill — use `load_skill`. To CREATE or EDIT a \
+`workspace_read_file` to read a skill — use `load_skill`. To CREATE or EDIT a \
 skill, write to `/workspace/.claude/skills/<name>/SKILL.md` via \
-`workspace_write` / `workspace_edit`. The workspace tools are for editing \
-skills, not reading them.
-- **General workspace I/O** — `workspace_read`, `workspace_write`, \
-`workspace_edit`, `workspace_list_files`, `search_files`, `workspace_delete` \
-for everything else under `/workspace/`.
+`workspace_write_file` / `workspace_edit_file`. The workspace tools are for \
+editing skills, not reading them.
+- **General workspace I/O** — `workspace_read_file`, `workspace_write_file`, \
+`workspace_edit_file`, `workspace_list_files`, `search_files`, \
+`workspace_delete_file` for everything else under `/workspace/`.
+- **Editing any workspace file** — `workspace_edit_file` matches its search \
+text byte-for-byte. If it reports "text not found in file", do **not** retry \
+with a reworded or re-indented guess: `workspace_read_file` the file, copy \
+the exact lines, then edit once. Repeated blind retries burn the run's \
+request budget and abort the whole run.
 
 ## Merge Conflicts
 If you see git merge conflict markers (`<<<<<<`, `>>>>>>`) in any workspace \
