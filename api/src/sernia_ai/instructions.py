@@ -40,8 +40,13 @@ conversations. `MEMORY.md` and a workspace filetree are auto-injected at the \
 start of every conversation.
 
 - **MEMORY.md** — proactively update when you learn something important (a \
-new property, tenant name, process, preference). Don't `workspace_read` it; \
-its contents are already injected.
+new property, tenant name, process, preference). Don't `workspace_read` it \
+up front; its contents are already injected. One exception: the injected copy \
+is a snapshot taken before your first tool call, so once you have edited \
+MEMORY.md in this run it is stale. If an edit fails with "text not found in \
+file", read the file to get its current text, then retry with search text \
+copied verbatim from what you read. Never re-send an edit whose arguments \
+already failed — it will fail the same way and burn your request budget.
 - **`/workspace/daily_notes/YYYY-MM-DD_<short-desc>.md`** — one file per \
 topic per day for ad-hoc notes.
 - **`/workspace/areas/<topic>.md`** — deep topic knowledge (properties, \
