@@ -115,6 +115,7 @@ The agent operates in three modalities, each with distinct behavior:
 - **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated.
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
+- **Repeat-call loop breaker** — A tool call that fails identically twice in one run gets a "STOP, change approach" instruction appended to the error, so the agent can't spend its whole request budget re-sending arguments that already failed. See [`tools/README.md`](tools/README.md#repeat-call-loop-breaker-_loggingpy)
 
 ### Memory System
 
