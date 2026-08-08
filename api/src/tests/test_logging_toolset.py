@@ -13,7 +13,7 @@ import pytest
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai_filesystem_sandbox import EditError, PathNotInSandboxError
 
-from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
+from api.src.sernia_ai.tools._logging import _EDIT_RECOVERY_HINT, ErrorLoggingToolset
 
 
 class _FakeToolset:
@@ -49,6 +49,35 @@ async def test_recoverable_sandbox_error_logged_as_warning(exc):
     lf.warn.assert_called_once()
     lf.exception.assert_not_called()
     assert "Error in workspace_edit_file" in result
+
+
+@pytest.mark.asyncio
+async def test_edit_error_tells_model_to_reread_the_file():
+    """An EditError carries the re-read hint that breaks the blind-retry loop.
+
+    Without it the model answers "text not found" by retrying the same edit
+    with different indentation, which has exhausted a run's request budget
+    (pydantic-ai's UsageLimitExceeded) instead of failing one tool call.
+    """
+    exc = EditError("/workspace/MEMORY.md", "text not found", "  - 2026-07-31 | SMS to …")
+    ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
+    with patch("api.src.sernia_ai.tools._logging.logfire"):
+        result = await ts.call_tool("workspace_edit_file", {}, _make_ctx(), MagicMock())
+
+    assert result.endswith(_EDIT_RECOVERY_HINT)
+    assert "workspace_read_file" in result
+    # The original sandbox message survives ahead of the hint.
+    assert "text not found" in result
+
+
+@pytest.mark.asyncio
+async def test_non_edit_sandbox_error_has_no_edit_hint():
+    """The re-read hint is EditError-specific — a bad path doesn't get it."""
+    ts = ErrorLoggingToolset(_FakeToolset(PathNotInSandboxError("/etc/passwd", ["/workspace"])))
+    with patch("api.src.sernia_ai.tools._logging.logfire"):
+        result = await ts.call_tool("workspace_read_file", {}, _make_ctx(), MagicMock())
+
+    assert _EDIT_RECOVERY_HINT not in result
 
 
 @pytest.mark.asyncio
