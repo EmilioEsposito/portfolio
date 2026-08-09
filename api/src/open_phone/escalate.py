@@ -7,11 +7,10 @@ load_dotenv(find_dotenv(".env"), override=True)
 import json
 import random
 
-import logfire
-
 # from twilio.rest import Client # removed to reduce bundle size
+import httpx
+import logfire
 import pytz
-import requests
 from fastapi import HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
@@ -220,10 +219,14 @@ async def trigger_twilio_escalation(
     logfire.info(
         f"Escalation triggered. INCIDENT_ID: {incident_id} to numbers {escalate_to_numbers}"
     )
-    try:
-        # Construct the API URL
-        studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
+    # Construct the API URL
+    studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
 
+    # Failures are isolated per recipient: one failed execution must not
+    # suppress the escalation calls to everyone after it.
+    async with httpx.AsyncClient(
+        auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=30
+    ) as client:
         for escalate_to_number in escalate_to_numbers:
             # Prepare the payload
             payload = {
@@ -234,36 +237,33 @@ async def trigger_twilio_escalation(
                 ),  # Parameters must be a JSON string
             }
 
-            if mock:
-                result_message = f"Mocking Twilio escalation to {escalate_to_number} with message: {message_text}"
-                logfire.info(result_message)
-                successful_escalations += 1
-            else:
-                # Make the request using Basic Auth
-                response = requests.post(
-                    studio_api_url,
-                    auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN),
-                    data=payload,
-                )
-                response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            try:
+                if mock:
+                    result_message = f"Mocking Twilio escalation to {escalate_to_number} with message: {message_text}"
+                    logfire.info(result_message)
+                    successful_escalations += 1
+                else:
+                    response = await client.post(studio_api_url, data=payload)
+                    response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
-                execution_data = response.json()
-                execution_sid = execution_data.get("sid")
-                result_message = f"Successfully created Twilio execution: {execution_sid} for INCIDENT_ID {incident_id}"
-                logfire.info(result_message)
-                successful_escalations += 1
-    except requests.exceptions.RequestException as e:
-        # Log the error, including the response text if available
-        error_message = f"Failed to create Twilio execution for INCIDENT_ID {incident_id}: {str(e)}"
-        if e.response is not None:
-            error_message += f"\nResponse status: {e.response.status_code}"
-            error_message += f"\nResponse text: {e.response.text}"
-        logfire.exception(error_message)  # exc_info=True adds traceback
-    except Exception as e:
-        # Catch any other unexpected errors during the process
-        logfire.exception(
-            f"An unexpected error occurred during Twilio escalation for INCIDENT_ID {incident_id}: {str(e)}"
-        )
+                    execution_data = response.json()
+                    execution_sid = execution_data.get("sid")
+                    result_message = f"Successfully created Twilio execution: {execution_sid} for INCIDENT_ID {incident_id}"
+                    logfire.info(result_message)
+                    successful_escalations += 1
+            except httpx.HTTPError as e:
+                # Log the error, including the response text if available
+                error_message = f"Failed to create Twilio execution to {escalate_to_number} for INCIDENT_ID {incident_id}: {str(e)}"
+                response = getattr(e, "response", None)
+                if response is not None:
+                    error_message += f"\nResponse status: {response.status_code}"
+                    error_message += f"\nResponse text: {response.text}"
+                logfire.exception(error_message)  # exc_info=True adds traceback
+            except Exception as e:
+                # Catch any other unexpected errors during the process
+                logfire.exception(
+                    f"An unexpected error occurred during Twilio escalation to {escalate_to_number} for INCIDENT_ID {incident_id}: {str(e)}"
+                )
 
     return successful_escalations
 

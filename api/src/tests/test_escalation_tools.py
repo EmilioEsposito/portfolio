@@ -46,6 +46,40 @@ async def test_trigger_twilio_escalation_mock_counts_each_number():
 
 
 @pytest.mark.asyncio
+async def test_trigger_twilio_escalation_isolates_per_recipient_failures():
+    """A failed Twilio execution for one recipient must not suppress the rest."""
+    import httpx
+
+    resp_fail = MagicMock()
+    resp_fail.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "500",
+        request=MagicMock(),
+        response=MagicMock(status_code=500, text="twilio down"),
+    )
+    resp_ok = MagicMock()
+    resp_ok.raise_for_status.return_value = None
+    resp_ok.json.return_value = {"sid": "FN123"}
+
+    client = MagicMock()
+    client.post = AsyncMock(side_effect=[resp_fail, resp_ok])
+    async_client_cm = MagicMock()
+    async_client_cm.__aenter__ = AsyncMock(return_value=client)
+    async_client_cm.__aexit__ = AsyncMock(return_value=False)
+
+    with patch(
+        "api.src.open_phone.escalate.httpx.AsyncClient",
+        MagicMock(return_value=async_client_cm),
+    ):
+        count = await trigger_twilio_escalation(
+            "test emergency",
+            escalate_to_numbers=["+14123703550", "+14125551234"],
+        )
+
+    assert client.post.await_count == 2  # second recipient still attempted
+    assert count == 1  # only the successful execution is counted
+
+
+@pytest.mark.asyncio
 async def test_trigger_twilio_escalation_no_contacts_returns_zero():
     """When the default contact lookup yields nothing, no executions are attempted."""
     with patch(
