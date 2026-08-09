@@ -236,6 +236,7 @@ ChatGPT) explicitly needs one of these.
 | `code_tools.py` | `run_python` | Heavy `pydantic-monty` dep + RestrictedPython sandbox; trust model is murkier when the caller is a remote MCP client. |
 | `data_export.py` + `duckdb_tools.py` | `list_datasets`, `load_dataset`, `describe_table`, `run_sql` | Per-conversation CSV storage; MCP is stateless across requests. Remote clients can do data analysis themselves. |
 | `scheduling_tools.py` | `schedule_sms`, `schedule_email`, `list_scheduled_messages`, `cancel_scheduled_message` | Needs APScheduler with persistent jobstore (DB-backed); not worth standing up on MCP. |
+| `escalation_tools.py` | `emergency_trigger_escalation` | Places DND-bypassing Twilio calls with no HITL gate — exactly the kind of destructive primitive a remote MCP client should never hold. Needs the contacts DB + Twilio creds anyway. |
 
 ---
 
