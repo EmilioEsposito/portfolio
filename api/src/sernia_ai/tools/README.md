@@ -120,6 +120,20 @@ One-time scheduled SMS and email delivery via APScheduler date trigger.
 - **Job IDs** use `scheduled_sms_` / `scheduled_email_` prefixes to distinguish from system jobs.
 - **Timezone handling** — `send_at` is a naive datetime interpreted in the given `timezone` (default `America/New_York`).
 
+## Emergency Escalation (`escalation_tools.py`)
+
+| Tool | Approval | Description |
+|------|----------|-------------|
+| `trigger_escalation` | No | Trigger the Twilio Studio Flow escalation: an immediate phone call to the escalation contacts (Emilio + Peppino, resolved from the contacts DB) from the dedicated Twilio number that bypasses Do Not Disturb. Registered on the agent with the `emergency` prefix, so the model sees it as `emergency_trigger_escalation`. |
+
+Deliberately **not** behind HITL approval — the tool exists to reach a human
+immediately when nobody is watching, so an approval gate would defeat it. The
+tool docstring carries strict use criteria (fires/floods/break-ins yes;
+lockouts/outages/drips no), the message is capped at 500 chars, and every call
+logs the conversation ID + message to Logfire. The underlying flow execution is
+`trigger_twilio_escalation()` in `api/src/open_phone/escalate.py`, shared with
+the automatic SMS-webhook escalation pipeline (`analyze_for_twilio_escalation`).
+
 ## Other Tool Modules
 
 | Module | Description |
