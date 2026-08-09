@@ -41,6 +41,7 @@ from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
 from api.src.sernia_ai.tools.code_tools import code_toolset
 from api.src.sernia_ai.tools.db_search_tools import db_search_toolset
 from api.src.sernia_ai.tools.duckdb_tools import duckdb_toolset
+from api.src.sernia_ai.tools.escalation_tools import escalation_toolset
 from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
@@ -98,6 +99,7 @@ sernia_agent = Agent(
         ErrorLoggingToolset(clickup_toolset.prefixed("clickup"), name="clickup"),
         ErrorLoggingToolset(db_search_toolset.prefixed("db"), name="db"),
         ErrorLoggingToolset(scheduling_toolset, name="scheduling"),
+        ErrorLoggingToolset(escalation_toolset.prefixed("emergency"), name="emergency"),
         ErrorLoggingToolset(code_toolset, name="code"),
         ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
     ],
