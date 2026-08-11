@@ -10,10 +10,26 @@ import logfire
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError
 from pydantic_ai.toolsets import WrapperToolset
-from pydantic_ai_filesystem_sandbox import SandboxError
+from pydantic_ai_filesystem_sandbox import EditError, SandboxError
 
 # PydanticAI control-flow exceptions that must propagate — never catch these.
 _PASSTHROUGH_EXCEPTIONS = (ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError)
+
+# Appended to every EditError returned to the model. A bare EditError only says
+# the search text wasn't found, which the model tends to answer by retrying the
+# same edit with slightly different indentation — a loop that has burned entire
+# runs' request budgets (a scheduled run on 2026-08-08 spent 11 workspace_edit_file
+# calls on MEMORY.md and died on pydantic-ai's 50-request limit). The one thing
+# that actually breaks the loop is re-reading the file, so say so explicitly.
+# The stale-snapshot note matters most for MEMORY.md, which is injected into the
+# prompt once per run and goes out of date the moment the model edits it.
+_EDIT_RECOVERY_HINT = (
+    " → Do not retry with a re-indented or reworded guess. Call "
+    "workspace_read_file on this path first and copy the exact current text "
+    "(if this is MEMORY.md, the copy injected into your prompt is a snapshot "
+    "from the start of this run and is stale once you have edited it), then "
+    "make a single corrected edit."
+)
 
 # Expected, model-recoverable tool errors. These are caused by the model's tool
 # *arguments* (e.g. an edit whose search text isn't in the file, a path outside
@@ -126,7 +142,9 @@ class ErrorLoggingToolset(WrapperToolset):
     Expected, model-recoverable errors (``_RECOVERABLE_EXCEPTIONS`` — sandbox
     file-tool errors like ``EditError``) are logged at warning level instead
     of error: the model fixes its arguments and retries, so they shouldn't
-    page like a genuine failure.
+    page like a genuine failure. ``EditError`` additionally gets
+    ``_EDIT_RECOVERY_HINT`` appended to the string the model sees, telling it
+    to re-read the file instead of retrying a re-indented guess.
 
     Recoverable failures are also counted per run, keyed by tool name +
     arguments. Once the same call has failed ``REPEAT_ERROR_THRESHOLD`` times
@@ -158,9 +176,10 @@ class ErrorLoggingToolset(WrapperToolset):
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id, level="warn")
             attempts = _count_identical_failure(ctx, name, tool_args)
+            hint = _EDIT_RECOVERY_HINT if isinstance(e, EditError) else ""
             if attempts >= REPEAT_ERROR_THRESHOLD:
-                return f"Error in {name}: {e}{_repeat_guidance(name, attempts)}"
-            return f"Error in {name}: {e}"
+                return f"Error in {name}: {e}{hint}{_repeat_guidance(name, attempts)}"
+            return f"Error in {name}: {e}{hint}"
         except Exception as e:
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id)
