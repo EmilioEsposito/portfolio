@@ -7,7 +7,7 @@ Covers:
 - ``list_calendar_events_core``  — Calendar API list
 - ``list_clickup_lists_core``    — ClickUp workspace browse
 - ``get_tasks_core``             — ClickUp list/view tasks
-- ``get_maintenance_field_options_core`` — pure formatter
+- ``get_maintenance_field_options_core`` — ClickUp custom-field reference
 
 All Google calls patch the discovery-built service mock; ClickUp calls
 patch the shared ``clickup_request`` helper. No network.
@@ -418,16 +418,87 @@ async def test_get_tasks_defaults_to_configured_view_when_no_id():
     assert args[1].startswith("/view/")
 
 
+_MAINTENANCE_FIELDS_PAYLOAD = {
+    "fields": [
+        {
+            "id": "56c7f3d6-9cac-4e41-8be4-4c91b057fcfa",
+            "name": "Property Address",
+            "type": "drop_down",
+            "type_config": {
+                "options": [
+                    {"id": "b45526fd-f602-458d-9f51-620e837dec02", "name": "320 S Mathilda St"},
+                    {"id": "a27ec554-e1e3-4819-838a-f34fe84d866c", "name": "324 S Mathilda St"},
+                ]
+            },
+        },
+        {
+            "id": "bf426280-c78e-41d7-a2a3-0683e0d597d6",
+            "name": "Phone",
+            "type": "phone",
+            "type_config": {},
+        },
+    ]
+}
+
+
+@pytest.fixture
+def clear_maintenance_field_cache():
+    """The formatted reference is module-cached — reset around each test."""
+    import sernia_mcp.core.clickup.reads as reads
+
+    reads._maintenance_fields_cache = None
+    yield
+    reads._maintenance_fields_cache = None
+
+
 @pytest.mark.asyncio
-async def test_get_maintenance_field_options_returns_all_fields():
-    """Pure formatter — no API call. Verify each known field appears with
-    its UUID and dropdown options."""
-    from sernia_mcp.core.clickup.reads import get_maintenance_field_options_core
+async def test_get_maintenance_field_options_renders_live_options(clear_maintenance_field_cache):
+    """Option UUIDs come from the ClickUp API, not a hardcoded table."""
+    fake = AsyncMock(return_value=_ok_resp(_MAINTENANCE_FIELDS_PAYLOAD))
+    with patch("sernia_mcp.core.clickup.reads.clickup_request", fake):
+        from sernia_mcp.core.clickup.reads import get_maintenance_field_options_core
 
-    out = await get_maintenance_field_options_core()
+        out = await get_maintenance_field_options_core()
 
-    assert "property_address" in out
+    args, _ = fake.await_args
+    assert args[0] == "GET"
+    assert args[1].endswith("/field")
+
+    assert "Property Address" in out
     assert "drop_down" in out
-    assert "639 South St, Philadelphia" in out
-    # Key UUIDs should be present so consumers can paste them as field IDs.
+    # The real option UUID must be rendered next to its label.
+    assert "320 S Mathilda St → b45526fd-f602-458d-9f51-620e837dec02" in out
+    # Field IDs still appear so consumers can paste them as field IDs.
     assert "56c7f3d6-9cac-4e41-8be4-4c91b057fcfa" in out
+    # A non-dropdown field renders with no options beneath it.
+    assert "**Phone** (id: bf426280-c78e-41d7-a2a3-0683e0d597d6, type: phone)" in out
+
+
+@pytest.mark.asyncio
+async def test_get_maintenance_field_options_caches_between_calls(clear_maintenance_field_cache):
+    fake = AsyncMock(return_value=_ok_resp(_MAINTENANCE_FIELDS_PAYLOAD))
+    with patch("sernia_mcp.core.clickup.reads.clickup_request", fake):
+        from sernia_mcp.core.clickup.reads import get_maintenance_field_options_core
+
+        first = await get_maintenance_field_options_core()
+        second = await get_maintenance_field_options_core()
+
+    assert first == second
+    assert fake.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_maintenance_field_options_does_not_cache_failures(
+    clear_maintenance_field_cache,
+):
+    """A failed fetch must raise and leave the cache empty so the next call retries."""
+    import sernia_mcp.core.clickup.reads as reads
+    from sernia_mcp.core.errors import ExternalServiceError
+
+    bad_resp = MagicMock(status_code=401, text="token invalid")
+    bad = AsyncMock(return_value=bad_resp)
+    with patch("sernia_mcp.core.clickup.reads.clickup_request", bad):
+        with pytest.raises(ExternalServiceError):
+            await reads.get_maintenance_field_options_core()
+
+    assert reads._maintenance_fields_cache is None
