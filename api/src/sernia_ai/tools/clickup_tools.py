@@ -7,6 +7,7 @@ automated triggers (e.g. SMS → maintenance task) can operate autonomously.
 """
 
 import os
+import time
 from datetime import datetime
 
 import httpx
@@ -406,79 +407,39 @@ async def delete_task(
 
 
 # ---------------------------------------------------------------------------
-# Maintenance list custom fields — IDs and dropdown option mappings
+# Maintenance list custom fields — fetched live from ClickUp
 # ---------------------------------------------------------------------------
+#
+# These used to be a hardcoded dict. The field IDs in it were real, but every
+# drop_down `options` map was placeholder data (fake option IDs like
+# "opt-req-plumbing", and labels for properties/units that don't exist). The
+# agent passed those straight through to ClickUp, which rejected every
+# drop_down write with HTTP 400 FIELD_011 "Value must be an option index or
+# uuid". Fetching from the API instead means the option UUIDs are always real
+# and survive anyone editing the field options in the ClickUp UI.
 
-MAINTENANCE_CUSTOM_FIELDS: dict[str, dict] = {
-    "property_address": {
-        "id": "56c7f3d6-9cac-4e41-8be4-4c91b057fcfa",
-        "type": "drop_down",
-        "options": {
-            "639 South St, Philadelphia": "68dd9fac-f39b-4b73-8a4a-e8f5fbb1e76e",
-            "641 South St, Philadelphia": "1b88a5b7-e81f-4c3e-9bd4-c1b6e0b3b4a1",
-        },
-    },
-    "unit_number": {
-        "id": "de9c3009-1dc7-40eb-9bab-b3c48058355b",
-        "type": "drop_down",
-        "options": {
-            "1F": "a1b2c3d4-0001-4000-8000-000000000001",
-            "1R": "a1b2c3d4-0001-4000-8000-000000000002",
-            "2F": "a1b2c3d4-0001-4000-8000-000000000003",
-            "2R": "a1b2c3d4-0001-4000-8000-000000000004",
-            "3F": "a1b2c3d4-0001-4000-8000-000000000005",
-            "3R": "a1b2c3d4-0001-4000-8000-000000000006",
-            "BSMT": "a1b2c3d4-0001-4000-8000-000000000007",
-        },
-    },
-    "name": {
-        "id": "73199851-a57f-415b-ac3b-ae06dc7281d0",
-        "type": "short_text",
-    },
-    "phone": {
-        "id": "bf426280-c78e-41d7-a2a3-0683e0d597d6",
-        "type": "phone",
-    },
-    "email": {
-        "id": "1a5e7e1b-abc8-4f8c-9837-57e4b233e3a5",
-        "type": "email",
-    },
-    "request_type": {
-        "id": "dd9ef413-9d3a-4454-b05f-defd9acfeab9",
-        "type": "drop_down",
-        "options": {
-            "Plumbing": "opt-req-plumbing",
-            "Electrical": "opt-req-electrical",
-            "HVAC": "opt-req-hvac",
-            "Appliance": "opt-req-appliance",
-            "Pest Control": "opt-req-pest",
-            "General": "opt-req-general",
-            "Other": "opt-req-other",
-        },
-    },
-    "permission_to_enter": {
-        "id": "a06fd20c-c006-4a84-9e90-4705ff13446a",
-        "type": "drop_down",
-        "options": {
-            "Yes": "opt-pte-yes",
-            "No": "opt-pte-no",
-            "Not specified": "opt-pte-unspecified",
-        },
-    },
-    "pets_on_property": {
-        "id": "ec310d23-b2ee-4a75-b853-a542a17dd59c",
-        "type": "drop_down",
-        "options": {
-            "Yes": "opt-pets-yes",
-            "No": "opt-pets-no",
-            "Unknown": "opt-pets-unknown",
-        },
-    },
-    "description": {
-        "id": "4f52c17f-6d76-4d5b-81fa-286c5c6980b3",
-        "type": "text",
-    },
-}
+MAINTENANCE_FIELD_CACHE_TTL_SECONDS = 300
+_maintenance_fields_cache: tuple[float, str] | None = None
+
+
+def _format_custom_fields(fields: list[dict]) -> str:
+    """Render ClickUp's custom-field payload as an agent-readable reference."""
+    lines: list[str] = [
+        f"Maintenance list ID: {CLICKUP_MAINTENANCE_LIST_ID}",
+        "",
+    ]
+    for field in fields:
+        lines.append(
+            f"**{field.get('name', '(unnamed)')}** "
+            f"(id: {field.get('id')}, type: {field.get('type')})"
+        )
+        options = (field.get("type_config") or {}).get("options") or []
+        for option in options:
+            # drop_down options carry "name"; labels-type fields carry "label".
+            label = option.get("name") or option.get("label") or "(unnamed)"
+            lines.append(f"  - {label} → {option.get('id')}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 @clickup_toolset.tool
@@ -489,18 +450,24 @@ async def get_maintenance_field_options(ctx: RunContext[SerniaDeps]) -> str:
     maintenance tasks. For drop_down fields, the value you pass must be the
     option **UUID**, not the label.
 
+    Fetched live from ClickUp (cached briefly), so the option UUIDs always
+    match the current field configuration.
+
     Returns:
         A formatted reference of field names, IDs, types, and option mappings.
     """
-    lines: list[str] = [
-        f"Maintenance list ID: {CLICKUP_MAINTENANCE_LIST_ID}",
-        "",
-    ]
-    for field_name, field_def in MAINTENANCE_CUSTOM_FIELDS.items():
-        lines.append(f"**{field_name}** (id: {field_def['id']}, type: {field_def['type']})")
-        options = field_def.get("options")
-        if options:
-            for label, uuid_val in options.items():
-                lines.append(f"  - {label} → {uuid_val}")
-        lines.append("")
-    return "\n".join(lines)
+    global _maintenance_fields_cache
+
+    if _maintenance_fields_cache is not None:
+        cached_at, cached_text = _maintenance_fields_cache
+        if time.monotonic() - cached_at < MAINTENANCE_FIELD_CACHE_TTL_SECONDS:
+            return cached_text
+
+    resp = await _clickup_request("GET", f"/list/{CLICKUP_MAINTENANCE_LIST_ID}/field")
+    if resp.status_code != 200:
+        # Don't cache failures — the next call should retry.
+        return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
+
+    rendered = _format_custom_fields(resp.json().get("fields", []))
+    _maintenance_fields_cache = (time.monotonic(), rendered)
+    return rendered

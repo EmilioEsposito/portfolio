@@ -198,7 +198,8 @@ async def clickup_get_maintenance_field_options() -> str:
     Use this before calling ``clickup_create_task`` or
     ``clickup_set_task_custom_field`` on the maintenance list — drop_down
     custom-field values must be the option UUID, not the human label.
-    Pure formatter; no API call.
+    Fetched live from ClickUp (cached briefly), so the UUIDs always match
+    the current field configuration.
     """
     try:
         return await get_maintenance_field_options_core()
