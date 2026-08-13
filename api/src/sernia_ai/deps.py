@@ -2,7 +2,7 @@
 Dependencies dataclass for the Sernia AI agent.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -23,3 +23,8 @@ class SerniaDeps:
     # auto-reply with `require_approval=False`). Defaults to False so every
     # other code path keeps the standard HITL gate.
     bypass_external_email_approval: bool = False
+    # Per-run tally of recoverable tool failures, keyed by a hash of
+    # (tool_name, tool_args). Maintained by ErrorLoggingToolset so it can
+    # detect a model looping on byte-identical failing arguments. Lives on
+    # deps (not a module-level cache) so the scope is exactly one agent run.
+    recoverable_tool_error_counts: dict[str, int] = field(default_factory=dict)
