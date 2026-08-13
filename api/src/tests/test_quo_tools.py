@@ -686,6 +686,62 @@ async def test_get_thread_messages_impl_chronological_order(quo_client: httpx.As
 INTERNAL_TEST_NUMBER = "+14123703550"
 SERNIA_AI_PHONE_ID = "PNWvNqsFFy"  # Sernia AI line (internal only)
 
+# Dedicated test contact "TestSana Test" (company "Test2") — one of Emilio's
+# own test devices, explicitly designated for live SMS testing. NOT a tenant.
+TESTSANA_NUMBER = "+14128770257"
+
+
+# ---- Live group SMS (new Quo API multi-recipient support) ----
+# The Quo API's POST /v1/messages `to` array accepts up to 10 recipients
+# (spec maxItems: 10), landing the message in ONE shared group thread.
+# First verified live 2026-08-13 with Emilio + TestSana: HTTP 202, single
+# conversationId, status reached "delivered".
+
+
+@pytest.mark.asyncio
+async def test_send_group_sms_live_emilio_and_sana(quo_client: httpx.AsyncClient):
+    """Send a real group text to Emilio + TestSana through execute_sms.
+
+    Both numbers are Emilio's own devices (internal number + dedicated test
+    contact), so this is safe to run live. Verifies the group code path
+    end-to-end: one API call, both recipients in one shared thread.
+    """
+    from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
+    from api.src.sernia_ai.tools.quo_tools import execute_sms
+
+    result = await execute_sms(
+        quo_client,
+        [INTERNAL_TEST_NUMBER, TESTSANA_NUMBER],
+        "[QUO GROUP TEST] Group text via execute_sms — Emilio + Sana in one thread. Please ignore.",
+        QUO_SHARED_EXTERNAL_PHONE_ID,
+        "Sernia Capital Team",
+        tool_name="test_group_sms",
+    )
+    print(f"\nGroup send result: {result}")
+    assert result.startswith("Group message sent to")
+    assert INTERNAL_TEST_NUMBER in result
+    assert TESTSANA_NUMBER in result
+
+
+@pytest.mark.asyncio
+async def test_resolve_group_sms_routing_live_mixed_group(quo_client: httpx.AsyncClient):
+    """Live routing resolution for the Emilio + TestSana group: Emilio is
+    internal, TestSana (company 'Test2') is external → mixed group, routed to
+    the shared team line with has_external=True (HITL at the tool level).
+    No SMS is sent — this only exercises contact resolution."""
+    from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
+    from api.src.sernia_ai.tools.quo_tools import (
+        GroupSmsRouting,
+        resolve_group_sms_routing,
+    )
+
+    result = await resolve_group_sms_routing([INTERNAL_TEST_NUMBER, TESTSANA_NUMBER], quo_client)
+    assert isinstance(result, GroupSmsRouting), result
+    assert result.is_mixed is True
+    assert result.has_external is True
+    assert result.from_phone_id == QUO_SHARED_EXTERNAL_PHONE_ID
+    print(f"\nGroup routing: names={result.recipient_names}, line={result.line_name}")
+
 
 @pytest.mark.asyncio
 async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
