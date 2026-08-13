@@ -1,6 +1,8 @@
 """Shared error-logging helpers for Sernia AI tools."""
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Coroutine
 from typing import Any
 
@@ -38,6 +40,62 @@ _EDIT_RECOVERY_HINT = (
 # failures. SandboxError is the base of all pydantic_ai_filesystem_sandbox
 # input/content errors (EditError, PathNotInSandboxError, FileTooLargeError, …).
 _RECOVERABLE_EXCEPTIONS = (SandboxError,)
+
+# How many identical failing calls (same tool, byte-identical arguments) it
+# takes before the returned error string carries extra guidance telling the
+# model to change approach.
+#
+# A model that re-sends identical arguments after an identical error is stuck:
+# the plain error string gave it no new information, so the next attempt fails
+# the same way, and each attempt spends one of the run's ~50 model requests.
+# That is how a scheduled run died with UsageLimitExceeded on 2026-08-08 —
+# seven `workspace_edit_file` EditErrors on MEMORY.md, four of them byte-for-
+# byte identical. Escalating on the SECOND identical failure still leaves one
+# free retry (state can legitimately change between calls) while cutting the
+# loop short well before the request budget runs out.
+REPEAT_ERROR_THRESHOLD = 2
+
+
+def _call_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> str:
+    """Stable hash of a tool call's name + arguments."""
+    try:
+        payload = json.dumps(tool_args, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        payload = repr(tool_args)
+    return hashlib.sha256(f"{tool_name}:{payload}".encode()).hexdigest()
+
+
+def _count_identical_failure(ctx: RunContext, tool_name: str, tool_args: dict[str, Any]) -> int:
+    """Record an identical failing call; return how many times it has failed.
+
+    Returns 1 for the first failure of a given (tool, args) pair in this run.
+    Counts live on ``SerniaDeps.recoverable_tool_error_counts`` so their scope
+    is exactly one agent run — a module-level cache would leak across runs
+    (and across tests). Deps objects without the attribute never escalate.
+    """
+    counts = getattr(ctx.deps, "recoverable_tool_error_counts", None)
+    if not isinstance(counts, dict):
+        return 1
+    key = _call_fingerprint(tool_name, tool_args)
+    counts[key] = counts.get(key, 0) + 1
+    return counts[key]
+
+
+def _repeat_guidance(tool_name: str, attempts: int) -> str:
+    """Extra instruction appended once a tool call has failed identically."""
+    return (
+        f"\n\nSTOP — you have called `{tool_name}` {attempts} times with identical "
+        "arguments and it failed identically every time. Retrying the same call will "
+        "fail again, and every attempt spends part of this run's request budget. "
+        "Change approach before calling this tool again:\n"
+        "- If you are editing a file, its current contents may differ from the copy "
+        "you have in context (your own earlier edits in this run changed it, or it "
+        "was updated elsewhere). Read the file, then copy the search text verbatim "
+        "from what you just read.\n"
+        "- If the text you are searching for is genuinely gone, the edit is already "
+        "applied — move on.\n"
+        "- If you cannot make it work, say so in your response instead of retrying."
+    )
 
 
 def log_tool_error(
@@ -88,6 +146,12 @@ class ErrorLoggingToolset(WrapperToolset):
     ``_EDIT_RECOVERY_HINT`` appended to the string the model sees, telling it
     to re-read the file instead of retrying a re-indented guess.
 
+    Recoverable failures are also counted per run, keyed by tool name +
+    arguments. Once the same call has failed ``REPEAT_ERROR_THRESHOLD`` times
+    the error string gains a "STOP, change approach" instruction — a model
+    re-sending identical arguments learns nothing from an identical error and
+    will otherwise loop until the run's request limit is exhausted.
+
     The optional ``name`` kwarg labels the toolset for admin/debug surfaces
     (e.g. the Context tab). Pydantic-ai's stock ``label`` property bakes in
     the wrapper class chain, which isn't useful for humans.
@@ -111,7 +175,10 @@ class ErrorLoggingToolset(WrapperToolset):
         except _RECOVERABLE_EXCEPTIONS as e:
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id, level="warn")
+            attempts = _count_identical_failure(ctx, name, tool_args)
             hint = _EDIT_RECOVERY_HINT if isinstance(e, EditError) else ""
+            if attempts >= REPEAT_ERROR_THRESHOLD:
+                return f"Error in {name}: {e}{hint}{_repeat_guidance(name, attempts)}"
             return f"Error in {name}: {e}{hint}"
         except Exception as e:
             conversation_id = getattr(ctx.deps, "conversation_id", "")

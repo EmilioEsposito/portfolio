@@ -142,4 +142,14 @@ the automatic SMS-webhook escalation pipeline (`analyze_for_twilio_escalation`).
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
 | `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
 | `code_tools.py` | Python sandbox (pydantic-monty) for math, formatting, data manipulation |
-| `_logging.py` | Shared error logging wrapper for tool failures. Sandbox file-tool errors log at warn (not error) so they don't page; `EditError` also gets a "re-read the file, don't guess whitespace" hint appended to the string the model sees, because blind edit retries have exhausted a run's request budget. |
+| `_logging.py` | Shared error logging wrapper for tool failures. Sandbox file-tool errors log at warn (not error) so they don't page; `EditError` gets a "re-read the file, don't guess whitespace" hint, and repeated identical recoverable failures escalate with explicit STOP guidance. |
+
+## Repeat-call loop breaker (`_logging.py`)
+
+`ErrorLoggingToolset` counts *recoverable* tool failures per run, keyed by tool name + arguments. Once the same call has failed identically `REPEAT_ERROR_THRESHOLD` (2) times, the returned error string gains a "STOP — change approach" instruction with concrete recovery steps.
+
+Why: a model that re-sends byte-identical arguments after an identical error learns nothing from the repeat, so it loops — and each attempt spends one of the run's ~50 model requests. On 2026-08-08 a scheduled check died with `UsageLimitExceeded` after seven `workspace_edit_file` EditErrors on `MEMORY.md`, four of them byte-for-byte identical. The first failure still returns the bare error (plus the EditError re-read hint when applicable), because state can legitimately change between calls; only the repeat escalates.
+
+Counts live on `SerniaDeps.recoverable_tool_error_counts`, so they are scoped to one agent run — a module-level cache would leak across runs. Deps objects without the attribute simply never escalate.
+
+The matching instruction lives in `instructions.py`: MEMORY.md's injected copy is a snapshot taken before the first tool call, so after the agent edits MEMORY.md the snapshot is stale — the agent is told to re-read the file rather than guess at whitespace.

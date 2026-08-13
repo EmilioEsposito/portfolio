@@ -45,7 +45,7 @@ it up front; its contents are already injected. But the injected copy is a \
 **snapshot taken at the start of this run** — the moment you edit MEMORY.md \
 it is stale. Before a *second* edit in the same run, and after any failed \
 edit, `workspace_read_file` it to get the exact current text. Never retry an \
-edit by guessing at the whitespace.
+edit by guessing at the whitespace or by re-sending identical arguments.
 - **`/workspace/daily_notes/YYYY-MM-DD_<short-desc>.md`** — one file per \
 topic per day for ad-hoc notes.
 - **`/workspace/areas/<topic>.md`** — deep topic knowledge (properties, \
