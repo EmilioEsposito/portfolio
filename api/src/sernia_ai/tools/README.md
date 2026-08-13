@@ -44,6 +44,10 @@ Routing for group sends (`resolve_group_sms_routing`):
 
 To message multiple people *privately*, the agent calls `send_sms` once per recipient instead of passing a list.
 
+> **Known limitation — replies to all-internal groups:** the AI SMS event trigger handles inbound messages on the AI line keyed by sender only (`from_number`), so a reply to an all-internal group text is loaded as the sender's 1:1 history and the AI's answer is sent back 1:1 — it does not land in the group thread. Propagating the webhook's `conversation_id`/participants through the trigger (history loading + reply send) is tracked as follow-up work. The agent is instructed to prefer 1:1 sends for conversational exchanges and reserve internal group texts for announcements.
+
+The group-conversation lookup used by the read tools (`_find_group_conversation`) searches **both** lines — the shared team number and the AI line — since all-internal groups are created on the AI line.
+
 ### Auto-Splitting
 
 Messages between 500–1000 chars are auto-split into multiple SMS at sentence/newline boundaries by `split_sms()` in `quo_tools.py`. The splitting logic tries to break at (in priority order): sentence-ending punctuation, newlines, spaces, then hard cut. This applies to all SMS paths: tool calls, AI SMS replies, and post-approval replies.

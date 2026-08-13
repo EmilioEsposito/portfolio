@@ -229,6 +229,33 @@ class TestGroupSendPayload:
         assert "parts" in result
 
     @pytest.mark.asyncio
+    async def test_find_group_conversation_searches_ai_line_too(self):
+        """All-internal group texts are created on the AI line, so the
+        conversation lookup must not stop at the shared team number.
+        Regression test for the shared-line-only lookup that made
+        AI-line group threads unfindable via get_thread_messages."""
+        from api.src.sernia_ai.tools.quo_tools import _find_group_conversation
+
+        ai_line_conv = {
+            "id": "CNinternalgroup",
+            "participants": [INTERNAL_A, INTERNAL_B],
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            phone_id = request.url.params.get("phoneNumbers[]")
+            if phone_id == QUO_SERNIA_AI_PHONE_ID:
+                return httpx.Response(200, json={"data": [ai_line_conv]})
+            return httpx.Response(200, json={"data": []})
+
+        client = httpx.AsyncClient(
+            base_url="https://api.openphone.com",
+            transport=httpx.MockTransport(handler),
+        )
+        conv = await _find_group_conversation(client, [INTERNAL_A, INTERNAL_B])
+        assert conv is not None
+        assert conv["id"] == "CNinternalgroup"
+
+    @pytest.mark.asyncio
     async def test_group_send_failure_surfaces_error(self):
         captured: list[dict] = []
         client = _capture_client(captured, status_code=400)

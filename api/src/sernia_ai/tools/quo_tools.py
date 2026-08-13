@@ -862,30 +862,35 @@ async def _find_group_conversation(
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match
     the given set (regardless of ordering). Returns None if none found.
-    Pages through up to 5 pages of conversations (~500) — enough for an
-    active inbox of any realistic size.
+    Pages through up to 5 pages of conversations (~500) per line — enough
+    for an active inbox of any realistic size.
+
+    Searches the shared team number first, then the AI line: all-internal
+    group texts are created on the AI line (see ``resolve_group_sms_routing``),
+    so a shared-line-only lookup would never find them.
     """
     target = frozenset(participants)
-    page_token: str | None = None
-    for _ in range(5):
-        params: list[tuple[str, str]] = [
-            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
-            ("maxResults", "100"),
-        ]
-        if page_token:
-            params.append(("pageToken", page_token))
-        try:
-            resp = await client.get("/v1/conversations", params=params)
-            resp.raise_for_status()
-        except httpx.HTTPError:
-            return None
-        data = resp.json()
-        for conv in data.get("data", []):
-            if frozenset(conv.get("participants") or []) == target:
-                return conv
-        page_token = data.get("nextPageToken")
-        if not page_token:
-            break
+    for phone_id in (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID):
+        page_token: str | None = None
+        for _ in range(5):
+            params: list[tuple[str, str]] = [
+                ("phoneNumbers[]", phone_id),
+                ("maxResults", "100"),
+            ]
+            if page_token:
+                params.append(("pageToken", page_token))
+            try:
+                resp = await client.get("/v1/conversations", params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError:
+                break  # try the next line rather than giving up entirely
+            data = resp.json()
+            for conv in data.get("data", []):
+                if frozenset(conv.get("participants") or []) == target:
+                    return conv
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
     return None
 
 
@@ -1864,6 +1869,12 @@ def _build_quo_toolset():
         external recipients — only do this when that's clearly intended.
         To message multiple people SEPARATELY (private 1:1 threads), call
         this tool once per recipient instead.
+
+        Known limitation: replies to an all-internal group (sent from the
+        AI line) are currently processed by the AI SMS trigger as 1:1
+        conversations — the AI's answer goes to the replier privately, not
+        into the group thread. Prefer 1:1 sends when you expect to hold a
+        conversation; use internal group texts for announcements.
 
         Max 1000 chars — messages over this limit are rejected (shorten/summarize
         and retry). Messages over 500 chars are auto-split into multiple texts.

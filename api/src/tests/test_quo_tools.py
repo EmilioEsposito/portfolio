@@ -699,11 +699,23 @@ TESTSANA_NUMBER = "+14128770257"
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not os.environ.get("QUO_LIVE_GROUP_SMS_TEST"),
+    reason=(
+        "Sends a real group SMS to TestSana (classified external — company "
+        "'Test2'). Repo policy keeps external sends out of the default live "
+        "suite; set QUO_LIVE_GROUP_SMS_TEST=1 to opt in deliberately."
+    ),
+)
 async def test_send_group_sms_live_emilio_and_sana(quo_client: httpx.AsyncClient):
     """Send a real group text to Emilio + TestSana through execute_sms.
 
-    Both numbers are Emilio's own devices (internal number + dedicated test
-    contact), so this is safe to run live. Verifies the group code path
+    Both numbers are Emilio's own devices (internal number + the dedicated
+    TestSana test contact), and Emilio explicitly requested this live trial
+    (2026-08-13 — delivered, single group conversationId). But TestSana is
+    *classified* external (company 'Test2'), so per SMS test safety this
+    send is opt-in via QUO_LIVE_GROUP_SMS_TEST rather than part of the
+    default ``pytest -m live`` run. Verifies the group code path
     end-to-end: one API call, both recipients in one shared thread.
     """
     from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
