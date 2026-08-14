@@ -14,12 +14,15 @@ replaced by custom tools:
 
 - ``send_sms``: unified SMS with conditional approval — internal contacts
   send from the AI line (no approval), external contacts from the shared
-  team number (requires HITL).
+  team number (requires HITL). Accepts a single phone or a list of 2-10
+  phones for a group text (one shared thread — supported by the Quo API's
+  ``to`` array on ``POST /v1/messages``, verified live 2026-08-13).
 - ``search_contacts``: fuzzy search against a TTL-cached contact list (avoids
   dumping 50-item pages into the context window).
 
 Core routing and sending logic (``SmsRouting``, ``resolve_sms_routing``,
-``execute_sms``) is exposed at module level for reuse by scheduling tools.
+``GroupSmsRouting``, ``resolve_group_sms_routing``, ``execute_sms``) is
+exposed at module level for reuse by scheduling tools.
 """
 
 import json
@@ -50,6 +53,7 @@ from api.src.open_phone.service import (
     invalidate_contact_cache,
 )
 from api.src.sernia_ai.config import (
+    GROUP_SMS_MAX_RECIPIENTS,
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
     QUO_SHARED_EXTERNAL_PHONE_ID,
@@ -403,9 +407,102 @@ async def resolve_sms_routing(
     )
 
 
+@dataclass
+class GroupSmsRouting:
+    """Resolved routing for a group SMS (one shared thread, 2+ recipients).
+
+    Line selection: an all-internal group sends from the AI line (no
+    approval); any group containing an external contact sends from the
+    shared team number and requires HITL approval. A mixed group
+    (internal + external members) is allowed but flagged — sending it
+    exposes the internal members' numbers to the external recipients, so
+    the HITL approval is the safeguard.
+    """
+
+    routings: list[SmsRouting]
+    phones: list[str]  # deduped, original order preserved
+    all_internal: bool
+    has_external: bool
+    is_mixed: bool
+    from_phone_id: str
+    line_name: str
+
+    @property
+    def recipient_names(self) -> list[str]:
+        return [r.contact_name for r in self.routings]
+
+
+async def resolve_group_sms_routing(
+    phones: list[str],
+    client: httpx.AsyncClient,
+    conversation_id: str = "",
+) -> GroupSmsRouting | str:
+    """Resolve a list of phone numbers to group-SMS routing parameters.
+
+    Returns GroupSmsRouting on success, or an error string when the group
+    is invalid: fewer than 2 unique recipients, more than
+    ``GROUP_SMS_MAX_RECIPIENTS`` (the Quo API's per-message ``to`` limit),
+    or any recipient that is not a Quo contact.
+    """
+    unique_phones = list(dict.fromkeys(phones))  # dedupe, keep order
+    if len(unique_phones) < 2:
+        return (
+            "Blocked: a group SMS needs at least 2 unique recipients. "
+            "For a single recipient, pass a plain phone number string."
+        )
+    if len(unique_phones) > GROUP_SMS_MAX_RECIPIENTS:
+        return (
+            f"Blocked: group SMS supports at most {GROUP_SMS_MAX_RECIPIENTS} "
+            f"recipients per message (got {len(unique_phones)}). Split into "
+            "smaller groups or use mass_text_tenants for building-wide notices."
+        )
+
+    routings: list[SmsRouting] = []
+    for phone in unique_phones:
+        routing = await resolve_sms_routing(phone, client, conversation_id)
+        if isinstance(routing, str):
+            return routing
+        routings.append(routing)
+
+    # Deterministic unit-isolation gate: tenants from different units must
+    # NEVER share a group thread — they would see each other's phone numbers.
+    # This blocks before the approval gate, so a human approval cannot
+    # override it. Contacts without Property/Unit fields (vendors, team) are
+    # not unit-bound and don't trigger this gate.
+    units: dict[tuple[str, str], list[str]] = {}
+    for r in routings:
+        if r.is_internal:
+            continue
+        cu = _get_contact_unit(r.contact)
+        if cu is not None:
+            units.setdefault(cu, []).append(r.contact_name)
+    if len(units) > 1:
+        desc = "; ".join(
+            f"{prop} Unit {unit}: {', '.join(names)}"
+            for (prop, unit), names in sorted(units.items())
+        )
+        return (
+            "Blocked: tenants from different units can never share a group "
+            f"thread ({desc}). Send one message per unit instead — or use "
+            "mass_text_tenants, which shards by unit automatically."
+        )
+
+    all_internal = all(r.is_internal for r in routings)
+    has_external = any(not r.is_internal for r in routings)
+    return GroupSmsRouting(
+        routings=routings,
+        phones=unique_phones,
+        all_internal=all_internal,
+        has_external=has_external,
+        is_mixed=has_external and any(r.is_internal for r in routings),
+        from_phone_id=QUO_SERNIA_AI_PHONE_ID if all_internal else QUO_SHARED_EXTERNAL_PHONE_ID,
+        line_name="Sernia AI" if all_internal else "Sernia Capital Team",
+    )
+
+
 async def execute_sms(
     client: httpx.AsyncClient,
-    phone: str,
+    phone: str | list[str],
     message: str,
     from_phone_id: str,
     line_name: str,
@@ -413,6 +510,10 @@ async def execute_sms(
     tool_name: str = "send_sms",
 ) -> str:
     """Send an SMS via Quo API, auto-splitting if over SMS_SPLIT_THRESHOLD.
+
+    ``phone`` may be a single number (1:1 thread) or a list of numbers —
+    the Quo API supports up to ``GROUP_SMS_MAX_RECIPIENTS`` recipients per
+    message, which land in one shared group thread.
 
     Public API — used by send_sms tool and scheduling executor.
     Delegates to ``_send_sms`` which handles chunking.
@@ -784,30 +885,35 @@ async def _find_group_conversation(
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match
     the given set (regardless of ordering). Returns None if none found.
-    Pages through up to 5 pages of conversations (~500) — enough for an
-    active inbox of any realistic size.
+    Pages through up to 5 pages of conversations (~500) per line — enough
+    for an active inbox of any realistic size.
+
+    Searches the shared team number first, then the AI line: all-internal
+    group texts are created on the AI line (see ``resolve_group_sms_routing``),
+    so a shared-line-only lookup would never find them.
     """
     target = frozenset(participants)
-    page_token: str | None = None
-    for _ in range(5):
-        params: list[tuple[str, str]] = [
-            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
-            ("maxResults", "100"),
-        ]
-        if page_token:
-            params.append(("pageToken", page_token))
-        try:
-            resp = await client.get("/v1/conversations", params=params)
-            resp.raise_for_status()
-        except httpx.HTTPError:
-            return None
-        data = resp.json()
-        for conv in data.get("data", []):
-            if frozenset(conv.get("participants") or []) == target:
-                return conv
-        page_token = data.get("nextPageToken")
-        if not page_token:
-            break
+    for phone_id in (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID):
+        page_token: str | None = None
+        for _ in range(5):
+            params: list[tuple[str, str]] = [
+                ("phoneNumbers[]", phone_id),
+                ("maxResults", "100"),
+            ]
+            if page_token:
+                params.append(("pageToken", page_token))
+            try:
+                resp = await client.get("/v1/conversations", params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError:
+                break  # try the next line rather than giving up entirely
+            data = resp.json()
+            for conv in data.get("data", []):
+                if frozenset(conv.get("participants") or []) == target:
+                    return conv
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
     return None
 
 
@@ -1637,17 +1743,17 @@ def split_sms(text: str, limit: int = SMS_SPLIT_THRESHOLD) -> list[str]:
 async def _send_single_sms(
     client: httpx.AsyncClient,
     tool_name: str,
-    phone: str,
+    recipients: list[str],
     message: str,
     from_phone_id: str,
     conversation_id: str,
 ) -> tuple[bool, str]:
-    """Send one SMS via Quo API. Returns (success, detail)."""
-    payload = {"content": message, "from": from_phone_id, "to": [phone]}
+    """Send one SMS via Quo API (1:1 or group). Returns (success, detail)."""
+    payload = {"content": message, "from": from_phone_id, "to": recipients}
     logfire.info(
         "{tool_name} request",
         tool_name=tool_name,
-        to=phone,
+        to=recipients,
         from_phone_id=from_phone_id,
         message_length=len(message),
         payload=payload,
@@ -1662,7 +1768,7 @@ async def _send_single_sms(
         logfire.info(
             "{tool_name} success",
             tool_name=tool_name,
-            to=phone,
+            to=recipients,
             status=resp.status_code,
             response_body=resp.text[:500],
         )
@@ -1681,13 +1787,18 @@ async def _send_single_sms(
 async def _send_sms(
     client: httpx.AsyncClient,
     tool_name: str,
-    phone: str,
+    phone: str | list[str],
     message: str,
     from_phone_id: str,
     line_name: str,
     conversation_id: str,
 ) -> str:
-    """Send an SMS via Quo API, auto-splitting if over SMS_SPLIT_THRESHOLD."""
+    """Send an SMS via Quo API, auto-splitting if over SMS_SPLIT_THRESHOLD.
+
+    ``phone`` may be a single number or a list — a list sends every chunk
+    to all recipients in one shared group thread.
+    """
+    recipients = [phone] if isinstance(phone, str) else list(phone)
     chunks = split_sms(message)
     if len(chunks) > 1:
         logfire.info(
@@ -1700,7 +1811,7 @@ async def _send_sms(
         ok, err = await _send_single_sms(
             client,
             tool_name,
-            phone,
+            recipients,
             chunk,
             from_phone_id,
             conversation_id,
@@ -1709,7 +1820,9 @@ async def _send_sms(
             part_info = f" (part {i + 1}/{len(chunks)})" if len(chunks) > 1 else ""
             return f"{err}{part_info}"
     parts_note = f" ({len(chunks)} parts)" if len(chunks) > 1 else ""
-    return f"Message sent to {phone} from {line_name}.{parts_note}"
+    if len(recipients) > 1:
+        return f"Group message sent to {', '.join(recipients)} from {line_name}.{parts_note}"
+    return f"Message sent to {recipients[0]} from {line_name}.{parts_note}"
 
 
 def _build_quo_toolset():
@@ -1760,26 +1873,44 @@ def _build_quo_toolset():
     @custom_toolset.tool
     async def send_sms(
         ctx: RunContext[SerniaDeps],
-        to: str,
+        to: str | list[str],
         message: str,
         context: str = "",
     ) -> str:
-        """Send an SMS to any Quo contact.
+        """Send an SMS to one Quo contact, or a GROUP text to several.
 
-        Automatically determines routing based on the recipient:
+        Automatically determines routing based on the recipient(s):
         - Internal (Sernia Capital LLC) → sends from AI direct line, no approval.
         - External (tenants, vendors) → sends from shared team number, requires approval.
 
-        To message multiple people, call this tool once per recipient.
+        **Group texts**: pass a list of 2-10 phone numbers to start ONE shared
+        thread — all recipients see the message and each other's replies (and
+        each other's phone numbers). An all-internal group sends from the AI
+        line with no approval; a group containing ANY external contact sends
+        from the shared team number and requires approval. A mixed
+        internal+external group exposes the internal members' numbers to the
+        external recipients — only do this when that's clearly intended.
+        Tenants from DIFFERENT units are always blocked from sharing a group
+        thread (deterministic — approval cannot override); roommates in the
+        same unit are fine.
+        To message multiple people SEPARATELY (private 1:1 threads), call
+        this tool once per recipient instead.
+
+        Known limitation: replies to an all-internal group (sent from the
+        AI line) are currently processed by the AI SMS trigger as 1:1
+        conversations — the AI's answer goes to the replier privately, not
+        into the group thread. Prefer 1:1 sends when you expect to hold a
+        conversation; use internal group texts for announcements.
 
         Max 1000 chars — messages over this limit are rejected (shorten/summarize
         and retry). Messages over 500 chars are auto-split into multiple texts.
 
         Args:
-            to: Recipient phone number in E.164 format (e.g. "+14125551234").
+            to: Recipient phone number in E.164 format (e.g. "+14125551234"),
+                or a list of 2-10 numbers for a group text (one shared thread).
             message: The text message body to send (max 1000 chars).
             context: Optional hidden context about why this message is being sent.
-                Not included in the SMS — saved to the recipient's conversation
+                Not included in the SMS — saved to each recipient's conversation
                 history so the AI has context if they reply later.
         """
         logfire.info("send_sms called", to=to, message_length=len(message))
@@ -1791,6 +1922,55 @@ def _build_quo_toolset():
                 "Please shorten or summarize the message and try again."
             )
 
+        # Normalize: a 1-element list is just a 1:1 send.
+        if isinstance(to, list) and len(to) == 1:
+            to = to[0]
+
+        # ---- Group send path ----
+        if isinstance(to, list):
+            group = await resolve_group_sms_routing(to, client, ctx.deps.conversation_id)
+            if isinstance(group, str):
+                return group
+
+            # Conditional approval: any external recipient requires HITL.
+            if group.has_external and not ctx.tool_call_approved:
+                raise ApprovalRequired()
+
+            logfire.info(
+                "send_sms sending group",
+                to=group.phones,
+                names=group.recipient_names,
+                all_internal=group.all_internal,
+                is_mixed=group.is_mixed,
+                from_phone_id=group.from_phone_id,
+            )
+
+            send_result = await execute_sms(
+                client,
+                group.phones,
+                message,
+                group.from_phone_id,
+                group.line_name,
+                ctx.deps.conversation_id,
+            )
+
+            # Seed each recipient's AI SMS conversation with hidden context
+            if context and "Failed" not in send_result:
+                for phone in group.phones:
+                    try:
+                        await _seed_sms_conversation(phone, message, context)
+                    except Exception:
+                        logfire.exception("send_sms: failed to seed conversation", to=phone)
+
+            if send_result.startswith("Group message sent"):
+                named = ", ".join(
+                    f"{name} ({phone})"
+                    for name, phone in zip(group.recipient_names, group.phones, strict=False)
+                )
+                return f"Group message sent to {named} from {group.line_name} (one shared thread)."
+            return send_result
+
+        # ---- Single-recipient path ----
         routing = await resolve_sms_routing(to, client, ctx.deps.conversation_id)
         if isinstance(routing, str):
             return routing
@@ -1841,7 +2021,9 @@ def _build_quo_toolset():
 
         Automatically finds matching tenants from the contact list, groups
         by (Property, Unit #), and sends one SMS per unit group. Roommates
-        in the same unit share a thread; different units are isolated.
+        in the same unit share ONE group text thread (they see each other's
+        replies); different units are isolated from each other so tenants
+        never see another unit's contact info.
 
         By default this targets only tenants with a **currently-active lease**
         (Lease Start Date <= today <= Lease End Date). Leads, prospects, and
@@ -1902,27 +2084,36 @@ def _build_quo_toolset():
                 failures.append(f"{prop} Unit {unit}: no phone numbers")
                 continue
 
-            # Send to each tenant in the unit individually
+            # Roommates in a unit share one group thread; a solo tenant gets a
+            # 1:1 send. Units larger than the API's per-message recipient cap
+            # (never expected in practice) fall back to individual sends.
+            if 1 < len(phones) <= GROUP_SMS_MAX_RECIPIENTS:
+                batches: list[str | list[str]] = [phones]
+            else:
+                batches = list(phones)
+
             unit_sent = 0
-            for phone in phones:
+            for batch in batches:
                 result = await execute_sms(
                     client,
-                    phone,
+                    batch,
                     message,
                     QUO_SHARED_EXTERNAL_PHONE_ID,
                     "Sernia Capital Team",
                     ctx.deps.conversation_id,
                     tool_name="mass_text_tenants",
                 )
-                if result.startswith("Message sent"):
-                    unit_sent += 1
+                if result.startswith(("Message sent", "Group message sent")):
+                    unit_sent += len(batch) if isinstance(batch, list) else 1
                 else:
-                    failures.append(f"{prop} Unit {unit} ({phone}): {result}")
+                    batch_desc = ", ".join(batch) if isinstance(batch, list) else batch
+                    failures.append(f"{prop} Unit {unit} ({batch_desc}): {result}")
 
             if unit_sent:
                 recipient_desc = ", ".join(names)
+                thread_note = " — one group thread" if unit_sent > 1 else ""
                 results.append(
-                    f"{prop} Unit {unit} ({unit_sent} recipient{'s' if unit_sent != 1 else ''}: {recipient_desc})"
+                    f"{prop} Unit {unit} ({unit_sent} recipient{'s' if unit_sent != 1 else ''}: {recipient_desc}{thread_note})"
                 )
 
         parts: list[str] = []
