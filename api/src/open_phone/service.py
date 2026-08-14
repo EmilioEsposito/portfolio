@@ -26,6 +26,46 @@ _contact_cache: list[dict] = []
 _cache_ts: float = 0.0
 
 
+# The AI line's actual phone number (E.164), looked up once via the API and
+# cached for the process lifetime. Used by the webhook circular-trigger guard
+# and by the AI SMS trigger to tell group messages apart from 1:1s.
+_ai_phone_number: str | None = None
+
+
+async def get_ai_phone_number() -> str | None:
+    """Look up the AI phone line's E.164 number, caching at module level.
+
+    Returns None when the API key is missing or the lookup fails — callers
+    must treat None as "unknown" and fall back to 1:1 behavior.
+    """
+    global _ai_phone_number
+    if _ai_phone_number is not None:
+        return _ai_phone_number
+
+    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+
+    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    if not api_key:
+        return None
+
+    try:
+        async with httpx.AsyncClient(
+            base_url="https://api.openphone.com",
+            headers={"Authorization": api_key},
+            timeout=15,
+        ) as client:
+            resp = await client.get(f"/v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}")
+            resp.raise_for_status()
+            phone = resp.json().get("data", {}).get("phoneNumber")
+            if phone:
+                _ai_phone_number = phone
+                logfire.info("cached AI phone number")
+                return _ai_phone_number
+    except Exception:
+        logfire.exception("failed to look up AI phone number")
+    return None
+
+
 def _openphone_client() -> httpx.AsyncClient:
     """Create a configured AsyncClient for the OpenPhone API.
 
@@ -115,18 +155,25 @@ async def find_contact_by_phone(
     return matches[0] if matches else None
 
 
-async def send_message(message: str, to_phone_number: str, from_phone_number: str | None = None):
+async def send_message(
+    message: str,
+    to_phone_number: str | list[str],
+    from_phone_number: str | None = None,
+):
     """
-    Send a message to a phone number using the OpenPhone API.
+    Send a message to one phone number — or a group text to several — using
+    the OpenPhone API. A list of recipients lands in one shared group thread
+    (the API's ``to`` array accepts up to 10 numbers).
     """
     if from_phone_number is None:
         sernia_contact = await get_contact_by_slug("sernia")
         from_phone_number = sernia_contact.phone_number
 
+    to_list = [to_phone_number] if isinstance(to_phone_number, str) else list(to_phone_number)
     data = {
         "content": message,
         "from": from_phone_number,
-        "to": [to_phone_number],
+        "to": to_list,
     }
     # Uses the shared OpenPhone client: a generous read timeout (httpx's 5s
     # default made slow sends raise ReadTimeout and fail the caller — e.g. the

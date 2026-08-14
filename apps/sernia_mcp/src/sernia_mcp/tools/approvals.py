@@ -89,12 +89,12 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
     **Group texts**: pass a list of 2-10 phone numbers to start ONE shared
     thread — all recipients see the message and each other's replies (and
     each other's phone numbers). Deterministic gates that approval cannot
-    override: every number must be a Quo contact, and tenants from
+    override: every number must be a Quo contact, internal team members and
+    external contacts can NEVER be mixed in one group, and tenants from
     DIFFERENT units are always blocked from sharing a group thread
-    (roommates in the same unit are fine). A mixed internal+external group
-    exposes internal team numbers to the external recipients — only do
-    this when clearly intended. To message multiple people SEPARATELY
-    (private 1:1 threads), call this tool once per recipient instead.
+    (roommates in the same unit are fine). To message multiple people
+    SEPARATELY (private 1:1 threads), call this tool once per recipient
+    instead.
 
     Args:
         to_phone: Recipient phone in E.164 format (e.g. "+14155550100"),
@@ -138,11 +138,6 @@ async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
                 with Column(gap=3):
                     Text(f"**To (one shared thread):** {recipients_label}")
                     Text(f"**Routing:** {audience} line ({group.line_name})")
-                    if group.is_mixed:
-                        Text(
-                            "⚠️ **Mixed group:** internal team numbers will be "
-                            "visible to the external recipients in this thread."
-                        )
                     Heading("Message", level=4)
                     Text(message)
             with CardFooter():

@@ -93,6 +93,92 @@ def _digits_only(phone: str) -> str:
     return re.sub(r"\D", "", phone)
 
 
+# ---------------------------------------------------------------------------
+# Group SMS support — a message.received on the AI line whose ``to`` includes
+# recipients besides the AI's own number is a GROUP text. The AI replies into
+# the same group thread (all human participants) instead of 1:1.
+# ---------------------------------------------------------------------------
+
+
+def _split_to_numbers(to_number) -> list[str]:
+    """Normalize the webhook ``to`` field to a list of E.164 strings.
+
+    OpenPhone delivers ``to`` as a single string — comma-joined when the
+    message went to a group. Accepts a list too, defensively.
+    """
+    if not to_number:
+        return []
+    if isinstance(to_number, str):
+        return [p.strip() for p in to_number.split(",") if p.strip()]
+    return [str(p).strip() for p in to_number if str(p).strip()]
+
+
+def _extract_group_participants(event_data: dict, ai_phone: str | None) -> list[str]:
+    """Human group participants besides the sender: every ``to`` recipient
+    that isn't the AI line itself.
+
+    Returns [] for a 1:1 message (the only recipient is the AI line) — and
+    also when ``ai_phone`` is unknown (None), because without it a 1:1
+    message's own ``to`` entry can't be told apart from a real participant.
+    Falling back to 1:1 handling is the safe failure mode.
+    """
+    if not ai_phone:
+        return []
+    from_number = event_data.get("from_number", "")
+    return [
+        p
+        for p in _split_to_numbers(event_data.get("to_number"))
+        if p and p != from_number and p != ai_phone
+    ]
+
+
+def _group_prompt(sender_name: str, text: str) -> str:
+    """Prefix a group message with its sender so the agent can tell group
+    members apart. Used for BOTH the live prompt and history reconstruction
+    from the events table — the formats must match for text dedup to work."""
+    return f"[{sender_name}]: {text}"
+
+
+def _group_activities_to_model_messages(
+    activities: list[dict],
+    ai_phone: str | None,
+    name_by_phone: dict[str, str],
+    exclude_message_id: str | None = None,
+) -> list[ModelMessage]:
+    """Convert events-table group activities into PydanticAI messages.
+
+    Outgoing messages from the AI line become assistant turns; everything
+    else becomes a user turn prefixed with the sender's name via
+    ``_group_prompt``. ``exclude_message_id`` drops the activity for the
+    message currently being processed — it is passed as the run's prompt
+    instead (the webhook saves the event to the DB before the background
+    task runs, so the current message is already in the table).
+    """
+    result: list[ModelMessage] = []
+    for act in activities:
+        if act.get("_kind") != "message":
+            continue
+        if exclude_message_id and act.get("id") == exclude_message_id:
+            continue
+        text = (act.get("text") or "").strip()
+        if not text:
+            continue
+        ts = _parse_timestamp(act.get("createdAt"))
+        sender = act.get("from") or ""
+        if ai_phone and sender == ai_phone:
+            resp_kwargs: dict = {"timestamp": ts} if ts is not None else {}
+            result.append(ModelResponse(parts=[TextPart(content=text)], **resp_kwargs))
+        else:
+            name = name_by_phone.get(sender, sender or "Unknown")
+            part_kwargs: dict = {"timestamp": ts} if ts is not None else {}
+            result.append(
+                ModelRequest(
+                    parts=[UserPromptPart(content=_group_prompt(name, text), **part_kwargs)]
+                )
+            )
+    return result
+
+
 async def _verify_internal_contact(phone: str) -> dict | None:
     """Check if phone belongs to a Sernia Capital LLC contact.
 
@@ -433,8 +519,12 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
     return result
 
 
-async def _send_sms_reply(to_phone: str, message: str) -> None:
-    """Send an SMS reply from the AI phone number, auto-splitting if long. Never raises."""
+async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
+    """Send an SMS reply from the AI phone number, auto-splitting if long.
+
+    ``to_phone`` may be a single number (1:1 reply) or a list of numbers —
+    a list replies into the shared group thread. Never raises.
+    """
     from api.src.sernia_ai.tools.quo_tools import split_sms
 
     chunks = split_sms(message)
@@ -500,6 +590,22 @@ async def handle_ai_sms_event(event_data: dict) -> None:
         return
 
     contact_name = _contact_display_name(contact)
+
+    # --- Group detection: to includes recipients besides the AI line ---
+    from api.src.open_phone.service import get_ai_phone_number
+
+    ai_phone = await get_ai_phone_number()
+    other_participants = _extract_group_participants(event_data, ai_phone)
+    if other_participants:
+        await _handle_group_sms(
+            event_data,
+            sender_contact=contact,
+            sender_name=contact_name,
+            other_participants=other_participants,
+            ai_phone=ai_phone,
+        )
+        return
+
     conv_id = f"ai_sms_from_{_digits_only(from_number)}"
 
     # Load conversation history — always fetch SMS thread from Quo and
@@ -630,5 +736,206 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             "ai_sms_event: completed",
             conversation_id=conv_id,
             from_number=from_number,
+            has_pending=bool(pending),
+        )
+
+
+async def _handle_group_sms(
+    event_data: dict,
+    *,
+    sender_contact: dict,
+    sender_name: str,
+    other_participants: list[str],
+    ai_phone: str,
+) -> None:
+    """Process an inbound GROUP SMS on the AI line.
+
+    Differences from the 1:1 flow:
+
+    - **Gate**: every human participant (sender + other recipients) must be
+      an internal contact — one external/unknown member and the whole event
+      is silently ignored, same as an external 1:1 sender.
+    - **Conversation**: keyed to the Quo group conversation
+      (``ai_sms_group_{CN...}``) so all members share one AI conversation,
+      instead of the sender's personal ``ai_sms_from_{digits}``.
+    - **History**: group thread reconstructed from the local
+      ``open_phone_events`` webhook table (the only source of full group
+      history — OpenPhone's API can't list group messages by participant),
+      merged with DB history. User turns are prefixed ``[Sender Name]:``.
+    - **Reply**: sent to ALL human participants in one message, landing in
+      the same group thread.
+    """
+    from_number = event_data.get("from_number", "")
+    message_text = event_data.get("message_text", "")
+    quo_conv_id = event_data.get("conversation_id")
+
+    # Gate: every other participant must also be internal.
+    participant_contacts: dict[str, dict] = {from_number: sender_contact}
+    for phone in other_participants:
+        member = await _verify_internal_contact(phone)
+        if not member:
+            logfire.info(
+                "ai_sms_event: ignoring group with external/unknown participant",
+                participant=phone,
+                from_number=from_number,
+            )
+            return
+        participant_contacts[phone] = member
+
+    name_by_phone = {p: _contact_display_name(c) for p, c in participant_contacts.items()}
+    all_humans = sorted(participant_contacts)  # sender + others, deterministic order
+
+    if quo_conv_id:
+        conv_id = f"ai_sms_group_{quo_conv_id}"
+    else:
+        conv_id = "ai_sms_group_" + "_".join(_digits_only(p) for p in all_humans)
+
+    # The current message's Quo ID — already saved to the events table by the
+    # webhook route, so exclude it from reconstructed history (it becomes the
+    # run's prompt instead).
+    current_msg_id = (
+        ((event_data.get("event_data") or {}).get("data") or {}).get("object") or {}
+    ).get("id")
+
+    logfire.info(
+        "ai_sms_event: processing GROUP SMS",
+        conversation_id=conv_id,
+        from_number=from_number,
+        participants=all_humans,
+    )
+
+    async with AsyncSessionFactory() as session:
+        db_history = await get_conversation_messages(conv_id, clerk_user_id=None, session=session)
+
+        group_thread: list[ModelMessage] = []
+        if quo_conv_id:
+            try:
+                from api.src.sernia_ai.tools.quo_tools import (
+                    _fetch_group_thread_from_events_table,
+                )
+
+                activities = await _fetch_group_thread_from_events_table(
+                    quo_conv_id,
+                    max_results=SMS_CONVERSATION_MAX_MESSAGES,
+                )
+                group_thread = _group_activities_to_model_messages(
+                    activities,
+                    ai_phone,
+                    name_by_phone,
+                    exclude_message_id=current_msg_id,
+                )
+            except Exception:
+                logfire.exception(
+                    "ai_sms_event: group thread reconstruction failed",
+                    conversation_id=conv_id,
+                )
+
+        merged = _merge_sms_into_history(db_history, group_thread)
+        trimmed, trimmed_count = _trim_sms_history(merged)
+        history = _sanitize_tool_calls(trimmed)
+        logfire.info(
+            "ai_sms_event: group history loaded",
+            conversation_id=conv_id,
+            db_messages=len(db_history),
+            group_thread_messages=len(group_thread),
+            after_trim=len(trimmed),
+            trimmed=trimmed_count,
+        )
+
+        participants_label = ", ".join(f"{name_by_phone[p]} ({p})" for p in all_humans)
+        group_hint = (
+            f" [System: This is a GROUP SMS thread with {participants_label}. "
+            "Messages are prefixed with the sender's name. Your reply will be "
+            "sent to the WHOLE group.]"
+        )
+        if trimmed_count > 0:
+            group_hint += (
+                f" [System: History trimmed — {trimmed_count} older message(s) omitted. "
+                "Use `get_thread_messages` with the participant list for earlier context.]"
+            )
+
+        deps = SerniaDeps(
+            db_session=session,
+            conversation_id=conv_id,
+            user_identifier=f"sms_group:{from_number}",
+            user_name=sender_name,
+            user_email=GOOGLE_DELEGATION_EMAIL,
+            modality="sms",
+            workspace_path=WORKSPACE_PATH,
+        )
+
+        run_kwargs = await resolve_active_run_kwargs()
+
+        try:
+            result = await sernia_agent.run(
+                _group_prompt(sender_name, message_text) + group_hint,
+                message_history=history,
+                deps=deps,
+                metadata={"trigger_source": "ai_sms_group"},
+                **run_kwargs,
+            )
+        except Exception:
+            logfire.exception(
+                "ai_sms_event: group agent run failed",
+                conversation_id=conv_id,
+            )
+            return
+
+        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
+
+        await save_agent_conversation(
+            session=session,
+            conversation_id=conv_id,
+            agent_name=AGENT_NAME,
+            messages=result.all_messages(),
+            clerk_user_id=TRIGGER_BOT_ID,
+            metadata={
+                "trigger_source": "ai_sms_group",
+                "trigger_phone": from_number,
+                "trigger_contact_name": sender_name,
+                "openphone_conversation_id": quo_conv_id,
+                # Post-approval replies use this to respond into the group
+                # thread instead of 1:1 (see routes.approve_conversation).
+                "trigger_group_participants": all_humans,
+            },
+            modality="sms",
+            contact_identifier=",".join(all_humans),
+        )
+
+        pending = extract_pending_approvals(result)
+        if pending:
+            first = pending[0]
+            create_logged_task(
+                notify_pending_approval(
+                    conversation_id=conv_id,
+                    tool_name=first["tool_name"],
+                    tool_args=first.get("args"),
+                ),
+                name="notify_pending_approval",
+            )
+            logfire.info(
+                "ai_sms_event: group HITL pause — awaiting approval",
+                conversation_id=conv_id,
+                tool_name=first["tool_name"],
+            )
+        elif isinstance(result.output, NoAction):
+            logfire.info(
+                "ai_sms_event: group NoAction — no SMS reply",
+                conversation_id=conv_id,
+                reason=result.output.reason,
+            )
+        else:
+            output_text = result.output if isinstance(result.output, str) else ""
+            if output_text:
+                create_logged_task(
+                    _send_sms_reply(all_humans, output_text),
+                    name="sms_reply",
+                )
+
+        logfire.info(
+            "ai_sms_event: group completed",
+            conversation_id=conv_id,
+            from_number=from_number,
+            participants=all_humans,
             has_pending=bool(pending),
         )
