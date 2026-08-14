@@ -31,6 +31,7 @@ Every SMS goes through a chain of gates before sending:
 2. **Contact resolution** — Every recipient must exist as a Quo contact. Unknown numbers are blocked (a group send is blocked entirely if any member is unknown).
 3. **Internal/external routing** — Internal contacts use `QUO_SERNIA_AI_PHONE_ID` (AI direct line); external contacts use `QUO_SHARED_EXTERNAL_PHONE_ID` (shared team number). This prevents exposing internal phone numbers in tenant threads.
 4. **Group size** — Group texts are capped at `GROUP_SMS_MAX_RECIPIENTS` (10) unique recipients, matching the Quo API's `to` array limit on `POST /v1/messages`.
+5. **Unit isolation (group sends)** — Tenants from **different units** can never share a group thread: `resolve_group_sms_routing` reads each external recipient's `Property` / `Unit #` custom fields and hard-blocks the send when more than one distinct unit appears in the group. This gate runs **before** the approval gate, so a human approval cannot override it. Roommates in the same unit are fine; contacts without unit fields (vendors, team) don't trigger it.
 
 ### Group Texts (sending)
 
@@ -41,6 +42,9 @@ Routing for group sends (`resolve_group_sms_routing`):
 - **All internal** → AI line, no approval (team group chat).
 - **Any external** → shared team number + HITL approval.
 - **Mixed internal + external** → allowed but flagged (`is_mixed`) — sending exposes the internal members' numbers to the external recipients, so the HITL approval is the safeguard. The agent is instructed to only do this deliberately.
+- **Cross-unit tenants** → hard-blocked deterministically (gate 5 above); approval cannot override.
+
+The same group support (same tool name, same gates) is mirrored in the standalone MCP server at `apps/sernia_mcp` — `quo_send_sms` accepts `str | list[str]` with the group approval card, backed by `resolve_group_sms_routing_core` / `send_group_sms_core`.
 
 To message multiple people *privately*, the agent calls `send_sms` once per recipient instead of passing a list.
 

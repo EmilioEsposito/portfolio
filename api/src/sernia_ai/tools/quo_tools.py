@@ -464,6 +464,29 @@ async def resolve_group_sms_routing(
             return routing
         routings.append(routing)
 
+    # Deterministic unit-isolation gate: tenants from different units must
+    # NEVER share a group thread — they would see each other's phone numbers.
+    # This blocks before the approval gate, so a human approval cannot
+    # override it. Contacts without Property/Unit fields (vendors, team) are
+    # not unit-bound and don't trigger this gate.
+    units: dict[tuple[str, str], list[str]] = {}
+    for r in routings:
+        if r.is_internal:
+            continue
+        cu = _get_contact_unit(r.contact)
+        if cu is not None:
+            units.setdefault(cu, []).append(r.contact_name)
+    if len(units) > 1:
+        desc = "; ".join(
+            f"{prop} Unit {unit}: {', '.join(names)}"
+            for (prop, unit), names in sorted(units.items())
+        )
+        return (
+            "Blocked: tenants from different units can never share a group "
+            f"thread ({desc}). Send one message per unit instead — or use "
+            "mass_text_tenants, which shards by unit automatically."
+        )
+
     all_internal = all(r.is_internal for r in routings)
     has_external = any(not r.is_internal for r in routings)
     return GroupSmsRouting(
@@ -1867,6 +1890,9 @@ def _build_quo_toolset():
         from the shared team number and requires approval. A mixed
         internal+external group exposes the internal members' numbers to the
         external recipients — only do this when that's clearly intended.
+        Tenants from DIFFERENT units are always blocked from sharing a group
+        thread (deterministic — approval cannot override); roommates in the
+        same unit are fine.
         To message multiple people SEPARATELY (private 1:1 threads), call
         this tool once per recipient instead.
 

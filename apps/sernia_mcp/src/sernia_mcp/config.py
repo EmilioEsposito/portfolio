@@ -89,3 +89,6 @@ ALLOWED_EMAIL_DOMAINS: tuple[str, ...] = tuple(
 # ---- SMS limits ------------------------------------------------------------
 SMS_SPLIT_THRESHOLD: int = 500
 SMS_MAX_LENGTH: int = 1000
+# Group SMS: max recipients per message — matches the Quo API's `to` array
+# limit (maxItems: 10 on POST /v1/messages), verified live 2026-08-13.
+GROUP_SMS_MAX_RECIPIENTS: int = 10

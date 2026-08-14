@@ -75,6 +75,31 @@ _CONTACTS = {
     },
 }
 
+# Tenant contacts with Property/Unit custom fields for the unit-isolation gate.
+TENANT_320_02_A = "+14125550201"
+TENANT_320_02_B = "+14125550202"
+TENANT_320_03 = "+14125550203"
+
+
+def _tenant_contact(name: str, phone: str, prop: str, unit: str) -> dict:
+    return {
+        "defaultFields": {
+            "firstName": name,
+            "lastName": "Tenant",
+            "company": None,
+            "phoneNumbers": [{"value": phone}],
+        },
+        "customFields": [
+            {"name": "Property", "value": prop},
+            {"name": "Unit #", "value": unit},
+        ],
+    }
+
+
+_CONTACTS[TENANT_320_02_A] = _tenant_contact("Aidan", TENANT_320_02_A, "320", "02")
+_CONTACTS[TENANT_320_02_B] = _tenant_contact("Adeline", TENANT_320_02_B, "320", "02")
+_CONTACTS[TENANT_320_03] = _tenant_contact("Hailey", TENANT_320_03, "320", "03")
+
 
 @pytest.fixture(autouse=True)
 def _mock_contact_lookup(monkeypatch):
@@ -161,6 +186,44 @@ class TestResolveGroupSmsRouting:
         result = await resolve_group_sms_routing(phones, client)
         assert isinstance(result, str)
         assert f"at most {GROUP_SMS_MAX_RECIPIENTS}" in result
+
+    @pytest.mark.asyncio
+    async def test_cross_unit_tenants_blocked_deterministically(self):
+        """Tenants from different units must NEVER share a group thread —
+        the unit-isolation gate blocks before approval, so approval cannot
+        override it."""
+        client = _capture_client([])
+        result = await resolve_group_sms_routing([TENANT_320_02_A, TENANT_320_03], client)
+        assert isinstance(result, str)
+        assert "different units" in result
+        assert "320 Unit 02" in result and "320 Unit 03" in result
+
+    @pytest.mark.asyncio
+    async def test_same_unit_roommates_allowed(self):
+        client = _capture_client([])
+        result = await resolve_group_sms_routing([TENANT_320_02_A, TENANT_320_02_B], client)
+        assert isinstance(result, GroupSmsRouting)
+        assert result.from_phone_id == QUO_SHARED_EXTERNAL_PHONE_ID
+
+    @pytest.mark.asyncio
+    async def test_tenant_with_unitless_external_allowed(self):
+        """A tenant + an external contact with no Property/Unit fields (e.g.
+        a vendor) is not a cross-unit pairing — allowed, still behind HITL."""
+        client = _capture_client([])
+        result = await resolve_group_sms_routing([TENANT_320_02_A, EXTERNAL_A], client)
+        assert isinstance(result, GroupSmsRouting)
+        assert result.has_external is True
+
+    @pytest.mark.asyncio
+    async def test_internal_member_does_not_trip_unit_gate(self):
+        """Internal team members have no unit; adding one to a single-unit
+        tenant group must not trigger the cross-unit block."""
+        client = _capture_client([])
+        result = await resolve_group_sms_routing(
+            [INTERNAL_A, TENANT_320_02_A, TENANT_320_02_B], client
+        )
+        assert isinstance(result, GroupSmsRouting)
+        assert result.is_mixed is True
 
     @pytest.mark.asyncio
     async def test_duplicates_deduped_order_preserved(self):
