@@ -1888,7 +1888,9 @@ export default function SerniaChatPage() {
         setLoadedMessages(data.messages || []);
         setConversationModality(
           opts?.modality ||
-            (convId.startsWith("ai_sms_from_") ? "sms" : "web_chat"),
+            // ai_sms_from_* = 1:1 AI SMS threads; ai_sms_group_* = group
+            // SMS threads. Both are read-only SMS conversations here.
+            (convId.startsWith("ai_sms_") ? "sms" : "web_chat"),
         );
 
         if (opts?.updateUrl !== false) {

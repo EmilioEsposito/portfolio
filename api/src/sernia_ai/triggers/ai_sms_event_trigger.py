@@ -906,7 +906,10 @@ async def _handle_group_sms(
             metadata={
                 "trigger_source": "ai_sms_group",
                 "trigger_phone": from_number,
-                "trigger_contact_name": sender_name,
+                # Group label (not the sender's name): the web UI sidebar shows
+                # this as the conversation's participant, and a bare sender
+                # name would make the group thread look like a 1:1.
+                "trigger_contact_name": "Group: " + ", ".join(name_by_phone[p] for p in all_humans),
                 "openphone_conversation_id": quo_conv_id,
                 # Post-approval replies use this to respond into the group
                 # thread instead of 1:1 (see routes.approve_conversation).
