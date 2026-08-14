@@ -56,11 +56,21 @@ async def get_ai_phone_number() -> str | None:
         ) as client:
             resp = await client.get(f"/v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}")
             resp.raise_for_status()
-            phone = resp.json().get("data", {}).get("phoneNumber")
+            data = resp.json().get("data", {})
+            # The API returns the E.164 under ``number`` (NOT ``phoneNumber``
+            # — that wrong key silently broke this lookup and with it group
+            # detection AND the webhook circular-trigger guard until
+            # 2026-08-14). Keep ``phoneNumber`` as a defensive fallback.
+            phone = data.get("number") or data.get("phoneNumber")
             if phone:
                 _ai_phone_number = phone
-                logfire.info("cached AI phone number")
+                logfire.info("cached AI phone number", phone=phone)
                 return _ai_phone_number
+            logfire.warn(
+                "AI phone number lookup returned no number — group SMS "
+                "detection and the circular-trigger guard are degraded",
+                data_keys=sorted(data.keys()),
+            )
     except Exception:
         logfire.exception("failed to look up AI phone number")
     return None

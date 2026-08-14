@@ -245,6 +245,81 @@ class TestSendSmsReplyGroup:
 
 
 # ===========================================================================
+# get_ai_phone_number — response parsing + caching
+# ===========================================================================
+
+
+class TestGetAiPhoneNumber:
+    """Regression: the API returns the E.164 under ``data.number`` — the old
+    code read ``data.phoneNumber`` (which doesn't exist), silently returned
+    None on every call, and group detection fell back to 1:1 in production
+    (2026-08-14). Pin the real response shape and the process-level cache."""
+
+    # Trimmed copy of the real GET /v1/phone-numbers/{id} response.
+    REAL_RESPONSE = {
+        "data": {
+            "id": "PNWvNqsFFy",
+            "formattedNumber": "(412) 910-1500",
+            "name": "Sernia AI Intern",
+            "number": "+14129101500",
+            "symbol": "🤖",
+        }
+    }
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self, monkeypatch):
+        from api.src.open_phone import service as op_service
+
+        monkeypatch.setattr(op_service, "_ai_phone_number", None)
+
+    def _patch_httpx(self, monkeypatch, payload: dict, calls: list):
+        import httpx
+
+        from api.src.open_phone import service as op_service
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(str(request.url))
+            return httpx.Response(200, json=payload)
+
+        real_async_client = httpx.AsyncClient
+
+        def fake_async_client(**kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_async_client(**kwargs)
+
+        monkeypatch.setattr(op_service.httpx, "AsyncClient", fake_async_client)
+
+    @pytest.mark.asyncio
+    async def test_parses_number_field_from_real_shape(self, monkeypatch):
+        from api.src.open_phone.service import get_ai_phone_number
+
+        calls: list = []
+        self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
+        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        assert await get_ai_phone_number() == "+14129101500"
+
+    @pytest.mark.asyncio
+    async def test_caches_after_first_success(self, monkeypatch):
+        from api.src.open_phone.service import get_ai_phone_number
+
+        calls: list = []
+        self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
+        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        assert await get_ai_phone_number() == "+14129101500"
+        assert await get_ai_phone_number() == "+14129101500"
+        assert len(calls) == 1, "second call must hit the process cache, not the API"
+
+    @pytest.mark.asyncio
+    async def test_missing_number_returns_none_without_caching(self, monkeypatch):
+        from api.src.open_phone.service import get_ai_phone_number
+
+        calls: list = []
+        self._patch_httpx(monkeypatch, {"data": {"id": "PNWvNqsFFy"}}, calls)
+        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        assert await get_ai_phone_number() is None
+
+
+# ===========================================================================
 # send_message — group payload
 # ===========================================================================
 
