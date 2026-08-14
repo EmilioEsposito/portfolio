@@ -121,6 +121,9 @@ INTERNAL_EMAIL_DOMAIN = "serniacapital.com"
 # SMS length limits — AT&T rejects messages around 670 chars.
 # Auto-split long messages into chunks at this threshold.
 SMS_SPLIT_THRESHOLD = 500
+# Group SMS: max recipients per message. Matches the Quo API's `to` array
+# limit (maxItems: 10 on POST /v1/messages) — verified live 2026-08-13.
+GROUP_SMS_MAX_RECIPIENTS = 10
 # Hard reject at the tool level — LLM must shorten the message.
 SMS_MAX_LENGTH = 1000
 

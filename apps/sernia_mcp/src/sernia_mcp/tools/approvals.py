@@ -50,9 +50,14 @@ from prefab_ui.components import (
 from prefab_ui.rx import Rx
 
 from sernia_mcp.config import INTERNAL_EMAIL_DOMAIN
-from sernia_mcp.core.errors import CoreError, NotFoundError
+from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
 from sernia_mcp.core.google.gmail import send_email_core
-from sernia_mcp.core.quo.send_sms import resolve_sms_routing_core, send_sms_core
+from sernia_mcp.core.quo.send_sms import (
+    resolve_group_sms_routing_core,
+    resolve_sms_routing_core,
+    send_group_sms_core,
+    send_sms_core,
+)
 from sernia_mcp.identity import resolve_user_email_for_request
 
 # Pending sends, keyed by short UUID.
@@ -73,26 +78,110 @@ approvals_app = FastMCPApp("sernia_approvals")
 
 
 @approvals_app.ui()
-async def quo_send_sms(to_phone: str, message: str) -> PrefabApp:
-    """Send an SMS to a Quo contact (internal or external).
+async def quo_send_sms(to_phone: str | list[str], message: str) -> PrefabApp:
+    """Send an SMS to one Quo contact, or a GROUP text to 2-10 contacts.
 
     Returns an Approve / Reject card — the SMS is NOT sent until the user
     clicks Approve in the card. Only MCP clients that can render PrefabApps
     (Claude Desktop, Claude app, VS Code Copilot, fastmcp dev apps) can
     complete the flow.
 
+    **Group texts**: pass a list of 2-10 phone numbers to start ONE shared
+    thread — all recipients see the message and each other's replies (and
+    each other's phone numbers). Deterministic gates that approval cannot
+    override: every number must be a Quo contact, and tenants from
+    DIFFERENT units are always blocked from sharing a group thread
+    (roommates in the same unit are fine). A mixed internal+external group
+    exposes internal team numbers to the external recipients — only do
+    this when clearly intended. To message multiple people SEPARATELY
+    (private 1:1 threads), call this tool once per recipient instead.
+
     Args:
-        to_phone: Recipient phone in E.164 format (e.g. "+14155550100").
+        to_phone: Recipient phone in E.164 format (e.g. "+14155550100"),
+            or a list of 2-10 numbers for a group text (one shared thread).
         message: SMS body (max 1000 chars; auto-split above 500).
     """
+    if isinstance(to_phone, list) and len(to_phone) == 1:
+        to_phone = to_phone[0]
+
+    if len(message) > 1000:
+        raise ToolError(f"message is {len(message)} chars, max 1000")
+
+    # ---- Group path ----
+    if isinstance(to_phone, list):
+        try:
+            group = await resolve_group_sms_routing_core(to_phone)
+        except (NotFoundError, ValidationError) as e:
+            raise ToolError(str(e)) from e
+        except CoreError as e:
+            raise ToolError(f"quo_send_sms failed: {e}") from e
+
+        pid = uuid.uuid4().hex[:12]
+        _PENDING[pid] = {
+            "type": "sms",
+            "group": True,
+            "to_phones": group.phones,
+            "message": message,
+            "contact_name": ", ".join(group.recipient_names),
+            "created_at": time.time(),
+        }
+
+        audience = "INTERNAL" if group.all_internal else "EXTERNAL"
+        recipients_label = ", ".join(
+            f"{name} ({phone})"
+            for name, phone in zip(group.recipient_names, group.phones, strict=True)
+        )
+        with Card(css_class="max-w-xl") as view:
+            with CardHeader():
+                CardTitle(f"Send GROUP SMS to {len(group.phones)} recipients?")
+            with CardContent():
+                with Column(gap=3):
+                    Text(f"**To (one shared thread):** {recipients_label}")
+                    Text(f"**Routing:** {audience} line ({group.line_name})")
+                    if group.is_mixed:
+                        Text(
+                            "⚠️ **Mixed group:** internal team numbers will be "
+                            "visible to the external recipients in this thread."
+                        )
+                    Heading("Message", level=4)
+                    Text(message)
+            with CardFooter():
+                with Row(gap=2):
+                    Button(
+                        "Approve & Send",
+                        variant="success",
+                        on_click=[
+                            CallTool(
+                                "_confirm_send_sms",
+                                arguments={"pending_id": pid, "decision": "approve"},
+                            ),
+                            SetState("decided", True),
+                            ShowToast("Group SMS sent", variant="success"),
+                        ],
+                        disabled=Rx("decided"),
+                    )
+                    Button(
+                        "Reject",
+                        variant="destructive",
+                        on_click=[
+                            CallTool(
+                                "_confirm_send_sms",
+                                arguments={"pending_id": pid, "decision": "reject"},
+                            ),
+                            SetState("decided", True),
+                            ShowToast("Cancelled", variant="warning"),
+                        ],
+                        disabled=Rx("decided"),
+                    )
+        return PrefabApp(view=view, state={"decided": False})
+
+    # ---- Single-recipient path ----
     try:
         routing = await resolve_sms_routing_core(to_phone)
     except NotFoundError as e:
         raise ToolError(str(e)) from e
     except CoreError as e:
         raise ToolError(f"quo_send_sms failed: {e}") from e
-    if len(message) > 1000:
-        raise ToolError(f"message is {len(message)} chars, max 1000")
 
     pid = uuid.uuid4().hex[:12]
     _PENDING[pid] = {
@@ -154,17 +243,22 @@ async def _confirm_send_sms(pending_id: str, decision: str) -> str:
     age = time.time() - rec.get("created_at", 0)
     if age > _PENDING_TTL_SECONDS:
         return f"Pending SMS expired ({int(age)}s old, TTL {_PENDING_TTL_SECONDS}s)."
+    is_group = rec.get("group", False)
+    recipient_desc = rec.get("contact_name") or (
+        ", ".join(rec["to_phones"]) if is_group else rec["to_phone"]
+    )
     if decision != "approve":
-        return (
-            f"Cancelled SMS to {rec.get('contact_name') or rec['to_phone']} "
-            f"(decision={decision!r})."
-        )
+        return f"Cancelled SMS to {recipient_desc} (decision={decision!r})."
     try:
-        result = await send_sms_core(rec["to_phone"], rec["message"])
+        if is_group:
+            result = await send_group_sms_core(rec["to_phones"], rec["message"])
+        else:
+            result = await send_sms_core(rec["to_phone"], rec["message"])
     except CoreError as e:
         return f"Send failed: {e}"
+    kind = "Group SMS (one shared thread)" if is_group else "SMS"
     return (
-        f"SMS sent to {result.contact_name or result.to_phone} via {result.line_name} "
+        f"{kind} sent to {result.contact_name or result.to_phone} via {result.line_name} "
         f"({result.parts_sent} part{'s' if result.parts_sent != 1 else ''})."
     )
 

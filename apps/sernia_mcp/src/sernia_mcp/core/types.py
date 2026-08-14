@@ -29,8 +29,29 @@ class SmsRouting(BaseModel):
     line_name: str
 
 
+class GroupSmsRouting(BaseModel):
+    """Resolved routing for a group SMS (one shared thread, 2+ recipients).
+
+    All-internal groups send from the AI line; any group containing an
+    external contact sends from the shared team number. ``is_mixed`` flags
+    internal+external groups (internal numbers become visible to external
+    recipients — the approval card is the safeguard).
+    """
+
+    phones: list[str]  # deduped, original order preserved
+    recipient_names: list[str]
+    all_internal: bool
+    is_mixed: bool
+    from_phone_id: str
+    line_name: str
+
+
 class SmsResult(BaseModel):
-    """Result of a send_sms_core call."""
+    """Result of a send_sms_core / send_group_sms_core call.
+
+    For group sends, ``to_phone`` and ``contact_name`` are comma-joined
+    lists of the recipients.
+    """
 
     to_phone: str
     contact_name: str | None
