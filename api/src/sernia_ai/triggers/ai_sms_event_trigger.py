@@ -299,18 +299,32 @@ def _sms_to_model_messages(messages: list[dict]) -> list[ModelMessage]:
     return result
 
 
+# Prompts persisted to the DB can carry appended system hints (history-trim
+# notes, the group-thread hint) that the same message reconstructed from the
+# Quo API / events table doesn't have. Strip them before dedup comparison,
+# otherwise every hinted turn is re-prepended as "missing" on the next run
+# and the agent sees each prior message twice.
+_SYSTEM_HINT_RE = re.compile(r"\s*\[System:.*$", re.DOTALL)
+
+
+def _dedup_key(text: str) -> str:
+    """Normalize a message text for dedup: strip appended system hints."""
+    return _SYSTEM_HINT_RE.sub("", text).strip()
+
+
 def _extract_text_contents(messages: list[ModelMessage]) -> set[str]:
-    """Extract all text content strings from a message list for dedup."""
+    """Extract all (normalized) text content strings from a message list for
+    dedup — appended ``[System: ...]`` hints are stripped via ``_dedup_key``."""
     texts: set[str] = set()
     for msg in messages:
         if isinstance(msg, ModelRequest):
             for part in msg.parts:
                 if isinstance(part, UserPromptPart) and isinstance(part.content, str):
-                    texts.add(part.content.strip())
+                    texts.add(_dedup_key(part.content))
         elif isinstance(msg, ModelResponse):
             for part in msg.parts:
                 if isinstance(part, TextPart):
-                    texts.add(part.content.strip())
+                    texts.add(_dedup_key(part.content))
     return texts
 
 
@@ -330,7 +344,7 @@ def _merge_sms_into_history(
     if not db_history:
         return sms_thread
 
-    # Find text contents already in DB history
+    # Find text contents already in DB history (normalized via _dedup_key)
     db_texts = _extract_text_contents(db_history)
 
     # Collect SMS messages not present in DB
@@ -339,13 +353,13 @@ def _merge_sms_into_history(
         if isinstance(msg, ModelRequest):
             for part in msg.parts:
                 if isinstance(part, UserPromptPart) and isinstance(part.content, str):
-                    if part.content.strip() not in db_texts:
+                    if _dedup_key(part.content) not in db_texts:
                         missing.append(msg)
                         break
         elif isinstance(msg, ModelResponse):
             for part in msg.parts:
                 if isinstance(part, TextPart):
-                    if part.content.strip() not in db_texts:
+                    if _dedup_key(part.content) not in db_texts:
                         missing.append(msg)
                         break
 

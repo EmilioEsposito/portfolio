@@ -170,6 +170,55 @@ class TestGroupActivitiesToModelMessages:
 
 
 # ===========================================================================
+# System-hint dedup normalization
+# ===========================================================================
+
+
+class TestSystemHintDedup:
+    """Persisted prompts carry appended ``[System: ...]`` hints that the
+    same message reconstructed from Quo / the events table doesn't have.
+    Dedup must strip them, or every hinted turn is re-prepended as
+    "missing" on the next run and appears twice."""
+
+    def test_dedup_key_strips_system_hint(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _dedup_key
+
+        hinted = "[Emilio Esposito]: Red skies [System: This is a GROUP SMS thread with ...]"
+        assert _dedup_key(hinted) == "[Emilio Esposito]: Red skies"
+
+    def test_dedup_key_noop_without_hint(self):
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import _dedup_key
+
+        assert _dedup_key("plain message") == "plain message"
+
+    def test_merge_dedups_hinted_db_prompt_against_reconstructed_turn(self):
+        """A DB prompt saved WITH a group hint must dedup against the same
+        message reconstructed WITHOUT the hint."""
+        from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
+            _merge_sms_into_history,
+        )
+
+        db_history = [
+            ModelRequest(
+                parts=[
+                    UserPromptPart(
+                        content="[Emilio Esposito]: Red skies [System: This is a "
+                        "GROUP SMS thread with Emilio, Sana. Your reply will be "
+                        "sent to the WHOLE group.]"
+                    )
+                ]
+            ),
+            ModelResponse(parts=[TextPart(content="Sailors' delight!")]),
+        ]
+        reconstructed = [
+            ModelRequest(parts=[UserPromptPart(content="[Emilio Esposito]: Red skies")]),
+            ModelResponse(parts=[TextPart(content="Sailors' delight!")]),
+        ]
+        merged = _merge_sms_into_history(db_history, reconstructed)
+        assert merged == db_history, "hinted DB turn must absorb the reconstructed turn"
+
+
+# ===========================================================================
 # _send_sms_reply — group recipients
 # ===========================================================================
 

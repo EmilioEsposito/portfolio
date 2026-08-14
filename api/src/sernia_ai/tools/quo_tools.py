@@ -1971,11 +1971,21 @@ def _build_quo_toolset():
             # Seed the GROUP conversation with hidden context: look up the
             # Quo conversation the send created/reused so the seed lands in
             # the ``ai_sms_group_{CN...}`` conversation the AI SMS trigger
-            # loads when a group member replies. Falls back to per-recipient
-            # 1:1 seeding when the conversation isn't findable yet.
+            # loads when a group member replies. Retries briefly — a freshly
+            # created conversation can lag in /v1/conversations. No 1:1
+            # fallback: the group trigger never reads ``ai_sms_from_*``
+            # conversations, so seeding them would silently lose the context.
             if context and "Failed" not in send_result:
                 try:
-                    conv = await _find_group_conversation(client, group.phones)
+                    import asyncio
+
+                    conv = None
+                    for delay in (0, 2, 4):
+                        if delay:
+                            await asyncio.sleep(delay)
+                        conv = await _find_group_conversation(client, group.phones)
+                        if conv and conv.get("id"):
+                            break
                     if conv and conv.get("id"):
                         await _seed_sms_conversation(
                             group.phones[0],
@@ -1985,8 +1995,11 @@ def _build_quo_toolset():
                             contact_identifier=",".join(sorted(group.phones)),
                         )
                     else:
-                        for phone in group.phones:
-                            await _seed_sms_conversation(phone, message, context)
+                        logfire.warn(
+                            "send_sms: group conversation not found after send — "
+                            "context NOT seeded",
+                            phones=group.phones,
+                        )
                 except Exception:
                     logfire.exception("send_sms: failed to seed group conversation")
 

@@ -722,13 +722,23 @@ async def test_resolve_group_sms_routing_live_all_internal(quo_client: httpx.Asy
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not os.environ.get("QUO_LIVE_GROUP_SMS_TEST"),
+    reason=(
+        "Sends a real group SMS (Emilio + TestSana, both internal). Opt in "
+        "with QUO_LIVE_GROUP_SMS_TEST=1 so the default live suite doesn't "
+        "text the team on every run."
+    ),
+)
 async def test_send_group_sms_live_emilio_and_sana(quo_client: httpx.AsyncClient):
     """Send a real group text to Emilio + TestSana through execute_sms.
 
     Both numbers are internal contacts (Emilio's own devices), so this is a
-    live INTERNAL send — allowed by SMS test safety. Routing is resolved
-    live first; the test skips rather than sending if the group ever stops
-    resolving as all-internal (e.g. the TestSana contact's company changes).
+    live INTERNAL send — allowed by SMS test safety, but still opt-in via
+    QUO_LIVE_GROUP_SMS_TEST to keep surprise texts out of routine live
+    runs. Routing is resolved live first; the test skips rather than
+    sending if the group ever stops resolving as all-internal (e.g. the
+    TestSana contact's company changes).
     """
     from api.src.sernia_ai.tools.quo_tools import (
         GroupSmsRouting,
