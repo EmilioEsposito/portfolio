@@ -118,16 +118,21 @@ class TestResolveGroupRouting:
     async def test_all_internal_uses_ai_line(self):
         routing = await resolve_group_sms_routing_core([INTERNAL_A, INTERNAL_B])
         assert routing.all_internal is True
-        assert routing.is_mixed is False
         assert routing.from_phone_id == QUO_SERNIA_AI_PHONE_ID
         assert routing.line_name == "Sernia AI"
         assert routing.recipient_names == ["Emilio Test", "Anna Test"]
 
     @pytest.mark.asyncio
-    async def test_mixed_group_flagged_uses_shared_line(self):
-        routing = await resolve_group_sms_routing_core([INTERNAL_A, EXTERNAL_A])
+    async def test_mixed_group_blocked(self):
+        """Internal + external in one group is hard-blocked deterministically —
+        a mixed group would expose internal numbers to external recipients."""
+        with pytest.raises(ValidationError, match="never share a group thread"):
+            await resolve_group_sms_routing_core([INTERNAL_A, EXTERNAL_A])
+
+    @pytest.mark.asyncio
+    async def test_all_external_uses_shared_line(self):
+        routing = await resolve_group_sms_routing_core([EXTERNAL_A, TENANT_320_02_A])
         assert routing.all_internal is False
-        assert routing.is_mixed is True
         assert routing.from_phone_id == QUO_SHARED_EXTERNAL_PHONE_ID
 
     @pytest.mark.asyncio
@@ -208,10 +213,9 @@ class TestGroupApprovalFlow:
     @pytest.mark.asyncio
     async def test_group_send_queues_pending_row(self):
         fake_routing = GroupSmsRouting(
-            phones=[INTERNAL_A, EXTERNAL_A],
-            recipient_names=["Emilio Test", "Sana Test"],
+            phones=[TENANT_320_02_A, TENANT_320_02_B],
+            recipient_names=["Aidan Test", "Adeline Test"],
             all_internal=False,
-            is_mixed=True,
             from_phone_id=QUO_SHARED_EXTERNAL_PHONE_ID,
             line_name="Sernia Capital Team",
         )
@@ -223,7 +227,7 @@ class TestGroupApprovalFlow:
         assert len(approvals._PENDING) == 1
         rec = next(iter(approvals._PENDING.values()))
         assert rec["group"] is True
-        assert rec["to_phones"] == [INTERNAL_A, EXTERNAL_A]
+        assert rec["to_phones"] == [TENANT_320_02_A, TENANT_320_02_B]
         assert rec["message"] == "group hello"
 
     @pytest.mark.asyncio
@@ -231,14 +235,14 @@ class TestGroupApprovalFlow:
         approvals._PENDING["gid"] = {
             "type": "sms",
             "group": True,
-            "to_phones": [INTERNAL_A, EXTERNAL_A],
+            "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
-            "contact_name": "Emilio Test, Sana Test",
+            "contact_name": "Aidan Test, Adeline Test",
             "created_at": time.time(),
         }
         fake = SmsResult(
-            to_phone=f"{INTERNAL_A}, {EXTERNAL_A}",
-            contact_name="Emilio Test, Sana Test",
+            to_phone=f"{TENANT_320_02_A}, {TENANT_320_02_B}",
+            contact_name="Aidan Test, Adeline Test",
             line_name="Sernia Capital Team",
             parts_sent=1,
             message_chars=11,
@@ -251,7 +255,7 @@ class TestGroupApprovalFlow:
             patch("sernia_mcp.tools.approvals.send_sms_core", new=AsyncMock()) as single_send,
         ):
             out = await approvals._confirm_send_sms(pending_id="gid", decision="approve")
-        group_send.assert_awaited_once_with([INTERNAL_A, EXTERNAL_A], "group hello")
+        group_send.assert_awaited_once_with([TENANT_320_02_A, TENANT_320_02_B], "group hello")
         single_send.assert_not_called()
         assert "Group SMS (one shared thread) sent to" in out
 
@@ -260,9 +264,9 @@ class TestGroupApprovalFlow:
         approvals._PENDING["gid"] = {
             "type": "sms",
             "group": True,
-            "to_phones": [INTERNAL_A, EXTERNAL_A],
+            "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
-            "contact_name": "Emilio Test, Sana Test",
+            "contact_name": "Aidan Test, Adeline Test",
             "created_at": time.time(),
         }
         with patch("sernia_mcp.tools.approvals.send_group_sms_core", new=AsyncMock()) as group_send:

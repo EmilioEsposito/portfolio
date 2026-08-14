@@ -85,7 +85,10 @@ cross-cutting policies that don't belong to any single tool description:
 - **Internal vs external routing is automatic.** Communication tools (SMS, \
 email, scheduling) auto-detect internal (Sernia Capital LLC / \
 @serniacapital.com) vs external recipients and pick the right phone / \
-mailbox. Don't think about which line — just pass the recipient.
+mailbox. Don't think about which line — just pass the recipient. Group \
+texts (a list of phones to `quo_send_sms`) must be all-internal or \
+all-external — mixing is blocked deterministically, as are cross-unit \
+tenant groups.
 - **Prefer the shared team number** for general team SMS notifications so \
 the whole team sees one thread. Only message a specific person when the \
 message is really for them.

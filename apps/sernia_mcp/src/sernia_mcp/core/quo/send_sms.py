@@ -82,16 +82,19 @@ async def resolve_group_sms_routing_core(phones: list[str]) -> GroupSmsRouting:
     ``GROUP_SMS_MAX_RECIPIENTS`` (10) numbers in ``to`` — the message lands
     in one shared group conversation (verified live 2026-08-13).
 
-    Deterministic gates (raise ``ValidationError`` / ``NotFoundError``):
+    Deterministic gates (raise ``ValidationError`` / ``NotFoundError``) —
+    all of them block before the approval card is even shown:
 
     - 2..GROUP_SMS_MAX_RECIPIENTS unique recipients.
     - Every recipient must be a Quo contact.
     - **Unit isolation**: tenants from different units (per the
       Property / Unit # custom fields) can never share a group thread —
-      they would see each other's phone numbers. Approval cannot override
-      this; it blocks before the approval card is even shown.
+      they would see each other's phone numbers.
+    - **Internal/external separation**: internal team members and external
+      contacts can never be mixed in one group — a mixed group would expose
+      internal numbers to external recipients.
 
-    Line selection: all-internal → AI line; any external → shared team line.
+    Line selection: all-internal → AI line; all-external → shared team line.
     """
     unique_phones = list(dict.fromkeys(phones))
     if len(unique_phones) < 2:
@@ -138,11 +141,21 @@ async def resolve_group_sms_routing_core(phones: list[str]) -> GroupSmsRouting:
         )
 
     all_internal = all(internal_flags)
+
+    # Internal/external separation: hard-block mixed groups deterministically.
+    if not all_internal and any(internal_flags):
+        internal_names = ", ".join(n for n, i in zip(names, internal_flags, strict=True) if i)
+        external_names = ", ".join(n for n, i in zip(names, internal_flags, strict=True) if not i)
+        raise ValidationError(
+            "internal team members and external contacts can never share a "
+            f"group thread (internal: {internal_names}; external: "
+            f"{external_names}); send separate messages instead"
+        )
+
     return GroupSmsRouting(
         phones=unique_phones,
         recipient_names=names,
         all_internal=all_internal,
-        is_mixed=(not all_internal) and any(internal_flags),
         from_phone_id=QUO_SERNIA_AI_PHONE_ID if all_internal else QUO_SHARED_EXTERNAL_PHONE_ID,
         line_name="Sernia AI" if all_internal else "Sernia Capital Team",
     )

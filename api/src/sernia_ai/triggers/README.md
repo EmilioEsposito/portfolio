@@ -36,6 +36,17 @@ flowchart TD
 
 The AI SMS event trigger treats the SMS thread as a direct conversation. Only internal contacts (Sernia Capital LLC) are allowed. The agent responds natively via SMS.
 
+### Group Threads
+
+A `message.received` on the AI line whose webhook `to` field contains recipients **besides the AI's own number** is a **group text** (`_extract_group_participants` — the AI's E.164 number comes from the process-cached `open_phone.service.get_ai_phone_number()`; if that lookup fails, the trigger safely falls back to 1:1 handling). Group messages take a parallel path (`_handle_group_sms`) that differs from the 1:1 flow in four ways:
+
+1. **Gate** — *every* human participant (sender + other recipients) must be an internal contact. One external/unknown member and the whole event is silently ignored.
+2. **Conversation key** — `ai_sms_group_{CN...}` (the Quo conversation ID), so all group members share **one** AI conversation, instead of the sender's personal `ai_sms_from_{digits}`.
+3. **History** — reconstructed from the local `open_phone_events` webhook table (the only source of full group history — OpenPhone's API can't list group messages by participant filter), merged with DB history. Inbound turns are prefixed `[Sender Name]:` so the agent can tell members apart; the same prefix format is used for the live prompt so text-dedup in the merge works. The current message is excluded from reconstruction (the webhook saves it to the events table *before* the background task runs) since it becomes the run's prompt.
+4. **Reply** — sent to **all** human participants in one API call (`to` array), landing in the same group thread. Post-approval replies do the same: the conversation's `trigger_group_participants` metadata routes `routes.approve_conversation()`'s SMS reply to the group instead of 1:1.
+
+`send_sms`'s hidden-context seeding for group sends targets the same `ai_sms_group_{CN...}` conversation (looked up via `_find_group_conversation` after the send), so the agent has the context when any member replies.
+
 ### History Loading
 
 The trigger always fetches from **both** sources and merges them:
@@ -57,7 +68,11 @@ flowchart TD
 
     CONTACT --> GATE{"Sernia Capital<br/>LLC contact?"}
     GATE -->|No| IGNORE["Silently ignore<br/>(external/unknown)"]
-    GATE -->|Yes| CONV_ID["Derive conv_id:<br/>ai_sms_from_{digits}"]
+    GATE -->|Yes| GROUP{"Group message?<br/>(to has recipients<br/>besides AI line)"}
+    GROUP -->|Yes| GGATE{"ALL participants<br/>internal?"}
+    GGATE -->|No| GIGNORE["Silently ignore"]
+    GGATE -->|Yes| GFLOW["_handle_group_sms():<br/>conv_id ai_sms_group_{CN},<br/>history from open_phone_events,<br/>reply to ALL participants"]
+    GROUP -->|No| CONV_ID["Derive conv_id:<br/>ai_sms_from_{digits}"]
 
     CONV_ID --> FETCH["Fetch both sources in parallel"]
     FETCH --> DB["DB: get_conversation_messages()"]
@@ -209,7 +224,7 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 |------|---------|
 | `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction` handling, HITL approval push (`notify_pending_approval` only — generic completion alerts removed) |
 | `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
-| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply |
+| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply. Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, events-table history, reply to all participants |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
 
 ## Config (`config.py`)

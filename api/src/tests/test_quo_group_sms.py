@@ -137,7 +137,6 @@ class TestResolveGroupSmsRouting:
         assert isinstance(result, GroupSmsRouting)
         assert result.all_internal is True
         assert result.has_external is False
-        assert result.is_mixed is False
         assert result.from_phone_id == QUO_SERNIA_AI_PHONE_ID
         assert result.line_name == "Sernia AI"
         assert result.recipient_names == ["Emilio Esposito", "Anna Esposito"]
@@ -149,21 +148,20 @@ class TestResolveGroupSmsRouting:
         assert isinstance(result, GroupSmsRouting)
         assert result.all_internal is False
         assert result.has_external is True
-        assert result.is_mixed is False
         assert result.from_phone_id == QUO_SHARED_EXTERNAL_PHONE_ID
         assert result.line_name == "Sernia Capital Team"
 
     @pytest.mark.asyncio
-    async def test_mixed_group_flagged_and_uses_shared_line(self):
-        """Internal + external in one group: allowed, but routed to the shared
-        team line and flagged mixed — the HITL approval (has_external=True at
-        the tool level) is the safeguard for exposing internal numbers."""
+    async def test_mixed_group_blocked_deterministically(self):
+        """Internal + external in one group is hard-blocked — a mixed group
+        would expose internal team numbers to external recipients, and no
+        approval can override the block."""
         client = _capture_client([])
         result = await resolve_group_sms_routing([INTERNAL_A, EXTERNAL_A], client)
-        assert isinstance(result, GroupSmsRouting)
-        assert result.is_mixed is True
-        assert result.has_external is True
-        assert result.from_phone_id == QUO_SHARED_EXTERNAL_PHONE_ID
+        assert isinstance(result, str)
+        assert "never share a group thread" in result
+        assert "Emilio Esposito" in result
+        assert "Sana Test" in result
 
     @pytest.mark.asyncio
     async def test_unknown_contact_blocks_whole_group(self):
@@ -215,15 +213,23 @@ class TestResolveGroupSmsRouting:
         assert result.has_external is True
 
     @pytest.mark.asyncio
-    async def test_internal_member_does_not_trip_unit_gate(self):
-        """Internal team members have no unit; adding one to a single-unit
-        tenant group must not trigger the cross-unit block."""
+    async def test_internal_plus_tenants_blocked_as_mixed(self):
+        """An internal member plus tenants is a mixed group — blocked by the
+        internal/external separation gate (tenants are external)."""
         client = _capture_client([])
         result = await resolve_group_sms_routing(
             [INTERNAL_A, TENANT_320_02_A, TENANT_320_02_B], client
         )
+        assert isinstance(result, str)
+        assert "never share a group thread" in result
+
+    @pytest.mark.asyncio
+    async def test_all_internal_group_allowed(self):
+        """Sanity: internal-only groups still resolve (AI line, no gates hit)."""
+        client = _capture_client([])
+        result = await resolve_group_sms_routing([INTERNAL_A, INTERNAL_B], client)
         assert isinstance(result, GroupSmsRouting)
-        assert result.is_mixed is True
+        assert result.all_internal is True
 
     @pytest.mark.asyncio
     async def test_duplicates_deduped_order_preserved(self):

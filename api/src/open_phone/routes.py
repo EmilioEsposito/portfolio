@@ -6,7 +6,6 @@ import time
 from datetime import date, datetime
 from pprint import pprint
 
-import httpx as _httpx
 import logfire
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
@@ -31,38 +30,20 @@ from api.src.utils.clerk import verify_serniacapital_user
 from api.src.utils.dependencies import verify_admin_or_serniacapital
 from api.src.utils.password import verify_admin_password
 
+
 # ---------------------------------------------------------------------------
 # Cached AI phone number lookup (circular trigger guard)
 # ---------------------------------------------------------------------------
-_ai_phone_number: str | None = None
-
-
 async def _get_ai_phone_number() -> str | None:
-    """Look up the AI phone's actual number via OpenPhone API, caching at module level."""
-    global _ai_phone_number
-    if _ai_phone_number is not None:
-        return _ai_phone_number
+    """Look up the AI phone's actual number (process-cached).
 
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
-    if not api_key:
-        return None
+    Thin wrapper kept for webhook-routing readability — the cached lookup
+    lives in ``open_phone.service.get_ai_phone_number`` so the AI SMS
+    trigger can share it without importing this routes module.
+    """
+    from api.src.open_phone.service import get_ai_phone_number
 
-    try:
-        async with _httpx.AsyncClient(
-            base_url="https://api.openphone.com",
-            headers={"Authorization": api_key},
-            timeout=15,
-        ) as client:
-            resp = await client.get(f"/v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}")
-            resp.raise_for_status()
-            phone = resp.json().get("data", {}).get("phoneNumber")
-            if phone:
-                _ai_phone_number = phone
-                logfire.info("cached AI phone number for circular trigger guard")
-                return _ai_phone_number
-    except Exception:
-        logfire.exception("failed to look up AI phone number")
-    return None
+    return await get_ai_phone_number()
 
 
 router = APIRouter(
