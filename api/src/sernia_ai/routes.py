@@ -479,7 +479,9 @@ async def approve_conversation(
         )
         create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
-        # If this is an SMS conversation, send the agent's response back via SMS
+        # If this is an SMS conversation, send the agent's response back via SMS.
+        # Group conversations (ai_sms_group_*) store the full participant list
+        # in metadata — reply into the group thread, not 1:1 to the sender.
         conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
         if (
             conv
@@ -487,11 +489,17 @@ async def approve_conversation(
             and isinstance(result.output, str)
             and result.output.strip()
             and conv.metadata_
-            and conv.metadata_.get("trigger_phone")
+            and (
+                conv.metadata_.get("trigger_group_participants")
+                or conv.metadata_.get("trigger_phone")
+            )
         ):
+            reply_to = (
+                conv.metadata_.get("trigger_group_participants") or conv.metadata_["trigger_phone"]
+            )
             create_logged_task(
                 _send_sms_reply(
-                    to_phone=conv.metadata_["trigger_phone"],
+                    to_phone=reply_to,
                     message=result.output,
                 ),
                 name="sms_reply",
@@ -1156,8 +1164,12 @@ async def update_admin_settings(
 # =============================================================================
 
 
-async def _send_sms_reply(to_phone: str, message: str) -> None:
-    """Send an SMS reply from the AI phone number, auto-splitting if long. Never raises."""
+async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
+    """Send an SMS reply from the AI phone number, auto-splitting if long.
+
+    ``to_phone`` may be a single number (1:1) or a list — a list replies
+    into the shared group thread. Never raises.
+    """
     from api.src.open_phone.service import send_message
     from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
     from api.src.sernia_ai.tools.quo_tools import split_sms

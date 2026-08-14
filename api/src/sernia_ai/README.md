@@ -110,7 +110,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 ### Safety Gates
 
-- **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; a mixed internal+external **group text** is the one deliberate exception and always requires HITL approval (see [`tools/README.md`](tools/README.md))
+- **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; mixed internal+external **group texts** are hard-blocked deterministically — a group is always all-internal or all-external (see [`tools/README.md`](tools/README.md))
 - **Unit isolation** — Cross-unit tenant group texts blocked; roommates within a unit share one group thread (see [`tools/README.md`](tools/README.md))
 - **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated.
 - **Universal kill switch** — DB-backed toggle disables all automated triggers

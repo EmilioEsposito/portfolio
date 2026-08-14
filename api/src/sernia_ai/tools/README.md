@@ -39,16 +39,16 @@ The Quo API supports up to **10 recipients** per `POST /v1/messages` (`to` array
 
 Routing for group sends (`resolve_group_sms_routing`):
 
-- **All internal** → AI line, no approval (team group chat).
-- **Any external** → shared team number + HITL approval.
-- **Mixed internal + external** → allowed but flagged (`is_mixed`) — sending exposes the internal members' numbers to the external recipients, so the HITL approval is the safeguard. The agent is instructed to only do this deliberately.
+- **All internal** → AI line, no approval (team group chat). Replies are handled **in the group thread** by the AI SMS trigger — see [`triggers/README.md`](../triggers/README.md).
+- **All external** → shared team number + HITL approval.
+- **Mixed internal + external** → hard-blocked deterministically — a mixed group would expose internal team numbers to external recipients. Approval cannot override; a group is always all-internal or all-external.
 - **Cross-unit tenants** → hard-blocked deterministically (gate 5 above); approval cannot override.
 
 The same group support (same tool name, same gates) is mirrored in the standalone MCP server at `apps/sernia_mcp` — `quo_send_sms` accepts `str | list[str]` with the group approval card, backed by `resolve_group_sms_routing_core` / `send_group_sms_core`.
 
 To message multiple people *privately*, the agent calls `send_sms` once per recipient instead of passing a list.
 
-> **Known limitation — replies to all-internal groups:** the AI SMS event trigger handles inbound messages on the AI line keyed by sender only (`from_number`), so a reply to an all-internal group text is loaded as the sender's 1:1 history and the AI's answer is sent back 1:1 — it does not land in the group thread. Propagating the webhook's `conversation_id`/participants through the trigger (history loading + reply send) is tracked as follow-up work. The agent is instructed to prefer 1:1 sends for conversational exchanges and reserve internal group texts for announcements.
+> **Group replies stay in the group:** the AI SMS event trigger detects group messages on the AI line (the webhook's `to` contains recipients besides the AI's own number), keys the conversation to the Quo group conversation (`ai_sms_group_{CN...}`), and sends the AI's answer to **all** human participants so it lands in the same group thread. Context seeding for group sends (`send_sms`'s `context` param) also lands in that group conversation. See [`triggers/README.md`](../triggers/README.md) for the flow.
 
 The group-conversation lookup used by the read tools (`_find_group_conversation`) searches **both** lines — the shared team number and the AI line — since all-internal groups are created on the AI line.
 

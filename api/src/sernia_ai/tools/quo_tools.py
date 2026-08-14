@@ -411,19 +411,17 @@ async def resolve_sms_routing(
 class GroupSmsRouting:
     """Resolved routing for a group SMS (one shared thread, 2+ recipients).
 
-    Line selection: an all-internal group sends from the AI line (no
-    approval); any group containing an external contact sends from the
-    shared team number and requires HITL approval. A mixed group
-    (internal + external members) is allowed but flagged — sending it
-    exposes the internal members' numbers to the external recipients, so
-    the HITL approval is the safeguard.
+    Groups are either all-internal or all-external — mixing internal and
+    external recipients in one group is hard-blocked at resolution time
+    (see ``resolve_group_sms_routing``). Line selection: an all-internal
+    group sends from the AI line (no approval); an all-external group
+    sends from the shared team number and requires HITL approval.
     """
 
     routings: list[SmsRouting]
     phones: list[str]  # deduped, original order preserved
     all_internal: bool
     has_external: bool
-    is_mixed: bool
     from_phone_id: str
     line_name: str
 
@@ -440,9 +438,11 @@ async def resolve_group_sms_routing(
     """Resolve a list of phone numbers to group-SMS routing parameters.
 
     Returns GroupSmsRouting on success, or an error string when the group
-    is invalid: fewer than 2 unique recipients, more than
+    is invalid — all of these are deterministic gates that approval cannot
+    override: fewer than 2 unique recipients, more than
     ``GROUP_SMS_MAX_RECIPIENTS`` (the Quo API's per-message ``to`` limit),
-    or any recipient that is not a Quo contact.
+    any recipient that is not a Quo contact, tenants from different units
+    in one group, or a mix of internal and external recipients.
     """
     unique_phones = list(dict.fromkeys(phones))  # dedupe, keep order
     if len(unique_phones) < 2:
@@ -489,12 +489,24 @@ async def resolve_group_sms_routing(
 
     all_internal = all(r.is_internal for r in routings)
     has_external = any(not r.is_internal for r in routings)
+
+    # Deterministic internal/external separation: a group can be all-internal
+    # or all-external, never a mix — a mixed group would expose internal team
+    # numbers to external recipients. Hard block; approval cannot override.
+    if has_external and not all_internal and any(r.is_internal for r in routings):
+        internal_names = ", ".join(r.contact_name for r in routings if r.is_internal)
+        external_names = ", ".join(r.contact_name for r in routings if not r.is_internal)
+        return (
+            "Blocked: internal team members and external contacts can never "
+            f"share a group thread (internal: {internal_names}; external: "
+            f"{external_names}). Send separate messages instead."
+        )
+
     return GroupSmsRouting(
         routings=routings,
         phones=unique_phones,
         all_internal=all_internal,
         has_external=has_external,
-        is_mixed=has_external and any(r.is_internal for r in routings),
         from_phone_id=QUO_SERNIA_AI_PHONE_ID if all_internal else QUO_SHARED_EXTERNAL_PHONE_ID,
         line_name="Sernia AI" if all_internal else "Sernia Capital Team",
     )
@@ -1515,11 +1527,18 @@ async def _seed_sms_conversation(
     phone: str,
     outbound_text: str,
     context: str,
+    conv_id: str | None = None,
+    contact_identifier: str | None = None,
 ) -> None:
-    """Seed the recipient's ai_sms_from_ conversation with hidden context.
+    """Seed the recipient's AI SMS conversation with hidden context.
 
     Creates or appends to the conversation so that when the recipient
     replies via SMS, the AI agent has context about why the message was sent.
+
+    Defaults to the recipient's 1:1 ``ai_sms_from_{digits}`` conversation.
+    Group sends pass an explicit ``conv_id`` (``ai_sms_group_{CN...}``) so
+    the context lands in the conversation the AI SMS trigger loads when a
+    group member replies.
     """
     from api.src.ai_demos.models import (
         get_conversation_messages,
@@ -1528,8 +1547,11 @@ async def _seed_sms_conversation(
     from api.src.database.database import AsyncSessionFactory
     from api.src.sernia_ai.config import AGENT_NAME, TRIGGER_BOT_ID
 
-    digits = re.sub(r"\D", "", phone)
-    conv_id = f"ai_sms_from_{digits}"
+    if conv_id is None:
+        digits = re.sub(r"\D", "", phone)
+        conv_id = f"ai_sms_from_{digits}"
+    if contact_identifier is None:
+        contact_identifier = phone
 
     async with AsyncSessionFactory() as session:
         # Load existing conversation (if any) so we append, not overwrite
@@ -1562,7 +1584,7 @@ async def _seed_sms_conversation(
             clerk_user_id=TRIGGER_BOT_ID,
             metadata={"trigger_source": "ai_sms", "seeded_from_tool": True},
             modality="sms",
-            contact_identifier=phone,
+            contact_identifier=contact_identifier,
         )
     logfire.info(
         "sms conversation seeded with context",
@@ -1886,21 +1908,14 @@ def _build_quo_toolset():
         **Group texts**: pass a list of 2-10 phone numbers to start ONE shared
         thread — all recipients see the message and each other's replies (and
         each other's phone numbers). An all-internal group sends from the AI
-        line with no approval; a group containing ANY external contact sends
-        from the shared team number and requires approval. A mixed
-        internal+external group exposes the internal members' numbers to the
-        external recipients — only do this when that's clearly intended.
-        Tenants from DIFFERENT units are always blocked from sharing a group
-        thread (deterministic — approval cannot override); roommates in the
-        same unit are fine.
+        line with no approval, and when members reply, you respond in the
+        same group thread. An all-external group sends from the shared team
+        number and requires approval. Two deterministic blocks that approval
+        cannot override: internal and external contacts can NEVER be mixed
+        in one group, and tenants from DIFFERENT units can never share a
+        group thread (roommates in the same unit are fine).
         To message multiple people SEPARATELY (private 1:1 threads), call
         this tool once per recipient instead.
-
-        Known limitation: replies to an all-internal group (sent from the
-        AI line) are currently processed by the AI SMS trigger as 1:1
-        conversations — the AI's answer goes to the replier privately, not
-        into the group thread. Prefer 1:1 sends when you expect to hold a
-        conversation; use internal group texts for announcements.
 
         Max 1000 chars — messages over this limit are rejected (shorten/summarize
         and retry). Messages over 500 chars are auto-split into multiple texts.
@@ -1941,7 +1956,6 @@ def _build_quo_toolset():
                 to=group.phones,
                 names=group.recipient_names,
                 all_internal=group.all_internal,
-                is_mixed=group.is_mixed,
                 from_phone_id=group.from_phone_id,
             )
 
@@ -1954,13 +1968,40 @@ def _build_quo_toolset():
                 ctx.deps.conversation_id,
             )
 
-            # Seed each recipient's AI SMS conversation with hidden context
+            # Seed the GROUP conversation with hidden context: look up the
+            # Quo conversation the send created/reused so the seed lands in
+            # the ``ai_sms_group_{CN...}`` conversation the AI SMS trigger
+            # loads when a group member replies. Retries briefly — a freshly
+            # created conversation can lag in /v1/conversations. No 1:1
+            # fallback: the group trigger never reads ``ai_sms_from_*``
+            # conversations, so seeding them would silently lose the context.
             if context and "Failed" not in send_result:
-                for phone in group.phones:
-                    try:
-                        await _seed_sms_conversation(phone, message, context)
-                    except Exception:
-                        logfire.exception("send_sms: failed to seed conversation", to=phone)
+                try:
+                    import asyncio
+
+                    conv = None
+                    for delay in (0, 2, 4):
+                        if delay:
+                            await asyncio.sleep(delay)
+                        conv = await _find_group_conversation(client, group.phones)
+                        if conv and conv.get("id"):
+                            break
+                    if conv and conv.get("id"):
+                        await _seed_sms_conversation(
+                            group.phones[0],
+                            message,
+                            context,
+                            conv_id=f"ai_sms_group_{conv['id']}",
+                            contact_identifier=",".join(sorted(group.phones)),
+                        )
+                    else:
+                        logfire.warn(
+                            "send_sms: group conversation not found after send — "
+                            "context NOT seeded",
+                            phones=group.phones,
+                        )
+                except Exception:
+                    logfire.exception("send_sms: failed to seed group conversation")
 
             if send_result.startswith("Group message sent"):
                 named = ", ".join(

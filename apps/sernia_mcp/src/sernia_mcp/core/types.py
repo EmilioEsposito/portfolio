@@ -32,16 +32,15 @@ class SmsRouting(BaseModel):
 class GroupSmsRouting(BaseModel):
     """Resolved routing for a group SMS (one shared thread, 2+ recipients).
 
-    All-internal groups send from the AI line; any group containing an
-    external contact sends from the shared team number. ``is_mixed`` flags
-    internal+external groups (internal numbers become visible to external
-    recipients — the approval card is the safeguard).
+    Groups are either all-internal or all-external — mixing internal and
+    external recipients is hard-blocked at resolution time. All-internal
+    groups send from the AI line; all-external groups send from the shared
+    team number.
     """
 
     phones: list[str]  # deduped, original order preserved
     recipient_names: list[str]
     all_internal: bool
-    is_mixed: bool
     from_phone_id: str
     line_name: str
 
