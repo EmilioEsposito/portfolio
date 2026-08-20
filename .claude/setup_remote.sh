@@ -36,12 +36,17 @@ corepack enable
 # security pins, leaving every web session with a dirty tree that can get committed
 # by accident. If the lockfile is genuinely out of sync with package.json, fall back
 # to a normal install so the session still ends up with working dependencies.
+# The fallback flag lets the wait block below surface the lockfile regeneration
+# in the session output, since everything here is redirected to the log file.
+PNPM_FALLBACK_FLAG="/tmp/.pnpm_lockfile_fallback"
+rm -f "$PNPM_FALLBACK_FLAG"
 (
   if pnpm install --frozen-lockfile; then
     exit 0
   fi
   echo "WARNING: pnpm install --frozen-lockfile failed - pnpm-lock.yaml is out of sync with package.json."
   echo "Falling back to a normal install. The resulting lockfile change is expected; review it before committing."
+  touch "$PNPM_FALLBACK_FLAG"
   pnpm install
 ) > /tmp/pnpm_install.log 2>&1 &
 PNPM_PID=$!
@@ -220,7 +225,14 @@ echo "--- Waiting for pnpm install to finish ---"
 wait $PNPM_PID
 PNPM_EXIT=$?
 if [ $PNPM_EXIT -eq 0 ]; then
-  echo "pnpm dependencies installed"
+  if [ -f "$PNPM_FALLBACK_FLAG" ]; then
+    echo "pnpm dependencies installed (via fallback install)"
+    echo "WARNING: pnpm-lock.yaml was out of sync with package.json and has been REGENERATED."
+    echo "         Your working tree is now dirty. Review 'git diff pnpm-lock.yaml' and only"
+    echo "         commit it if the change is intentional."
+  else
+    echo "pnpm dependencies installed"
+  fi
 else
   echo "WARNING: pnpm install failed (exit $PNPM_EXIT). Check /tmp/pnpm_install.log"
 fi
