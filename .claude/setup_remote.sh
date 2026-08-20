@@ -38,17 +38,31 @@ corepack enable
 # to a normal install so the session still ends up with working dependencies.
 # The fallback flag lets the wait block below surface the lockfile regeneration
 # in the session output, since everything here is redirected to the log file.
+PNPM_LOG="/tmp/pnpm_install.log"
 PNPM_FALLBACK_FLAG="/tmp/.pnpm_lockfile_fallback"
 rm -f "$PNPM_FALLBACK_FLAG"
 (
-  if pnpm install --frozen-lockfile; then
+  pnpm install --frozen-lockfile
+  FROZEN_EXIT=$?
+  if [ $FROZEN_EXIT -eq 0 ]; then
     exit 0
   fi
-  echo "WARNING: pnpm install --frozen-lockfile failed - pnpm-lock.yaml is out of sync with package.json."
+
+  # Only a stale or missing lockfile justifies retrying unfrozen. Any other failure
+  # (registry blip, lifecycle script, out of disk) must propagate: retrying those
+  # unfrozen could rewrite pnpm-lock.yaml for a reason unrelated to package.json,
+  # which is exactly the churn --frozen-lockfile is here to prevent.
+  if ! grep -qE 'ERR_PNPM_(OUTDATED_LOCKFILE|NO_LOCKFILE)' "$PNPM_LOG"; then
+    echo "ERROR: pnpm install --frozen-lockfile failed (exit $FROZEN_EXIT) for a reason"
+    echo "       unrelated to lockfile sync. Not retrying with an unfrozen install."
+    exit $FROZEN_EXIT
+  fi
+
+  echo "WARNING: pnpm-lock.yaml is out of sync with package.json (or missing)."
   echo "Falling back to a normal install. The resulting lockfile change is expected; review it before committing."
   touch "$PNPM_FALLBACK_FLAG"
   pnpm install
-) > /tmp/pnpm_install.log 2>&1 &
+) > "$PNPM_LOG" 2>&1 &
 PNPM_PID=$!
 
 # =============================================================================
@@ -234,7 +248,7 @@ if [ $PNPM_EXIT -eq 0 ]; then
     echo "pnpm dependencies installed"
   fi
 else
-  echo "WARNING: pnpm install failed (exit $PNPM_EXIT). Check /tmp/pnpm_install.log"
+  echo "WARNING: pnpm install failed (exit $PNPM_EXIT). Check $PNPM_LOG"
 fi
 
 # TODO: install agent-browser. Below is how I installed it on my local machine. is this the same on the remote Claude Code environment?
