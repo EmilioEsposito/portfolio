@@ -31,7 +31,19 @@ echo ""
 echo "--- Starting pnpm install in background ---"
 # Enable corepack to use packageManager from package.json
 corepack enable
-pnpm install > /tmp/pnpm_install.log 2>&1 &
+# Install with --frozen-lockfile so a session never silently rewrites pnpm-lock.yaml.
+# A plain `pnpm install` rewrites lockfile metadata and drops the pnpm.overrides
+# security pins, leaving every web session with a dirty tree that can get committed
+# by accident. If the lockfile is genuinely out of sync with package.json, fall back
+# to a normal install so the session still ends up with working dependencies.
+(
+  if pnpm install --frozen-lockfile; then
+    exit 0
+  fi
+  echo "WARNING: pnpm install --frozen-lockfile failed - pnpm-lock.yaml is out of sync with package.json."
+  echo "Falling back to a normal install. The resulting lockfile change is expected; review it before committing."
+  pnpm install
+) > /tmp/pnpm_install.log 2>&1 &
 PNPM_PID=$!
 
 # =============================================================================
