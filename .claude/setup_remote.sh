@@ -61,7 +61,10 @@ rm -f "$PNPM_FALLBACK_FLAG"
   echo "WARNING: pnpm-lock.yaml is out of sync with package.json (or missing)."
   echo "Falling back to a normal install. The resulting lockfile change is expected; review it before committing."
   touch "$PNPM_FALLBACK_FLAG"
-  pnpm install
+  # --no-frozen-lockfile is required, not redundant: pnpm turns frozen mode on by
+  # default whenever it detects a CI environment, so a bare `pnpm install` here
+  # would just repeat the failure above and leave the session with no node_modules.
+  pnpm install --no-frozen-lockfile
 ) > "$PNPM_LOG" 2>&1 &
 PNPM_PID=$!
 
