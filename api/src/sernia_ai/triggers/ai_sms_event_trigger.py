@@ -21,6 +21,7 @@ import os
 import re
 import time
 from collections import defaultdict
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -29,7 +30,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -466,16 +469,50 @@ def _trim_sms_history(
     return messages[keep_from:], keep_from
 
 
+def _tool_output_call_id(part: object) -> str | None:
+    """Return the tool_call_id this part answers, or None if it answers no call.
+
+    ``ToolReturnPart`` always answers a call. ``RetryPromptPart`` answers one
+    only when it carries a ``tool_name`` — pydantic-ai auto-generates a
+    ``tool_call_id`` for *every* retry prompt, including output-validation
+    retries that belong to no tool call at all, so the id alone cannot tell
+    the two apart.
+    """
+    if isinstance(part, ToolReturnPart):
+        return part.tool_call_id
+    if isinstance(part, RetryPromptPart) and part.tool_name is not None:
+        return part.tool_call_id
+    return None
+
+
 def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
     """Sanitize tool call/return pairs in message history.
 
-    Handles two scenarios that break model APIs:
-    1. Orphaned ToolReturnParts — tool returns without matching tool calls.
-       This happens when history trimming cuts off older messages containing
-       the ToolCallPart, or when the main agent model changes (e.g., Anthropic
-       to OpenAI) and old tool_call_ids have incompatible formats.
-    2. Trailing ToolCallParts — tool calls at the end without subsequent returns.
-       This happens when a previous run crashed or history was trimmed.
+    Model APIs reject a request whose history contains a tool call with no
+    matching output, or an output with no matching call. Both halves can go
+    missing on us:
+
+    1. Orphaned tool outputs — a ``ToolReturnPart``/``RetryPromptPart`` whose
+       ``tool_call_id`` has no ``ToolCallPart``. Happens when history trimming
+       cuts off the older messages holding the call, or when the main agent
+       model changes (e.g. Anthropic to OpenAI) and old tool_call_ids have
+       incompatible formats.
+    2. Unanswered ``ToolCallParts`` — a call with no output anywhere in the
+       history. Happens when a previous run crashed mid-call, when trimming
+       cut off the returns, and — the case that broke production — when a
+       single ``ModelResponse`` emits *parallel* tool calls and only some of
+       them complete. A HITL ``ApprovalRequired`` raised by one call of such a
+       batch leaves that one call unanswered forever while its siblings return
+       normally, permanently poisoning the stored conversation.
+
+    Note that (2) is checked at every position, not just the end of the list:
+    the unanswered call is usually *not* the last message, because the answered
+    siblings' returns are appended after it.
+
+    Dropping an unanswered call also drops a still-pending HITL approval from
+    this run's view of the history. That is deliberate — a pending approval
+    from an earlier run cannot be resumed by this run anyway, and failing the
+    whole run (no reply to the tenant at all) is far worse.
 
     Returns a sanitized copy of the message list.
     """
@@ -490,18 +527,18 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
                 if isinstance(part, ToolCallPart):
                     valid_tool_call_ids.add(part.tool_call_id)
 
-    # Step 2: Remove orphaned ToolReturnParts (returns without matching calls)
+    # Step 2: Remove orphaned tool outputs (outputs without matching calls).
+    # See `_tool_output_call_id` for what counts as a tool output.
     result: list[ModelMessage] = []
     orphans_removed = 0
     for msg in messages:
         if isinstance(msg, ModelRequest):
-            # Filter out ToolReturnParts that reference non-existent tool calls
             new_parts = []
             for part in msg.parts:
-                if isinstance(part, ToolReturnPart):
-                    if part.tool_call_id not in valid_tool_call_ids:
-                        orphans_removed += 1
-                        continue
+                tool_call_id = _tool_output_call_id(part)
+                if tool_call_id is not None and tool_call_id not in valid_tool_call_ids:
+                    orphans_removed += 1
+                    continue
                 new_parts.append(part)
 
             # Only include the request if it has remaining parts
@@ -516,21 +553,50 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
             orphans_removed=orphans_removed,
         )
 
-    # Step 3: Remove trailing tool calls without returns
-    while result:
-        last = result[-1]
-        if isinstance(last, ModelResponse):
-            has_tool_call = any(isinstance(p, ToolCallPart) for p in last.parts)
-            if has_tool_call:
-                logfire.info(
-                    "ai_sms_event: removing trailing tool call",
-                    removed_message_type=type(last).__name__,
-                )
-                result.pop()
-                continue
-        break
+    # Step 3: Remove tool calls that nothing ever answered, wherever they sit.
+    answered_tool_call_ids: set[str] = set()
+    for msg in result:
+        if isinstance(msg, ModelRequest):
+            for part in msg.parts:
+                tool_call_id = _tool_output_call_id(part)
+                if tool_call_id is not None:
+                    answered_tool_call_ids.add(tool_call_id)
 
-    return result
+    sanitized: list[ModelMessage] = []
+    unanswered_tools: list[str] = []
+    for msg in result:
+        if not isinstance(msg, ModelResponse):
+            sanitized.append(msg)
+            continue
+
+        kept_parts = []
+        for part in msg.parts:
+            if isinstance(part, ToolCallPart) and part.tool_call_id not in answered_tool_call_ids:
+                unanswered_tools.append(part.tool_name)
+                continue
+            kept_parts.append(part)
+
+        if len(kept_parts) == len(msg.parts):
+            sanitized.append(msg)
+            continue
+
+        # A response left with nothing but reasoning is not a valid turn on
+        # its own — drop the whole message rather than send a bare thinking
+        # block. Anything else (text the agent actually said, answered tool
+        # calls) is kept.
+        if not kept_parts or all(isinstance(p, ThinkingPart) for p in kept_parts):
+            continue
+
+        sanitized.append(replace(msg, parts=kept_parts))
+
+    if unanswered_tools:
+        logfire.warn(
+            "ai_sms_event: removed unanswered tool calls",
+            unanswered_count=len(unanswered_tools),
+            unanswered_tools=unanswered_tools,
+        )
+
+    return sanitized
 
 
 async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
