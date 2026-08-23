@@ -13,7 +13,9 @@ real SMS to external contacts from tests. See CLAUDE.md.
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
+    RetryPromptPart,
     TextPart,
+    ThinkingPart,
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
@@ -320,6 +322,135 @@ class TestSanitizeToolCalls:
         ]
         assert len(returns) == 1
         assert returns[0].tool_call_id == "tc1"
+
+    def test_removes_unanswered_call_from_parallel_batch(self):
+        """One call of a parallel batch never returns — the exact prod failure.
+
+        A single ModelResponse emitted two parallel ``quo_send_sms`` calls.
+        One raised HITL ``ApprovalRequired`` and never produced a return; the
+        sibling completed normally, so its return was appended *after* the
+        response. The unanswered call therefore sits mid-history, where the
+        old trailing-only check could never reach it, and OpenAI rejected the
+        next run with "No tool output found for function call ...".
+        """
+        msgs = [
+            _user("text the plumber and the tenant"),
+            ModelResponse(
+                parts=[
+                    ThinkingPart(content="need to send two texts"),
+                    ToolCallPart(tool_name="quo_send_sms", args="{}", tool_call_id="call_pending"),
+                    ToolCallPart(tool_name="quo_send_sms", args="{}", tool_call_id="call_done"),
+                ]
+            ),
+            _tool_return("quo_send_sms", "call_done"),
+            _user("any update?"),
+            _assistant("all set"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+
+        call_ids = {
+            p.tool_call_id
+            for msg in result
+            if isinstance(msg, ModelResponse)
+            for p in msg.parts
+            if isinstance(p, ToolCallPart)
+        }
+        assert call_ids == {"call_done"}
+        # The answered sibling's return survives untouched.
+        return_ids = {
+            p.tool_call_id
+            for msg in result
+            if isinstance(msg, ModelRequest)
+            for p in msg.parts
+            if isinstance(p, ToolReturnPart)
+        }
+        assert return_ids == {"call_done"}
+        # Nothing else was lost.
+        assert len(result) == len(msgs)
+
+    def test_removes_unanswered_call_mid_history(self):
+        """An unanswered lone tool call in the middle is dropped with its message."""
+        msgs = [
+            _user("do it"),
+            _tool_call("send_sms", "call_stuck"),
+            _user("hello?"),
+            _assistant("sorry, here now"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 3
+        assert not any(
+            isinstance(p, ToolCallPart) for msg in result for p in getattr(msg, "parts", [])
+        )
+
+    def test_keeps_text_when_dropping_unanswered_call(self):
+        """Text the agent actually said is preserved when its tool call is dropped."""
+        msgs = [
+            _user("do it"),
+            ModelResponse(
+                parts=[
+                    TextPart(content="on it"),
+                    ToolCallPart(tool_name="send_sms", args="{}", tool_call_id="call_stuck"),
+                ]
+            ),
+            _user("hello?"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 3
+        assert result[1].parts == [TextPart(content="on it")]
+
+    def test_retry_prompt_counts_as_tool_output(self):
+        """A RetryPromptPart answers its tool call — the call must be kept."""
+        msgs = [
+            _user("search"),
+            _tool_call("search_contacts", "call_retry"),
+            ModelRequest(
+                parts=[
+                    RetryPromptPart(
+                        content="bad args, try again",
+                        tool_name="search_contacts",
+                        tool_call_id="call_retry",
+                    )
+                ]
+            ),
+            _assistant("got it"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 4
+        call_ids = {
+            p.tool_call_id
+            for msg in result
+            if isinstance(msg, ModelResponse)
+            for p in msg.parts
+            if isinstance(p, ToolCallPart)
+        }
+        assert call_ids == {"call_retry"}
+
+    def test_orphaned_retry_prompt_removed(self):
+        """A RetryPromptPart whose tool call is gone is an orphaned output."""
+        msgs = [
+            ModelRequest(
+                parts=[
+                    RetryPromptPart(
+                        content="bad args",
+                        tool_name="old_tool",
+                        tool_call_id="call_gone",
+                    )
+                ]
+            ),
+            _user("hello"),
+            _assistant("hi"),
+        ]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 2
+        assert isinstance(result[0].parts[0], UserPromptPart)
+
+    def test_output_validation_retry_prompt_preserved(self):
+        """A RetryPromptPart with no tool_call_id is output validation, not a tool output."""
+        retry = RetryPromptPart(content="output did not validate")
+        msgs = [_user("hello"), ModelRequest(parts=[retry]), _assistant("hi")]
+        result = _sanitize_tool_calls(msgs)
+        assert len(result) == 3
+        assert result[1].parts == [retry]
 
     def test_request_removed_if_only_orphaned_returns(self):
         """ModelRequest with only orphaned ToolReturnParts is removed entirely."""
