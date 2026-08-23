@@ -60,6 +60,11 @@ pnpm dev-with-fastapi # Both
 
 **Production Protection**: PreToolUse hooks in `.claude/hooks/` guard Railway and Neon operations. Philosophy: protect production, allow development freely. See [`.claude/hooks/README.md`](.claude/hooks/README.md) for details.
 
+**MCP permission gotchas** (learned from Routines stalling on "Needs your approval"):
+- Permission rules in `.claude/settings.json` match the MCP **server name case-sensitively**. The same service can be connected twice under different names: `.mcp.json` defines `logfire` (lowercase), while the claude.ai **connector** for the same service registers as `Logfire` (capital) — and connector tools are `mcp__Logfire__*`, which `mcp__logfire` does NOT match. Routine/unattended runs typically use the connectors (they don't have `.mcp.json` API-key env vars), so both names must be allowlisted or every call pauses the run for approval. Same applies to other connectors: `Slack`, `Google_Drive`, `cloudflare-api`, etc.
+- Tool names must match the server's **current** naming. `@railway/mcp-server` renamed its tools from hyphens to underscores (`list-projects` → `list_projects`), which silently invalidated old allow rules *and* the `railway-link-guard.sh` hook matcher (the new tool also uses `environment_name` instead of `environmentName`).
+- Hooks with an `ask`/`deny` decision override allow rules, so it's safe to allowlist a whole server (e.g. `mcp__Neon` tools) and let a PreToolUse guard gate the dangerous subset.
+
 ### Local CLI Development
 
 Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote Neon Postgres with `DATABASE_REQUIRE_SSL=true`.
