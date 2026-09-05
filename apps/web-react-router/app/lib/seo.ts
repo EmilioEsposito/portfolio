@@ -5,7 +5,7 @@ export const SITE_OWNER = "Emilio Esposito";
 export const DEFAULT_META = {
   title: "Emilio Esposito",
   description:
-    "Senior Director, AI Engineering at LegalZoom. Co-founder & Managing Partner, Sernia Capital. Building production AI systems and operating a 40-unit real estate portfolio.",
+    "Senior Director, AI Engineering & Enablement at LegalZoom. Co-founder & Managing Partner, Sernia Capital. AI products, developer tools, and software for a 40-unit real estate portfolio.",
   image: `${SITE_URL}/images/me_emilio_headshot_2026_square.jpg`,
 };
 

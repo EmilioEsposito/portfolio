@@ -57,7 +57,7 @@ export function meta(_args: Route.MetaArgs) {
       "@context": "https://schema.org",
       "@type": "Person",
       name: "Emilio Esposito",
-      jobTitle: "Senior Director, AI Engineering",
+      jobTitle: "Senior Director, AI Engineering & Enablement",
       worksFor: {
         "@type": "Organization",
         name: "LegalZoom",
@@ -84,6 +84,7 @@ export function meta(_args: Route.MetaArgs) {
       knowsAbout: [
         "Artificial Intelligence",
         "AI Engineering",
+        "AI Enablement",
         "Machine Learning",
         "Real Estate Investment",
         "Multi-Agent AI Systems",
@@ -107,13 +108,13 @@ export default function Home() {
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Hero */}
       <section className="mb-16">
-        <div className="flex items-center gap-8">
-          <div className="flex-1">
+        <div className="flex flex-col-reverse items-start gap-6 sm:flex-row sm:items-center sm:gap-8">
+          <div className="min-w-0 flex-1">
             <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
               Emilio Esposito
             </h1>
             <p className="mt-3 text-lg text-muted-foreground">
-              Senior Director, AI Engineering at LegalZoom
+              Senior Director, AI Engineering & Enablement at LegalZoom
               <br />
               Co-founder & Managing Partner, Sernia Capital
             </p>
@@ -129,19 +130,18 @@ export default function Home() {
 
         <div className="mt-8 space-y-4 text-muted-foreground">
           <P>
-            I lead AI Engineering at LegalZoom, where I built the function from
-            the ground up and still write production code daily: shipping
-            agentic systems, deploying LLM-powered products, and driving AI
-            tooling adoption (including Claude Code) across a 200-person
-            engineering org.
+            I lead AI Engineering & Enablement at LegalZoom. I built the
+            function from the ground up and still write production code daily,
+            building AI products and helping a 200-person engineering org put
+            AI tools to practical use.
           </P>
           <P>
             I also co-founded and operate{" "}
             <span className="font-medium text-foreground">Sernia Capital</span>,
-            a 40-unit residential real estate portfolio. This site serves double
-            duty: it hosts production services that power Sernia Capital's
-            day-to-day operations, and it's a sandbox where I experiment with new
-            technologies in my free time.
+            a 40-unit residential real estate portfolio. Running the business
+            gives me plenty of reasons to build software. This site brings
+            together some of that work, a few experiments, and tools we use
+            day to day.
           </P>
         </div>
 
@@ -178,12 +178,11 @@ export default function Home() {
 
       {/* Sernia Capital */}
       <section className="mb-16">
-        <H2>Sernia Capital: AI-Powered Operations</H2>
+        <H2>Software for Sernia Capital</H2>
         <P className="mt-4 text-muted-foreground">
-          Every system below was designed, built, and deployed by me to solve
-          real operational problems across our portfolio. These run in production
-          24/7, handling everything from emergency escalation to lead
-          qualification to tenant communications.
+          A few systems I've built to help run our properties, from urgent
+          tenant messages to leasing follow-ups. Most are part of our daily
+          operations; others are still in development.
         </P>
 
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -201,8 +200,7 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Multi-modal AI assistant that property managers interact with
-                via{" "}
+                An assistant for property managers, available through{" "}
                 <a
                   href="https://www.quo.com/"
                   className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
@@ -211,13 +209,11 @@ export default function Home() {
                 >
                   Quo
                 </a>{" "}
-                SMS or our web app. It continuously reads all business
-                communications, learns over time through a memory-based
-                feedback loop, and can take actions (sending messages, managing
-                tasks, scheduling jobs) with human-in-the-loop approval.
-                Triggered three ways: user-initiated via chat, event-driven
-                (e.g. SMS webhooks), or scheduled jobs that proactively
-                follow up on project status. Built with{" "}
+                SMS or our web app. It uses business communications and
+                persistent memory to keep context, manage tasks, and help with
+                follow-ups, with approval required for actions like sending
+                external messages. It runs from chats, incoming events, or
+                scheduled check-ins. Built with{" "}
                 <a
                   href="https://ai.pydantic.dev/"
                   className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
@@ -245,9 +241,9 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Agentic AI monitors every inbound tenant message in real-time.
-                Urgent issues trigger automated call/text escalations via Twilio
-                that bypass Do Not Disturb during off-hours.
+                AI checks incoming tenant messages for urgent issues and
+                escalates them through Twilio calls and texts, including
+                off-hours alerts configured to bypass Do Not Disturb.
               </p>
               <a
                 href="https://github.com/EmilioEsposito/portfolio/blob/main/api/src/open_phone/escalate.py"
@@ -265,7 +261,7 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Calendar className="h-4 w-4 text-blue-500" />
-                  Intelligent Lead Management
+                  Leasing Lead Management
                 </CardTitle>
                 <Badge variant="secondary" className="text-xs">
                   Production
@@ -274,9 +270,9 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                AI monitors Zillow email threads, extracting contacts, creating
-                calendar events, syncing to our phone platform, and triggering
-                follow-up reminders for leasing agents.
+                Turns Zillow email threads into contacts, calendar events,
+                and follow-up reminders for leasing agents, with contact
+                details synced to our phone platform.
               </p>
               <a
                 href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_email"
@@ -303,8 +299,8 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Bulk SMS messaging for building-wide announcements, built to work
-                around platform limitations with role-based access control.
+                Building-wide announcements by SMS, with role-based access
+                so property managers can reach the right tenants.
               </p>
               <Link
                 to="/message-tenants"
@@ -329,9 +325,9 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Agentic AI auto-responds to inbound leasing inquiries with full
-                context on properties, listings, and agent availability. Screens
-                applicants before proposing meeting times.
+                Drafting and testing automated replies to leasing inquiries
+                using property details, listings, and agent availability,
+                with applicant screening before suggesting a showing.
               </p>
               <Link
                 to="/ai-email-responder"
@@ -346,61 +342,73 @@ export default function Home() {
 
       {/* Favorite Stack */}
       <section className="mb-16">
-        <H2>Favorite Stack</H2>
+        <H2>Tools & workflow</H2>
         <P className="mt-4 text-muted-foreground">
-          Tools I reach for first when starting something new.
+          What I reach for to build, ship, and maintain software.
         </P>
 
         <div className="mt-8 space-y-8">
-          {/* AI & Agents */}
+          {/* Dev Environment */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              AI & Agents
+            <h3 className="text-base font-semibold mb-3">
+              Development
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4">
-                <p className="font-medium">PydanticAI</p>
+              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
+                <p className="font-medium">Codex</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The right level of abstraction for building agents:
-                  structured outputs, dependency injection, and tool calling
-                  without fighting the framework. The Graph Beta API is
-                  excellent for multi-agent workflows.
+                  My first choice since June 2026 for day-to-day development,
+                  from exploring a codebase to implementing features and
+                  reviewing changes.
                 </p>
               </div>
-              <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4">
-                <p className="font-medium">FastMCP</p>
+              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
+                <p className="font-medium">Claude Code</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The FastAPI of MCP servers. Makes it trivial to expose tools,
-                  resources, and prompts over the Model Context Protocol. I've
-                  built MCP servers for LegalZoom and use them heavily in my
-                  own workflows.
+                  A very close second, used in parallel with Codex. Still a
+                  regular part of my workflow for features and debugging.
+                  I also led its rollout across 200 engineers at LegalZoom.
+                </p>
+              </div>
+              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
+                <p className="font-medium">Parallel worktrees</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  A first-class part of every project. Isolated Git worktrees
+                  let AI agents tackle separate tasks at the same time, each
+                  with its own branch and development environment.
+                </p>
+              </div>
+              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
+                <p className="font-medium">Cloud maintenance agents</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Cloud-based AI agents investigate issues and handle routine
+                  software maintenance, triggered by Logfire alerts or
+                  scheduled runs.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Dev Environment */}
+          {/* AI & Agents */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Dev Environment
+            <h3 className="text-base font-semibold mb-3">
+              AI & agents
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
-                <p className="font-medium">Claude Code</p>
+              <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4">
+                <p className="font-medium">PydanticAI</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  My go-to for tackling larger features end-to-end. Changed
-                  how I write software. I use it for everything from
-                  greenfield projects to navigating massive legacy codebases.
-                  Led its rollout across 200 engineers at LegalZoom.
+                  My usual starting point for Python agents: structured
+                  outputs, dependency injection, tool calling, and graphs for
+                  workflows that need multiple agents.
                 </p>
               </div>
-              <div className="rounded-lg border border-l-4 border-l-violet-500 p-4">
-                <p className="font-medium">Cursor</p>
+              <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4">
+                <p className="font-medium">FastMCP</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  My daily driver IDE for when I want to be in the driver's
-                  seat with a bit of AI assistance (tab autocomplete, inline
-                  suggestions) to keep the flow smooth without giving up
-                  control.
+                  For exposing tools, resources, and prompts through the
+                  Model Context Protocol. I use it for MCP servers at
+                  LegalZoom and in my own projects.
                 </p>
               </div>
             </div>
@@ -408,24 +416,23 @@ export default function Home() {
 
           {/* Frameworks */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            <h3 className="text-base font-semibold mb-3">
               Frameworks
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-l-4 border-l-amber-500 p-4">
                 <p className="font-medium">FastAPI</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Type-safe Python with async support and auto-generated docs.
-                  Pairs perfectly with Pydantic models and makes building AI
-                  backends genuinely enjoyable.
+                  Python APIs with async support, Pydantic validation, and
+                  generated documentation. A straightforward fit for the
+                  backends I build.
                 </p>
               </div>
               <div className="rounded-lg border border-l-4 border-l-amber-500 p-4">
                 <p className="font-medium">React Router v7</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Remix rebranded. Loaders, actions, nested routes, and the
-                  Vite bundler makes hot-reloading noticeably faster than
-                  Next.js.
+                  Loaders, actions, and nested routes keep data fetching
+                  close to the UI. Vite keeps the local development loop fast.
                 </p>
               </div>
             </div>
@@ -433,34 +440,31 @@ export default function Home() {
 
           {/* Infrastructure */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            <h3 className="text-base font-semibold mb-3">
               Infrastructure
             </h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-lg border border-l-4 border-l-green-500 p-4">
                 <p className="font-medium">Railway</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Deploy anything without thinking about infrastructure.
-                  Monorepo support, PR preview environments, and a CLI that
-                  actually works. Their MCP server makes deploying and
-                  debugging from Claude Code seamless.
+                  Hosting for my apps and services, with monorepo support
+                  and PR preview environments. The CLI and MCP tools fit
+                  into my development workflow.
                 </p>
               </div>
               <div className="rounded-lg border border-l-4 border-l-green-500 p-4">
                 <p className="font-medium">Logfire</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Observability from the Pydantic team, built for Python and
-                  AI workloads. Native PydanticAI tracing out of the box. Their
-                  MCP server lets me query traces and debug production issues
-                  without leaving the terminal.
+                  Traces and logs for Python and AI workloads, including
+                  PydanticAI. I use its MCP server to investigate production
+                  issues and its alerts to trigger maintenance agents.
                 </p>
               </div>
               <div className="rounded-lg border border-l-4 border-l-green-500 p-4">
                 <p className="font-medium">Neon Postgres</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Serverless Postgres with branching. I spin up isolated
-                  database branches for every PR environment. Zero config,
-                  zero cleanup.
+                  Postgres with database branching. Each PR preview gets an
+                  isolated database, with setup and cleanup automated.
                 </p>
               </div>
             </div>
@@ -470,18 +474,51 @@ export default function Home() {
 
       {/* Closing */}
       <section className="mb-12">
-        <P className="text-muted-foreground">
-          Full source for this site is{" "}
-          <a
-            href="https://github.com/EmilioEsposito/portfolio"
-            className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            open on GitHub
-          </a>
-          .
+        <H2>Selected open source</H2>
+        <P className="mt-4 text-muted-foreground">
+          A few things I've built and shared.
         </P>
+        <div className="mt-6 space-y-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="font-semibold">
+                <a
+                  href="https://github.com/EmilioEsposito/agent-filetree-memory-mcp"
+                  className="underline underline-offset-4 hover:text-muted-foreground transition-colors"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Agent Filetree Memory MCP
+                  <ExternalLink className="ml-1.5 inline h-3.5 w-3.5" />
+                </a>
+              </h3>
+              <Badge variant="outline" className="text-xs">Early alpha</Badge>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Persistent memory for AI agents as a Markdown file tree, backed
+              by PostgreSQL with encryption at rest and version history.
+              Use it through MCP or embed it in a Python service.
+            </p>
+          </div>
+          <div>
+            <h3 className="font-semibold">
+              <a
+                href="https://github.com/EmilioEsposito/portfolio"
+                className="underline underline-offset-4 hover:text-muted-foreground transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                This site & Sernia tools
+                <ExternalLink className="ml-1.5 inline h-3.5 w-3.5" />
+              </a>
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Source for this site and the Sernia systems featured above:
+              a React Router frontend, a FastAPI backend, and the integrations
+              that connect our day-to-day operations.
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );
