@@ -147,14 +147,21 @@ pnpm dev-with-fastapi
 
 ## Git Worktrees
 
-For parallel development, use worktrees to create isolated environments with separate ports and databases. See [`docs/WORKTREES.md`](docs/WORKTREES.md) for full documentation.
+For parallel development, use the lifecycle scripts documented in [`docs/WORKTREES.md`](docs/WORKTREES.md).
+They support repository-created and Codex/Claude-created worktrees, with isolated local databases,
+collision-safe ports, repeatable setup, and verified cleanup.
 
 ```bash
-./scripts/worktree-create.sh feature-auth   # Create
-./scripts/worktree-remove.sh feature-auth   # Remove
+./scripts/worktree-create.sh feature-auth             # Fresh origin/main, codex/feature-auth
+./scripts/worktree-provision.sh /path/to/worktree     # Provision an external checkout
+./scripts/worktree-test.sh                           # Isolated test DB (inside a worktree)
+./scripts/worktree-remove.sh /path/to/worktree --dry-run
 ```
 
-Each worktree gets its own ports (hash-based), database, Python venv, and node_modules.
+Use these scripts for worktree resource operations. Never force-delete a checkout or guess database
+ownership. The provisioner may create/update managed settings in linked-worktree `.env` files;
+main-checkout environment files must not be modified. Give the user the printed local preview URL
+for UI work. See the worktree guide for setup hooks, prerequisites, and post-merge cleanup.
 
 ---
 
