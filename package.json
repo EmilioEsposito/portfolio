@@ -6,21 +6,15 @@
   "scripts": {
     "reinstall": "rm -rf node_modules && rm -rf pnpm-lock.yaml && rm -rf apps/web-react-router/node_modules && rm -rf apps/my-expo-app/node_modules && pnpm install",
     "dev": "pnpm --filter web-react-router dev",
-    "dev-with-fastapi": "concurrently \"pnpm dev\" \"pnpm fastapi-dev\"",
+    "dev-with-fastapi": "bash scripts/dev.sh",
     "build": "pnpm --filter web-react-router build",
     "start": "pnpm --filter web-react-router start",
     "fastapi-dev": "uv sync -p python3.11 && . .venv/bin/activate && if [ -f .env ]; then set -a && . .env && set +a; fi && python api/index.py",
     "my-expo-app": "pnpm --filter ./apps/my-expo-app exec -- expo",
     "eas-build-local": "cd apps/my-expo-app && eas build --profile local --local --platform ios",
     "eas-build-dev": "cd apps/my-expo-app && eas build --profile development --platform ios --non-interactive",
-    "eas-build-prod": "cd apps/my-expo-app && eas build --profile production --platform ios"
-  },
-  "pnpm": {
-    "overrides": {
-      "minimatch@>=9.0.0 <9.0.6": ">=9.0.6",
-      "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
-      "ajv@>=7.0.0-alpha.0 <8.18.0": ">=8.18.0"
-    }
+    "eas-build-prod": "cd apps/my-expo-app && eas build --profile production --platform ios",
+    "test": "bash scripts/worktree-test.sh"
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
@@ -28,5 +22,8 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

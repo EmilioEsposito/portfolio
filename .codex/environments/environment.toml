@@ -1,0 +1,32 @@
+version = 1
+name = "portfolio"
+
+[setup]
+script = ""
+
+[setup.darwin]
+script = './scripts/worktree-provision.sh "$CODEX_WORKTREE_PATH" --once'
+
+[cleanup]
+script = ""
+
+[cleanup.darwin]
+script = './scripts/worktree-cleanup.sh --codex "$CODEX_WORKTREE_PATH"'
+
+[[actions]]
+name = "Web and API"
+icon = "run"
+command = "pnpm dev-with-fastapi"
+platform = "darwin"
+
+[[actions]]
+name = "Isolated tests"
+icon = "test"
+command = "./scripts/worktree-test.sh"
+platform = "darwin"
+
+[[actions]]
+name = "Typecheck"
+icon = "tool"
+command = "pnpm --filter web-react-router typecheck"
+platform = "darwin"
