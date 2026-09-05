@@ -45,56 +45,86 @@ function LinkedInIcon({ className }: { className?: string }) {
 export function meta(_args: Route.MetaArgs) {
   const url = buildUrl("/");
   return [
-    { title: SITE_OWNER },
+    { title: DEFAULT_META.title },
     { name: "description", content: DEFAULT_META.description },
     ...generateOgMeta({
-      title: SITE_OWNER,
+      title: DEFAULT_META.title,
       description: DEFAULT_META.description,
       url,
       type: "profile",
     }),
     generateJsonLd({
       "@context": "https://schema.org",
-      "@type": "Person",
-      name: "Emilio Esposito",
-      jobTitle: "Senior Director, AI Engineering & Enablement",
-      worksFor: {
-        "@type": "Organization",
-        name: "LegalZoom",
-      },
-      founder: {
-        "@type": "Organization",
-        name: "Sernia Capital",
-      },
-      alumniOf: [
+      "@graph": [
         {
-          "@type": "CollegeOrUniversity",
-          name: "Carnegie Mellon University",
+          "@type": "ProfilePage",
+          "@id": url,
+          url,
+          name: DEFAULT_META.title,
+          description: DEFAULT_META.description,
+          mainEntity: { "@id": `${url}#person` },
+          inLanguage: "en-US",
         },
         {
-          "@type": "CollegeOrUniversity",
-          name: "Penn State University",
+          "@type": "Person",
+          "@id": `${url}#person`,
+          name: SITE_OWNER,
+          description: DEFAULT_META.description,
+          jobTitle: "Senior Director, AI Engineering & Enablement",
+          worksFor: {
+            "@type": "Organization",
+            name: "LegalZoom",
+            url: "https://www.legalzoom.com/",
+          },
+          affiliation: { "@id": `${url}#sernia-capital` },
+          alumniOf: [
+            { "@type": "CollegeOrUniversity", name: "Carnegie Mellon University" },
+            { "@type": "CollegeOrUniversity", name: "Penn State University" },
+          ],
+          sameAs: [
+            "https://github.com/EmilioEsposito",
+            "https://linkedin.com/in/emilioespositousa",
+            "https://resume.eesposito.com",
+          ],
+          knowsAbout: [
+            "AI engineering leadership",
+            "AI developer enablement",
+            "Production AI systems",
+            "Multi-agent AI systems",
+            "Software architecture",
+            "Python",
+            "TypeScript",
+            "PydanticAI",
+            "Model Context Protocol (MCP)",
+            "Real estate operations",
+          ],
+          url,
+          image: DEFAULT_META.image,
+          mainEntityOfPage: { "@id": url },
+        },
+        {
+          "@type": "Organization",
+          "@id": `${url}#sernia-capital`,
+          name: "Sernia Capital",
+          founder: { "@id": `${url}#person` },
+        },
+        {
+          "@type": "SoftwareSourceCode",
+          name: "Agent Filetree Memory MCP",
+          description: "Persistent agent memory as a Markdown file tree, backed by PostgreSQL with encryption at rest and version history.",
+          codeRepository: "https://github.com/EmilioEsposito/agent-filetree-memory-mcp",
+          url: "https://github.com/EmilioEsposito/agent-filetree-memory-mcp",
+          author: { "@id": `${url}#person` },
+        },
+        {
+          "@type": "SoftwareSourceCode",
+          name: "This site & Sernia tools",
+          description: "A React Router frontend, FastAPI backend, and integrations for Sernia Capital's real estate operations.",
+          codeRepository: "https://github.com/EmilioEsposito/portfolio",
+          url: "https://github.com/EmilioEsposito/portfolio",
+          author: { "@id": `${url}#person` },
         },
       ],
-      sameAs: [
-        "https://github.com/EmilioEsposito",
-        "https://linkedin.com/in/emilioespositousa",
-        "https://resume.eesposito.com",
-      ],
-      knowsAbout: [
-        "Artificial Intelligence",
-        "AI Engineering",
-        "AI Enablement",
-        "Machine Learning",
-        "Real Estate Investment",
-        "Multi-Agent AI Systems",
-        "Python",
-        "TypeScript",
-        "PydanticAI",
-        "MCP",
-      ],
-      url,
-      image: DEFAULT_META.image,
     }),
   ];
 }
@@ -130,10 +160,11 @@ export default function Home() {
 
         <div className="mt-8 space-y-4 text-muted-foreground">
           <P>
-            I lead AI Engineering & Enablement at LegalZoom. I built the
-            function from the ground up and still write production code daily,
-            building AI products and helping a 200-person engineering org put
-            AI tools to practical use.
+            I lead AI Engineering & Enablement at LegalZoom, combining
+            engineering leadership with hands-on software development. I built
+            the function from the ground up and still write production code
+            daily, building AI products and helping a 200-person engineering
+            org put AI tools to practical use.
           </P>
           <P>
             I also co-founded and operate{" "}
@@ -395,6 +426,15 @@ export default function Home() {
               AI & agents
             </h3>
             <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4 sm:col-span-2">
+                <p className="font-medium">OpenRouter</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  My API inference layer for frontier and open-source models.
+                  It makes it easy to choose the right model for each job and
+                  balance quality with cost, with governance and guardrails
+                  for agent spending, model access, and data privacy.
+                </p>
+              </div>
               <div className="rounded-lg border border-l-4 border-l-cyan-500 p-4">
                 <p className="font-medium">PydanticAI</p>
                 <p className="mt-1 text-sm text-muted-foreground">
