@@ -85,3 +85,6 @@ scratch/
 # Stored in the Railway ci-bucket instead (see README "Sanitized Seed Data").
 api/seed_fixtures/
 .github/logfire-investigate/history.log
+
+# Agent-created local worktrees
+.claude/worktrees/

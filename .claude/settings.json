@@ -113,7 +113,13 @@
       "mcp__Google_Drive__read_file_content",
       "mcp__Google_Drive__download_file_content",
       "mcp__Google_Drive__get_file_metadata",
-      "mcp__Google_Drive__get_file_permissions"
+      "mcp__Google_Drive__get_file_permissions",
+      "Bash(./scripts/worktree-create.sh:*)",
+      "Bash(./scripts/worktree-provision.sh:*)",
+      "Bash(./scripts/worktree-cleanup.sh:*)",
+      "Bash(./scripts/worktree-remove.sh:*)",
+      "Bash(./scripts/worktree-test.sh:*)",
+      "Bash(python3 scripts/worktree.py:*)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
@@ -152,6 +158,11 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/setup_remote.sh",
             "timeout": 60000
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/worktree-provision.sh --once",
+            "timeout": 600
           }
         ]
       }
