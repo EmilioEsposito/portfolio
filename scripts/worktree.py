@@ -286,6 +286,8 @@ def runtime_env(state: dict, *, testing: bool = False) -> dict[str, str]:
         PORT=str(state["api_port"]),
     )
     if testing:
+        # Match credential-free CI: app code distinguishes an absent variable from an empty one.
+        env.pop("RAILWAY_ENVIRONMENT_NAME", None)
         env.update(
             PYTHON_DOTENV_DISABLED="1",
             OPENAI_API_KEY="test-openai-key",

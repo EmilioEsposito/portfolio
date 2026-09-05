@@ -247,6 +247,16 @@ class WorktreeTests(unittest.TestCase):
         self.assertFalse(checkout.root.exists())
         self.git(self.main, "rev-parse", "--verify", "feature")
 
+    def test_test_runner_matches_unhosted_ci_without_loading_dotenv(self) -> None:
+        checkout = self.checkout()
+        state = wt.allocate(checkout)
+        with patch.dict(os.environ, {"RAILWAY_ENVIRONMENT_NAME": "production"}):
+            env = wt.runtime_env(state, testing=True)
+        self.assertNotIn("RAILWAY_ENVIRONMENT_NAME", env)
+        self.assertEqual(env["PYTHON_DOTENV_DISABLED"], "1")
+        self.assertTrue(env["DATABASE_URL"].endswith(state["test_database"]))
+        self.assertFalse(env["DATABASE_URL"].endswith(state["database"]))
+
     def test_database_environment_ignores_inherited_remote_connection(self) -> None:
         with patch.dict(os.environ, {"PGHOST": "production.example", "PGSERVICE": "prod"}):
             env = wt.database_env("portfolio_wt_test")
