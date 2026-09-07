@@ -241,3 +241,10 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | `DEFAULT_SCHEDULE_DAYS_OF_WEEK` | Default days (Mon–Fri) — overridden by `schedule_config` DB setting |
 | `DEFAULT_SCHEDULE_HOURS` | Default hours (`[8,11,14,17]` ET) — overridden by `schedule_config` DB setting |
 | `EMILIO_CONTACT_SLUG` | `"emilio"` — contact slug used to look up Emilio's `clerk_user_id` from DB (contacts → users join) |
+
+### Fixed reminder tool availability
+
+Triggered runs can use `list_message_templates` / `send_templated_message` for
+code-approved reminders without modifying any approval-bypass dependency flags.
+This does not create a scheduled lease-reminder campaign. See
+[usage, eligibility, and retry limits](../messaging/README.md).

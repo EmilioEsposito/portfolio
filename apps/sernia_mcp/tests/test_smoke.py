@@ -28,6 +28,8 @@ async def test_expected_tools_exposed():
 
     expected_visible = {
         "sernia_context",
+        "list_message_templates",
+        "send_templated_message",
         "read_resource",
         "edit_resource",
         "write_resource",

@@ -245,3 +245,19 @@ apps/sernia_mcp/
 
 - [`CLAUDE.md`](CLAUDE.md) — AI-assisted-development guide for this service.
 - [FastMCP docs](https://gofastmcp.com/) — refresh once per session for new features.
+
+## Fixed external reminders without HITL
+
+`list_message_templates` lists deployed approved messages and usage guidance.
+`send_templated_message(template_id, contact_id, delivery)` supports `sms`, `email`,
+or `both`, with a fresh Quo contact lookup and server-side lease-date validation.
+The initial `lease_end_mail_forwarding` template sends the fixed USPS reminder.
+Email uses `all@serniacapital.com`; SMS uses `QUO_SHARED_EXTERNAL_PHONE_ID`.
+No model-controlled wording, sender, attachments, or headers. The regular auth
+middleware applies; ordinary free-form sends retain their approval cards.
+`sernia_context` advertises the playbook, independent of writable workspace skills.
+
+The policy is vendored from `api/src/sernia_ai/messaging/templates.py`; keep
+`src/sernia_mcp/core/message_templates.py` byte-identical. See the
+[complete policy](../../api/src/sernia_ai/messaging/README.md) for eligibility,
+channel outcomes, duplicate-send limitations, and credential dependencies.

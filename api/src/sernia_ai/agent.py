@@ -45,6 +45,7 @@ from api.src.sernia_ai.tools.escalation_tools import escalation_toolset
 from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
+from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
@@ -99,6 +100,7 @@ sernia_agent = Agent(
         ErrorLoggingToolset(clickup_toolset.prefixed("clickup"), name="clickup"),
         ErrorLoggingToolset(db_search_toolset.prefixed("db"), name="db"),
         ErrorLoggingToolset(scheduling_toolset, name="scheduling"),
+        ErrorLoggingToolset(templated_message_toolset, name="templated_messages"),
         ErrorLoggingToolset(escalation_toolset.prefixed("emergency"), name="emergency"),
         ErrorLoggingToolset(code_toolset, name="code"),
         ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
