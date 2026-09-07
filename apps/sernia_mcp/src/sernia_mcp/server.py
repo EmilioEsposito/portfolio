@@ -111,6 +111,7 @@ def _build_auth_provider():
             client_id=client_id,
             client_secret=client_secret,
             base_url=base_url,
+            enable_cimd=True,
         )
 
     # Clerk + bearer: subclass at runtime to keep all of ClerkProvider's
@@ -124,6 +125,7 @@ def _build_auth_provider():
         client_id=client_id,
         client_secret=client_secret,
         base_url=base_url,
+        enable_cimd=True,
     )
 
 

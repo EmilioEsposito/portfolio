@@ -49,9 +49,25 @@ async def test_icon_endpoint_serves_png():
 
 
 @pytest.mark.asyncio
-async def test_health_endpoint_returns_200():
+@pytest.mark.parametrize(
+    "clerk,bearer,label",
+    [
+        (False, False, "unauthenticated"),
+        (True, False, "clerk-oauth"),
+        (False, True, "bearer"),
+        (True, True, "clerk-oauth+bearer"),
+    ],
+)
+async def test_health_endpoint_returns_200(monkeypatch, clerk, bearer, label):
     """Railway healthcheck hits this — must respond 200 OK on GET."""
+    from sernia_mcp import server
     from sernia_mcp.app import app as application
+
+    # Boot flags are captured at import time. Cover every supported mode explicitly
+    # rather than letting whichever auth test imported server first choose this case.
+    monkeypatch.setattr(server, "_auth_configured", clerk or bearer)
+    monkeypatch.setattr(server, "_clerk_on", clerk)
+    monkeypatch.setattr(server, "_bearer_on", bearer)
 
     transport = httpx.ASGITransport(app=application)
 
@@ -64,4 +80,4 @@ async def test_health_endpoint_returns_200():
     assert body["status"] == "ok"
     assert body["service"] == "sernia-mcp"
     assert "version" in body
-    assert body["auth"] in ("clerk-oauth", "unauthenticated")
+    assert body["auth"] == label
