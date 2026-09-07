@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import {
   Select,
   SelectContent,
@@ -6,6 +6,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import {
+  type DeploymentEnvironment,
+  getDeploymentEnvironment,
+} from "~/lib/deployment-env";
 
 type EnvInfo = {
   name: string;
@@ -18,29 +22,22 @@ const ENVS: Record<string, { label: string; origin: string }> = {
   local: { label: "Localhost", origin: "http://localhost:5173" },
 };
 
-function detectEnv(hostname: string): EnvInfo | null {
-  if (hostname === "eesposito.com" || hostname === "www.eesposito.com") {
-    return null; // production — no banner
+function getEnvInfo(environment: DeploymentEnvironment): EnvInfo | null {
+  switch (environment) {
+    case "production":
+      return null;
+    case "development":
+      return { name: "DEV", color: "bg-yellow-500 text-yellow-950" };
+    case "local":
+      return { name: "LOCAL", color: "bg-blue-500 text-white" };
+    case "preview":
+      return { name: "PR", color: "bg-purple-500 text-white" };
   }
-  if (hostname === "dev.eesposito.com") {
-    return { name: "DEV", color: "bg-yellow-500 text-yellow-950" };
-  }
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return { name: "LOCAL", color: "bg-blue-500 text-white" };
-  }
-  // PR preview or other environments
-  return { name: "PR", color: "bg-purple-500 text-white" };
 }
 
-export function EnvBanner() {
-  const [env, setEnv] = useState<EnvInfo | null>(null);
-  const [mounted, setMounted] = useState(false);
+export function EnvBanner({ railwayEnvironmentName }: { railwayEnvironmentName?: string }) {
+  const env = getEnvInfo(getDeploymentEnvironment(railwayEnvironmentName));
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMounted(true);
-    setEnv(detectEnv(window.location.hostname));
-  }, []);
 
   // Expose the banner's rendered height as a CSS var so viewport-height
   // layouts (chat, admin, settings) can subtract it and avoid clipping.
@@ -63,7 +60,7 @@ export function EnvBanner() {
     };
   }, [env]);
 
-  if (!mounted || !env) return null;
+  if (!env) return null;
 
   return (
     <div
