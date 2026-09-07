@@ -59,8 +59,6 @@ echo "✓ All required environment variables are set"
 echo "  - RAILWAY_PROJECT_ID: ${RAILWAY_PROJECT_ID:0:8}..."
 echo "  - RAILWAY_ENV_ID: ${RAILWAY_ENV_ID:0:8}..."
 echo "  - RAILWAY_FASTAPI_SERVICE_ID: ${RAILWAY_FASTAPI_SERVICE_ID:0:8}..."
-echo "  - DB_URL_POOLED: ${DB_URL_POOLED:0:30}..."
-echo "  - DB_URL_UNPOOLED: ${DB_URL_UNPOOLED:0:30}..."
 echo "  - INFORMATIONAL_NEON_BRANCH_NAME: $INFORMATIONAL_NEON_BRANCH_NAME"
 
 echo ""
@@ -94,8 +92,6 @@ INPUT_JSON=$(jq -n \
   }')
 
 echo "✓ Input object built"
-echo "$INPUT_JSON" | jq '.' | head -10
-echo "  ..."
 
 echo ""
 echo "Step 3: Building GraphQL query..."
@@ -121,74 +117,21 @@ echo "✓ Payload created"
 echo ""
 echo "Step 5: Making API call to Railway..."
 echo "  URL: https://backboard.railway.com/graphql/v2"
-# Make the API call (don't use --fail so we can capture the response even on errors)
-# Temporarily disable set -e to handle curl errors gracefully
-set +e
-RESPONSE=$(curl -s -w "\n%{http_code}" --request POST \
+# Fail closed on transport, HTTP, JSON, or GraphQL failures. Never log the
+# payload/response: database credentials can be echoed by upstream errors.
+if ! RESPONSE=$(curl --silent --show-error --fail \
+  --connect-timeout 10 --max-time 30 --request POST \
   --url https://backboard.railway.com/graphql/v2 \
   --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
   --header "Content-Type: application/json" \
-  --data "$PAYLOAD")
-CURL_EXIT_CODE=$?
-set -e
-
-# Extract HTTP status code (last line) and response body
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
-
-# Check for HTTP errors
-if [ $CURL_EXIT_CODE -ne 0 ]; then
-  echo "✗ Error: curl command failed (exit code: $CURL_EXIT_CODE)" >&2
-  echo "This usually indicates a network error or connection issue." >&2
-  if [ -n "$RESPONSE_BODY" ]; then
-    echo "Response received:" >&2
-    echo "$RESPONSE_BODY" | head -50 >&2
-  fi
+  --data "$PAYLOAD"); then
+  echo "Railway variable update failed at the HTTP/transport layer." >&2
   exit 1
 fi
-
-# Check HTTP status code
-if [ "$HTTP_CODE" != "200" ]; then
-  echo "✗ Error: Railway API returned HTTP $HTTP_CODE" >&2
-  echo "Response:" >&2
-  if [ -n "$RESPONSE_BODY" ]; then
-    echo "$RESPONSE_BODY" | jq '.' 2>/dev/null || echo "$RESPONSE_BODY" | head -50
-  else
-    echo "(empty response)"
-  fi
+if ! jq -e 'type == "object" and ((.errors // []) | length == 0) and
+  .data.variableCollectionUpsert == true' <<< "$RESPONSE" > /dev/null 2>&1; then
+  echo "Railway variable update returned invalid JSON, GraphQL errors, or no success confirmation." >&2
   exit 1
-fi
-
-echo "✓ API call completed (HTTP $HTTP_CODE)"
-RESPONSE="$RESPONSE_BODY"
-
-echo "✓ API call completed (HTTP 200)"
-
-echo ""
-echo "Step 6: Checking for GraphQL errors..."
-# Check for GraphQL errors
-if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-  echo "✗ Error: Railway API returned GraphQL errors when updating environment variables:" >&2
-  echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"' >&2
-  echo ""
-  echo "Full response:" >&2
-  echo "$RESPONSE" | jq '.' >&2
-  exit 1
-fi
-
-echo "✓ No GraphQL errors detected"
-
-echo ""
-echo "Step 7: Verifying response..."
-# Check if we got a successful response
-if echo "$RESPONSE" | jq -e '.data.variableCollectionUpsert' > /dev/null 2>&1; then
-  echo "✓ Success! Response contains variableCollectionUpsert data"
-  echo "Response summary:"
-  echo "$RESPONSE" | jq '.data.variableCollectionUpsert' | head -10
-else
-  echo "⚠ Warning: Response structure unexpected"
-  echo "Full response:"
-  echo "$RESPONSE" | jq '.' | head -20
 fi
 
 # Success

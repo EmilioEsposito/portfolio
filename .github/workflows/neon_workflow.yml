@@ -88,27 +88,34 @@ jobs:
             echo ""
             echo "Attempt $attempt of $MAX_ATTEMPTS to find Railway PR environment..."
 
-            # Query Railway API for all environments in the project
-            RESPONSE=$(curl -s --request POST \
+            # HTTP failures and proxy error pages are retryable, not JSON.
+            # Keep response bodies out of logs (upstream errors can echo inputs).
+            RESPONSE_VALID=false
+            if ! RESPONSE=$(curl --silent --show-error --fail \
+              --connect-timeout 10 --max-time 30 --request POST \
               --url https://backboard.railway.com/graphql/v2 \
               --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
               --header "Content-Type: application/json" \
               --data '{
                 "query": "query { environments(projectId: \"'$RAILWAY_PROJECT_ID'\") { edges { node { name id } } } }"
-              }')
-
-            # Check for API errors
-            if echo "$RESPONSE" | jq -e '.errors' > /dev/null 2>&1; then
-              echo "Error: Railway API returned errors:"
-              echo "$RESPONSE" | jq -r '.errors[] | "  - \(.message)"'
-              if [ $attempt -lt $MAX_ATTEMPTS ]; then
-                echo "Waiting ${SLEEP_SECONDS}s before retry..."
-                sleep $SLEEP_SECONDS
-                continue
-              else
-                echo "Failed after $MAX_ATTEMPTS attempts due to API errors"
-                exit 1
+              }'); then
+              echo "Railway request failed; retrying within the attempt budget."
+            elif ! jq -e '
+              type == "object" and ((.errors // []) | length == 0) and
+              (.data.environments.edges | type == "array") and
+              all(.data.environments.edges[];
+                (.node.name | type == "string") and (.node.id | type == "string"))
+              ' <<< "$RESPONSE" > /dev/null 2>&1; then
+              echo "Railway returned invalid JSON, GraphQL errors, or an unexpected response; retrying."
+            else
+              # Only parse a successful, validated response below.
+              RESPONSE_VALID=true
+            fi
+            if [ "${RESPONSE_VALID}" != "true" ]; then
+              if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                sleep "$SLEEP_SECONDS"
               fi
+              continue
             fi
 
             # Display all available environments for debugging
@@ -139,8 +146,6 @@ jobs:
           echo "Error: Could not find Railway environment for PR-$PR_NUMBER after $MAX_ATTEMPTS attempts"
           echo "Searched for patterns: portfolio-pr-$PR_NUMBER or pr-$PR_NUMBER"
           echo ""
-          echo "Available environments:"
-          echo "$RESPONSE" | jq -r '.data.environments.edges[] | "  - \(.node.name) (ID: \(.node.id))"'
           echo ""
           echo "Please ensure the Railway PR environment has been created for this pull request."
           exit 1
