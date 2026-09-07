@@ -10,6 +10,21 @@ on:
     branches: [main]
 
 jobs:
+  sernia-mcp:
+    name: Sernia MCP (not live)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: apps/sernia_mcp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen -p 3.11
+      - run: uv run pytest -q -m 'not live' --tb=short
+
   pytest:
     name: pytest (not live)
     runs-on: ubuntu-latest

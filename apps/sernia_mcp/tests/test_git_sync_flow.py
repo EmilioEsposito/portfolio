@@ -59,7 +59,9 @@ def two_repos(tmp_path, monkeypatch):
     remote = tmp_path / "remote.git"
     local = tmp_path / "local"
 
-    _git(tmp_path, "init", "--bare", str(remote))
+    # Clones follow the bare repository's HEAD. Do not inherit the machine's
+    # init.defaultBranch (GitHub runners may still default to master).
+    _git(tmp_path, "init", "--bare", "--initial-branch=main", str(remote))
 
     _git(tmp_path, "clone", str(remote), str(local))
     _git(local, "config", "user.email", "test@example.com")

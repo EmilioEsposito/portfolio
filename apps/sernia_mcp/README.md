@@ -132,13 +132,32 @@ These are FastMCP's `ClerkProvider` callback — Clerk redirects here after the 
 
 **2. The MCP client's redirect URI** — *don't register this manually*.
 
-When Claude Desktop / Claude.ai connect for the first time, they hit our `/register` endpoint and Dynamic-Client-Register themselves with Clerk, declaring their own callback (e.g. `https://claude.ai/api/mcp/auth_callback` for Claude.ai). Clerk shows you that URL on its consent screen so you can verify the client's identity before clicking Allow Access — but you do not pre-register it. Each MCP client (Claude.ai, Claude Desktop, ChatGPT, VS Code, etc.) will declare its own.
+FastMCP validates the client's callback against its fetched Client ID Metadata Document (CIMD),
+or against its Dynamic Client Registration (DCR) at our `/register` endpoint. The proxy's consent
+screen displays that address. The client is registered with FastMCP, not with Clerk.
+
+CIMD is explicitly enabled in both Clerk-only and Clerk-plus-bearer modes. FastMCP 3.4.7
+advertises `client_id_metadata_document_supported: true` plus `none` and `private_key_jwt` in
+`token_endpoint_auth_methods_supported`; Claude needs `none` before selecting CIMD. The patch
+also fixes the token-endpoint audience used to validate ChatGPT's signed assertions. Existing
+DCR clients keep working. Internal bearer authentication and the email-domain allowlist still
+apply as before.
+
+There is no server-wide callback allowlist to update. Claude's hosted callback is
+`https://claude.ai/api/mcp/auth_callback`; Claude Code uses a loopback callback with a varying port.
+ChatGPT uses either `https://chatgpt.com/connector_platform_oauth_redirect` or an exact
+`https://chatgpt.com/connector/oauth/{callback_id}` URL. Each must match its client's published
+metadata or registration; adding these client callbacks to Clerk is unnecessary.
+
+Sources checked September 6, 2026: [Claude authentication](https://claude.com/docs/connectors/building/authentication),
+[OpenAI authentication](https://developers.openai.com/plugins/build/auth), and
+[FastMCP 3.4.7](https://github.com/PrefectHQ/fastmcp/releases/tag/v3.4.7).
 
 ### Connecting Claude Desktop / Claude.ai
 
 1. Settings → Connectors → **Add custom connector**.
 2. URL: `https://mcp.sernia.ai/mcp` (or `https://dev.mcp.sernia.ai/mcp` for dev). **No trailing slash** — Claude posts to the no-slash form, and the server mounts there directly to avoid a 307 redirect that drops the bearer header.
-3. Leave the optional OAuth Client ID / Secret fields blank — the server announces DCR via `/register`.
+3. Leave the optional OAuth Client ID / Secret fields blank — the server advertises CIMD and retains DCR for older clients.
 4. Click Add. Claude opens Clerk's hosted sign-in; sign in with your @serniacapital.com Google account; Clerk redirects back; Claude now has a token.
 
 ### Verifying OAuth metadata is live
