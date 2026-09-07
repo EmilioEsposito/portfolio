@@ -37,7 +37,13 @@ export function meta(_args: Route.MetaArgs) {
 
 export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
 
-export const loader = (args: Route.LoaderArgs) => rootAuthLoader(args);
+export const loader = (args: Route.LoaderArgs) =>
+  rootAuthLoader(args, () => ({
+    // Railway sets this for every deployed environment. Passing it through the
+    // root loader makes banner behavior independent of whichever custom domain
+    // happens to route to that deployment.
+    railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
+  }));
 
 export const links: Route.LinksFunction = () => [
   { rel: "manifest", href: "/manifest.json" },
@@ -93,7 +99,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
         {isSernia ? (
           // Sernia routes provide their own sidebar — render Outlet directly
           <>
-            <EnvBanner />
+            <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
             <Outlet />
           </>
         ) : (
@@ -101,7 +107,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
             <AppSidebar />
             <SidebarInset className="min-w-0 overflow-x-hidden">
               <Navbar />
-              <EnvBanner />
+              <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
               <Outlet />
             </SidebarInset>
           </SidebarProvider>
