@@ -144,3 +144,10 @@ This distinction matters most for **skills** (`/workspace/.claude/skills/<name>/
 
 The same principle applies to all knowledge-repo content: `MEMORY.md` reads are capped and wrapped, filetree generation catches `OSError`, and workspace file tools return error strings rather than raising.
 
+
+### Fixed external reminders
+
+The agent can call `list_message_templates` / `send_templated_message` to send exact,
+code-owned reminders without HITL. SMS, email and dual delivery are supported.
+The USPS forwarding template validates fresh lease dates in Quo; general send tools
+retain approval gates. See [fixed-message policy](messaging/README.md).

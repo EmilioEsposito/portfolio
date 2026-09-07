@@ -25,7 +25,8 @@ SMS and contact management via the OpenPhone API, bridged through FastMCP.
 
 ### Deterministic Gates
 
-Every SMS goes through a chain of gates before sending:
+General SMS tools go through a chain of gates before sending (fixed templates
+have their separate eligibility policy documented below):
 
 1. **Message length** — Messages over 1000 chars are rejected at the tool level with feedback telling the LLM to shorten/summarize. This prevents carrier rejections (AT&T rejects around 670 chars).
 2. **Contact resolution** — Every recipient must exist as a Quo contact. Unknown numbers are blocked (a group send is blocked entirely if any member is unknown).
@@ -176,3 +177,10 @@ Why: a model that re-sends byte-identical arguments after an identical error lea
 Counts live on `SerniaDeps.recoverable_tool_error_counts`, so they are scoped to one agent run — a module-level cache would leak across runs. Deps objects without the attribute simply never escalate.
 
 The matching instruction lives in `instructions.py`: MEMORY.md's injected copy is a snapshot taken before the first tool call, so after the agent edits MEMORY.md the snapshot is stale — the agent is told to re-read the file rather than guess at whitespace.
+
+## Fixed external message templates
+
+`list_message_templates` discovers code-owned reminders. `send_templated_message` sends
+one to a known, eligible Quo contact by SMS, email, or both without HITL. The initial
+USPS reminder checks active lease dates within 14 days. No message text or sender is
+accepted from the model. See [policy and operation](../messaging/README.md).
