@@ -59,7 +59,7 @@ MAIN_AGENT_MODEL = "openrouter:openai/gpt-5.6-luna"
 OPENROUTER_ALLOWED_PROVIDERS: list[str] = ["openai"]
 
 # Sub-agent model (cheaper, no builtin tool dependency)
-SUB_AGENT_MODEL = "anthropic:claude-haiku-4-5-20251001"
+SUB_AGENT_MODEL = "openrouter:anthropic/claude-haiku-4.5"
 
 # Agent name used for conversation persistence
 AGENT_NAME = "sernia"

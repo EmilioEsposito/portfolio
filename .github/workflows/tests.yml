@@ -52,6 +52,8 @@ jobs:
       # Dummy keys: pydantic-ai validates provider keys at Agent construction
       # (import time). conftest.py also sets these, but exporting here covers
       # non-pytest entry points like alembic/seed.
+      OPENROUTER_API_KEY: test-openrouter-key
+      PUBLIC_PORTFOLIO_OPENROUTER_API_KEY: test-public-openrouter-key
       OPENAI_API_KEY: test-openai-key
       ANTHROPIC_API_KEY: test-anthropic-key
       # Sanitized seed fixture lives in the Railway ci-bucket (too large /

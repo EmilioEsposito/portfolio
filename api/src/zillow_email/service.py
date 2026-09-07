@@ -2,7 +2,6 @@ import os
 from datetime import datetime, timedelta
 
 import logfire
-import openai
 import pytz
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, EmailStr
@@ -19,6 +18,7 @@ from api.src.google.calendar.service import (
     get_calendar_service,
 )
 from api.src.open_phone.service import send_message, upsert_openphone_contact
+from api.src.utils.llm import openrouter_client
 
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
@@ -244,24 +244,24 @@ async def ai_assess_thread(thread_id: str, messages: list[EmailMessageDetail]):
 
     thread_str = get_clean_zillow_thread_str(messages)
 
-    client = openai.OpenAI()
-    response = client.responses.parse(
-        model="gpt-4o-mini",
-        input=[
+    client = openrouter_client()
+    response = client.chat.completions.parse(
+        model="openai/gpt-4o-mini",
+        messages=[
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
                 "content": f"EMAIL THREAD: {thread_str}",
             },
         ],
-        text_format=ShouldReply,
+        response_format=ShouldReply,
     )
 
-    logfire.info(f"ai_assess_thread: Parsed AI response: {response.output_parsed}")
+    logfire.info(f"ai_assess_thread: Parsed AI response: {response.choices[0].message.parsed}")
 
-    should_sernia_reply = response.output_parsed.should_reply
-    reason = response.output_parsed.reason
-    appointment_scheduled = response.output_parsed.appointment_scheduled
+    should_sernia_reply = response.choices[0].message.parsed.should_reply
+    reason = response.choices[0].message.parsed.reason
+    appointment_scheduled = response.choices[0].message.parsed.appointment_scheduled
     return should_sernia_reply, reason, appointment_scheduled
 
 
@@ -320,22 +320,24 @@ async def ai_collect_thread_info(thread_id: str, messages: list[EmailMessageDeta
 
     thread_str = get_clean_zillow_thread_str(messages)
 
-    client = openai.OpenAI()
-    response = client.responses.parse(
-        model="gpt-4o-mini",
-        input=[
+    client = openrouter_client()
+    response = client.chat.completions.parse(
+        model="openai/gpt-4o-mini",
+        messages=[
             {"role": "system", "content": ai_instructions},
             {
                 "role": "user",
                 "content": f"EMAIL THREAD:\n{thread_str}",
             },
         ],
-        text_format=CollectedThreadInfo,
+        response_format=CollectedThreadInfo,
     )
 
-    logfire.info(f"ai_collect_thread_info: Parsed AI response: {response.output_parsed}")
+    logfire.info(
+        f"ai_collect_thread_info: Parsed AI response: {response.choices[0].message.parsed}"
+    )
 
-    thread_info = response.output_parsed
+    thread_info = response.choices[0].message.parsed
 
     return thread_info, thread_str
 

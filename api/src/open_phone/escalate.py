@@ -3,6 +3,8 @@ import re  # Added for normalization function
 
 from dotenv import find_dotenv, load_dotenv
 
+from api.src.utils.llm import openrouter_client
+
 load_dotenv(find_dotenv(".env"), override=True)
 import json
 import random
@@ -12,7 +14,6 @@ import httpx
 import logfire
 import pytz
 from fastapi import HTTPException
-from openai import OpenAI
 from pydantic import BaseModel
 
 from api.src.contact.service import get_contact_by_slug
@@ -127,7 +128,7 @@ Please respond with a JSON object with the following fields:
 
 
 async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1):
-    client = OpenAI(timeout=30.0)
+    client = openrouter_client()
 
     class ShouldEscalate(BaseModel):
         should_escalate: bool
@@ -144,23 +145,25 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
     last_exception = None
     for attempt in range(max_retries + 1):
         try:
-            response = client.responses.parse(
-                model="gpt-4o-mini",
-                input=[
+            response = client.chat.completions.parse(
+                model="openai/gpt-4o-mini",
+                messages=[
                     {"role": "system", "content": ai_instructions},
                     {
                         "role": "user",
                         "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
                     },
                 ],
-                text_format=ShouldEscalate,
+                response_format=ShouldEscalate,
             )
 
             logfire.info(
-                f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.output_parsed}'
+                f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.choices[0].message.parsed}'
             )
 
-            return response.output_parsed.should_escalate, response.output_parsed.reason
+            return response.choices[0].message.parsed.should_escalate, response.choices[
+                0
+            ].message.parsed.reason
         except Exception as e:
             last_exception = e
             if attempt < max_retries:

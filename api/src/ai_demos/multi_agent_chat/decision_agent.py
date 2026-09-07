@@ -8,7 +8,8 @@ It uses structured output to return either "emilio" or "weather".
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
+
+from api.src.utils.llm import DEMO_MODEL, demo_model_settings
 
 load_dotenv(".env")
 from enum import StrEnum
@@ -33,7 +34,7 @@ class RoutingDecision(BaseModel):
 
 
 # Create the router agent with structured output
-router_model = OpenAIChatModel("gpt-4o-mini")
+router_model = DEMO_MODEL
 
 router_agent = Agent(
     model=router_model,
@@ -50,5 +51,6 @@ router_agent = Agent(
         "If the message is unclear or could be handled by either agent, default to 'emilio' for general questions."
     ),
     output_type=RoutingDecision,
-    retries=2,
+    retries=1,
+    model_settings=demo_model_settings(),
 )

@@ -40,12 +40,11 @@ logfire.info("Logfire configured with comprehensive instrumentation")
 
 from contextlib import asynccontextmanager
 
-import strawberry
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from strawberry.fastapi import GraphQLRouter
-from strawberry.tools import merge_types
+
+from api.src.utils.public_ai_guard import PublicAIGuard
 
 logfire.info("STARTUP1")
 
@@ -59,11 +58,6 @@ from api.src.apscheduler_service.service import get_scheduler, register_hello_ap
 from api.src.clickup.service import register_clickup_apscheduler_jobs
 from api.src.contact.routes import router as contact_router
 from api.src.cron import router as cron_router
-from api.src.examples.routes import router as examples_router
-from api.src.examples.schema import Mutation as ExamplesMutation
-
-# Import all GraphQL schemas
-from api.src.examples.schema import Query as ExamplesQuery
 from api.src.google.common.routes import router as google_router
 from api.src.open_phone.routes import router as open_phone_router
 from api.src.push.routes import router as push_router
@@ -267,6 +261,7 @@ app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=li
 logfire.instrument_fastapi(app)
 
 # --- Middleware Registration ---
+app.add_middleware(PublicAIGuard)
 
 is_hosted = len(os.getenv("RAILWAY_ENVIRONMENT_NAME", "")) > 0
 
@@ -294,26 +289,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- GraphQL Setup ---
-
-# Merge GraphQL types
-Query = merge_types("Query", (ExamplesQuery,))
-Mutation = merge_types("Mutation", (ExamplesMutation,))
-
-# Create combined schema for GraphQL
-schema = strawberry.Schema(query=Query, mutation=Mutation)
-
-# GraphQL router
-graphql_router = GraphQLRouter(schema, path="/graphql")
-
 # Include all routers
-app.include_router(graphql_router, prefix="/api")
 app.include_router(ai_demos_router, prefix="/api")
 app.include_router(sernia_ai_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")
-app.include_router(examples_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")

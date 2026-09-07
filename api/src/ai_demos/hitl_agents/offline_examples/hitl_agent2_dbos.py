@@ -23,15 +23,15 @@ from pydantic_ai import (
 )
 from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.durable_exec.dbos import DBOSAgent
-from pydantic_ai.models.openai import OpenAIChatModel
 
 from api.src.contact.service import get_contact_by_slug
 from api.src.dbos_service.dbos_config import launch_dbos
 from api.src.open_phone.service import send_message
+from api.src.utils.llm import OPERATIONS_MODEL, demo_model_settings
 
 # --- Agent Definition ---
 hitl_agent2 = Agent(
-    OpenAIChatModel("gpt-4o-mini"),
+    OPERATIONS_MODEL,
     name="hitl_agent2",
     system_prompt="""You are a helpful assistant that sends SMS messages.
 When asked to send an SMS or text message, IMMEDIATELY use the send_sms tool.
@@ -39,7 +39,8 @@ Be creative and write engaging, personalized messages.
 The default recipient will be Emilio unless otherwise specified.
 Do not ask for confirmation - the tool has approval safeguards.""",
     output_type=[str, DeferredToolRequests],
-    retries=2,
+    retries=1,
+    model_settings=demo_model_settings(),
     capabilities=[Instrumentation()],
 )
 
