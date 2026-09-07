@@ -3,8 +3,6 @@ import re  # Added for normalization function
 
 from dotenv import find_dotenv, load_dotenv
 
-from api.src.utils.llm import openrouter_client
-
 load_dotenv(find_dotenv(".env"), override=True)
 import json
 import random
@@ -15,8 +13,10 @@ import logfire
 import pytz
 from fastapi import HTTPException
 from pydantic import BaseModel
+from pydantic_ai import Agent
 
 from api.src.contact.service import get_contact_by_slug
+from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -119,21 +119,43 @@ Here are examples of things to NOT escalate:
 * "I lost my keys and can't get in! Can someone bring me a spare ASAP??"
 * "My power is out, can you send someone to fix it right away?"
 * Low priority property damage that doesn't pose an immediate threat and won't worsen if neglected for a day or two
-
-Please respond with a JSON object with the following fields:
-* should_escalate: bool
-* reason: str
-
 """
 
 
+class ShouldEscalate(BaseModel):
+    """Structured verdict returned by the escalation-assessment agent."""
+
+    should_escalate: bool
+    reason: str
+
+
+# Escalation assessment is a lightweight binary classification, so it runs GPT-5.6
+# Luna at LOW reasoning effort. The model is reached through OpenRouter (pinned to
+# the OpenAI upstream, with usage/cost accounting) via the shared helpers in
+# `sernia_ai.model_config`, so this call shows up on the LLM-cost dashboard the
+# same way the main Sernia agent's runs do. `resolve_model` returns the cached
+# SerniaOpenRouterModel instance (which owns an HTTP client) — the module-level
+# Agent is built once at import, like `sernia_agent`.
+ESCALATION_MODEL_STRING = "openrouter:openai/gpt-5.6-luna"
+ESCALATION_EFFORT = "low"
+# Cap a single assessment call so a hung request can't stall the escalation
+# webhook (the pre-migration OpenAI client used the same 30s ceiling).
+ESCALATION_TIMEOUT_SECONDS = 30.0
+
+_escalation_settings = build_openrouter_settings(ESCALATION_EFFORT)
+_escalation_settings["timeout"] = ESCALATION_TIMEOUT_SECONDS
+
+escalation_agent = Agent(
+    resolve_model(ESCALATION_MODEL_STRING),
+    output_type=ShouldEscalate,
+    model_settings=_escalation_settings,
+    instructions=ai_instructions,
+    retries=1,
+    name="escalation_assessor",
+)
+
+
 async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1):
-    client = openrouter_client()
-
-    class ShouldEscalate(BaseModel):
-        should_escalate: bool
-        reason: str
-
     timestamp = open_phone_event.get("event_timestamp")
 
     # add timezone to timestamp only if it doesn't have one
@@ -142,36 +164,29 @@ async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1)
     else:
         timestamp_et = timestamp
 
+    user_prompt = f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}"
+
     last_exception = None
     for attempt in range(max_retries + 1):
         try:
-            response = client.chat.completions.parse(
-                model="openai/gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": ai_instructions},
-                    {
-                        "role": "user",
-                        "content": f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}",
-                    },
-                ],
-                response_format=ShouldEscalate,
-            )
+            result = await escalation_agent.run(user_prompt)
+            assessment = result.output
 
             logfire.info(
-                f'AI assessment for message text "{open_phone_event.get("message_text")}": {response.choices[0].message.parsed}'
+                f'AI assessment for message text "{open_phone_event.get("message_text")}": {assessment}'
             )
 
-            return response.choices[0].message.parsed.should_escalate, response.choices[
-                0
-            ].message.parsed.reason
+            return assessment.should_escalate, assessment.reason
         except Exception as e:
             last_exception = e
             if attempt < max_retries:
                 logfire.warn(
-                    f"OpenAI API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}"
+                    f"Escalation assessment call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}"
                 )
             else:
-                logfire.exception(f"OpenAI API call failed after {max_retries + 1} attempts: {e}")
+                logfire.exception(
+                    f"Escalation assessment call failed after {max_retries + 1} attempts: {e}"
+                )
 
     # Default to NOT escalating on AI failure.
     # False escalations cause more harm (alarm fatigue) than missed ones.
