@@ -2,7 +2,6 @@
 Routes for PydanticAI-powered portfolio chatbot
 """
 
-import functools
 import json
 
 import logfire
@@ -13,9 +12,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from api.src.ai_demos.chat_emilio.agent import PortfolioContext, agent
-from api.src.ai_demos.models import persist_agent_run_result
-from api.src.database.database import DBSession
 from api.src.utils.input_sanitization import sanitize_request_json
+from api.src.utils.llm import demo_usage_limits
 from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-emilio", tags=["ai"])
@@ -124,7 +122,7 @@ _CHAT_EMILIO_OPENAPI_EXTRA = {
     summary="Chat with Emilio's portfolio assistant",
     openapi_extra=_CHAT_EMILIO_OPENAPI_EXTRA,
 )
-async def chat_emilio(request: Request, session: DBSession) -> Response:
+async def chat_emilio(request: Request) -> Response:
     """
     Chat endpoint using PydanticAI's VercelAIAdapter.
 
@@ -154,35 +152,12 @@ async def chat_emilio(request: Request, session: DBSession) -> Response:
         )
         return Response(status_code=400, content="messages array is empty")
 
-    # Log new messages
-    if sanitized_json.get("trigger") == "submit-message":
-        if messages:
-            # Structured logging for easy querying/alerting in Logfire UI
-            latest_message = messages[-1]
-            logfire.info(
-                "new chat message",
-                slack_alert=True,
-                endpoint="/api/ai-demos/chat-emilio",
-                message_text=latest_message.get("parts", [{}])[0].get("text", "")
-                if latest_message.get("parts")
-                else "",
-            )
-
-    # Use functools.partial to create a callback with pre-filled arguments
-    # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
-    on_complete_callback = functools.partial(
-        persist_agent_run_result,
-        conversation_id=conversation_id,
-        agent_name=agent.name,
-        clerk_user_id="visitor",
-    )
-
     # Use the high-level dispatch_request method which supports on_complete
     response = await VercelAIAdapter.dispatch_request(
         request,
         agent=agent,
+        usage_limits=demo_usage_limits(),
         deps=PortfolioContext(user_name="visitor"),
-        on_complete=on_complete_callback,
     )
 
     # Add headers to prevent browser/proxy buffering

@@ -43,6 +43,9 @@ _BUCKET_TO_PRICE_FIELD = {
 # A pattern covers a whole family at one rate, so the representative is the
 # version we actually run (or the newest, for families we don't).
 _REPRESENTATIVE_MODEL = {
+    "anthropic/claude-sonnet%": "claude-sonnet-4-6",
+    "anthropic/claude-haiku%": "claude-haiku-4-5-20251001",
+    "anthropic/claude-opus%": "claude-opus-4-7",
     "claude-sonnet%": "claude-sonnet-4-6",
     "claude-haiku%": "claude-haiku-4-5-20251001",
     "claude-opus%": "claude-opus-4-7",

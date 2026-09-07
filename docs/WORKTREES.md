@@ -29,7 +29,7 @@ No editor is launched and no workspace file is modified.
 
 ## Prerequisites
 
-- macOS or Linux, Git, Python 3.11+, `uv`, Node **22.13+**, and the pnpm version pinned in `package.json`.
+- macOS or Linux, Git, Python 3.11+, `uv`, Node **22.22+**, and the pnpm version pinned in `package.json`.
   With nvm, run `nvm install` / `nvm use` from the checkout (`.nvmrc` selects Node 22).
 - Docker Desktop / Docker Compose for the existing `portfolio-postgres` service, or that local
   Postgres already running. PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`) must be on PATH

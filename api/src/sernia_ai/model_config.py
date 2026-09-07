@@ -6,27 +6,12 @@ The main agent model is user-switchable via the ``model_config`` row in
 ``resolve_active_run_kwargs()`` and spread the result into ``agent.run(...)``
 / ``VercelAIAdapter.dispatch_request(...)`` / ``resume_with_approvals(...)``.
 
-Why per-run and not per-agent: model settings classes
-(``AnthropicModelSettings`` vs ``OpenRouterModelSettings``) are not
-cross-compatible — prompt-cache and reasoning knobs are provider-specific.
-PydanticAI exposes ``model`` / ``model_settings`` on every run entrypoint, so
-one Agent instance with per-run overrides is simpler than maintaining one
-Agent per provider.
+All production models, including Claude and summarizers, use OpenRouter and
+PORTFOLIO_OPENROUTER_API_KEY. The model picker retains the same stable keys.
+Native web fetch is optional and is dropped by the OpenRouter adapter; web
+search uses the domain-constrained OpenRouter plugin. Reasoning is configured
+with OpenRouter's reasoning effort; Sonnet's unsupported xhigh maps to high.
 
-GPT models are reached through **OpenRouter**, not the OpenAI API directly.
-Claude models still go straight to Anthropic — Anthropic's own API exposes
-richer cache-control and adaptive-thinking knobs than OpenRouter's
-pass-through, and the key is already wired.
-
-Web search/fetch are no longer attached here: the agent's ``WebSearch`` /
-``WebFetch`` capabilities (see ``agent.py``) adapt to the active provider
-automatically (native web fetch is Anthropic-only and is dropped on OpenRouter
-runs; native web search maps to OpenRouter's ``web`` plugin). Reasoning depth
-(low/medium/high/xhigh/max) is provider-routed: on OpenRouter it is passed
-through as ``openrouter_reasoning={"effort": ...}``, whose enum accepts the
-whole ladder including GPT-5.6's ``max`` tier; on Anthropic it feeds the
-unified ``thinking`` setting, mapped to adaptive thinking + effort (``max``
-clamps to ``xhigh``, being an OpenAI tier).
 """
 
 from __future__ import annotations
@@ -41,7 +26,6 @@ import logfire
 from opentelemetry import trace
 from pydantic_ai.messages import ModelResponse, ModelResponseStreamEvent
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
-from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.models.openrouter import (
     OpenRouterModel,
     OpenRouterModelSettings,
@@ -81,7 +65,7 @@ class ModelChoice:
     # Gateway the model is reached through, not the lab that trained it —
     # GPT-5.6 Luna is served by OpenAI but billed and routed via OpenRouter.
     # `build_run_kwargs` branches on this to pick the settings class.
-    provider: Literal["openrouter", "anthropic"]
+    provider: Literal["openrouter"]
     model_string: str  # e.g. "openrouter:openai/gpt-5.6-luna"
     cost_note: str | None = None
 
@@ -96,14 +80,14 @@ AVAILABLE_MODELS: tuple[ModelChoice, ...] = (
     ModelChoice(
         key="sonnet-4-6",
         label="Claude Sonnet 4.6",
-        provider="anthropic",
-        model_string="anthropic:claude-sonnet-4-6",
+        provider="openrouter",
+        model_string="openrouter:anthropic/claude-sonnet-4.6",
     ),
     ModelChoice(
         key="opus-4-7",
         label="Claude Opus 4.7",
-        provider="anthropic",
-        model_string="anthropic:claude-opus-4-7",
+        provider="openrouter",
+        model_string="openrouter:anthropic/claude-opus-4.7",
         cost_note="~5x Sonnet pricing — use sparingly.",
     ),
 )
@@ -307,41 +291,27 @@ def resolve_model(model_string: str) -> SerniaOpenRouterModel | str:
 
 
 def build_run_kwargs(key: str | None, effort: str | None = None) -> dict:
-    """Return kwargs to spread into agent.run() / VercelAIAdapter.dispatch_request().
+    """Resolve a model and OpenRouter reasoning settings for each run.
 
-    Produces ``model`` and ``model_settings`` suited to the selected gateway.
-    Web search/fetch live on the agent as provider-adaptive capabilities.
-
-    ``effort`` controls reasoning depth — low/medium/high/xhigh/max, ascending.
-    On GPT-5.6 Luna it is passed through as ``openrouter_reasoning``, whose
-    ``effort`` enum accepts the whole ladder including ``max`` (GPT-5.6's
-    highest) — sidestepping the pinned pydantic-ai's unified ``thinking`` map,
-    which tops out at xhigh and would silently downgrade both xhigh and max to
-    ``high``. On Sonnet 4.6 and Opus 4.7 the effort feeds the unified
-    ``thinking`` setting, which pydantic-ai maps to adaptive thinking + effort
-    (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking),
-    where Claude decides per-request whether and how much to think; ``max`` is
-    an OpenAI tier, so it clamps to ``xhigh`` there. Falls back to medium for a
-    missing/unknown value.
-
-    Anthropic runs return a model *string*; OpenRouter runs return a cached
-    ``SerniaOpenRouterModel`` instance, which is what carries the web-search
-    domain allowlist onto OpenRouter's ``web`` plugin.
+    GPT keeps its existing upstream pin. Claude uses its own available
+    endpoints, with no OpenAI-only pin. All models retain the search allowlist.
     """
     choice = get_model_choice(key)
     resolved_effort = get_thinking_effort(effort)
 
-    if choice.provider == "anthropic":
-        # "max" is an OpenAI tier; Anthropic's highest adaptive effort is
-        # "xhigh", so clamp it there for Claude models.
-        anthropic_effort = "xhigh" if resolved_effort == "max" else resolved_effort
+    if choice.model_string.startswith("openrouter:anthropic/"):
+        # Sonnet does not support xhigh; Opus supports the complete ladder.
+        claude_effort = (
+            "high" if choice.key == "sonnet-4-6" and resolved_effort == "xhigh" else resolved_effort
+        )
         return {
-            "model": choice.model_string,
-            "model_settings": AnthropicModelSettings(
-                anthropic_cache_instructions=True,
-                anthropic_cache_tool_definitions=True,
-                anthropic_cache_messages=True,
-                thinking=anthropic_effort,
+            "model": resolve_model(choice.model_string),
+            "model_settings": OpenRouterModelSettings(
+                openrouter_reasoning={"effort": claude_effort, "enabled": True},
+                openrouter_usage={"include": True},
+                openrouter_cache_instructions=True,
+                openrouter_cache_tool_definitions=True,
+                openrouter_cache_messages=True,
             ),
         }
 

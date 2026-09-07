@@ -2,13 +2,15 @@
 Graph definition for routing messages to specialized agents using Pydantic AI Graph Beta API
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Literal
 
 import logfire
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.usage import RunUsage
 from pydantic_graph.graph_builder import GraphBuilder
 from pydantic_graph.step import StepContext
 from starlette.requests import Request
@@ -19,6 +21,7 @@ from api.src.ai_demos.chat_emilio.agent import agent as emilio_agent
 from api.src.ai_demos.chat_weather.agent import ChatContext as WeatherContext
 from api.src.ai_demos.chat_weather.agent import agent as weather_agent
 from api.src.ai_demos.multi_agent_chat.decision_agent import AgentName, router_agent
+from api.src.utils.llm import demo_model_settings, demo_usage_limits
 
 load_dotenv(".env")
 
@@ -27,6 +30,7 @@ load_dotenv(".env")
 class MultiAgentState:
     """State for the multi-agent graph"""
 
+    usage: RunUsage = field(default_factory=RunUsage)
     user_name: str = "user"
     message: str = ""
     message_history: list | None = None
@@ -34,6 +38,11 @@ class MultiAgentState:
     agent_response: str | Response | None = None
     agent_run_method: Literal["standard", "vercel_ai"] = "standard"
     vercel_ai_request: Request | None = None
+    on_activity: Callable[[str, str], None] | None = None
+
+    def activity(self, node: str, status: str) -> None:
+        if self.on_activity is not None:
+            self.on_activity(node, status)
 
     def __post_init__(self):
         """Conditionally require vercel_ai_request based on agent_run_method."""
@@ -84,16 +93,21 @@ async def route_message(ctx: StepContext[MultiAgentState, None, MultiAgentInput]
     ctx.state.message = ctx.inputs.message
     ctx.state.message_history = ctx.inputs.message_history
 
-    logfire.info("Routing message", message=ctx.state.message[:100])
+    logfire.info("Routing showcase message")
+
+    ctx.state.activity("router", "active")
 
     # Use the router agent to make the routing decision
     result = await router_agent.run(
         ctx.state.message,
-        # deps=RouterContext(),
+        model_settings=demo_model_settings(),
+        usage_limits=demo_usage_limits(),
+        usage=ctx.state.usage,
     )
 
     agent_name = result.output.agent_name
     ctx.state.selected_agent = agent_name.value
+    ctx.state.activity("router", "complete")
 
     logfire.info("Routing decision", agent_name=agent_name.value)
 
@@ -105,7 +119,8 @@ async def run_emilio_agent(
     ctx: StepContext[MultiAgentState, None, MultiAgentInput],
 ) -> MultiAgentOutput:
     """Run the Emilio portfolio agent"""
-    logfire.info("Running Emilio agent", message=ctx.state.message[:100])
+    logfire.info("Running Emilio agent")
+    ctx.state.activity("emilio", "active")
 
     if ctx.state.agent_run_method == "vercel_ai":
         request = ctx.state.require_vercel_request()
@@ -114,6 +129,9 @@ async def run_emilio_agent(
             agent=emilio_agent,
             deps=EmilioContext(user_name="visitor"),
             message_history=ctx.state.message_history,
+            model_settings=demo_model_settings(),
+            usage_limits=demo_usage_limits(),
+            usage=ctx.state.usage,
         )
         ctx.state.agent_response = vercel_response
         return MultiAgentOutput(
@@ -126,6 +144,9 @@ async def run_emilio_agent(
         ctx.state.message,
         deps=EmilioContext(user_name="visitor"),
         message_history=ctx.state.message_history,
+        model_settings=demo_model_settings(),
+        usage_limits=demo_usage_limits(),
+        usage=ctx.state.usage,
     )
 
     ctx.state.agent_response = result.output
@@ -137,7 +158,8 @@ async def run_weather_agent(
     ctx: StepContext[MultiAgentState, None, MultiAgentInput],
 ) -> MultiAgentOutput:
     """Run the Weather agent"""
-    logfire.info("Running Weather agent", message=ctx.state.message[:100])
+    logfire.info("Running Weather agent")
+    ctx.state.activity("weather", "active")
 
     if ctx.state.agent_run_method == "vercel_ai":
         request = ctx.state.require_vercel_request()
@@ -146,6 +168,9 @@ async def run_weather_agent(
             agent=weather_agent,
             deps=WeatherContext(),
             message_history=ctx.state.message_history,
+            model_settings=demo_model_settings(),
+            usage_limits=demo_usage_limits(),
+            usage=ctx.state.usage,
         )
         ctx.state.agent_response = vercel_response
         return MultiAgentOutput(
@@ -158,6 +183,9 @@ async def run_weather_agent(
         ctx.state.message,
         deps=WeatherContext(),
         message_history=ctx.state.message_history,
+        model_settings=demo_model_settings(),
+        usage_limits=demo_usage_limits(),
+        usage=ctx.state.usage,
     )
 
     ctx.state.agent_response = result.output

@@ -6,7 +6,7 @@ A monorepo for personal learning projects and production AI-based services for m
 ## Tech Stack:
 * Frontend:
     * Web:
-        * Framework: React Router v7 (framework mode)
+        * Framework: React Router v8 (framework mode)
         * UI: [Shadcn UI](https://ui.shadcn.com/docs)
         * Styling: Tailwind CSS
     * Mobile:
@@ -22,7 +22,7 @@ A monorepo for personal learning projects and production AI-based services for m
 ## Setup
 
 0. Clone the repository `git clone https://github.com/EmilioEsposito/portfolio.git`
-1. Sign up for accounts with the AI providers you want to use (e.g., OpenAI, Anthropic).
+1. Create an OpenRouter operations key and a separate capped public-demo key. See [inference configuration](api/src/utils/README.md).
 2. Obtain API keys for each provider.
 3. Set the required environment variables as shown in the `.env.example` file, but in a new file called `.env`.
 4. Install [pnpm](https://pnpm.io/installation) if you don't have it.

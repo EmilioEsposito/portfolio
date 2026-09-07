@@ -162,8 +162,15 @@ def test_chat_emilio_endpoint_empty_messages(client):
         assert response.status_code == 400
 
 
-def test_chat_emilio_endpoint_multiple_messages(client):
-    """Test endpoint handles conversation history"""
+def test_chat_emilio_endpoint_multiple_messages(client, monkeypatch):
+    """Test real adapter serialization with a deterministic local model."""
+    from pydantic_ai.models.test import TestModel
+
+    from api.src.ai_demos.chat_emilio.agent import agent
+
+    monkeypatch.setattr(
+        agent, "_model", TestModel(custom_output_text="I am Emilio's portfolio assistant.")
+    )
     request_body = {
         "trigger": "submit-message",
         "id": str(uuid.uuid4()),
@@ -202,3 +209,9 @@ def test_chat_emilio_endpoint_multiple_messages(client):
                 events.append(line)
 
         assert len(events) > 0
+        decoded = [json.loads(event[6:]) for event in events if event != "data: [DONE]"]
+        text = "".join(
+            event.get("delta", "") for event in decoded if event.get("type") == "text-delta"
+        )
+        assert "portfolio assistant" in text
+        assert not any('"type":"error"' in event for event in events)

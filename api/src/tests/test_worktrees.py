@@ -107,6 +107,24 @@ class WorktreeTests(unittest.TestCase):
             wt.provision(checkout.root, once=True)
         run.assert_not_called()
 
+    def test_provision_rejects_node_below_react_router_eight_minimum(self) -> None:
+        checkout = self.checkout()
+        original = subprocess.run
+
+        def command(*args: object, **kwargs: object) -> subprocess.CompletedProcess:
+            if args[0] == ["node", "--version"]:
+                return subprocess.CompletedProcess(args[0], 0, stdout="v22.21.0\n")
+            return original(*args, **kwargs)
+
+        with (
+            patch.object(wt.shutil, "which", return_value="present"),
+            patch.object(wt.subprocess, "run", side_effect=command),
+            patch.object(wt, "allocate") as allocate,
+            self.assertRaisesRegex(wt.WorktreeError, "Node 22.22"),
+        ):
+            wt.provision(checkout.root)
+        allocate.assert_not_called()
+
     def test_failed_dependency_install_does_not_mark_ready(self) -> None:
         checkout = self.checkout()
         original = subprocess.run

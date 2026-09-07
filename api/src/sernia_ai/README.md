@@ -28,13 +28,15 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 | Model | Gateway | Key | Model string |
 |-------|---------|-----|--------------|
 | GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-5.6-luna` |
-| Claude Sonnet 4.6 / Opus 4.7 | Anthropic (direct) | `SERNIA_ANTHROPIC_API_KEY` → bridged to `ANTHROPIC_API_KEY` | `anthropic:claude-sonnet-4-6` |
-| Sub-agents (summarize / compact) | Anthropic (direct) | same | `anthropic:claude-haiku-4-5-…` |
+| Claude Sonnet 4.6 / Opus 4.7 | **OpenRouter** | same | `openrouter:anthropic/claude-sonnet-4.6` / `openrouter:anthropic/claude-opus-4.7` |
+| Sub-agents (summarize / compact) | **OpenRouter** | same | `openrouter:anthropic/claude-haiku-4.5` |
 
-GPT is reached through OpenRouter rather than the OpenAI API directly, so
-billing, rate limits, and model availability all sit behind one gateway. Claude
-stays direct — Anthropic's own API exposes richer cache-control and
-adaptive-thinking knobs than OpenRouter's pass-through.
+All runtime inference uses OpenRouter, including demo, email classification,
+and escalation calls. Claude selections keep their model identities; direct
+Claude instruction/tool/message caching is preserved using OpenRouter cache
+controls; native web fetch is unavailable. Public chat/email use the separate
+`PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` exclusively.
+Sonnet xhigh maps to high because that route does not support xhigh.
 
 Things worth knowing about the OpenRouter path (all handled in
 `model_config.py` — see `SerniaOpenRouterModel`):

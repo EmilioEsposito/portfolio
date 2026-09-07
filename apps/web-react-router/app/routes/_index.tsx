@@ -208,7 +208,7 @@ export default function Home() {
       </section>
 
       {/* Sernia Capital */}
-      <section className="mb-16">
+      <section id="sernia-systems" className="mb-16 scroll-mt-6">
         <H2>Software for Sernia Capital</H2>
         <P className="mt-4 text-muted-foreground">
           A few systems I've built to help run our properties, from urgent
@@ -222,7 +222,7 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Bot className="h-4 w-4 text-cyan-500" />
-                  Sernia AI: Operations Assistant
+                  SerniaAI Operations Agent
                 </CardTitle>
                 <Badge variant="secondary" className="text-xs">
                   Production
@@ -231,7 +231,7 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                An assistant for property managers, available through{" "}
+                A flexible AI agent for property managers, available through{" "}
                 <a
                   href="https://www.quo.com/"
                   className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
@@ -255,6 +255,7 @@ export default function Home() {
                 </a>
                 .
               </p>
+              <Link to="/systems/sernia-ai" className="mt-3 inline-flex text-sm underline underline-offset-4">How the operations agent works</Link>
             </CardContent>
           </Card>
 
@@ -263,7 +264,7 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  Emergency SMS Routing
+                  Emergency SMS Routing Agent
                 </CardTitle>
                 <Badge variant="secondary" className="text-xs">
                   Production
@@ -272,18 +273,11 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                AI checks incoming tenant messages for urgent issues and
-                escalates them through Twilio calls and texts, including
-                off-hours alerts configured to bypass Do Not Disturb.
+                An event-driven AI specialist assesses incoming SMS for urgent
+                issues. Deterministic webhook rules trigger the assessment;
+                application code routes qualifying alerts through Twilio.
               </p>
-              <a
-                href="https://github.com/EmilioEsposito/portfolio/blob/main/api/src/open_phone/escalate.py"
-                className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View source <ExternalLink className="h-3 w-3" />
-              </a>
+              <Link to="/systems/emergency-routing" className="mt-3 inline-flex text-sm underline underline-offset-4">How the routing agent works</Link>
             </CardContent>
           </Card>
 
@@ -292,7 +286,7 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Calendar className="h-4 w-4 text-blue-500" />
-                  Leasing Lead Management
+                  Leasing Lead Management Agent
                 </CardTitle>
                 <Badge variant="secondary" className="text-xs">
                   Production
@@ -301,18 +295,11 @@ export default function Home() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Turns Zillow email threads into contacts, calendar events,
-                and follow-up reminders for leasing agents, with contact
-                details synced to our phone platform.
+                An event-driven AI specialist interprets leasing email threads.
+                Scheduled jobs trigger review; structured AI decisions drive
+                contact updates, calendar events, and missing-reply alerts.
               </p>
-              <a
-                href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_email"
-                className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View source <ExternalLink className="h-3 w-3" />
-              </a>
+              <Link to="/systems/leasing-leads" className="mt-3 inline-flex text-sm underline underline-offset-4">How the leasing agent works</Link>
             </CardContent>
           </Card>
 
@@ -469,7 +456,7 @@ export default function Home() {
                 </p>
               </div>
               <div className="rounded-lg border border-l-4 border-l-amber-500 p-4">
-                <p className="font-medium">React Router v7</p>
+                <p className="font-medium">React Router v8</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Loaders, actions, and nested routes keep data fetching
                   close to the UI. Vite keeps the local development loop fast.
