@@ -74,7 +74,7 @@ Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote N
 ## Tech Stack
 
 ### Frontend
-- React Router v7 (framework mode) + Vite + React 19
+- React Router v8 (framework mode) + Vite + React 19
 - Shadcn UI + Tailwind CSS + Clerk auth
 - Vercel AI SDK for streaming
 
@@ -108,7 +108,7 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 │       ├── dbos_service/      # DBOS workflows (disabled)
 │       └── ...                # Other modules
 ├── apps/
-│   ├── web-react-router/      # React Router v7 Web App
+│   ├── web-react-router/      # React Router v8 Web App
 │   │   └── app/routes/        # File-based routes
 │   └── my-expo-app/           # Expo mobile app
 ├── packages/                  # Shared pnpm workspace packages
@@ -137,8 +137,8 @@ pnpm dev-with-fastapi
 - **`apps/web-react-router/.env`** - Frontend only (created automatically for worktrees)
 
 **Required environment variables** (see `.env.example`):
-- `OPENAI_API_KEY` - AI demos and direct-SDK callers (zillow_email, escalation, gmail routes)
-- `PORTFOLIO_OPENROUTER_API_KEY` - Sernia AI's GPT model (routed via OpenRouter, not the OpenAI API directly); bridged to `OPENROUTER_API_KEY` in `api/__init__.py`
+- `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` - Isolated, capped public chat/email demo key; never falls back to the operations key
+- `PORTFOLIO_OPENROUTER_API_KEY` - All operational inference (GPT, Claude, summarizers, Zillow classification, escalation); bridged to `OPENROUTER_API_KEY` in `api/__init__.py`
 - `DATABASE_URL`, `DATABASE_URL_UNPOOLED` - Neon Postgres
 - `CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` - Auth
 - Various integration keys (OpenPhone, Google, etc.)
@@ -257,13 +257,13 @@ pnpm approve-builds <package-name>  # Updates pnpm-workspace.yaml allowBuilds
 **Framework**: PydanticAI with Graph Beta API
 
 **Demo Agents** (`api/src/ai_demos/`):
-- **Router Agent** (GPT-4o-mini): Routes to specialized agents
-- **Emilio Agent** (GPT-4o): Portfolio/career questions
+- **Router Agent** (GPT-5.6 Luna, low reasoning): Routes to specialized agents
+- **Emilio Agent** (GPT-5.6 Luna, low reasoning): Portfolio/career questions
 - **Weather Agent**: Weather queries
 
 **Sernia Agent** (`api/src/sernia_ai/`):
 - Production AI assistant for Sernia Capital
-- GPT models are reached through **OpenRouter** (`openrouter:openai/gpt-5.6-luna`), Claude models directly through Anthropic. See [`api/src/sernia_ai/README.md`](api/src/sernia_ai/README.md#model-gateways) for the gateway table and its caveats (upstream pinning, web-search domain allowlist, cost tracking).
+- All models use **OpenRouter** (GPT, Claude, and summarizers). Public demos use a dedicated capped key; operational calls retain the Sernia key. See [`api/src/sernia_ai/README.md`](api/src/sernia_ai/README.md#model-gateways) for the gateway table and its caveats (upstream pinning, web-search domain allowlist, cost tracking).
 
 **Endpoints**:
 - `POST /api/ai-demos/multi-agent-chat` - Unified routing

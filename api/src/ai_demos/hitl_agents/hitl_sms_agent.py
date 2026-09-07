@@ -16,7 +16,6 @@ import logfire
 from dbos import DBOS
 from pydantic_ai import Agent, AgentRunResult, DeferredToolRequests
 from pydantic_ai.capabilities import Instrumentation
-from pydantic_ai.models.openai import OpenAIChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
@@ -37,6 +36,7 @@ from api.src.ai_demos.hitl_utils import (
 )
 from api.src.contact.service import get_contact_by_slug
 from api.src.open_phone.service import send_message
+from api.src.utils.llm import OPERATIONS_MODEL, demo_model_settings
 
 
 # --- Context ---
@@ -51,7 +51,7 @@ class HITLAgentContext:
 
 # --- Agent Definition ---
 hitl_sms_agent = Agent(
-    OpenAIChatModel("gpt-4o-mini"),
+    OPERATIONS_MODEL,
     name="hitl_sms_agent",
     system_prompt="""You are a helpful assistant that can send SMS messages.
 When asked to send an SMS or text message, use the send_sms tool.
@@ -59,7 +59,8 @@ Be creative and write engaging, personalized messages.
 The default recipient is Emilio unless otherwise specified.
 Do not ask for confirmation - the tool has approval safeguards built in.""",
     output_type=[str, DeferredToolRequests],
-    retries=2,
+    retries=1,
+    model_settings=demo_model_settings(),
     capabilities=[Instrumentation()],
 )
 

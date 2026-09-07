@@ -2,13 +2,15 @@
 Routes for Graph-based router agent that dynamically routes to Emilio or Weather agents
 """
 
+import asyncio
 import json
+import re
 
 import logfire
 from fastapi import APIRouter
 from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 from api.src.ai_demos.multi_agent_chat.graph import (
     MultiAgentInput,
@@ -19,6 +21,29 @@ from api.src.utils.input_sanitization import sanitize_request_json
 from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/multi-agent-chat", tags=["ai"])
+
+
+_PUBLIC_BUDGET_ERROR = "Public demo budget is exhausted. Please try again later."
+_PUBLIC_RATE_ERROR = (
+    "The public demo is busy or has reached its usage limit. Please try again later."
+)
+_PUBLIC_SERVICE_ERROR = "The run could not finish. Please try again shortly."
+
+
+def _public_error_message(error: Exception | str) -> str:
+    """Classify provider failures without forwarding provider bodies to visitors."""
+    status = getattr(error, "status_code", None)
+    # The Vercel adapter serializes ModelHTTPError to errorText, losing its type.
+    if status is None:
+        match = re.search(
+            r"(?:status_code|status code|error code)[\s:=]+(402|429)\b", str(error), re.IGNORECASE
+        )
+        status = int(match.group(1)) if match else None
+    if status == 402:
+        return _PUBLIC_BUDGET_ERROR
+    if status == 429:
+        return _PUBLIC_RATE_ERROR
+    return _PUBLIC_SERVICE_ERROR
 
 
 def _extract_latest_message_text(request_payload: dict) -> str:
@@ -147,28 +172,95 @@ async def multi_agent_chat(request: Request) -> Response:
     # DB-loaded history) — raw Vercel UI dicts are rejected by pydantic-ai
     # >=1.9x ("'dict' object has no attribute 'parts'").
 
-    if sanitized_json.get("trigger") == "submit-message":
-        logfire.info(
-            "new multi-agent chat message",
-            slack_alert=True,
-            endpoint="/api/ai-demos/multi-agent-chat",
-            message_text=user_message,
+    async def stream():
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        def activity(node: str, status: str) -> None:
+            queue.put_nowait(
+                {
+                    "type": "data-agent-activity",
+                    "data": {"node": node, "status": status},
+                    "transient": True,
+                }
+            )
+
+        state = MultiAgentState(
+            agent_run_method="vercel_ai",
+            vercel_ai_request=request,
+            message=user_message,
+            on_activity=activity,
         )
 
-    state = MultiAgentState(
-        agent_run_method="vercel_ai",
-        vercel_ai_request=request,
-        message=user_message,
+        async def run_graph():
+            try:
+                return await multi_agent_graph.run(
+                    state=state, inputs=MultiAgentInput(message=user_message)
+                )
+            finally:
+                queue.put_nowait(None)
+
+        task = asyncio.create_task(run_graph())
+        try:
+            # Stream graph transitions while the router is actually running.
+            async with asyncio.timeout(60):
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
+                    yield f"data: {json.dumps(event)}\n\n"
+                result = await task
+                response = result.response
+                if not isinstance(response, StreamingResponse):
+                    raise RuntimeError("Expected an agent stream")
+                stream_failed = False
+                pending = ""
+                async for chunk in response.body_iterator:
+                    pending += chunk.decode() if isinstance(chunk, bytes) else chunk
+                    # Parse complete SSE frames: transport chunks need not align
+                    # with event boundaries. Never leak a raw adapter errorText.
+                    while "\n\n" in pending:
+                        frame, pending = pending.split("\n\n", 1)
+                        if not frame.startswith("data: "):
+                            continue
+                        payload = frame[6:]
+                        if payload == "[DONE]":
+                            continue
+                        event = json.loads(payload)
+                        if event.get("type") == "error":
+                            stream_failed = True
+                            event = {
+                                "type": "error",
+                                "errorText": _public_error_message(event.get("errorText", "")),
+                            }
+                        elif "errorText" in event:
+                            event["errorText"] = "The tool could not finish."
+                        yield f"data: {json.dumps(event)}\n\n"
+                if pending.strip():
+                    raise RuntimeError("Incomplete agent stream")
+                if not stream_failed:
+                    activity(result.agent_name, "complete")
+                    event = await queue.get()
+                    yield f"data: {json.dumps(event)}\n\n"
+                yield "data: [DONE]\n\n"
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logfire.warning("Agent showcase stream failed", error_type=type(exc).__name__)
+            event = {"type": "error", "errorText": _public_error_message(exc)}
+            yield f"data: {json.dumps(event)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "x-vercel-ai-ui-message-stream": "v1",
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-transform",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
-    input_data = MultiAgentInput(message=user_message)
-    graph_result = await multi_agent_graph.run(state=state, inputs=input_data)
-
-    response = graph_result.response
-    if not isinstance(response, Response):
-        response = Response(content=response)
-    # Add headers to prevent browser/proxy buffering
-    response.headers["X-Accel-Buffering"] = "no"
-    response.headers["Cache-Control"] = "no-cache, no-transform"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-
-    return response

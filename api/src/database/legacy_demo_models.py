@@ -1,3 +1,8 @@
+"""Retired demo table metadata, retained to avoid destructive autogenerate drops.
+
+No application routes expose these tables. Historical migrations remain immutable.
+"""
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, String, func

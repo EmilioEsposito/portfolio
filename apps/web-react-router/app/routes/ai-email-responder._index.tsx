@@ -1,434 +1,111 @@
 import type { Route } from "./+types/ai-email-responder._index";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import { RefreshCw, Plus, Save, Trash2, Sparkles } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Mail, RotateCcw, Sparkles } from "lucide-react";
 
 export function meta({}: Route.MetaArgs) {
-  return [
-    { title: "AI Email Responder | Emilio Esposito" },
-    {
-      name: "description",
-      content: "AI-powered email responder for Zillow rental inquiries",
-    },
-  ];
+  return [{ title: "Email drafting studio | Emilio Esposito" }, { name: "description", content: "Explore how grounded AI instructions turn rental inquiries into useful, reviewable replies." }];
 }
-
-interface ZillowEmail {
-  id: string;
-  subject: string;
-  sender: string;
-  received_at: string;
-  body_html: string | null;
-}
-
-interface SystemInstruction {
-  id: string;
-  text: string;
-}
+interface Scenario { id: string; title: string; focus: string; subject: string; sender: string; body: string; facts: string }
+interface Catalog { scenarios: Scenario[]; default_instructions: string }
 
 export default function AIEmailResponderPage() {
-  const [emails, setEmails] = useState<ZillowEmail[]>([]);
-  const [selectedEmail, setSelectedEmail] = useState<ZillowEmail | null>(null);
-  const [systemInstructions, setSystemInstructions] = useState<
-    SystemInstruction[]
-  >(() => {
-    // Try to load saved instructions from localStorage
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("systemInstructions");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse saved instructions:", e);
-        }
-      }
-    }
-    // Default instruction if nothing in localStorage
-    return [
-      {
-        id: "default",
-        text: "You are a property manager. Be professional but friendly. Keep the response concise. Address their questions directly. Sign off as 'Property Management Team'.",
-      },
-    ];
-  });
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [selectedId, setSelectedId] = useState("tour");
+  const [instructions, setInstructions] = useState("");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [unavailable, setUnavailable] = useState<"budget" | "rate" | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const controller = useRef<AbortController | null>(null);
+  const selected = catalog?.scenarios.find((item) => item.id === selectedId);
 
-  // Save instructions to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem(
-      "systemInstructions",
-      JSON.stringify(systemInstructions)
-    );
-  }, [systemInstructions]);
+    const abort = new AbortController();
+    setError("");
+    fetch("/api/google/gmail/get_zillow_emails", { signal: abort.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("The scenarios could not load. Try again.");
+        const data: Catalog = await response.json();
+        setCatalog(data); setInstructions(data.default_instructions); setSelectedId(data.scenarios[0].id);
+      }).catch((cause: Error) => { if (cause.name !== "AbortError") setError("The scenarios could not load. Try again."); });
+    return () => { abort.abort(); controller.current?.abort(); };
+  }, [retry]);
 
-  const [newInstruction, setNewInstruction] = useState("");
-  const [selectedInstruction, setSelectedInstruction] =
-    useState<string>("default");
-  const [generatedResponse, setGeneratedResponse] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingEmails, setIsFetchingEmails] = useState(false);
-
-  // Fetch emails on component mount
   useEffect(() => {
-    fetchEmails();
-  }, []);
+    if (unavailable !== "rate") return;
+    const timer = window.setTimeout(() => setUnavailable(null), 60000);
+    return () => window.clearTimeout(timer);
+  }, [unavailable]);
 
-  async function fetchEmails() {
-    setIsFetchingEmails(true);
+  function clearDraft() { setDraft(""); setError(""); setCopied(false); }
+  async function generate() {
+    if (!selected || loading || unavailable) return;
+    controller.current?.abort();
+    const abort = new AbortController(); controller.current = abort;
+    setLoading(true); setError(""); setCopied(false);
+    const timeout = window.setTimeout(() => abort.abort(), 45000);
     try {
-      const response = await fetch("/api/google/gmail/get_zillow_emails");
-      const data = await response.json();
-      setEmails(data);
-      setSelectedEmail(null); // Reset selection when fetching new emails
-    } catch (error) {
-      console.error("Failed to fetch emails:", error);
-    } finally {
-      setIsFetchingEmails(false);
-    }
-  }
-
-  function addSystemInstruction() {
-    if (!newInstruction.trim() || systemInstructions.length >= 10) return;
-
-    const instruction: SystemInstruction = {
-      id: crypto.randomUUID(),
-      text: newInstruction.trim(),
-    };
-
-    setSystemInstructions([...systemInstructions, instruction]);
-    setSelectedInstruction(instruction.id);
-    setNewInstruction("");
-  }
-
-  function updateCurrentInstruction() {
-    if (!newInstruction.trim() || !selectedInstruction) return;
-
-    setSystemInstructions((prevInstructions) =>
-      prevInstructions.map((instruction) =>
-        instruction.id === selectedInstruction
-          ? { ...instruction, text: newInstruction.trim() }
-          : instruction
-      )
-    );
-  }
-
-  // Helper function to format instruction name
-  function formatInstructionName(
-    instruction: SystemInstruction,
-    index: number
-  ): string {
-    const previewLength = 20;
-    const preview =
-      instruction.text.length > previewLength
-        ? instruction.text.substring(0, previewLength) + "..."
-        : instruction.text;
-    return `#${index + 1} - ${preview}`;
-  }
-
-  async function generateResponse() {
-    if (!selectedEmail || !selectedInstruction) return;
-
-    setIsLoading(true);
-    try {
-      const selectedInstructionText = systemInstructions.find(
-        (instruction) => instruction.id === selectedInstruction
-      )?.text;
-
-      if (!selectedInstructionText) {
-        throw new Error("Selected instruction not found");
-      }
-
-      // Format the email content
-      const emailContent = `Subject: ${selectedEmail.subject}
-From: ${selectedEmail.sender}
-Message:
-${selectedEmail.body_html}`;
-
-      const response = await fetch(
-        "/api/google/gmail/generate_email_response",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email_content: emailContent,
-            system_instruction: selectedInstructionText,
-          }),
-        }
-      );
-
+      const response = await fetch("/api/google/gmail/generate_email_response", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: abort.signal,
+        body: JSON.stringify({ scenario_id: selected.id, system_instruction: instructions.trim() }),
+      });
       if (!response.ok) {
-        throw new Error(`Failed to generate response: ${response.statusText}`);
+        if (response.status === 402) { setUnavailable("budget"); return; }
+        if (response.status === 429) { setUnavailable("rate"); return; }
+        throw new Error("Drafting is temporarily unavailable. Please try again shortly.");
       }
-
-      const data = await response.json();
-      setGeneratedResponse(data.response);
-    } catch (error) {
-      console.error("Failed to generate response:", error);
-      setGeneratedResponse("Failed to generate response. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+      const data = await response.json(); setDraft(data.response);
+    } catch (cause) {
+      setError(cause instanceof Error && cause.name !== "AbortError" ? cause.message : "Drafting timed out. Please try again.");
+    } finally { window.clearTimeout(timeout); setLoading(false); }
+  }
+  async function copyDraft() {
+    try { await navigator.clipboard.writeText(draft); setCopied(true); }
+    catch { setError("Copy is unavailable in this browser. Select the draft text to copy it."); }
   }
 
-  const currentInstruction = systemInstructions.find(
-    (i) => i.id === selectedInstruction,
-  );
-
-  function deleteCurrentInstruction() {
-    if (!selectedInstruction || systemInstructions.length <= 1) return;
-    const remaining = systemInstructions.filter(
-      (i) => i.id !== selectedInstruction,
-    );
-    setSystemInstructions(remaining);
-    setSelectedInstruction(remaining[0].id);
-    setNewInstruction(remaining[0].text);
-  }
-
-  return (
-    <div className="container mx-auto py-8 px-4 sm:px-6 max-w-6xl space-y-8">
-      {/* Header */}
-      <div className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-3xl font-bold">AI Email Responder</h1>
-          <Link
-            to="/ai-email-responder/architecture"
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
-          >
-            System Architecture
-            <span>→</span>
-          </Link>
+  return <main className="mx-auto max-w-7xl px-4 py-8 sm:px-8 sm:py-12">
+    <header className="mb-9 flex flex-wrap items-start justify-between gap-5">
+      <div className="max-w-2xl"><h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Email drafting studio</h1>
+        <p className="mt-3 text-base leading-relaxed text-muted-foreground">A good reply needs more than a good prompt. Give the assistant clear facts, set its boundaries, and see what it writes.</p></div>
+      <Link to="/ai-email-responder/architecture" className="flex items-center gap-1 py-2 text-sm text-muted-foreground underline-offset-4 hover:underline">How it works <ArrowUpRight className="size-4" /></Link>
+    </header>
+    {!catalog ? <div role="status" className="rounded-xl border p-8">{error || "Loading fictional scenarios…"}{error && <Button onClick={() => setRetry(retry + 1)} variant="outline" className="ml-4">Try again</Button>}</div> : <>
+      <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground"><Mail className="size-4" /><span>Fictional messages. Drafts only. Nothing is sent.</span></div>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-7">
+          <section aria-labelledby="scenario-title">
+            <h2 id="scenario-title" className="mb-3 text-lg font-semibold">1. Choose an inquiry</h2>
+            <div className="mb-4 flex flex-wrap gap-2" aria-label="Fictional inquiries">{catalog.scenarios.map((item) => <button key={item.id} type="button" aria-pressed={selectedId === item.id} disabled={loading} onClick={() => { setSelectedId(item.id); clearDraft(); }} className={`rounded-full border px-4 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${selectedId === item.id ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`}>{item.title}</button>)}</div>
+            {selected && <div className="overflow-hidden rounded-xl border">
+              <div className="border-b bg-muted/30 px-5 py-4"><h3 className="font-medium">{selected.subject}</h3><p className="mt-1 break-words text-sm text-muted-foreground">{selected.sender}</p></div>
+              <p className="px-5 py-5 text-sm leading-7">{selected.body}</p>
+              <details className="border-t bg-muted/20 px-5 py-3" open><summary className="cursor-pointer text-sm font-medium">Facts available to the assistant</summary><p className="mt-3 text-sm leading-6 text-muted-foreground">{selected.facts}</p></details>
+            </div>}
+          </section>
+          <section aria-labelledby="instructions-title">
+            <div className="mb-3 flex items-center justify-between gap-3"><h2 id="instructions-title" className="text-lg font-semibold">2. Shape the reply</h2><Button variant="ghost" size="sm" disabled={loading || instructions === catalog.default_instructions} onClick={() => { setInstructions(catalog.default_instructions); clearDraft(); }}><RotateCcw className="mr-1.5 size-3.5" />Reset</Button></div>
+            <label htmlFor="draft-instructions" className="mb-2 block text-sm text-muted-foreground">Edit the instructions directly. Your next draft uses these writing preferences.</label>
+            <Textarea id="draft-instructions" value={instructions} disabled={loading} maxLength={2000} onChange={(event) => { setInstructions(event.target.value); clearDraft(); }} className="min-h-[250px] text-sm leading-6" />
+            <div className="mt-2 flex justify-between gap-4 text-xs text-muted-foreground"><span>Try a shorter reply or a more conversational tone.</span><span className="shrink-0">{instructions.length}/2,000</span></div>
+          </section>
         </div>
-        <p className="text-muted-foreground">
-          Test and refine AI agent instructions for automated Zillow rental
-          inquiry responses. Select an email, configure the AI instructions, and
-          preview the generated response.
-        </p>
+        <section aria-labelledby="draft-title" className="min-w-0 rounded-2xl border bg-muted/20 p-5 sm:p-7 lg:sticky lg:top-6 lg:self-start">
+          <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="draft-title" className="text-lg font-semibold">3. Review the draft</h2><Button disabled={loading || !!unavailable || !instructions.trim()} onClick={generate}><Sparkles className={`mr-2 size-4 ${loading ? "motion-safe:animate-pulse" : ""}`} />{loading ? "Drafting…" : draft ? "Draft again" : "Generate draft"}</Button></div>
+          <p className="mt-3 text-sm text-muted-foreground">{selected?.focus}. Review every reply before using it.</p>
+          <div aria-live="polite" aria-busy={loading} className="mt-6 min-h-[280px] rounded-lg border bg-background p-5 sm:min-h-[350px]">
+            {draft ? <p className="whitespace-pre-wrap break-words text-sm leading-7">{draft}</p> : <div className="flex min-h-[230px] flex-col justify-center gap-3 text-muted-foreground"><Mail className="size-7" aria-hidden="true" /><p className="text-lg text-foreground">{loading ? "Turning the inquiry into a useful reply…" : "Your next reply starts here."}</p><p className="max-w-sm text-sm leading-6">{loading ? "The assistant is working with the selected scenario and your instructions." : "Choose an inquiry, adjust the instructions, then generate a draft. Try the risky request to explore the assistant’s boundaries."}</p></div>}
+          </div>
+          {unavailable && <p role="status" className="mt-4 text-sm text-muted-foreground">{unavailable === "budget" ? "The demo budget is temporarily unavailable. Your draft and writing preferences are still here. Please come back later." : "The demo is temporarily at capacity. Your work is preserved. You can try again in a minute."}</p>}
+          {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
+          <div className="mt-4 flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">No inbox access or sending permissions.</span>{draft && <Button variant="outline" size="sm" onClick={copyDraft}>{copied ? <Check className="mr-2 size-4" /> : <Copy className="mr-2 size-4" />}{copied ? "Copied" : "Copy draft"}</Button>}</div>
+        </section>
       </div>
-
-      {/* Step 1: Select Email */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            1. Select an Email
-          </h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchEmails}
-            disabled={isFetchingEmails}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${isFetchingEmails ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
-        </div>
-
-        {/* Email list as horizontal cards */}
-        {isFetchingEmails ? (
-          <div className="flex items-center justify-center py-12 border rounded-lg">
-            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : emails.length === 0 ? (
-          <div className="flex items-center justify-center py-12 border rounded-lg text-muted-foreground">
-            No emails found. Click Refresh to fetch.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {emails.map((email, index) => (
-              <button
-                key={email.id}
-                onClick={() => setSelectedEmail(email)}
-                className={`text-left p-3 rounded-lg border text-sm transition-colors hover:bg-muted ${
-                  selectedEmail?.id === email.id
-                    ? "border-primary bg-muted ring-1 ring-primary"
-                    : ""
-                }`}
-              >
-                <div className="font-medium truncate">
-                  Email #{index + 1}
-                </div>
-                <div className="text-xs text-muted-foreground truncate mt-1">
-                  {email.sender}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Selected email preview */}
-        {selectedEmail && (
-          <div className="border rounded-lg">
-            <div className="p-4 border-b flex items-baseline justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className="font-semibold truncate">
-                  {selectedEmail.subject}
-                </h3>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  From: {selectedEmail.sender}
-                </p>
-              </div>
-              <span className="text-sm text-muted-foreground shrink-0">
-                {new Date(selectedEmail.received_at).toLocaleDateString()}
-              </span>
-            </div>
-            <div className="p-4 max-h-[300px] overflow-auto">
-              <div
-                className="prose max-w-none dark:prose-invert text-sm"
-                dangerouslySetInnerHTML={{
-                  __html: selectedEmail.body_html || "",
-                }}
-              />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Step 2: AI Instructions */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          2. Configure AI Instructions
-        </h2>
-        <div className="border rounded-lg p-4 space-y-4">
-          <div className="flex items-center gap-3">
-            <Select
-              value={selectedInstruction}
-              onValueChange={(value) => {
-                setSelectedInstruction(value);
-                const instruction = systemInstructions.find(
-                  (i) => i.id === value,
-                );
-                if (instruction) setNewInstruction(instruction.text);
-              }}
-            >
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Select an instruction set" />
-              </SelectTrigger>
-              <SelectContent>
-                {systemInstructions.map((instruction, index) => (
-                  <SelectItem key={instruction.id} value={instruction.id}>
-                    {formatInstructionName(instruction, index)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addSystemInstruction}
-              disabled={
-                systemInstructions.length >= 10 || !newInstruction.trim()
-              }
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              Add New
-            </Button>
-            {systemInstructions.length > 1 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={deleteCurrentInstruction}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-
-          <Textarea
-            placeholder="Example: Be professional but friendly. Address their questions directly. Sign as 'Property Management Team'."
-            value={newInstruction}
-            onChange={(e) => setNewInstruction(e.target.value)}
-            rows={5}
-          />
-
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              {systemInstructions.length}/10 instruction sets saved
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={updateCurrentInstruction}
-              disabled={
-                !newInstruction.trim() ||
-                newInstruction === currentInstruction?.text
-              }
-            >
-              <Save className="h-4 w-4 mr-1.5" />
-              Save Changes
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      {/* Step 3: Generate */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            3. Generate Response
-          </h2>
-          <Button
-            onClick={generateResponse}
-            disabled={!selectedEmail || !selectedInstruction || isLoading}
-          >
-            {isLoading ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 mr-2" />
-                Generate
-              </>
-            )}
-          </Button>
-        </div>
-
-        {generatedResponse ? (
-          <div className="border rounded-lg p-4">
-            <Textarea
-              value={generatedResponse}
-              readOnly
-              className="min-h-[200px]"
-            />
-          </div>
-        ) : (
-          <div className="flex items-center justify-center py-12 border rounded-lg text-muted-foreground text-sm">
-            {!selectedEmail
-              ? "Select an email above to get started"
-              : "Click Generate to preview the AI response"}
-          </div>
-        )}
-      </section>
-
-      {/* Footer links */}
-      <div className="text-sm text-muted-foreground text-center border-t pt-4">
-        In production, responses are generated automatically via{" "}
-        <Link
-          to="/api/docs#/google/handle_gmail_notifications_api_google_pubsub_gmail_notifications_post"
-          className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
-        >
-          Google PubSub webhook
-        </Link>
-        .{" "}
-        <Link
-          to="/ai-email-responder/architecture"
-          className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
-        >
-          View architecture
-        </Link>
-      </div>
-    </div>
-  );
+    </>}
+  </main>;
 }

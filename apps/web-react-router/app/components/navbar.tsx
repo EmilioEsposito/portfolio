@@ -7,8 +7,7 @@ import { Link } from "react-router";
 import { useSidebar } from "~/components/ui/sidebar";
 import {
   SignInButton,
-  SignedIn,
-  SignedOut,
+  Show,
   UserButton,
   useUser,
 } from "@clerk/react-router";
@@ -48,20 +47,20 @@ export const Navbar = () => {
         </Link>
 
         {/* Clerk Buttons */}
-        <SignedOut>
+        <Show when="signed-out">
           <SignInButton mode="modal">
             <Button variant="outline">
               <UserIcon />
               &nbsp;Login
             </Button>
           </SignInButton>
-        </SignedOut>
-        <SignedIn>
+        </Show>
+        <Show when="signed-in">
           <div className="flex items-center gap-2">
             {user?.firstName}
             <UserButton />
           </div>
-        </SignedIn>
+        </Show>
 
       </div>
     </div>

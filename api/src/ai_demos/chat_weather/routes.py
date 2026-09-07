@@ -2,7 +2,6 @@
 Routes for general-purpose chat with weather tool support
 """
 
-import functools
 import json
 
 import logfire
@@ -13,9 +12,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from api.src.ai_demos.chat_weather.agent import ChatContext, agent
-from api.src.ai_demos.models import persist_agent_run_result
-from api.src.database.database import DBSession
 from api.src.utils.input_sanitization import sanitize_request_json
+from api.src.utils.llm import demo_usage_limits
 from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-weather", tags=["ai"])
@@ -126,7 +124,7 @@ _CHAT_OPENAPI_EXTRA = {
     summary="General-purpose chat with weather tool support",
     openapi_extra=_CHAT_OPENAPI_EXTRA,
 )
-async def chat(request: Request, session: DBSession) -> Response:
+async def chat(request: Request) -> Response:
     """
     Chat endpoint using PydanticAI's VercelAIAdapter.
 
@@ -150,37 +148,14 @@ async def chat(request: Request, session: DBSession) -> Response:
     # Replace request body so VercelAIAdapter uses sanitized version
     request._body = json.dumps(sanitized_json).encode()
 
-    if sanitized_json.get("trigger") == "submit-message":
-        messages = sanitized_json.get("messages", [])
-        # Structured logging for easy querying/alerting in Logfire UI
-        latest_message = messages[-1] if messages else {}
-        logfire.info(
-            "new chat message",
-            slack_alert=True,
-            endpoint="/api/ai-demos/chat-weather",
-            message_text=latest_message.get("parts", [{}])[0].get("text", "")
-            if latest_message.get("parts")
-            else "",
-        )
-    conversation_id = sanitized_json.get("id")
-
-    # Use functools.partial to create a callback with pre-filled arguments
-    # oncomplete only expectes AgentRunResult, so we need to create a partial function to pass our custom arguments
-    on_complete_callback = functools.partial(
-        persist_agent_run_result,
-        conversation_id=conversation_id,
-        agent_name=agent.name,
-        clerk_user_id="visitor",
-    )
-
     # Use VercelAIAdapter to handle the request and stream response
     # Note: VercelAIAdapter.dispatch_request expects a raw Request object
     # and handles parsing internally, so we can't use Pydantic validation here
     response = await VercelAIAdapter.dispatch_request(
         request,
         agent=agent,
+        usage_limits=demo_usage_limits(),
         deps=ChatContext(),
-        on_complete=on_complete_callback,
     )
 
     # Add headers to prevent browser/proxy buffering

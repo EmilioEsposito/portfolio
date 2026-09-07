@@ -36,12 +36,16 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
+from api.src.sernia_ai.model_config import (
+    build_openrouter_settings,
+    build_run_kwargs,
+    resolve_model,
+)
 
 # Default variants — shared across experiments unless an experiment overrides.
 # GPT goes through OpenRouter (same gateway as production; see model_config.py).
 DEFAULT_VARIANTS: dict[str, str] = {
-    "sonnet-4-6": "anthropic:claude-sonnet-4-6",
+    "sonnet-4-6": "openrouter:anthropic/claude-sonnet-4.6",
     "gpt-5.6-luna": "openrouter:openai/gpt-5.6-luna",
 }
 
@@ -60,6 +64,9 @@ def _model_settings_for(model: str, thinking: str) -> ModelSettings | AnthropicM
             anthropic_cache_messages=True,
             thinking=thinking,
         )
+    if model.startswith("openrouter:anthropic/"):
+        key = "sonnet-4-6" if "sonnet" in model else "opus-4-7"
+        return build_run_kwargs(key, thinking)["model_settings"]
     if model.startswith("openrouter:"):
         # Reuse production's OpenRouter settings (reasoning effort, provider
         # pinning, usage accounting) so an experiment measures the model, not a

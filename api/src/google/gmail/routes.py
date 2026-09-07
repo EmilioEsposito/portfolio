@@ -2,133 +2,83 @@
 FastAPI routes for Gmail-specific endpoints.
 """
 
+import json
 import os
 
 import logfire
 from fastapi import APIRouter, Depends, HTTPException
-from openai import AsyncOpenAI
-from sqlalchemy import func, select
+from openai import APIStatusError
 
-from api.src.database.database import DBSession
-from api.src.google.gmail.models import EmailMessage
+from api.src.google.gmail.demo import DEFAULT_INSTRUCTIONS, SAFETY_INSTRUCTIONS, SCENARIOS
 from api.src.google.gmail.schema import (
     GenerateResponseRequest,
     OptionalPassword,
-    ZillowEmailResponse,
 )
 from api.src.google.gmail.service import (
     setup_gmail_watch,
     stop_gmail_watch,
 )
 from api.src.utils.dependencies import verify_cron_or_admin
-
-client = AsyncOpenAI()  # Create async client instance
-
+from api.src.utils.llm import DEMO_MODEL_ID, async_public_openrouter_client
 
 router = APIRouter(prefix="/gmail", tags=["gmail"])
 
 
 @router.get("/get_zillow_emails")
-async def get_zillow_emails(session: DBSession) -> list[ZillowEmailResponse]:
-    """
-    Fetch 5 random Zillow inquiry emails, excluding daily listing emails.
-
-    Implemented as two cheap queries instead of one. A single query that
-    filters `body_html ILIKE '%zillow%'` across the whole table forces a
-    sequential scan that de-TOASTs every row's large `body_html`/payload
-    (~318 MB of buffers for ~10k rows). On a cold Neon compute that scan
-    exceeds the statement timeout (~10s) and the endpoint 500s.
-
-    Step 1 narrows to inquiry candidates using only the inline `subject`
-    column (no TOAST reads). Step 2 fetches those candidates by primary key
-    and applies the `body_html` filter, so only the candidate rows are
-    de-TOASTed (PK index scan, ~30 MB). A trigram index does not help here:
-    the planner under-costs TOAST reads and ignores it.
-    """
-    try:
-        # Step 1: cheap candidate lookup on the inline `subject` column only.
-        candidate_ids = (
-            (
-                await session.execute(
-                    select(EmailMessage.id).where(
-                        EmailMessage.subject.like("%is requesting%"),  # Only inquiries
-                        ~EmailMessage.subject.like("Re%"),  # is NOT a reply
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
-        if not candidate_ids:
-            return []
-
-        # Step 2: fetch candidates by primary key and apply the body_html
-        # filter. The PK index scan de-TOASTs only the candidate rows.
-        query = (
-            select(EmailMessage)
-            .where(
-                EmailMessage.id.in_(candidate_ids),
-                EmailMessage.body_html.ilike("%zillow%"),
-            )
-            .order_by(func.random())
-            .limit(5)
-        )
-
-        result = await session.execute(query)
-        emails = result.scalars().all()
-
-        # Format the response to match frontend expectations
-        return [
-            {
-                "id": str(email.id),
-                "subject": email.subject,
-                "sender": email.from_address,
-                "received_at": email.received_date.isoformat(),
-                "body_html": email.body_html,
-            }
-            for email in emails
-        ]
-
-    except Exception as e:
-        # Use logfire.exception so the real exception type/stacktrace is
-        # captured. The previous str(e) was empty for the timeout error,
-        # producing a blank "Failed to fetch Zillow emails: " message.
-        logfire.exception("Error fetching Zillow emails")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch Zillow emails: {e!r}")
+async def get_zillow_emails() -> dict:
+    """Public fictional scenarios; no mailbox or database access."""
+    return {"scenarios": SCENARIOS, "default_instructions": DEFAULT_INSTRUCTIONS}
 
 
 @router.post("/generate_email_response")
-async def generate_email_response(request: GenerateResponseRequest):
-    """Generate an AI response to a Zillow email using the provided system instruction."""
+async def generate_email_response(request: GenerateResponseRequest) -> dict[str, str]:
+    """Draft against a server-owned fictional scenario, never arbitrary email data."""
+    scenario = next((item for item in SCENARIOS if item["id"] == request.scenario_id), None)
+    if scenario is None:
+        raise HTTPException(status_code=422, detail="Choose one of the supplied scenarios.")
     try:
-        # Construct the prompt
-        prompt = f"""You are an AI assistant helping to respond to a Zillow rental inquiry email.
-
-System Instruction: {request.system_instruction}
-
-Original Email:
-{request.email_content}
-
-Please generate a professional and appropriate response:"""
-
-        # Call OpenAI API using async client
-        openai_response = await client.chat.completions.create(
-            model="gpt-5.4-mini",
+        result = await async_public_openrouter_client().chat.completions.create(
+            model=DEMO_MODEL_ID,
             messages=[
-                {"role": "system", "content": "You are a professional real estate assistant."},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": SAFETY_INSTRUCTIONS},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "writing_preferences": request.system_instruction,
+                            "scenario": scenario,
+                        }
+                    ),
+                },
             ],
-            temperature=0.7,
-            max_tokens=500,
+            max_tokens=800,
+            extra_body={"reasoning": {"effort": "low"}},
         )
-
-        response_text = openai_response.choices[0].message.content
-        return {"response": response_text}
-
-    except Exception as e:
-        logfire.error(f"Error generating email response: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate email response: {str(e)}")
+        reply = result.choices[0].message.content
+        if not reply or not reply.strip():
+            raise ValueError("Empty draft")
+        return {"response": reply, "scenario_id": scenario["id"]}
+    except APIStatusError as exc:
+        if exc.status_code == 402:
+            raise HTTPException(
+                status_code=402,
+                detail="The demo budget is temporarily unavailable. Your work is preserved; please come back later.",
+            ) from None
+        if exc.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="The demo is temporarily at capacity. Please wait a minute before trying again.",
+                headers={"Retry-After": "60"},
+            ) from None
+        logfire.exception("Email showcase provider request failed")
+        raise HTTPException(
+            status_code=503, detail="Drafting is temporarily unavailable. Please try again later."
+        ) from None
+    except Exception:
+        logfire.exception("Email showcase draft failed")
+        raise HTTPException(
+            status_code=503, detail="Drafting is temporarily unavailable. Please try again shortly."
+        )
 
 
 # Cron job route - supports both GET and POST

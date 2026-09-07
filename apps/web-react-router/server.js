@@ -1,5 +1,5 @@
 /**
- * Custom Express server for React Router v7.
+ * Custom Express server for React Router v8.
  *
  * API Proxy: Forwards /api/* requests to FastAPI backend.
  * - Docker Compose: LOCAL_DOCKER_COMPOSE=true → http://fastapi:8000 (checked first)
@@ -14,6 +14,7 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import compression from "compression";
+import { pathToFileURL } from "node:url";
 
 const app = express();
 
@@ -60,8 +61,33 @@ function waitForDrain(res) {
  * @param {string} targetUrl
  * @param {string} logTag
  */
-async function proxyToBackend(req, res, targetUrl, logTag) {
+export async function proxyToBackend(req, res, targetUrl, logTag) {
   console.log(`[${logTag}] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+
+  // Keep aligned with PublicAIGuard.PUBLIC_PATHS. Operational conversations
+  // deliberately keep draining after disconnect so persistence can finish.
+  const publicInferencePaths = new Set([
+    "/api/ai-demos/chat-emilio",
+    "/api/ai-demos/chat-weather",
+    "/api/ai-demos/multi-agent-chat",
+    "/api/google/gmail/generate_email_response",
+  ]);
+  const pathname = req.originalUrl.split("?")[0].replace(/\/+$/, "");
+  const controller = req.method === "POST" && publicInferencePaths.has(pathname)
+    ? new AbortController() : undefined;
+  let reader;
+  const cancelPublicInference = () => {
+    if (!controller || res.writableEnded) return;
+    controller.abort();
+    void reader?.cancel().catch(() => {});
+  };
+  if (controller) {
+    res.once("close", cancelPublicInference);
+    res.once("error", cancelPublicInference);
+    req.once("aborted", cancelPublicInference);
+    if (res.destroyed || req.aborted) cancelPublicInference();
+  }
+
 
   try {
     const headers = { ...req.headers };
@@ -72,6 +98,7 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
       headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : req,
       duplex: "half",
+      signal: controller?.signal,
     });
 
     for (const [key, value] of response.headers.entries()) {
@@ -84,14 +111,15 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
     res.flushHeaders?.();
 
     if (response.body) {
-      const reader = response.body.getReader();
+      reader = response.body.getReader();
+      if (controller?.signal.aborted) await reader.cancel();
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          // If the browser disconnected, keep draining the upstream stream so
-          // the backend can finish its work and persist the conversation.
+          // Public inference is cancelled by the close listener. Operational
+          // requests keep draining so the backend can persist conversations.
           if (res.destroyed || res.writableEnded) continue;
 
           if (!res.write(value) && !(await waitForDrain(res))) continue;
@@ -108,6 +136,7 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
       res.end();
     }
   } catch (error) {
+    if (controller?.signal.aborted) return;
     console.error(`[${logTag}] Error proxying to ${targetUrl}:`, error);
     if (!res.headersSent) {
       res.status(502).json({
@@ -119,6 +148,12 @@ async function proxyToBackend(req, res, targetUrl, logTag) {
       // wire, so an HTTP error body is no longer valid. Terminate the socket
       // to make the browser's fetch fail instead of hanging indefinitely.
       res.destroy();
+    }
+  } finally {
+    if (controller) {
+      res.off("close", cancelPublicInference);
+      res.off("error", cancelPublicInference);
+      req.off("aborted", cancelPublicInference);
     }
   }
 }
@@ -156,7 +191,9 @@ function getBackendUrl() {
 
 const port = process.env.PORT || 5173;
 
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
-  console.log(`Backend URL: ${getBackendUrl()}`);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+    console.log(`Backend URL: ${getBackendUrl()}`);
+  });
+}

@@ -1,7 +1,7 @@
 # Build context is repo root (not apps/web-react-router)
 # Uses workspace lockfile for single source of truth
 
-FROM node:22-alpine AS base
+FROM node:22.23.2-alpine AS base
 RUN corepack enable
 WORKDIR /app
 

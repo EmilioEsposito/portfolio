@@ -67,17 +67,18 @@ def test_build_run_kwargs_anthropic_shape():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     for key, expected in (
-        ("sonnet-4-6", "anthropic:claude-sonnet-4-6"),
-        ("opus-4-7", "anthropic:claude-opus-4-7"),
+        ("sonnet-4-6", "anthropic/claude-sonnet-4.6"),
+        ("opus-4-7", "anthropic/claude-opus-4.7"),
     ):
         kw = build_run_kwargs(key)
-        assert kw["model"] == expected, f"{key}: wrong model string {kw['model']!r}"
+        assert kw["model"].model_name == expected, f"{key}: wrong model string {kw['model']!r}"
         assert "builtin_tools" not in kw
-        # Anthropic caching is enabled on all three layers.
         settings = kw["model_settings"]
-        assert settings.get("anthropic_cache_instructions") is True
-        assert settings.get("anthropic_cache_tool_definitions") is True
-        assert settings.get("anthropic_cache_messages") is True
+        assert settings["openrouter_usage"] == {"include": True}
+        assert "openrouter_provider" not in settings
+        assert settings["openrouter_cache_instructions"] is True
+        assert settings["openrouter_cache_messages"] is True
+        assert settings["openrouter_cache_tool_definitions"] is True
 
 
 def test_build_run_kwargs_unknown_key_falls_back_to_default():
@@ -100,7 +101,7 @@ def test_effort_defaults_to_medium_for_both_gateways():
     openrouter_settings = build_run_kwargs("gpt-5.6-luna")["model_settings"]
     assert openrouter_settings["openrouter_reasoning"]["effort"] == "medium"
     anthropic_settings = build_run_kwargs("sonnet-4-6")["model_settings"]
-    assert anthropic_settings.get("thinking") == "medium"
+    assert anthropic_settings["openrouter_reasoning"]["effort"] == "medium"
 
 
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max"])
@@ -165,7 +166,9 @@ def test_unknown_effort_still_falls_back_on_openrouter():
 def test_anthropic_effort_uses_unified_thinking(effort: str):
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    assert build_run_kwargs("sonnet-4-6", effort)["model_settings"].get("thinking") == effort
+    assert build_run_kwargs("sonnet-4-6", effort)["model_settings"]["openrouter_reasoning"][
+        "effort"
+    ] == ("high" if effort == "xhigh" else effort)
 
 
 def test_max_effort_is_native_on_openrouter_and_clamps_on_anthropic():
@@ -175,31 +178,23 @@ def test_max_effort_is_native_on_openrouter_and_clamps_on_anthropic():
     openrouter_settings = build_run_kwargs("gpt-5.6-luna", "max")["model_settings"]
     assert openrouter_settings["openrouter_reasoning"]["effort"] == "max"
     anthropic_settings = build_run_kwargs("sonnet-4-6", "max")["model_settings"]
-    assert anthropic_settings.get("thinking") == "xhigh"
+    assert anthropic_settings["openrouter_reasoning"]["effort"] == "max"
 
 
-def test_unified_thinking_maps_to_adaptive_on_anthropic():
-    """Guard the provider translation we rely on: with no explicit
-    `anthropic_thinking`, pydantic-ai turns unified thinking into adaptive
-    thinking + effort on models that support it (Sonnet 4.6 / Opus 4.7)."""
-    from pydantic_ai.models import ModelRequestParameters
-    from pydantic_ai.models.anthropic import AnthropicModel
-    from pydantic_ai.providers.anthropic import AnthropicProvider
-
+def test_claude_models_use_openrouter_without_openai_provider_pin():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
-    kw = build_run_kwargs("sonnet-4-6", "high")
-    model = AnthropicModel("claude-sonnet-4-6", provider=AnthropicProvider(api_key="test-key"))
-    params = ModelRequestParameters(thinking=kw["model_settings"].get("thinking"))
-    translated = model._translate_thinking(kw["model_settings"], params)  # noqa: SLF001
-    assert translated == {"type": "adaptive"}
+    for key in ("sonnet-4-6", "opus-4-7"):
+        kw = build_run_kwargs(key, "high")
+        assert kw["model"].system == "openrouter"
+        assert "openrouter_provider" not in kw["model_settings"]
 
 
 def test_unknown_effort_falls_back_to_medium():
     from api.src.sernia_ai.model_config import build_run_kwargs
 
     anthropic_settings = build_run_kwargs("sonnet-4-6", "ultra")["model_settings"]
-    assert anthropic_settings.get("thinking") == "medium"
+    assert anthropic_settings["openrouter_reasoning"]["effort"] == "medium"
     openrouter_settings = build_run_kwargs("gpt-5.6-luna", None)["model_settings"]
     assert openrouter_settings["openrouter_reasoning"]["effort"] == "medium"
 
@@ -210,7 +205,7 @@ def test_available_models_cover_all_keys():
     keys = {m.key for m in AVAILABLE_MODELS}
     assert keys == {"gpt-5.6-luna", "sonnet-4-6", "opus-4-7"}
     providers = {m.provider for m in AVAILABLE_MODELS}
-    assert providers == {"openrouter", "anthropic"}
+    assert providers == {"openrouter"}
     # Opus carries a cost note so the UI can warn users.
     opus = next(m for m in AVAILABLE_MODELS if m.key == "opus-4-7")
     assert opus.cost_note and "Sonnet" in opus.cost_note

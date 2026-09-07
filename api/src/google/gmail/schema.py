@@ -5,7 +5,7 @@ Pydantic schemas for Gmail-related operations.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OptionalPassword(BaseModel):
@@ -17,18 +17,10 @@ class OptionalPassword(BaseModel):
 class GenerateResponseRequest(BaseModel):
     """Request model for generating AI responses."""
 
-    email_content: str
-    system_instruction: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-
-class ZillowEmailResponse(BaseModel):
-    """Pydantic model for Zillow email responses"""
-
-    id: int
-    subject: str
-    sender: str
-    received_at: datetime
-    body_html: str | None = None
+    scenario_id: str = Field(min_length=1, max_length=40)
+    system_instruction: str = Field(min_length=1, max_length=2000)
 
 
 class EmailMessageBase(BaseModel):
