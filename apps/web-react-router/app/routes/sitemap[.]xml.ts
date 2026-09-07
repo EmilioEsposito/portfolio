@@ -3,6 +3,9 @@ import { buildUrl } from "~/lib/seo";
 function getPublicPages(): string[] {
   return [
     "/",
+    "/systems/sernia-ai",
+    "/systems/emergency-routing",
+    "/systems/leasing-leads",
   ];
 }
 

@@ -74,7 +74,7 @@ Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote N
 ## Tech Stack
 
 ### Frontend
-- React Router v7 (framework mode) + Vite + React 19
+- React Router v8 (framework mode) + Vite + React 19
 - Shadcn UI + Tailwind CSS + Clerk auth
 - Vercel AI SDK for streaming
 
@@ -108,7 +108,7 @@ OpenPhone, Google Workspace, Twilio, Clerk, Railway, ClickUp
 │       ├── dbos_service/      # DBOS workflows (disabled)
 │       └── ...                # Other modules
 ├── apps/
-│   ├── web-react-router/      # React Router v7 Web App
+│   ├── web-react-router/      # React Router v8 Web App
 │   │   └── app/routes/        # File-based routes
 │   └── my-expo-app/           # Expo mobile app
 ├── packages/                  # Shared pnpm workspace packages

@@ -1,5 +1,5 @@
 /**
- * Custom Express server for React Router v7.
+ * Custom Express server for React Router v8.
  *
  * API Proxy: Forwards /api/* requests to FastAPI backend.
  * - Docker Compose: LOCAL_DOCKER_COMPOSE=true → http://fastapi:8000 (checked first)

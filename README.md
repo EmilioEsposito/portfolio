@@ -6,7 +6,7 @@ A monorepo for personal learning projects and production AI-based services for m
 ## Tech Stack:
 * Frontend:
     * Web:
-        * Framework: React Router v7 (framework mode)
+        * Framework: React Router v8 (framework mode)
         * UI: [Shadcn UI](https://ui.shadcn.com/docs)
         * Styling: Tailwind CSS
     * Mobile:

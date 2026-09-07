@@ -6,6 +6,7 @@ import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { Markdown } from "~/components/markdown";
 import { cn } from "~/lib/utils";
+import { publicChatHistory } from "~/lib/public-chat-history";
 
 export function meta() {
   return [{ title: "Agent showcase | Emilio Esposito" }, { name: "description", content: "See an AI workflow make a routing decision, use a specialist, and stream its answer in real time." }];
@@ -48,7 +49,12 @@ export default function MultiAgentChatPage() {
   const transcript = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const { messages, sendMessage, status, stop, error, setMessages, clearError } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/ai-demos/multi-agent-chat" }),
+    transport: new DefaultChatTransport({
+      api: "/api/ai-demos/multi-agent-chat",
+      prepareSendMessagesRequest: ({ messages, id, trigger, body }) => ({
+        body: { ...body, id, trigger, messages: publicChatHistory(messages) },
+      }),
+    }),
     onData: (part) => {
       if (part.type !== "data-agent-activity") return;
       const data = part.data as Activity;
@@ -128,7 +134,7 @@ export default function MultiAgentChatPage() {
             <Textarea id="showcase-message" value={input} maxLength={2000} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(input); } }} placeholder="Ask about Emilio’s work or the weather…" rows={3} className="resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" disabled={busy} />
             <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{input.length}/2,000</span>{busy ? <Button type="button" variant="outline" onClick={() => { stop(); submitting.current = false; setCancelled(true); }}><Square className="mr-2 size-3" />Stop</Button> : <Button type="submit" disabled={!input.trim()}><ArrowUp className="mr-2 size-4" />Send</Button>}</div>
           </form>
-          <p className="mt-3 text-xs text-muted-foreground">Public demo. Use general questions; leave out private or sensitive information.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Public demo. Recent text provides conversation context. Leave out private or sensitive information.</p>
         </section>
       </div>
     </main>

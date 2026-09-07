@@ -412,9 +412,9 @@ def provision(path: Path, *, once: bool = False) -> None:
             .lstrip("v")
             .split(".")
         )
-        if tuple(map(int, version[:2])) < (22, 13):
+        if tuple(map(int, version[:2])) < (22, 22):
             raise WorktreeError(
-                "Node 22.13+ is required by the pinned pnpm 11. Activate it and retry."
+                "Node 22.22+ is required by React Router 8. Activate it and retry."
             )
         state = allocate(checkout)
         print(
