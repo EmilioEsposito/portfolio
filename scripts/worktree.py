@@ -413,9 +413,7 @@ def provision(path: Path, *, once: bool = False) -> None:
             .split(".")
         )
         if tuple(map(int, version[:2])) < (22, 22):
-            raise WorktreeError(
-                "Node 22.22+ is required by React Router 8. Activate it and retry."
-            )
+            raise WorktreeError("Node 22.22+ is required by React Router 8. Activate it and retry.")
         state = allocate(checkout)
         print(
             f"Provisioning {checkout.root}\nAPI: http://localhost:{state['api_port']}\nWeb: http://localhost:{state['web_port']}",
