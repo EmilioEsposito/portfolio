@@ -13,6 +13,7 @@ import logfire
 from pydantic_ai import RunContext
 
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.messaging.templates import GUIDANCE as TEMPLATE_GUIDANCE
 
 # Filetree is uncurated — keep capped to avoid noise. MEMORY.md is the agent's
 # canonical long-term memory and is injected verbatim; we only log a warning
@@ -92,7 +93,7 @@ tenant groups.
 - **Prefer the shared team number** for general team SMS notifications so \
 the whole team sees one thread. Only message a specific person when the \
 message is really for them.
-- **HITL approval is automatic.** External SMS, external email, mass texts, \
+- **HITL approval is automatic.** Free-form external SMS, external email, mass texts, \
 calendar events with external attendees, calendar deletes of events with \
 external attendees, contact updates / deletes, and task deletes pause the \
 agent for human approval. Internal-only calendar writes (create or delete) \
@@ -278,3 +279,7 @@ DYNAMIC_INSTRUCTIONS = [
     inject_filetree,
     inject_modality_guidance,
 ]
+
+
+# Deployed policy guidance stays discoverable even without a workspace skill.
+STATIC_INSTRUCTIONS += "\n\nFixed external reminders: " + TEMPLATE_GUIDANCE

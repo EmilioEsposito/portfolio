@@ -42,6 +42,7 @@ from pydantic import AliasChoices, Field
 from sernia_mcp.clients.git_sync import commit_and_push, pull_workspace
 from sernia_mcp.config import WORKSPACE_PATH
 from sernia_mcp.core.errors import CoreError, NotFoundError, ValidationError
+from sernia_mcp.core.message_templates import GUIDANCE as TEMPLATE_GUIDANCE
 from sernia_mcp.core.skills import (
     list_skills,
     read_memory,
@@ -179,6 +180,7 @@ async def sernia_context() -> str:
     return json.dumps(
         {
             "memory": memory,
+            "templated_messages": TEMPLATE_GUIDANCE,
             "skills": [
                 {"name": s.name, "uri": s.uri, "description": s.description} for s in skills
             ],
