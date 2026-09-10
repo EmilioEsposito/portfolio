@@ -9,7 +9,7 @@ import httpx
 
 from sernia_mcp.clients._fuzzy import fuzzy_filter_json
 from sernia_mcp.clients.quo import build_quo_client, get_all_contacts
-from sernia_mcp.config import QUO_SHARED_EXTERNAL_PHONE_ID
+from sernia_mcp.config import QUO_SERNIA_AI_PHONE_ID, QUO_SHARED_EXTERNAL_PHONE_ID
 from sernia_mcp.core.errors import ExternalServiceError
 
 
@@ -187,9 +187,8 @@ async def _fetch_activity_by_id(
 
     Both share the same ID prefix and the conversation object exposes only
     ``lastActivityId`` (no type marker), so we probe both endpoints in
-    parallel and return whichever succeeds. Group threads can ONLY be read
-    this way — OpenPhone's ``/v1/messages?participants[]=…`` silently filters
-    to 1:1 threads regardless of how many participants are passed.
+    parallel and return whichever succeeds. Also useful as a fallback when
+    group history is temporarily unavailable.
     """
     msg, call = await asyncio.gather(
         _fetch_message_by_id(client, activity_id),
@@ -202,36 +201,74 @@ async def _fetch_activity_by_id(
     return None
 
 
+async def _fetch_group_messages(
+    client: httpx.AsyncClient,
+    conversation: dict,
+    participants: list[str],
+    max_results: int,
+) -> list[dict] | None:
+    """Read a group using Quo's repeated, unbracketed participants filter.
+
+    Since June 18, 2026 Quo supports group history and returns conversationId.
+    Reject mismatched results instead of mistaking a 1:1 thread for the group.
+    None means unavailable/untrusted; [] means a successful empty response.
+    """
+    if not conversation.get("id") or not conversation.get("phoneNumberId"):
+        return None
+    params = [
+        ("phoneNumberId", conversation["phoneNumberId"]),
+        ("maxResults", str(max(1, min(max_results, 100)))),
+        *(("participants", p) for p in sorted(set(participants))),
+    ]
+    try:
+        response = await client.get("/v1/messages", params=params)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    messages = response.json().get("data", [])
+    if any(m.get("conversationId") != conversation["id"] for m in messages):
+        return None
+    return sorted(
+        (m | {"_kind": "message"} for m in messages),
+        key=lambda m: m.get("createdAt", ""),
+    )
+
+
 async def _find_group_conversation(
     client: httpx.AsyncClient,
     participants: list[str],
 ) -> dict | None:
-    """Find the OpenPhone conversation whose participants exactly match the
-    given set (regardless of ordering). Returns None if none found. Pages
-    through up to 5 pages of conversations (~500) — enough for an active
-    inbox of any realistic size.
+    """Find the OpenPhone conversation whose participants exactly match
+    the given set (regardless of ordering). Returns None if none found.
+    Pages through up to 5 pages of conversations (~500) per line — enough
+    for an active inbox of any realistic size.
+
+    Searches the shared team number first, then the AI line: all-internal
+    group texts are created on the AI line (see ``resolve_group_sms_routing``),
+    so a shared-line-only lookup would never find them.
     """
     target = frozenset(participants)
-    page_token: str | None = None
-    for _ in range(5):
-        params: list[tuple[str, str]] = [
-            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
-            ("maxResults", "100"),
-        ]
-        if page_token:
-            params.append(("pageToken", page_token))
-        try:
-            resp = await client.get("/v1/conversations", params=params)
-            resp.raise_for_status()
-        except httpx.HTTPError:
-            return None
-        data = resp.json()
-        for conv in data.get("data", []):
-            if frozenset(conv.get("participants") or []) == target:
-                return conv
-        page_token = data.get("nextPageToken")
-        if not page_token:
-            break
+    for phone_id in (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID):
+        page_token: str | None = None
+        for _ in range(5):
+            params: list[tuple[str, str]] = [
+                ("phoneNumbers", phone_id),
+                ("maxResults", "100"),
+            ]
+            if page_token:
+                params.append(("pageToken", page_token))
+            try:
+                resp = await client.get("/v1/conversations", params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError:
+                break  # try the next line rather than giving up entirely
+            data = resp.json()
+            for conv in data.get("data", []):
+                if frozenset(conv.get("participants") or []) == target:
+                    return conv
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
     return None
 
 
@@ -402,7 +439,7 @@ async def list_active_threads_core(
     async with build_quo_client() as client:
         for _ in range(max_pages):
             params: list[tuple[str, str]] = [
-                ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
+                ("phoneNumbers", QUO_SHARED_EXTERNAL_PHONE_ID),
                 ("maxResults", "100"),
                 ("excludeInactive", "true"),
             ]
@@ -426,7 +463,7 @@ async def list_active_threads_core(
                     active.append(conv)
 
             page_token = data.get("nextPageToken")
-            if not page_token or len(active) >= max_results:
+            if not page_token:
                 break
 
         active.sort(key=lambda c: c.get("lastActivityAt", ""), reverse=True)
@@ -440,12 +477,8 @@ async def list_active_threads_core(
 
         # Build the snippet for each thread by picking whichever of the
         # latest message / latest call has the more recent ``createdAt``.
-        # Group threads (>1 participant) require a different path:
-        # OpenPhone's ``/v1/messages?participants[]=…`` filter silently
-        # narrows to 1:1 even when both participants are passed, so
-        # per-participant fetches return the wrong thread. Instead, follow
-        # the conversation's ``lastActivityId`` — that always points at the
-        # actual most-recent activity for the thread.
+        # Use the group's lastActivityId so snippets cannot accidentally
+        # show a participant's private 1:1 conversation.
         async def _fetch_snippet_1to1(phone: str) -> dict | None:
             msg, call = await asyncio.gather(
                 _fetch_latest_message(client, phone),
@@ -536,6 +569,8 @@ async def list_active_threads_core(
         )
 
     header = f"Active threads ({len(conversations)}):"
+    if page_token:
+        header += "\nPartial inbox scan (500 conversations); narrow updated_after_days before concluding nothing needs attention."
     if stale_count:
         header += (
             f"\n\n⚠️ {stale_count} of these thread{'s' if stale_count != 1 else ''} "
@@ -666,6 +701,50 @@ def _format_group_activity_line(
     return f"[{created}] {sender_name} → {to_names}: {text}"
 
 
+def _render_group_thread_from_db(
+    activities: list[dict],
+    participants: list[str],
+    phone_map: dict[str, str],
+    now: datetime | None = None,
+) -> str:
+    """Format a sequence of group-thread activities (from the events table)
+    as a single chronological thread, similar to ``_render_thread`` but
+    aware that messages can have multiple recipients."""
+    now = now or datetime.now(UTC)
+    lines: list[str] = []
+    msg_count = sum(1 for a in activities if a.get("_kind") == "message")
+    call_count = sum(1 for a in activities if a.get("_kind") == "call")
+    label = ", ".join(
+        f"{phone_map.get(p, p)} ({p})" if phone_map.get(p, p) != p else p for p in participants
+    )
+    lines.append(
+        f"Group thread with {label} — "
+        f"{msg_count} message{'s' if msg_count != 1 else ''}, "
+        f"{call_count} call{'s' if call_count != 1 else ''}\n"
+    )
+
+    for item in activities:
+        created = _ts(item.get("createdAt"), now)
+        if item.get("_kind") == "call":
+            direction = item.get("direction") or "?"
+            dur = item.get("duration")
+            dur_str = f"{dur}s" if isinstance(dur, int) else "?s"
+            lines.append(
+                f"[{created}] CALL ({direction}, {dur_str}) — Call ID {item.get('id', '?')}"
+            )
+        else:
+            sender_phone = item.get("from") or ""
+            sender_name = phone_map.get(sender_phone, sender_phone) if sender_phone else "?"
+            to_phones = item.get("to") or []
+            to_names = ", ".join(
+                phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
+            )
+            text = (item.get("text") or "(no text)")[:500]
+            lines.append(f"[{created}] {sender_name} → {to_names}: {text}")
+
+    return "\n".join(lines)
+
+
 async def get_thread_messages_core(
     phone_number: str | list[str],
     max_results: int = 20,
@@ -673,11 +752,9 @@ async def get_thread_messages_core(
     """Get the recent thread (SMS + calls) for ``phone_number``.
 
     Accepts either a single phone (1:1 thread) or a list of phones (group
-    thread). Group threads are an OpenPhone API limitation: the
-    ``/v1/messages?participants[]=…`` filter silently narrows to 1:1 even
-    when multiple participants are passed. So for group threads we surface
-    the most recent group activity via the conversation's ``lastActivityId``
-    and supplement with each participant's 1:1 history (clearly labeled).
+    thread). Group messages use Quo's supported participants filter, with
+    conversationId validation. API failure falls back to clearly labeled
+    last-activity and 1:1 context.
 
     Call entries include the Call ID so the caller can chain to
     ``get_call_details_core`` for the summary + transcript.
@@ -718,20 +795,11 @@ async def get_thread_messages_core(
             )
 
         # ---- Group thread path ----
-        # TODO(group-thread-db): The sister monorepo `api/src/sernia_ai`
-        # serves full group-thread history from a webhook-ingested
-        # `open_phone_events` Postgres table (see
-        # `api/src/sernia_ai/tools/quo_tools.py::_fetch_group_thread_from_events_table`).
-        # We DON'T do that here on purpose — the MCP service is intentionally
-        # lean (no SQLAlchemy / asyncpg per CLAUDE.md), and we'd rather not
-        # couple to the backend's DB schema directly.
-        # When we want to close this gap, the cleanest path is to expose a
-        # service-internal HTTP endpoint on the FastAPI backend
-        # (e.g. GET /api/open-phone/conversations/{id}/messages) gated by the
-        # existing SERNIA_MCP_INTERNAL_BEARER_TOKEN, and call it from here.
-        # Until then, we fall back to the API-only path below and the caveat
-        # makes the limitation explicit to the MCP client.
         conv = await _find_group_conversation(client, participants_in)
+        if conv is not None:
+            messages = await _fetch_group_messages(client, conv, participants_in, max_results)
+            if messages:
+                return _render_group_thread_from_db(messages, participants_in, phone_map)
         last_activity: dict | None = None
         conv_id = "?"
         if conv is not None:
@@ -751,13 +819,10 @@ async def get_thread_messages_core(
         f"Group thread: {participant_labels}",
         f"Conversation ID: {conv_id}",
         "",
-        "**Caveat — partial data:** OpenPhone's public API does not expose "
-        "group-thread message history by participant filter. Only the *most "
-        "recent* group activity (via the conversation's `lastActivityId`) "
-        "and each participant's 1:1 thread can be listed. Older group "
-        "messages exist but cannot be retrieved through this tool — view "
-        "them in the OpenPhone app, or wait for backend-side group-thread "
-        "support (TODO: see comment in core/quo/contacts.py).",
+        "**Caveat — partial data:** Group history was empty, unavailable, or "
+        "returned another conversation. This is partial context, not evidence "
+        "that the group has no messages. Below is the last group activity "
+        "and separately labeled 1:1 context. Check Quo if more history is needed.",
         "",
         "## Most recent group activity",
     ]

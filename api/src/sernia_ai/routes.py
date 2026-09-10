@@ -444,14 +444,22 @@ async def approve_conversation(
             for d in body.decisions
         ]
 
+        conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+        reply_to = None
+        if conv and conv.modality == "sms" and conv.metadata_:
+            reply_to = conv.metadata_.get("trigger_group_participants") or conv.metadata_.get(
+                "trigger_phone"
+            )
+
         deps = SerniaDeps(
             db_session=session,
             conversation_id=conversation_id,
             user_identifier=clerk_user_id,
             user_name=user_name,
             user_email=_sernia_email(user),
-            modality="web_chat",
+            modality="sms" if reply_to else "web_chat",
             workspace_path=WORKSPACE_PATH,
+            sms_reply_recipients=([reply_to] if isinstance(reply_to, str) else reply_to or []),
         )
 
         run_kwargs = await resolve_active_run_kwargs()

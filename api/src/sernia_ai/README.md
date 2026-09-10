@@ -151,3 +151,7 @@ The agent can call `list_message_templates` / `send_templated_message` to send e
 code-owned reminders without HITL. SMS, email and dual delivery are supported.
 The USPS forwarding template validates fresh lease dates in Quo; general send tools
 retain approval gates. See [fixed-message policy](messaging/README.md).
+
+SMS reply delivery and current Quo group-history support are documented in
+[tools/README.md](tools/README.md#automatic-sms-replies) and
+[triggers/README.md](triggers/README.md#sms-delivery-reliability-september-2026).

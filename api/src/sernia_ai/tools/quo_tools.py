@@ -746,9 +746,8 @@ async def _fetch_activity_by_id(
 
     Both share the same ID prefix and the conversation object exposes only
     ``lastActivityId`` (no type marker), so we probe both endpoints in
-    parallel and return whichever succeeds. Group threads can ONLY be read
-    this way — OpenPhone's ``/v1/messages?participants[]=…`` silently filters
-    to 1:1 threads regardless of how many participants are passed.
+    parallel and return whichever succeeds. Also useful as a fallback when
+    group history is temporarily unavailable.
     """
     import asyncio
 
@@ -768,13 +767,8 @@ async def _fetch_activity_by_id(
 # ---------------------------------------------------------------------------
 # Group thread workaround — read from open_phone_events webhook table
 # ---------------------------------------------------------------------------
-# OpenPhone's public API silently filters /v1/messages?participants[]=… to 1:1
-# threads — group thread history is unreachable. The local ``open_phone_events``
-# table (populated by webhooks) DOES capture group msgs with a comma-separated
-# ``to_number`` and the right ``conversation_id``. We use it ONLY for group
-# threads; 1:1 threads still go straight to the public API. Easy to rip out
-# when OpenPhone exposes a ``conversationId`` filter or per-conv messages
-# endpoint.
+# Webhook history is a fallback for group API failures and indexing delays.
+# Keep the same normalized activity shape as the current Quo messages API.
 
 
 async def _fetch_group_thread_from_events_table(
@@ -891,6 +885,39 @@ def _render_group_thread_from_db(
     return "\n".join(lines)
 
 
+async def _fetch_group_messages(
+    client: httpx.AsyncClient,
+    conversation: dict,
+    participants: list[str],
+    max_results: int,
+) -> list[dict] | None:
+    """Read a group using Quo's repeated, unbracketed participants filter.
+
+    Since June 18, 2026 Quo supports group history and returns conversationId.
+    Reject mismatched results instead of mistaking a 1:1 thread for the group.
+    None means unavailable/untrusted; [] means a successful empty response.
+    """
+    if not conversation.get("id") or not conversation.get("phoneNumberId"):
+        return None
+    params = [
+        ("phoneNumberId", conversation["phoneNumberId"]),
+        ("maxResults", str(max(1, min(max_results, 100)))),
+        *(("participants", p) for p in sorted(set(participants))),
+    ]
+    try:
+        response = await client.get("/v1/messages", params=params)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    messages = response.json().get("data", [])
+    if any(m.get("conversationId") != conversation["id"] for m in messages):
+        return None
+    return sorted(
+        (m | {"_kind": "message"} for m in messages),
+        key=lambda m: m.get("createdAt", ""),
+    )
+
+
 async def _find_group_conversation(
     client: httpx.AsyncClient,
     participants: list[str],
@@ -909,7 +936,7 @@ async def _find_group_conversation(
         page_token: str | None = None
         for _ in range(5):
             params: list[tuple[str, str]] = [
-                ("phoneNumbers[]", phone_id),
+                ("phoneNumbers", phone_id),
                 ("maxResults", "100"),
             ]
             if page_token:
@@ -951,7 +978,7 @@ async def list_active_threads_impl(
 
     for _ in range(max_pages):
         params: list[tuple[str, str]] = [
-            ("phoneNumbers[]", QUO_SHARED_EXTERNAL_PHONE_ID),
+            ("phoneNumbers", QUO_SHARED_EXTERNAL_PHONE_ID),
             ("maxResults", "100"),
             ("excludeInactive", "true"),
         ]
@@ -975,7 +1002,7 @@ async def list_active_threads_impl(
                 active.append(conv)
 
         page_token = data.get("nextPageToken")
-        if not page_token or len(active) >= max_results:
+        if not page_token:
             break
 
     # Sort by most recent activity
@@ -988,13 +1015,8 @@ async def list_active_threads_impl(
     contacts = await get_all_contacts(client)
     phone_map = _build_phone_map(contacts)
 
-    # Build the snippet for each thread by picking whichever of the latest
-    # message / latest call has the more recent ``createdAt``. Group threads
-    # (>1 participant) require a different path: OpenPhone's
-    # ``/v1/messages?participants[]=…`` filter silently narrows to 1:1 even
-    # when both participants are passed, so per-participant fetches return
-    # the wrong thread. Instead, follow the conversation's ``lastActivityId``
-    # — that always points at the actual most-recent activity for the thread.
+    # Resolve group snippets by lastActivityId so they cannot accidentally
+    # display a participant's private 1:1 conversation.
     import asyncio
 
     async def _fetch_snippet_1to1(phone: str) -> dict | None:
@@ -1088,6 +1110,8 @@ async def list_active_threads_impl(
         )
 
     header = f"Active threads ({len(conversations)}):"
+    if page_token:
+        header += "\nPartial inbox scan (500 conversations); narrow updated_after_days before concluding nothing needs attention."
     if stale_count:
         header += (
             f"\n\n⚠️ {stale_count} of these thread{'s' if stale_count != 1 else ''} "
@@ -1233,11 +1257,9 @@ async def get_thread_messages_impl(
     Returns SMS messages **and calls** interleaved in chronological order.
 
     Accepts either a single phone (1:1 thread) or a list of phones (group
-    thread). Group threads are an OpenPhone API limitation: the
-    ``/v1/messages?participants[]=…`` filter silently narrows to 1:1 even
-    when multiple participants are passed. So for group threads we surface
-    the most recent group activity via the conversation's ``lastActivityId``
-    and supplement with each participant's 1:1 history (clearly labeled).
+    thread). Group history comes from the Quo messages API, verified against
+    the conversation ID. Webhook history is the fallback during API failures
+    or indexing delays; last activity and labeled 1:1 context are the final fallback.
 
     Call entries include the call ID — pass it to ``get_call_details`` for
     the summary + transcript.
@@ -1281,8 +1303,10 @@ async def get_thread_messages_impl(
     db_activities: list[dict] = []
     if conv is not None:
         conv_id = conv.get("id", "?")
-        # PRIMARY: pull from our webhook-ingested events table — the only
-        # path that yields full group-thread history.
+        api_activities = await _fetch_group_messages(client, conv, participants_in, max_results)
+        if api_activities:
+            return _render_group_thread_from_db(api_activities, participants_in, phone_map)
+        # Webhook history covers API outages and indexing delays.
         try:
             db_activities = await _fetch_group_thread_from_events_table(
                 conv_id,
@@ -1324,8 +1348,8 @@ async def get_thread_messages_impl(
         "",
         "**Caveat:** This conversation has no entries in the local webhook "
         "events table, so we're falling back to OpenPhone's public API. "
-        "OpenPhone's API does not expose group-thread message history by "
-        "participant filter — only 1:1 messages can be listed. What follows "
+        "Group history was empty, unavailable, or returned another conversation. "
+        "This is partial context, not evidence that the group has no messages. What follows "
         "is (1) the most recent group activity (via the conversation's "
         "lastActivityId), and (2) each participant's 1:1 thread for context. "
         "For full group-thread history, view it in the OpenPhone app.",
@@ -1930,6 +1954,17 @@ def _build_quo_toolset():
         """
         logfire.info("send_sms called", to=to, message_length=len(message))
 
+        recipients = [to] if isinstance(to, str) else to
+        if ctx.deps.sms_reply_recipients and {re.sub(r"\D", "", p) for p in recipients} == {
+            re.sub(r"\D", "", p) for p in ctx.deps.sms_reply_recipients
+        }:
+            logfire.info("send_sms: current thread reply deferred to final response")
+            return (
+                "No SMS sent: your final response is automatically delivered to this "
+                "SMS thread. Put your reply in the final response instead of calling "
+                "send_sms for these recipients."
+            )
+
         # Gate: message length — carriers (e.g. AT&T) reject long messages.
         if len(message) > SMS_MAX_LENGTH:
             return (
@@ -2240,14 +2275,10 @@ def _build_quo_toolset():
         Call entries include the Call ID — pass it to ``get_call_details`` to
         read the call's summary + transcript.
 
-        **Group threads** (multiple phones): full group-thread history is
-        served from our local webhook events table when available. If the
-        conversation predates webhook ingestion or the lookup fails, the tool
-        falls back to OpenPhone's public API (which only exposes the
-        conversation's most recent activity plus each participant's 1:1
-        history) and includes a caveat block in the output so you can tell
-        which path you got. Use ``list_active_sms_threads`` to discover the
-        participant set for a group conversation.
+        **Group threads** (multiple phones): reads recent group messages from
+        Quo, checking conversationId on every result. Falls back to local
+        webhook history if unavailable; partial context is explicitly labeled.
+        Use ``list_active_sms_threads`` to discover group participants.
 
         Args:
             phone_number: A single phone in E.164 (1:1 thread) OR a list of

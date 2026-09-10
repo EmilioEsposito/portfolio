@@ -311,7 +311,7 @@ class TestGroupSendPayload:
         }
 
         def handler(request: httpx.Request) -> httpx.Response:
-            phone_id = request.url.params.get("phoneNumbers[]")
+            phone_id = request.url.params.get("phoneNumbers")
             if phone_id == QUO_SERNIA_AI_PHONE_ID:
                 return httpx.Response(200, json={"data": [ai_line_conv]})
             return httpx.Response(200, json={"data": []})

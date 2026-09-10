@@ -1064,6 +1064,7 @@ class TestHandleAiSmsEvent:
             )
 
             mock_agent.run.assert_called_once()
+            assert mock_agent.run.call_args.kwargs["deps"].sms_reply_recipients == ["+14155550100"]
             mock_save.assert_called_once()
             save_kwargs = mock_save.call_args[1]
             assert save_kwargs["modality"] == "sms"

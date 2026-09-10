@@ -17,12 +17,14 @@ Flow:
   5. Send agent's text response back via SMS, or handle HITL pause
 """
 
+import asyncio
 import os
 import re
 import time
 from collections import defaultdict
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from weakref import WeakValueDictionary
 
 import httpx
 import logfire
@@ -625,7 +627,26 @@ async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
     )
 
 
+# Serialize history/load/run/save/reply for each SMS conversation in this process.
+# Weak entries disappear after the last run/waiter releases its reference.
+_sms_thread_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+
+
 async def handle_ai_sms_event(event_data: dict) -> None:
+    key = event_data.get("conversation_id") or "|".join(
+        sorted(
+            {
+                event_data.get("from_number", ""),
+                *_split_to_numbers(event_data.get("to_number")),
+            }
+        )
+    )
+    lock = _sms_thread_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        await _handle_ai_sms_event(event_data)
+
+
+async def _handle_ai_sms_event(event_data: dict) -> None:
     """Process an inbound SMS to the AI's phone number.
 
     Called as a FastAPI background task from the Quo webhook handler.
@@ -737,6 +758,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="sms",
             workspace_path=WORKSPACE_PATH,
+            sms_reply_recipients=[from_number],
         )
 
         run_kwargs = await resolve_active_run_kwargs()
@@ -807,10 +829,7 @@ async def handle_ai_sms_event(event_data: dict) -> None:
             # Send agent's text response back via SMS
             output_text = result.output if isinstance(result.output, str) else ""
             if output_text:
-                create_logged_task(
-                    _send_sms_reply(from_number, output_text),
-                    name="sms_reply",
-                )
+                await _send_sms_reply(from_number, output_text)
 
         logfire.info(
             "ai_sms_event: completed",
@@ -838,10 +857,8 @@ async def _handle_group_sms(
     - **Conversation**: keyed to the Quo group conversation
       (``ai_sms_group_{CN...}``) so all members share one AI conversation,
       instead of the sender's personal ``ai_sms_from_{digits}``.
-    - **History**: group thread reconstructed from the local
-      ``open_phone_events`` webhook table (the only source of full group
-      history — OpenPhone's API can't list group messages by participant),
-      merged with DB history. User turns are prefixed ``[Sender Name]:``.
+    - **History**: verified Quo group messages, with the local webhook table
+      as fallback, merged with DB history. User turns use ``[Sender Name]:``.
     - **Reply**: sent to ALL human participants in one message, landing in
       the same group thread.
     """
@@ -891,13 +908,23 @@ async def _handle_group_sms(
         if quo_conv_id:
             try:
                 from api.src.sernia_ai.tools.quo_tools import (
+                    _build_quo_client,
+                    _fetch_group_messages,
                     _fetch_group_thread_from_events_table,
                 )
 
-                activities = await _fetch_group_thread_from_events_table(
-                    quo_conv_id,
-                    max_results=SMS_CONVERSATION_MAX_MESSAGES,
-                )
+                async with _build_quo_client() as client:
+                    activities = await _fetch_group_messages(
+                        client,
+                        {"id": quo_conv_id, "phoneNumberId": QUO_SERNIA_AI_PHONE_ID},
+                        all_humans,
+                        SMS_CONVERSATION_MAX_MESSAGES,
+                    )
+                if not activities:
+                    activities = await _fetch_group_thread_from_events_table(
+                        quo_conv_id,
+                        max_results=SMS_CONVERSATION_MAX_MESSAGES,
+                    )
                 group_thread = _group_activities_to_model_messages(
                     activities,
                     ai_phone,
@@ -942,6 +969,7 @@ async def _handle_group_sms(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="sms",
             workspace_path=WORKSPACE_PATH,
+            sms_reply_recipients=all_humans,
         )
 
         run_kwargs = await resolve_active_run_kwargs()
@@ -1010,10 +1038,7 @@ async def _handle_group_sms(
         else:
             output_text = result.output if isinstance(result.output, str) else ""
             if output_text:
-                create_logged_task(
-                    _send_sms_reply(all_humans, output_text),
-                    name="sms_reply",
-                )
+                await _send_sms_reply(all_humans, output_text)
 
         logfire.info(
             "ai_sms_event: group completed",

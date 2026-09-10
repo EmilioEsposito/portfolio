@@ -403,7 +403,7 @@ async def test_get_thread_messages_impl_handles_group_thread(
     if fallback_path:
         # Fallback: the lastActivityId-only path, with caveat + 1:1 sections.
         assert "Conversation ID: CN" in result
-        assert "OpenPhone's API does not expose group-thread" in result
+        assert "Group history was empty, unavailable" in result
         assert "## Most recent group activity" in result
         assert "## 1:1 thread with" in result
 

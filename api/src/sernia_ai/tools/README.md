@@ -115,16 +115,29 @@ Whenever a call appears in either tool's output, the Call ID (`AC...`) is includ
 
 ### Group Threads
 
-OpenPhone supports multi-participant conversations (e.g. two roommates sharing one Quo thread), and **sending** into a group thread works first-class via the `to` array on `POST /v1/messages` (see _Group Texts_ above). **Reading** is the limited side: the public API does **not** let you list a group thread's messages by participant: `/v1/messages?participants[]=A&participants[]=B` silently filters to the 1:1 conversation with the *first* participant, regardless of how many are passed.
+Quo added group message listing on June 18, 2026. Send repeated **unbracketed**
+`participants` keys (`participants=A&participants=B`) and the owning `phoneNumberId`.
+Every returned `conversationId` must match the selected group; mismatches are rejected.
+Both the agent and standalone MCP reader use this API. The agent falls back to webhook
+history during API outages/indexing delays; partial last-activity/1:1 context is labeled.
 
-> **Gotcha — send `participants`, not `participants[]`, from Python.** The bracketed form above is *curl* syntax, where the brackets go over the wire literally. httpx percent-encodes them to `participants%5B%5D`, which OpenPhone does not recognise and answers with a **400**. Every call site here uses the plain `participants` key; `test_triggers.py::TestFetchSmsThreadRequest` guards the one that regressed. The group conversation is real (it appears in `/v1/conversations`), and individual messages can be fetched by ID via `/v1/messages/{id}`, but you can't enumerate them.
+Conversation listing likewise requires `phoneNumbers`, **not** `phoneNumbers[]`.
+Live verification on September 10 found that Quo silently ignores the bracketed filter
+and returns conversations across unrelated lines. Fetch the bounded page set before
+sorting by last activity; results are not reliably ordered by recent activity.
+A capped scan is explicitly labeled partial, so it cannot justify an all-clear.
 
-Workarounds in this codebase:
+References: [message listing](https://www.quo.com/docs/mdx/api-reference/messages/list-messages),
+[API changelog](https://www.quo.com/docs/mdx/api-reference/changelog).
 
-- **`list_active_sms_threads`**: when a conversation has more than one participant, the snippet is built from the conversation's `lastActivityId` (probing both `/v1/messages/{id}` and `/v1/calls/{id}` in parallel since both share the `AC...` prefix). This guarantees the inbox snippet reflects the actual most-recent group activity instead of falling back to a stale 1:1 thread.
-- **`get_thread_messages`**: accepts `phone_number: str | list[str]`. When given a list, it locates the matching group conversation, surfaces the most-recent group activity via `lastActivityId`, and renders each participant's 1:1 history below for context. The output explicitly states the API limitation so the agent doesn't pretend it has the full group history.
+### Automatic SMS replies
 
-For full group-thread history, the OpenPhone web/mobile UI is the source of truth.
+The SMS trigger owns delivery to the current thread. It supplies `sms_reply_recipients`
+on the run dependencies; `send_sms` refuses an extra send to that same recipient set
+and directs the model to put its reply in the final response. Approval resumptions
+restore those recipients too. Sending to a different thread retains ordinary routing
+and approval requirements. This prevents the observed tool-send plus final-answer
+send duplication; it is not a general provider idempotency ledger.
 
 ## Scheduling (`scheduling_tools.py`)
 
