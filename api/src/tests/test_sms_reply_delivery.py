@@ -86,3 +86,101 @@ async def test_back_to_back_sms_runs_are_serialized(monkeypatch):
     release.set()
     await asyncio.gather(first, second)
     assert order == [("start", 1), ("end", 1), ("start", 2), ("end", 2)]
+
+
+@pytest.mark.asyncio
+async def test_group_trigger_loads_api_history_and_sets_reply_owner(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import httpx
+
+    contact = {"defaultFields": {"company": "Sernia Capital LLC", "firstName": "Test"}}
+    monkeypatch.setattr(trigger, "_verify_internal_contact", AsyncMock(return_value=contact))
+    session = AsyncMock()
+    session_factory = MagicMock()
+    session_factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(trigger, "AsyncSessionFactory", session_factory)
+    monkeypatch.setattr(trigger, "get_conversation_messages", AsyncMock(return_value=[]))
+    monkeypatch.setattr(trigger, "save_agent_conversation", AsyncMock())
+    monkeypatch.setattr(trigger, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(trigger, "extract_pending_approvals", lambda _: [])
+    result = MagicMock(output="One group answer")
+    result.all_messages.return_value = []
+    agent = MagicMock(run=AsyncMock(return_value=result))
+    monkeypatch.setattr(trigger, "sernia_agent", agent)
+    reply = AsyncMock()
+    monkeypatch.setattr(trigger, "_send_sms_reply", reply)
+    monkeypatch.setattr(trigger, "create_logged_task", lambda coro, **kwargs: coro.close())
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.url.params.get_list("participants") == sorted([PHONE, OTHER])
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "ACold",
+                        "conversationId": "CNgroup",
+                        "text": "Earlier group message",
+                        "from": OTHER,
+                        "to": [PHONE],
+                        "createdAt": "2026-09-10T15:00:00Z",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        quo_tools,
+        "_build_quo_client",
+        lambda: httpx.AsyncClient(
+            base_url="https://api.openphone.com", transport=httpx.MockTransport(handler)
+        ),
+    )
+    fallback = AsyncMock()
+    monkeypatch.setattr(quo_tools, "_fetch_group_thread_from_events_table", fallback)
+    await trigger._handle_group_sms(
+        {"from_number": PHONE, "message_text": "Reply once", "conversation_id": "CNgroup"},
+        sender_contact=contact,
+        sender_name="Test",
+        other_participants=[OTHER],
+        ai_phone="+14125559999",
+    )
+    assert len(requests) == 1
+    fallback.assert_not_called()
+    assert agent.run.call_args.kwargs["deps"].sms_reply_recipients == sorted([PHONE, OTHER])
+    assert "Earlier group message" in str(agent.run.call_args.kwargs["message_history"])
+    reply.assert_awaited_once_with(sorted([PHONE, OTHER]), "One group answer")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_to", [PHONE, [PHONE, OTHER]])
+async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_to):
+    from unittest.mock import MagicMock
+
+    from api.src.sernia_ai import routes
+
+    user = MagicMock(id="user-test", first_name="Test", last_name="User", email_addresses=[])
+    metadata = {"trigger_phone": PHONE}
+    if isinstance(reply_to, list):
+        metadata["trigger_group_participants"] = reply_to
+    conv = SimpleNamespace(modality="sms", metadata_=metadata)
+    result = MagicMock(output="Resumed answer")
+    resume = AsyncMock(return_value=result)
+    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=conv))
+    monkeypatch.setattr(routes, "resume_with_approvals", resume)
+    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "extract_pending_approvals", lambda _: [])
+    monkeypatch.setattr(routes, "extract_tool_results", lambda _: {})
+    monkeypatch.setattr(routes, "create_logged_task", lambda coro, **kwargs: coro.close())
+    await routes.approve_conversation(
+        "sms-test", routes.ApprovalRequest(decisions=[]), user, AsyncMock()
+    )
+    assert resume.call_args.kwargs["deps"].sms_reply_recipients == (
+        [reply_to] if isinstance(reply_to, str) else reply_to
+    )
+    assert resume.call_args.kwargs["deps"].modality == "sms"

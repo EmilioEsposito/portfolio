@@ -908,12 +908,12 @@ async def _handle_group_sms(
         if quo_conv_id:
             try:
                 from api.src.sernia_ai.tools.quo_tools import (
-                    _build_client,
+                    _build_quo_client,
                     _fetch_group_messages,
                     _fetch_group_thread_from_events_table,
                 )
 
-                async with _build_client() as client:
+                async with _build_quo_client() as client:
                     activities = await _fetch_group_messages(
                         client,
                         {"id": quo_conv_id, "phoneNumberId": QUO_SERNIA_AI_PHONE_ID},
