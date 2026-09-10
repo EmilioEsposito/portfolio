@@ -261,3 +261,12 @@ The policy is vendored from `api/src/sernia_ai/messaging/templates.py`; keep
 `src/sernia_mcp/core/message_templates.py` byte-identical. See the
 [complete policy](../../api/src/sernia_ai/messaging/README.md) for eligibility,
 channel outcomes, duplicate-send limitations, and credential dependencies.
+
+### Quo group history
+
+Group message history uses Quo's current `/v1/messages` participants filter and
+validates `conversationId` on every message. Use repeated `participants` keys
+without brackets. Conversation discovery uses unbracketed `phoneNumbers` and
+scans up to 500 conversations before sorting by activity. Partial scans and
+unavailable group history are labeled in tool output. No backend database is needed.
+See the [Quo API changelog](https://www.quo.com/docs/mdx/api-reference/changelog).

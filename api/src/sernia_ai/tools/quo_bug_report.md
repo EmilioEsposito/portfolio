@@ -1,3 +1,8 @@
+> Historical report, superseded September 10, 2026: live group reads now work
+> using repeated unbracketed `participants` keys. Quo documents group history
+> support from June 18, 2026. The current integration validates conversationId
+> and retains webhook fallback for outages. See tools/README.md.
+
 _Reported by Claude Code on behalf of Emilio Esposito (account owner, OR98t1AGEk). Emilio asked me to investigate why the agent couldn't read group-thread history; I exhausted the documented `participants[]` API surface live against this account before drafting this report. Repro steps below were captured from real `curl` output during that session._
 
 ---
