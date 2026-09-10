@@ -498,8 +498,8 @@ async def test_get_thread_messages_group_uses_last_activity_id():
 
     assert result.startswith("Group thread:"), result[:200]
     assert "Conversation ID: CN-group" in result
-    assert "OpenPhone's public API does not expose" in result
-    assert "Older group messages exist but cannot be retrieved" in result
+    assert "Group history was empty, unavailable" in result
+    assert "not evidence that the group has no messages" in result
     assert "## Most recent group activity" in result
     assert "Confirmed!" in result, result
     assert "## 1:1 thread with" in result

@@ -173,36 +173,6 @@ async def webhook(
             logfire.error("Sernia contact not found for slug 'sernia'")
             raise HTTPException(500, "Sernia contact not found")
 
-        # Analyze messages to Sernia for potential Twilio escalation before saving to DB
-        if (
-            payload.type == "message.received"
-            and sernia_contact.phone_number in event_data["to_number"]
-        ):
-            # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
-            ai_phone = await _get_ai_phone_number()
-            if ai_phone and event_data.get("from_number") == ai_phone:
-                logfire.info("Ignoring message from AI phone (circular trigger guard)")
-            elif await contains_emoji(event_data["message_text"][:3]):
-                logfire.info(
-                    f"Ignoring message that starts with emoji: {event_data['message_text']}"
-                )
-            else:
-                # Run analysis in the background
-                logfire.info(
-                    "AI Assessment Triggered. Starting background task to analyze for Twilio escalation."
-                )
-                background_tasks.add_task(analyze_for_twilio_escalation, event_data)
-        # AI SMS conversation: messages to the AI's phone number directly
-        elif (
-            payload.type == "message.received"
-            and event_data.get("phone_number_id") == QUO_SERNIA_AI_PHONE_ID
-        ):
-            background_tasks.add_task(handle_ai_sms_event, event_data)
-        else:
-            logfire.info(
-                f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}"
-            )
-
         # check if event_id is already in the database
         result = await session.execute(
             select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
@@ -220,6 +190,37 @@ async def webhook(
             await session.commit()
             await session.refresh(open_phone_event)
             logfire.info(f"Successfully recorded OpenPhone event: {payload.type}")
+
+            # Enqueue effects only after the unique event has committed.
+            if (
+                payload.type == "message.received"
+                and sernia_contact.phone_number in event_data["to_number"]
+            ):
+                # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
+                ai_phone = await _get_ai_phone_number()
+                if ai_phone and event_data.get("from_number") == ai_phone:
+                    logfire.info("Ignoring message from AI phone (circular trigger guard)")
+                elif await contains_emoji(event_data["message_text"][:3]):
+                    logfire.info(
+                        f"Ignoring message that starts with emoji: {event_data['message_text']}"
+                    )
+                else:
+                    # Run analysis in the background
+                    logfire.info(
+                        "AI Assessment Triggered. Starting background task to analyze for Twilio escalation."
+                    )
+                    background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+            # AI SMS conversation: messages to the AI's phone number directly
+            elif (
+                payload.type == "message.received"
+                and event_data.get("phone_number_id") == QUO_SERNIA_AI_PHONE_ID
+            ):
+                background_tasks.add_task(handle_ai_sms_event, event_data)
+            else:
+                logfire.info(
+                    f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}"
+                )
+
             return {"message": "Event recorded successfully"}
 
     except IntegrityError as e:

@@ -71,14 +71,10 @@ async def quo_get_thread_messages(
     entries include the Call ID — pass it to ``quo_get_call_details`` to read
     the call's summary + transcript.
 
-    **Group threads** (multiple phones, partial data): OpenPhone's public
-    API does not list group-thread history by participant filter, so this
-    tool can only return the *most recent* group activity plus each
-    participant's 1:1 history. Older group messages exist but are not
-    retrievable through this MCP server — view them in the OpenPhone app.
-    The output includes a caveat block making this explicit. To find the
-    participant set for a group conversation, use
-    ``quo_list_active_sms_threads`` (it shows all participants per thread).
+    **Group threads**: reads recent messages using Quo's group participants
+    filter and verifies every conversationId. If history is unavailable,
+    the output labels the last activity and separate 1:1 context as partial.
+    Use ``quo_list_active_sms_threads`` to discover group participants.
 
     Args:
         phone_number: A single phone in E.164 (1:1 thread) OR a list of

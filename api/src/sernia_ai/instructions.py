@@ -269,7 +269,15 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
             "Markdown formatting is supported. Be helpful and thorough."
         ),
     }
-    return guidance.get(ctx.deps.modality, "")
+    result = guidance.get(ctx.deps.modality, "")
+    if ctx.deps.sms_reply_recipients:
+        result += (
+            " Your final response is automatically sent to the current SMS thread "
+            f"({', '.join(ctx.deps.sms_reply_recipients)}). Reply in your final response; "
+            "do not use quo_send_sms to reply to this same thread. Use the SMS tool "
+            "only when you need to message a different recipient or thread."
+        )
+    return result
 
 
 DYNAMIC_INSTRUCTIONS = [

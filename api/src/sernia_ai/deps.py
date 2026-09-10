@@ -18,6 +18,9 @@ class SerniaDeps:
     user_email: str  # @serniacapital.com email for Google delegation
     modality: Literal["sms", "email", "web_chat"]
     workspace_path: Path  # Path to .workspace/ sandbox root
+    # Set only by code that delivers the final answer into an SMS thread.
+    # send_sms must not also deliver to this same recipient set.
+    sms_reply_recipients: list[str] = field(default_factory=list)
     # When True, the external-email HITL approval card is skipped for this run.
     # Set by triggers that have an explicit per-trigger opt-out (e.g. Zillow
     # auto-reply with `require_approval=False`). Defaults to False so every

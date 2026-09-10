@@ -224,7 +224,7 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 |------|---------|
 | `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction` handling, HITL approval push (`notify_pending_approval` only — generic completion alerts removed) |
 | `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
-| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply. Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, events-table history, reply to all participants |
+| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply. Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, verified API history with webhook fallback, reply to all participants |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
 
 ## Config (`config.py`)
@@ -248,3 +248,15 @@ Triggered runs can use `list_message_templates` / `send_templated_message` for
 code-approved reminders without modifying any approval-bypass dependency flags.
 This does not create a scheduled lease-reminder campaign. See
 [usage, eligibility, and retry limits](../messaging/README.md).
+
+### SMS delivery reliability (September 2026)
+
+Webhook routing enqueues effects only after the unique event row commits; a replay
+or concurrent duplicate returns without scheduling another run. SMS turns within
+the same process are serialized by Quo conversation ID through final delivery,
+preventing a second inbound text from loading the first run's unfinished history.
+The process lock is not a distributed queue or a durable retry mechanism.
+
+Only the final response sends to `sms_reply_recipients` (including approval resumes).
+Group bootstrap reads the current Quo group messages API, validates conversation IDs,
+and falls back to webhook history. See [Quo tool behavior](../tools/README.md).
