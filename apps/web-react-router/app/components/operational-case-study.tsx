@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { ArrowDown, ArrowRight, ExternalLink } from "lucide-react";
-import { buildUrl, generateCanonicalLink, generateOgMeta } from "~/lib/seo";
+import { buildUrl, generateCanonicalLink, generatePageMeta } from "~/lib/seo";
 
 interface WorkflowStep { label: string; title: string; description: string }
 interface CaseStudy {
@@ -17,8 +17,7 @@ interface CaseStudy {
   source: string;
 }
 export function caseStudyMeta(study: CaseStudy) {
-  const title = `${study.title} | Emilio Esposito`;
-  return [{ title }, { name: "description", content: study.description }, ...generateOgMeta({ title, description: study.description, url: buildUrl(study.path) })];
+  return generatePageMeta({ title: study.title, description: study.description, path: study.path });
 }
 export function caseStudyLinks(study: CaseStudy) { return [generateCanonicalLink(buildUrl(study.path))]; }
 
@@ -46,7 +45,7 @@ export default function OperationalCaseStudy({ study }: { study: CaseStudy }) {
 
 export const operationsStudy: CaseStudy = {
   path: "/systems/sernia-ai", title: "SerniaAI operations agent", approach: "Flexible tool use",
-  description: "An AI agent that helps the property team work across conversations, tasks, and follow-ups, with persistent context and approval gates for sensitive actions.",
+  description: "How SerniaAI connects scheduled runs, SMS, and web chat to shared company memory, sandboxed computation, business tools, and human approval for external actions.",
   problem: "Property operations arrive as fragments: a text from a tenant, an email thread, a pending task, or a reminder. The team needs a way to connect those details and act without reconstructing the history every time.",
   steps: [
     { label: "Trigger", title: "Chat, event, or schedule", description: "A team member asks a question, a supported event arrives, or a scheduled check starts a run." },
