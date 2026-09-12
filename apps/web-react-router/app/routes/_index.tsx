@@ -207,6 +207,20 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="sernia-ventures" className="mb-16 scroll-mt-6">
+        <H2>Sernia Ventures</H2>
+        <P className="mt-4 text-muted-foreground">
+          I also build and operate independent software through{" "}
+          <a href="https://serniaventures.com/" className="text-foreground underline underline-offset-4 hover:text-primary">Sernia Ventures LLC</a>.
+          These products focus on documents, AI memory, and rental property management.
+        </P>
+        <ul className="mt-6 space-y-4 text-muted-foreground">
+          <li><a href="https://docjig.com/" className="font-medium text-foreground underline underline-offset-4 hover:text-primary">Docjig</a> — turn existing documents into reusable templates. Early access.</li>
+          <li><a href="https://markdownmem.com/" className="font-medium text-foreground underline underline-offset-4 hover:text-primary">MarkdownMem</a> — portable Markdown memory for AI agents.</li>
+          <li><a href="https://rentium.app/" className="font-medium text-foreground underline underline-offset-4 hover:text-primary">Rentium</a> — software for rental property management. Private preview.</li>
+        </ul>
+      </section>
+
       {/* Sernia Capital */}
       <section id="sernia-systems" className="mb-16 scroll-mt-6">
         <H2>Software for Sernia Capital</H2>
