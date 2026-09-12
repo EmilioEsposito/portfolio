@@ -167,8 +167,27 @@ export function AppSidebar() {
       ],
     },
     {
+      label: "Sernia Ventures",
+      items: [
+        {
+          type: "navigation",
+          title: "Products",
+          url: "/#sernia-ventures",
+          icon: Building,
+          onClick: toggleSidebarIfMobile,
+        },
+      ],
+    },
+    {
       label: "Technical",
       items: [
+        {
+          type: "navigation",
+          title: "Tools & workflow",
+          url: "/tools-and-workflow",
+          icon: Settings,
+          onClick: toggleSidebarIfMobile,
+        },
         {
           type: "navigation",
           title: "API Docs",
@@ -199,11 +218,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="flex justify-end border-b border-sidebar-border">
-        <Button
-          variant="ghost"
-          onClick={toggleSidebar}
-          className="h-8 w-8 p-2"
-        >
+        <Button variant="ghost" onClick={toggleSidebar} className="h-8 w-8 p-2">
           <Menu className="h-4 w-4" />
           <span className="sr-only">Toggle sidebar</span>
         </Button>
@@ -222,9 +237,7 @@ export function AppSidebar() {
                         <div className="flex w-full items-center justify-between px-3 py-2">
                           <div className="flex items-center gap-2">
                             <item.icon className="h-4 w-4" />
-                            <Label htmlFor="dark-mode">
-                              Light/Dark mode{' '}
-                            </Label>
+                            <Label htmlFor="dark-mode">Light/Dark mode </Label>
                           </div>
                           <Switch
                             id="dark-mode"
@@ -254,14 +267,17 @@ export function AppSidebar() {
                             </Link>
                           )
                         ) : (
-                          <button onClick={item.onClick} className="flex w-full">
+                          <button
+                            onClick={item.onClick}
+                            className="flex w-full"
+                          >
                             <item.icon />
                             <span>{item.title}</span>
                           </button>
                         )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  )
+                  ),
                 )}
               </SidebarMenu>
             </SidebarGroupContent>
