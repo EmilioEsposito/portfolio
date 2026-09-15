@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import httpx
 
@@ -261,6 +262,7 @@ async def _fetch_group_messages(
 async def _find_group_conversation(
     client: httpx.AsyncClient,
     participants: list[str],
+    phone_number_id: str | None = None,
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match
     the given set (regardless of ordering). Returns None if none found.
@@ -272,7 +274,12 @@ async def _find_group_conversation(
     so a shared-line-only lookup would never find them.
     """
     target = frozenset(participants)
-    for phone_id in (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID):
+    phone_ids = (
+        (phone_number_id,)
+        if phone_number_id
+        else (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID)
+    )
+    for phone_id in phone_ids:
         page_token: str | None = None
         for _ in range(5):
             params: list[tuple[str, str]] = [
@@ -777,6 +784,7 @@ def _render_group_thread_from_db(
 async def get_thread_messages_core(
     phone_number: str | list[str],
     max_results: int = 20,
+    inbox: Literal["team", "ai"] | None = None,
 ) -> str:
     """Get the recent thread (SMS + calls) for ``phone_number``.
 
@@ -809,7 +817,9 @@ async def get_thread_messages_core(
 
         if len(participants_in) == 1:
             only_phone = participants_in[0]
-            phone_id = _thread_phone_id(contacts, only_phone)
+            phone_id = {"team": QUO_SHARED_EXTERNAL_PHONE_ID, "ai": QUO_SERNIA_AI_PHONE_ID}.get(
+                inbox
+            ) or _thread_phone_id(contacts, only_phone)
             result = await _fetch_one_to_one_thread(client, only_phone, max_results, phone_id)
             if isinstance(result, str):
                 raise ExternalServiceError(result)
@@ -825,7 +835,11 @@ async def get_thread_messages_core(
             )
 
         # ---- Group thread path ----
-        conv = await _find_group_conversation(client, participants_in)
+        conv = await _find_group_conversation(
+            client,
+            participants_in,
+            {"team": QUO_SHARED_EXTERNAL_PHONE_ID, "ai": QUO_SERNIA_AI_PHONE_ID}.get(inbox),
+        )
         if conv is not None:
             messages = await _fetch_group_messages(client, conv, participants_in, max_results)
             if messages:

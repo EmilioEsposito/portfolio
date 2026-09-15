@@ -4,6 +4,8 @@ Send tools live in ``approvals.py`` — they use the FastMCPApp pattern for
 deterministic server-side enforcement (tool-visibility split).
 """
 
+from typing import Literal
+
 from fastmcp.exceptions import ToolError
 
 from sernia_mcp.core.errors import CoreError
@@ -60,6 +62,7 @@ async def quo_get_call_details(call_id: str, transcript_max_chars: int = 4000) -
 async def quo_get_thread_messages(
     phone_number: str | list[str],
     max_results: int = 20,
+    inbox: Literal["team", "ai"] | None = None,
 ) -> str:
     """Get recent SMS + calls with a contact, OR a group via a list of phones.
 
@@ -83,11 +86,14 @@ async def quo_get_thread_messages(
     Args:
         phone_number: A single phone in E.164 (1:1 thread) OR a list of
             phones (group thread).
+        inbox: Optional explicit line ("team" or "ai"), as labeled by the
+            inbox listing. Omit for automatic internal/external routing
+            (groups search both). Use to inspect older history on another line.
         max_results: Max items per type to return per participant
             (default 20 messages + 20 calls).
     """
     try:
-        return await get_thread_messages_core(phone_number, max_results=max_results)
+        return await get_thread_messages_core(phone_number, max_results=max_results, inbox=inbox)
     except CoreError as e:
         raise ToolError(f"quo_get_thread_messages failed: {e}") from e
 

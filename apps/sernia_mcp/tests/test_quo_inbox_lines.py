@@ -12,7 +12,8 @@ A = "+14125550101"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("internal", [False, True])
-async def test_direct_history_uses_contact_sending_line(monkeypatch, internal):
+@pytest.mark.parametrize("inbox", [None, "team", "ai"])
+async def test_direct_history_uses_contact_sending_line(monkeypatch, internal, inbox):
     contacts = [
         {
             "defaultFields": {
@@ -23,7 +24,8 @@ async def test_direct_history_uses_contact_sending_line(monkeypatch, internal):
         }
     ]
     monkeypatch.setattr(q, "get_all_contacts", AsyncMock(return_value=contacts))
-    expected_line = q.QUO_SERNIA_AI_PHONE_ID if internal else q.QUO_SHARED_EXTERNAL_PHONE_ID
+    use_ai = inbox == "ai" or (inbox is None and internal)
+    expected_line = q.QUO_SERNIA_AI_PHONE_ID if use_ai else q.QUO_SHARED_EXTERNAL_PHONE_ID
     paths = []
 
     def handler(req):
@@ -54,10 +56,10 @@ async def test_direct_history_uses_contact_sending_line(monkeypatch, internal):
             base_url="https://api.openphone.com", transport=httpx.MockTransport(handler)
         ),
     )
-    result = await q.get_thread_messages_core(A)
+    result = await q.get_thread_messages_core(A, inbox=inbox)
     assert set(paths) == {"/v1/messages", "/v1/calls"}
     assert "Repair completed today" in result
-    assert ("Inbox: Sernia AI Intern" if internal else "Inbox: Sernia Capital Team") in result
+    assert ("Inbox: Sernia AI Intern" if use_ai else "Inbox: Sernia Capital Team") in result
 
 
 @pytest.mark.asyncio

@@ -278,6 +278,8 @@ label each conversation with its inbox, and fetch snippets from that same line.
 Direct history uses the sending convention: contacts whose company is
 `Sernia Capital LLC` use the AI line; other contacts use the shared line.
 Thus Peppino task replies and AI-to-shared-team notifications are visible.
+Pass `inbox="team"` or `inbox="ai"` to inspect a listed conversation on that
+specific line, including older history on a contact’s other line.
 The shared team number is a single participant even though multiple staff can
 access it. A true group requires multiple recipient phone numbers. Done threads
 are excluded from active lists; check direct history before reporting a gap.

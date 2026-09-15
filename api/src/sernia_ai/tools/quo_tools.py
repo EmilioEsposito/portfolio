@@ -30,6 +30,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 
 import httpx
 import logfire
@@ -941,6 +942,7 @@ async def _fetch_group_messages(
 async def _find_group_conversation(
     client: httpx.AsyncClient,
     participants: list[str],
+    phone_number_id: str | None = None,
 ) -> dict | None:
     """Find the OpenPhone conversation whose participants exactly match
     the given set (regardless of ordering). Returns None if none found.
@@ -952,7 +954,12 @@ async def _find_group_conversation(
     so a shared-line-only lookup would never find them.
     """
     target = frozenset(participants)
-    for phone_id in (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID):
+    phone_ids = (
+        (phone_number_id,)
+        if phone_number_id
+        else (QUO_SHARED_EXTERNAL_PHONE_ID, QUO_SERNIA_AI_PHONE_ID)
+    )
+    for phone_id in phone_ids:
         page_token: str | None = None
         for _ in range(5):
             params: list[tuple[str, str]] = [
@@ -1276,6 +1283,7 @@ async def get_thread_messages_impl(
     client: httpx.AsyncClient,
     phone_number: str | list[str],
     max_results: int = 20,
+    inbox: Literal["team", "ai"] | None = None,
 ) -> str:
     """Core implementation of thread retrieval (no RunContext dependency).
 
@@ -1308,7 +1316,9 @@ async def get_thread_messages_impl(
 
     if len(participants_in) == 1:
         only_phone = participants_in[0]
-        phone_id = _thread_phone_id(contacts, only_phone)
+        phone_id = {"team": QUO_SHARED_EXTERNAL_PHONE_ID, "ai": QUO_SERNIA_AI_PHONE_ID}.get(
+            inbox
+        ) or _thread_phone_id(contacts, only_phone)
         result = await _fetch_one_to_one_thread(client, only_phone, max_results, phone_id)
         if isinstance(result, str):
             return result
@@ -1324,7 +1334,11 @@ async def get_thread_messages_impl(
         )
 
     # ---- Group thread path ----
-    conv = await _find_group_conversation(client, participants_in)
+    conv = await _find_group_conversation(
+        client,
+        participants_in,
+        {"team": QUO_SHARED_EXTERNAL_PHONE_ID, "ai": QUO_SERNIA_AI_PHONE_ID}.get(inbox),
+    )
     conv_id = "?"
     db_activities: list[dict] = []
     if conv is not None:
@@ -2297,6 +2311,7 @@ def _build_quo_toolset():
         ctx: RunContext[SerniaDeps],
         phone_number: str | list[str],
         max_results: int = 20,
+        inbox: Literal["team", "ai"] | None = None,
     ) -> str:
         """Get the recent thread (SMS + calls) with a specific phone number, OR
         a group thread by passing a list of phone numbers.
@@ -2321,11 +2336,14 @@ def _build_quo_toolset():
         Args:
             phone_number: A single phone in E.164 (1:1 thread) OR a list of
                 phones (group thread).
+            inbox: Optional explicit line ("team" or "ai"), as labeled by the
+                inbox listing. Omit for automatic internal/external routing
+                (groups search both). Use to inspect older history on another line.
             max_results: Max items per type to return per participant
                 (default 20 messages + 20 calls). Capped at 100 — OpenPhone's
                 per-page limit; higher values are clamped to 100.
         """
-        return await get_thread_messages_impl(client, phone_number, max_results)
+        return await get_thread_messages_impl(client, phone_number, max_results, inbox)
 
     # ------------------------------------------------------------------
     # create_contact — replaces MCP createContact_v1
