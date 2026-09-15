@@ -570,6 +570,24 @@ def _build_phone_map(contacts: list[dict]) -> dict[str, str]:
     return phone_map
 
 
+def _thread_phone_id(contacts: list[dict], phone: str) -> str:
+    """Use the same company-based line selection as SMS sending."""
+    for contact in contacts:
+        fields = contact.get("defaultFields", {})
+        if fields.get("company") != QUO_INTERNAL_COMPANY:
+            continue
+        if any(
+            (p.get("value") if isinstance(p, dict) else p) == phone
+            for p in fields.get("phoneNumbers", []) or []
+        ):
+            return QUO_SERNIA_AI_PHONE_ID
+    return QUO_SHARED_EXTERNAL_PHONE_ID
+
+
+def _line_name(phone_id: str) -> str:
+    return "Sernia AI Intern" if phone_id == QUO_SERNIA_AI_PHONE_ID else "Sernia Capital Team"
+
+
 def _is_done_conversation(conv: dict) -> bool:
     """Check if a conversation is marked as done (snoozed 100+ years)."""
     snoozed = conv.get("snoozedUntil")
@@ -669,13 +687,14 @@ def _format_call_snippet(call: dict) -> str:
 async def _fetch_latest_message(
     client: httpx.AsyncClient,
     phone: str,
+    phone_number_id: str = QUO_SHARED_EXTERNAL_PHONE_ID,
 ) -> dict | None:
-    """Fetch the most recent SMS for a phone on the shared team line."""
+    """Fetch the most recent SMS for a phone on the selected line."""
     try:
         resp = await client.get(
             "/v1/messages",
             params={
-                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "phoneNumberId": phone_number_id,
                 "participants": phone,
                 "maxResults": "1",
             },
@@ -690,13 +709,14 @@ async def _fetch_latest_message(
 async def _fetch_latest_call(
     client: httpx.AsyncClient,
     phone: str,
+    phone_number_id: str = QUO_SHARED_EXTERNAL_PHONE_ID,
 ) -> dict | None:
-    """Fetch the most recent call for a phone on the shared team line."""
+    """Fetch the most recent call for a phone on the selected line."""
     try:
         resp = await client.get(
             "/v1/calls",
             params={
-                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "phoneNumberId": phone_number_id,
                 "participants": phone,
                 "maxResults": "1",
             },
@@ -963,7 +983,7 @@ async def list_active_threads_impl(
 ) -> str:
     """Core implementation of active threads listing (no RunContext dependency).
 
-    Mimics the Quo active inbox: returns all non-done conversations, sorted by
+    Scans both the shared team and AI lines: returns non-done conversations, sorted by
     most recent activity.  An optional ``updated_after_days`` narrows the window.
 
     For each thread, the snippet line shows whichever activity is more recent —
@@ -979,6 +999,7 @@ async def list_active_threads_impl(
     for _ in range(max_pages):
         params: list[tuple[str, str]] = [
             ("phoneNumbers", QUO_SHARED_EXTERNAL_PHONE_ID),
+            ("phoneNumbers", QUO_SERNIA_AI_PHONE_ID),
             ("maxResults", "100"),
             ("excludeInactive", "true"),
         ]
@@ -1019,10 +1040,10 @@ async def list_active_threads_impl(
     # display a participant's private 1:1 conversation.
     import asyncio
 
-    async def _fetch_snippet_1to1(phone: str) -> dict | None:
+    async def _fetch_snippet_1to1(phone: str, phone_id: str) -> dict | None:
         msg, call = await asyncio.gather(
-            _fetch_latest_message(client, phone),
-            _fetch_latest_call(client, phone),
+            _fetch_latest_message(client, phone, phone_id),
+            _fetch_latest_call(client, phone, phone_id),
             return_exceptions=False,
         )
         if msg and call:
@@ -1045,7 +1066,9 @@ async def list_active_threads_impl(
                 return await _fetch_activity_by_id(client, last_id)
             return None
         if participants:
-            return await _fetch_snippet_1to1(participants[0])
+            return await _fetch_snippet_1to1(
+                participants[0], conv.get("phoneNumberId") or QUO_SHARED_EXTERNAL_PHONE_ID
+            )
         return None
 
     snippet_results = await asyncio.gather(
@@ -1106,7 +1129,8 @@ async def list_active_threads_impl(
         lines.append(
             f"{stale_prefix}Thread: {', '.join(enriched)}{snippet_line}\n"
             f"  Last activity: {_ts(last_activity if last_activity != '?' else None, now)}\n"
-            f"  Conversation ID: {conv_id}"
+            f"  Conversation ID: {conv_id}\n"
+            f"  Inbox: {_line_name(conv.get('phoneNumberId') or QUO_SHARED_EXTERNAL_PHONE_ID)}"
         )
 
     header = f"Active threads ({len(conversations)}):"
@@ -1127,6 +1151,7 @@ async def _fetch_one_to_one_thread(
     client: httpx.AsyncClient,
     phone_number: str,
     max_results: int,
+    phone_number_id: str = QUO_SHARED_EXTERNAL_PHONE_ID,
 ) -> tuple[list[dict], list[dict]] | str:
     """Fetch SMS + call list for a single phone (1:1 thread).
 
@@ -1142,7 +1167,7 @@ async def _fetch_one_to_one_thread(
         resp = await client.get(
             path,
             params={
-                "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
+                "phoneNumberId": phone_number_id,
                 "participants": phone_number,
                 "maxResults": str(page_size),
             },
@@ -1283,13 +1308,14 @@ async def get_thread_messages_impl(
 
     if len(participants_in) == 1:
         only_phone = participants_in[0]
-        result = await _fetch_one_to_one_thread(client, only_phone, max_results)
+        phone_id = _thread_phone_id(contacts, only_phone)
+        result = await _fetch_one_to_one_thread(client, only_phone, max_results, phone_id)
         if isinstance(result, str):
             return result
         messages, calls = result
         if not messages and not calls:
             return f"No messages or calls found with {only_phone}."
-        return _render_thread(
+        return f"Inbox: {_line_name(phone_id)}\n" + _render_thread(
             messages,
             calls,
             phone_map.get(only_phone, only_phone),
@@ -1336,7 +1362,10 @@ async def get_thread_messages_impl(
             last_activity = await _fetch_activity_by_id(client, last_id)
 
     per_participant = await asyncio.gather(
-        *(_fetch_one_to_one_thread(client, p, max_results) for p in participants_in),
+        *(
+            _fetch_one_to_one_thread(client, p, max_results, _thread_phone_id(contacts, p))
+            for p in participants_in
+        ),
     )
 
     participant_labels = ", ".join(
@@ -2211,7 +2240,11 @@ def _build_quo_toolset():
         max_results: int = 20,
         updated_after_days: int | None = None,
     ) -> str:
-        """List active conversation threads on the shared team number.
+        """List active conversation threads across the shared team and AI lines.
+
+        Includes internal task replies on the AI line and tenant/vendor threads
+        on the shared line. Each result labels its inbox. Done threads are
+        excluded; absence here alone does not prove missing history.
 
         Mirrors the Quo active inbox — returns all non-done threads, enriched
         with contact names and sorted by most recent activity. Each thread's
@@ -2274,6 +2307,11 @@ def _build_quo_toolset():
         is history, not a new report, even when its wording says "this morning".
         Call entries include the Call ID — pass it to ``get_call_details`` to
         read the call's summary + transcript.
+
+        **1:1 line selection**: internal Sernia Capital LLC contacts (including
+        Peppino and the shared team contact) are read on the AI Intern line.
+        Other contacts are read on the tenant-facing shared team line.
+        A shared team phone number is one participant, not a group of staff.
 
         **Group threads** (multiple phones): reads recent group messages from
         Quo, checking conversationId on every result. Falls back to local

@@ -197,3 +197,14 @@ The matching instruction lives in `instructions.py`: MEMORY.md's injected copy i
 one to a known, eligible Quo contact by SMS, email, or both without HITL. The initial
 USPS reminder checks active lease dates within 14 days. No message text or sender is
 accepted from the model. See [policy and operation](../messaging/README.md).
+
+### Quo inbox scope and internal history
+
+Inbox sweeps scan both the shared tenant-facing line and the AI Intern line,
+label each conversation with its inbox, and fetch snippets from that same line.
+Direct history uses the sending convention: contacts whose company is
+`Sernia Capital LLC` use the AI line; other contacts use the shared line.
+Thus Peppino task replies and AI-to-shared-team notifications are visible.
+The shared team number is a single participant even though multiple staff can
+access it. A true group requires multiple recipient phone numbers. Done threads
+are excluded from active lists; check direct history before reporting a gap.

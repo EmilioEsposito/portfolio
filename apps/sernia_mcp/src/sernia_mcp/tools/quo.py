@@ -61,8 +61,7 @@ async def quo_get_thread_messages(
     phone_number: str | list[str],
     max_results: int = 20,
 ) -> str:
-    """Get the recent thread (SMS + calls) with a phone number on the shared
-    team line, OR a group thread by passing a list of phones.
+    """Get recent SMS + calls with a contact, OR a group via a list of phones.
 
     Returns SMS messages and calls interleaved chronologically, enriched with
     contact names. Each line's timestamp is annotated with its age (e.g.
@@ -70,6 +69,11 @@ async def quo_get_thread_messages(
     history, not a new report, even when its wording says "this morning". Call
     entries include the Call ID — pass it to ``quo_get_call_details`` to read
     the call's summary + transcript.
+
+    **1:1 line selection**: internal Sernia Capital LLC contacts (including
+    Peppino and the shared team contact) are read on the AI Intern line.
+    Other contacts are read on the tenant-facing shared team line.
+    A shared team phone number is one participant, not a group of staff.
 
     **Group threads**: reads recent messages using Quo's group participants
     filter and verifies every conversationId. If history is unavailable,
@@ -93,7 +97,11 @@ async def quo_list_active_sms_threads(
     max_results: int = 20,
     updated_after_days: int | None = None,
 ) -> str:
-    """List active conversation threads on the shared team line.
+    """List active conversation threads across the shared team and AI lines.
+
+    Includes internal task replies on the AI line and tenant/vendor threads
+    on the shared line. Each result labels its inbox. Done threads are
+    excluded; absence here alone does not prove missing history.
 
     Mirrors the Quo active inbox: returns all non-'done' threads (Quo marks
     'done' by snoozing 100+ years out), enriched with contact names, sorted

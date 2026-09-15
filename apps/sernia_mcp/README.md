@@ -270,3 +270,14 @@ without brackets. Conversation discovery uses unbracketed `phoneNumbers` and
 scans up to 500 conversations before sorting by activity. Partial scans and
 unavailable group history are labeled in tool output. No backend database is needed.
 See the [Quo API changelog](https://www.quo.com/docs/mdx/api-reference/changelog).
+
+### Quo inbox scope and internal history
+
+Inbox sweeps scan both the shared tenant-facing line and the AI Intern line,
+label each conversation with its inbox, and fetch snippets from that same line.
+Direct history uses the sending convention: contacts whose company is
+`Sernia Capital LLC` use the AI line; other contacts use the shared line.
+Thus Peppino task replies and AI-to-shared-team notifications are visible.
+The shared team number is a single participant even though multiple staff can
+access it. A true group requires multiple recipient phone numbers. Done threads
+are excluded from active lists; check direct history before reporting a gap.
