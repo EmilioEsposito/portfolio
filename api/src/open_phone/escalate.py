@@ -1,5 +1,6 @@
 import os
 import re  # Added for normalization function
+from typing import Literal
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -85,7 +86,11 @@ def normalize_text_for_keyword_search(text: str) -> str:
 
 
 async def ai_assess_for_escalation(
-    open_phone_event: dict, max_retries: int = 1, *, mode: str | None = None
+    open_phone_event: dict,
+    max_retries: int = 1,
+    *,
+    mode: str | None = None,
+    sample_kind: Literal["production", "verification", "eval"] = "production",
 ) -> tuple[bool, str]:
     """Fetch context once, assess without side effects, then return one dispatch decision."""
     history = await fetch_escalation_history(open_phone_event)
@@ -100,7 +105,13 @@ async def ai_assess_for_escalation(
     )
     # Production defaults to Luna. Running both is an explicit operational choice.
     selected_mode = mode if mode is not None else os.getenv("ESCALATION_MODEL_MODE", "luna")
-    decision = await assess_state(state, mode=selected_mode, max_retries=max_retries)
+    decision = await assess_state(
+        state,
+        mode=selected_mode,
+        max_retries=max_retries,
+        event_id=open_phone_event.get("event_id"),
+        sample_kind=sample_kind,
+    )
     return decision.should_escalate, decision.reason
 
 
