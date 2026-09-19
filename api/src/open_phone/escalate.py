@@ -10,13 +10,24 @@ import random
 # from twilio.rest import Client # removed to reduce bundle size
 import httpx
 import logfire
-import pytz
 from fastapi import HTTPException
-from pydantic import BaseModel
-from pydantic_ai import Agent
 
 from api.src.contact.service import get_contact_by_slug
-from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
+from api.src.open_phone.escalation_assessment import assess_state
+from api.src.open_phone.escalation_context import (
+    add_history_timing,
+    event_time,
+    fetch_escalation_history,
+)
+from api.src.open_phone.escalation_policy import (
+    ESCALATION_QUESTION as ESCALATION_QUESTION,
+)
+from api.src.open_phone.escalation_policy import (
+    ai_instructions as ai_instructions,
+)
+from api.src.open_phone.escalation_policy import (
+    explicit_keywords,
+)
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -32,26 +43,6 @@ if not TWILIO_AUTH_TOKEN:
 
 
 # Explicit keywords Escalation
-explicit_keywords = [
-    "urgent",
-    "emergency",
-    "911",
-    "fire",
-    "smoke",
-    "explosion",
-    "explode",
-    "exploding",
-    "flood",
-    # "water",
-    # "leak",
-    "violent",
-    "burglar",
-    "robbery",
-    "gun",
-    "police",
-    "officer",
-    "ambulance",
-]
 
 negation_prefixes = [
     "notan",
@@ -93,105 +84,24 @@ def normalize_text_for_keyword_search(text: str) -> str:
     return text
 
 
-ai_instructions = f"""
-You work for a residential property management company. 
-
-Your job is to read incoming SMS messages from tenants, and decide if there is an URGENT issue that should be escalated to relevant parties.
-
-Do not always trust the sender's claim of urgency. We want to escalate things that are actually urgent, and would worsen if not addressed ASAP.
-
-Things we DO want to escalate:
-* Water leaking onto floor, from ceilings, gushing out of pipes, etc. Water actively going into walls is an emergency.
-* Active burglars
-* Fires
-* Explosions
-* Exploding
-* Explosion
-* Active ongoing property damage
-* Degenerates loitering or harassing tenants
-* Active drug use or drug dealing
-* Here are more example words/ideas that should often be escalated, but the context matters: {explicit_keywords}
-
-Here are examples of things to NOT escalate:
-* The smoke alarm is chirping, I think the battery is low.
-* A dripping faucet into the sink
-* Talking about a prior incident that has obviously already been mostly mitigated already
-* "I lost my keys and can't get in! Can someone bring me a spare ASAP??"
-* "My power is out, can you send someone to fix it right away?"
-* Low priority property damage that doesn't pose an immediate threat and won't worsen if neglected for a day or two
-"""
-
-
-class ShouldEscalate(BaseModel):
-    """Structured verdict returned by the escalation-assessment agent."""
-
-    should_escalate: bool
-    reason: str
-
-
-# Escalation assessment is a lightweight binary classification, so it runs GPT-5.6
-# Luna at LOW reasoning effort. The model is reached through OpenRouter (pinned to
-# the OpenAI upstream, with usage/cost accounting) via the shared helpers in
-# `sernia_ai.model_config`, so this call shows up on the LLM-cost dashboard the
-# same way the main Sernia agent's runs do. `resolve_model` returns the cached
-# SerniaOpenRouterModel instance (which owns an HTTP client) — the module-level
-# Agent is built once at import, like `sernia_agent`.
-ESCALATION_MODEL_STRING = "openrouter:openai/gpt-5.6-luna"
-ESCALATION_EFFORT = "low"
-# Cap a single assessment call so a hung request can't stall the escalation
-# webhook (the pre-migration OpenAI client used the same 30s ceiling).
-ESCALATION_TIMEOUT_SECONDS = 30.0
-
-_escalation_settings = build_openrouter_settings(ESCALATION_EFFORT)
-_escalation_settings["timeout"] = ESCALATION_TIMEOUT_SECONDS
-
-escalation_agent = Agent(
-    resolve_model(ESCALATION_MODEL_STRING),
-    output_type=ShouldEscalate,
-    model_settings=_escalation_settings,
-    instructions=ai_instructions,
-    retries=1,
-    name="escalation_assessor",
-)
-
-
-async def ai_assess_for_escalation(open_phone_event: dict, max_retries: int = 1):
-    timestamp = open_phone_event.get("event_timestamp")
-
-    # add timezone to timestamp only if it doesn't have one
-    if timestamp.tzinfo is None:
-        timestamp_et = pytz.timezone("US/Eastern").localize(timestamp)
-    else:
-        timestamp_et = timestamp
-
-    user_prompt = f"MESSAGE: {open_phone_event.get('message_text')}\nTIMESTAMP (ET): {timestamp_et}"
-
-    last_exception = None
-    for attempt in range(max_retries + 1):
-        try:
-            result = await escalation_agent.run(user_prompt)
-            assessment = result.output
-
-            logfire.info(
-                f'AI assessment for message text "{open_phone_event.get("message_text")}": {assessment}'
-            )
-
-            return assessment.should_escalate, assessment.reason
-        except Exception as e:
-            last_exception = e
-            if attempt < max_retries:
-                logfire.warn(
-                    f"Escalation assessment call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}"
-                )
-            else:
-                logfire.exception(
-                    f"Escalation assessment call failed after {max_retries + 1} attempts: {e}"
-                )
-
-    # Default to NOT escalating on AI failure.
-    # False escalations cause more harm (alarm fatigue) than missed ones.
-    error_snippet = str(last_exception)[:100]
-    return False, f"AI assessment failed: {error_snippet}"
+async def ai_assess_for_escalation(
+    open_phone_event: dict, max_retries: int = 1, *, mode: str | None = None
+) -> tuple[bool, str]:
+    """Fetch context once, assess without side effects, then return one dispatch decision."""
+    history = await fetch_escalation_history(open_phone_event)
+    state = add_history_timing(
+        {
+            "message_text": open_phone_event.get("message_text"),
+            "timestamp": event_time(open_phone_event["event_timestamp"]).isoformat(),
+            "timezone": "America/New_York",
+            "prior_messages": [message.model_dump() for message in history.messages],
+            "history_status": history.status,
+        }
+    )
+    # Production defaults to Luna. Running both is an explicit operational choice.
+    selected_mode = mode if mode is not None else os.getenv("ESCALATION_MODEL_MODE", "luna")
+    decision = await assess_state(state, mode=selected_mode, max_retries=max_retries)
+    return decision.should_escalate, decision.reason
 
 
 async def resolve_escalation_numbers(escalate_to_numbers: list[str] | None = None) -> list[str]:
@@ -308,7 +218,7 @@ async def analyze_for_twilio_escalation(
     #     escalate_to_numbers = ["+14126800593"] # Specific target for 320-09
     #     escalate_from_number = "+14129001989" # Specific sender for 320-09
 
-    # Allow an AI Agent to assess if this should be escalated
+    # Assess with the configured model(s); notification dispatch happens once below
     try:
         should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
         logfire.info(
