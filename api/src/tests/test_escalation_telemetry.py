@@ -138,3 +138,57 @@ def test_luna_adapter_marks_missing_usage_unknown():
     )
     usage = assessment.EscalationLunaModel(assessment.LUNA_MODEL)._map_usage(response)
     assert usage.details["token_counts_reported"] == 0
+
+
+@pytest.mark.asyncio
+async def test_jev_agent_is_reviewable_and_cost_is_not_duplicated(capfire, monkeypatch):
+    monkeypatch.setattr(
+        assessment,
+        "_request_jev",
+        AsyncMock(
+            return_value=assessment.InferenceResult(
+                should_escalate=True,
+                reason="synthetic decision",
+                provider_model=assessment.JEV_MODEL,
+                input_tokens=100,
+                output_tokens=20,
+                reported_cost=0.001,
+            )
+        ),
+    )
+    state = {"message_text": "Ceiling is sagging", "prior_messages": []}
+    await assessment.assess_state(state, mode="jev", sample_kind="eval")
+    spans = [
+        s
+        for s in capfire.exporter.exported_spans
+        if s.attributes.get("logfire.span_type") == "span"
+    ]
+    agent = next(s for s in spans if s.attributes.get("gen_ai.operation.name") == "invoke_agent")
+    model = next(s for s in spans if s.name == "Jev decision")
+    assert agent.attributes["gen_ai.agent.name"] == "escalation_assessor_jev"
+    assert model.parent.span_id == agent.context.span_id
+    inputs = json.loads(agent.attributes["gen_ai.input.messages"])
+    assert json.loads(inputs[0]["parts"][0]["content"]) == state
+    assert json.loads(agent.attributes["final_result"])["should_escalate"] is True
+    assert json.loads(agent.attributes["gen_ai.output.messages"])[0]["role"] == "assistant"
+    assert [s.attributes["operation.cost"] for s in spans if "operation.cost" in s.attributes] == [
+        0.001
+    ]
+    assert model.attributes["gen_ai.usage.input_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_jev_agent_records_failed_run_without_fabricated_output(capfire, monkeypatch):
+    monkeypatch.setattr(
+        assessment, "_request_jev", AsyncMock(side_effect=TimeoutError("synthetic"))
+    )
+    await assessment.assess_state({}, mode="jev", max_retries=0, sample_kind="eval")
+    agent = next(
+        s
+        for s in capfire.exporter.exported_spans
+        if s.attributes.get("gen_ai.operation.name") == "invoke_agent"
+        and s.attributes.get("logfire.span_type") == "span"
+    )
+    assert agent.status.is_ok is False
+    assert "final_result" not in agent.attributes
+    assert "gen_ai.output.messages" not in agent.attributes

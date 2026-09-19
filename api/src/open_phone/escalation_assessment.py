@@ -22,6 +22,7 @@ from pydantic_ai.usage import RequestUsage
 
 from api.src.open_phone.escalation_policy import ESCALATION_QUESTION, ESCALATION_TIMEOUT_SECONDS
 from api.src.open_phone.typesafe_openrouter import (
+    JEV_MODEL,
     OpenRouterDecisionResponse,
     create_jev_client,
 )
@@ -111,6 +112,52 @@ async def assess_luna(state: dict) -> InferenceResult:
 
 
 async def assess_jev(state: dict) -> InferenceResult:
+    """Expose the SDK classifier as a reviewable agent without changing inference."""
+    inputs = [{"role": "user", "parts": [{"type": "text", "content": json.dumps(state)}]}]
+    with logfire.span(
+        "agent run",
+        **{
+            "gen_ai.operation.name": "invoke_agent",
+            "gen_ai.agent.name": "escalation_assessor_jev",
+            "gen_ai.input.messages": inputs,
+            "gen_ai.system_instructions": [
+                {"type": "text", "content": ESCALATION_QUESTION.instructions}
+            ],
+            "escalation.criteria": ESCALATION_QUESTION.criteria,
+        },
+    ) as agent_span:
+        with logfire.span(
+            "Jev decision",
+            **{
+                "gen_ai.operation.name": "generate_content",
+                "gen_ai.provider.name": "openrouter",
+                "gen_ai.request.model": JEV_MODEL,
+                "gen_ai.input.messages": inputs,
+            },
+        ) as model_span:
+            output = await _request_jev(state)
+            messages = [
+                {
+                    "role": "assistant",
+                    "parts": [{"type": "text", "content": output.model_dump_json()}],
+                }
+            ]
+            model_span.set_attributes(
+                {
+                    "gen_ai.response.model": output.provider_model,
+                    "gen_ai.usage.input_tokens": output.input_tokens,
+                    "gen_ai.usage.output_tokens": output.output_tokens,
+                    "gen_ai.output.messages": messages,
+                }
+            )
+            if output.reported_cost is not None:
+                model_span.set_attribute("operation.cost", output.reported_cost)
+        agent_span.set_attribute("gen_ai.output.messages", messages)
+        agent_span.set_attribute("final_result", output.model_dump())
+        return output
+
+
+async def _request_jev(state: dict) -> InferenceResult:
     async with create_jev_client(timeout=ESCALATION_TIMEOUT_SECONDS) as client:
         result = await client.system_one(
             state=state,
@@ -120,18 +167,7 @@ async def assess_jev(state: dict) -> InferenceResult:
     verdict = result.choices["escalation"]
     if verdict.choice not in ESCALATION_QUESTION.criteria:
         raise ValueError("Jev returned an unknown escalation choice")
-    logfire.info(
-        "Jev decision details",
-        model=result.model,
-        **{
-            "operation.cost": result.usage.cost,
-            "gen_ai.usage.input_tokens": result.usage.input_tokens,
-            "gen_ai.usage.output_tokens": result.usage.output_tokens,
-        },
-        probabilities=verdict.probabilities,
-        confidence=verdict.confidence,
-    )
-    return InferenceResult(
+    output = InferenceResult(
         provider_model=result.model,
         input_tokens=result.usage.input_tokens,
         output_tokens=result.usage.output_tokens,
@@ -142,6 +178,8 @@ async def assess_jev(state: dict) -> InferenceResult:
         reason=f"Jev decision: {verdict.choice}; P(escalate)={verdict.probabilities['escalate']:.3f}; "
         f"confidence={verdict.confidence:.3f} (decision summary, not an explanation)",
     )
+
+    return output
 
 
 async def assess_model(
@@ -193,7 +231,7 @@ async def assess_model(
         model_span.set_attribute("escalation.status", "error" if result.error_type else "ok")
         model_span.set_attribute("escalation.verdict", result.should_escalate)
         model_span.set_attribute("escalation.latency_seconds", result.latency_seconds)
-        # Use a separate namespace: native Luna spans and the Jev details log
+        # Use a separate namespace: native Luna spans and the Jev decision span
         # already own operation.cost, so dashboards must not count it twice.
         model_span.set_attribute(
             "escalation.usage",

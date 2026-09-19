@@ -62,11 +62,8 @@ async def test_sdk_openrouter_contract(monkeypatch, choice):
     span = MagicMock()
     span.__enter__.return_value = span
     monkeypatch.setattr(escalate.logfire, "span", MagicMock(return_value=span))
-    info = MagicMock()
-    monkeypatch.setattr(assessment.logfire, "info", info)
     result, reason = await escalate.ai_assess_for_escalation(event(), mode="jev")
-    assert info.call_args.kwargs["operation.cost"] == 0.000021
-    assert info.call_args.kwargs["gen_ai.usage.input_tokens"] == 500
+    span.set_attribute.assert_any_call("operation.cost", 0.000021)
     span.set_attribute.assert_any_call("escalation.input", ANY)
     assert result is (choice == "escalate")
     assert "decision summary, not an explanation" in reason

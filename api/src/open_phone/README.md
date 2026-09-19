@@ -286,3 +286,17 @@ Human review of sampled disagreements and agreements is still needed to measure
 precision/recall; agreement alone does not establish correctness. OR also changes
 alerting behavior: a Jev-only positive now triggers a notification, which can
 increase false positives as well as recall. Dispatch still runs once per event.
+
+### Jev agent review
+
+Jev emits an `invoke_agent` span named `escalation_assessor_jev`, alongside Luna's
+existing `escalation_assessor`. Its input, policy, decision probabilities, and
+final output are available in Logfire Agents and Quick annotate. A nested
+`Jev decision` model span owns tokens and cost; cost is not duplicated on the
+agent or comparison spans. Failed attempts record errors without inventing an output.
+
+The existing `scripts/eval_escalation_context.py` is a local JSON comparison
+runner and explicitly disables Logfire export. It does **not** create hosted
+Datasets & Experiments entries or synchronize human annotations. Production
+comparison traces and human run annotations are separate from offline eval scores.
+Reviewed labels must be explicitly promoted into a versioned regression dataset.
