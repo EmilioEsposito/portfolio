@@ -30,6 +30,8 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 | GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-5.6-luna` |
 | Claude Sonnet 4.6 / Opus 4.7 | **OpenRouter** | same | `openrouter:anthropic/claude-sonnet-4.6` / `openrouter:anthropic/claude-opus-4.7` |
 | Sub-agents (summarize / compact) | **OpenRouter** | same | `openrouter:anthropic/claude-haiku-4.5` |
+| Default escalation assessor (Luna, low) | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` | `openai/gpt-5.6-luna` |
+| Optional Jev escalation classifier | **OpenRouter Decisions** | `PORTFOLIO_OPENROUTER_API_KEY` | `typesafe/jev-1.13` |
 
 All runtime inference uses OpenRouter, including demo, email classification,
 and escalation calls. Claude selections keep their model identities; direct
@@ -37,6 +39,10 @@ Claude instruction/tool/message caching is preserved using OpenRouter cache
 controls; native web fetch is unavailable. Public chat/email use the separate
 `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` exclusively.
 Sonnet xhigh maps to high because that route does not support xhigh.
+
+The optional Jev classifier uses the TypeSafe SDK and a small endpoint adapter; see
+[OpenPhone escalation](../open_phone/README.md) for its provider prerequisite
+and assessment-only tests. The following chat-model settings do not apply to Jev.
 
 Things worth knowing about the OpenRouter path (all handled in
 `model_config.py` — see `SerniaOpenRouterModel`):
