@@ -1,7 +1,7 @@
 # OpenPhone escalation assessment
 
-**Luna is the operational default.** Jev remains available for experiments and
-an explicit optional OR mode. Both use the same awareness policy, best-effort
+**Luna is the code default.** Production can explicitly enable `either` to run
+Luna and Jev on every assessment with OR alerting. Jev also remains available for experiments. Both use the same awareness policy, best-effort
 Quo history, and precomputed elapsed times. Images are still eval-only.
 
 ## Easy-to-follow decision flow
@@ -40,8 +40,9 @@ and errors, and final decision. Luna retains PydanticAI instrumentation; Jev log
 provider-reported usage, cost and probabilities. Jev's reason is a probability
 summary, not generated explanatory prose. No confidence threshold is introduced.
 
-The local default has been restored to Luna; OR mode is implemented and tested
-but has not been enabled on production. No service environment was changed.
+Unset `ESCALATION_MODEL_MODE` selects Luna. Set it to `either` to enable paired
+production inference and OR alerting; set it back to `luna` to roll back the mode.
+A service redeploy is required for environment changes to affect running workers.
 
 ## OpenRouter dependency
 
@@ -234,3 +235,54 @@ states, timeout handling, concurrent calls, and exactly one dispatch when both
 models return positive. The 14 Jev live smoke cases still pass. No live tests
 called notification dispatch. Deployment and OR activation remain separate
 from these local code changes.
+
+## Paired production telemetry
+
+One completed `Escalation assessment` span represents one input, not one provider
+attempt. It stores a unique `assessment_id`, source event ID, exact input/policy
+and their SHA-256 hashes, mode, final decision, per-model verdicts, error count,
+and `escalation.comparable` / `escalation.agreement`. Agreement is null when either
+model fails or only one model ran; failed calls are not negative votes.
+
+Each model has its own direct child `Escalation model assessment` span, with the
+same `assessment_id`, normalized output, provider model ID, error status, attempt
+count, and elapsed latency including retries. Nested `Escalation model attempt`
+spans distinguish individual tries. `escalation.usage` contains reported tokens
+and cost for the successful attempt, or null when unavailable.
+The escalation-only Luna adapter preserves the gateway's explicit prompt/completion
+token counts: the pinned SDK's pricing-based extractor otherwise reports zeros
+for this model. Counts are never inferred from billed cost. It is not total
+billed cost across failed attempts. Luna native LLM spans and the Jev details log
+retain canonical `operation.cost`; the normalized summaries use a different
+namespace to prevent double-counting that cost. Missing cost is not zero.
+
+`escalation.sample_kind` distinguishes normal `production` inputs from explicitly
+marked `verification` and `eval` inputs. Always filter the deployment environment
+as well: local tests are not production samples. Count only `kind = 'span'`,
+not pending spans. The root result is the authoritative completed pair.
+
+Example agreement query for Logfire Explore (select a bounded time range):
+
+```sql
+SELECT
+  attributes->>'escalation.luna_verdict' AS luna_verdict,
+  attributes->>'escalation.jev_verdict' AS jev_verdict,
+  attributes->>'escalation.comparable' AS comparable,
+  attributes->>'escalation.error_count' AS error_count,
+  count(*) AS samples
+FROM records
+WHERE service_name = 'fastapi'
+  AND deployment_environment = 'production'
+  AND kind = 'span'
+  AND span_name = 'Escalation assessment'
+  AND attributes->>'mode' = 'either'
+  AND attributes->>'escalation.sample_kind' = 'production'
+GROUP BY 1, 2, 3, 4
+```
+
+Use the same trace and `assessment_id` to inspect the two model child spans.
+Keep retries, failed pairs and verification runs out of the agreement denominator.
+Human review of sampled disagreements and agreements is still needed to measure
+precision/recall; agreement alone does not establish correctness. OR also changes
+alerting behavior: a Jev-only positive now triggers a notification, which can
+increase false positives as well as recall. Dispatch still runs once per event.
