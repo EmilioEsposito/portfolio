@@ -5,7 +5,7 @@ export const SITE_OWNER = "Emilio Esposito";
 export const DEFAULT_META = {
   title: "Emilio Esposito | AI Engineering & Enablement",
   description:
-    "Emilio Esposito is an AI engineering leader and hands-on engineer at LegalZoom, building production AI systems and enabling a 200-person engineering organization.",
+    "Emilio Esposito leads AI Engineering & Enablement at LegalZoom, operates Sernia Capital, and builds independent AI-first software through Sernia Ventures.",
   image: `${SITE_URL}/images/me_emilio_headshot_2026_square.jpg`,
 };
 
@@ -55,4 +55,40 @@ export function generateJsonLd(schema: Record<string, unknown>) {
  */
 export function generateCanonicalLink(url: string) {
   return { rel: "canonical", href: url } as const;
+}
+
+/** Public content pages share canonical identity, social previews, and authorship. */
+export function generatePageMeta(config: {
+  title: string;
+  description: string;
+  path: string;
+}) {
+  const title = `${config.title} | ${SITE_OWNER}`;
+  const url = buildUrl(config.path);
+  return [
+    { title },
+    { name: "description", content: config.description },
+    ...generateOgMeta({ title, description: config.description, url }),
+    generateJsonLd({
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "@id": url,
+      url,
+      name: config.title,
+      description: config.description,
+      inLanguage: "en-US",
+      author: {
+        "@type": "Person",
+        "@id": buildUrl("/#person"),
+        name: SITE_OWNER,
+        url: buildUrl("/"),
+      },
+      isPartOf: {
+        "@type": "WebSite",
+        "@id": buildUrl("/#website"),
+        url: buildUrl("/"),
+        name: SITE_OWNER,
+      },
+    }),
+  ];
 }
