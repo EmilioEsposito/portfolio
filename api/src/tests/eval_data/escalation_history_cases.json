@@ -1,0 +1,722 @@
+[
+  {
+    "case_id": "resolved_leak_thanks",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Explicit resolution and acknowledgement.",
+    "state": {
+      "message_text": "Thanks for fixing it!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:00:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:20:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber has shut off the water and repaired the pipe.",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-18T00:40:00-04:00",
+          "direction": "incoming",
+          "text": "All dry now, no more water.",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "stale_unrelated_rent",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Old unrelated report does not make rent question urgent.",
+    "state": {
+      "message_text": "Where do I mail my rent check?",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-16T02:20:00-04:00",
+          "direction": "incoming",
+          "text": "There is a fire in the kitchen!",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "resolved_fire_quote",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Quoted resolved incident is administrative.",
+    "state": {
+      "message_text": "For the insurance form, I wrote \"fire in the kitchen\". Is that sufficient?",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-16T09:00:00-04:00",
+          "direction": "incoming",
+          "text": "Fire in the kitchen!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-16T10:40:00-04:00",
+          "direction": "outgoing",
+          "text": "Fire department cleared it. Everyone is safe and repairs are booked.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "engaged_ack",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Acknowledgement during active handling.",
+    "state": {
+      "message_text": "OK thank you",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "We are handling this now. Plumber dispatched and arriving in 10 minutes.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "engaged_answer",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Answer to handling team question.",
+    "state": {
+      "message_text": "Yes, in the bathroom",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring from the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber is on the way. Is it in the bathroom?",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "engaged_access",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Access coordination.",
+    "state": {
+      "message_text": "Door is unlocked, come in",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:45:00-04:00",
+          "direction": "incoming",
+          "text": "Pipe burst, water everywhere!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "I am outside with the plumber now. Can we enter?",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "engaged_unchanged",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Unchanged status while response is underway.",
+    "state": {
+      "message_text": "Still dripping at the same rate",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Water dripping through ceiling.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber arriving in 10 minutes; we are handling it. Has the rate changed?",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "resolved_unrelated_alarm",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Resolved unrelated history does not override routine alarm policy.",
+    "state": {
+      "message_text": "The smoke alarm battery is chirping now",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:00:00-04:00",
+          "direction": "incoming",
+          "text": "Water flooding the kitchen!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:40:00-04:00",
+          "direction": "outgoing",
+          "text": "Leak stopped and cleanup finished.",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Confirmed, everything dry.",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "new_deterioration",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Material new danger overrides active handling.",
+    "state": {
+      "message_text": "Now the ceiling is collapsing and water is pouring onto the breaker panel!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Small ceiling drip",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber is on the way.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "failed_response",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Urgent unresolved incident with failed response.",
+    "state": {
+      "message_text": "Nobody came and water is still gushing into the walls. Please get someone here now.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-17T23:00:00-04:00",
+          "direction": "incoming",
+          "text": "Pipe burst, flooding kitchen",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T23:10:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber will be there within 20 minutes.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "distinct_emergency",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Distinct urgent incident.",
+    "state": {
+      "message_text": "There is also a fire in the bedroom now!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:40:00-04:00",
+          "direction": "incoming",
+          "text": "Bathroom leak",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "outgoing",
+          "text": "Plumber is fixing that now.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "auto_ack_not_handling",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Generic acknowledgement is not active handling.",
+    "state": {
+      "message_text": "Water is still pouring through the light fixture!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Ceiling leaking",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "Automated reply: We received your message. Office opens Monday.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "unrelated_outbound",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Unrelated engagement must not suppress a new emergency.",
+    "state": {
+      "message_text": "The pipe just burst and the whole room is flooding!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:45:00-04:00",
+          "direction": "outgoing",
+          "text": "Reminder: rent is due tomorrow.",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "OK thanks",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "reassurance_then_collapse",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "New damage after earlier reassurance.",
+    "state": {
+      "message_text": "A part of the ceiling just fell",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-17T20:00:00-04:00",
+          "direction": "incoming",
+          "text": "Ceiling bubble but it is dry and not dripping.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:10:00-04:00",
+          "direction": "outgoing",
+          "text": "I will inspect tomorrow.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "stale_but_confirmed_active",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Current confirmation keeps old unresolved danger relevant.",
+    "state": {
+      "message_text": "That leak I reported is still pouring water into the walls. Nobody has responded.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-16T02:20:00-04:00",
+          "direction": "incoming",
+          "text": "Water pouring through ceiling!",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "resolved_then_recurrence",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Explicit recurrence after resolution is new.",
+    "state": {
+      "message_text": "It started flooding again, water is gushing from the same pipe!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:00:00-04:00",
+          "direction": "incoming",
+          "text": "Pipe flooding",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:20:00-04:00",
+          "direction": "outgoing",
+          "text": "Repaired and dry",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-18T00:30:00-04:00",
+          "direction": "incoming",
+          "text": "Thanks, it stopped.",
+          "same_sender": true
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_29min_no_dispatch",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Clear awareness within 30 minutes is sufficient without a repair plan.",
+    "state": {
+      "message_text": "Water is still pouring through the ceiling at the same rate.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:26:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:31:00-04:00",
+          "direction": "outgoing",
+          "text": "I understand that water is pouring through your ceiling. I have read your report.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_exactly_30min",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Inclusive 30-minute awareness window.",
+    "state": {
+      "message_text": "Water is still pouring through the ceiling at the same rate.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:25:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:30:00-04:00",
+          "direction": "outgoing",
+          "text": "I understand that water is pouring through your ceiling. I have read your report.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_31min_renewed_urgent_request",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Outside suppression window with explicit urgent request and no handling underway.",
+    "state": {
+      "message_text": "Water is still pouring into the walls. Nothing has been done. Please get someone here now.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:24:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:29:00-04:00",
+          "direction": "outgoing",
+          "text": "I understand that water is pouring through your ceiling. I have read your report.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_31min_thanks",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Expiry is not a timer-triggered alert for routine replies.",
+    "state": {
+      "message_text": "Thanks for acknowledging my message.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:24:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:29:00-04:00",
+          "direction": "outgoing",
+          "text": "I understand that water is pouring through your ceiling. I have read your report.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_recent_new_danger",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "Material new danger is not covered by prior awareness.",
+    "state": {
+      "message_text": "Now the ceiling has collapsed and the water is reaching the electrical panel!",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "I understand that water is pouring through your ceiling. I have read your report.",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "aware_recent_specific_question",
+    "label_source": "synthetic_policy_expectation",
+    "expected": false,
+    "rationale": "Specific acknowledgement counts even when asking a question, without a dispatch.",
+    "state": {
+      "message_text": "Yes, still in the bathroom, no change.",
+      "timestamp": "2026-09-18T01:00:00-04:00",
+      "timezone": "America/New_York",
+      "history_status": "available",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-18T00:50:00-04:00",
+          "direction": "incoming",
+          "text": "Water is pouring through the ceiling!",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T00:55:00-04:00",
+          "direction": "outgoing",
+          "text": "I see that water is pouring through your ceiling. Is that in the bathroom?",
+          "same_sender": false
+        }
+      ]
+    }
+  },
+  {
+    "case_id": "ceiling_typo_with_history",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "New ceiling material falling after an earlier dry crack report and deferred inspection. Prior management engagement about five hours earlier does not establish awareness of this deterioration. The typo is interpreted using the ceiling context.",
+    "state": {
+      "message_text": "Hi, a part of the feeling fell",
+      "timestamp": "2026-09-18T01:02:00-04:00",
+      "timezone": "America/New_York",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-17T19:54:00-04:00",
+          "direction": "incoming",
+          "text": "Our bathroom ceiling has a patch that looks water damaged.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T19:56:00-04:00",
+          "direction": "outgoing",
+          "text": "Is any water dripping right now?",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T19:57:00-04:00",
+          "direction": "incoming",
+          "text": "No, nothing is dripping.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T19:58:00-04:00",
+          "direction": "outgoing",
+          "text": "I can inspect it tomorrow. When did you first notice it?",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T20:02:00-04:00",
+          "direction": "incoming",
+          "text": "Thanks.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:03:00-04:00",
+          "direction": "incoming",
+          "text": "There was a small bulge a few days ago, but the crack appeared today.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:04:00-04:00",
+          "direction": "incoming",
+          "text": "The surface feels dry.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:05:00-04:00",
+          "direction": "outgoing",
+          "text": "I will check the unit upstairs and let you know if I need access.",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T20:06:00-04:00",
+          "direction": "incoming",
+          "text": "Appreciate it.",
+          "same_sender": true
+        }
+      ],
+      "history_status": "available"
+    }
+  },
+  {
+    "case_id": "ceiling_correction_with_history",
+    "label_source": "synthetic_policy_expectation",
+    "expected": true,
+    "rationale": "New ceiling material falling after an earlier dry crack report and deferred inspection. Prior management engagement about five hours earlier does not establish awareness of this deterioration. The typo is interpreted using the ceiling context.",
+    "state": {
+      "message_text": "Edited to \u201cHi, a part of the ceiling fell\u201d",
+      "timestamp": "2026-09-18T01:16:00-04:00",
+      "timezone": "America/New_York",
+      "prior_messages": [
+        {
+          "timestamp": "2026-09-17T19:54:00-04:00",
+          "direction": "incoming",
+          "text": "Our bathroom ceiling has a patch that looks water damaged.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T19:56:00-04:00",
+          "direction": "outgoing",
+          "text": "Is any water dripping right now?",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T19:57:00-04:00",
+          "direction": "incoming",
+          "text": "No, nothing is dripping.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T19:58:00-04:00",
+          "direction": "outgoing",
+          "text": "I can inspect it tomorrow. When did you first notice it?",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T20:02:00-04:00",
+          "direction": "incoming",
+          "text": "Thanks.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:03:00-04:00",
+          "direction": "incoming",
+          "text": "There was a small bulge a few days ago, but the crack appeared today.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:04:00-04:00",
+          "direction": "incoming",
+          "text": "The surface feels dry.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-17T20:05:00-04:00",
+          "direction": "outgoing",
+          "text": "I will check the unit upstairs and let you know if I need access.",
+          "same_sender": false
+        },
+        {
+          "timestamp": "2026-09-17T20:06:00-04:00",
+          "direction": "incoming",
+          "text": "Appreciate it.",
+          "same_sender": true
+        },
+        {
+          "timestamp": "2026-09-18T01:02:00-04:00",
+          "direction": "incoming",
+          "text": "Hi, a part of the feeling fell",
+          "same_sender": true
+        }
+      ],
+      "history_status": "available"
+    }
+  }
+]
