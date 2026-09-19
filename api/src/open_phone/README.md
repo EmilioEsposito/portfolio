@@ -248,7 +248,10 @@ Each model has its own direct child `Escalation model assessment` span, with the
 same `assessment_id`, normalized output, provider model ID, error status, attempt
 count, and elapsed latency including retries. Nested `Escalation model attempt`
 spans distinguish individual tries. `escalation.usage` contains reported tokens
-and cost for the successful attempt, or null when unavailable. It is not total
+and cost for the successful attempt, or null when unavailable.
+The escalation-only Luna adapter preserves the gateway's explicit prompt/completion
+token counts: the pinned SDK's pricing-based extractor otherwise reports zeros
+for this model. Counts are never inferred from billed cost. It is not total
 billed cost across failed attempts. Luna native LLM spans and the Jev details log
 retain canonical `operation.cost`; the normalized summaries use a different
 namespace to prevent double-counting that cost. Missing cost is not zero.

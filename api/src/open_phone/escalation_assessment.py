@@ -15,15 +15,17 @@ from typing import Literal
 from uuid import uuid4
 
 import logfire
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.usage import RequestUsage
 
 from api.src.open_phone.escalation_policy import ESCALATION_QUESTION, ESCALATION_TIMEOUT_SECONDS
 from api.src.open_phone.typesafe_openrouter import (
     OpenRouterDecisionResponse,
     create_jev_client,
 )
-from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
+from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_openrouter_settings
 
 LUNA_MODEL = "openai/gpt-5.6-luna"
 ModelName = Literal["luna", "jev"]
@@ -62,12 +64,31 @@ class EscalationDecision(BaseModel):
     assessments: list[ModelAssessment]
 
 
+class EscalationLunaModel(SerniaOpenRouterModel):
+    """Preserve explicit gateway token counts for this otherwise-unrecognized model.
+
+    The pinned SDK's pricing-based usage extractor loses Luna's standard chat
+    token totals. Read the actual response fields; do not estimate usage or cost.
+    This adapter is limited to the escalation classifier's non-streaming calls.
+    """
+
+    def _map_usage(self, response: ChatCompletion) -> RequestUsage:
+        usage = super()._map_usage(response)
+        usage.details["token_counts_reported"] = int(response.usage is not None)
+        if raw := response.usage:
+            usage.input_tokens = raw.prompt_tokens
+            usage.output_tokens = raw.completion_tokens
+            if raw.prompt_tokens_details and raw.prompt_tokens_details.cached_tokens is not None:
+                usage.cache_read_tokens = raw.prompt_tokens_details.cached_tokens
+        return usage
+
+
 @cache
 def luna_agent() -> Agent:
     settings = build_openrouter_settings("low")
     settings["timeout"] = ESCALATION_TIMEOUT_SECONDS
     return Agent(
-        resolve_model(f"openrouter:{LUNA_MODEL}"),
+        EscalationLunaModel(LUNA_MODEL),
         output_type=ShouldEscalate,
         instructions=ESCALATION_QUESTION.instructions,
         model_settings=settings,
@@ -83,8 +104,8 @@ async def assess_luna(state: dict) -> InferenceResult:
     return InferenceResult(
         **result.output.model_dump(),
         provider_model=response.model_name,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
+        input_tokens=usage.input_tokens if usage.details.get("token_counts_reported") else None,
+        output_tokens=usage.output_tokens if usage.details.get("token_counts_reported") else None,
         reported_cost=(response.provider_details or {}).get("cost"),
     )
 

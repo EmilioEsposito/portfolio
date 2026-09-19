@@ -92,3 +92,49 @@ async def test_failed_model_is_not_a_disagreement(capfire, monkeypatch):
     assert output["should_escalate"] is None
     assert output["attempts"] == 2 and output["reported_cost"] is None
     assert result.should_escalate
+
+
+def test_luna_adapter_keeps_explicit_gateway_token_counts():
+    from pydantic_ai.models.openrouter import _OpenRouterChatCompletion
+
+    response = _OpenRouterChatCompletion.model_validate(
+        {
+            "id": "synthetic",
+            "object": "chat.completion",
+            "created": 0,
+            "model": assessment.LUNA_MODEL,
+            "provider": "OpenAI",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 1234,
+                "completion_tokens": 56,
+                "total_tokens": 1290,
+                "cost": 0.0007,
+                "prompt_tokens_details": {"cached_tokens": 1000},
+                "completion_tokens_details": {"reasoning_tokens": 12},
+            },
+        }
+    )
+    usage = assessment.EscalationLunaModel(assessment.LUNA_MODEL)._map_usage(response)
+    assert usage.details["token_counts_reported"] == 1
+    assert usage.input_tokens == 1234
+    assert usage.output_tokens == 56
+    assert usage.cache_read_tokens == 1000
+    assert usage.details["reasoning_tokens"] == 12
+
+
+def test_luna_adapter_marks_missing_usage_unknown():
+    from pydantic_ai.models.openrouter import _OpenRouterChatCompletion
+
+    response = _OpenRouterChatCompletion.model_validate(
+        {
+            "id": "synthetic",
+            "object": "chat.completion",
+            "created": 0,
+            "model": assessment.LUNA_MODEL,
+            "provider": "OpenAI",
+            "choices": [],
+        }
+    )
+    usage = assessment.EscalationLunaModel(assessment.LUNA_MODEL)._map_usage(response)
+    assert usage.details["token_counts_reported"] == 0
