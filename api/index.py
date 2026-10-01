@@ -44,6 +44,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from api.src.utils.automation import background_automation_enabled
 from api.src.utils.public_ai_guard import PublicAIGuard
 
 logfire.info("STARTUP1")
@@ -188,7 +189,12 @@ async def lifespan(app: FastAPI):
                 logfire.info("Skipping DB connection test (local dev)")
 
             # Start APScheduler in the background so FastAPI can begin serving immediately.
-            app.state.apscheduler_startup_task = asyncio.create_task(_apscheduler_startup_async())
+            if background_automation_enabled():
+                app.state.apscheduler_startup_task = asyncio.create_task(
+                    _apscheduler_startup_async()
+                )
+            else:
+                logfire.info("Background automation disabled")
 
             # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
             # See api/src/schedulers/README.md for re-enabling instructions.
@@ -224,8 +230,10 @@ async def lifespan(app: FastAPI):
     # Shutdown APScheduler
     logfire.info("Shutting down APScheduler...")
     try:
-        scheduler = get_scheduler()
-        if scheduler.running:
+        scheduler = (
+            get_scheduler() if getattr(app.state, "apscheduler_startup_task", None) else None
+        )
+        if scheduler is not None and scheduler.running:
             scheduler.shutdown(wait=False)  # Don't wait for jobs to complete
     except Exception as e:
         logfire.warn(f"APScheduler shutdown error: {e}")

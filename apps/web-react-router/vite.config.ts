@@ -17,11 +17,13 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig(({ mode }) => {
   // Load env from this directory (apps/web-react-router)
-  const env = loadEnv(mode, process.cwd(), "");
+  const managed = Boolean(process.env.PORTFOLIO_CONFIG_SOURCE);
+  const env = managed ? process.env : loadEnv(mode, process.cwd(), "");
   const backendPort = env.BACKEND_PORT || "8000";
   const vitePort = env.VITE_PORT ? parseInt(env.VITE_PORT, 10) : 5173;
 
   return {
+    envDir: managed ? false : undefined,
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
     server: {
       port: vitePort,

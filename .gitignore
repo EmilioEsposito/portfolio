@@ -88,3 +88,6 @@ api/seed_fixtures/
 
 # Agent-created local worktrees
 .claude/worktrees/
+
+# Local agent workspace used by the development launcher
+.local/
