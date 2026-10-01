@@ -65,6 +65,21 @@ pnpm dev-with-fastapi # Both
 - Tool names must match the server's **current** naming. `@railway/mcp-server` renamed its tools from hyphens to underscores (`list-projects` → `list_projects`), which silently invalidated old allow rules *and* the `railway-link-guard.sh` hook matcher (the new tool also uses `environment_name` instead of `environmentName`).
 - Hooks with an `ask`/`deny` decision override allow rules, so it's safe to allowlist a whole server (e.g. `mcp__Neon` tools) and let a PreToolUse guard gate the dangerous subset.
 
+### Service-scoped development configuration
+
+`pnpm dev`, `pnpm fastapi-dev`, and `pnpm dev-with-fastapi` resolve each service's
+configuration through `scripts/dev_config.py`. Local CLI uses the existing ignored
+service `.env`; Codex/Claude cloud fetches Railway development credentials into the
+child process without writing files. Use `pnpm config:check api` or
+`pnpm config:check web` for names/status only. `DEV_CONFIG_SOURCE=local|railway`
+overrides automatic source selection. Supply local database URLs and ports in cloud;
+never import hosted database URLs, management tokens, or production webhook keys.
+Background automation defaults off locally; explicitly opt in with
+`BACKGROUND_AUTOMATION_ENABLED=true` when needed. Do not bypass the launcher by
+printing Railway variables or sourcing secret files. See [scripts/README.md](scripts/README.md).
+Cloud tasks use their existing isolated checkout; do not create extra worktrees
+unless the user requests one.
+
 ### Local CLI Development
 
 Requires manual setup - see [Initial Setup](#initial-setup) below. Uses remote Neon Postgres with `DATABASE_REQUIRE_SSL=true`.

@@ -18,20 +18,6 @@ router = APIRouter()
 DEV_CLERK_WEBHOOK_SECRET = os.getenv("DEV_CLERK_WEBHOOK_SECRET")
 PROD_CLERK_WEBHOOK_SECRET = os.getenv("PROD_CLERK_WEBHOOK_SECRET")
 
-if not DEV_CLERK_WEBHOOK_SECRET:
-    logfire.warn(
-        "DEV_CLERK_WEBHOOK_SECRET environment variable not set. Webhook verification will fail."
-    )
-    # Depending on your policy, you might want to raise an error here
-    raise ValueError("DEV_CLERK_WEBHOOK_SECRET is not set.")
-
-if not PROD_CLERK_WEBHOOK_SECRET:
-    logfire.warn(
-        "PROD_CLERK_WEBHOOK_SECRET environment variable not set. Webhook verification will fail."
-    )
-    # Depending on your policy, you might want to raise an error here
-    raise ValueError("PROD_CLERK_WEBHOOK_SECRET is not set.")
-
 # Create Webhook instances for each secret
 webhook_dev = Webhook(DEV_CLERK_WEBHOOK_SECRET) if DEV_CLERK_WEBHOOK_SECRET else None
 webhook_prod = Webhook(PROD_CLERK_WEBHOOK_SECRET) if PROD_CLERK_WEBHOOK_SECRET else None
@@ -48,7 +34,7 @@ async def handle_clerk_webhook(
     """Handles incoming webhooks from Clerk for user events, trying multiple secrets."""
     logfire.info("Received Clerk webhook request")
 
-    if not webhook_dev or not webhook_prod:
+    if not webhook_dev and not webhook_prod:
         logfire.error("One or more webhook secrets are not configured.")
         # Raise 500 because this is a server configuration issue
         raise HTTPException(status_code=500, detail="Webhook secret(s) not configured")
@@ -67,37 +53,23 @@ async def handle_clerk_webhook(
     payload_bytes = await request.body()
     payload_str = payload_bytes.decode("utf-8")
 
-    # Verify the webhook signature - Try dev secret first, then prod
+    # Verify only configured endpoints. Local development needs no production key.
     event = None
-    environment = None  # Store the environment name ("development" or "production")
-    try:
-        logfire.debug("Attempting verification with DEV secret.")
-        event = webhook_dev.verify(payload_str, headers)
-        environment = "development"
-        logfire.info(
-            f"Webhook verified successfully with DEV secret. Event type: {event.get('type')}"
-        )
-    except WebhookVerificationError as e_dev:
-        logfire.warn(f"Webhook verification failed with DEV secret: {e_dev}. Trying PROD secret.")
+    environment = None
+    for candidate, verifier in (("development", webhook_dev), ("production", webhook_prod)):
+        if verifier is None:
+            continue
         try:
-            event = webhook_prod.verify(payload_str, headers)
-            environment = "production"
-            logfire.info(
-                f"Webhook verified successfully with PROD secret. Event type: {event.get('type')}"
-            )
-        except WebhookVerificationError as e_prod:
-            logfire.error(
-                f"Webhook verification failed with both DEV and PROD secrets: DEV_Error='{e_dev}', PROD_Error='{e_prod}'"
-            )
-            raise HTTPException(status_code=400, detail="Webhook verification failed")
-        except Exception as e:
-            # Catch other errors during PROD verification attempt
-            logfire.exception(f"Unexpected error during PROD webhook verification: {e}")
+            event = verifier.verify(payload_str, headers)
+            environment = candidate
+            break
+        except WebhookVerificationError:
+            continue
+        except Exception:
+            logfire.error("Unexpected error during Clerk webhook verification")
             raise HTTPException(status_code=500, detail="Internal server error during verification")
-    except Exception as e:
-        # Catch other errors during DEV verification attempt
-        logfire.exception(f"Unexpected error during DEV webhook verification: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during verification")
+    if event is None:
+        raise HTTPException(status_code=400, detail="Webhook verification failed")
 
     if event is None or environment is None:
         # This case should technically not be reachable if exceptions are handled correctly, but added for safety.
