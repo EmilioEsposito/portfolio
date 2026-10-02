@@ -16,8 +16,12 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from sernia_mcp.clients.google_auth import get_delegated_credentials
 
+# Only scopes whitelisted for this service account's domain-wide delegation in
+# Workspace admin may be requested: Google rejects the WHOLE token request with
+# `unauthorized_client` if any single scope is not authorized. `drive.readonly`
+# is not whitelisted, and `drive` already covers read access, so request only
+# `drive` (same list as api/src/sernia_ai/tools/google_tools.py).
 DRIVE_SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/drive",
 ]
 
