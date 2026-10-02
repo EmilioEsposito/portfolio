@@ -114,7 +114,11 @@ async def get_email_by_message_id(session: AsyncSession, message_id: str) -> Ema
         message_id: Gmail message ID
 
     Returns:
-        EmailMessage instance if found, None otherwise
+        EmailMessage instance if found, None only when no matching row exists.
+
+    Database errors propagate to the caller, which owns transaction rollback.
+    Treating a failed SELECT as a missing row would let save_email_message try
+    an INSERT using an invalid transaction.
     """
     try:
         logfire.info(f"Fetching email message with ID: {message_id}")
@@ -132,7 +136,7 @@ async def get_email_by_message_id(session: AsyncSession, message_id: str) -> Ema
 
     except Exception as e:
         logfire.exception(f"Error fetching email message {message_id}: {str(e)}")
-        return None
+        raise
 
 
 async def get_emails_by_thread_id(session: AsyncSession, thread_id: str) -> list[EmailMessage]:
