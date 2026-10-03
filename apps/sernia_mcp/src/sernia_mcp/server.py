@@ -64,7 +64,7 @@ _ICON_PATH = Path(__file__).parent / "static" / "icon.png"
 # it the call is a no-op (no warning, no telemetry).
 logfire.configure(
     service_name="sernia-mcp",
-    environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "local"),
+    environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME") or "local",
     send_to_logfire="if-token-present",
 )
 # httpx instrumentation covers upstream calls (Quo, ClickUp, Google, Clerk).
