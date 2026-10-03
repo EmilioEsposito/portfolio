@@ -10,6 +10,24 @@ on:
     branches: [main]
 
 jobs:
+  security-dependencies:
+    name: Security dependency regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:security
+      - run: pnpm --filter web-react-router test
+      - run: pnpm --filter web-react-router typecheck
+      - run: pnpm build
+
   sernia-mcp:
     name: Sernia MCP (not live)
     runs-on: ubuntu-latest

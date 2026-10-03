@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",
-    "@clerk/clerk-expo": "^2.19.31",
+    "@clerk/clerk-expo": "^2.19.36",
     "@expo/metro-runtime": "^5.0.5",
     "@expo/vector-icons": "^14.1.0",
     "@react-navigation/bottom-tabs": "^7.15.9",

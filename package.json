@@ -15,7 +15,8 @@
     "eas-build-dev": "cd apps/my-expo-app && eas build --profile development --platform ios --non-interactive",
     "eas-build-prod": "cd apps/my-expo-app && eas build --profile production --platform ios",
     "test": "bash scripts/worktree-test.sh",
-    "config:check": ".venv/bin/python scripts/dev_config.py"
+    "config:check": ".venv/bin/python scripts/dev_config.py",
+    "test:security": "node --test scripts/tests/security-dependencies.test.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
