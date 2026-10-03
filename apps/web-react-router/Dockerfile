@@ -7,8 +7,9 @@ WORKDIR /app
 
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+COPY patches ./patches
 COPY apps/web-react-router/package.json ./apps/web-react-router/
-RUN pnpm install --filter web-react-router
+RUN pnpm install --filter web-react-router --frozen-lockfile
 
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
@@ -23,9 +24,10 @@ WORKDIR /app
 # Copy root package.json for pnpm config, .npmrc for build settings, app package.json for deps
 # pnpm-workspace.yaml needed for allowBuilds config
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 WORKDIR /app/apps/web-react-router
-RUN pnpm install --prod --ignore-scripts
+RUN pnpm install --filter web-react-router --prod --frozen-lockfile --ignore-scripts
 COPY --from=build /app/apps/web-react-router/build ./build
 COPY apps/web-react-router/server.js ./server.js
 ENV PORT=5173
