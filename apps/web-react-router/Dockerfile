@@ -7,6 +7,7 @@ WORKDIR /app
 
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+COPY patches ./patches
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 RUN pnpm install --filter web-react-router
 
@@ -23,6 +24,7 @@ WORKDIR /app
 # Copy root package.json for pnpm config, .npmrc for build settings, app package.json for deps
 # pnpm-workspace.yaml needed for allowBuilds config
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches ./patches
 COPY apps/web-react-router/package.json ./apps/web-react-router/
 WORKDIR /app/apps/web-react-router
 RUN pnpm install --prod --ignore-scripts
