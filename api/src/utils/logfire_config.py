@@ -73,6 +73,20 @@ def _drop_dbos_sqlalchemy_sys_traces(span_info: TailSamplingSpanInfo) -> float:
     return 1.0 if span_info.event == "end" else 0.0
 
 
+def resolve_environment(environment: str | None = None) -> str:
+    """Resolve the Logfire `environment` label, treating empty as unset.
+
+    `RAILWAY_ENVIRONMENT_NAME` is *absent* on a bare local checkout but is set to an
+    empty string by the worktree launcher (`scripts/worktree.py`) to mean "not hosted" —
+    app code elsewhere tests it for truthiness, so both spellings mean local. A `getenv`
+    default only fires when the variable is absent, so an empty value used to reach
+    Logfire as `environment=""` and be stored as NULL. The "Error-level records
+    (non-local)" alert counts a NULL environment as non-local, so local dev errors
+    fired it. Collapse both spellings of unset to "local" instead.
+    """
+    return environment or os.getenv("RAILWAY_ENVIRONMENT_NAME") or "local"
+
+
 def ensure_logfire_configured(
     *,
     mode: str = "prod",
@@ -109,7 +123,7 @@ def ensure_logfire_configured(
 
     _load_local_env_if_possible()
 
-    env_name = environment or os.getenv("RAILWAY_ENVIRONMENT_NAME", "local")
+    env_name = resolve_environment(environment)
 
     if mode == "test":
         logfire.configure(
