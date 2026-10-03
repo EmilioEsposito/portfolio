@@ -55,3 +55,31 @@ test('Metro asset pipeline reads dimensions from filesystem paths', async () => 
   assert.equal(asset.height, 379);
   assert.equal(asset.type, 'png');
 });
+
+const metroPackageRequire = createRequire(metroRequire.resolve('metro/package.json'));
+const micromatchRequire = createRequire(metroPackageRequire.resolve('micromatch/package.json'));
+const braces = micromatchRequire('braces');
+
+// GHSA-vfj7-8cjw-p6xm: cap parser-produced AST depth before recursive walkers run.
+for (const method of ['parse', 'compile', 'expand', 'stringify']) {
+  test(`braces.${method} rejects excessive brace and parenthesis depth`, () => {
+    for (const [open, close] of [['{', '}'], ['(', ')']]) {
+      for (const depth of [101, 4000]) {
+        assert.throws(
+          () => braces[method](open.repeat(depth) + 'a,b' + close.repeat(depth)),
+          { name: 'SyntaxError', message: /nesting depth.*100/ },
+        );
+      }
+    }
+  });
+}
+
+test('braces keeps normal, escaped, quoted, and flat patterns working', () => {
+  assert.deepEqual(braces.expand('src/{api,web}/{a,b}.js'), [
+    'src/api/a.js', 'src/api/b.js', 'src/web/a.js', 'src/web/b.js',
+  ]);
+  assert.doesNotThrow(() => braces.compile('{'.repeat(100) + 'a,b' + '}'.repeat(100)));
+  assert.doesNotThrow(() => braces.compile('\\{'.repeat(200)));
+  assert.doesNotThrow(() => braces.compile('"' + '{'.repeat(200) + '"'));
+  assert.doesNotThrow(() => braces.compile('{a,b}'.repeat(200)));
+});

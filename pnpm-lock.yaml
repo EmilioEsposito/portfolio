@@ -34,6 +34,7 @@ overrides:
   '@clerk/clerk-js@>=5 <6': ^5.125.10
 
 patchedDependencies:
+  braces@3.0.3: e31c062ac6100f1448e71ca5db4f4380692deee959c94d0976811c0a149a8d77
   metro@0.82.5: c45d78ac3efb1b820cb79f81f29c309ab68daa85ba50ffafc3e93e9e7879b5ac
   node-forge@1.4.0: b6876574a5de19521a766856b293aeae2689848c5d8dab03f93040be0a64b8b4
 
@@ -11153,7 +11154,7 @@ snapshots:
       debug: 2.6.9
       invariant: 2.2.4
       metro: 0.82.5(patch_hash=c45d78ac3efb1b820cb79f81f29c309ab68daa85ba50ffafc3e93e9e7879b5ac)(bufferutil@4.1.0)
-      metro-config: 0.82.5(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      metro-config: 0.82.5(bufferutil@4.1.0)
       metro-core: 0.82.5
       semver: 7.7.4
     transitivePeerDependencies:
@@ -12804,7 +12805,7 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
-  braces@3.0.3:
+  braces@3.0.3(patch_hash=e31c062ac6100f1448e71ca5db4f4380692deee959c94d0976811c0a149a8d77):
     dependencies:
       fill-range: 7.1.1
 
@@ -15697,6 +15698,21 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  metro-config@0.82.5(bufferutil@4.1.0):
+    dependencies:
+      connect: 3.7.0
+      cosmiconfig: 5.2.1
+      flow-enums-runtime: 0.0.6
+      jest-validate: 29.7.0
+      metro: 0.82.5(patch_hash=c45d78ac3efb1b820cb79f81f29c309ab68daa85ba50ffafc3e93e9e7879b5ac)(bufferutil@4.1.0)
+      metro-cache: 0.82.5
+      metro-core: 0.82.5
+      metro-runtime: 0.82.5
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
   metro-config@0.82.5(bufferutil@4.1.0)(utf-8-validate@6.0.6):
     dependencies:
       connect: 3.7.0
@@ -15849,7 +15865,7 @@ snapshots:
       metro-babel-transformer: 0.82.5
       metro-cache: 0.82.5
       metro-cache-key: 0.82.5
-      metro-config: 0.82.5(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      metro-config: 0.82.5(bufferutil@4.1.0)
       metro-core: 0.82.5
       metro-file-map: 0.82.5
       metro-resolver: 0.82.5
@@ -16110,7 +16126,7 @@ snapshots:
 
   micromatch@4.0.8:
     dependencies:
-      braces: 3.0.3
+      braces: 3.0.3(patch_hash=e31c062ac6100f1448e71ca5db4f4380692deee959c94d0976811c0a149a8d77)
       picomatch: 2.3.2
 
   mime-db@1.52.0: {}
