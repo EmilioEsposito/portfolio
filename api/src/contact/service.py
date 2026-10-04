@@ -158,7 +158,13 @@ async def get_contact_by_slug(slug: str) -> Contact | None:
         if contact:
             logfire.info(f"Found contact with slug: {slug} (ID: {contact.id})")
         else:
-            logfire.error(f"Contact with slug: {slug} not found.")
+            # A miss is an expected outcome of this nullable lookup, not an error:
+            # create_contact() calls it precisely to confirm the slug is free, so
+            # every successful creation used to emit an error-level record and fire
+            # the "Error-level records (non-local)" alert. Callers that do treat a
+            # miss as a failure (escalate, zillow_email, apscheduler) already log
+            # their own error or raise, so nothing is lost by logging info here.
+            logfire.info(f"Contact with slug: {slug} not found.")
         return contact
 
 
