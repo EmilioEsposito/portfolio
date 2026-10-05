@@ -64,7 +64,8 @@ it cannot redact encoded/transformed secrets or stop code with shell access
 from inspecting process memory. The launcher does not persist fetched secrets.
 
 Background automation defaults **off locally**, **on for direct Railway
-startup**. `BACKGROUND_AUTOMATION_ENABLED=true` explicitly enables it locally;
+startup**. [Background automation policy](../docs/BACKGROUND_AUTOMATION.md) also defaults hosted
+nonproduction off. `BACKGROUND_AUTOMATION_ENABLED=true` explicitly enables it locally;
 `false` disables it in hosted deployments. The development launcher defaults
 this to false even when fetching Railway credentials. Normal FastAPI lifespan
 still initializes the workspace and cleans up stale local data. This switch
