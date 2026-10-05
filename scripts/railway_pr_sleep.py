@@ -12,6 +12,7 @@ def query(document: str, variables: dict) -> dict:
         headers={
             "Authorization": f"Bearer {os.environ['RAILWAY_API_TOKEN']}",
             "Content-Type": "application/json",
+            "User-Agent": "portfolio-ci",
         },
     )
     with urllib.request.urlopen(request, timeout=30) as response:
