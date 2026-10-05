@@ -128,7 +128,10 @@ def test_disabled_dotenv_cannot_override_injected_database(monkeypatch, tmp_path
     ("hosted", "flag", "expected"),
     [
         (None, None, False),
-        ("production", None, True),
+        ("production", None, False),
+        ("production", "true", True),
+        ("development", None, False),
+        ("portfolio-pr-123", None, False),
         ("development", "false", False),
         (None, "true", True),
     ],

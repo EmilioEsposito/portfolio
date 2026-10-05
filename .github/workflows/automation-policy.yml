@@ -1,0 +1,23 @@
+name: Reconcile background automation policy
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/railway_automation_policy.*
+      - scripts/railway_pr_sleep.py
+      - .github/workflows/automation-policy.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: background-automation-policy
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Apply declared automation defaults
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_GHA_TOKEN }}
+        run: python3 scripts/railway_automation_policy.py --apply

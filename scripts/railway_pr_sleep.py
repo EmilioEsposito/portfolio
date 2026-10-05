@@ -39,6 +39,9 @@ def main() -> None:
         or environment["name"] == "production"
     ):
         raise RuntimeError("Refusing to configure a non-PR or unrelated environment")
+    from railway_automation_policy import reconcile
+
+    reconcile(environment_id, apply=True)
     for edge in environment["serviceInstances"]["edges"]:
         service = edge["node"]
         if service["cronSchedule"] or service["sleepApplication"]:
