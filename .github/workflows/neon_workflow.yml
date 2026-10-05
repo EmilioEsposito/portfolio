@@ -164,6 +164,14 @@ jobs:
         run: |
           ./.github/scripts/upsert_neon_variables_to_railway/railway_upsert_database_vars.sh
 
+      - name: Enable sleep for non-cron PR services
+        if: steps.get_railway_env.outputs.RAILWAY_ENV_FOUND == 'true'
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_GHA_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENV_ID: ${{ steps.get_railway_env.outputs.env_id }}
+        run: python3 scripts/railway_pr_sleep.py
+
 # The step above creates a new Neon branch.
 # You may want to do something with the new branch, such as run migrations, run tests
 # on it, or send the connection details to a hosting platform environment.

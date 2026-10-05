@@ -21,6 +21,13 @@ Each pull request automatically gets an isolated Neon database branch and Railwa
 
 ### On PR Close
 
+PR services permit Railway serverless sleep. The workflow applies this after database
+configuration, skips cron services, and rejects non-ephemeral or unrelated environments.
+Services that already deployed are redeployed when the setting changes so their containers
+adopt it. Evergreen development services also have sleep enabled in Railway; production is
+unchanged. Background automation, telemetry, and database traffic may prevent sleeping;
+in-process schedules do not run while asleep. Existing integration behavior is preserved.
+
 - Deletes the Neon database branch
 - Railway auto-cleans up the PR environment
 
