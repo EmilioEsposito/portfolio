@@ -290,6 +290,11 @@ Uses Vercel AI SDK Data Stream Protocol for streaming responses.
 
 ---
 
+## Background automation policy
+
+Follow [docs/BACKGROUND_AUTOMATION.md](docs/BACKGROUND_AUTOMATION.md) for the shared opt-in
+switch, hosted defaults and temporary scheduling tests. Gate scheduler startup, not requests.
+
 ## Scheduled Jobs
 
 **Active**: APScheduler (`api/src/apscheduler_service/`)

@@ -1,0 +1,6 @@
+{
+  "projectId": "73eb837a-ba86-4899-992c-cefd0c22b91f",
+  "serviceName": "fastapi",
+  "environments": {"production": "true", "development": "false"},
+  "ephemeral": "false"
+}

@@ -194,7 +194,9 @@ async def lifespan(app: FastAPI):
                     _apscheduler_startup_async()
                 )
             else:
-                logfire.info("Background automation disabled")
+                logfire.info(
+                    "Background automation disabled; recurring jobs and startup catch-up skipped"
+                )
 
             # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
             # See api/src/schedulers/README.md for re-enabling instructions.
