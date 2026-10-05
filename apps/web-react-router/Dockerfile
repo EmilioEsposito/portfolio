@@ -30,6 +30,7 @@ WORKDIR /app/apps/web-react-router
 RUN pnpm install --filter web-react-router --prod --frozen-lockfile --ignore-scripts
 COPY --from=build /app/apps/web-react-router/build ./build
 COPY apps/web-react-router/server.js ./server.js
+ENV NODE_ENV=production
 ENV PORT=5173
 EXPOSE 5173
 CMD ["node", "server.js"]
