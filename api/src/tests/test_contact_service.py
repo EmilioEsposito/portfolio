@@ -7,6 +7,9 @@ reachable Postgres with the schema already migrated:
     pytest api/src/tests/test_contact_service.py -v -s
 """
 
+from unittest.mock import patch
+
+import logfire
 import pytest
 from sqlalchemy.future import select
 
@@ -107,3 +110,22 @@ async def test_get_contact_by_slug():
     assert hasattr(contact, "notes")
     assert hasattr(contact, "user_id")
     assert contact.slug == "test-contact"
+
+
+@pytest.mark.asyncio
+async def test_get_contact_by_slug_miss_is_not_error_level():
+    """A lookup miss must not be logged at error level.
+
+    Regression coverage for the "Error-level records (non-local)" alert firing on
+    every successful contact creation: create_contact() calls get_contact_by_slug()
+    to confirm the slug is free, so the not-found branch is the happy path. It used
+    to call logfire.error(), which made each creation (and each 404 from
+    GET /api/contact/slug/{slug}) trip the alert.
+    """
+    with patch.object(logfire, "error") as mock_error:
+        contact = await get_contact_by_slug("definitely-not-a-real-slug")
+
+    assert contact is None
+    assert not mock_error.called, (
+        f"a missing slug was logged at error level: {mock_error.call_args_list}"
+    )
