@@ -10,7 +10,7 @@ Quo history, and precomputed elapsed times. Images are still eval-only.
 2. `escalation_assessment.assess_state` selects the configured model(s).
 3. Each classifier returns a typed verdict; failures have `should_escalate=None`.
 4. `combine_assessments` returns one final decision, retaining every model result.
-5. The existing `analyze_for_twilio_escalation` dispatches once for that decision.
+5. The durable outbox records the decision and queues one delivery per recipient.
    Classifier functions cannot send SMS or place calls.
 
 `escalation_policy.py` holds the shared prompt. `escalation_context.py` handles
@@ -32,8 +32,11 @@ it increases inference cost and waits for both bounded assessments. Each model
 has a 30-second per-attempt limit and one retry by default, in parallel for
 `either`, plus a shared five-second best-effort history lookup. A positive from
 one model still wins if the other fails. With no positive and one/both failures,
-the existing no-call fallback is preserved and failure details remain in telemetry.
-This does not add durable cross-event incident deduplication.
+the assessment remains retryable without placing a call; failure details remain
+in telemetry.
+The outbox deduplicates provider message IDs and agent tool-call IDs. Distinct
+messages still receive independent assessments; it does not guess that two
+messages describe the same incident.
 
 Logfire records the exact shared input/policy, selected mode, per-model verdicts
 and errors, and final decision. Luna retains PydanticAI instrumentation; Jev logs
@@ -300,3 +303,83 @@ runner and explicitly disables Logfire export. It does **not** create hosted
 Datasets & Experiments entries or synchronize human annotations. Production
 comparison traces and human run annotations are separate from offline eval scores.
 Reviewed labels must be explicitly promoted into a versioned regression dataset.
+
+
+## Durable emergency delivery
+
+`escalation_delivery.py` owns the database outbox. The webhook inserts its event
+with `ON CONFLICT DO NOTHING` and queues the assessment in the **same transaction**.
+A process exit after the HTTP response no longer loses the work. The scheduler
+recovers pending assessments and deliveries every 15 seconds under the existing
+background-automation opt-in policy. Immediate request dispatch still works when
+background automation is off; unattended retries require the scheduler.
+
+Migration `0032_escalation_outbox` creates three empty tables and does not backfill
+historical webhooks. Source keys use the Quo message ID (event ID fallback) or
+conversation ID plus agent tool-call ID. The request/recipient hashes are stable
+across retries. Default contact slugs remain Emilio and Peppino; each lookup is a
+durable work item, its number freezes once resolved, and duplicate resolved phone
+numbers within a request are sent only once. No tenant/recipient list changes are
+part of this feature.
+
+Each provider POST has a committed `escalation_attempts` record first. Database
+row locks and 120-second leases fence concurrent workers. An interrupted `sending`
+attempt becomes `unknown`, never a fresh send. Per-recipient outcomes are:
+
+| State | Meaning / recovery |
+|---|---|
+| `pending`, `retry` | Not accepted; safe work is due at `next_attempt_at`. |
+| `sending` | POST may be in flight. Never start another POST for this attempt. |
+| `blocked` | A different Studio execution is active; read it until it ends. |
+| `unknown` | Acceptance is uncertain; use GET-only reconciliation. |
+| `accepted` | Twilio returned a valid execution SID, or context verified the exact correlation token, flow, sender, and recipient. **Human receipt is unconfirmed.** |
+| `failed` | Permanent provider rejection; operator attention required. |
+| `manual` | Deadline/retry budget exhausted; inspect before any manual action. |
+| `duplicate` | Another recipient key in this request already owns this phone. |
+
+Known active executions are checked before a later request. A racing Studio 409
+(`20409`) stores the conflicting SID instead of throwing a failed-send exception.
+Only a matching `flow.data.escalation_delivery_id` can adopt that execution as this
+request's acceptance. A different incident waits; no active flow is ended or
+modified. Once that flow ends, only the blocked recipient retries. This preserves
+new danger reports instead of declaring an unrelated active call a success.
+
+Connect/pool failures and 429 rejections retry with bounded backoff and Retry-After.
+Read/write timeouts, 5xx responses, malformed acceptance responses, and crash windows
+are uncertain: recent execution contexts can prove acceptance, but an absent result
+**never authorizes a resend**. The search is bounded to one page, so an unmatched
+request remains uncertain even if pagination or provider retention hides it.
+There are at most five POST attempts and a ten-minute request lifetime, with up
+to three assessment attempts. Exhausted/failed work emits an actionable error;
+transient waiting is recorded separately. Tool responses explicitly prohibit
+repeating uncertain/queued notifications and never claim a call was heard.
+
+### Operation and rollout
+
+The existing `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`, Studio flow, and caller ID
+are reused. Obtain credentials from the existing Twilio account Console; do not
+create or rotate keys to enable this change. Extra JSON flow parameters require
+no published-flow edit. Read [Studio Execution](https://www.twilio.com/docs/studio/rest-api/v2/execution),
+[Execution Context](https://www.twilio.com/docs/studio/rest-api/v2/execution-context),
+and [429 semantics](https://www.twilio.com/docs/api/errors/20429).
+
+Before rollout, run `./scripts/worktree-test.sh` against isolated local Postgres;
+`test_escalation_delivery.py` uses synthetic data and `httpx.MockTransport` only.
+Never replay a live emergency or use real SMS/calls as deployment smoke tests.
+The existing production startup script applies migration `0032_escalation_outbox`
+with `alembic upgrade head` before starting the server. Then verify `/api/health`, the deployed commit, scheduler registration, migration head,
+and outbox/error telemetry using read-only checks. Historical notifications are
+not inserted into this queue. Observe the next naturally arriving event for
+end-to-end operational evidence; a healthy deploy alone does not prove delivery.
+
+For an alert, inspect the request ID, recipient suffix, execution/conflict SID,
+`last_error`, and immutable attempt identities. Query the three outbox tables
+read-only. For `accepted`, use Twilio execution steps plus Calls/Messages resources
+to distinguish provider status from a person's acknowledgment. Do not reset unknown
+or accepted rows to pending. Resolve any uncertain send with provider evidence
+before an operator authorizes another notification.
+
+Rollback the application commit if needed and leave these additive tables intact.
+Old code cannot recover queued work; inspect outstanding rows before rollback and
+have an operator handle unresolved emergencies. Do not downgrade/drop production
+outbox tables or replay their contents automatically.

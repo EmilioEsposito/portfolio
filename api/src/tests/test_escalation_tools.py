@@ -14,6 +14,7 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(".env"), override=False)
 
 from api.src.open_phone.escalate import trigger_twilio_escalation
+from api.src.open_phone.escalation_delivery import DeliveryReport
 from api.src.sernia_ai.tools.escalation_tools import (
     MAX_ESCALATION_MESSAGE_CHARS,
     escalation_toolset,
@@ -23,6 +24,7 @@ from api.src.sernia_ai.tools.escalation_tools import (
 
 def _make_ctx() -> MagicMock:
     ctx = MagicMock()
+    ctx.tool_call_id = "tool-call-1"
     ctx.deps.conversation_id = "conv-1"
     ctx.deps.user_identifier = "+14125550000"
     ctx.deps.modality = "sms"
@@ -36,47 +38,14 @@ def _make_ctx() -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_trigger_twilio_escalation_mock_counts_each_number():
-    """With explicit numbers and mock=True, one execution per number, no network."""
+    """With explicit numbers and mock=True, source_key="test", one execution per number, no network."""
     count = await trigger_twilio_escalation(
         "test emergency",
         escalate_to_numbers=["+14123703550", "+14125551234"],
         mock=True,
+        source_key="test",
     )
-    assert count == 2
-
-
-@pytest.mark.asyncio
-async def test_trigger_twilio_escalation_isolates_per_recipient_failures():
-    """A failed Twilio execution for one recipient must not suppress the rest."""
-    import httpx
-
-    resp_fail = MagicMock()
-    resp_fail.raise_for_status.side_effect = httpx.HTTPStatusError(
-        "500",
-        request=MagicMock(),
-        response=MagicMock(status_code=500, text="twilio down"),
-    )
-    resp_ok = MagicMock()
-    resp_ok.raise_for_status.return_value = None
-    resp_ok.json.return_value = {"sid": "FN123"}
-
-    client = MagicMock()
-    client.post = AsyncMock(side_effect=[resp_fail, resp_ok])
-    async_client_cm = MagicMock()
-    async_client_cm.__aenter__ = AsyncMock(return_value=client)
-    async_client_cm.__aexit__ = AsyncMock(return_value=False)
-
-    with patch(
-        "api.src.open_phone.escalate.httpx.AsyncClient",
-        MagicMock(return_value=async_client_cm),
-    ):
-        count = await trigger_twilio_escalation(
-            "test emergency",
-            escalate_to_numbers=["+14123703550", "+14125551234"],
-        )
-
-    assert client.post.await_count == 2  # second recipient still attempted
-    assert count == 1  # only the successful execution is counted
+    assert count.accepted == 2
 
 
 @pytest.mark.asyncio
@@ -86,8 +55,8 @@ async def test_trigger_twilio_escalation_no_contacts_returns_zero():
         "api.src.open_phone.escalate.get_contact_by_slug",
         AsyncMock(return_value=None),
     ):
-        count = await trigger_twilio_escalation("test emergency", mock=True)
-    assert count == 0
+        count = await trigger_twilio_escalation("test emergency", mock=True, source_key="test")
+    assert count.accepted == 0
 
 
 @pytest.mark.asyncio
@@ -99,8 +68,8 @@ async def test_trigger_twilio_escalation_resolves_default_contacts():
         "api.src.open_phone.escalate.get_contact_by_slug",
         AsyncMock(return_value=contact),
     ) as lookup:
-        count = await trigger_twilio_escalation("test emergency", mock=True)
-    assert count == 2  # one per slug (emilio, peppino)
+        count = await trigger_twilio_escalation("test emergency", mock=True, source_key="test")
+    assert count.accepted == 1  # duplicate resolved phone numbers count once
     assert {c.args[0] for c in lookup.call_args_list} == {"emilio", "peppino"}
 
 
@@ -113,13 +82,19 @@ async def test_trigger_twilio_escalation_resolves_default_contacts():
 async def test_tool_triggers_and_reports_success():
     with patch(
         "api.src.sernia_ai.tools.escalation_tools.trigger_twilio_escalation",
-        AsyncMock(return_value=2),
+        AsyncMock(
+            return_value=DeliveryReport(
+                request_id="test",
+                recipients={"slug:emilio": "accepted", "slug:peppino": "accepted"},
+            )
+        ),
     ) as trigger:
         result = await trigger_escalation(
             _make_ctx(), "Anna (320-02) reports water pouring through her ceiling"
         )
 
-    assert "Escalation triggered: 2 phone call(s)" in result
+    assert "2 recipient(s) accepted by Twilio" in result
+    assert trigger.call_args.kwargs["source_key"] == "agent:conv-1:tool-call-1"
     # The agent's message is prefixed so recipients know the source.
     sent_message = trigger.call_args.args[0]
     assert sent_message.startswith("URGENT! Sernia AI escalation: ")
@@ -130,12 +105,17 @@ async def test_tool_triggers_and_reports_success():
 async def test_tool_reports_failure_when_no_calls_placed():
     with patch(
         "api.src.sernia_ai.tools.escalation_tools.trigger_twilio_escalation",
-        AsyncMock(return_value=0),
+        AsyncMock(
+            return_value=DeliveryReport(
+                request_id="test", recipients={"slug:emilio": "unknown", "slug:peppino": "retry"}
+            )
+        ),
     ):
         result = await trigger_escalation(_make_ctx(), "fire in the building")
 
-    assert "Escalation FAILED" in result
-    assert "send_sms" in result  # tells the model the fallback path
+    assert "unknown" in result and "retry" in result
+    assert "does not confirm human receipt" in result
+    assert "do not repeat" in result
 
 
 @pytest.mark.asyncio
@@ -179,3 +159,15 @@ def test_agent_registers_emergency_toolset():
 
     named = {getattr(ts, "name", None) for ts in sernia_agent.toolsets}
     assert "emergency" in named
+
+
+@pytest.mark.asyncio
+async def test_tool_preserves_uncertainty_when_dispatch_or_report_fails():
+    with patch(
+        "api.src.sernia_ai.tools.escalation_tools.trigger_twilio_escalation",
+        AsyncMock(side_effect=RuntimeError("Lost database response after commit")),
+    ):
+        result = await trigger_escalation(_make_ctx(), "Synthetic emergency")
+    assert "status UNKNOWN" in result
+    assert "Do not repeat" in result
+    assert "may already be queued or accepted" in result

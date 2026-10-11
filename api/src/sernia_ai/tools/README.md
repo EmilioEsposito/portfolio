@@ -210,3 +210,10 @@ specific line, including older history on a contact’s other line.
 The shared team number is a single participant even though multiple staff can
 access it. A true group requires multiple recipient phone numbers. Done threads
 are excluded from active lists; check direct history before reporting a gap.
+
+
+Emergency escalation delivery uses the durable outbox documented in
+[`open_phone/README.md`](../../open_phone/README.md#durable-emergency-delivery).
+`trigger_escalation` reports per-recipient acceptance, pending, blocked, or unknown
+status; provider acceptance does not establish human receipt. Queued/uncertain
+outcomes must not prompt another tool call or duplicate SMS/email fallback.
