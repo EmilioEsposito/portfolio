@@ -4,12 +4,11 @@ from typing import Literal
 
 from dotenv import find_dotenv, load_dotenv
 
+from api.src.open_phone.escalation_delivery import DeliveryReport
+
 load_dotenv(find_dotenv(".env"), override=True)
-import json
-import random
 
 # from twilio.rest import Client # removed to reduce bundle size
-import httpx
 import logfire
 from fastapi import HTTPException
 
@@ -112,6 +111,8 @@ async def ai_assess_for_escalation(
         event_id=open_phone_event.get("event_id"),
         sample_kind=sample_kind,
     )
+    if not decision.should_escalate and any(r.error_type for r in decision.assessments):
+        raise RuntimeError("Escalation assessment incomplete")
     return decision.should_escalate, decision.reason
 
 
@@ -129,82 +130,20 @@ async def resolve_escalation_numbers(escalate_to_numbers: list[str] | None = Non
     return numbers
 
 
-@logfire.instrument()
 async def trigger_twilio_escalation(
     message_text: str,
     escalate_to_numbers: list[str] | None = None,
     mock: bool = False,
-) -> int:
-    """
-    Trigger the Twilio Studio Flow escalation — a call from ESCALATE_FROM_NUMBER
-    (which bypasses Do Not Disturb) to each escalation number.
+    *,
+    source_key: str,
+) -> DeliveryReport:
+    """Queue each recipient durably; report acceptance separately from delivery."""
+    from api.src.open_phone.escalation_delivery import dispatch
 
-    Returns the number of successful flow executions.
-    """
-    escalate_to_numbers = await resolve_escalation_numbers(escalate_to_numbers)
-    if not escalate_to_numbers:
-        logfire.error("No escalation contacts found, cannot escalate")
-        return 0
-
-    successful_escalations = 0
-    incident_id = random.randint(100, 999)
-
-    # Add incident ID to the message text
-    if message_text:
-        message_text += f"\nIncident ID: {incident_id}"
-    else:
-        message_text = f"Escalation Triggered\nIncident ID: {incident_id}"
-
-    logfire.info(
-        f"Escalation triggered. INCIDENT_ID: {incident_id} to numbers {escalate_to_numbers}"
-    )
-    # Construct the API URL
-    studio_api_url = f"https://studio.twilio.com/v2/Flows/{TWILIO_FLOW_ID}/Executions"
-
-    # Failures are isolated per recipient: one failed execution must not
-    # suppress the escalation calls to everyone after it.
-    async with httpx.AsyncClient(
-        auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=30
-    ) as client:
-        for escalate_to_number in escalate_to_numbers:
-            # Prepare the payload
-            payload = {
-                "To": escalate_to_number,
-                "From": ESCALATE_FROM_NUMBER,
-                "Parameters": json.dumps(
-                    {"message_text": message_text}
-                ),  # Parameters must be a JSON string
-            }
-
-            try:
-                if mock:
-                    result_message = f"Mocking Twilio escalation to {escalate_to_number} with message: {message_text}"
-                    logfire.info(result_message)
-                    successful_escalations += 1
-                else:
-                    response = await client.post(studio_api_url, data=payload)
-                    response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-
-                    execution_data = response.json()
-                    execution_sid = execution_data.get("sid")
-                    result_message = f"Successfully created Twilio execution: {execution_sid} for INCIDENT_ID {incident_id}"
-                    logfire.info(result_message)
-                    successful_escalations += 1
-            except httpx.HTTPError as e:
-                # Log the error, including the response text if available
-                error_message = f"Failed to create Twilio execution to {escalate_to_number} for INCIDENT_ID {incident_id}: {str(e)}"
-                response = getattr(e, "response", None)
-                if response is not None:
-                    error_message += f"\nResponse status: {response.status_code}"
-                    error_message += f"\nResponse text: {response.text}"
-                logfire.exception(error_message)  # exc_info=True adds traceback
-            except Exception as e:
-                # Catch any other unexpected errors during the process
-                logfire.exception(
-                    f"An unexpected error occurred during Twilio escalation to {escalate_to_number} for INCIDENT_ID {incident_id}: {str(e)}"
-                )
-
-    return successful_escalations
+    if mock:
+        numbers = await resolve_escalation_numbers(escalate_to_numbers)
+        return DeliveryReport(request_id="mock", recipients={n: "accepted" for n in numbers})
+    return await dispatch(message_text, source_key=source_key, numbers=escalate_to_numbers)
 
 
 @logfire.instrument()
@@ -265,6 +204,10 @@ async def analyze_for_twilio_escalation(
         return 0
 
     logfire.info(f"Escalation triggered for EVENT_ID {event_id}")
-    return await trigger_twilio_escalation(
-        event_message_text, escalate_to_numbers=escalate_to_numbers, mock=mock
+    result = await trigger_twilio_escalation(
+        event_message_text,
+        escalate_to_numbers=escalate_to_numbers,
+        mock=mock,
+        source_key=f"quo-event:{event_id}",
     )
+    return result.accepted

@@ -51,7 +51,10 @@ async def trigger_escalation(ctx: RunContext[SerniaDeps], message: str) -> str:
             through her kitchen ceiling."
 
     Returns:
-        Confirmation of how many escalation calls were placed, or an error.
+        Per-recipient provider acceptance/queued/uncertain status. Acceptance does
+        not confirm that a person answered or heard the message. Do not retry
+        this tool or send duplicate fallback notifications for queued/uncertain
+        recipients; the durable dispatcher handles safe retries.
     """
     message = message.strip()
     if not message:
@@ -75,13 +78,29 @@ async def trigger_escalation(ctx: RunContext[SerniaDeps], message: str) -> str:
     # automatic SMS-webhook pipeline.
     message_text = f"URGENT! Sernia AI escalation: {message}"
 
-    successful_escalations = await trigger_twilio_escalation(message_text)
-    if successful_escalations == 0:
+    tool_call_id = ctx.tool_call_id
+    if not tool_call_id or not ctx.deps.conversation_id:
+        return "Escalation NOT queued: missing stable conversation/tool-call identity. Contact an operator."
+    source_key = f"agent:{ctx.deps.conversation_id}:{tool_call_id}"
+    try:
+        result = await trigger_twilio_escalation(message_text, source_key=source_key)
+    except Exception:
+        # A commit or provider call may have succeeded despite a lost response.
+        # Generic tool errors invite the model to create another tool-call ID.
+        from api.src.open_phone.escalation_delivery import identity
+
+        request_id = identity(source_key)
+        logfire.exception("Escalation status unavailable; do not repeat", request_id=request_id)
         return (
-            "Escalation FAILED: no escalation calls could be placed. "
-            "Fall back to send_sms/email to reach Emilio and Peppino directly."
+            f"Escalation {request_id[:12]} status UNKNOWN: work may already be queued or accepted. "
+            "Do not repeat this tool call or send duplicate fallback notifications. "
+            "Ask an operator to inspect the durable request/provider records; human receipt is unconfirmed."
         )
+    states = ", ".join(f"{recipient}: {state}" for recipient, state in result.recipients.items())
     return (
-        f"Escalation triggered: {successful_escalations} phone call(s) placed "
-        "to the escalation contacts via the DND-bypassing Twilio line."
+        f"Escalation {result.request_id[:12]}: {result.accepted} recipient(s) accepted by Twilio. "
+        f"Status: {states or 'requires operator attention'}. "
+        "Acceptance does not confirm human receipt. Queued, retry, blocked, sending, and unknown "
+        "outcomes are tracked durably; do not repeat this tool call or send duplicate fallback "
+        "notifications for them. Failed/manual outcomes require operator attention."
     )

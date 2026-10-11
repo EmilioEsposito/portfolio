@@ -139,7 +139,11 @@ async def test_either_dispatches_only_once(monkeypatch):
                 return_value=assessment.ShouldEscalate(should_escalate=True, reason="urgent")
             ),
         )
-    dispatch = AsyncMock(return_value=1)
+    from api.src.open_phone.escalation_delivery import DeliveryReport
+
+    dispatch = AsyncMock(
+        return_value=DeliveryReport(request_id="test", recipients={"test": "accepted"})
+    )
     monkeypatch.setattr(escalate, "trigger_twilio_escalation", dispatch)
     await escalate.analyze_for_twilio_escalation(
         {
