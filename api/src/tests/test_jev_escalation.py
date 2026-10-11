@@ -71,7 +71,7 @@ async def test_sdk_openrouter_contract(monkeypatch, choice):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["http", "missing", "unknown", "timeout"])
-async def test_failure_retries_once_and_does_not_escalate(monkeypatch, failure):
+async def test_failure_retries_once_and_signals_incomplete_assessment(monkeypatch, failure):
     calls = []
 
     def handler(request):
@@ -86,9 +86,8 @@ async def test_failure_retries_once_and_does_not_escalate(monkeypatch, failure):
         return httpx2.Response(200, json=body)
 
     wire_client(monkeypatch, handler)
-    result, reason = await escalate.ai_assess_for_escalation(event(), mode="jev")
-    assert result is False
-    assert reason.startswith("AI assessment failed:")
+    with pytest.raises(RuntimeError, match="assessment incomplete"):
+        await escalate.ai_assess_for_escalation(event(), mode="jev")
     assert len(calls) == 2  # no hidden SDK retries
 
 

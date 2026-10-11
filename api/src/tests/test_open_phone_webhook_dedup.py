@@ -11,7 +11,7 @@ from sqlalchemy import delete
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone import routes
-from api.src.open_phone.models import OpenPhoneEvent
+from api.src.open_phone.models import EscalationRequest, OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
@@ -35,7 +35,7 @@ async def test_duplicate_event_queues_one_task_even_when_concurrent(monkeypatch,
             "type": "message.received",
             "data": {
                 "object": {
-                    "id": "ACtest",
+                    "id": event_id + "-message",
                     "object": "message",
                     "createdAt": "2026-09-10T15:00:00Z",
                     "userId": "UStest",
@@ -65,5 +65,10 @@ async def test_duplicate_event_queues_one_task_even_when_concurrent(monkeypatch,
         assert not tasks.tasks
     finally:
         async with AsyncSessionFactory() as session:
+            await session.execute(
+                delete(EscalationRequest).where(
+                    EscalationRequest.source_key == f"quo-message:{event_id}-message"
+                )
+            )
             await session.execute(delete(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_id))
             await session.commit()

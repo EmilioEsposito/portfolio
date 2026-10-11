@@ -11,12 +11,12 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 
 from api.src.contact.service import get_contact_by_slug
 from api.src.database.database import DBSession
-from api.src.open_phone.escalate import analyze_for_twilio_escalation
+from api.src.open_phone.escalation_delivery import enqueue_assessment, process_request
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.open_phone.schema import OpenPhoneWebhookPayload
 from api.src.open_phone.service import (
@@ -173,45 +173,37 @@ async def webhook(
             logfire.error("Sernia contact not found for slug 'sernia'")
             raise HTTPException(500, "Sernia contact not found")
 
-        # check if event_id is already in the database
-        result = await session.execute(
-            select(OpenPhoneEvent).where(OpenPhoneEvent.event_id == event_data["event_id"])
+        # Eligibility and the outbox entry commit with the unique webhook. A
+        # crash after commit can be recovered without replaying old events.
+        team_message = payload.type == "message.received" and sernia_contact.phone_number in (
+            event_data.get("to_number") or []
         )
-        existing_event_record = result.scalar_one_or_none()
-        if existing_event_record:
-            logfire.info(
-                f"Event {event_data['event_id']} already processed (found existing DB record before commit attempt), skipping"
+        eligible = False
+        if team_message:
+            ai_phone = await _get_ai_phone_number()
+            eligible = not (
+                (ai_phone and event_data.get("from_number") == ai_phone)
+                or await contains_emoji((event_data.get("message_text") or "")[:3])
             )
+        inserted = (
+            await session.execute(
+                insert(OpenPhoneEvent)
+                .values(**event_data)
+                .on_conflict_do_nothing(index_elements=["event_id"])
+                .returning(OpenPhoneEvent.id)
+            )
+        ).scalar_one_or_none()
+        if inserted is None:
+            await session.rollback()
             return {"message": "Event already processed"}
-        else:
-            # Create database record
-            open_phone_event = OpenPhoneEvent(**event_data)
-            session.add(open_phone_event)
-            await session.commit()
-            await session.refresh(open_phone_event)
-            logfire.info(f"Successfully recorded OpenPhone event: {payload.type}")
-
-            # Enqueue effects only after the unique event has committed.
-            if (
-                payload.type == "message.received"
-                and sernia_contact.phone_number in event_data["to_number"]
-            ):
-                # ignore messages that start with emoji in first 3 characters (these are usually just text reactions with quoted text)
-                ai_phone = await _get_ai_phone_number()
-                if ai_phone and event_data.get("from_number") == ai_phone:
-                    logfire.info("Ignoring message from AI phone (circular trigger guard)")
-                elif await contains_emoji(event_data["message_text"][:3]):
-                    logfire.info(
-                        f"Ignoring message that starts with emoji: {event_data['message_text']}"
-                    )
-                else:
-                    # Run analysis in the background
-                    logfire.info(
-                        "AI Assessment Triggered. Starting background task to analyze for Twilio escalation."
-                    )
-                    background_tasks.add_task(analyze_for_twilio_escalation, event_data)
+        request_id = await enqueue_assessment(session, event_data) if eligible else None
+        await session.commit()
+        logfire.info(f"Successfully recorded OpenPhone event: {payload.type}")
+        if request_id:
+            background_tasks.add_task(process_request, request_id)
+        if not team_message:
             # AI SMS conversation: messages to the AI's phone number directly
-            elif (
+            if (
                 payload.type == "message.received"
                 and event_data.get("phone_number_id") == QUO_SERNIA_AI_PHONE_ID
             ):
@@ -221,7 +213,7 @@ async def webhook(
                     f"AI Assessment Skipped. to_number: {event_data.get('to_number', [])} payload_type: {payload.type}"
                 )
 
-            return {"message": "Event recorded successfully"}
+        return {"message": "Event recorded successfully"}
 
     except IntegrityError as e:
         await session.rollback()
