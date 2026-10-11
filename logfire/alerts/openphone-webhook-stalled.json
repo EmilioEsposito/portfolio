@@ -1,0 +1,18 @@
+{
+  "id": "165c47c5-5587-46c3-af4f-50160e484b35",
+  "name": "OpenPhone webhook stalled (no events 72h)",
+  "active": true,
+  "description": "Fires when ZERO successful (200) POST /api/open_phone/webhook requests are seen for production service fastapi over a rolling 72 hours, evaluated hourly. Traffic is intermittent: a quiet 24-hour period can reflect legitimate low activity and is not by itself evidence of a delivery outage. The PROD Quo subscription covers call/message events from all workspace phone numbers, plus contact.updated/contact.deleted from all users; this detector is endpoint-wide, not specific to the Sernia Capital Team phone. Zero successful deliveries may also mean requests are being rejected (403), failing (5xx), no longer delivered, or the endpoint is down. Remediation: check recent Quo delivery history and Logfire HTTP statuses to distinguish low traffic from failures; confirm https://eesposito-fastapi.up.railway.app/api/docs is up and the subscription URL still points to production. For signature failures, verify the existing signing-secret configuration without exposing or rotating credentials. Keep error alerts active; the 72-hour inactivity allowance does not suppress delivery errors.",
+  "query": "SELECT\n    count(*) AS successful_webhook_200s_last_72h,\n    'No successful POST /api/open_phone/webhook (200) events recorded in production for 72h. OpenPhone events may have stopped being written to open_phone_events. Check the webhook secret (OPEN_PHONE_WEBHOOK_SECRET vs OpenPhone dashboard), endpoint health, and subscription URL.' AS alert\nFROM records\nWHERE deployment_environment = 'production'\n  AND service_name = 'fastapi'\n  AND (http_route = '/api/open_phone/webhook' OR span_name LIKE 'POST /api/open_phone/webhook%')\n  AND http_response_status_code = 200\nHAVING count(*) = 0",
+  "time_window": "P3D",
+  "frequency": "PT1H",
+  "watermark": "PT1M",
+  "notify_when": "starts_having_matches",
+  "project": "portfolio",
+  "channels": [
+    {
+      "id": "2cfbbcf9-39a6-4851-ba51-416a1157c49f",
+      "label": "logfire-slack"
+    }
+  ]
+}

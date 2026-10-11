@@ -52,6 +52,11 @@ One JSON file per alert, named after the alert (kebab-case). Fields mirror the
 
 ## Current snapshots
 
+- `openphone-webhook-stalled.json` — fires when production `fastapi` has no
+  successful webhook deliveries over 72 hours; evaluates hourly. The Quo PROD
+  subscription covers all workspace phones and contact updates/deletions, so
+  this is endpoint-wide. Check delivery failures separately from quiet traffic.
+
 - `error-level-records-non-local.json` — **catch-all.** Fires on any error-level
   record/exception (`level >= 17`) from a non-local environment, with a few
   expected-noise exclusions (Anthropic retries, APScheduler misfires/re-register
