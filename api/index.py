@@ -5,7 +5,7 @@ import logfire
 
 # NOTE: the SERNIA_ANTHROPIC_API_KEY -> ANTHROPIC_API_KEY bridge lives in
 # api/__init__.py so every entry point (app, pytest, scripts) gets it.
-from api.src.utils.logfire_config import ensure_logfire_configured
+from api.src.utils.logfire_config import ensure_logfire_configured, resolve_environment
 
 ensure_logfire_configured(mode="prod", service_name="fastapi")
 logfire.info("STARTUP0: FastAPI index.py starting...")
@@ -331,6 +331,18 @@ async def health_check():
 
 @app.get("/api/error")
 async def error_500_check():
+    """Deliberately emit an error-level log and a 500, to test error alerting.
+
+    Disabled in production. The route is published in the public
+    /api/openapi.json, so scanners that walk the schema and replay every path
+    hit it and trip the "Error-level records (non-local)" Logfire alert with a
+    fake error (observed 2026-10-09 and 2026-10-12). That alert still covers
+    every other non-local environment, so development and PR previews remain
+    the place to exercise the alert pipeline end to end.
+    """
+    if resolve_environment() == "production":
+        raise HTTPException(status_code=404, detail="Not Found")
+
     logfire.error("Raising 500 error for testing")
 
     # raise a 500 error
