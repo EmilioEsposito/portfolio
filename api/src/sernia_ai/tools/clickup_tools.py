@@ -7,6 +7,7 @@ automated triggers (e.g. SMS → maintenance task) can operate autonomously.
 """
 
 import os
+import re
 import time
 from datetime import datetime
 
@@ -70,6 +71,23 @@ async def _clickup_request_params(
         )
 
 
+# ClickUp IDs are machine-generated, never human-readable names: list IDs are
+# all digits ("901312027371") and view IDs are a hyphenated slug
+# ("2ky3xg85-573"). Both always contain a digit and no whitespace.
+_CLICKUP_ID_SHAPE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _looks_like_clickup_id(value: str) -> bool:
+    """True if ``value`` could be a ClickUp list or view ID.
+
+    Deliberately permissive — it only rejects what no ClickUp ID can be, so a
+    real ID is never refused. The case it catches is the model passing a list
+    or view *name* it guessed at (e.g. ``"MaintenanceRequest"``), which would
+    otherwise be interpolated into ``/view/{name}/task`` and 404.
+    """
+    return bool(_CLICKUP_ID_SHAPE.match(value)) and any(c.isdigit() for c in value)
+
+
 # ---------------------------------------------------------------------------
 # Read-only tools
 # ---------------------------------------------------------------------------
@@ -130,9 +148,24 @@ async def get_tasks(
 
     Args:
         list_or_view_id: A ClickUp list ID (numeric, from list_clickup_lists) or
-            view ID. Defaults to the main Sernia task view if omitted.
+            view ID (hyphenated slug). Must be a real **ID** — a list or view
+            *name* is rejected, so call list_clickup_lists first if you only
+            know the name. Defaults to the main Sernia task view if omitted.
     """
     target_id = list_or_view_id or DEFAULT_CLICKUP_VIEW_ID
+
+    # Reject a guessed *name* before it becomes a request. ClickUp 404s on
+    # /view/{name}/task, and httpx instrumentation records that 404 at error
+    # level — paging the "Error-level records (non-local)" alert for a mistake
+    # the model can correct itself. Fail fast with the tool to call instead.
+    if not _looks_like_clickup_id(target_id):
+        return (
+            f"{target_id!r} is not a ClickUp ID. List IDs are all digits "
+            "(e.g. '901312027371') and view IDs are a hyphenated slug "
+            "(e.g. '2ky3xg85-573') — neither is a list or view name. Call "
+            "list_clickup_lists to look up the real ID, or omit the argument "
+            "to use the default Sernia task view."
+        )
 
     # List IDs are numeric; view IDs contain hyphens/letters.
     if target_id.isdigit():
