@@ -3,11 +3,12 @@
 # -----------------------------------------------------------------------------
 # Build stage — install dependencies into a self-contained venv with uv.
 #
-# Uses Astral's official uv-on-python image so uv is preinstalled at a known
-# version (no Nixpacks-style "discover uv at build time" failure mode). The
+# Uses official Python plus an explicitly patched Astral uv binary (the 0.13.4
+# release no longer publishes Bookworm combined images). The
 # venv ends up at /app/.venv and is copied into the final stage as-is.
 # -----------------------------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

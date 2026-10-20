@@ -157,6 +157,8 @@ Seeding can download the fixture in non-production environments when `SEED_BUCKE
 
 ## Deployment and contributing
 
+For the October 2026 CA incident, see the [eMudhra response and open deployment gates](docs/EMUDHRA_CA_RESPONSE.md).
+
 [eesposito.com](https://eesposito.com) is the public production site; [dev.eesposito.com](https://dev.eesposito.com) is the development site. Railway hosts the services, and pull requests use preview environments with isolated Neon branches. See the [PR environment guide](.github/PR_ENVIRONMENTS.md) for provisioning and cleanup.
 
 For changes, start with the relevant module guide and [`AGENTS.md`](AGENTS.md), keep the scope focused, and open a pull request with a clear description and relevant validation. Include its web preview URL: `https://react-router-portfolio-pr-<PR_NUMBER>.up.railway.app/`. Preserve the distinction between public demos and authenticated operations, and keep credentials, private memory, and unreviewed business fixtures out of changes.

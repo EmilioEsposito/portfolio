@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 
 # https://docs.astral.sh/uv/guides/integration/docker/
 # Install uv by copying the binary
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ COPY alembic.ini ./
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
 # Exclude dev dependencies for production builds
-RUN uv sync --no-dev
+RUN uv sync --frozen --no-dev
 
 # Copy and make startup script executable
 COPY api/start.sh /app/start.sh

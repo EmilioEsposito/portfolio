@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y \
 # uv (Python package manager)
 # =====================================
 # Copy uv binary from the official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 RUN chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
 # =====================================
