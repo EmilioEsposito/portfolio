@@ -10,6 +10,7 @@ on:
       - opened
       - reopened
       - synchronize
+      - ready_for_review
       - closed
 
 concurrency:
@@ -18,8 +19,12 @@ concurrency:
 jobs:
   setup:
     name: Setup
-    # Skip this workflow for PRs from dev -> main
-    if: github.base_ref != 'main' || github.head_ref != 'dev'
+    # Drafts do not provision Neon or update Railway variables. Marking ready
+    # opts into this workflow; Railway's own PR-environment setting is separate.
+    # Preserve cleanup for a previously provisioned PR later converted to draft.
+    if: |
+      (github.base_ref != 'main' || github.head_ref != 'dev') &&
+      (github.event.action == 'closed' || github.event.pull_request.draft == false)
     outputs:
       branch: ${{ steps.branch_name.outputs.current_branch }}
     runs-on: ubuntu-latest
@@ -36,10 +41,11 @@ jobs:
       db_url_with_pooler: ${{ steps.create_neon_branch.outputs.db_url_pooled }}
     needs: setup
     if: |
-      github.event_name == 'pull_request' && (
+      github.event_name == 'pull_request' && github.event.pull_request.draft == false && (
       github.event.action == 'synchronize'
       || github.event.action == 'opened'
-      || github.event.action == 'reopened')
+      || github.event.action == 'reopened'
+      || github.event.action == 'ready_for_review')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

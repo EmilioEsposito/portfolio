@@ -70,9 +70,20 @@ Full Docker builds remain unverified: this executor's Docker network cannot reso
 package hosts. No TLS checks were disabled to work around that failure.
 
 1. Review this focused branch separately from the pending unrelated dependency work.
-   Opening a draft PR currently runs `neon_workflow.yml`, including `branch_type: default`
-   database copying; obtain approval for that side effect or a separately reviewed safe
-   preview policy before opening it. Do not weaken CI or race-cancel provisioning.
+   This branch gates Neon provisioning and Railway variable updates on a non-draft PR;
+   marking ready opts into the existing full-data preview workflow and requires separate
+   authorization. This change does not provision a schema-only branch. Cleanup remains
+   available when a previously provisioned PR is converted back to draft and closed.
+   The trigger is `pull_request`, so GitHub evaluates the PR's merged workflow, including
+   this gate, rather than an unchanged base-only `pull_request_target` workflow. See
+   [GitHub event semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request).
+   **Do not open this PR until Railway's independent automatic-preview setting is verified
+   safe.** Railway's [PR environments](https://docs.railway.com/guides/preview-deployments-with-pr-environments)
+   copy base-environment configuration independently of Actions; a
+   [Railway staff response](https://station.railway.com/questions/build-prioritization-b238bc1a)
+   confirms drafts and labels do not opt out. The available connector cannot read that
+   project toggle, and this executor's CLI is currently unauthenticated. No project
+   setting was changed. A Neon draft gate alone is insufficient to authorize opening.
 2. After review and Railway build recovery, validate a permitted preview. Freshly rebuild
    FastAPI and Sernia MCP from the reviewed SHA with current base images, without reusing
    old dependency layers. Capture image digest, uv version, installed certifi version,
