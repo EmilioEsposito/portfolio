@@ -14,6 +14,7 @@ repository's own private keys were stolen.
 The root lockfile moves certifi from 2026.2.25 to 2026.10.19; the independent Sernia MCP
 lockfile moves from 2026.4.22. Other locked packages and resolution markers are unchanged.
 Docker builds, the repository's Cursor image, and both CI setup-uv steps pin uv 0.13.4.
+The standalone Logfire workflow also requires certifi >=2026.10.19 when installing requests.
 FastAPI Docker/CI installation now uses the frozen lockfile. Existing Python versions and
 Debian variants are preserved. No trust overrides, TLS bypasses, credentials, or provider
 configuration changes are included.
@@ -33,6 +34,8 @@ configuration changes are included.
 `SSL_CERT_FILE`/`SSL_CERT_DIR`. Updating certifi does not repair those external bundles.
 Node's `NODE_EXTRA_CA_CERTS` and `--use-system-ca` add trust; they do not remove its
 compromised bundled trust. Do not use them as this incident's workaround.
+GitHub Actions' embedded Node runtimes and the pip bootstrap's own trust are separate
+provider/toolchain exposures; installing the patched application bundle does not fix them.
 
 Read-only Railway evidence on October 20: FastAPI deployment
 `f5d123bc-c6eb-4ef4-b396-f82bb994a323`, commit
