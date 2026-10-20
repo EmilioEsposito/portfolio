@@ -59,6 +59,40 @@ Railway SSH identity, and creating/registering one is outside the authorized sco
 The official Debian Bookworm security package index still offers
 `ca-certificates 20250419~deb12u1`; no incident-specific Debian package fix was verified.
 
+## Existing preview access boundaries
+
+Full-data branching is an intentional testing feature, not a defect. A normal Neon branch
+is an isolated copy-on-write database: writes do not change the parent. The workflow does
+not specify `parent_branch`, so it uses the project's default. Read-only metadata on
+October 20 identifies that default as `production` (`br-small-forest-af9ve5ur`) in
+`sweet-butterfly-10388995`, not the separately named `development` branch. Existing
+`pr-329-claude/trusting-gates-p0qx8q` has that same production parent and a two-week expiry.
+
+The parent is unprotected. Neon documents that normal branches inherit Postgres roles and
+passwords in this case; the action retrieves the existing `neondb_owner` role/password and
+constructs connection strings for the new endpoint. It does not create a new database user,
+invite an account, rotate credentials or grant new membership. The project-member inventory
+shows one admin. URLs are passed through Actions into the corresponding existing Railway
+project's PR environment, with credential values kept out of logs. See
+[Neon branch isolation and role inheritance](https://neon.com/docs/manage/branches) and the
+[official action implementation](https://github.com/neondatabase/create-branch-action/blob/v6/src/branch.ts).
+
+Railway creates the normal public preview hostname and inherits its configured application
+variables. The CA patch does not change authentication or access rules. The existing PR #329
+API returned 401 for unauthenticated Sernia conversation-history access; code applies Clerk
+sign-in plus verified Sernia-domain checks to Sernia and contact routes. This is a bounded
+check, not a complete application authorization audit. No customer rows or credential values
+were retrieved for this assessment.
+
+One distinct provisioning detail remains relevant to a strict no-new-credentials constraint:
+the existing Railway PR environment includes `ci-bucket`. Railway's
+[documented bucket model](https://docs.railway.com/storage-buckets#buckets-in-environments)
+provides isolated credentials per environment, so normal bucket provisioning can generate a
+new preview storage key pair without adding a new project member. This is separate from
+Neon's inherited database password. No bucket keys were requested or modified in this review.
+Preserve the existing preview design; resolve any approval needed for that automatic
+credential lifecycle explicitly rather than replacing full-data branching.
+
 ## Validation and release sequence
 
 Local frozen installs passed. Sernia MCP: 264 tests passed, four live tests deselected.
@@ -69,21 +103,9 @@ httpx2 was independently confirmed to construct a system `truststore.SSLContext`
 Full Docker builds remain unverified: this executor's Docker network cannot resolve
 package hosts. No TLS checks were disabled to work around that failure.
 
-1. Review this focused branch separately from the pending unrelated dependency work.
-   This branch gates Neon provisioning and Railway variable updates on a non-draft PR;
-   marking ready opts into the existing full-data preview workflow and requires separate
-   authorization. This change does not provision a schema-only branch. Cleanup remains
-   available when a previously provisioned PR is converted back to draft and closed.
-   The trigger is `pull_request`, so GitHub evaluates the PR's merged workflow, including
-   this gate, rather than an unchanged base-only `pull_request_target` workflow. See
-   [GitHub event semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request).
-   **Do not open this PR until Railway's independent automatic-preview setting is verified
-   safe.** Railway's [PR environments](https://docs.railway.com/guides/preview-deployments-with-pr-environments)
-   copy base-environment configuration independently of Actions; a
-   [Railway staff response](https://station.railway.com/questions/build-prioritization-b238bc1a)
-   confirms drafts and labels do not opt out. The available connector cannot read that
-   project toggle, and this executor's CLI is currently unauthenticated. No project
-   setting was changed. A Neon draft gate alone is insufficient to authorize opening.
+1. Review this focused branch separately from unrelated dependency work. Preserve the
+   repository's intentional full-data Neon preview lifecycle; this CA change does not
+   alter preview triggers, branch type, users, grants or application authorization.
 2. After review and Railway build recovery, validate a permitted preview. Freshly rebuild
    FastAPI and Sernia MCP from the reviewed SHA with current base images, without reusing
    old dependency layers. Capture image digest, uv version, installed certifi version,
