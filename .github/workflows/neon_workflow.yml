@@ -107,6 +107,12 @@ jobs:
                 (.node.name | type == "string") and (.node.id | type == "string"))
               ' <<< "$RESPONSE" > /dev/null 2>&1; then
               echo "Railway returned invalid JSON, GraphQL errors, or an unexpected response; retrying."
+              # Classify known errors without printing bodies, which may echo secrets.
+              if jq -e 'any(.errors[]?; (.message // "") |
+                test("unauthorized|not authorized|unauthenticated|invalid token|forbidden|not found"; "i"))
+                ' <<< "$RESPONSE" > /dev/null 2>&1; then
+                echo "Railway rejected authentication or project access; verify RAILWAY_GHA_TOKEN."
+              fi
             else
               # Only parse a successful, validated response below.
               RESPONSE_VALID=true
