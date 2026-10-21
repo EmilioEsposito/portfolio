@@ -20,7 +20,7 @@ An existing branch or directory is an error; use the provisioner for a checkout 
 ```bash
 ./scripts/worktree-provision.sh /absolute/path/to/existing/worktree
 cd /absolute/path/to/existing/worktree
-pnpm dev-with-fastapi
+./scripts/worktree-run.sh pnpm dev-with-fastapi
 ```
 
 Setup prints the exact local web and API URLs. `pnpm dev` and `pnpm fastapi-dev` also work separately.
@@ -30,7 +30,9 @@ No editor is launched and no workspace file is modified.
 ## Prerequisites
 
 - macOS or Linux, Git, Python 3.11+, `uv`, Node **22.22+**, and the pnpm version pinned in `package.json`.
-  With nvm, run `nvm install` / `nvm use` from the checkout (`.nvmrc` selects Node 22).
+  The create/provision/test wrappers automatically select the installed `.nvmrc` Node version
+  through nvm when the inherited Node is too old. They change only the child process environment,
+  never the global nvm default. If Node 22 is absent, run `nvm install` from the checkout first.
 - Docker Desktop / Docker Compose for the existing `portfolio-postgres` service, or that local
   Postgres already running. PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`) must be on PATH
   and at least as new as the local server (currently PostgreSQL 17).
@@ -106,6 +108,15 @@ when a worktree is created. `.codex/environments/environment.toml` wires macOS s
 `worktree-cleanup.sh --codex "$CODEX_WORKTREE_PATH"` before Codex removes a managed checkout.
 Cleanup requires that exact variable and releases only recorded local resources; Codex owns the
 Git checkout deletion. The local environment configuration follows the existing Ventures setup.
+Dev and typecheck actions also use `worktree-run.sh` so the app does not inherit an incompatible Node from a login shell.
+
+On first setup, a pristine detached checkout seeded at local main or cached `origin/main` fetches
+current `origin/main` before installing anything. A private `portfolio-start-ref.json` records the
+choice; retries never refresh again. Setup executes the fetched provisioner if the revision changes.
+Attached feature branches, prior HEAD history, recorded provisioning state, and existing local
+environments/dependencies are preserved. Dirty new main seeds, ignored-file collisions, and failed
+fetches stop setup instead of discarding work or using stale main. For an intentional detached main
+revision, set `PORTFOLIO_WORKTREE_KEEP_REF=1` on its first setup. The main checkout is never moved.
 
 Claude's SessionStart hook calls the same `--once` provisioner. It quietly skips the main checkout,
 non-Git directories, cloud sessions, temporary `wf_*` worktrees, and completed setups. A failed run
@@ -147,7 +158,9 @@ be deleted separately after review.
 
 ## Troubleshooting
 
-- **Node version error:** activate Node 22 (`nvm use`) before invoking pnpm or the provisioner.
+- **Node version error:** run `nvm install` if Node 22 is missing. Lifecycle wrappers and Codex actions
+  activate installed Node automatically; for other pnpm commands, use `nvm use` or prefix them with
+  `./scripts/worktree-run.sh`.
 - **Install/migration failure:** setup prints the private log path. Inspect it locally without
   copying credentials into chats. Resolve the dependency/schema error and rerun provisioning.
 - **Snapshot error:** check `pg_dump --version` against the local Postgres version. Restore runs in
