@@ -77,7 +77,7 @@ HTTP tests and an opt-in live check.
 
 ## Best-effort conversation context
 
-The candidate reads history directly from the Quo API using `OPEN_PHONE_API_KEY`
+The candidate reads history directly from the Quo API using `QUO_API_KEY_PORTFOLIO`
 (the existing Quo integration credential). It never falls back to the events
 DB. It resolves the inbox number, queries the exact participant set, and checks
 returned conversation IDs. See [Quo list messages](https://www.quo.com/docs/api-reference/messages/list-messages).
@@ -383,3 +383,27 @@ Rollback the application commit if needed and leave these additive tables intact
 Old code cannot recover queued work; inspect outstanding rows before rollback and
 have an operator handle unresolved emergencies. Do not downgrade/drop production
 outbox tables or replay their contents automatically.
+
+## Quo credential configuration
+
+All Portfolio Quo/OpenPhone clients use `QUO_API_KEY_PORTFOLIO`, including the
+FastAPI backend, Sernia AI tools/triggers, ad hoc scripts, and the standalone
+Sernia MCP service. This is the only supported API-key variable; there is no
+fallback to `OPEN_PHONE_API_KEY` or `QUO_API_KEY`.
+
+For recovery after the rename:
+
+1. Set `QUO_API_KEY_PORTFOLIO` to the replacement credential in each FastAPI and
+   Sernia MCP service environment that will be resumed (production, development,
+   and any preview configuration that supplies Quo access).
+2. For local use, set it independently in the root `.env` and
+   `apps/sernia_mcp/.env`, or inject it into each service process. The MCP service
+   does not inherit the root `.env`.
+3. Remove `OPEN_PHONE_API_KEY` and `QUO_API_KEY` from those environments once the
+   replacement is set. Do not restore revoked values under the new name.
+4. Restart the affected services only when incident recovery is authorized so
+   process-level clients and caches use the replacement. Verify with a read-only
+   Quo lookup; do not use an external SMS send as a smoke test.
+
+`OPEN_PHONE_WEBHOOK_SECRET` and the `QUO_*_PHONE_ID` settings retain their existing
+names and purposes. The rename does not rotate or provision any credentials.

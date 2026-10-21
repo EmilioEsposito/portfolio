@@ -56,6 +56,9 @@ uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port 8080     # boots HTTP at
 
 `sernia_mcp.app:app` is the ASGI application — uvicorn loads it directly. The module wires a request-logging middleware so every inbound request surfaces in Logfire.
 
+Quo access uses `QUO_API_KEY_PORTFOLIO` in this service's own `.env` or process
+environment. See the [credential migration and recovery steps](../../api/src/open_phone/README.md#quo-credential-configuration); the backend uses the same variable name.
+
 ### Browser-based approval testing
 
 ```bash

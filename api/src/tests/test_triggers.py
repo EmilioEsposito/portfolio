@@ -496,7 +496,7 @@ class TestNotifyTeamSms:
         with (
             patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
             patch("api.src.open_phone.service.send_message") as mock_send,
-            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
         ):
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
@@ -526,7 +526,7 @@ class TestNotifyTeamSms:
         with (
             patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
             patch("api.src.open_phone.service.send_message") as mock_send,
-            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
         ):
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(side_effect=httpx.HTTPError("API down"))
@@ -675,7 +675,7 @@ class TestFetchSmsThreadRequest:
             return real_client_cls(transport=httpx.MockTransport(handler), **kwargs)
 
         with (
-            patch.dict("os.environ", {"OPEN_PHONE_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
             patch.object(trigger_mod.httpx, "AsyncClient", client_factory),
         ):
             result = await trigger_mod._fetch_sms_thread("+14123703550")

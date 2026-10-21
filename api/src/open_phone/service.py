@@ -44,7 +44,7 @@ async def get_ai_phone_number() -> str | None:
 
     from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    api_key = os.environ.get("QUO_API_KEY_PORTFOLIO", "")
     if not api_key:
         return None
 
@@ -84,7 +84,7 @@ def _openphone_client() -> httpx.AsyncClient:
     """
     from api.src.open_phone.rate_limit import build_rate_limited_transport
 
-    api_key = os.getenv("OPEN_PHONE_API_KEY", "")
+    api_key = os.getenv("QUO_API_KEY_PORTFOLIO", "")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},
@@ -209,7 +209,7 @@ async def upsert_openphone_contact(contact_create: ContactCreate):
     Returns:
         dict: The response from the OpenPhone API after the upsert operation.
     """
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
     headers = {
         "Authorization": api_key,
         "Content-Type": "application/json",
@@ -316,7 +316,7 @@ async def get_contacts_by_external_ids(
     if page_token:
         params["pageToken"] = page_token
 
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
     if not api_key:
         raise HTTPException(status_code=500, detail="OpenPhone API key not configured")
 

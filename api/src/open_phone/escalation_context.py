@@ -88,7 +88,7 @@ async def fetch_escalation_history(event: dict) -> EscalationHistory:
     sender = event.get("from_number")
     if not all((phone_id, conversation_id, sender)):
         return EscalationHistory(status="missing_thread_identity")
-    key = os.getenv("OPEN_PHONE_API_KEY")
+    key = os.getenv("QUO_API_KEY_PORTFOLIO")
     if not key:
         return EscalationHistory(status="missing_api_key")
     try:

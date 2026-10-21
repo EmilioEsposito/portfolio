@@ -52,7 +52,7 @@ Delivery is one immediate, explicitly invoked operation. No live external tests.
 
 ## Dependencies and troubleshooting
 
-Uses existing Quo (`OPEN_PHONE_API_KEY` in Sernia AI, `QUO_API_KEY` in MCP,
+Uses existing Quo (`QUO_API_KEY_PORTFOLIO` in both Sernia AI and MCP,
 and `QUO_SHARED_EXTERNAL_PHONE_ID`) and Gmail domain-wide
 delegation credentials. No new service, database, migration, or key is required.
 See [Quo tools](../tools/README.md) and the [Google integration](../../google/README.md)

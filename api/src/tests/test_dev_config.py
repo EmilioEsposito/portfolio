@@ -302,3 +302,19 @@ def test_bare_config_check_reports_both_services(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "api CLERK_SECRET_KEY: missing" in output
     assert "web CLERK_SECRET_KEY: missing" in output
+
+
+@pytest.mark.parametrize("source", ["local", "railway"])
+def test_quo_credential_is_scoped_to_backend_and_redacted(source):
+    values = {
+        "QUO_API_KEY_PORTFOLIO": "test-portfolio-quo",
+        "OPEN_PHONE_API_KEY": "test-legacy-openphone",
+        "QUO_API_KEY": "test-legacy-quo",
+    }
+    api = config.environment("api", values, {}, source)
+    assert api["QUO_API_KEY_PORTFOLIO"] == "test-portfolio-quo"
+    assert "OPEN_PHONE_API_KEY" not in api
+    assert "QUO_API_KEY" not in api
+    web = config.environment("web", values, {}, source)
+    assert not any(key in web for key in values)
+    assert config.redact("test-portfolio-quo", config.private_values(api)) == "[redacted]"

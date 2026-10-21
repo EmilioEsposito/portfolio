@@ -1789,9 +1789,9 @@ def _build_quo_client() -> httpx.AsyncClient:
     # per-key rate limit. This client also backs the FastMCP-bridged tools.
     from api.src.open_phone.rate_limit import build_rate_limited_transport
 
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    api_key = os.environ.get("QUO_API_KEY_PORTFOLIO", "")
     if not api_key:
-        logfire.warn("OPEN_PHONE_API_KEY not set — Quo tools will fail at runtime")
+        logfire.warn("QUO_API_KEY_PORTFOLIO not set — Quo tools will fail at runtime")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},

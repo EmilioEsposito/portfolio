@@ -295,7 +295,7 @@ class TestGetAiPhoneNumber:
 
         calls: list = []
         self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
-        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test-key")
         assert await get_ai_phone_number() == "+14129101500"
 
     @pytest.mark.asyncio
@@ -304,7 +304,7 @@ class TestGetAiPhoneNumber:
 
         calls: list = []
         self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
-        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test-key")
         assert await get_ai_phone_number() == "+14129101500"
         assert await get_ai_phone_number() == "+14129101500"
         assert len(calls) == 1, "second call must hit the process cache, not the API"
@@ -315,7 +315,7 @@ class TestGetAiPhoneNumber:
 
         calls: list = []
         self._patch_httpx(monkeypatch, {"data": {"id": "PNWvNqsFFy"}}, calls)
-        monkeypatch.setenv("OPEN_PHONE_API_KEY", "test-key")
+        monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test-key")
         assert await get_ai_phone_number() is None
 
 
