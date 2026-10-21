@@ -379,9 +379,9 @@ async def _get_shared_team_phone() -> str | None:
 
     from api.src.sernia_ai.config import QUO_SHARED_TEAM_CONTACT_ID
 
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    api_key = os.environ.get("QUO_API_KEY_PORTFOLIO", "")
     if not api_key:
-        logfire.error("OPEN_PHONE_API_KEY not set — cannot look up shared team phone")
+        logfire.error("QUO_API_KEY_PORTFOLIO not set — cannot look up shared team phone")
         return None
 
     try:

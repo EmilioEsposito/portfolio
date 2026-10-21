@@ -27,9 +27,9 @@ def build_quo_client() -> httpx.AsyncClient:
     """
     from sernia_mcp.clients.rate_limit import build_rate_limited_transport
 
-    api_key = os.environ.get("QUO_API_KEY", "")
+    api_key = os.environ.get("QUO_API_KEY_PORTFOLIO", "")
     if not api_key:
-        logfire.warn("QUO_API_KEY not set — Quo tool calls will fail")
+        logfire.warn("QUO_API_KEY_PORTFOLIO not set — Quo tool calls will fail")
     return httpx.AsyncClient(
         base_url="https://api.openphone.com",
         headers={"Authorization": api_key},

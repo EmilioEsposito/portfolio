@@ -1,7 +1,7 @@
 """
 Live integration tests for the Quo (OpenPhone) toolset.
 
-These tests hit the real OpenPhone API. They require OPEN_PHONE_API_KEY
+These tests hit the real OpenPhone API. They require QUO_API_KEY_PORTFOLIO
 to be set and will be skipped otherwise.
 
 Run with:
@@ -44,8 +44,8 @@ from api.src.utils.fuzzy_json import fuzzy_filter
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        not os.environ.get("OPEN_PHONE_API_KEY"),
-        reason="OPEN_PHONE_API_KEY not set",
+        not os.environ.get("QUO_API_KEY_PORTFOLIO"),
+        reason="QUO_API_KEY_PORTFOLIO not set",
     ),
 ]
 
@@ -70,7 +70,7 @@ async def quo_client():
     invalidate_contact_cache()
     async with httpx.AsyncClient(
         base_url="https://api.openphone.com",
-        headers={"Authorization": os.environ["OPEN_PHONE_API_KEY"]},
+        headers={"Authorization": os.environ["QUO_API_KEY_PORTFOLIO"]},
         timeout=30,
     ) as client:
         yield client

@@ -223,7 +223,7 @@ async def _fetch_sms_thread(
     Calls GET /v1/messages with the AI phone number ID and the sender's number.
     Returns messages in chronological order (oldest first).
     """
-    api_key = os.environ.get("OPEN_PHONE_API_KEY", "")
+    api_key = os.environ.get("QUO_API_KEY_PORTFOLIO", "")
     if not api_key:
         return []
 

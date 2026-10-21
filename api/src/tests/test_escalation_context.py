@@ -44,7 +44,7 @@ def mock_api(monkeypatch, messages: list, *, error: bool = False) -> list:
         assert request.url.params["createdBefore"] == "2026-08-09T05:02:02+00:00"
         return httpx.Response(200, json={"data": messages})
 
-    monkeypatch.setenv("OPEN_PHONE_API_KEY", "test")
+    monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test")
     monkeypatch.setattr(
         context.httpx,
         "AsyncClient",
@@ -125,7 +125,7 @@ async def test_history_timeout_is_bounded(monkeypatch):
         await asyncio.sleep(0.1)
         return httpx.Response(200)
 
-    monkeypatch.setenv("OPEN_PHONE_API_KEY", "test")
+    monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test")
     monkeypatch.setattr(context, "HISTORY_TIMEOUT", 0.01)
     monkeypatch.setattr(
         context.httpx,
