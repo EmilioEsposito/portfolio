@@ -403,6 +403,11 @@ def provision(path: Path, *, once: bool = False) -> None:
         state = read_state(checkout)
         if once and state.get("provisioned"):
             return
+        if choose_start(checkout):
+            # Git replaced the source files. Run the fetched provisioner, with this lock's
+            # non-inheritable descriptor closed by exec, instead of using old loaded code.
+            provisioner = str(checkout.root / "scripts/worktree-provision.sh")
+            os.execv(provisioner, [provisioner, str(checkout.root), *(["--once"] if once else [])])
         for executable in ("uv", "pnpm", "node", "psql", "pg_dump", "pg_restore"):
             if not shutil.which(executable):
                 raise WorktreeError(f"Missing {executable}; see docs/WORKTREES.md prerequisites.")
@@ -457,6 +462,62 @@ def default_base(checkout: Checkout) -> str:
         return "main"
 
 
+def choose_start(checkout: Checkout) -> bool:
+    """Refresh only a new detached main seed, before provisioning owns any resources."""
+    marker = checkout.git_dir / "portfolio-start-ref.json"
+    if marker.exists() or checkout.state_path.exists():
+        return False
+    initial = git(checkout.root, "rev-parse", "HEAD")
+    try:
+        git(checkout.root, "symbolic-ref", "-q", "HEAD")
+        detached = False
+    except WorktreeError:
+        detached = True
+    seeds = set()
+    for ref in ("refs/heads/main", "refs/remotes/origin/main"):
+        try:
+            seeds.add(git(checkout.root, "rev-parse", "--verify", ref))
+        except WorktreeError:
+            pass
+    history = git(checkout.root, "reflog", "show", "--format=%H", "-2", "HEAD").splitlines()
+    resources = (".env", ".venv", "node_modules", WEB_DIR / ".env", WEB_DIR / "node_modules")
+    candidate = detached and initial in seeds and len(history) == 1
+    chosen, reason = initial, "selected-ref"
+    if os.getenv("PORTFOLIO_WORKTREE_KEEP_REF") == "1":
+        reason = "explicit-keep-ref"
+    elif any((checkout.root / resource).exists() for resource in resources):
+        reason = "existing-resources"
+    elif candidate:
+        if git(checkout.root, "status", "--porcelain", "--untracked-files=all"):
+            raise WorktreeError("New main worktree is dirty; refusing to refresh or provision.")
+        print("Fetching origin/main before first provisioning…", flush=True)
+        git(
+            checkout.root,
+            "fetch",
+            "--no-tags",
+            "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+        )
+        chosen = git(checkout.root, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")
+        try:
+            git(checkout.root, "symbolic-ref", "-q", "HEAD")
+            still_detached = False
+        except WorktreeError:
+            still_detached = True
+        if (
+            git(checkout.root, "rev-parse", "HEAD") != initial
+            or not still_detached
+            or git(checkout.root, "status", "--porcelain", "--untracked-files=all")
+        ):
+            raise WorktreeError("Worktree changed during fetch; refusing to refresh or provision.")
+        if initial != chosen:
+            git(checkout.root, "switch", "--detach", "--no-overwrite-ignore", chosen)
+        reason = "fresh-remote-main"
+        print(f"Starting from origin/main {chosen[:12]} (initial {initial[:12]}).", flush=True)
+    marker.write_text(json.dumps({"initial": initial, "chosen": chosen, "reason": reason}) + "\n")
+    return chosen != initial
+
+
 def create(description: str, base: str | None) -> None:
     if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?", description):
         raise WorktreeError(
@@ -464,7 +525,7 @@ def create(description: str, base: str | None) -> None:
         )
     checkout = Checkout.find(Path.cwd())
     if base is None or base.startswith("origin/"):
-        branch = base.removeprefix("origin/") if base else default_base(checkout)
+        branch = base.removeprefix("origin/") if base else "main"
         git(checkout.main, "fetch", "origin", f"refs/heads/{branch}:refs/remotes/origin/{branch}")
         base = f"origin/{branch}"
     start = git(checkout.main, "rev-parse", "--verify", base + "^{commit}")

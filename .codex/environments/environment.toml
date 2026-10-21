@@ -16,7 +16,7 @@ script = './scripts/worktree-cleanup.sh --codex "$CODEX_WORKTREE_PATH"'
 [[actions]]
 name = "Web and API"
 icon = "run"
-command = "pnpm dev-with-fastapi"
+command = "./scripts/worktree-run.sh pnpm dev-with-fastapi"
 platform = "darwin"
 
 [[actions]]
@@ -28,5 +28,5 @@ platform = "darwin"
 [[actions]]
 name = "Typecheck"
 icon = "tool"
-command = "pnpm --filter web-react-router typecheck"
+command = "./scripts/worktree-run.sh pnpm --filter web-react-router typecheck"
 platform = "darwin"
