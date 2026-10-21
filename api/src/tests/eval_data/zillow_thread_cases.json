@@ -1,0 +1,330 @@
+[
+  {
+    "case_id": "new_qualified",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Credit 720, no pets. Can I schedule a viewing?</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": true,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "low_credit",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. My Zillow credit score is 550. No pets.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "unspecified_pets",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Credit 720. My profile says pets, but I have not specified the species.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": true,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "virtual_tour",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. I only want a virtual tour, not an in-person viewing.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "waiting_on_lead",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. </p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>Please tell us your credit score and whether you have pets.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "promised_followup",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Does this apartment have a dishwasher?</p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>We will check whether it has a dishwasher and get back to you. Please wait for our answer.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": true,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "confirmed_relative_date",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Credit 720, no pets. My phone is +14125550123.</p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>Can you view the apartment this coming Friday, October 23, at 2:00 PM ET?</p>"
+      },
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T11:00:00-04:00",
+        "body_html": "<p>Yes, I confirm Friday at 2:00 PM. See you then.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": true
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": "+14125550123",
+      "appointment_date": "2026-10-23",
+      "appointment_time": "2:00 PM"
+    }
+  },
+  {
+    "case_id": "offered_times_not_confirmed",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. My phone is +14125550123.</p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>We could offer Wednesday October 21 at 10:00 AM or Thursday October 22 at 3:00 PM. Which works? Call us at +14125550999. Jackie, Sernia Capital</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": "+14125550123",
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "text_confirmation_instruction",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Credit 720, no pets.</p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>Your viewing is Friday October 23 at 11:00 AM ET. Text our office at +14125550999 to confirm. Jackie, Sernia Capital</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": true
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": "2026-10-23",
+      "appointment_time": "11:00 AM"
+    }
+  },
+  {
+    "case_id": "arrival",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. My phone is +14125550123.</p>"
+      },
+      {
+        "from_address": "all@serniacapital.com",
+        "email_timestamp_et": "2026-10-20T10:00:00-04:00",
+        "body_html": "<p>Confirmed for today October 20 at 11:00 AM ET, thanks for your phone number.</p>"
+      },
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T11:00:00-04:00",
+        "body_html": "<p>I am here at the property for our 11:00 AM appointment.</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": false,
+      "appointment_scheduled": true
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": "+14125550123",
+      "appointment_date": "2026-10-20",
+      "appointment_time": "11:00 AM"
+    }
+  },
+  {
+    "case_id": "move_in_mismatch",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "alice@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>My name is Alice Garcia. I am interested in this apartment. Credit 720, no pets. I need to move tomorrow October 21, but the listing says December 1. Is any earlier move-in possible?</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": true,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": "Alice",
+      "lead_last_name": "Garcia",
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  },
+  {
+    "case_id": "unknown_lead_details",
+    "subject": "Inquiry: 332 Example Street Apt 01, Pittsburgh",
+    "messages": [
+      {
+        "from_address": "inquiry@example.com",
+        "email_timestamp_et": "2026-10-20T09:00:00-04:00",
+        "body_html": "<p>I am interested. Can I schedule a viewing?</p>"
+      }
+    ],
+    "expected_assessment": {
+      "should_reply": true,
+      "appointment_scheduled": false
+    },
+    "expected_collection": {
+      "building_number": 332,
+      "unit_number": 1,
+      "lead_first_name": null,
+      "lead_last_name": null,
+      "lead_phone_number": null,
+      "appointment_date": null,
+      "appointment_time": null
+    }
+  }
+]
