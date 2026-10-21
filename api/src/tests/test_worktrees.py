@@ -144,6 +144,164 @@ class WorktreeTests(unittest.TestCase):
                     wt.provision(checkout.root)
         self.assertFalse(wt.read_state(checkout)["provisioned"])
 
+    def advance_remote(self) -> str:
+        # Keep local main and origin/main stale while the bare remote advances.
+        writer = self.root / "writer"
+        self.git(self.main, "clone", str(self.remote), str(writer))
+        self.git(writer, "config", "user.email", "tests@example.test")
+        self.git(writer, "config", "user.name", "Worktree tests")
+        (writer / "file.txt").write_text("remote advance\n")
+        self.git(writer, "commit", "-am", "Advance remote main")
+        self.git(writer, "push", "origin", "main")
+        return self.git(writer, "rev-parse", "HEAD")
+
+    def detached(self) -> wt.Checkout:
+        target = self.root / "detached"
+        self.git(self.main, "worktree", "add", "--detach", str(target), "main")
+        return wt.Checkout.find(target)
+
+    def test_new_detached_main_fetches_remote_without_moving_main(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        remote = self.advance_remote()
+        checkout = self.detached()
+        self.assertTrue(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), remote)
+        self.assertEqual(self.git(self.main, "rev-parse", "HEAD"), initial)
+        record = json.loads((checkout.git_dir / "portfolio-start-ref.json").read_text())
+        self.assertEqual(record["reason"], "fresh-remote-main")
+        self.assertFalse(wt.choose_start(checkout))
+
+    def test_refresh_executes_fetched_provisioner_with_original_once_argument(self) -> None:
+        self.advance_remote()
+        writer = self.root / "writer"
+        scripts = writer / "scripts"
+        scripts.mkdir()
+        provisioner = scripts / "worktree-provision.sh"
+        provisioner.write_text('#!/bin/sh\necho "fetched-provisioner $1 $2"\n')
+        provisioner.chmod(0o755)
+        self.git(writer, "add", ".")
+        self.git(writer, "commit", "-m", "New provisioner")
+        self.git(writer, "push", "origin", "main")
+        checkout = self.detached()
+        result = subprocess.run(
+            [
+                "python3",
+                "-c",
+                "from pathlib import Path; from scripts import worktree; "
+                "import sys; worktree.provision(Path(sys.argv[1]), once=True)",
+                str(checkout.root),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"fetched-provisioner {checkout.root} --once", result.stdout)
+        self.assertFalse(checkout.state_path.exists())
+
+    def test_refresh_preserves_ignored_file_collisions(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        self.advance_remote()
+        writer = self.root / "writer"
+        (writer / "collision").write_text("remote tracked file")
+        self.git(writer, "add", ".")
+        self.git(writer, "commit", "-m", "Track collision")
+        self.git(writer, "push", "origin", "main")
+        (self.main / ".git/info/exclude").write_text("collision\n")
+        checkout = self.detached()
+        (checkout.root / "collision").write_text("valuable ignored file")
+        with self.assertRaises(wt.WorktreeError):
+            wt.choose_start(checkout)
+        self.assertEqual((checkout.root / "collision").read_text(), "valuable ignored file")
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+        self.assertFalse((checkout.git_dir / "portfolio-start-ref.json").exists())
+
+    def test_dirty_new_main_and_failed_fetch_stop_without_marker(self) -> None:
+        checkout = self.detached()
+        (checkout.root / "file.txt").write_text("valuable edit")
+        with self.assertRaisesRegex(wt.WorktreeError, "dirty"):
+            wt.choose_start(checkout)
+        self.git(checkout.root, "restore", "file.txt")
+        self.git(self.main, "remote", "set-url", "origin", str(self.root / "private-missing"))
+        with self.assertRaisesRegex(wt.WorktreeError, "fetch") as error:
+            wt.choose_start(checkout)
+        self.assertNotIn("private-missing", str(error.exception))
+        self.assertFalse((checkout.git_dir / "portfolio-start-ref.json").exists())
+
+    def test_existing_worktree_resources_and_explicit_pin_preserve_ref(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        self.advance_remote()
+        checkout = self.detached()
+        marker = checkout.git_dir / "portfolio-start-ref.json"
+        for resource in (".env", ".venv", "node_modules"):
+            with self.subTest(resource=resource):
+                target = checkout.root / resource
+                target.touch()
+                self.assertFalse(wt.choose_start(checkout))
+                self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+                target.unlink()
+                marker.unlink()
+        wt.allocate(checkout)
+        self.assertFalse(wt.choose_start(checkout))
+        checkout.state_path.unlink()
+        with patch.dict(os.environ, {"PORTFOLIO_WORKTREE_KEEP_REF": "1"}):
+            self.assertFalse(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+
+    def test_attached_branches_and_existing_detached_history_are_preserved(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        remote = self.advance_remote()
+        attached = self.checkout()
+        self.assertFalse(wt.choose_start(attached))
+        self.assertEqual(self.git(attached.root, "rev-parse", "HEAD"), initial)
+        checkout = self.detached()
+        self.git(self.main, "fetch", "origin")
+        self.git(checkout.root, "switch", "--detach", remote)
+        self.git(checkout.root, "switch", "--detach", initial)
+        self.assertFalse(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+
+    def test_creation_fetches_remote_main_even_with_different_origin_head(self) -> None:
+        remote = self.advance_remote()
+        self.git(self.main, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/other")
+        previous = Path.cwd()
+        self.addCleanup(os.chdir, previous)
+        os.chdir(self.main)
+        with patch.object(wt, "provision") as provision:
+            wt.create("fresh", None)
+        target = self.main / ".claude/worktrees/fresh"
+        self.assertEqual(self.git(target, "rev-parse", "HEAD"), remote)
+        provision.assert_called_once_with(target)
+
+    def test_runtime_wrapper_activates_installed_nvm_node_only_for_child(self) -> None:
+        wrapper = Path(wt.__file__).with_name("worktree-run.sh")
+        old_bin, new_bin, nvm = (self.root / name for name in ("old", "new", "nvm"))
+        for directory in (old_bin, new_bin, nvm):
+            directory.mkdir()
+        (old_bin / "node").write_text("#!/bin/sh\nexit 1\n")
+        (new_bin / "node").write_text('#!/bin/sh\n[ "$1" = -e ] && exit 0\necho selected-node\n')
+        for node in (old_bin / "node", new_bin / "node"):
+            node.chmod(0o755)
+        (nvm / "nvm.sh").write_text(f'nvm() {{ export PATH="{new_bin}:$PATH"; }}\n')
+        env = dict(os.environ, PATH=f"{old_bin}:{os.environ['PATH']}", NVM_DIR=str(nvm))
+        result = subprocess.run(
+            ["bash", str(wrapper), "node", "--version"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "selected-node")
+        self.assertTrue(env["PATH"].startswith(str(old_bin)))
+        (nvm / "nvm.sh").unlink()
+        result = subprocess.run(
+            ["bash", str(wrapper), "node", "--version"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Node 22.22+", result.stderr)
+
     def test_tampered_state_cannot_target_shared_database(self) -> None:
         checkout = self.checkout()
         state = wt.allocate(checkout)
