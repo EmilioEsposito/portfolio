@@ -64,7 +64,7 @@ def main():
     for contact_id in contact_ids:
         url = f"https://api.openphone.com/v1/contacts/{contact_id}"
         # User OpenPhone API to send a message
-        api_key = os.getenv("OPEN_PHONE_API_KEY")
+        api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
         headers = {
             "Authorization": api_key,
             "Content-Type": "application/json",
@@ -79,7 +79,7 @@ def main():
     # Get contact by external_id
     url = f"https://api.openphone.com/v1/contacts/{contact_id}"
     # User OpenPhone API to send a message
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
     headers = {
         "Authorization": api_key,
         "Content-Type": "application/json",

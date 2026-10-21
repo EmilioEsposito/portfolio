@@ -285,7 +285,7 @@ async def route_delete_contact_by_id(
 
     url = f"https://api.openphone.com/v1/contacts/{id}"
     # User OpenPhone API to send a message
-    api_key = os.getenv("OPEN_PHONE_API_KEY")
+    api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
     headers = {
         "Authorization": api_key,
         "Content-Type": "application/json",
@@ -299,13 +299,13 @@ async def route_delete_contact_by_id(
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {
-        "Authorization": os.getenv("OPEN_PHONE_API_KEY"),
+        "Authorization": os.getenv("QUO_API_KEY_PORTFOLIO"),
         "Content-Type": "application/json",
     }
 
     url = "https://api.openphone.com/v1/contact-custom-fields"
     headers = {
-        "Authorization": f"{os.getenv('OPEN_PHONE_API_KEY')}",
+        "Authorization": f"{os.getenv('QUO_API_KEY_PORTFOLIO')}",
         "Content-Type": "application/json",
     }
     custom_fields_raw = requests.get(url, headers=headers).json()["data"]
