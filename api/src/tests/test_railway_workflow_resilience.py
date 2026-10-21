@@ -60,3 +60,28 @@ fi
     assert int(state.read_text()) == (3 if recover else 6)
     if recover:
         assert "env_id=env-found" in output.read_text()
+
+
+def test_lookup_classifies_auth_failure_without_echoing_error(tmp_path):
+    stub = tmp_path / "curl"
+    stub.write_text('#!/bin/bash\necho \'{"errors":[{"message":"Unauthorized secret-canary"}]}\'\n')
+    stub.chmod(0o755)
+    sleep = tmp_path / "sleep"
+    sleep.write_text("#!/bin/bash\nexit 0\n")
+    sleep.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-eo", "pipefail"],
+        input=_environment_script(),
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "RAILWAY_API_TOKEN": "fake",
+            "RAILWAY_PROJECT_ID": "project",
+            "PR_NUMBER": "17",
+        },
+    )
+    assert result.returncode == 1
+    assert "rejected authentication or project access" in result.stdout
+    assert "secret-canary" not in result.stdout + result.stderr

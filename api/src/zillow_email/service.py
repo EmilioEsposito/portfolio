@@ -246,7 +246,7 @@ async def ai_assess_thread(thread_id: str, messages: list[EmailMessageDetail]):
 
     client = openrouter_client()
     response = client.chat.completions.parse(
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-6-luna",
         messages=[
             {"role": "system", "content": ai_instructions},
             {
@@ -322,7 +322,7 @@ async def ai_collect_thread_info(thread_id: str, messages: list[EmailMessageDeta
 
     client = openrouter_client()
     response = client.chat.completions.parse(
-        model="openai/gpt-4o-mini",
+        model="openai/gpt-6-luna",
         messages=[
             {"role": "system", "content": ai_instructions},
             {
