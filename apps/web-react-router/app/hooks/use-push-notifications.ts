@@ -1,18 +1,22 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
+import { ensureCurrentPushSubscription } from "~/lib/push-subscription";
 
 const API_BASE = "/api/sernia-ai";
 const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const output = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) {
-    output[i] = raw.charCodeAt(i);
+async function fetchPublicKey(token: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/push/vapid-public-key`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load notification key (${response.status})`);
   }
-  return output;
+  const { publicKey } = await response.json();
+  if (typeof publicKey !== "string" || !publicKey) {
+    throw new Error("VAPID public key not configured on server");
+  }
+  return publicKey;
 }
 
 interface BeforeInstallPromptEvent extends Event {
@@ -150,6 +154,12 @@ export function usePushNotifications(): PushNotificationState {
 
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      // Existing permission and ownership are preserved, but the server may
+      // have rotated its signing key since this browser last visited.
+      subscription = await ensureCurrentPushSubscription(
+        registration.pushManager,
+        await fetchPublicKey(token),
+      );
       const subJson = subscription.toJSON();
       const saveRes = await fetch(`${API_BASE}/push/subscribe`, {
         method: "POST",
@@ -213,19 +223,7 @@ export function usePushNotifications(): PushNotificationState {
         // Fetch VAPID public key
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
-        const vapidRes = await fetch(`${API_BASE}/push/vapid-public-key`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!vapidRes.ok) {
-          throw new Error(
-            `Failed to load notification key (${vapidRes.status})`,
-          );
-        }
-        const { publicKey } = await vapidRes.json();
-
-        if (!publicKey) {
-          throw new Error("VAPID public key not configured on server");
-        }
+        const publicKey = await fetchPublicKey(token);
 
         // Subscribe to push
         let subscription = await registration.pushManager.getSubscription();
@@ -237,13 +235,10 @@ export function usePushNotifications(): PushNotificationState {
           subscription = null;
           localStorage.removeItem(PUSH_USER_STORAGE_KEY);
         }
-        subscription =
-          subscription ||
-          (await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(publicKey)
-              .buffer as ArrayBuffer,
-          }));
+        subscription = await ensureCurrentPushSubscription(
+          registration.pushManager,
+          publicKey,
+        );
 
         const subJson = subscription.toJSON();
 

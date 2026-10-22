@@ -111,6 +111,13 @@ All three vars go on the **FastAPI service only** (both Railway and local `.env`
 
 ### Generating VAPID Keys
 
+After rotating the VAPID pair, returning signed-in browsers compare their existing
+subscription's `applicationServerKey` with the current server public key. A stale
+subscription is unsubscribed and replaced using the existing notification
+permission. If the browser requires a user gesture, the UI shows notifications as
+disabled so the user can enable them again. Offline devices must revisit the app;
+server-side key rotation alone cannot renew their browser subscriptions.
+
 ```bash
 source .venv/bin/activate && python adhoc/create_push_keys.py
 ```
