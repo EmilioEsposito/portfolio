@@ -196,8 +196,9 @@ manifest accepts required companion fields but never grants them secret status.
 PR #337 merged after the recovery workflow completed successfully. The primary
 checkout was fast-forwarded while preserving its unrelated workspace edit and
 private configuration; local API/MCP/web dependencies were synchronized to the
-patched locks. The merge-triggered production deployment is a separate final
-release observation from the successful patched deployments above.
+patched locks. The merged production API release reached SUCCESS and its health
+endpoint returned HTTP 200. The web service retained the verified patched release;
+the merge changes no web runtime files. Main's full CI workflow also passed.
 
 Account-wide credentials not observed on
 Railway are tracked separately; their mere presence in GitHub Actions is not evidence
