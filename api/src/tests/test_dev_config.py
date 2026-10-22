@@ -32,9 +32,11 @@ def test_railway_configuration_does_not_import_infrastructure_or_other_service_c
         "DEV_CLERK_WEBHOOK_SECRET": "dev-secret",
         "CLERK_WEBHOOK_SECRET": "endpoint-secret",
         "BACKGROUND_AUTOMATION_ENABLED": "true",
+        "ESCALATION_SUPPRESSION_RULES": "[]",
     }
     api = config.environment("api", fetched, host, "railway")
     assert api["CLERK_SECRET_KEY"] == "portfolio"
+    assert api["ESCALATION_SUPPRESSION_RULES"] == "[]"
     assert api["CLERK_WEBHOOK_SECRET"] == "endpoint-secret"
     assert "DEV_CLERK_WEBHOOK_SECRET" not in api
     assert api["DATABASE_URL"] == "local-db"
@@ -45,6 +47,7 @@ def test_railway_configuration_does_not_import_infrastructure_or_other_service_c
     web = config.environment("web", fetched, host, "railway")
     assert web["CLERK_SECRET_KEY"] == "portfolio"
     assert "CLERK_WEBHOOK_SECRET" not in web
+    assert "ESCALATION_SUPPRESSION_RULES" not in web
     assert "DATABASE_URL" not in web
     assert "RAILWAY_MCP_TOKEN" not in web
 
