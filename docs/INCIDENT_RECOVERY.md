@@ -26,7 +26,7 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
   should be recreated. Their source cleanup is already on main; runtime removal
   must be verified after deployment.
 
-## Preparation checkpoint
+## Preparation checkpoint (historical, before delivery)
 
 | Work | State | Evidence / next step |
 |---|---|---|
@@ -50,9 +50,10 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
   sessions during the bounded check. ClickUp, GitHub, Quo, Twilio and OpenRouter
   replacements passed harmless authentication checks. Clerk keys match exact instances.
 - Google excessive Cloud IAM grants removed; replacement key minted into private
-  custody and Workspace delegation verified with a profile-only read. Both Clerk
-  Google provider configurations accepted the replacement OAuth secret; sign-in
-  remains a separate verification.
+  custody. Gmail profile, Drive, Calendar and Sheets metadata reads succeeded with
+  the reduced privileges. Both Clerk Google provider configurations received the
+  replacement OAuth secret; fresh production Google sign-in and protected app
+  loading succeeded after revoking all pre-recovery Clerk sessions.
 - Development API/web and shared credentials delivered with readback; no deployment
   triggered by delivery. Retired API values cleared and scheduling held off.
 - Quo dashboard confirms one enabled production subscription and no development
@@ -65,14 +66,19 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
   credentials reject authentication in both hosted environments.
 - Seed bucket credentials from the provider reset were privately captured, bucket
   HEAD passed, and four GitHub Actions settings were accepted. No objects changed.
-- Existing API/web/resume deployments are older releases; a green platform state
-  does not prove rotated integrations work. Cron/test/MCP services are offline.
+- API/web deployments in both environments and development MCP succeeded with
+  the patched dependency release. The existing separate resume service remains
+  available. Retired demo jobs remain offline; the production Gmail renewal job
+  is tracked separately from the API's in-process scheduler.
 - Production has one existing staged removal of the retired direct Anthropic key.
   This has been inspected; no broad staged patch has been applied.
 - One development seed bucket and one unattached production legacy database volume
   were inventoried. Preserve the volume; the active database provider is Neon.
-- Prior database password reset evidence exists; verify saved branch connections
-  and residual sessions before deciding whether any repeat reset is needed.
+- Development/production replacement database logins succeeded and old passwords
+  failed. The separate local branch also received a fresh password after detecting
+  that its saved password still matched the pre-recovery local configuration;
+  new login succeeded, old login failed and no other client sessions remained.
+  Local API/web/MCP files received applicable replacements with private backups.
 
 ## Credential and environment checklist
 
@@ -160,6 +166,9 @@ manifest accepts required companion fields but never grants them secret status.
   (the privately captured replacement). Workspace delegation remains enabled; Cloud
   Editor and project-wide Service Account Token Creator removed. This is not removal
   of Gmail/Drive/Calendar/Sheets delegation.
+  Application source uses the account's own private-key credentials and Workspace
+  `with_subject` delegation, not Cloud IAM impersonation of other service accounts.
+  Successful metadata reads verified the intended Google access after cleanup.
 - Retained old Logfire ingestion token disabled; new-token ingestion observed.
   Old direct OpenAI/Anthropic keys also reject authentication.
 - Hosted database login roles are only the app owner and provider-managed roles;
@@ -169,11 +178,20 @@ manifest accepts required companion fields but never grants them secret status.
   cleared from development/local; production credential table was already empty.
 - Bounded knowledge-repository review found only expected memory-file edits; added
   URL hosts were the app and ClickUp. This is not a comprehensive forensic guarantee.
-- Critical dependency fixes queued: certifi 2026.10.19 in both Python locks and
-  proxy-addr 2.0.8 with an IP-spoofing regression test. Verify their final deployments.
+- Critical dependency fixes deployed successfully: certifi 2026.10.19 in both
+  Python locks and proxy-addr 2.0.8 with an IP-spoofing regression test. This does
+  not claim that every pre-existing dependency advisory has been resolved.
+- Normal production background automation resumed after removing the old
+  serialized recurring jobs; fresh scheduler startup was observed in telemetry.
+  Development and local background automation remain disabled.
+- Production Gmail-watch renewal service redeployed successfully with the rotated
+  shared cron credential and its production private-network destination verified.
+  A controlled refresh returned HTTP 200 and a new watch expiration. The next
+  scheduled invocation remains a separate observation from this successful refresh.
+- Twenty synthetic custody/delivery/Neon-rotation tests passed; the patched runtime
+  release also passed the full CI test jobs. No external test messages were sent.
 
-Remaining release checks: deploy patched dependencies, resume only normal production
-automation after rebuilding recurring schedules, confirm webhook and telemetry
-readback, and finish CI/PR reconciliation. Account-wide credentials not observed on
+Remaining release checks: confirm natural webhook delivery and finish CI/PR
+reconciliation. Account-wide credentials not observed on
 Railway are tracked separately; their mere presence in GitHub Actions is not evidence
 of exposure. Browser push subscribers must resubscribe for the new VAPID identity.

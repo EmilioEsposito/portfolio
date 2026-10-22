@@ -227,12 +227,20 @@ requires explicit `--restore-account`; the account is enabled before key creatio
 An existing intent blocks another mint until IAM and private files are reconciled.
 The application variable contains **base64-encoded JSON**, not raw JSON.
 
+`scripts/credential_rotate_neon.py` resets the app role on an explicitly selected
+Portfolio branch and captures both replacement connection URLs into a new cycle.
+It copies only that environment's selected non-database values from the named
+source cycle. A private intent blocks retries after uncertainty; reconcile the
+provider and captured response before proceeding. Delivery, old-password rejection,
+and surviving-session checks remain separate steps.
+
 Example (names and paths only; never paste values into commands):
 
 ```sh
 python3 scripts/credential_delivery.py local --cycle <cycle> --environment local --service fastapi --names SESSION_SECRET_KEY CRON_SECRET
 python3 scripts/credential_delivery.py railway --cycle <cycle> --environment development --service fastapi --names DATABASE_URL DATABASE_URL_UNPOOLED
 python3 scripts/credential_mint_google.py --cycle <cycle> --restore-account
+python3 scripts/credential_rotate_neon.py --source-cycle <source-cycle> --cycle <new-cycle> --environment local
 ```
 
 Environments without a Quo webhook can start without its signing key; the webhook
