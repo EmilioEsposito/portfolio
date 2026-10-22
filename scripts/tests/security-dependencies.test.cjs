@@ -11,6 +11,20 @@ const cliRequire = createRequire(expoRequire.resolve('@expo/cli/package.json'));
 const metroRequire = createRequire(expoRequire.resolve('@expo/metro-config/package.json'));
 const forge = cliRequire('node-forge');
 
+// GHSA-jqcg-44mw-7w3h: malformed IPv6 trust prefixes must not trust every IPv4 hop.
+const webRequire = createRequire(path.join(root, 'apps/web-react-router/package.json'));
+const expressRequire = createRequire(webRequire.resolve('express/package.json'));
+const proxyaddr = expressRequire('proxy-addr');
+test('proxy-addr rejects IPv4 spoofing through broad IPv6 trust subnets', () => {
+  const request = { socket: { remoteAddress: '198.51.100.8' }, headers: { 'x-forwarded-for': '127.0.0.1' } };
+  for (const subnet of ['::ffff:10.0.0.0/8', '::/1']) {
+    assert.equal(proxyaddr(request, proxyaddr.compile(subnet)), '198.51.100.8');
+  }
+  request.socket.remoteAddress = '10.0.0.4';
+  request.headers['x-forwarded-for'] = '203.0.113.2';
+  assert.equal(proxyaddr(request, proxyaddr.compile('10.0.0.0/8')), '203.0.113.2');
+});
+
 // GHSA-86w9-cpqp-85rv: exercise the installed Expo dependency, not a copied parser.
 // Keys and messages are synthetic, generated locally, and never leave this process.
 for (const withNull of [true, false]) {

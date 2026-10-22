@@ -119,7 +119,7 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 
 ### Multi-environment notes
 
-- **Use the same keypair** across local/dev/prod. VAPID keys are just a signing identity. Each environment's DB only stores subscriptions collected on that environment, so there's no cross-talk.
+- **Use separate keypairs per environment** during recovery to limit exposure across environments. Keep each private/public pair together and renew browser subscriptions after changing it. For private capture without printing keys, use the [credential recovery playbook](../../../../docs/CREDENTIAL_RECOVERY.md); do not run the legacy print-to-terminal generator in an agent session.
 - **localhost vs deployed**: Different browser origins = completely separate push subscriptions. Subscribing on localhost won't affect prod.
 - **Duplicate notifications**: You'll only get notified by environments where you clicked the bell icon. A conversation on prod doesn't exist on dev, so no duplicates.
 
