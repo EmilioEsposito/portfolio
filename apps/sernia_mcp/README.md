@@ -158,6 +158,14 @@ If a client document returns HTTP 404, the server cannot validate that client. R
 after refreshing discovery and check the actual document URL and bounded server logs;
 do not manually register an unverified client or substitute another document.
 
+For a failure after Clerk returns, look for `OAuth token failure` in the server logs.
+The `/token` middleware reports only HTTP status and fixed error categories, such as
+`missing_assertion`, `invalid_assertion`, `pkce` or `redirect_uri`; it never logs request
+payloads, credentials or raw OAuth error descriptions. A successful Clerk callback
+followed by a token-exchange rejection is a different stage from Clerk redirect validation.
+The MCP service consumes its own `LOGFIRE_TOKEN` deployment variable; rotating only
+the FastAPI service's copy does not restore MCP telemetry.
+
 Sources checked October 22, 2026: [Claude authentication](https://claude.com/docs/connectors/building/authentication),
 [OpenAI authentication](https://developers.openai.com/plugins/build/auth), and
 [FastMCP 4.1.3](https://github.com/PrefectHQ/fastmcp/releases/tag/v4.1.3).
