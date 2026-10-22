@@ -1,5 +1,11 @@
 # Development configuration
 
+Incident preparation uses the offline [credential recovery playbook](../docs/CREDENTIAL_RECOVERY.md)
+and [public-safe tracker](../docs/INCIDENT_RECOVERY.md). `credential_recovery.py` stages
+private replacements outside Git and prepares selected payloads without provider
+access, upload, deployment, or app startup. Do not use the development launcher
+to fetch Railway credentials while the incident hold remains.
+
 Run `pnpm dev` (web), `pnpm fastapi-dev` (API), or `pnpm dev-with-fastapi`
 (both) after `uv sync --frozen` and `pnpm install --frozen-lockfile`.
 These commands use `scripts/dev_config.py` and the repository Python environment.

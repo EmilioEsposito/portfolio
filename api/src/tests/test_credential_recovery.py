@@ -1,0 +1,274 @@
+"""Synthetic offline custody regressions; no app imports or real credentials."""
+
+import base64
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import socket
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+SPEC = importlib.util.spec_from_file_location(
+    "credential_recovery", Path(__file__).resolve().parents[3] / "scripts/credential_recovery.py"
+)
+recovery = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(recovery)
+
+
+class CredentialRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        # macOS /var is a symlink; resolve the test fixture, never production input.
+        self.root = Path(self.temp.name).resolve()
+        self.store = recovery.Store(self.root, "test-cycle", create=True)
+        self.network = patch.object(
+            socket, "socket", side_effect=AssertionError("network forbidden")
+        )
+        self.network.start()
+
+    def tearDown(self):
+        self.network.stop()
+        self.temp.cleanup()
+
+    def source(self, content, mode=0o600):
+        path = self.store.directory / "inbox" / "test.env"
+        path.write_text(content)
+        path.chmod(mode)
+        return path
+
+    def cli(self, *args):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            result = recovery.main(["--root", str(self.root), "--cycle", "test-cycle", *args])
+        return result, output.getvalue()
+
+    def test_generation_is_private_independent_and_retry_safe(self):
+        self.assertEqual(self.store.generate("development"), 3)
+        self.assertEqual(self.store.generate("production"), 2)
+        before = self.store.read()
+        self.assertEqual(self.store.generate("development"), 0)
+        self.assertEqual(before, self.store.read())
+        values = [v for env in before["values"].values() for v in env.values()]
+        self.assertEqual(len(set(values)), 5)
+        self.assertTrue(all(len(v) == 64 for v in values))
+        self.assertEqual(self.store.path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.store.directory.stat().st_mode & 0o777, 0o700)
+        status = self.cli("status")[1]
+        for value in values:
+            self.assertNotIn(value, status)
+        self.assertTrue(all(row["states"]["delivery"] == "unknown" for row in self.store.status()))
+
+    def test_literal_dotenv_no_execution_or_interpolation(self):
+        parsed = recovery.parse_env("""# comment
+export CLICKUP_API_KEY='literal-$(touch /tmp/never)-${HOME}-`id`'
+GOOGLE_OAUTH_CLIENT_SECRET="a=b#c" # comment
+VAPID_PRIVATE_KEY='line 1
+line 2'
+LOGFIRE_TOKEN="first\\nsecond"
+""")
+        self.assertIn("${HOME}", parsed["CLICKUP_API_KEY"])
+        self.assertEqual(parsed["GOOGLE_OAUTH_CLIENT_SECRET"], "a=b#c")
+        self.assertEqual(parsed["VAPID_PRIVATE_KEY"], "line 1\nline 2")
+        self.assertEqual(parsed["LOGFIRE_TOKEN"], "first\nsecond")
+        self.assertEqual(
+            recovery.parse_env('VAPID_PRIVATE_KEY="line1\nline2"')["VAPID_PRIVATE_KEY"],
+            "line1\nline2",
+        )
+
+    def test_bad_input_never_echoes_values_or_changes_store(self):
+        sentinel = "synthetic-SENSITIVE-do-not-echo"
+        before = self.store.read()
+        for text in (
+            f"UNKNOWN={sentinel}",
+            f"{sentinel}",
+            f"CLICKUP_API_KEY={sentinel}\nCLICKUP_API_KEY=duplicate",
+            f"CLICKUP_API_KEY='{sentinel}",
+            "CLICKUP_API_KEY=****",
+            f"ADMIN_PASSWORD_HASH={sentinel}",
+        ):
+            path = self.source(text)
+            result, output = self.cli(
+                "import-env", "--environment", "development", "--source", str(path)
+            )
+            self.assertEqual(result, 1)
+            self.assertNotIn(sentinel, output)
+            self.assertEqual(before, self.store.read())
+        result, output = self.cli("--unknown", sentinel)
+        self.assertEqual(result, 1)
+        self.assertNotIn(sentinel, output)
+
+    def test_permissions_symlinks_hardlinks_and_checkout_rejected(self):
+        path = self.source("CLICKUP_API_KEY=synthetic-value", 0o644)
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.read_private(path)
+        path.chmod(0o600)
+        link = path.with_name("link.env")
+        link.symlink_to(path)
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.read_private(link)
+        hard = path.with_name("hard.env")
+        os.link(path, hard)
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.read_private(path)
+        hard.unlink()
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.Store(recovery.REPO / ".local", "never-create", create=True)
+        alternate = self.root / "other-repo"
+        alternate.mkdir(mode=0o700)
+        (alternate / ".git").touch()
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.Store(alternate, "never-create", create=True)
+        linked_root = self.root / "linked"
+        linked_root.symlink_to(self.store.directory, target_is_directory=True)
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.private_dir(linked_root / "inbox")
+
+    def test_capture_is_atomic_and_conflicts_fail(self):
+        self.store.capture("development", {"CLICKUP_API_KEY": "synthetic-one"}, "fixture")
+        before = self.store.read()
+        self.assertEqual(
+            self.store.capture("development", {"CLICKUP_API_KEY": "synthetic-one"}, "fixture"), 0
+        )
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.capture(
+                "development",
+                {"CLICKUP_API_KEY": "synthetic-two", "LOGFIRE_TOKEN": "synthetic-new"},
+                "fixture",
+            )
+        self.assertEqual(before, self.store.read())
+
+    def test_wrong_environment_and_backend_to_web_rejected(self):
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.capture("production", {"CLERK_SECRET_KEY": "sk_test_synthetic"}, "fixture")
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.capture(
+                "production", {"SERNIA_MCP_INTERNAL_BEARER_TOKEN": "x" * 64}, "fixture"
+            )
+        self.store.generate("production")
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("production", "react-router", ["CRON_SECRET"])
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.plan("production", "sernia-mcp")
+
+    def test_preparation_is_targeted_immutable_and_not_activation(self):
+        self.store.generate("production")
+        first = self.store.prepare("production", "fastapi", ["CRON_SECRET"])
+        second = self.store.prepare("production", "fastapi", ["CRON_SECRET"])
+        self.assertNotEqual(first, second)
+        payload = json.loads(recovery.read_private(Path(first)))
+        self.assertEqual(set(payload["values"]), {"CRON_SECRET"})
+        self.assertFalse(payload["deployment_authorized"])
+        self.assertEqual(payload["environment"], "production")
+        self.assertEqual(payload["service"], "fastapi")
+        self.assertEqual(
+            recovery.parse_env(recovery.read_private(Path(first).with_suffix(".env"))),
+            payload["values"],
+        )
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.write_private(Path(first), "overwrite")
+        self.assertTrue(all(r["states"]["delivery"] == "unknown" for r in self.store.status()))
+
+    def test_database_pair_required_and_mismatch_rejected(self):
+        self.store.capture(
+            "development",
+            {
+                "DATABASE_URL": "postgresql://user:synthetic@ep-demo-pooler.example/db",
+                "DATABASE_URL_UNPOOLED": "postgresql://user:synthetic@ep-demo.example/db",
+            },
+            "fixture",
+        )
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("development", "fastapi", ["DATABASE_URL"])
+        self.store.prepare("development", "fastapi", ["DATABASE_URL", "DATABASE_URL_UNPOOLED"])
+        self.store.capture(
+            "production",
+            {
+                "DATABASE_URL": "postgresql://user:synthetic@ep-demo-pooler.example/db",
+                "DATABASE_URL_UNPOOLED": "postgresql://user:other@ep-demo.example/db",
+            },
+            "fixture",
+        )
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("production", "fastapi", ["DATABASE_URL", "DATABASE_URL_UNPOOLED"])
+
+    def test_vapid_pair_matching_and_mismatch(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        key = ec.generate_private_key(ec.SECP256R1())
+        private = key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+        public = (
+            base64.urlsafe_b64encode(
+                key.public_key().public_bytes(
+                    serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+                )
+            )
+            .rstrip(b"=")
+            .decode()
+        )
+        self.store.capture(
+            "development", {"VAPID_PRIVATE_KEY": private, "VAPID_PUBLIC_KEY": public}, "fixture"
+        )
+        self.store.prepare("development", "fastapi", ["VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY"])
+        self.store.capture(
+            "production",
+            {"VAPID_PRIVATE_KEY": private, "VAPID_PUBLIC_KEY": "synthetic-mismatch"},
+            "fixture",
+        )
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("production", "fastapi", ["VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY"])
+
+    def test_lock_contention_refuses_mutation(self):
+        before = self.store.read()
+        with recovery.locked(self.store.directory):
+            result, _ = self.cli("generate", "--environment", "production")
+        self.assertEqual(result, 1)
+        self.assertEqual(before, self.store.read())
+
+    def test_partial_write_preserves_previous_bundle(self):
+        before = self.store.read()
+        with patch.object(recovery.os, "replace", side_effect=OSError("synthetic secret in error")):
+            result, output = self.cli("generate", "--environment", "production")
+        self.assertEqual(result, 1)
+        self.assertNotIn("synthetic secret", output)
+        self.assertEqual(before, self.store.read())
+        self.assertFalse(list(self.store.directory.glob(".capture-*")))
+
+    def test_private_evidence_not_printed_and_stages_independent(self):
+        evidence = self.source("synthetic-private-evidence-never-echo")
+        self.store.record(
+            "production", "CLERK_SECRET_KEY", "issuer_revocation", "reported", evidence
+        )
+        output = self.cli("status")[1]
+        self.assertNotIn("synthetic-private-evidence", output)
+        row = next(
+            r
+            for r in self.store.status()
+            if r["environment"] == "production" and r["name"] == "CLERK_SECRET_KEY"
+        )
+        self.assertEqual(row["states"]["issuer_revocation"], "reported")
+        self.assertEqual(row["states"]["provider_verification"], "unknown")
+        self.assertFalse(row["staged"])
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.record("production", "CLERK_SECRET_KEY", "capture", "verified", evidence)
+
+    def test_new_cycle_does_not_copy_secrets_and_init_preserves_inbox(self):
+        path = self.store.directory / "inbox/development.env"
+        path.write_text("CLICKUP_API_KEY=synthetic-private")
+        recovery.Store(self.root, "test-cycle", create=True)
+        self.assertEqual(path.read_text(), "CLICKUP_API_KEY=synthetic-private")
+        self.store.generate("production")
+        second = recovery.Store(self.root, "second-cycle", create=True)
+        self.assertEqual(second.read()["values"]["production"], {})
+
+
+if __name__ == "__main__":
+    unittest.main()
