@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
-    "credential_recovery", Path(__file__).resolve().parents[3] / "scripts/credential_recovery.py"
+    "credential_recovery", Path(__file__).resolve().parents[3] / "scripts/credentials/recovery.py"
 )
 recovery = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(recovery)

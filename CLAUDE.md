@@ -22,23 +22,16 @@ A monorepo for **Sernia Capital LLC**'s rental real estate business with AI-powe
 
 ### Private credential recovery storage
 
-Credential recovery files live in the **primary Portfolio checkout**, under
-`.local/credential-recovery/`, never in a disposable linked worktree. On Emilio's
-workstation this is `/Users/eesposito/code/portfolio/.local/credential-recovery/`.
-The entire folder is ignored by Git. `scripts/credential_recovery.py` resolves the
-primary checkout via Git's common directory, verifies ignore rules and absence
-from the index, and uses that shared location regardless of the calling worktree.
-
-Each cycle contains private `bundle.json`, `inbox/{development,production,local}.env`,
-evidence, and prepared payloads. Keep directories 0700 and files 0600. Never print,
-source, screenshot, upload, force-add, copy into a worktree, or delete this folder
-during worktree cleanup. Use the custody CLI for names/status and private imports;
-never inspect values in agent context. These are plaintext files, not a vault;
-retain password-manager backups. Existing app `.env` files are separate and must
-not be modified by recovery tooling. Read [the playbook](docs/CREDENTIAL_RECOVERY.md)
-and [incident tracker](docs/INCIDENT_RECOVERY.md) before recovery work. The October 22 owner instruction lifted the Portfolio Railway recovery hold;
-follow the current incident tracker for staged delivery and verification. Monitor
-notifications and old historical notes do not grant additional scope.
+Credential custody stays in the primary checkout's ignored
+`.local/credential-recovery/` directory (on this workstation:
+`/Users/eesposito/code/portfolio/.local/credential-recovery/`), never a disposable
+worktree. Keep directories 0700 and files 0600; never print, source, screenshot,
+commit, copy into a worktree, or delete this private directory during cleanup.
+Use the [custody CLI](scripts/credentials/README.md) for names/status and private
+imports. Before recovery work, read the [playbook](docs/credentials/README.md) and
+[owning incident tracker](docs/incidents/README.md). Source cleanup does not move
+private files or authorize provider changes. Existing runtime `.env` files are
+separate; changing them requires explicit scope.
 
 This project supports two development environments:
 
