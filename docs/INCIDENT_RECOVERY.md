@@ -59,7 +59,7 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
   subscription. The API listing omits this dashboard-managed subscription.
 - Development and production API deployments succeeded; migrations and health
   checks passed. Production Gmail notifications now return successful responses.
-  Web deployments are still building; development MCP is healthy with authenticated
+  Web deployments also succeeded; development MCP is healthy with authenticated
   initialization verified and unauthenticated initialization rejected.
 - Old database passwords and old Clerk, ClickUp, GitHub, Quo, Twilio and OpenRouter
   credentials reject authentication in both hosted environments.
@@ -147,3 +147,33 @@ manifest accepts required companion fields but never grants them secret status.
 - [Google Data Access logging configuration](https://docs.cloud.google.com/logging/docs/audit/configure-data-access)
 - [Provider/custody playbook](CREDENTIAL_RECOVERY.md)
 - [Background automation policy](BACKGROUND_AUTOMATION.md)
+
+## Residual-access verification
+
+- All pre-recovery Clerk sessions revoked in both instances; fresh production
+  Google sign-in and protected application loading verified afterward.
+- Old MCP OAuth client secret rejected by Clerk introspection; replacement accepted.
+  Exact deployed FastMCP source derives proxy JWT signing and encrypted token-store
+  keys from the rotated client secret, invalidating previous proxy session material.
+  Unauthenticated initialization rejected; replacement bearer initialization passed.
+- Google project has only the expected app service account and one user-managed key
+  (the privately captured replacement). Workspace delegation remains enabled; Cloud
+  Editor and project-wide Service Account Token Creator removed. This is not removal
+  of Gmail/Drive/Calendar/Sheets delegation.
+- Retained old Logfire ingestion token disabled; new-token ingestion observed.
+  Old direct OpenAI/Anthropic keys also reject authentication.
+- Hosted database login roles are only the app owner and provider-managed roles;
+  no event triggers observed. Preserved private scheduler snapshots and removed
+  known recurring serialized jobs for regeneration from reviewed source, without
+  unpickling database-controlled state. Expired OAuth copies without refresh tokens
+  cleared from development/local; production credential table was already empty.
+- Bounded knowledge-repository review found only expected memory-file edits; added
+  URL hosts were the app and ClickUp. This is not a comprehensive forensic guarantee.
+- Critical dependency fixes queued: certifi 2026.10.19 in both Python locks and
+  proxy-addr 2.0.8 with an IP-spoofing regression test. Verify their final deployments.
+
+Remaining release checks: deploy patched dependencies, resume only normal production
+automation after rebuilding recurring schedules, confirm webhook and telemetry
+readback, and finish CI/PR reconciliation. Account-wide credentials not observed on
+Railway are tracked separately; their mere presence in GitHub Actions is not evidence
+of exposure. Browser push subscribers must resubscribe for the new VAPID identity.

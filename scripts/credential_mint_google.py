@@ -40,6 +40,7 @@ def gcloud(args: list[str]) -> dict | list:
 
 
 def mint(store: Store, restore_account: bool = False) -> None:
+    require(restore_account, "Explicit account restoration required before minting")
     with locked(store.directory):
         account = gcloud(["iam", "service-accounts", "describe", ACCOUNT])
         require(account.get("disabled") is True and account.get("email") == ACCOUNT)
@@ -74,7 +75,6 @@ def mint(store: Store, restore_account: bool = False) -> None:
                 {"state": "intent", "time": now(), "account": ACCOUNT, "prior_keys": before}
             ),
         )
-        require(restore_account, "Explicit account restoration required before minting")
         gcloud(["iam", "service-accounts", "enable", ACCOUNT])
         previous_umask = os.umask(0o077)
         try:

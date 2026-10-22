@@ -249,8 +249,8 @@ def manifest() -> dict:
 
 
 def allowed(spec: dict, environment: str, service: str | None = None) -> bool:
-    if service == "sernia-mcp" and environment != "development":
-        return False  # No production/local MCP recovery target has been established.
+    if service == "sernia-mcp" and environment == "production":
+        return False  # No production MCP recovery target has been established.
     return environment in spec["environments"] and (service is None or service in spec["services"])
 
 

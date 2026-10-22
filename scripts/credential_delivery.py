@@ -142,7 +142,7 @@ def merged_dotenv(original: str, values: dict[str, str], retired: set[str]) -> s
 def install_local(store: Store, service: str, names: list[str]) -> int:
     from dotenv import dotenv_values
 
-    require(service in {"fastapi", "react-router"})
+    require(service in SERVICES)
     staged = store.read()["values"]["local"]
     require(
         names and all(k in staged and allowed(store.registry[k], "local", service) for k in names)
@@ -150,7 +150,14 @@ def install_local(store: Store, service: str, names: list[str]) -> int:
     # Enforce pairs even for a local installation.
     store.prepare("local", service, names)
     values = {k: staged[k] for k in names}
-    target = primary_checkout() / (".env" if service == "fastapi" else "apps/web-react-router/.env")
+    target = (
+        primary_checkout()
+        / {
+            "fastapi": ".env",
+            "react-router": "apps/web-react-router/.env",
+            "sernia-mcp": "apps/sernia_mcp/.env",
+        }[service]
+    )
     require(not target.is_symlink() and target.is_file())
     require(target.stat().st_uid == os.getuid() and target.stat().st_nlink == 1)
     ignored = subprocess.run(
@@ -166,7 +173,7 @@ def install_local(store: Store, service: str, names: list[str]) -> int:
         "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
     }
     aliases = {
-        "QUO_API_KEY_PORTFOLIO": {"OPEN_PHONE_API_KEY"},
+        "QUO_API_KEY_PORTFOLIO": {"OPEN_PHONE_API_KEY", "QUO_API_KEY"},
         "QUO_WEBHOOK_SECRET": {"OPEN_PHONE_WEBHOOK_SECRET"},
         "CLERK_WEBHOOK_SECRET": {"DEV_CLERK_WEBHOOK_SECRET", "PROD_CLERK_WEBHOOK_SECRET"},
     }
