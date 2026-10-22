@@ -153,6 +153,15 @@ manifest accepts required companion fields but never grants them secret status.
 - [ ] The connected Sernia AI client explicitly requests reauthentication after
   the reset. Server bearer authentication was verified independently; reconnect
   the client and repeat a read-only operation before closing client access recovery.
+  The attempted reconnect on October 22 at 20:22 UTC reached the server but failed
+  because ChatGPT's callback-specific CIMD document returned HTTP 404; Railway's
+  runtime log independently confirms the metadata-fetch failure. CIMD is already
+  enabled and advertised by the live server. The documented stable ChatGPT client
+  document also returned 404 in a separate public check. This remains a client
+  metadata availability/registration blocker, not evidence that the replacement
+  Clerk secret failed. Preserve client-document and redirect validation; do not
+  manually register an unverified URL or rotate additional secrets to bypass it.
+  Existing connection settings expose reconnect/disconnect but no DCR selector.
 
 The recovery is operationally restored, with the explicit client/device
 follow-ups above. This is not a claim of exhaustive forensic clearance or a test
