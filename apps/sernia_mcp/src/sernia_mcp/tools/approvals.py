@@ -9,16 +9,16 @@ Pattern (deterministic server-side enforcement via tool-visibility split):
      which is a hidden ``@app.tool()`` — not exposed to the model at all.
   4. The confirm tool looks up the pending row and performs the real send.
 
-The model has no path to ``_confirm_send_sms``:
+The ordinary model tool surface has no path to ``_confirm_send_sms``:
 
-  - It isn't in ``tools/list`` (visibility=["app"], hidden from the model).
+  - It isn't in ``tools/list`` (enforced by our approval provider).
   - Direct calls via ``tools/call`` raise ``Unknown tool`` (verified in tests).
-  - Even if a caller knew the name, they'd need a valid UUID from the pending
-    dict, which is only surfaced through the UI.
-
-Clients that can't render the PrefabApp (raw MCP clients, terminals) receive
-the structured PrefabApp payload but have no way to reach the confirm tool —
-the send cannot happen. Enforcement is structural, not capability-based.
+The Apps host uses FastMCP's hashed backend address for button actions. This
+preserves the pre-v4 tool-surface split; FastMCP 4's visibility metadata alone
+does not hide or reject backend tools. A hashed address is routing identity,
+not proof of a human click: a trusted Apps host must keep app-only calls out
+of the model's tool surface. An authenticated arbitrary MCP client can still
+reproduce a UI call. Do not treat this split as cryptographic approval.
 
 State (``_PENDING``) is in-memory; restart loses pending approvals. Each row
 carries a timestamp; rows older than ``_PENDING_TTL_SECONDS`` are rejected on
@@ -29,9 +29,13 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Sequence
 
 from fastmcp import FastMCPApp
 from fastmcp.exceptions import ToolError
+from fastmcp.server.providers.addressing import is_app_tool_with_identity
+from fastmcp.tools import Tool
+from fastmcp.utilities.versions import VersionSpec
 from prefab_ui import PrefabApp
 from prefab_ui.actions import SetState, ShowToast
 from prefab_ui.actions.mcp import CallTool
@@ -69,7 +73,32 @@ _PENDING_TTL_SECONDS = 600  # 10 minutes
 # =============================================================================
 # Single FastMCPApp holding both approval flows.
 # =============================================================================
-approvals_app = FastMCPApp("sernia_approvals")
+def _is_app_only(tool: Tool) -> bool:
+    ui = (tool.meta or {}).get("ui", {})
+    return ui.get("visibility") == ["app"]
+
+
+class ApprovalApp(FastMCPApp):
+    """Keep confirmation tools off the ordinary surface while routing UI calls.
+
+    FastMCP 4 deliberately lists app-only tools and accepts their raw names.
+    These provider hooks retain our existing narrower contract. Hashed lookup
+    still goes through FastMCP's normal transform and authorization pipeline.
+    """
+
+    async def _list_tools(self) -> Sequence[Tool]:
+        return [tool for tool in await super()._list_tools() if not _is_app_only(tool)]
+
+    async def _get_tool(self, name: str, version: VersionSpec | None = None) -> Tool | None:
+        tool = await super()._get_tool(name, version)
+        return None if tool is not None and _is_app_only(tool) else tool
+
+    async def _get_tool_by_hash(self, tool_hash: str, tool_name: str) -> Tool | None:
+        tool = await super()._get_tool(tool_name)
+        return tool if tool is not None and is_app_tool_with_identity(tool, tool_hash) else None
+
+
+approvals_app = ApprovalApp("sernia_approvals")
 
 
 # -----------------------------------------------------------------------------

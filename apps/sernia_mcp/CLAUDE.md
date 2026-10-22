@@ -192,9 +192,9 @@ Destructive sends (`quo_send_sms`, `google_send_email`) are gated through the [M
 
 1. The model calls the visible `@app.ui()` tool. The tool does **not** send — it queues a pending row and returns a Prefab `Card` with Approve/Reject buttons.
 2. The buttons fire `CallTool("_confirm_send_*", ...)` against a hidden `@app.tool()` (visibility=`["app"]`) that runs the actual send.
-3. Hidden tools are absent from `tools/list` AND raise `Unknown tool` on direct `tools/call` (verified in `test_approvals.py::TestHiddenToolEnforcement`).
+3. `ApprovalApp` excludes confirmation tools from `tools/list` and rejects raw-name `tools/call` while preserving hashed UI dispatch (verified in `test_approvals.py::TestHiddenToolEnforcement`). FastMCP 4's visibility metadata alone does not enforce this narrower contract.
 
-The model has no reachable path to the send primitive. This is structural enforcement, not a capability check — clients without Apps support get a payload they can't render, and the send simply cannot happen.
+Trusted Apps hosts keep confirmation calls out of the model's ordinary tool surface. Hashed addresses are routing identifiers, not proof of a human click; an arbitrary authenticated MCP client can reproduce an Apps call. Preserve raw-name isolation, email-domain authorization, one-time pending IDs and expiry when changing this flow. Tests exercise the actual serialized card actions on modern and legacy transports with mocked sends.
 
 When tweaking the approval cards: keep the "decided" reactive state binding (`disabled=Rx("decided")`) so users can't double-click. Verify in the browser via `fastmcp dev apps src/sernia_mcp/dev_server.py` — pytest can't catch UI rendering bugs.
 

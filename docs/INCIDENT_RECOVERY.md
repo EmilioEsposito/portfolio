@@ -147,6 +147,15 @@ manifest accepts required companion fields but never grants them secret status.
   delivery; backend telemetry confirms HTTP 200. Both hosted environments accept
   signatures from their replacement key and reject their previous key. The
   signature probes use empty data and cannot modify user records.
+- [x] Independent recovery audit refreshed public production/development web,
+  production API and MCP health checks; all returned HTTP 200. Google IAM readback
+  confirms the app account is enabled with one user-managed key and no direct
+  project roles. Default Cloud Data Access logging includes administrative reads,
+  data reads and data writes for all services, without principal exemptions.
+- [x] Private custody permissions normalized to 0700 directories and 0600 regular
+  files without following symlinks or changing contents. Git exclusion and absence
+  from the index were rechecked. Fourteen lifecycle assertions were reconciled
+  from existing exact evidence and independently read back through the custody CLI.
 - [ ] Offline devices must revisit the app and sign in again. Push subscriptions
   with an old VAPID identity are renewed on return; browsers requiring a user gesture
   show the notification-enable control.
@@ -166,6 +175,11 @@ manifest accepts required companion fields but never grants them secret status.
 The recovery is operationally restored, with the explicit client/device
 follow-ups above. This is not a claim of exhaustive forensic clearance or a test
 of every outgoing business action. No customer messages or calls were sent as QA.
+Some custody status fields remain unknown where evidence does not establish that
+specific stage, or where a newer cycle carries values without copying historical
+assertions. Do not infer a failed rotation from those fields or mark them verified
+solely from a successful deployment. Account-wide CI credentials remain separately
+scoped; no additional application credential revocation was identified by this audit.
 
 One nonblocking provider housekeeping change remains staged: deletion of an
 already-empty retired direct-provider variable. Applying it was declined because
