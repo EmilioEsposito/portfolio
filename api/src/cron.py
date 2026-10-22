@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends
 
-from api.src.utils.dependencies import verify_cron_or_admin
+from api.src.utils.dependencies import verify_cron_secret
 
 router = APIRouter(
     prefix="/cron",  # All endpoints here will be under /cron
@@ -17,7 +17,7 @@ async def cron_job_example():
 
 
 # Note hobby plan only allows for cron job once per day. Deployment will fail without error message otherwise.
-@router.get("/cron_job_example_private", dependencies=[Depends(verify_cron_or_admin)])
+@router.get("/cron_job_example_private", dependencies=[Depends(verify_cron_secret)])
 async def cron_job_example_private(payload: dict):
     print(f"Cron job executed with payload: {payload}")
     if "password" in payload:

@@ -36,7 +36,3 @@ os.environ.setdefault("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
 os.environ.setdefault("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/oauth/callback")
 os.environ.setdefault("QUO_WEBHOOK_SECRET", "test-openphone-webhook")
-# utils/password.py unit test — any salt/hash works (it only asserts that
-# wrong passwords fail).
-os.environ.setdefault("ADMIN_PASSWORD_SALT", "test-salt")
-os.environ.setdefault("ADMIN_PASSWORD_HASH", "not-a-real-hash")

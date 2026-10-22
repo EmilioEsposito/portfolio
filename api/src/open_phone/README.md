@@ -414,3 +414,12 @@ is not needed by the standalone MCP service or frontend.
 
 The `QUO_*_PHONE_ID` settings, webhook URL, signature header, and HMAC algorithm
 are unchanged. These renames do not rotate or provision any credentials.
+
+## Operational route authentication
+
+`POST /api/open_phone/send_message` and
+`POST /api/open_phone/create_contacts_in_openphone` require a Clerk-authenticated
+user with a verified `@serniacapital.com` email, just like the contact lookup
+route. Passwords in request bodies cannot authorize these operations. The legacy
+password-only `DELETE /api/open_phone/contact/{id}` endpoint has been removed.
+Quo webhook signature verification still uses `QUO_WEBHOOK_SECRET`.

@@ -10,15 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from openai import APIStatusError
 
 from api.src.google.gmail.demo import DEFAULT_INSTRUCTIONS, SAFETY_INSTRUCTIONS, SCENARIOS
-from api.src.google.gmail.schema import (
-    GenerateResponseRequest,
-    OptionalPassword,
-)
+from api.src.google.gmail.schema import GenerateResponseRequest
 from api.src.google.gmail.service import (
     setup_gmail_watch,
     stop_gmail_watch,
 )
-from api.src.utils.dependencies import verify_cron_or_admin
+from api.src.utils.dependencies import verify_cron_secret
 from api.src.utils.llm import DEMO_MODEL_ID, async_public_openrouter_client
 
 router = APIRouter(prefix="/gmail", tags=["gmail"])
@@ -81,12 +78,11 @@ async def generate_email_response(request: GenerateResponseRequest) -> dict[str,
         )
 
 
-# Cron job route - supports both GET and POST
-@router.post("/watch/stop", dependencies=[Depends(verify_cron_or_admin)])
-async def stop_watch(payload: OptionalPassword = None):
+@router.post("/watch/stop", dependencies=[Depends(verify_cron_secret)])
+async def stop_watch():
     """
     Stops Gmail push notifications.
-    Can be called via GET (for cron) or POST (with optional password in body).
+    Requires Authorization: Bearer <CRON_SECRET>.
     """
     try:
         result = stop_gmail_watch()
@@ -95,12 +91,11 @@ async def stop_watch(payload: OptionalPassword = None):
         raise HTTPException(status_code=500, detail=f"Failed to stop Gmail watch: {str(e)}")
 
 
-# Cron job route - supports both GET and POST
-@router.post("/watch/start", dependencies=[Depends(verify_cron_or_admin)])
-async def start_watch(payload: OptionalPassword = None):
+@router.post("/watch/start", dependencies=[Depends(verify_cron_secret)])
+async def start_watch():
     """
     Starts Gmail push notifications.
-    Can be called via GET (for cron) or POST (with optional password in body).
+    Requires Authorization: Bearer <CRON_SECRET>.
     """
     try:
         result = setup_gmail_watch()
@@ -113,13 +108,12 @@ async def start_watch(payload: OptionalPassword = None):
         raise HTTPException(status_code=500, detail=f"Failed to start Gmail watch: {str(e)}")
 
 
-# Cron job route to refresh Gmail watch - supports both GET and POST
-@router.post("/watch/refresh", dependencies=[Depends(verify_cron_or_admin)])
-async def refresh_watch(payload: OptionalPassword = None):
+@router.post("/watch/refresh", dependencies=[Depends(verify_cron_secret)])
+async def refresh_watch():
     """
     Refreshes Gmail push notifications idempotently. Stops any existing watch and starts a new one.
     If no watch exists, just starts a new one.
-    Can be called via GET (for cron) or POST (with optional password in body).
+    Requires Authorization: Bearer <CRON_SECRET>.
     """
     try:
         if os.getenv("RAILWAY_ENVIRONMENT_NAME") == "development":
