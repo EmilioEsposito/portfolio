@@ -91,3 +91,6 @@ api/seed_fixtures/
 
 # Local agent workspace used by the development launcher
 .local/
+
+# Shared private credential custody in the primary checkout; never force-add.
+/.local/credential-recovery/

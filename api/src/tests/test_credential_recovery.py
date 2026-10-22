@@ -7,6 +7,7 @@ import io
 import json
 import os
 import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -268,6 +269,64 @@ LOGFIRE_TOKEN="first\\nsecond"
         self.store.generate("production")
         second = recovery.Store(self.root, "second-cycle", create=True)
         self.assertEqual(second.read()["values"]["production"], {})
+
+    def test_primary_store_requires_ignore_and_rejects_tracked_files(self):
+        main = self.root / "primary"
+        main.mkdir(mode=0o700)
+        subprocess.run(["git", "init", str(main)], capture_output=True, check=True)
+        with patch.object(recovery, "REPO", main):
+            root = recovery.default_root()
+            self.assertEqual(root, main / ".local/credential-recovery")
+            with self.assertRaises(recovery.RecoveryError):
+                recovery.Store(root, "blocked", create=True)
+            (main / ".gitignore").write_text("/.local/credential-recovery/\n")
+            store = recovery.Store(root, "allowed", create=True)
+            store.generate("development")
+            # A synthetic inbox is enough to prove gitignore cannot hide tracked files.
+            subprocess.run(
+                ["git", "-C", str(main), "add", "-f", str(store.directory / "inbox/local.env")],
+                capture_output=True,
+                check=True,
+            )
+            with self.assertRaises(recovery.RecoveryError):
+                store.read()
+
+    def test_linked_checkout_resolves_same_primary_store(self):
+        main = self.root / "primary"
+        main.mkdir(mode=0o700)
+        subprocess.run(["git", "init", str(main)], capture_output=True, check=True)
+        (main / ".gitignore").write_text("/.local/credential-recovery/\n")
+        subprocess.run(
+            ["git", "-C", str(main), "add", ".gitignore"], capture_output=True, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(main),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "--no-gpg-sign",
+                "-m",
+                "fixture",
+            ],
+            capture_output=True,
+            check=True,
+        )
+        linked = self.root / "linked-checkout"
+        subprocess.run(
+            ["git", "-C", str(main), "worktree", "add", "--detach", str(linked)],
+            capture_output=True,
+            check=True,
+        )
+        with patch.object(recovery, "REPO", linked):
+            self.assertEqual(recovery.default_root(), main / ".local/credential-recovery")
+            recovery.Store(recovery.default_root(), "shared", create=True)
+            with self.assertRaises(recovery.RecoveryError):
+                recovery.Store(linked / ".local/credential-recovery", "wrong", create=True)
 
 
 if __name__ == "__main__":

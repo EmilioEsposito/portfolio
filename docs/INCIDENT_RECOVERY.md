@@ -26,12 +26,12 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
 | Work | State | Evidence / next step |
 |---|---|---|
 | Reconcile source and prior incident notes | Prepared | Canonical names use merged #333–#336; exact private custody still needs owner-export import. |
-| Private credential store | Prepared | Outside Git, owned 0700 directories / 0600 files; no values in agent output. |
+| Private credential store | Prepared | Primary checkout ignored `.local/credential-recovery/`, owned 0700 directories / 0600 files; no values in agent output. |
 | App-owned replacements | Locally staged only | Independent development/production session and cron candidates; development MCP bearer candidate. No activation or old-value invalidation. |
 | Password-manager replacements | Import pending | Separate development/production `.env` inboxes; known existing replacements should be imported, not minted again. |
 | Selected delivery envelopes | Prepared offline | App-owned secrets split by environment and service; no network implementation or upload. |
 | Audit visibility | Configuration improved | Cloud Data Access defaults enabled; Workspace logging limitations remain separate. Private investigation record retained. |
-| Offline security checks | Passed | 13 synthetic tests plus Ruff lint/format; custody, leakage, parsing, routing, conflicting values, locks, and paired keys. No provider readiness claim. |
+| Offline security checks | Passed | 15 synthetic tests plus Ruff lint/format; custody, leakage, parsing, routing, conflicting values, locks, paired keys, shared main-checkout storage and Git exclusion checks. No provider readiness claim. |
 | Repeat rotation | Prepared | New cycle labels isolate future replacements; never copy old values forward implicitly. |
 | Provider-specific mint/upload adapters | Follow-up | Custody framework is ready; adapters require exact identity, current API, private capture and uncertainty-journal tests. |
 

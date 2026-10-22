@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -20,7 +21,6 @@ from urllib.parse import urlsplit
 
 REPO = Path(__file__).resolve().parents[1]
 MANIFEST = REPO / "scripts/credential_recovery_manifest.json"
-DEFAULT_ROOT = Path.home() / ".config/portfolio/credential-recovery"
 ENVIRONMENTS = ("development", "production", "local")
 STAGES = (
     "inventory",
@@ -48,12 +48,56 @@ def now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+def primary_checkout() -> Path:
+    """Resolve shared storage through Git metadata, never the current worktree."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    common = Path(result.stdout.strip())
+    require(
+        common.name == ".git" and common.is_dir() and not common.is_symlink(),
+        "A normal primary checkout is required for shared recovery storage",
+    )
+    return common.parent
+
+
+def default_root() -> Path:
+    return primary_checkout() / ".local/credential-recovery"
+
+
+def check_ignored_store(path: Path, main: Path) -> None:
+    root = main / ".local/credential-recovery"
+    require(path.is_relative_to(root), "Only the primary checkout recovery folder is allowed")
+    # Ignore rules do not protect files already in the index (including force-added files).
+    tracked = subprocess.run(
+        ["git", "-C", str(main), "ls-files", "-z", "--", str(root)],
+        capture_output=True,
+        check=True,
+    )
+    require(not tracked.stdout, "Recovery folder contains tracked files; refusing access")
+    for candidate in (root / ".ignore-probe", path):
+        ignored = subprocess.run(
+            ["git", "-C", str(main), "check-ignore", "--quiet", "--no-index", "--", str(candidate)],
+            capture_output=True,
+            check=False,
+        )
+        require(ignored.returncode == 0, "The entire recovery folder must be ignored")
+
+
 def safe_path(path: Path) -> Path:
     path = Path(os.path.abspath(path.expanduser()))
+    checkouts = []
     for part in (path, *path.parents):
         require(not part.is_symlink(), "Symlink paths are not allowed")
-        require(not (part / ".git").exists(), "Recovery files must be outside Git checkouts")
-    require(not path.is_relative_to(REPO), "Recovery files must be outside the repository")
+        if (part / ".git").exists():
+            checkouts.append(part)
+    if checkouts:
+        main = primary_checkout()
+        require(checkouts == [main], "Recovery files cannot live in a linked or other checkout")
+        check_ignored_store(path, main)
     return path
 
 
@@ -497,7 +541,7 @@ class QuietParser(argparse.ArgumentParser):
 def main(arguments: list[str] | None = None) -> int:
     try:
         parser = QuietParser(description=__doc__)
-        parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+        parser.add_argument("--root", type=Path)
         parser.add_argument("--cycle", required=True)
         parser.add_argument(
             "command",
@@ -512,7 +556,11 @@ def main(arguments: list[str] | None = None) -> int:
         parser.add_argument("--stage", choices=STAGES)
         parser.add_argument("--outcome", choices=OUTCOMES)
         args = parser.parse_args(arguments)
-        store = Store(args.root, args.cycle, create=args.command == "init")
+        store = Store(
+            args.root if args.root is not None else default_root(),
+            args.cycle,
+            create=args.command == "init",
+        )
         if args.command == "init":
             print("Private cycle and environment inboxes ready; existing files preserved")
         elif args.command == "status":

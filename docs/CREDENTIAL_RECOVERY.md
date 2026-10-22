@@ -35,7 +35,8 @@ private evidence, recovery-store locators, and detailed unresolved access in the
 private incident directory. Never paste secret values into chat, screenshots,
 commands, PRs, commits, test fixtures, exception messages, or agent tool results.
 
-Private files use mode 0600 inside owned 0700 directories outside Git. They are
+Private files use mode 0600 inside owned 0700 directories in the primary checkout's
+Git-ignored `.local/credential-recovery/` folder. They are
 plaintext, not an encrypted vault. Use FileVault and a separate password-manager
 backup; permissions do not protect against another process running as the same
 user. Preserve the directory across worktree cleanup. Do not save it in a synced
@@ -57,7 +58,11 @@ python3 scripts/credential_recovery.py --cycle 2026-10-21-01 generate --environm
 python3 scripts/credential_recovery.py --cycle 2026-10-21-01 generate --environment production
 ```
 
-The default store is `~/.config/portfolio/credential-recovery/2026-10-21-01/`.
+The default store is `<primary-checkout>/.local/credential-recovery/2026-10-21-01/`
+(on this workstation, `/Users/eesposito/code/portfolio/.local/credential-recovery/2026-10-21-01/`).
+The CLI resolves the primary checkout via Git metadata even from linked worktrees.
+It refuses a non-ignored or tracked recovery folder and all other in-repo paths.
+Explicit `--root` stores outside repositories remain supported.
 Initialization creates private `inbox/development.env`, `inbox/production.env`, and
 `inbox/local.env` for the owner to paste Apple Passwords exports into. This does
 not edit runtime `.env` files. The agent then imports those files by path, without
@@ -66,7 +71,7 @@ viewing contents:
 ```sh
 python3 scripts/credential_recovery.py --cycle 2026-10-21-01 import-env \
   --environment development \
-  --source "$HOME/.config/portfolio/credential-recovery/2026-10-21-01/inbox/development.env"
+  --source "/Users/eesposito/code/portfolio/.local/credential-recovery/2026-10-21-01/inbox/development.env"
 python3 scripts/credential_recovery.py --cycle 2026-10-21-01 status
 python3 scripts/credential_recovery.py --cycle 2026-10-21-01 plan \
   --environment development --service fastapi
@@ -141,7 +146,8 @@ python3 scripts/credential_recovery.py --cycle 2026-10-21-01 record \
   --stage issuer_revocation --outcome reported --source /absolute/private/evidence.txt
 ```
 
-The evidence file must already be owned/mode 0600 in a 0700 directory outside Git.
+The evidence file must already be owned/mode 0600 in a 0700 directory, either
+inside the approved ignored recovery folder or outside repositories.
 `record` performs no provider action and cannot establish a live fact by itself.
 Capture events are generated only by import/generation. Prepared files do not
 advance delivery, revocation, or runtime states.
