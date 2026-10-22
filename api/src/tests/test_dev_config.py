@@ -29,10 +29,14 @@ def test_railway_configuration_does_not_import_infrastructure_or_other_service_c
         "GITHUB_EMILIO_PERSONAL_WRITE_PAT": "write-pat",
         "RAILWAY_API_TOKEN": "provider-token",
         "PROD_CLERK_WEBHOOK_SECRET": "prod-secret",
+        "DEV_CLERK_WEBHOOK_SECRET": "dev-secret",
+        "CLERK_WEBHOOK_SECRET": "endpoint-secret",
         "BACKGROUND_AUTOMATION_ENABLED": "true",
     }
     api = config.environment("api", fetched, host, "railway")
     assert api["CLERK_SECRET_KEY"] == "portfolio"
+    assert api["CLERK_WEBHOOK_SECRET"] == "endpoint-secret"
+    assert "DEV_CLERK_WEBHOOK_SECRET" not in api
     assert api["DATABASE_URL"] == "local-db"
     assert api["PORT"] == "8123"
     assert api["BACKGROUND_AUTOMATION_ENABLED"] == "false"
@@ -40,6 +44,7 @@ def test_railway_configuration_does_not_import_infrastructure_or_other_service_c
     assert not any(key.startswith(("RAILWAY_", "GITHUB_", "PROD_")) for key in api)
     web = config.environment("web", fetched, host, "railway")
     assert web["CLERK_SECRET_KEY"] == "portfolio"
+    assert "CLERK_WEBHOOK_SECRET" not in web
     assert "DATABASE_URL" not in web
     assert "RAILWAY_MCP_TOKEN" not in web
 
@@ -170,13 +175,13 @@ async def test_lifespan_runs_workspace_setup_without_creating_scheduler(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_dev_only_clerk_webhook_is_verified_without_production_key(monkeypatch):
+async def test_development_clerk_webhook_uses_single_secret(monkeypatch):
     from api.src.user import routes
 
     verifier = Mock()
     verifier.verify.return_value = {"type": "user.created", "data": {"id": "user_test"}}
-    monkeypatch.setattr(routes, "webhook_dev", verifier)
-    monkeypatch.setattr(routes, "webhook_prod", None)
+    monkeypatch.setattr(routes, "webhook", verifier)
+    monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test_dummy")
     upsert = AsyncMock(return_value="updated")
     monkeypatch.setattr(routes, "upsert_user", upsert)
     request = SimpleNamespace(body=AsyncMock(return_value=b"{}"))
@@ -190,8 +195,7 @@ async def test_missing_clerk_webhook_keys_fail_closed(monkeypatch):
 
     from api.src.user import routes
 
-    monkeypatch.setattr(routes, "webhook_dev", None)
-    monkeypatch.setattr(routes, "webhook_prod", None)
+    monkeypatch.setattr(routes, "webhook", None)
     with pytest.raises(HTTPException) as error:
         await routes.handle_clerk_webhook(None, None, "id", "time", "signature")
     assert error.value.status_code == 500
@@ -240,13 +244,13 @@ def test_invalid_port_diagnostics_are_value_free(port):
 
 
 @pytest.mark.asyncio
-async def test_prod_only_clerk_webhook_remains_supported(monkeypatch):
+async def test_production_clerk_webhook_uses_single_secret(monkeypatch):
     from api.src.user import routes
 
     verifier = Mock()
     verifier.verify.return_value = {"type": "user.created", "data": {"id": "user_test"}}
-    monkeypatch.setattr(routes, "webhook_dev", None)
-    monkeypatch.setattr(routes, "webhook_prod", verifier)
+    monkeypatch.setattr(routes, "webhook", verifier)
+    monkeypatch.setenv("CLERK_SECRET_KEY", "sk_live_dummy")
     upsert = AsyncMock(return_value="updated")
     monkeypatch.setattr(routes, "upsert_user", upsert)
     request = SimpleNamespace(body=AsyncMock(return_value=b"{}"))
@@ -263,8 +267,8 @@ async def test_invalid_clerk_signature_is_rejected(monkeypatch):
 
     verifier = Mock()
     verifier.verify.side_effect = WebhookVerificationError("private-signature")
-    monkeypatch.setattr(routes, "webhook_dev", verifier)
-    monkeypatch.setattr(routes, "webhook_prod", None)
+    monkeypatch.setattr(routes, "webhook", verifier)
+    monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test_dummy")
     upsert = AsyncMock()
     monkeypatch.setattr(routes, "upsert_user", upsert)
     request = SimpleNamespace(body=AsyncMock(return_value=b"{}"))
