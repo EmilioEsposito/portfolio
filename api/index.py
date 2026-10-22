@@ -90,8 +90,9 @@ required_env_vars = {
     "GOOGLE_OAUTH_REDIRECT_URI": (
         "Required for Google OAuth. Must match the URIs configured in Google Cloud Console.\n"
     ),
-    "QUO_WEBHOOK_SECRET": ("Required for OpenPhone webhook. Set up in OpenPhone dashboard.\n"),
 }
+# Environments without a Quo subscription can still run. The webhook handler
+# rejects requests with 403 when its signing key is absent.
 
 missing_vars = []
 for var, description in required_env_vars.items():
