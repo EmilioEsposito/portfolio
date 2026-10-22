@@ -193,6 +193,12 @@ manifest accepts required companion fields but never grants them secret status.
 - Natural production Quo webhook deliveries returned HTTP 200 after rotation;
   bounded telemetry readback found no HTTP 5xx responses in the checked window.
 
-Remaining release checks: finish CI/PR reconciliation. Account-wide credentials not observed on
+PR #337 merged after the recovery workflow completed successfully. The primary
+checkout was fast-forwarded while preserving its unrelated workspace edit and
+private configuration; local API/MCP/web dependencies were synchronized to the
+patched locks. The merge-triggered production deployment is a separate final
+release observation from the successful patched deployments above.
+
+Account-wide credentials not observed on
 Railway are tracked separately; their mere presence in GitHub Actions is not evidence
 of exposure. Browser push subscribers must resubscribe for the new VAPID identity.
