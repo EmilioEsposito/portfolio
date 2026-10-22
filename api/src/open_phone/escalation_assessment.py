@@ -20,7 +20,12 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.usage import RequestUsage
 
-from api.src.open_phone.escalation_policy import ESCALATION_QUESTION, ESCALATION_TIMEOUT_SECONDS
+from api.src.open_phone.escalation_policy import (
+    ESCALATION_QUESTION,
+    ESCALATION_TIMEOUT_SECONDS,
+    escalation_instructions,
+    escalation_question,
+)
 from api.src.open_phone.typesafe_openrouter import (
     JEV_MODEL,
     OpenRouterDecisionResponse,
@@ -91,7 +96,7 @@ def luna_agent() -> Agent:
     return Agent(
         EscalationLunaModel(LUNA_MODEL),
         output_type=ShouldEscalate,
-        instructions=ESCALATION_QUESTION.instructions,
+        instructions=escalation_instructions,
         model_settings=settings,
         retries=0,  # Retry ownership belongs to assess_model.
         name="escalation_assessor",
@@ -121,7 +126,7 @@ async def assess_jev(state: dict) -> InferenceResult:
             "gen_ai.agent.name": "escalation_assessor_jev",
             "gen_ai.input.messages": inputs,
             "gen_ai.system_instructions": [
-                {"type": "text", "content": ESCALATION_QUESTION.instructions}
+                {"type": "text", "content": escalation_instructions()}
             ],
             "escalation.criteria": ESCALATION_QUESTION.criteria,
         },
@@ -161,7 +166,7 @@ async def _request_jev(state: dict) -> InferenceResult:
     async with create_jev_client(timeout=ESCALATION_TIMEOUT_SECONDS) as client:
         result = await client.system_one(
             state=state,
-            questions={"escalation": ESCALATION_QUESTION},
+            questions={"escalation": escalation_question()},
             response_model=OpenRouterDecisionResponse,
         )
     verdict = result.choices["escalation"]
@@ -272,7 +277,7 @@ async def assess_state(
     models: list[ModelName] = ["luna", "jev"] if mode == "either" else [mode]
     assessment_id = str(uuid4())
     question = {
-        "instructions": ESCALATION_QUESTION.instructions,
+        "instructions": escalation_instructions(),
         "criteria": ESCALATION_QUESTION.criteria,
     }
     with logfire.span("Escalation assessment", mode=mode, assessment_id=assessment_id) as span:
@@ -287,13 +292,7 @@ async def assess_state(
             hashlib.sha256(json.dumps(question, sort_keys=True).encode()).hexdigest(),
         )
         span.set_attribute("escalation.input", state)
-        span.set_attribute(
-            "escalation.question",
-            {
-                "instructions": ESCALATION_QUESTION.instructions,
-                "criteria": ESCALATION_QUESTION.criteria,
-            },
-        )
+        span.set_attribute("escalation.question", question)
         assessments = await asyncio.gather(
             *(
                 assess_model(model, state, max_retries, assessment_id=assessment_id)
