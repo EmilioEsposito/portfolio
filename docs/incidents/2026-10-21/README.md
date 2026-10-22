@@ -50,8 +50,10 @@ configuration now defaults to production OAuth.
 
 Production ChatGPT read-only QA succeeded: `sernia_context` returned successfully
 and `list_message_templates` returned one template. No business messages were sent.
-OAuth persistence across redeployment remains a final verification gate until
-recorded below.
+OAuth persistence was verified after a successful production redeployment: the
+existing connected client repeated both read-only calls successfully without
+reauthorization. Exact deployment and metadata-only evidence stay in the private
+ledger.
 
 ## Preparation checkpoint (historical, before delivery)
 
