@@ -182,7 +182,9 @@ manifest accepts required companion fields but never grants them secret status.
   validation bypass or credential rotation was used to obtain it.
 - [ ] ChatGPT response rendering remains a separate client UI verification: the
   test conversation displayed "This response couldn't load" even though OAuth and
-  the read-only tool invocation completed. Do not treat that UI failure as an
+  the read-only tool invocation completed. Reloading the conversation, regenerating
+  the read-only response and refreshing the app tool cache did not resolve the
+  client display failure. Do not treat that UI failure as an
   authentication failure or claim every connected client has been verified.
 - [x] MCP telemetry follow-up: live export failures revealed that the MCP consumer
   was missing from the Logfire recovery manifest and retained its revoked token.
