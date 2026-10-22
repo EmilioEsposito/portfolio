@@ -71,8 +71,8 @@ this to false even when fetching Railway credentials. Normal FastAPI lifespan
 still initializes the workspace and cleans up stale local data. This switch
 controls startup scheduling, not explicit API operations: manually invoking
 integration routes can still call real external services. Clerk webhook
-verification uses only configured signing keys, returning an error when none
-are configured, so local startup never needs a production signing key.
+verification uses `CLERK_WEBHOOK_SECRET`, returning an error when it is absent.
+Set it to the signing secret for the same instance as `CLERK_SECRET_KEY`.
 
 For missing-name diagnostics, supply the named variable in the selected source.
 For Railway failures, verify the token binding, project access, and network

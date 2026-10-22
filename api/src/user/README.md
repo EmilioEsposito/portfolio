@@ -20,18 +20,30 @@ Clerk provides webhooks for user events (`user.created`, `user.updated`, `user.d
 *   **`routes.py`**: Defines the FastAPI endpoint:
     *   `POST /api/user/webhook/clerk`: Receives incoming webhook requests from Clerk.
 
-## Webhook Verification & Multi-Environment Handling
+## Webhook verification and instance configuration
 
-The `/api/user/webhook/clerk` endpoint performs crucial security verification using the `svix` library and signing secrets provided by Clerk.
+`POST /api/user/webhook/clerk` verifies every request with Svix using the single
+`CLERK_WEBHOOK_SECRET` environment variable. Missing configuration returns 500;
+missing signature headers or invalid signatures return 400 before database writes.
 
-**Important:** This setup is designed to handle webhooks from **both** Clerk Development and Production instances using a **single database table** and a single API endpoint.
+Each deployment accepts one Clerk instance. Set `CLERK_WEBHOOK_SECRET` to the
+endpoint signing secret from that instance's Clerk dashboard, and ensure
+`CLERK_SECRET_KEY` belongs to the same instance. The latter's `sk_test_` prefix
+labels user records `development`; `sk_live_` labels them `production`. An
+unrecognized prefix fails closed. Hosting environment names do not determine the
+Clerk instance type. The existing `(clerk_user_id, environment)` uniqueness and
+user create/update/delete behavior remain unchanged.
 
-1.  **Separate Secrets:** It expects two environment variables:
-    *   `DEV_CLERK_WEBHOOK_SECRET`: The signing secret from your Clerk Development instance.
-    *   `PROD_CLERK_WEBHOOK_SECRET`: The signing secret from your Clerk Production instance.
-2.  **Verification Logic:** When a webhook arrives, the endpoint attempts verification first with the `DEV` secret. If that fails (specifically with a `WebhookVerificationError`), it then attempts verification with the `PROD` secret.
-3.  **Environment Determination:** Based *solely* on which secret successfully verifies the webhook, the handler determines the source `environment` ("development" or "production").
-4.  **Database Distinction:** The `clerk_user_id` (from the webhook payload's `data` field) and the derived `environment` string are stored in the `users` table. The combination of `clerk_user_id` and `environment` is enforced as unique, allowing user records originating from both Clerk instances to coexist within the same table without conflict.
+### Migration
 
-This approach allows managing users from different Clerk environments within a unified database structure while maintaining data integrity.
+Before resuming each backend, set `CLERK_WEBHOOK_SECRET` to its intended Clerk
+endpoint's signing secret (development for dev/local/preview, production for prod,
+unless deliberately configured otherwise). Remove `DEV_CLERK_WEBHOOK_SECRET` and
+`PROD_CLERK_WEBHOOK_SECRET`; neither is read as a fallback. Apply the same rename
+in the local root `.env` when needed. Restart only when recovery is authorized.
+Do not put the webhook secret in frontend or standalone MCP configuration.
 
+A single backend no longer accepts both Clerk instances' webhook signatures.
+Route each instance's webhook endpoint to the backend configured for that instance.
+No credential values, provider configuration, or database rows are changed by
+this code migration.

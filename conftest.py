@@ -25,8 +25,7 @@ os.environ.setdefault("PUBLIC_PORTFOLIO_OPENROUTER_API_KEY", "test-public-openro
 # working in credential-less environments (CI, fresh clones); setdefault
 # keeps real values intact when present.
 os.environ.setdefault("CLERK_SECRET_KEY", "test-clerk-secret")
-os.environ.setdefault("DEV_CLERK_WEBHOOK_SECRET", "test-clerk-webhook")
-os.environ.setdefault("PROD_CLERK_WEBHOOK_SECRET", "test-clerk-webhook")
+os.environ.setdefault("CLERK_WEBHOOK_SECRET", "test-clerk-webhook")
 os.environ.setdefault("TWILIO_ACCOUNT_SID", "test-twilio-sid")
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "test-twilio-token")
 os.environ.setdefault("CLICKUP_API_KEY", "test-clickup-key")
