@@ -13,8 +13,8 @@ Covers:
 NOT covered (would require a real MCP Apps host):
 
   * PrefabApp rendering fidelity in a specific client.
-  * Button-click → CallTool → ``_confirm_send_*`` round-trip from an
-    Apps-capable client. Use ``fastmcp dev apps`` in a browser for that.
+The serialized card's CallTool actions are exercised over MCP in both modern
+and legacy protocol modes. Actual browser rendering remains a host QA check.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ def _clear_pending():
     approvals._PENDING.clear()
 
 
-@pytest_asyncio.fixture
-async def mcp_client():
+@pytest_asyncio.fixture(params=["auto", "legacy"])
+async def mcp_client(request):
     """In-memory FastMCP server + Client with the approvals provider mounted.
 
     Uses ``Client(FastMCP(...))`` so the whole roundtrip runs in-process —
@@ -48,7 +48,7 @@ async def mcp_client():
     """
     server = FastMCP("test_sernia_mcp")
     server.add_provider(approvals.approvals_app)
-    async with Client(server) as c:
+    async with Client(server, mode=request.param) as c:
         yield c
 
 
@@ -153,11 +153,10 @@ class TestConfirmSendEmail:
 
 
 class TestHiddenToolEnforcement:
-    """Hidden ``@app.tool()`` tools must be structurally uncallable.
+    """App confirmation tools stay off the ordinary model tool surface.
 
-    These assertions depend on FastMCP's semantics around ``visibility=["app"]``.
-    If those change, destructive-write enforcement regresses silently — this
-    is the load-bearing regression guard.
+    FastMCP 4 leaves visibility enforcement to hosts. Our provider additionally
+    removes raw-name access, retaining only the Apps hashed routing path.
     """
 
     @pytest.mark.asyncio
@@ -183,6 +182,89 @@ class TestHiddenToolEnforcement:
                 "_confirm_send_email",
                 {"pending_id": "fake", "decision": "approve"},
             )
+
+
+def _card_actions(value):
+    """Find the actual serialized actions the Prefab renderer will execute."""
+    if isinstance(value, dict):
+        if value.get("action") == "toolCall":
+            yield value
+        for child in value.values():
+            yield from _card_actions(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _card_actions(child)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["sms", "email"])
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+async def test_card_action_routes_once_but_raw_name_cannot_send(
+    mcp_client, monkeypatch, kind, decision
+):
+    """Hidden tools still work through actual card addresses after migration."""
+    if kind == "sms":
+        monkeypatch.setattr(
+            approvals,
+            "resolve_sms_routing_core",
+            AsyncMock(
+                return_value=SmsRouting(
+                    contact_id="x",
+                    contact_name="Alice",
+                    is_internal=True,
+                    from_phone_id="y",
+                    line_name="Sernia AI",
+                )
+            ),
+        )
+        send = AsyncMock(
+            return_value=SmsResult(
+                to_phone="+15551230000",
+                contact_name="Alice",
+                line_name="Sernia AI",
+                parts_sent=1,
+                message_chars=5,
+            )
+        )
+        monkeypatch.setattr(approvals, "send_sms_core", send)
+        result = await mcp_client.call_tool(
+            "quo_send_sms", {"to_phone": "+15551230000", "message": "hello"}
+        )
+    else:
+        send = AsyncMock(
+            return_value=EmailSendResult(
+                to=["ok@serniacapital.com"],
+                subject="s",
+                from_address="emilio@serniacapital.com",
+                message_id="TEST_ONLY",
+            )
+        )
+        monkeypatch.setattr(approvals, "send_email_core", send)
+        result = await mcp_client.call_tool(
+            "google_send_email",
+            {"to": ["ok@serniacapital.com"], "subject": "s", "body": "b"},
+        )
+    send.assert_not_awaited()
+    actions = list(_card_actions(result.structured_content))
+    action = next(a for a in actions if a["arguments"]["decision"] == decision)
+    raw_name = f"_confirm_send_{kind}"
+    assert action["tool"] != raw_name
+    assert action["tool"].endswith(raw_name)
+    pending_id = action["arguments"]["pending_id"]
+
+    with pytest.raises(ToolError, match="Unknown tool"):
+        await mcp_client.call_tool(raw_name, action["arguments"])
+    wrong_hash = ("0" if action["tool"][0] != "0" else "1") + action["tool"][1:]
+    with pytest.raises(ToolError, match="Unknown tool"):
+        await mcp_client.call_tool(wrong_hash, action["arguments"])
+    assert pending_id in approvals._PENDING
+    send.assert_not_awaited()
+
+    await mcp_client.call_tool(action["tool"], action["arguments"])
+    assert pending_id not in approvals._PENDING
+    assert send.await_count == (1 if decision == "approve" else 0)
+    await mcp_client.call_tool(action["tool"], action["arguments"])
+    assert send.await_count == (1 if decision == "approve" else 0)
 
 
 # ------------------------------------------------ entry-point queues PrefabApp

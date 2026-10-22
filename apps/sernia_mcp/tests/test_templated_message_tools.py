@@ -36,7 +36,7 @@ async def test_mcp_discovery_and_simulcast(monkeypatch):
     monkeypatch.setattr(mod, "send_email_core", email)
     async with Client(mcp) as client:
         tools = {t.name: t for t in await client.list_tools()}
-        schema = tools["send_templated_message"].inputSchema
+        schema = tools["send_templated_message"].input_schema
         assert set(schema["properties"]) == {"template_id", "contact_id", "delivery"}
         catalog = await client.call_tool("list_message_templates", {})
         assert "lease_end_mail_forwarding" in str(catalog)

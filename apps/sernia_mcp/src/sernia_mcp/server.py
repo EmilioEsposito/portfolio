@@ -9,8 +9,8 @@ with a request-logging middleware.
 Auth: two paths, both routed through the same email-domain authorization
 layer (``SerniaAuthMiddleware``).
 
-  1. **Clerk OAuth (primary, human-facing)** — Claude Desktop / Claude.ai
-     custom connectors do Dynamic Client Registration (RFC 7591) against
+  1. **Clerk OAuth (primary, human-facing)** — clients discover CIMD support
+     (with Dynamic Client Registration retained for older clients) through
      the OAuth metadata we expose at ``/.well-known/oauth-protected-resource/...``;
      the user signs in via Clerk's hosted UI; Clerk issues the token that
      the MCP server validates on every request.
@@ -186,7 +186,7 @@ mcp = FastMCP(
     icons=[
         Icon(
             src=f"{SERNIA_MCP_BASE_URL.rstrip('/')}/icon.png",
-            mimeType="image/png",
+            mime_type="image/png",
             sizes=["379x379"],
         ),
     ],

@@ -211,7 +211,7 @@ async def test_skill_resource_template_readable(tmp_path, mcp_client):
 async def test_skill_resource_template_listed(mcp_client):
     """The resource template URI should appear in resource templates list."""
     templates = await mcp_client.list_resource_templates()
-    uris = {t.uriTemplate for t in templates}
+    uris = {t.uri_template for t in templates}
     assert "skill://{name}/SKILL.md" in uris
 
 
@@ -512,7 +512,7 @@ async def test_edit_resource_schema_advertises_canonical_names(mcp_client):
     """
     tools = await mcp_client.list_tools()
     edit_tool = next(t for t in tools if t.name == "edit_resource")
-    props = edit_tool.inputSchema["properties"]
+    props = edit_tool.input_schema["properties"]
     assert "old_string" in props
     assert "new_string" in props
     # The aliases must NOT be advertised to the model — only accepted on the wire.
