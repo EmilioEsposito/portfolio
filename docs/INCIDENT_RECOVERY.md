@@ -11,12 +11,17 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
 
 - Preparation and local credential staging are authorized. Provider minting is
   delegated when exact ownership/scope and private capture are established.
-- Railway access, delivery, integration restoration, CI against Railway, and
-  deployment remain held. A public all-clear alone does not authorize execution.
-- Owner reports the Railway GitHub app removed; reconnect later under explicit
-  cutover authorization. A direct workflow token is an independent access path.
-- Branch push is authorized. PR opening is held because the existing PR workflow
-  provisions resources and calls Railway. No live preview exists for this branch.
+- On October 22 the owner explicitly authorized Portfolio Railway recovery,
+  credential delivery, outstanding revocations, integration restoration, and
+  redeployment. This supersedes the earlier hold; it is an owner decision, not
+  a claim that Railway has issued a security all-clear. Stage dev first and verify
+  each exact credential, destination, deployment and runtime outcome.
+- Owner previously removed the Railway GitHub app. Reconnection is now in scope,
+  using only needed repository grants; browser authorization may require the owner.
+  Direct workflow tokens remain independent access paths.
+- Branch push is authorized. Review provisioning side effects before PR opening
+  or merge; do not use a PR merely to bypass deliberate recovery sequencing.
+  No live preview has yet been created for this branch.
 - No retired Prefect/DBOS integration or legacy admin-password/Picker credential
   should be recreated. Their source cleanup is already on main; runtime removal
   must be verified after deployment.
@@ -25,15 +30,41 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
 
 | Work | State | Evidence / next step |
 |---|---|---|
-| Reconcile source and prior incident notes | Prepared | Canonical names use merged #333–#336; exact private custody still needs owner-export import. |
+| Reconcile source and prior incident notes | Prepared | Canonical names use merged #333–#336; owner exports imported into private custody. |
 | Private credential store | Prepared | Primary checkout ignored `.local/credential-recovery/`, owned 0700 directories / 0600 files; no values in agent output. |
 | App-owned replacements | Locally staged only | Independent development/production session and cron candidates; development MCP bearer candidate. No activation or old-value invalidation. |
-| Password-manager replacements | Import pending | Separate development/production `.env` inboxes; known existing replacements should be imported, not minted again. |
+| Password-manager replacements | Imported | Development, production and local exports captured; corrected local database selection using fresh Neon metadata. |
 | Selected delivery envelopes | Prepared offline | App-owned secrets split by environment and service; no network implementation or upload. |
 | Audit visibility | Configuration improved | Cloud Data Access defaults enabled; Workspace logging limitations remain separate. Private investigation record retained. |
 | Offline security checks | Passed | 15 synthetic tests plus Ruff lint/format; custody, leakage, parsing, routing, conflicting values, locks, paired keys, shared main-checkout storage and Git exclusion checks. No provider readiness claim. |
 | Repeat rotation | Prepared | New cycle labels isolate future replacements; never copy old values forward implicitly. |
-| Provider-specific mint/upload adapters | Follow-up | Custody framework is ready; adapters require exact identity, current API, private capture and uncertainty-journal tests. |
+| Provider-specific mint/upload adapters | In progress | Custody framework is ready; adapters require exact identity, current API, private capture and uncertainty-journal tests. |
+
+## Recovery execution checkpoint — October 22
+
+- Railway plugin and CLI identity verified; Neon project access and Google Cloud
+  project access verified. No current reauthentication blocker for those paths.
+- Owner exports are imported. API/web local files have private backups and verified
+  replacement readback. Local uses the separate Neon local branch.
+- New database logins verified; development and production had no other client
+  sessions during the bounded check. ClickUp, GitHub, Quo, Twilio and OpenRouter
+  replacements passed harmless authentication checks. Clerk keys match exact instances.
+- Google excessive Cloud IAM grants removed; replacement key minted into private
+  custody and Workspace delegation verified with a profile-only read. Both Clerk
+  Google provider configurations accepted the replacement OAuth secret; sign-in
+  remains a separate verification.
+- Development API/web and shared credentials delivered with readback; no deployment
+  triggered by delivery. Retired API values cleared and scheduling held off.
+- Quo subscription inventory returned no API-visible subscriptions despite matching
+  phone identities; reconcile dashboard subscriptions before closing webhook recovery.
+- Existing API/web/resume deployments are older releases; a green platform state
+  does not prove rotated integrations work. Cron/test/MCP services are offline.
+- Production has one existing staged removal of the retired direct Anthropic key.
+  This has been inspected; no broad staged patch has been applied.
+- One development seed bucket and one unattached production legacy database volume
+  were inventoried. Preserve the volume; the active database provider is Neon.
+- Prior database password reset evidence exists; verify saved branch connections
+  and residual sessions before deciding whether any repeat reset is needed.
 
 ## Credential and environment checklist
 

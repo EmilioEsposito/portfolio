@@ -147,7 +147,7 @@ LOGFIRE_TOKEN="first\\nsecond"
             self.store.capture("production", {"CLERK_SECRET_KEY": "sk_test_synthetic"}, "fixture")
         with self.assertRaises(recovery.RecoveryError):
             self.store.capture(
-                "production", {"SERNIA_MCP_INTERNAL_BEARER_TOKEN": "x" * 64}, "fixture"
+                "production", {"FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET": "x" * 64}, "fixture"
             )
         self.store.generate("production")
         with self.assertRaises(recovery.RecoveryError):

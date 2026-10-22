@@ -69,6 +69,22 @@ def test_placeholder_values_fail_validation():
     ) == ["CLERK_SECRET_KEY"]
 
 
+@pytest.mark.asyncio
+async def test_environment_without_quo_subscription_can_configure_but_rejects_webhooks(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.src.open_phone.routes import verify_open_phone_signature
+
+    values = {name: "configured" for name in config.REQUIRED["api"]}
+    values["DATABASE_URL"] = "postgresql://local:local@localhost/local"
+    values["DATABASE_URL_UNPOOLED"] = values["DATABASE_URL"]
+    assert config.validate("api", values) == []
+    monkeypatch.delenv("QUO_WEBHOOK_SECRET", raising=False)
+    with pytest.raises(HTTPException) as error:
+        await verify_open_phone_signature(None)
+    assert error.value.status_code == 403
+
+
 def test_redaction_includes_short_and_multiline_secrets():
     assert (
         config.redact("ab long-first\nsecond-part", {"one": "ab", "two": "long-first\nsecond-part"})

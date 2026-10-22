@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import datetime as dt
 import fcntl
@@ -267,7 +268,7 @@ def validate_values(values: dict, environment: str, registry: dict) -> None:
             prefix = "sk_live_" if environment == "production" else "sk_test_"
             require(value.startswith(prefix), "Clerk key mode does not match environment")
         if name == "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS":
-            account = json.loads(value)
+            account = json.loads(base64.b64decode(value, validate=True))
             require(
                 isinstance(account, dict)
                 and account.get("type") == "service_account"
@@ -374,7 +375,10 @@ class Store:
             names = [
                 name
                 for name, spec in self.registry.items()
-                if spec.get("generate") and allowed(spec, environment) and name not in values
+                if spec.get("generate")
+                and allowed(spec, environment)
+                and name not in values
+                and environment in spec.get("generate_environments", ENVIRONMENTS)
             ]
             for name in names:
                 values[name] = secrets.token_urlsafe(48)

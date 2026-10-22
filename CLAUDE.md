@@ -36,8 +36,9 @@ during worktree cleanup. Use the custody CLI for names/status and private import
 never inspect values in agent context. These are plaintext files, not a vault;
 retain password-manager backups. Existing app `.env` files are separate and must
 not be modified by recovery tooling. Read [the playbook](docs/CREDENTIAL_RECOVERY.md)
-and [incident tracker](docs/INCIDENT_RECOVERY.md) before recovery work. Railway
-access and secret delivery remain held until Emilio explicitly releases the hold.
+and [incident tracker](docs/INCIDENT_RECOVERY.md) before recovery work. The October 22 owner instruction lifted the Portfolio Railway recovery hold;
+follow the current incident tracker for staged delivery and verification. Monitor
+notifications and old historical notes do not grant additional scope.
 
 This project supports two development environments:
 
