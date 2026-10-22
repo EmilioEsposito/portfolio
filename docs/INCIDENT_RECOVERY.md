@@ -106,7 +106,7 @@ the private ledger. A replacement saved by the owner is not deployment evidence.
 | AI-01 | API operations | `PORTFOLIO_OPENROUTER_API_KEY` | OpenRouter | Import existing replacement; verify cap/account; user reports sharing D/P, not isolation. |
 | AI-02 | API public demos | `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` | OpenRouter | Import existing capped replacement; keep separate from operations; no frontend exposure. |
 | AI-03 | Historical direct-provider consumers | `OPENAI_API_KEY`, `SERNIA_ANTHROPIC_API_KEY`, stale aliases | OpenAI/Anthropic | Reconcile issuer revocation and actual remaining consumers; do not create new direct-provider keys merely to fill old variables. Excluded from delivery manifest pending need. |
-| OBS-01 | API | `LOGFIRE_TOKEN` | Logfire project tokens | Import owner's replacement before creating another; independent scope/ingestion proof and deliberate old-token retirement. Preserve telemetry history. |
+| OBS-01 | API + D MCP | `LOGFIRE_TOKEN` | Logfire project tokens | Import owner's replacement before creating another; independent scope/ingestion proof and deliberate old-token retirement. Preserve telemetry history. |
 | OBS-02 | Provider alert integration, if used | `SLACK_WEBHOOK_LOGFIRE` | Slack app/webhook issuer | Establish actual integration and ownership; replace only if still used. Excluded from automatic delivery pending mapping. |
 | PUSH-01 | D/P API + browser subscriptions | `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY` | App-generated pair | Owner reports replacement pairs already generated; import and verify pairing. Plan browser resubscription before retiring old push identity. |
 | CI-01 | GitHub Actions | `NEON_API_KEY`, `RAILWAY_GHA_TOKEN`, `LOGFIRE_GHA_TOKEN`, `CC_ROUTINE_TOKEN` | Respective issuers + GitHub secrets | Determine exact scopes/IDs and exposure path; coordinate shared admin keys; never infer hosted exposure from a workflow reference alone. |
@@ -186,6 +186,20 @@ manifest accepts required companion fields but never grants them secret status.
   disconnected until authorization succeeds. The documented metadata Refresh
   control was not exposed in the inspected app/settings UI. Do not mark client
   access restored from successful server-side bearer probes alone.
+  A fresh CIMD-only app subsequently fetched the stable client document, completed
+  Clerk authorization and reached `POST /token`, which returned HTTP 401 at
+  20:56 UTC. Client authentication is the current diagnostic boundary; no Clerk
+  callback changes or OAuth-store deletion are justified by that evidence.
+- [ ] MCP telemetry follow-up: live export failures revealed that the MCP consumer
+  was missing from the Logfire recovery manifest and retained its revoked token.
+  Private comparison confirmed API and MCP previously used the same project token.
+  The existing replacement has now been delivered only to development MCP, with
+  deployment suppressed and exact readback verified; all other variables remained
+  unchanged. The manifest and regression test now cover this consumer. Confirm
+  actual MCP ingestion after the coordinated deployment before closing this item.
+  The same missed consumer in the primary local MCP configuration received its
+  selected replacement under the owner's earlier local-recovery authorization,
+  with a private backup and exact readback; unrelated assignments were preserved.
 
 The recovery is operationally restored, with the explicit client/device
 follow-ups above. This is not a claim of exhaustive forensic clearance or a test

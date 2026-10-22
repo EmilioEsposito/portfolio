@@ -173,6 +173,17 @@ LOGFIRE_TOKEN="first\\nsecond"
             recovery.write_private(Path(first), "overwrite")
         self.assertTrue(all(r["states"]["delivery"] == "unknown" for r in self.store.status()))
 
+    def test_logfire_rotation_reaches_mcp_but_not_web(self):
+        self.store.capture("development", {"LOGFIRE_TOKEN": "synthetic-logfire"}, "fixture")
+        for service in ("fastapi", "sernia-mcp"):
+            prepared = self.store.prepare("development", service, ["LOGFIRE_TOKEN"])
+            payload = json.loads(recovery.read_private(Path(prepared)))
+            self.assertEqual(payload["values"], {"LOGFIRE_TOKEN": "synthetic-logfire"})
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("development", "react-router", ["LOGFIRE_TOKEN"])
+        with self.assertRaises(recovery.RecoveryError):
+            self.store.prepare("production", "sernia-mcp", ["LOGFIRE_TOKEN"])
+
     def test_database_pair_required_and_mismatch_rejected(self):
         self.store.capture(
             "development",

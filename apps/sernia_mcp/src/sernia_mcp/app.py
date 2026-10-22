@@ -28,7 +28,10 @@ from starlette.requests import Request
 
 from sernia_mcp.clients.git_sync import ensure_repo
 from sernia_mcp.config import WORKSPACE_PATH
+from sernia_mcp.oauth_diagnostics import OAuthDiagnosticsMiddleware, install_jwt_diagnostics
 from sernia_mcp.server import mcp
+
+install_jwt_diagnostics()
 
 
 class _RequestLogMiddleware(BaseHTTPMiddleware):
@@ -62,7 +65,10 @@ app = mcp.http_app(
     path="/mcp",
     stateless_http=True,
     transport="http",
-    middleware=[Middleware(_RequestLogMiddleware)],
+    middleware=[
+        Middleware(_RequestLogMiddleware),
+        Middleware(OAuthDiagnosticsMiddleware),
+    ],
 )
 
 
