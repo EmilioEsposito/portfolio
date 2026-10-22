@@ -190,8 +190,9 @@ manifest accepts required companion fields but never grants them secret status.
   scheduled invocation remains a separate observation from this successful refresh.
 - Twenty synthetic custody/delivery/Neon-rotation tests passed; the patched runtime
   release also passed the full CI test jobs. No external test messages were sent.
+- Natural production Quo webhook deliveries returned HTTP 200 after rotation;
+  bounded telemetry readback found no HTTP 5xx responses in the checked window.
 
-Remaining release checks: confirm natural webhook delivery and finish CI/PR
-reconciliation. Account-wide credentials not observed on
+Remaining release checks: finish CI/PR reconciliation. Account-wide credentials not observed on
 Railway are tracked separately; their mere presence in GitHub Actions is not evidence
 of exposure. Browser push subscribers must resubscribe for the new VAPID identity.
