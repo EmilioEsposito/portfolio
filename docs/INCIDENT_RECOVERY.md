@@ -156,6 +156,14 @@ manifest accepts required companion fields but never grants them secret status.
   files without following symlinks or changing contents. Git exclusion and absence
   from the index were rechecked. Fourteen lifecycle assertions were reconciled
   from existing exact evidence and independently read back through the custody CLI.
+- [x] Standalone MCP upgraded to FastMCP 4.1.3 in #341 and deployed successfully.
+  All 291 MCP tests and PR/merged-main CI passed. Real OAuth route tests cover CIMD,
+  issuer identification, success/denial callbacks and invalid metadata rejection.
+  Mocked browser approval completed with repeat controls disabled. Hosted discovery
+  advertises CIMD and RFC 9207 with matching issuer URLs; authenticated initialization,
+  28-tool discovery and a read-only template call passed after deployment. Raw
+  confirmation tools remain hidden and reject ordinary direct calls after the v4
+  compatibility adaptation. The primary checkout's MCP dependencies were synchronized.
 - [ ] Offline devices must revisit the app and sign in again. Push subscriptions
   with an old VAPID identity are renewed on return; browsers requiring a user gesture
   show the notification-enable control.
@@ -171,6 +179,13 @@ manifest accepts required companion fields but never grants them secret status.
   Clerk secret failed. Preserve client-document and redirect validation; do not
   manually register an unverified URL or rotate additional secrets to bypass it.
   Existing connection settings expose reconnect/disconnect but no DCR selector.
+  After the FastMCP 4.1.3 release, a fresh reconnect still selected the same old
+  callback-specific client identity and received HTTP 404. The owner's suggested
+  full disconnect was completed; reinstalling the same saved plugin also reached
+  that failure. The app definition is retained, but the ChatGPT connection remains
+  disconnected until authorization succeeds. The documented metadata Refresh
+  control was not exposed in the inspected app/settings UI. Do not mark client
+  access restored from successful server-side bearer probes alone.
 
 The recovery is operationally restored, with the explicit client/device
 follow-ups above. This is not a claim of exhaustive forensic clearance or a test
