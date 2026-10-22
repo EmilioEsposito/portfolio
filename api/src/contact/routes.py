@@ -13,9 +13,7 @@ router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
     responses={404: {"description": "Not found"}},
-    dependencies=[
-        Depends(verify_serniacapital_user)
-    ],  # can't use verify_admin_or_serniacapital here because it's not a dependency
+    dependencies=[Depends(verify_serniacapital_user)],
 )
 
 

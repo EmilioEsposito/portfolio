@@ -43,3 +43,13 @@ For 429 responses, wait for the rolling window; a global daily cap can take
 up to a day to reopen. For provider failures, inspect Logfire status/cost and
 OpenRouter key balance without logging secrets. Changing providers requires
 checking model IDs, reasoning support, tools, and structured output support.
+
+## Private cron authorization
+
+`verify_cron_secret` requires an exact `Authorization: Bearer <CRON_SECRET>`
+header. Missing, empty, or whitespace-only configuration denies access with 401,
+as do missing or incorrect tokens. There is no password fallback. Gmail watch
+controls and `GET /api/cron/cron_job_example_private` use this dependency; the
+public cron example is unchanged. Provision a high-entropy secret in the backend
+secret manager and pass the same token from authorized cron clients during the
+separate recovery process. Never log the token or put it in a query string.

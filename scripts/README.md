@@ -77,3 +77,15 @@ Set it to the signing secret for the same instance as `CLERK_SECRET_KEY`.
 For missing-name diagnostics, supply the named variable in the selected source.
 For Railway failures, verify the token binding, project access, and network
 allowlist; do not enable verbose curl logging or dump provider responses.
+
+Legacy admin-password credentials are no longer accepted or forwarded to the API.
+Gmail watch controls and private cron routes require a nonempty `CRON_SECRET`
+bearer token; unset or blank configuration denies all requests. Quo message-send
+and contact-creation routes require Clerk authentication with a verified Sernia
+Capital email.
+
+The frontend allowlist contains only Clerk keys. Google Drive Picker has no
+remaining runtime consumer, so its browser API key and browser Google client ID
+are no longer forwarded. Clerk Google sign-in remains managed by Clerk; backend
+`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and
+`GOOGLE_SERVICE_ACCOUNT_CREDENTIALS` remain supported.
