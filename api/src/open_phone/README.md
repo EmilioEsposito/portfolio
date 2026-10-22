@@ -405,5 +405,12 @@ For recovery after the rename:
    process-level clients and caches use the replacement. Verify with a read-only
    Quo lookup; do not use an external SMS send as a smoke test.
 
-`OPEN_PHONE_WEBHOOK_SECRET` and the `QUO_*_PHONE_ID` settings retain their existing
-names and purposes. The rename does not rotate or provision any credentials.
+Webhook verification uses `QUO_WEBHOOK_SECRET`. Before resuming each FastAPI
+backend, set that variable to its Quo endpoint signing secret, remove
+`OPEN_PHONE_WEBHOOK_SECRET`, and restart when recovery is authorized. Apply the
+same rename in the local root `.env` when needed. The old name has no fallback;
+startup validation and HMAC verification both require the new name. This secret
+is not needed by the standalone MCP service or frontend.
+
+The `QUO_*_PHONE_ID` settings, webhook URL, signature header, and HMAC algorithm
+are unchanged. These renames do not rotate or provision any credentials.

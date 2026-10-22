@@ -530,7 +530,7 @@ Core function shared by all triggers:
 |----------|---------|
 | `SERNIA_ANTHROPIC_API_KEY` | Main + sub-agent LLM calls (bridged to `ANTHROPIC_API_KEY` in `api/__init__.py`; explicit name avoids colliding with Claude Code cloud sessions) |
 | `QUO_API_KEY_PORTFOLIO` | Quo/OpenPhone API access |
-| `OPEN_PHONE_WEBHOOK_SECRET` | HMAC signature verification |
+| `QUO_WEBHOOK_SECRET` | HMAC signature verification |
 | `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` | Web Push signing |
 | `VAPID_CLAIM_EMAIL` | Web Push identity (`mailto:admin@serniacapital.com`) |
 | `GITHUB_EMILIO_PERSONAL_WRITE_PAT` | Git sync for `.workspace/` |
