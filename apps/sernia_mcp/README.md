@@ -2,7 +2,7 @@
 
 HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing a curated subset of Sernia Capital tools to remote AI harnesses (Claude Desktop, Claude.ai custom connectors, ChatGPT, etc.).
 
-Self-contained Python service, deployable as its own Railway service under `mcp.sernia.ai`. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
+Self-contained Python service, deployable as its own Railway service with separate production and development endpoints. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
 
 > **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends use an interactive Approve / Reject card. The approval provider hides confirmation tools from ordinary tool listings and rejects their raw names; trusted Apps hosts invoke them through the card's hashed route. This routing split is not cryptographic proof of a human click from an arbitrary authenticated client.
 
@@ -104,7 +104,7 @@ Claude Desktop / Claude.ai custom connectors require OAuth 2.1 with Dynamic Clie
 FASTMCP_SERVER_AUTH_CLERK_DOMAIN=your-instance.clerk.accounts.dev
 FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID=<from Clerk OAuth app>
 FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET=<from Clerk OAuth app>
-SERNIA_MCP_BASE_URL=https://mcp.sernia.ai
+SERNIA_MCP_BASE_URL=https://sernia-fastmcp-production.up.railway.app
 ```
 
 If any of the four are missing the server runs **unauthenticated** — useful for local dev, never expose this state publicly.
@@ -126,7 +126,7 @@ Source of confusion: the OAuth flow has two redirect URIs in play. Only the firs
 **1. The MCP server's own redirect URI** — register this in Clerk OAuth Application → Authorized redirect URIs:
 
 ```
-https://mcp.sernia.ai/auth/callback           # production
+https://sernia-fastmcp-production.up.railway.app/auth/callback           # production
 https://dev.mcp.sernia.ai/auth/callback       # dev environment
 http://localhost:8080/auth/callback           # local, only if testing the full OAuth flow
 ```
@@ -173,30 +173,59 @@ Sources checked October 22, 2026: [Claude authentication](https://claude.com/doc
 ### Connecting Claude Desktop / Claude.ai
 
 1. Settings → Connectors → **Add custom connector**.
-2. URL: `https://mcp.sernia.ai/mcp` (or `https://dev.mcp.sernia.ai/mcp` for dev). **No trailing slash** — Claude posts to the no-slash form, and the server mounts there directly to avoid a 307 redirect that drops the bearer header.
+2. URL: `https://sernia-fastmcp-production.up.railway.app/mcp` (or `https://dev.mcp.sernia.ai/mcp` for dev). **No trailing slash** — Claude posts to the no-slash form, and the server mounts there directly to avoid a 307 redirect that drops the bearer header.
 3. Leave the optional OAuth Client ID / Secret fields blank — the server advertises CIMD and retains DCR for older clients.
 4. Click Add. Claude opens Clerk's hosted sign-in; sign in with your @serniacapital.com Google account; Clerk redirects back; Claude now has a token.
 
 ### Verifying OAuth metadata is live
 
 ```bash
-curl https://mcp.sernia.ai/.well-known/oauth-protected-resource/mcp | jq .
+curl https://sernia-fastmcp-production.up.railway.app/.well-known/oauth-protected-resource/mcp | jq .
 # Should return JSON with: resource, authorization_servers, scopes_supported, ...
 ```
 
 ## Deployment (Railway)
 
-This service deploys independently of the main FastAPI app. In Railway:
+The `sernia-fastmcp` service has separate production and development instances.
+Both build `apps/sernia_mcp/Dockerfile` with root directory `/apps/sernia_mcp`.
+Production follows `main`; development follows `dev`. Health checks use `/health`.
 
-1. **Project → New Service → GitHub Repo**, root directory `apps/sernia_mcp`.
-2. **Build Command**: `uv sync --frozen` (uses `uv.lock`).
-3. **Start Command**: `uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port $PORT`.
-4. **Domain**: bind `mcp.sernia.ai` to this service. Set `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` to match.
-5. Set the four Clerk vars + upstream API keys per `.env.example`.
+| Environment | Canonical MCP endpoint | Idle behavior |
+| --- | --- | --- |
+| Production | `https://sernia-fastmcp-production.up.railway.app/mcp` | Always on |
+| Development | `https://dev.mcp.sernia.ai/mcp` | Railway sleep enabled |
+
+Production uses Railway-managed TLS because certificate issuance for the candidate
+`mcp.sernia.ai` hostname hit a provider rate limit during cutover. The candidate
+hostname is not the production OAuth issuer or client endpoint. Changing the
+canonical hostname later requires coordinated `SERNIA_MCP_BASE_URL`, Clerk callback,
+discovery and client reauthorization updates; do not silently switch it.
+
+Production is OAuth-only, with a separate confidential Clerk OAuth application in
+the production Clerk instance. Its callback is the canonical base URL plus
+`/auth/callback`; `serniacapital.com` is the exact allowed email domain. Do not deliver
+the backend Clerk admin key or the development internal bearer token to production.
+The repository's `sernia` MCP connection uses this production URL and client-managed
+OAuth, without an Authorization-header override. Development remains available for
+explicit testing; do not configure background clients to poll it unnecessarily.
+
+A dedicated production volume is mounted at `/data`. Set `FASTMCP_HOME=/data/fastmcp`
+and `SERNIA_MCP_WORKSPACE_PATH=/data/workspace`. The encrypted OAuth store must survive
+redeployments, and must not be copied from development. Its directories are 0700 and
+files are 0600. The production start command sets a private umask before uvicorn:
+
+```sh
+sh -c 'umask 077; exec uvicorn sernia_mcp.app:app --host 0.0.0.0 --port "${PORT:-8080}"'
+```
+
+Keep the Clerk client secret stable across ordinary deployments: FastMCP derives
+its signing and storage keys from it. Deliberate rotation requires a new recovery
+cycle and client reauthorization. Credential capture/delivery belongs in the
+[credential playbook](../../docs/credentials/README.md), not in checked-in values.
 
 ### Single source of MCP truth
 
-The old `/api/mcp` mount on the FastAPI monorepo (`api/src/sernia_mcp/` + `api/src/tool_core/`) was removed in the same change that introduced this service — `mcp.sernia.ai` is the only MCP listener. The React Router OAuth-metadata proxy hack that supported the nested mount is also gone.
+The old `/api/mcp` mount on the FastAPI monorepo (`api/src/sernia_mcp/` + `api/src/tool_core/`) was removed in the same change that introduced this service — the standalone service is the MCP listener in each environment. The React Router OAuth-metadata proxy hack that supported the nested mount is also gone.
 
 ## Workspace storage
 

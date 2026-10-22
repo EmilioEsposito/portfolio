@@ -184,7 +184,7 @@ If any one is missing, `clerk_oauth_configured()` returns False. **Never expose 
 
 **Two callback URIs, only one to register.** The OAuth flow has two redirect URIs and they're easy to confuse:
 
-- **Server-side (you register this in Clerk):** `{SERNIA_MCP_BASE_URL}/auth/callback` — Clerk redirects here after the user signs in. Path is hardcoded by FastMCP's `ClerkProvider`; only `SERNIA_MCP_BASE_URL` changes. Add one entry per env (`https://dev.mcp.sernia.ai/auth/callback`, `https://mcp.sernia.ai/auth/callback`, optionally `http://localhost:8080/auth/callback`).
+- **Server-side (you register this in Clerk):** `{SERNIA_MCP_BASE_URL}/auth/callback` — Clerk redirects here after the user signs in. Path is hardcoded by FastMCP's `ClerkProvider`; only `SERNIA_MCP_BASE_URL` changes. Add one entry per env (`https://dev.mcp.sernia.ai/auth/callback`, `https://sernia-fastmcp-production.up.railway.app/auth/callback`, optionally `http://localhost:8080/auth/callback`).
 - **Client-side (don't register; informational only):** Each MCP client (Claude.ai, Claude Desktop, ChatGPT, VS Code) declares its own callback (e.g. `https://claude.ai/api/mcp/auth_callback`) when it Dynamic-Client-Registers via our `/register` endpoint. Clerk's consent screen displays it so you can verify the client; clicking Allow Access is the right action.
 
 ### Approval flow (HITL via FastMCP Apps)
@@ -208,14 +208,14 @@ The service deploys as its **own** Railway service.
 |---------|-------|
 | Root directory | `apps/sernia_mcp` |
 | Builder | `DOCKERFILE` (`apps/sernia_mcp/Dockerfile`) |
-| Start command | from Dockerfile `CMD` (uvicorn on `$PORT`) |
-| Public domain | `mcp.sernia.ai` (production), `dev.mcp.sernia.ai` (development) |
+| Start command | Production private-umask override; see README.md |
+| Public domain | `sernia-fastmcp-production.up.railway.app` (production), `dev.mcp.sernia.ai` (development) |
 | Port | injected as `$PORT` by Railway |
 
-Required env on Railway: the four Clerk vars + `SERNIA_MCP_BASE_URL=https://mcp.sernia.ai` + upstream API keys + `SERNIA_MCP_WORKSPACE_PATH` (for first cut, point at `/data/workspace` on a mounted Railway volume) + (optional) `SERNIA_MCP_INTERNAL_BEARER_TOKEN` for service-to-service calls.
+Required production configuration: Clerk domain/client ID/client secret, `SERNIA_MCP_BASE_URL=https://sernia-fastmcp-production.up.railway.app`, upstream integration keys, `FASTMCP_HOME=/data/fastmcp` and `SERNIA_MCP_WORKSPACE_PATH=/data/workspace` on the persistent volume. Production is OAuth-only; do not deliver the Clerk backend admin key or development internal bearer token. See README.md for the deployment contract.
 
 ### Relationship to the FastAPI monorepo
-The old `api/src/sernia_mcp/` and `api/src/tool_core/` packages — plus the `/api/mcp` mount and the React Router OAuth-metadata proxy hack — were removed as part of the same change that introduced this service. There's no longer a second MCP listening anywhere in the monorepo. `mcp.sernia.ai` is the single source of MCP truth.
+The old `api/src/sernia_mcp/` and `api/src/tool_core/` packages — plus the `/api/mcp` mount and the React Router OAuth-metadata proxy hack — were removed as part of the same change that introduced this service. There's no longer a second MCP listening anywhere in the monorepo. The standalone service is the MCP listener in each environment. See README.md for the canonical production URL and persistent OAuth storage.
 
 `fastmcp` itself is still a dep on the root `pyproject.toml` because `api/src/sernia_ai/tools/quo_tools.py` uses `FastMCPToolset` to bridge the OpenPhone OpenAPI spec into the PydanticAI agent. That's a different use case (PydanticAI tool wrapper, not an HTTP MCP server) and isn't going anywhere.
 
