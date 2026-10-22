@@ -249,9 +249,13 @@ def manifest() -> dict:
 
 
 def allowed(spec: dict, environment: str, service: str | None = None) -> bool:
-    if service == "sernia-mcp" and environment == "production":
-        return False  # No production MCP recovery target has been established.
-    return environment in spec["environments"] and (service is None or service in spec["services"])
+    if environment not in spec["environments"]:
+        return False
+    if service is None:
+        return True  # Preserve custody of historical candidates that are not deliverable.
+    return service in spec["services"] and environment in spec.get("service_environments", {}).get(
+        service, spec["environments"]
+    )
 
 
 def validate_values(values: dict, environment: str, registry: dict) -> None:
