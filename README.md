@@ -61,7 +61,7 @@ The web app and API have separate local configuration files:
 | `.env` | API database URLs, session secret, inference credentials, and integration credentials. Use [`.env.example`](.env.example) as a starting reference. |
 | `apps/web-react-router/.env` | `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` from your development Clerk instance. Optional `VITE_PORT` and `BACKEND_PORT` default to 5173 and 8000. |
 
-For a fresh clone, create the ignored files and replace placeholders with your own development configuration. The root example is not a complete working configuration: the launcher also checks Google OAuth settings, `OPEN_PHONE_WEBHOOK_SECRET`, and Twilio credentials, among others. Run the checker to see required names without printing secret values:
+For a fresh clone, create the ignored files and replace placeholders with your own development configuration. The root example is not a complete working configuration: the launcher also checks Google OAuth settings, `QUO_WEBHOOK_SECRET`, and Twilio credentials, among others. Run the checker to see required names without printing secret values:
 
 ```bash
 pnpm config:check api

@@ -90,9 +90,7 @@ required_env_vars = {
     "GOOGLE_OAUTH_REDIRECT_URI": (
         "Required for Google OAuth. Must match the URIs configured in Google Cloud Console.\n"
     ),
-    "OPEN_PHONE_WEBHOOK_SECRET": (
-        "Required for OpenPhone webhook. Set up in OpenPhone dashboard.\n"
-    ),
+    "QUO_WEBHOOK_SECRET": ("Required for OpenPhone webhook. Set up in OpenPhone dashboard.\n"),
 }
 
 missing_vars = []
