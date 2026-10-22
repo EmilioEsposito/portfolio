@@ -125,9 +125,7 @@ async def assess_jev(state: dict) -> InferenceResult:
             "gen_ai.operation.name": "invoke_agent",
             "gen_ai.agent.name": "escalation_assessor_jev",
             "gen_ai.input.messages": inputs,
-            "gen_ai.system_instructions": [
-                {"type": "text", "content": escalation_instructions()}
-            ],
+            "gen_ai.system_instructions": [{"type": "text", "content": escalation_instructions()}],
             "escalation.criteria": ESCALATION_QUESTION.criteria,
         },
     ) as agent_span:
