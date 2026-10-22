@@ -119,31 +119,33 @@ SID, VAPID public key, callback URLs, service URLs and model switches is not a s
 requiring arbitrary rotation. It still needs exact environment mapping. The offline
 manifest accepts required companion fields but never grants them secret status.
 
-## Actions beyond key rotation
+## Recovery closure checklist
 
-- [ ] Import owner exports and reconcile every variable against exact environment,
-  account, issuer ID, expiry/scope and expected service; mark unknowns explicitly.
-- [ ] Verify issuer revocation independently where safe; retain original evidence
-  classification and recorded exceptions privately. Never reactivate an old key.
-- [ ] Review surviving Clerk sessions, Google grants/delegation, MCP OAuth grants,
-  database sessions, GitHub authorizations and credentials an old credential could
-  have created. Key rotation alone does not settle these.
-- [ ] Confirm database backups/retention/other branches and any old token copies;
-  preserve restore ability. Do not purge history or reset application data by default.
-- [ ] Keep the Google audit review's bounded conclusion and logging gaps; absence
-  of matching events is not proof of no exfiltration. Preserve evidence privately.
-- [ ] Reconcile repository/workflow/app access before restoring CI or GitHub integration.
-- [ ] Build a provider adapter only when it adds value beyond importing already saved
-  replacements; require private capture and uncertain-outcome reconciliation.
-- [ ] At authorized cutover, validate names and targets against fresh metadata,
-  deliver selected values with deployment suppressed, then independently read back.
-- [ ] Deploy reviewed source with background automation disabled; verify owner login,
-  Clerk Google configuration, webhook signatures, cron protection, tool authorization,
-  and retired auth-path removal. No external messages/calls as routine QA.
-- [ ] Renew web-push subscriptions deliberately and activate each integration and
-  schedule only after controlled verification.
-- [ ] Perform final old-key rejection/residual-access checks; record final provider,
-  deployment and runtime evidence separately, then close the incident.
+- [x] Owner replacements imported and delivered to the verified API/web/MCP targets;
+  local configuration uses the separate local database branch.
+- [x] Safe old-credential rejection checks completed for the inventoried database,
+  Clerk, Google OAuth, MCP OAuth, ClickUp, GitHub, Quo, Twilio, OpenRouter and
+  retired direct AI credentials; old Google key removed and old Logfire token disabled.
+- [x] Pre-recovery Clerk sessions revoked; Google IAM and keys, MCP derived access,
+  database sessions/roles and knowledge-repository changes reviewed within recorded bounds.
+- [x] Google audit evidence and its historical logging gaps preserved privately.
+- [x] Portfolio GitHub installation and CI restored; seed-bucket credentials delivered.
+- [x] Application deployments, fresh production login, Google metadata access,
+  API health, authenticated MCP initialization and natural Gmail/Quo delivery verified.
+- [x] Normal production scheduler startup restored; development/local automation stays off.
+- [x] Database branch inventory and point-in-time recovery settings reviewed: only
+  production/development/local branches remain, and current retention is six hours.
+  No restore rehearsal or independent historical backup was established by this review.
+- [ ] Browser push rotation repair: validate and release automatic replacement of
+  subscriptions using an old VAPID key. Offline devices still need to revisit the app.
+- [ ] Observe the next scheduled Gmail-watch renewal. Deployment and controlled
+  renewal have passed; the midnight UTC scheduled execution is a separate check.
+- [ ] Verify fresh provider-originated Clerk webhook delivery after cutover.
+  Backend-key validity and owner login do not establish webhook delivery.
+
+The recovery is operationally restored, with the explicit verification/device
+follow-ups above. This is not a claim of exhaustive forensic clearance or a test
+of every outgoing business action. No customer messages or calls were sent as QA.
 
 ## References
 
