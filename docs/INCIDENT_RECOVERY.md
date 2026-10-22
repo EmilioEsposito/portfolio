@@ -167,36 +167,34 @@ manifest accepts required companion fields but never grants them secret status.
 - [ ] Offline devices must revisit the app and sign in again. Push subscriptions
   with an old VAPID identity are renewed on return; browsers requiring a user gesture
   show the notification-enable control.
-- [ ] The connected Sernia AI client explicitly requests reauthentication after
-  the reset. Server bearer authentication was verified independently; reconnect
-  the client and repeat a read-only operation before closing client access recovery.
-  The attempted reconnect on October 22 at 20:22 UTC reached the server but failed
-  because ChatGPT's callback-specific CIMD document returned HTTP 404; Railway's
-  runtime log independently confirms the metadata-fetch failure. CIMD is already
-  enabled and advertised by the live server. The documented stable ChatGPT client
-  document also returned 404 in a separate public check. This remains a client
-  metadata availability/registration blocker, not evidence that the replacement
-  Clerk secret failed. Preserve client-document and redirect validation; do not
-  manually register an unverified URL or rotate additional secrets to bypass it.
-  Existing connection settings expose reconnect/disconnect but no DCR selector.
-  After the FastMCP 4.1.3 release, a fresh reconnect still selected the same old
-  callback-specific client identity and received HTTP 404. The owner's suggested
-  full disconnect was completed; reinstalling the same saved plugin also reached
-  that failure. The app definition is retained, but the ChatGPT connection remains
-  disconnected until authorization succeeds. The documented metadata Refresh
-  control was not exposed in the inspected app/settings UI. Do not mark client
-  access restored from successful server-side bearer probes alone.
-  A fresh CIMD-only app subsequently fetched the stable client document, completed
-  Clerk authorization and reached `POST /token`, which returned HTTP 401 at
-  20:56 UTC. Client authentication is the current diagnostic boundary; no Clerk
-  callback changes or OAuth-store deletion are justified by that evidence.
-- [ ] MCP telemetry follow-up: live export failures revealed that the MCP consumer
+- [x] Sernia AI OAuth recovery: a fresh CIMD-only ChatGPT connection completed
+  OAuth on October 22 at approximately 21:15 UTC. The token endpoint returned
+  HTTP 200, the connection prompt disappeared, and subsequent MCP requests returned
+  HTTP 200. The existing Clerk callback remained unchanged. Independent Logfire
+  metadata verifies a `tools/list` request and a `list_message_templates` read-only
+  tool invocation at 21:16 UTC, with normal completion and no exception/error
+  records. No arguments or result contents were retrieved for this verification.
+  Earlier attempts included a callback-specific CIMD document returning HTTP 404
+  and a later token exchange returning HTTP 401. The metadata-fetch failure was
+  independently confirmed in Railway logs, but the exact cause of the earlier
+  token-exchange failure was not established. Successful reconnection followed
+  the FastMCP 4 upgrade and diagnostic instrumentation; no additional auth
+  validation bypass or credential rotation was used to obtain it.
+- [ ] ChatGPT response rendering remains a separate client UI verification: the
+  test conversation displayed "This response couldn't load" even though OAuth and
+  the read-only tool invocation completed. Do not treat that UI failure as an
+  authentication failure or claim every connected client has been verified.
+- [x] MCP telemetry follow-up: live export failures revealed that the MCP consumer
   was missing from the Logfire recovery manifest and retained its revoked token.
   Private comparison confirmed API and MCP previously used the same project token.
   The existing replacement has now been delivered only to development MCP, with
   deployment suppressed and exact readback verified; all other variables remained
-  unchanged. The manifest and regression test now cover this consumer. Confirm
-  actual MCP ingestion after the coordinated deployment before closing this item.
+  unchanged. The manifest and regression test now cover this consumer. The
+  coordinated deployment reached SUCCESS on October 22 at 21:11 UTC, with MCP
+  source matching the #342 merge. Independent Logfire readback observed new MCP
+  records after startup; bounded runtime logs contained no export 401 failures,
+  and the health endpoint returned HTTP 200. Exact deployment and ingestion
+  evidence are retained in the private ledger.
   The same missed consumer in the primary local MCP configuration received its
   selected replacement under the owner's earlier local-recovery authorization,
   with a private backup and exact readback; unrelated assignments were preserved.
