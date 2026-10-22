@@ -1,36 +1,34 @@
 # OpenPhone escalation assessment
 
-## Private sender/topic suppression
+## Private operator instructions
 
-Set `ESCALATION_SUPPRESSION_RULES` on Railway's **fastapi** service to a JSON array.
-Keep actual identities and matching terms in private service configuration, never
-in source, PR descriptions, or fixtures. Empty/unset or `[]` disables these rules.
-Synthetic schema example:
+Set `ESCALATION_CUSTOM_INSTRUCTIONS` on Railway's **fastapi** service to one plain
+text string. It is appended to the trusted escalation instructions for both Luna
+and Jev. Empty/unset uses only the standard policy. There is no JSON schema,
+keyword matcher, or deterministic topic suppression.
 
-```json
-[{"from_numbers":["+15555550101","+15555550102"],"match_terms":["routine topic"],"bypass_terms":["separate emergency"]}]
+The model receives `from_number` directly from the webhook alongside the current
+message, recent thread history, and timing. Contact names and units are not looked
+up. Describe identities (including multiple numbers for one person) and contextual
+exceptions in the private instructions; use the sender field to scope rules, not
+names claimed in message text. Keep actual identities and rules out of source,
+PR descriptions, and fixtures. A synthetic example:
+
+```text
+For sender +15555550101 or +15555550102, recurring reports about the previously
+reviewed maintenance concern can wait for ordinary follow-up. Use the conversation
+context; a distinct urgent incident still follows the normal escalation policy.
 ```
 
-Each rule requires a sender list, topic phrases, and bypass phrases. Matching is
-case-insensitive, ignores punctuation/extra whitespace, and uses whole words or
-phrases (list inflections explicitly). Sender matching accepts E.164 and US display
-formats. Only the current message is matched; history never mutes a new topic.
-Any bypass phrase across the sender's rules resumes normal AI assessment, even
-when a topic matches. Choose bypass phrases for independent urgent incidents.
-This is a literal routing rule, not a semantic classifier: unlisted paraphrases
-follow normal assessment, and a matching topic suppresses a mixed message unless
-it also contains a configured bypass phrase. Review the phrases accordingly.
+Changes require redeployment. The instructions are sent to the configured model
+provider and included in existing private assessment traces/policy hashes, so env
+storage keeps them out of Git but does not hide them from inference or observability.
+The cached Luna agent resolves instructions on each run. Assessment errors retain
+the existing retry behavior. Both direct and durable webhook paths use the policy;
+manual escalation tools and already-created deliveries are unaffected.
 
-The shared assessment entry point applies the rule before history/model calls,
-covering direct handling and durable webhook/recovery processing. Suppressed
-outbox requests become `skipped` without creating deliveries. Messages remain in
-Quo and the event database; this does not mute the sender or change other workflows.
-Already-created deliveries and explicit manual escalation tools are unaffected.
-Logs contain only a generic suppression marker, not private configuration values.
-Malformed configuration raises a fixed diagnostic; durable assessment retries and
-eventually requires manual attention rather than silently ignoring the configuration.
-To revert, set the variable to `[]` and redeploy. Changes require a deployment to
-reach the running process. Test with synthetic events and mocked delivery only.
+To revert to the standard policy, clear the variable and redeploy. The retired
+`ESCALATION_SUPPRESSION_RULES` variable is no longer read and can be removed.
 
 **Luna is the code default.** Production can explicitly enable `either` to run
 Luna and Jev on every assessment with OR alerting. Jev also remains available for experiments. Both use the same awareness policy, best-effort

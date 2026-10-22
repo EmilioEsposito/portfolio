@@ -16,7 +16,11 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from api.src.open_phone.escalation_context import add_history_timing
-from api.src.open_phone.escalation_policy import ESCALATION_QUESTION
+from api.src.open_phone.escalation_policy import (
+    ESCALATION_QUESTION,
+    escalation_instructions,
+    escalation_question,
+)
 from api.src.open_phone.typesafe_openrouter import OpenRouterDecisionResponse, create_jev_client
 from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
 
@@ -60,13 +64,13 @@ async def main() -> None:
     agent = Agent(
         resolve_model("openrouter:openai/gpt-5.6-luna"),
         output_type=ShouldEscalate,
-        instructions=ESCALATION_QUESTION.instructions,
+        instructions=escalation_instructions,
         model_settings=settings,
         retries=0,
     )
     report = {
         "dataset_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-        "instructions": ESCALATION_QUESTION.instructions,
+        "instructions": escalation_instructions(),
         "criteria": ESCALATION_QUESTION.criteria,
         "label_source": "synthetic_policy_expectation",
         "repeats": args.repeats,
@@ -103,7 +107,7 @@ async def main() -> None:
                             async with create_jev_client() as client:
                                 result = await client.system_one(
                                     state=case["state"],
-                                    questions={"escalation": ESCALATION_QUESTION},
+                                    questions={"escalation": escalation_question()},
                                     response_model=OpenRouterDecisionResponse,
                                 )
                             decision = result.choices["escalation"]
