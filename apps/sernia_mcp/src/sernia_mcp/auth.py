@@ -25,12 +25,12 @@ from typing import cast
 import mcp.types as mt
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.resources.base import ResourceResult
-from fastmcp.server.auth.authorization import AuthContext, run_auth_checks
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 from fastmcp.server.providers.addressing import parse_hashed_backend_name
 from fastmcp.tools.base import ToolResult
+from fastmcp.utilities.authorization import AuthContext, run_auth_checks
 from fastmcp.utilities.components import FastMCPComponent
 
 from sernia_mcp.config import ALLOWED_EMAIL_DOMAINS

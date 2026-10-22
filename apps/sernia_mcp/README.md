@@ -4,7 +4,7 @@ HTTP [Model Context Protocol](https://modelcontextprotocol.io/) server exposing 
 
 Self-contained Python service, deployable as its own Railway service under `mcp.sernia.ai`. Uses [FastMCP](https://gofastmcp.com/) with Clerk OAuth for auth and the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) extension for human-in-the-loop approvals on destructive sends.
 
-> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends require explicit user approval through an interactive Approve / Reject card; clients that can't render the card cannot reach the underlying send tools (deterministic server-side enforcement, not advisory).
+> **Design intent:** read-mostly with a small, gated surface for writes. External SMS / email sends use an interactive Approve / Reject card. The approval provider hides confirmation tools from ordinary tool listings and rejects their raw names; trusted Apps hosts invoke them through the card's hashed route. This routing split is not cryptographic proof of a human click from an arbitrary authenticated client.
 
 ## Tools
 
@@ -139,10 +139,12 @@ FastMCP validates the client's callback against its fetched Client ID Metadata D
 or against its Dynamic Client Registration (DCR) at our `/register` endpoint. The proxy's consent
 screen displays that address. The client is registered with FastMCP, not with Clerk.
 
-CIMD is explicitly enabled in both Clerk-only and Clerk-plus-bearer modes. FastMCP 3.4.7
+CIMD is explicitly enabled in both Clerk-only and Clerk-plus-bearer modes. FastMCP 4.1.3
 advertises `client_id_metadata_document_supported: true` plus `none` and `private_key_jwt` in
-`token_endpoint_auth_methods_supported`; Claude needs `none` before selecting CIMD. The patch
-also fixes the token-endpoint audience used to validate ChatGPT's signed assertions. Existing
+`token_endpoint_auth_methods_supported`; Claude needs `none` before selecting CIMD. It also
+advertises RFC 9207 issuer identification and includes the exact issuer in authorization
+success/error redirects. ChatGPT can therefore select its stable CIMD client identity and
+callback. Signed assertions, PKCE and callback validation remain enforced. Existing
 DCR clients keep working. Internal bearer authentication and the email-domain allowlist still
 apply as before.
 
@@ -152,9 +154,13 @@ ChatGPT uses either `https://chatgpt.com/connector_platform_oauth_redirect` or a
 `https://chatgpt.com/connector/oauth/{callback_id}` URL. Each must match its client's published
 metadata or registration; adding these client callbacks to Clerk is unnecessary.
 
-Sources checked September 6, 2026: [Claude authentication](https://claude.com/docs/connectors/building/authentication),
+If a client document returns HTTP 404, the server cannot validate that client. Reconnect
+after refreshing discovery and check the actual document URL and bounded server logs;
+do not manually register an unverified client or substitute another document.
+
+Sources checked October 22, 2026: [Claude authentication](https://claude.com/docs/connectors/building/authentication),
 [OpenAI authentication](https://developers.openai.com/plugins/build/auth), and
-[FastMCP 3.4.7](https://github.com/PrefectHQ/fastmcp/releases/tag/v3.4.7).
+[FastMCP 4.1.3](https://github.com/PrefectHQ/fastmcp/releases/tag/v4.1.3).
 
 ### Connecting Claude Desktop / Claude.ai
 
