@@ -48,6 +48,8 @@ def wire_client(monkeypatch: pytest.MonkeyPatch, handler) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("choice", ["escalate", "do_not_escalate"])
 async def test_sdk_openrouter_contract(monkeypatch, choice):
+    monkeypatch.setenv("ESCALATION_CUSTOM_INSTRUCTIONS", "Synthetic private operator policy")
+
     def handler(request):
         assert str(request.url) == "https://openrouter.ai/api/alpha/decisions"
         assert request.headers["authorization"] == "Bearer test-operations-key"
@@ -55,6 +57,9 @@ async def test_sdk_openrouter_contract(monkeypatch, choice):
         assert body["model"] == JEV_MODEL
         assert body["state"]["message_text"] == event()["message_text"]
         assert body["questions"]["escalation"]["type"] == "choice"
+        assert body["questions"]["escalation"]["instructions"].endswith(
+            "Synthetic private operator policy"
+        )
         assert set(body["questions"]["escalation"]["criteria"]) == {"escalate", "do_not_escalate"}
         return httpx2.Response(200, json=response_body(choice))
 
