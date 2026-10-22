@@ -136,16 +136,32 @@ manifest accepts required companion fields but never grants them secret status.
 - [x] Database branch inventory and point-in-time recovery settings reviewed: only
   production/development/local branches remain, and current retention is six hours.
   No restore rehearsal or independent historical backup was established by this review.
-- [ ] Browser push rotation repair: validate and release automatic replacement of
-  subscriptions using an old VAPID key. Offline devices still need to revisit the app.
-- [ ] Observe the next scheduled Gmail-watch renewal. Deployment and controlled
-  renewal have passed; the midnight UTC scheduled execution is a separate check.
-- [ ] Verify fresh provider-originated Clerk webhook delivery after cutover.
-  Backend-key validity and owner login do not establish webhook delivery.
+- [x] Browser push rotation repair merged in #340 and deployed to production;
+  six rotation regressions, the full web suite, type checks and CI passed.
+  Development also deployed successfully after retrying a provider snapshot-fetch
+  failure; the failed attempt never replaced its prior healthy deployment.
+- [x] Gmail-watch renewal executed through Railway's actual cron runner: the
+  container exited successfully, reported HTTP 200/success, and backend telemetry
+  independently confirmed the request. The daily schedule remains unchanged.
+- [x] Production Clerk/Svix history shows a successful post-cutover `user.updated`
+  delivery; backend telemetry confirms HTTP 200. Both hosted environments accept
+  signatures from their replacement key and reject their previous key. The
+  signature probes use empty data and cannot modify user records.
+- [ ] Offline devices must revisit the app and sign in again. Push subscriptions
+  with an old VAPID identity are renewed on return; browsers requiring a user gesture
+  show the notification-enable control.
+- [ ] The connected Sernia AI client explicitly requests reauthentication after
+  the reset. Server bearer authentication was verified independently; reconnect
+  the client and repeat a read-only operation before closing client access recovery.
 
-The recovery is operationally restored, with the explicit verification/device
+The recovery is operationally restored, with the explicit client/device
 follow-ups above. This is not a claim of exhaustive forensic clearance or a test
 of every outgoing business action. No customer messages or calls were sent as QA.
+
+One nonblocking provider housekeeping change remains staged: deletion of an
+already-empty retired direct-provider variable. Applying it was declined because
+approval was not granted. The running value is empty and its old key is revoked;
+this is not an active credential or an application restoration blocker.
 
 ## References
 
@@ -188,8 +204,8 @@ of every outgoing business action. No customer messages or calls were sent as QA
   Development and local background automation remain disabled.
 - Production Gmail-watch renewal service redeployed successfully with the rotated
   shared cron credential and its production private-network destination verified.
-  A controlled refresh returned HTTP 200 and a new watch expiration. The next
-  scheduled invocation remains a separate observation from this successful refresh.
+  A controlled refresh returned HTTP 200 and a new watch expiration. A subsequent
+  off-schedule execution through Railway's cron runner also completed successfully.
 - Twenty synthetic custody/delivery/Neon-rotation tests passed; the patched runtime
   release also passed the full CI test jobs. No external test messages were sent.
 - Natural production Quo webhook deliveries returned HTTP 200 after rotation;
