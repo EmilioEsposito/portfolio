@@ -28,6 +28,7 @@ from api.src.open_phone.escalation_policy import (
 from api.src.open_phone.escalation_policy import (
     explicit_keywords,
 )
+from api.src.open_phone.escalation_suppression import should_suppress
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -92,6 +93,8 @@ async def ai_assess_for_escalation(
     sample_kind: Literal["production", "verification", "eval"] = "production",
 ) -> tuple[bool, str]:
     """Fetch context once, assess without side effects, then return one dispatch decision."""
+    if should_suppress(open_phone_event):
+        return False, "Configured sender/topic suppression"
     history = await fetch_escalation_history(open_phone_event)
     state = add_history_timing(
         {

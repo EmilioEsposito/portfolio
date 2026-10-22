@@ -1,5 +1,37 @@
 # OpenPhone escalation assessment
 
+## Private sender/topic suppression
+
+Set `ESCALATION_SUPPRESSION_RULES` on Railway's **fastapi** service to a JSON array.
+Keep actual identities and matching terms in private service configuration, never
+in source, PR descriptions, or fixtures. Empty/unset or `[]` disables these rules.
+Synthetic schema example:
+
+```json
+[{"from_numbers":["+15555550101","+15555550102"],"match_terms":["routine topic"],"bypass_terms":["separate emergency"]}]
+```
+
+Each rule requires a sender list, topic phrases, and bypass phrases. Matching is
+case-insensitive, ignores punctuation/extra whitespace, and uses whole words or
+phrases (list inflections explicitly). Sender matching accepts E.164 and US display
+formats. Only the current message is matched; history never mutes a new topic.
+Any bypass phrase across the sender's rules resumes normal AI assessment, even
+when a topic matches. Choose bypass phrases for independent urgent incidents.
+This is a literal routing rule, not a semantic classifier: unlisted paraphrases
+follow normal assessment, and a matching topic suppresses a mixed message unless
+it also contains a configured bypass phrase. Review the phrases accordingly.
+
+The shared assessment entry point applies the rule before history/model calls,
+covering direct handling and durable webhook/recovery processing. Suppressed
+outbox requests become `skipped` without creating deliveries. Messages remain in
+Quo and the event database; this does not mute the sender or change other workflows.
+Already-created deliveries and explicit manual escalation tools are unaffected.
+Logs contain only a generic suppression marker, not private configuration values.
+Malformed configuration raises a fixed diagnostic; durable assessment retries and
+eventually requires manual attention rather than silently ignoring the configuration.
+To revert, set the variable to `[]` and redeploy. Changes require a deployment to
+reach the running process. Test with synthetic events and mocked delivery only.
+
 **Luna is the code default.** Production can explicitly enable `either` to run
 Luna and Jev on every assessment with OR alerting. Jev also remains available for experiments. Both use the same awareness policy, best-effort
 Quo history, and precomputed elapsed times. Images are still eval-only.
