@@ -28,12 +28,32 @@ usable. Use the [playbook](../../credentials/README.md) for the execution proced
 
 ## Production MCP follow-up
 
-The owner authorized a separate production MCP and clean ChatGPT connection on
-October 22. PR #344 enables its scoped OAuth client and integration credential
-routing while excluding the internal bearer token and Clerk backend admin key.
-Production delivery, deployment, OAuth verification and removal of the old dev
-ChatGPT connection remain separate cutover gates; authorization does not imply
-that those runtime checks have completed.
+The production MCP is deployed with a separate production Clerk OAuth application,
+scoped integration credentials, and a dedicated persistent volume for encrypted
+OAuth state and workspace data. PR #344 excludes the internal bearer token and
+Clerk backend admin key from production delivery. Private custody and runtime
+permissions were verified without exposing credential values.
+
+The canonical endpoint is
+`https://sernia-fastmcp-production.up.railway.app/mcp`. Railway-managed TLS is used
+because certificate issuance for the candidate custom hostname hit a provider
+rate limit; no certificate validation was bypassed. Discovery advertises CIMD and
+RFC 9207 with a consistent issuer. ChatGPT completed OAuth against production and
+refreshed its tool list. The installed connector is named **Sernia AI**; the dev
+**Sernia AI CIMD** connector is uninstalled.
+
+Production stays awake. Development retains Railway sleep and was observed
+**SLEEPING** through the control plane after dev client traffic stopped. No
+telemetry was disabled: inspection and an offline idle-export check found no
+configured periodic metric payload requiring such a change. Repository MCP
+configuration now defaults to production OAuth.
+
+Production ChatGPT read-only QA succeeded: `sernia_context` returned successfully
+and `list_message_templates` returned one template. No business messages were sent.
+OAuth persistence was verified after a successful production redeployment: the
+existing connected client repeated both read-only calls successfully without
+reauthorization. Exact deployment and metadata-only evidence stay in the private
+ledger.
 
 ## Preparation checkpoint (historical, before delivery)
 
@@ -189,12 +209,9 @@ manifest accepts required companion fields but never grants them secret status.
   token-exchange failure was not established. Successful reconnection followed
   the FastMCP 4 upgrade and diagnostic instrumentation; no additional auth
   validation bypass or credential rotation was used to obtain it.
-- [ ] ChatGPT response rendering remains a separate client UI verification: the
-  test conversation displayed "This response couldn't load" even though OAuth and
-  the read-only tool invocation completed. Reloading the conversation, regenerating
-  the read-only response and refreshing the app tool cache did not resolve the
-  client display failure. Do not treat that UI failure as an
-  authentication failure or claim every connected client has been verified.
+- [x] Development ChatGPT response rendering: the owner subsequently confirmed a
+  successful visible context read and template-list response. The prior client
+  display failure is resolved; production cutover verification is tracked above.
 - [x] MCP telemetry follow-up: live export failures revealed that the MCP consumer
   was missing from the Logfire recovery manifest and retained its revoked token.
   Private comparison confirmed API and MCP previously used the same project token.
