@@ -19,5 +19,7 @@ it to browser code. Budget exhaustion returns a safe 402 and pauses drafting in 
 telemetry for diagnostics. The shared client bounds timeouts and retries, and the
 public demo middleware applies usage controls.
 
-The `/watch/*` routes remain authenticated operational Gmail watch controls.
-They are separate from the fictional studio.
+The POST `/watch/start`, `/watch/stop`, and `/watch/refresh` routes require
+`Authorization: Bearer <CRON_SECRET>` and no request body. Missing, empty, or
+whitespace-only server secrets reject every request with 401. Password bodies
+cannot authorize these operations. They are separate from the fictional studio.

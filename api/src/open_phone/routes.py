@@ -8,8 +8,7 @@ from pprint import pprint
 
 import logfire
 import requests
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Security
-from fastapi.security import APIKeyHeader
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
@@ -27,8 +26,6 @@ from api.src.open_phone.service import (
 from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.utils.dependencies import verify_admin_or_serniacapital
-from api.src.utils.password import verify_admin_password
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +255,7 @@ class SendMessageRequest(BaseModel):
     from_phone_number: str
 
 
-@router.post("/send_message", dependencies=[Depends(verify_admin_or_serniacapital)])
+@router.post("/send_message", dependencies=[Depends(verify_serniacapital_user)])
 async def send_message_endpoint(body: SendMessageRequest):
     """Send a single SMS message via OpenPhone."""
     response = await send_message(body.message, body.to_phone_number, body.from_phone_number)
@@ -274,28 +271,8 @@ async def route_get_contacts_by_external_ids(
     return await get_contacts_by_external_ids(external_ids, sources, page_token)
 
 
-@router.delete("/contact/{id}")
-async def route_delete_contact_by_id(
-    id: str, admin_password: str = Security(APIKeyHeader(name="x-admin-password", auto_error=True))
-):
-
-    is_valid = await verify_admin_password(admin_password)
-    if not is_valid:
-        raise HTTPException(401, "Invalid password")
-
-    url = f"https://api.openphone.com/v1/contacts/{id}"
-    # User OpenPhone API to send a message
-    api_key = os.getenv("QUO_API_KEY_PORTFOLIO")
-    headers = {
-        "Authorization": api_key,
-        "Content-Type": "application/json",
-    }
-    response = requests.delete(url, headers=headers)
-    return response.status_code
-
-
 # Working!
-@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_admin_or_serniacapital)])
+@router.post("/create_contacts_in_openphone", dependencies=[Depends(verify_serniacapital_user)])
 async def create_contacts_in_openphone(overwrite=False, source_name=None):
 
     headers = {

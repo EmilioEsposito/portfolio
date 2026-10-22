@@ -8,12 +8,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class OptionalPassword(BaseModel):
-    """Request model for endpoints that optionally require a password."""
-
-    password: str | None = None
-
-
 class GenerateResponseRequest(BaseModel):
     """Request model for generating AI responses."""
 

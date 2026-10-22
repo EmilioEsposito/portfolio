@@ -286,7 +286,7 @@ def test_redaction_selects_secrets_without_mangling_public_settings():
             "RAILWAY_MCP_TOKEN": "manage",
             "ENVIRONMENT": "development",
             "BACKGROUND_AUTOMATION_ENABLED": "1",
-            "VITE_GOOGLE_CLIENT_ID": "public-client",
+            "VITE_CLERK_PUBLISHABLE_KEY": "public-client",
             "GITHUB_WRITE_PAT": "write-key",
         }
     )
@@ -322,3 +322,37 @@ def test_quo_credential_is_scoped_to_backend_and_redacted(source):
     web = config.environment("web", values, {}, source)
     assert not any(key in web for key in values)
     assert config.redact("test-portfolio-quo", config.private_values(api)) == "[redacted]"
+
+
+@pytest.mark.parametrize("source", ["local", "railway"])
+@pytest.mark.parametrize("service", ["api", "web"])
+def test_retired_credentials_are_not_forwarded(source, service):
+    retired = dict.fromkeys(
+        [
+            "ADMIN_PASSWORD_HASH",
+            "ADMIN_PASSWORD_SALT",
+            "VITE_GOOGLE_DRIVE_PICKER_API_KEY",
+            "NEXT_PUBLIC_GOOGLE_DRIVE_PICKER_API_KEY",
+            "VITE_GOOGLE_CLIENT_ID",
+        ],
+        "test-retired-value",
+    )
+    env = config.environment(service, retired, retired, source)
+    assert not retired.keys() & env.keys()
+
+
+def test_google_backend_credentials_and_clerk_remain_supported():
+    values = {
+        "GOOGLE_OAUTH_CLIENT_ID": "test-client-id",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "test-client-secret",
+        "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS": "test-service-account",
+        "CLERK_SECRET_KEY": "test-clerk-secret",
+        "VITE_CLERK_PUBLISHABLE_KEY": "test-clerk-public",
+    }
+    api = config.environment("api", values, {}, "local")
+    for name in values.keys() - {"VITE_CLERK_PUBLISHABLE_KEY"}:
+        assert api[name] == values[name]
+    web = config.environment("web", values, {}, "local")
+    assert web["CLERK_SECRET_KEY"] == values["CLERK_SECRET_KEY"]
+    assert web["VITE_CLERK_PUBLISHABLE_KEY"] == values["VITE_CLERK_PUBLISHABLE_KEY"]
+    assert not any(name.startswith("GOOGLE_") for name in web)

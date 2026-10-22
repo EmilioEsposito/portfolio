@@ -19,8 +19,7 @@ from unittest.mock import AsyncMock, patch
 from api.index import app
 from api.src.open_phone.routes import OpenPhoneWebhookPayload, verify_open_phone_signature
 from api.src.utils.clerk import verify_serniacapital_user
-from api.src.utils.dependencies import verify_admin_or_serniacapital, verify_cron_or_admin
-from api.src.utils.password import verify_admin_auth
+from api.src.utils.dependencies import verify_cron_secret
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -54,10 +53,8 @@ def mocked_client():
     with TestClient(app) as client:
         # Override the dependencies
         app.dependency_overrides[verify_open_phone_signature] = lambda: True
-        app.dependency_overrides[verify_admin_or_serniacapital] = lambda: True
         app.dependency_overrides[verify_serniacapital_user] = lambda: True
-        app.dependency_overrides[verify_admin_auth] = lambda: True
-        app.dependency_overrides[verify_cron_or_admin] = lambda: True
+        app.dependency_overrides[verify_cron_secret] = lambda: True
         # app.dependency_overrides[get_session] = lambda: mock_db_session
         yield client
     # Clean up after the test
