@@ -76,9 +76,9 @@ async def contains_emoji(text):
 
 async def verify_open_phone_signature(request: Request):
     # signing_key = os.getenv(env_var_name)
-    signing_key = os.getenv("OPEN_PHONE_WEBHOOK_SECRET")
+    signing_key = os.getenv("QUO_WEBHOOK_SECRET")
     if not signing_key:
-        raise HTTPException(403, "OPEN_PHONE_WEBHOOK_SECRET not configured")
+        raise HTTPException(403, "QUO_WEBHOOK_SECRET not configured")
     data = await request.body()
     # Parse the fields from the openphone-signature header.
     signature = request.headers["openphone-signature"]
