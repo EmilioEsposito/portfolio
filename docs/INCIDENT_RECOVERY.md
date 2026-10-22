@@ -55,8 +55,16 @@ usable. Use the [playbook](CREDENTIAL_RECOVERY.md) for the execution procedure.
   remains a separate verification.
 - Development API/web and shared credentials delivered with readback; no deployment
   triggered by delivery. Retired API values cleared and scheduling held off.
-- Quo subscription inventory returned no API-visible subscriptions despite matching
-  phone identities; reconcile dashboard subscriptions before closing webhook recovery.
+- Quo dashboard confirms one enabled production subscription and no development
+  subscription. The API listing omits this dashboard-managed subscription.
+- Development and production API deployments succeeded; migrations and health
+  checks passed. Production Gmail notifications now return successful responses.
+  Web deployments are still building; development MCP is healthy with authenticated
+  initialization verified and unauthenticated initialization rejected.
+- Old database passwords and old Clerk, ClickUp, GitHub, Quo, Twilio and OpenRouter
+  credentials reject authentication in both hosted environments.
+- Seed bucket credentials from the provider reset were privately captured, bucket
+  HEAD passed, and four GitHub Actions settings were accepted. No objects changed.
 - Existing API/web/resume deployments are older releases; a green platform state
   does not prove rotated integrations work. Cron/test/MCP services are offline.
 - Production has one existing staged removal of the retired direct Anthropic key.
