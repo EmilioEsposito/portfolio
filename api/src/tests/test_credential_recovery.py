@@ -145,15 +145,11 @@ LOGFIRE_TOKEN="first\\nsecond"
     def test_wrong_environment_and_backend_to_web_rejected(self):
         with self.assertRaises(recovery.RecoveryError):
             self.store.capture("production", {"CLERK_SECRET_KEY": "sk_test_synthetic"}, "fixture")
-        with self.assertRaises(recovery.RecoveryError):
-            self.store.capture(
-                "production", {"FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET": "x" * 64}, "fixture"
-            )
         self.store.generate("production")
         with self.assertRaises(recovery.RecoveryError):
             self.store.prepare("production", "react-router", ["CRON_SECRET"])
         with self.assertRaises(recovery.RecoveryError):
-            self.store.plan("production", "sernia-mcp")
+            self.store.prepare("production", "sernia-mcp", ["CRON_SECRET"])
 
     def test_preparation_is_targeted_immutable_and_not_activation(self):
         self.store.generate("production")
@@ -174,15 +170,65 @@ LOGFIRE_TOKEN="first\\nsecond"
         self.assertTrue(all(r["states"]["delivery"] == "unknown" for r in self.store.status()))
 
     def test_logfire_rotation_reaches_mcp_but_not_web(self):
-        self.store.capture("development", {"LOGFIRE_TOKEN": "synthetic-logfire"}, "fixture")
-        for service in ("fastapi", "sernia-mcp"):
-            prepared = self.store.prepare("development", service, ["LOGFIRE_TOKEN"])
-            payload = json.loads(recovery.read_private(Path(prepared)))
-            self.assertEqual(payload["values"], {"LOGFIRE_TOKEN": "synthetic-logfire"})
-        with self.assertRaises(recovery.RecoveryError):
-            self.store.prepare("development", "react-router", ["LOGFIRE_TOKEN"])
-        with self.assertRaises(recovery.RecoveryError):
-            self.store.prepare("production", "sernia-mcp", ["LOGFIRE_TOKEN"])
+        for environment in ("development", "production"):
+            self.store.capture(environment, {"LOGFIRE_TOKEN": "synthetic-logfire"}, "fixture")
+            for service in ("fastapi", "sernia-mcp"):
+                prepared = self.store.prepare(environment, service, ["LOGFIRE_TOKEN"])
+                payload = json.loads(recovery.read_private(Path(prepared)))
+                self.assertEqual(payload["values"], {"LOGFIRE_TOKEN": "synthetic-logfire"})
+            with self.assertRaises(recovery.RecoveryError):
+                self.store.prepare(environment, "react-router", ["LOGFIRE_TOKEN"])
+
+    def test_production_mcp_oauth_payload_excludes_bearer_and_backend_admin_key(self):
+        account = base64.b64encode(
+            json.dumps(
+                {
+                    "type": "service_account",
+                    "client_email": "synthetic@example.test",
+                    "private_key": "synthetic-not-a-real-key",
+                    "project_id": "synthetic-project",
+                }
+            ).encode()
+        ).decode()
+        required = {
+            "FASTMCP_SERVER_AUTH_CLERK_DOMAIN": "clerk.example.test",
+            "FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID": "synthetic-client",
+            "FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET": "synthetic-client-secret",
+            "SERNIA_MCP_BASE_URL": "https://mcp.example.test",
+            "QUO_API_KEY_PORTFOLIO": "synthetic-quo",
+            "CLICKUP_API_KEY": "synthetic-clickup",
+            "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS": account,
+            "GITHUB_EMILIO_PERSONAL_WRITE_PAT": "synthetic-github",
+            "LOGFIRE_TOKEN": "synthetic-logfire",
+        }
+        self.store.capture("production", required, "fixture")
+        # Generation remains limited to the app's session/cron candidates.
+        self.assertEqual(self.store.generate("production"), 2)
+        prepared = self.store.prepare("production", "sernia-mcp", list(required))
+        payload = json.loads(recovery.read_private(Path(prepared)))
+        self.assertEqual(payload["values"], required)
+        self.assertFalse(payload["deployment_authorized"])
+        self.assertNotIn("SERNIA_MCP_INTERNAL_BEARER_TOKEN", payload["values"])
+        # Historical captures stay readable, but cannot enable another prod auth path.
+        self.store.capture(
+            "production",
+            {
+                "SERNIA_MCP_INTERNAL_BEARER_TOKEN": "synthetic-bearer-" * 4,
+                "CLERK_SECRET_KEY": "sk_live_synthetic",
+            },
+            "historical fixture",
+        )
+        for name in ("SERNIA_MCP_INTERNAL_BEARER_TOKEN", "CLERK_SECRET_KEY"):
+            with self.assertRaises(recovery.RecoveryError):
+                self.store.prepare("production", "sernia-mcp", [name])
+            self.assertNotIn(name, self.store.plan("production", "sernia-mcp")["staged"])
+        for name in (
+            "FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET",
+            "SERNIA_MCP_BASE_URL",
+        ):
+            for service in ("fastapi", "react-router"):
+                with self.assertRaises(recovery.RecoveryError):
+                    self.store.prepare("production", service, [name])
 
     def test_database_pair_required_and_mismatch_rejected(self):
         self.store.capture(
