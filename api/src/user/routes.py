@@ -8,19 +8,14 @@ from svix.webhooks import Webhook, WebhookVerificationError
 from api.src.database.database import DBSession
 from api.src.user.service import delete_user, upsert_user
 
-# Load environment variables (especially CLERK_WEBHOOK_SIGNING_SECRET)
+# Load environment variables (especially CLERK_WEBHOOK_SECRET)
 load_dotenv()
 
 router = APIRouter()
 
-# Retrieve the secret from environment variables
-# Make sure this is set in your .env or server environment
-DEV_CLERK_WEBHOOK_SECRET = os.getenv("DEV_CLERK_WEBHOOK_SECRET")
-PROD_CLERK_WEBHOOK_SECRET = os.getenv("PROD_CLERK_WEBHOOK_SECRET")
-
-# Create Webhook instances for each secret
-webhook_dev = Webhook(DEV_CLERK_WEBHOOK_SECRET) if DEV_CLERK_WEBHOOK_SECRET else None
-webhook_prod = Webhook(PROD_CLERK_WEBHOOK_SECRET) if PROD_CLERK_WEBHOOK_SECRET else None
+# Each deployment accepts webhooks from its configured Clerk instance only.
+CLERK_WEBHOOK_SECRET = os.getenv("CLERK_WEBHOOK_SECRET")
+webhook = Webhook(CLERK_WEBHOOK_SECRET) if CLERK_WEBHOOK_SECRET else None
 
 
 @router.post("/user/webhook/clerk", status_code=200)
@@ -31,13 +26,13 @@ async def handle_clerk_webhook(
     svix_timestamp: str | None = Header(None),
     svix_signature: str | None = Header(None),
 ):
-    """Handles incoming webhooks from Clerk for user events, trying multiple secrets."""
+    """Handles user events signed by the configured Clerk webhook secret."""
     logfire.info("Received Clerk webhook request")
 
-    if not webhook_dev and not webhook_prod:
-        logfire.error("One or more webhook secrets are not configured.")
+    if webhook is None:
+        logfire.error("CLERK_WEBHOOK_SECRET is not configured.")
         # Raise 500 because this is a server configuration issue
-        raise HTTPException(status_code=500, detail="Webhook secret(s) not configured")
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
 
     if not svix_id or not svix_timestamp or not svix_signature:
         logfire.error("Missing Svix headers")
@@ -53,28 +48,24 @@ async def handle_clerk_webhook(
     payload_bytes = await request.body()
     payload_str = payload_bytes.decode("utf-8")
 
-    # Verify only configured endpoints. Local development needs no production key.
-    event = None
-    environment = None
-    for candidate, verifier in (("development", webhook_dev), ("production", webhook_prod)):
-        if verifier is None:
-            continue
-        try:
-            event = verifier.verify(payload_str, headers)
-            environment = candidate
-            break
-        except WebhookVerificationError:
-            continue
-        except Exception:
-            logfire.error("Unexpected error during Clerk webhook verification")
-            raise HTTPException(status_code=500, detail="Internal server error during verification")
-    if event is None:
+    try:
+        event = webhook.verify(payload_str, headers)
+    except WebhookVerificationError:
         raise HTTPException(status_code=400, detail="Webhook verification failed")
+    except Exception:
+        logfire.error("Unexpected error during Clerk webhook verification")
+        raise HTTPException(status_code=500, detail="Internal server error during verification")
 
-    if event is None or environment is None:
-        # This case should technically not be reachable if exceptions are handled correctly, but added for safety.
-        logfire.error("Webhook event object or environment is None after verification attempts.")
-        raise HTTPException(status_code=500, detail="Internal server error after verification")
+    # The signing secret must belong to the same instance as CLERK_SECRET_KEY.
+    # Use the instance type, not the hosting environment (previews can use dev Clerk).
+    clerk_key = os.getenv("CLERK_SECRET_KEY", "")
+    if clerk_key.startswith("sk_live_"):
+        environment = "production"
+    elif clerk_key.startswith("sk_test_"):
+        environment = "development"
+    else:
+        logfire.error("CLERK_SECRET_KEY has no recognized instance prefix")
+        raise HTTPException(status_code=500, detail="Clerk instance environment not configured")
 
     # Process the event
     event_type = event.get("type")
