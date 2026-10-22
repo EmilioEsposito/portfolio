@@ -162,3 +162,5 @@ Seeding can download the fixture in non-production environments when `SEED_BUCKE
 For changes, start with the relevant module guide and [`AGENTS.md`](AGENTS.md), keep the scope focused, and open a pull request with a clear description and relevant validation. Include its web preview URL: `https://react-router-portfolio-pr-<PR_NUMBER>.up.railway.app/`. Preserve the distinction between public demos and authenticated operations, and keep credentials, private memory, and unreviewed business fixtures out of changes.
 
 For collaboration or professional background, visit [eesposito.com](https://eesposito.com) or [get in touch](https://eesposito.com/calendly).
+
+Credential rotation: [custody playbook](docs/credentials/README.md) and [incident records](docs/incidents/README.md).

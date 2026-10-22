@@ -1,11 +1,10 @@
 # Development configuration
 
-Incident preparation uses the offline [credential recovery playbook](../docs/CREDENTIAL_RECOVERY.md)
-and [public-safe tracker](../docs/INCIDENT_RECOVERY.md). `credential_recovery.py` stages
-private replacements in the primary checkout's ignored `.local/credential-recovery/`
-folder and prepares selected payloads without provider
-access, upload, deployment, or app startup. Do not use the development launcher
-to fetch Railway credentials while the incident hold remains.
+Credential custody and routine preparation live in [credentials/](credentials/README.md).
+Fixed-target recovery adapters and their authorization history live in
+[incidents/](incidents/README.md). Private custody remains in the primary checkout's
+ignored `.local/credential-recovery/` directory; source organization never changes
+its location or retention.
 
 Run `pnpm dev` (web), `pnpm fastapi-dev` (API), or `pnpm dev-with-fastapi`
 (both) after `uv sync --frozen` and `pnpm install --frozen-lockfile`.
