@@ -18,6 +18,11 @@ No service credentials are needed. They never load application modules or dotenv
   A missing application package is allowed before installation; `--require-certifi`
   makes it mandatory afterward. The MCP runtime intentionally has neither venv pip
   nor uv; its base interpreter's pip is checked separately.
+  Package versions come from the imported code. Runtime inspection found both
+  `pip-24.0.dist-info` and `pip-26.2.2.dist-info` in Railway containers even though
+  `python -m pip --version` and the imported module were 26.2.2. The verifier
+  reports this metadata discrepancy separately and still checks pip's actual
+  vendored certifi version and bundle. New metadata cannot conceal old code.
 
 The checker verifies G3 distrust, not every possible certificate-chain/revocation
 attack. uv's internal roots are addressed by its fixed version, not by certifi.
