@@ -1,36 +1,43 @@
 # Base image for the fastapi
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 RUN echo ">>> Building BACKEND..."
 
 # git is needed by sernia_ai workspace sync (memory/git_sync.py)
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+COPY apps/sernia_mcp/trust/ /opt/python-trust/
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && sh /opt/python-trust/distrust-emsign.sh \
+    && sh /opt/python-trust/bootstrap-pip.sh /usr/local/bin/python \
+    && rm -rf /var/lib/apt/lists/*
 
 # https://docs.astral.sh/uv/guides/integration/docker/
 # Install uv by copying the binary
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /bin/
+RUN python /opt/python-trust/check_python_trust.py --require-uv
 
 WORKDIR /app
 
 # Define path for the virtual environment relative to WORKDIR & create it
 # uv sync seems to prefer/default to `.venv` in the project root
-ENV VENV_PATH=.venv 
+ENV VENV_PATH=/app/.venv
 RUN uv venv $VENV_PATH
 
 # Set VIRTUAL_ENV so uv targets it automatically
-ENV VIRTUAL_ENV=$VENV_PATH 
+ENV VIRTUAL_ENV=$VENV_PATH
 # Add the venv's bin directory to the PATH 
 ENV PATH="$VENV_PATH/bin:$PATH"
 
 # Copy project files
-COPY pyproject.toml uv.lock* README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY api/ ./api/
 COPY alembic.ini ./
 
 # Install dependencies into the virtual environment using uv sync
 # VIRTUAL_ENV is set to .venv, uv sync should install here
 # Exclude dev dependencies for production builds
-RUN uv sync --no-dev
+RUN uv sync --locked --no-dev \
+    && python /opt/python-trust/check_python_trust.py --require-certifi --require-uv \
+    && /usr/local/bin/python /opt/python-trust/check_python_trust.py --require-uv
 
 # Copy and make startup script executable
 COPY api/start.sh /app/start.sh
@@ -41,4 +48,4 @@ EXPOSE 8000
 
 # Use startup script that runs migrations then starts the server
 # This ensures migrations run as part of the Docker process and logs are visible
-CMD ["/app/start.sh"] 
+CMD ["/app/start.sh"]

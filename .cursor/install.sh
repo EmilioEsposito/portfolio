@@ -44,6 +44,9 @@ echo ">>> Skipping Playwright browser install (already in snapshot)"
 # =====================================
 # Python Dependencies
 # =====================================
+# Refuse stale installers/custom CA bundles; see docs/PYTHON_TRUST.md.
+python3 apps/sernia_mcp/trust/check_python_trust.py --require-uv || exit 1
+
 echo ">>> Installing Python project dependencies with uv..."
 # Note: uv will use the venv from the snapshot (/home/ubuntu/.venv)
 if [ -f "uv.lock" ]; then

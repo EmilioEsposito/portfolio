@@ -34,7 +34,12 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          sudo apt-get update && sudo apt-get install -y ca-certificates
+          sudo sh apps/sernia_mcp/trust/distrust-emsign.sh
+          sh apps/sernia_mcp/trust/bootstrap-pip.sh python
+          python -m pip install "requests" "certifi>=2026.10.19"
+          python apps/sernia_mcp/trust/check_python_trust.py --require-certifi
 
       - name: Run Logfire investigate
         id: run
