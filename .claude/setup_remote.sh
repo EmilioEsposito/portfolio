@@ -155,10 +155,13 @@ fi
 echo ""
 echo "--- Python Environment Setup ---"
 
+# Refuse stale installers/custom CA bundles; see docs/PYTHON_TRUST.md.
+python3 apps/sernia_mcp/trust/check_python_trust.py --require-uv || exit 1
+
 echo "Creating Python venv and installing dependencies..."
 uv venv
 source .venv/bin/activate
-uv sync -p python3.11
+uv sync --locked -p python3.11
 echo "PYTHONPATH is handled by editable install via uv sync"
 
 # =============================================================================

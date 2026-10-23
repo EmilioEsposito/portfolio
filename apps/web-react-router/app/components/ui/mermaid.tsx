@@ -5,7 +5,8 @@ import { useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 
 mermaid.initialize({
-  startOnLoad: true,
+  // React owns the initial DOM; automatic rendering can race hydration.
+  startOnLoad: false,
   theme: 'default',
   securityLevel: 'loose',
   fontFamily: 'inherit',
@@ -25,7 +26,7 @@ export default function Mermaid({ chart }: MermaidProps) {
         theme: theme === 'dark' ? 'dark' : 'default',
         fontFamily: 'inherit',
       });
-      mermaid.contentLoaded();
+      void mermaid.run({ nodes: [mermaidRef.current] });
     }
   }, [theme, chart]);
 
@@ -34,4 +35,4 @@ export default function Mermaid({ chart }: MermaidProps) {
       {chart}
     </div>
   );
-} 
+}

@@ -5,6 +5,10 @@
 
 FROM ubuntu:22.04
 
+# Build with repository-root context.
+COPY apps/sernia_mcp/trust/ /opt/python-trust/
+COPY scripts/check-node-trust.cjs /opt/check-node-trust.cjs
+
 RUN echo ">>> Building Cursor cloud agent base environment..."
 
 # Avoid prompts from apt
@@ -20,14 +24,16 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     ca-certificates \
     lsb-release \
+    && sh /opt/python-trust/distrust-emsign.sh \
     && rm -rf /var/lib/apt/lists/*
 
 # =====================================
-# Node.js 20.x & pnpm
+# Node.js 22.x & pnpm
 # =====================================
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - \
     && apt-get install -y nodejs \
-    && npm install -g pnpm \
+    && node /opt/check-node-trust.cjs \
+    && corepack enable \
     && rm -rf /var/lib/apt/lists/*
 
 # =====================================
@@ -39,15 +45,16 @@ RUN apt-get update && apt-get install -y \
     python3.11-venv \
     python3-pip \
     build-essential \
+    && sh /opt/python-trust/bootstrap-pip.sh /usr/bin/python3.10 \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
-    && python3 -m pip install --upgrade pip \
+    && sh /opt/python-trust/bootstrap-pip.sh python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # =====================================
 # uv (Python package manager)
 # =====================================
 # Copy uv binary from the official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /usr/local/bin/
 RUN chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
 # =====================================
@@ -102,7 +109,11 @@ WORKDIR /home/ubuntu
 
 # Create the Python virtual environment at build time
 # This venv will exist in the snapshot and be reused by all agents
-RUN python3 -m venv /home/ubuntu/.venv
+RUN python3 -m venv /home/ubuntu/.venv \
+    && sh /opt/python-trust/bootstrap-pip.sh /home/ubuntu/.venv/bin/python \
+    && /usr/bin/python3.10 /opt/python-trust/check_python_trust.py --require-uv \
+    && python3 /opt/python-trust/check_python_trust.py --require-uv \
+    && /home/ubuntu/.venv/bin/python /opt/python-trust/check_python_trust.py --require-uv
 
 # Set VIRTUAL_ENV so uv and Python commands automatically use this venv
 ENV VIRTUAL_ENV=/home/ubuntu/.venv

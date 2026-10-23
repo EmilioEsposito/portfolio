@@ -1,3 +1,6 @@
+> **October 2026 trust-store remediation:** Before installing dependencies or rebuilding images,
+> follow [the trust audit and clean-rebuild checklist](docs/PYTHON_TRUST.md).
+
 # Emilio Esposito · Portfolio & operational AI
 
 Source for [eesposito.com](https://eesposito.com), its public AI demos, and the operational systems I build for **Sernia Capital**, the rental real estate business I co-founded and help run.

@@ -1,7 +1,12 @@
 # Build context is repo root (not apps/web-react-router)
 # Uses workspace lockfile for single source of truth
 
-FROM node:22.23.2-alpine AS base
+FROM node:22.23.4-alpine AS base
+COPY scripts/check-node-trust.cjs /opt/check-node-trust.cjs
+RUN apk add --no-cache ca-certificates \
+    && rm -f /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt \
+    && update-ca-certificates \
+    && node /opt/check-node-trust.cjs
 RUN corepack enable
 WORKDIR /app
 

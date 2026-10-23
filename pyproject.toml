@@ -27,7 +27,7 @@ dependencies = [
     "pydantic>=2.11.2",
     # >=1.106: core capabilities API (WebSearch/WebFetch/Thinking) + harness-ready (>=1.95.1)
     # <2: stay on the v1 line (API-stable) until a deliberate v2 migration.
-    "pydantic-ai[dbos]>=1.107.1,<2",
+    "pydantic-ai[dbos]>=1.107.6,<2",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=0.0.7",
     "fastmcp[apps]>=3.2.4",
@@ -86,6 +86,27 @@ dev = [
     "ipython>=9.2.0",
     "ipykernel",
     "ruff>=0.15.20",
+]
+
+[tool.uv]
+required-version = ">=0.13.4"
+# Security floors for dependencies already in the graph; no new runtime dependencies.
+constraint-dependencies = [
+    "certifi>=2026.10.19",
+    "pypdf>=6.21.1",
+    "graphql-core>=3.2.12",
+    "opentelemetry-api>=1.45.1",
+    "aiohttp>=3.14.4",
+    "multidict>=6.9.1",
+    "fsspec>=2026.6.0",
+    "apprise>=1.11.0",
+    "strawberry-graphql>=0.327.2",
+    "oauthlib>=4.0.0",
+    "hpack>=4.2.0",
+    "h2>=4.4.1",
+    "pydantic-settings>=2.14.2",
+    "prefect>=3.6.28",
+    "pytest>=9.0.3",
 ]
 
 [tool.ruff]

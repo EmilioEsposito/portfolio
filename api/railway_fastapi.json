@@ -6,6 +6,7 @@
     "watchPatterns": [
       "railway_fastapi.json",
       "api/**",
+      "apps/sernia_mcp/trust/**",
       "alembic.ini",
       "pyproject.toml",
       "uv.lock"

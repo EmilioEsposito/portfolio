@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 node_is_compatible() {
-  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 22) ? 0 : 1)' >/dev/null 2>&1
+  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 22) ? 0 : 1)' >/dev/null 2>&1 &&
+    node "$SCRIPT_DIR/check-node-trust.cjs" >/dev/null 2>&1
 }
 
 if ! node_is_compatible; then
@@ -15,7 +16,7 @@ if ! node_is_compatible; then
     nvm use --silent "$(cat "$SCRIPT_DIR/../.nvmrc")" >/dev/null 2>&1 || true
   fi
   if ! node_is_compatible; then
-    echo 'Worktree setup: Node 22.22+ is required. Install the .nvmrc version with nvm install, then retry.' >&2
+    echo 'Worktree setup: Node 22.23.4+ with patched CA roots is required. Install the .nvmrc version with nvm install, then retry.' >&2
     exit 1
   fi
 fi

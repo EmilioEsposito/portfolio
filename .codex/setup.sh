@@ -1,10 +1,14 @@
+set -e
 echo "Step 1: Installing pnpm dependencies"
 pnpm install
+
+# Refuse stale installers/custom CA bundles; see docs/PYTHON_TRUST.md.
+python3 apps/sernia_mcp/trust/check_python_trust.py --require-uv || exit 1
 
 echo "Step 2: Setting up Python environment"
 uv venv
 source .venv/bin/activate
-uv sync -p python3.11
+uv sync --locked -p python3.11
 
 echo "Step 3: Creating .env file"
 touch .env
