@@ -12,8 +12,9 @@ import shutil
 import ssl
 import subprocess
 import sys
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from types import ModuleType
 
 BAD_ROOT = "emSign ECC Root CA - G3"
 
@@ -22,6 +23,19 @@ def require_version(name: str, installed: str, minimum: str) -> None:
     print(f"{name}: {installed} (minimum {minimum})")
     if tuple(map(int, installed.split("."))) < tuple(map(int, minimum.split("."))):
         raise ValueError(f"Upgrade {name} before any package download")
+
+
+def check_package_version(name: str, minimum: str) -> ModuleType:
+    """Check the code Python executes, reporting stale dist-info independently."""
+    package = importlib.import_module(name)
+    require_version(name, package.__version__, minimum)
+    try:
+        recorded = version(name)
+    except PackageNotFoundError:
+        recorded = "absent"
+    if recorded != package.__version__:
+        print(f"{name} distribution metadata: {recorded}; imported code: {package.__version__}")
+    return package
 
 
 def check_context(context: ssl.SSLContext, label: str) -> None:
@@ -80,13 +94,13 @@ def main() -> None:
                 raise ValueError("Application certifi is missing")
             continue
         if name == "pip":
-            require_version(name, version(name), "26.2.2")
+            check_package_version(name, "26.2.2")
             bundled = importlib.import_module("pip._vendor.certifi")
             require_version("pip vendored certifi", bundled.__version__, "2026.10.19")
             check_bundle(bundled.where(), "pip vendored certifi")
         elif name == "certifi":
-            require_version(name, version(name), "2026.10.19")
-            check_bundle(importlib.import_module(name).where(), name)
+            package = check_package_version(name, "2026.10.19")
+            check_bundle(package.where(), name)
         else:
             check_bundle(importlib.import_module(name).CA_CERTS, "httplib2 default")
     # Explicit custom overrides are additional trust surfaces, never logged as values.
