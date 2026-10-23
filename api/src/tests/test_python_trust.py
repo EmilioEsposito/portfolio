@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -19,6 +20,21 @@ SPEC.loader.exec_module(trust)
 
 
 class PythonTrustTests(unittest.TestCase):
+    def test_imported_package_version_wins_over_stale_distribution_metadata(self) -> None:
+        for imported, recorded, safe in (("26.2.2", "24.0", True), ("24.0", "26.2.2", False)):
+            with self.subTest(imported=imported, recorded=recorded):
+                package = ModuleType("pip")
+                package.__version__ = imported
+                with (
+                    patch.object(trust.importlib, "import_module", return_value=package),
+                    patch.object(trust, "version", return_value=recorded),
+                ):
+                    if safe:
+                        self.assertIs(trust.check_package_version("pip", "26.2.2"), package)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "before"):
+                            trust.check_package_version("pip", "26.2.2")
+
     def test_old_installers_fail_independently_of_application_certifi(self) -> None:
         for name, old, minimum in (
             ("pip", "26.2.1", "26.2.2"),
