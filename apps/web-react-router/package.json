@@ -39,13 +39,13 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "compression": "^1.8.1",
+    "compression": "^1.8.2",
     "date-fns": "^2.30.0",
     "express": "^4.22.1",
     "framer-motion": "^12.38.0",
     "isbot": "^5.1.37",
     "lucide-react": "^0.460.0",
-    "mermaid": "^11.14.0",
+    "mermaid": "^11.16.1",
     "next-themes": "^0.4.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -70,10 +70,10 @@
     "tailwindcss": "^4.2.2",
     "tsx": "^4.23.9",
     "typescript": "^5.9.3",
-    "vite": "^7.3.5",
+    "vite": "^7.3.7",
     "vite-tsconfig-paths": "^5.1.4"
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=22.23.4"
   }
 }

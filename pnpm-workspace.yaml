@@ -29,7 +29,7 @@ overrides:
   "js-yaml@>=4 <5": "^4.3.2"
   "nanoid@<4": "^3.3.18"
   "browserslist@<4.28.7": "^4.28.7"
-  "ip-address@<10.7.1": "^10.7.1"
+  "ip-address@<10.7.4": "^10.7.4"
   "postcss@<8.5.18": "^8.5.18"
   "proxy-addr@>=1.1.0 <2.0.8": "^2.0.8"
   "tar@<7.5.21": "^7.5.21"
@@ -42,6 +42,22 @@ overrides:
   "@clerk/shared@>=3 <4": "^3.47.5"
   "@clerk/clerk-react@>=5 <6": "^5.61.6"
   "@clerk/clerk-js@>=5 <6": "^5.125.10"
+
+  # October 2026 Dependabot fixes; major API consumers are regression-tested.
+  "dompurify@<3.4.17": "3.4.17"
+  "@modelcontextprotocol/sdk@<1.32.0": "1.32.0"
+  "compression@<1.8.2": "1.8.2"
+  "postcss-selector-parser@>=7 <7.1.6": "7.1.6"
+  "source-map-js@<1.2.2": "1.2.2"
+  "@ai-sdk/provider-utils@>=3 <3.0.28": "3.0.28"
+  "qs@>=6 <6.16.0": "6.16.0"
+  "@humanfs/node@>=0.16 <0.16.8": "0.16.8"
+  "@hono/node-server@>=1 <1.19.15": "1.19.15"
+  "body-parser@>=1 <1.20.6": "1.20.6"
+  "body-parser@>=2 <2.3.0": "2.3.0"
+  "@babel/core@>=7 <7.29.6": "7.29.6"
+  "uuid@>=7 <11.1.1": "11.1.1"
+  "katex@>=0.16 <0.18.2": "0.18.2"
 
 patchedDependencies:
   braces@3.0.3: patches/braces@3.0.3.patch

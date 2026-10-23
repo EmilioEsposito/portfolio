@@ -1,8 +1,13 @@
 # Use a base Node image
-FROM node:20-alpine AS base
+FROM node:22.23.4-alpine AS base
+COPY scripts/check-node-trust.cjs /opt/check-node-trust.cjs
+RUN apk add --no-cache ca-certificates \
+    && rm -f /usr/share/ca-certificates/mozilla/emSign_ECC_Root_CA_-_G3.crt \
+    && update-ca-certificates \
+    && node /opt/check-node-trust.cjs
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN corepack enable
 
 WORKDIR /app
 
@@ -10,6 +15,8 @@ WORKDIR /app
 COPY pnpm-workspace.yaml ./
 COPY package.json ./
 COPY pnpm-lock.yaml ./
+COPY patches ./patches
+COPY .npmrc ./
 
 # Copy required shared packages (like features, ui)
 RUN mkdir -p packages/ui
@@ -32,4 +39,4 @@ EXPOSE 8081
 
 # Set the command to start the Expo development server for web
 # Assumes the package name is 'my-expo-app'
-CMD ["pnpm", "--filter", "my-expo-app", "web"] 
+CMD ["pnpm", "--filter", "my-expo-app", "web"]

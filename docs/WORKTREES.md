@@ -29,10 +29,13 @@ No editor is launched and no workspace file is modified.
 
 ## Prerequisites
 
-- macOS or Linux, Git, Python 3.11+, `uv`, Node **22.22+**, and the pnpm version pinned in `package.json`.
+Run the offline trust checks in [PYTHON_TRUST.md](PYTHON_TRUST.md) before provisioning.
+Old installers or custom CA bundles fail closed before dependency downloads.
+
+- macOS or Linux, Git, Python 3.11+, `uv` **0.13.4+**, Node **22.23.4+**, and the pnpm version pinned in `package.json`.
   The create/provision/test wrappers automatically select the installed `.nvmrc` Node version
   through nvm when the inherited Node is too old. They change only the child process environment,
-  never the global nvm default. If Node 22 is absent, run `nvm install` from the checkout first.
+  never the global nvm default. If the pinned Node version is absent, run `nvm install` from the checkout first.
 - Docker Desktop / Docker Compose for the existing `portfolio-postgres` service, or that local
   Postgres already running. PostgreSQL client tools (`psql`, `pg_dump`, `pg_restore`) must be on PATH
   and at least as new as the local server (currently PostgreSQL 17).

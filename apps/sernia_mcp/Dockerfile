@@ -3,11 +3,22 @@
 # -----------------------------------------------------------------------------
 # Build stage — install dependencies into a self-contained venv with uv.
 #
-# Uses Astral's official uv-on-python image so uv is preinstalled at a known
-# version (no Nixpacks-style "discover uv at build time" failure mode). The
+# Copies pinned official uv onto the same patched Python base as the runtime. The
 # venv ends up at /app/.venv and is copied into the final stage as-is.
 # -----------------------------------------------------------------------------
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+FROM python:3.11-slim-bookworm AS trusted-python
+
+COPY trust/ /opt/python-trust/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && sh /opt/python-trust/distrust-emsign.sh \
+    && sh /opt/python-trust/bootstrap-pip.sh /usr/local/bin/python \
+    && python /opt/python-trust/check_python_trust.py \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM trusted-python AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /uvx /bin/
+RUN python /opt/python-trust/check_python_trust.py --require-uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -29,11 +40,11 @@ WORKDIR /app
 # README.md is copied because pyproject.toml's `readme = "README.md"` is
 # validated by hatchling at build time, even with --no-install-project.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --locked --no-install-project --no-dev
 
 # Then the app source — small change → small layer.
 COPY src/ ./src/
-RUN uv sync --frozen --no-dev
+RUN uv sync --locked --no-dev
 
 # -----------------------------------------------------------------------------
 # Runtime stage — minimal Python image with the prebuilt venv on PATH.
@@ -41,14 +52,12 @@ RUN uv sync --frozen --no-dev
 # We don't carry uv into the runtime; we just point at the venv. Smaller image,
 # faster cold starts.
 # -----------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm
+FROM trusted-python
 
 # git is needed at runtime: ensure_repo / pull_workspace / commit_and_push
 # shell out to `git` to keep the workspace in sync with the sernia-knowledge
 # repo. Without this the workspace becomes ephemeral on each redeploy.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
+# git and the refreshed trust store are inherited from trusted-python.
 
 WORKDIR /app
 
@@ -56,6 +65,9 @@ COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
+
+RUN python /opt/python-trust/check_python_trust.py --require-certifi \
+    && /usr/local/bin/python /opt/python-trust/check_python_trust.py
 
 EXPOSE 8080
 

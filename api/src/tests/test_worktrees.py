@@ -300,7 +300,7 @@ class WorktreeTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Node 22.22+", result.stderr)
+        self.assertIn("Node 22.23.4+", result.stderr)
 
     def test_tampered_state_cannot_target_shared_database(self) -> None:
         checkout = self.checkout()

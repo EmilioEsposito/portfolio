@@ -74,6 +74,20 @@ const metroPackageRequire = createRequire(metroRequire.resolve('metro/package.js
 const micromatchRequire = createRequire(metroPackageRequire.resolve('micromatch/package.json'));
 const braces = micromatchRequire('braces');
 
+test('Expo xcode consumer still generates PBX identifiers with patched uuid', () => {
+  const configRequire = createRequire(expoRequire.resolve('@expo/config-plugins/package.json'));
+  const project = configRequire('xcode').project('/tmp/synthetic.pbxproj');
+  project.hash = { project: { objects: {} } };
+  assert.match(project.generateUuid(), /^[A-F0-9]{24}$/);
+});
+
+test('Mermaid math dependency renders with patched KaTeX', () => {
+  const mermaidRequire = createRequire(webRequire.resolve('mermaid/package.json'));
+  const katex = mermaidRequire('katex');
+  assert.match(katex.renderToString('E=mc^2'), /class="katex"/);
+  assert.throws(() => katex.renderToString('\\notARealCommand'), /Undefined control sequence/);
+});
+
 // GHSA-vfj7-8cjw-p6xm: cap parser-produced AST depth before recursive walkers run.
 for (const method of ['parse', 'compile', 'expand', 'stringify']) {
   test(`braces.${method} rejects excessive brace and parenthesis depth`, () => {
