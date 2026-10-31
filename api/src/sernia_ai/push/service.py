@@ -119,6 +119,39 @@ async def remove_subscription(
         return deleted
 
 
+# Push-service responses that mean a stored subscription can never succeed
+# again with the current VAPID identity. After a VAPID key rotation, browsers
+# that have not revisited the app still hold subscriptions bound to the old
+# public key; push services reject every send to them:
+#   - Apple:   400 {"reason":"VapidPkHashMismatch"}
+#   - FCM:     403 "...VAPID credentials ... do not correspond to the
+#              credentials used to create the subscriptions."
+# Such rows are as dead as a 404/410 and are pruned the same way; the browser
+# re-subscribes with the current key the next time the user opens the app.
+_VAPID_MISMATCH_MARKERS = (
+    "VapidPkHashMismatch",
+    "do not correspond to the credentials used to create the subscription",
+)
+
+
+def _stale_subscription_reason(exc: WebPushException) -> str | None:
+    """Return why a failed send means the subscription is permanently dead, else None."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status in (404, 410):
+        return f"gone ({status})"
+    if status is None and ("410" in str(exc) or "404" in str(exc)):
+        # No response object attached — fall back to the legacy message check.
+        return "gone"
+    try:
+        body = response.text if response is not None else ""
+    except Exception:
+        body = ""
+    if status in (400, 401, 403) and any(m in (body or "") for m in _VAPID_MISMATCH_MARKERS):
+        return f"vapid key mismatch ({status})"
+    return None
+
+
 def _send_push(subscription_info: dict, payload: str):
     """Synchronous push send — run via asyncio.to_thread."""
     vapid = _get_vapid()
@@ -170,9 +203,14 @@ async def notify_all_sernia_users(
                     status=getattr(resp, "status_code", "ok"),
                 )
             except WebPushException as e:
-                if "410" in str(e) or "404" in str(e):
+                stale_reason = _stale_subscription_reason(e)
+                if stale_reason:
                     expired_endpoints.append(sub.endpoint)
-                    logfire.info("web push subscription expired", endpoint=sub.endpoint[:40])
+                    logfire.info(
+                        "web push subscription expired",
+                        endpoint=sub.endpoint[:40],
+                        reason=stale_reason,
+                    )
                 else:
                     logfire.exception("web push send error", endpoint=sub.endpoint[:40])
             except Exception:
@@ -246,9 +284,14 @@ async def notify_user_push(
                     status=getattr(resp, "status_code", "ok"),
                 )
             except WebPushException as e:
-                if "410" in str(e) or "404" in str(e):
+                stale_reason = _stale_subscription_reason(e)
+                if stale_reason:
                     expired_endpoints.append(sub.endpoint)
-                    logfire.info("web push subscription expired", endpoint=sub.endpoint[:40])
+                    logfire.info(
+                        "web push subscription expired",
+                        endpoint=sub.endpoint[:40],
+                        reason=stale_reason,
+                    )
                 else:
                     logfire.exception("web push send error", endpoint=sub.endpoint[:40])
             except Exception:

@@ -117,6 +117,11 @@ subscription is unsubscribed and replaced using the existing notification
 permission. If the browser requires a user gesture, the UI shows notifications as
 disabled so the user can enable them again. Offline devices must revisit the app;
 server-side key rotation alone cannot renew their browser subscriptions.
+Until they do, push services reject sends to the old subscriptions (Apple:
+`400 VapidPkHashMismatch`; FCM: `403 ... do not correspond to the credentials`).
+The send loop treats these like `404`/`410` and deletes the stored row, so a
+rotation produces at most one failed send per stale device instead of a
+recurring `web push send error`.
 
 ```bash
 source .venv/bin/activate && python adhoc/create_push_keys.py
@@ -163,4 +168,4 @@ All under `/api/sernia-ai/push/`, gated by `_sernia_gate` (requires `@serniacapi
 - **Chrome DevTools** → Application → Manifest: verify `manifest.json` detected
 - **DB check**: `SELECT * FROM web_push_subscriptions;` to see active subscriptions
 - **Push not arriving?**: Check `VAPID_PRIVATE_KEY` is set, check Logfire for `web push send error`
-- **410 Gone**: Subscription expired (browser revoked) — auto-cleaned by `notify_all_sernia_users`
+- **404/410, or VAPID key mismatch after a key rotation**: subscription can never succeed again — auto-cleaned by `notify_all_sernia_users` / `notify_user_push` (logged as `web push subscription expired` with a `reason`)
