@@ -143,6 +143,76 @@ async def test_targeted_push_does_not_broadcast_without_user_subscription(monkey
     notify_all.assert_not_awaited()
 
 
+def _push_exc(status: int, body: str):
+    from pywebpush import WebPushException
+
+    response = MagicMock()
+    response.status_code = status
+    response.text = body
+    return WebPushException(f"Push failed: {status}", response=response)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "stale"),
+    [
+        (410, "", True),
+        (404, "", True),
+        # Apple after a VAPID key rotation (seen in production 2026-10-31).
+        (400, '{"reason":"VapidPkHashMismatch"}', True),
+        # FCM's equivalent rejection.
+        (
+            403,
+            "the VAPID credentials in the authorization header do not correspond "
+            "to the credentials used to create the subscriptions.",
+            True,
+        ),
+        (400, '{"reason":"BadJwtToken"}', False),
+        (413, "payload too large", False),
+        (500, "VapidPkHashMismatch", False),
+    ],
+)
+def test_stale_subscription_reason(status, body, stale):
+    from api.src.sernia_ai.push.service import _stale_subscription_reason
+
+    assert bool(_stale_subscription_reason(_push_exc(status, body))) is stale
+
+
+@pytest.mark.asyncio
+async def test_vapid_mismatch_subscriptions_are_pruned(monkeypatch):
+    from api.src.sernia_ai.push import service
+
+    stale = MagicMock(endpoint="https://web.push.apple.com/stale", p256dh="k", auth="a")
+    live = MagicMock(endpoint="https://web.push.apple.com/live", p256dh="k", auth="a")
+    query_result = MagicMock()
+    query_result.scalars.return_value.all.return_value = [stale, live]
+    session = AsyncMock()
+    session.execute.return_value = query_result
+
+    class FakeSessionContext:
+        async def __aenter__(self):
+            return session
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    def fake_send(subscription_info, payload):
+        if subscription_info["endpoint"] == stale.endpoint:
+            raise _push_exc(400, '{"reason":"VapidPkHashMismatch"}')
+        return MagicMock(status_code=201)
+
+    monkeypatch.setattr(service, "_get_vapid", lambda: object())
+    monkeypatch.setattr(service, "AsyncSessionFactory", FakeSessionContext)
+    monkeypatch.setattr(service, "_send_push", fake_send)
+
+    await service.notify_user_push(clerk_user_id="user-1", title="Sernia AI", body="hi")
+
+    # select + delete of the stale endpoint only
+    assert session.execute.await_count == 2
+    delete_stmt = session.execute.await_args_list[1].args[0]
+    assert delete_stmt.compile().params == {"endpoint_1": [stale.endpoint]}
+    session.commit.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_persist_agent_run_result_reports_commit_status(monkeypatch):
     from api.src.ai_demos import models
