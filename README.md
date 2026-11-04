@@ -65,6 +65,12 @@ Backend tests live in [`api/src/tests/`](api/src/tests/), MCP tests in
 Default tests mock third-party services; live tests are opt-in.
 [CI](.github/workflows/tests.yml) also checks lint, formatting, and dependency regressions.
 
+### Sanitized Seed Data
+
+Development seeding and optional private fixtures are documented in the
+[seed data guide](docs/DEVELOPMENT.md#sanitized-seed-data-dev-environments).
+Public contributors do not need private bucket access.
+
 ## Contributing and deployment
 
 Read [AGENTS.md](AGENTS.md) and the relevant module guide. Keep PRs focused,
