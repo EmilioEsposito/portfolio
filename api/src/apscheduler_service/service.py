@@ -371,13 +371,6 @@ async def schedule_push(
     to_email = emails[recipient]
     is_scheduled = False
 
-    # await send_push_to_user(
-    #         email=test_email,
-    #         title="Pytest Hello World!",
-    #         body="This is a test notification from pytest.",
-    #         data={"test": True},
-    #     )
-
     try:
         scheduler.add_job(
             func=send_push_to_user,
@@ -397,41 +390,6 @@ async def schedule_push(
         is_scheduled = False
 
     return is_scheduled
-
-
-# EXAMPLES
-
-# scheduler.add_job(
-#     id="send_push_to_user_job",
-#     func=send_push_to_user,
-#     kwargs={
-#         "email": "emilio@serniacapital.com",
-#         "title": "APScheduler Test Notification",
-#         "body": "This is a test notification from the APScheduler.",
-#         "data": {"test": True}
-#     },
-#     trigger="interval",
-#     seconds=300,
-#     replace_existing=True
-# )
-
-
-# scheduler.add_job(
-#     id="one_time_job",
-#     func=send_push_to_user,
-#     kwargs={
-#         "email": "emilio@serniacapital.com",
-#         "title": "One Time APScheduler Test Notification",
-#         "body": "This is a test notification from the APScheduler.",
-#         "data": {"test": True}
-#     },
-#     trigger="date",
-#     run_date=datetime.now() + timedelta(seconds=30),
-#     replace_existing=True
-# )
-
-
-# TESTING
 
 
 @logfire.instrument()

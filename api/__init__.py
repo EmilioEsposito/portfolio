@@ -11,9 +11,8 @@ pydantic-ai discover implicitly:
   own key namespaced so it can't collide with an agent tool's environment.
 
 This lives in the package __init__ (not api/index.py) so EVERY entry point
-gets it: the FastAPI app, pytest (pytest.ini collects inline tests from all
-api/ modules, many of which construct Agents at import), seed_db.py, and ad
-hoc scripts.
+gets it: the FastAPI app, pytest (tests import modules that construct Agents),
+seed_db.py, and ad hoc scripts.
 """
 
 import os

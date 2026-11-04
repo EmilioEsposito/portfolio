@@ -54,3 +54,15 @@ if pending:
         clerk_user_id="user_123",
     )
 ```
+
+## Manual demo
+
+The persisted SMS example is separate from the service implementation:
+
+```bash
+python -m api.src.ai_demos.hitl_agents.offline_examples.hitl_sms_demo
+```
+
+It uses real inference, persists a conversation, and approves proposed actions.
+Run it only with intentionally configured development recipients and credentials.
+Automated tests belong in `api/src/tests/` and mock external sends.
