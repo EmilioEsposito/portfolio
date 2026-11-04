@@ -8,7 +8,7 @@ packages = ["api"]
 [project]
 name = "portfolio"
 version = "0.1.0"
-description = "Add your description here"
+description = "Portfolio API, public AI demos, and Sernia Capital operations automation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

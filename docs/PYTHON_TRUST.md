@@ -22,10 +22,9 @@ identified in this bounded repository/build audit; it was not a forensic review.
 | Root and standalone MCP `uv.lock` | Both already had certifi 2026.10.19 | Retain it; add a resolver floor without adding an unused direct dependency; require uv >=0.13.4 |
 | API single-stage image | `python:3.11-slim`, floating uv `latest`, unfrozen sync, inherited pip | Bookworm Python 3.11 retained; refreshed OS CA package with explicit G3 distrust; hash-pinned pip bootstrap; uv 0.13.4 before venv/sync; `--locked`; base and venv checked |
 | MCP builder and final image | Floating uv/Python builder; separate runtime with unchecked base pip/OS roots | Common patched `trusted-python` base; pinned uv only in builder; verify final venv and base interpreter independently |
-| Cursor snapshot | Ubuntu 22.04, Node 20, floating uv, ordinary pip upgrade, seeded venv pip | G3 distrust before HTTPS bootstrap; Node 22 with trust check; pinned uv; hash-pinned pip for both Python 3.10/3.11 base interpreters and seeded venv; snapshot rebuild still required |
 | Python test CI | Unpinned setup-uv, reusable caches, one unfrozen sync | uv 0.13.4, new `emsign-2026-10-22` cache namespace, explicit Python/pip bootstrap, OS distrust, pre/post-install checks, locked installs |
 | Scheduled Logfire workflow | `pip install requests` using setup-python's inherited pip | Hash-pinned pip bootstrap first, then requests with certifi floor and trust check |
-| Claude/Codex/Cursor setup and worktree provisioner | Assumed host/snapshot installers were safe | Fail closed on outdated installers/active bad roots **before Python dependency downloads**; locked cloud syncs |
+| Claude/Codex setup and worktree provisioner | Assumed host/snapshot installers were safe | Fail closed on outdated installers/active bad roots **before Python dependency downloads**; locked cloud syncs |
 | Web Docker base/deps/build/final stages | Node 22.23.2 inherited by all stages | Node 22.23.4 plus OS CA refresh/distrust and bundled/effective-root check before Corepack/pnpm; all stages inherit it |
 | Expo Docker stage | Node 20, unpinned global pnpm, missing patch inputs | Same Node 22.23.4 trust base; Corepack uses repository package-manager pin; copy existing patch/config inputs |
 | Local Node / frontend CI | `.nvmrc` major 22, engines >=22.22 | `.nvmrc` 22.23.4, matching engine minimum and CI version; launcher refuses old/bad bundled roots |
@@ -42,7 +41,7 @@ infrastructure owners.**
 
 ## Effective CA paths and local evidence
 
-Clean API, MCP, web, Expo and Cursor builds used `docker build --pull --no-cache`, TLS verification
+Clean API, MCP, web and Expo builds used `docker build --pull --no-cache`, TLS verification
 intact. Final runtime containers were inspected with `--network none`, without
 application startup, migrations, credentials, volumes, or provider traffic.
 
@@ -57,12 +56,6 @@ application startup, migrations, credentials, volumes, or provider traffic.
   Both final base interpreters: pip 26.2.2; **pip vendored certifi 2026.10.19** at
   `/usr/local/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem`, 120 roots.
   App venvs do not contain pip. API uv is 0.13.4; MCP runtime contains no uv.
-- Cursor final image: inherited Ubuntu Python 3.10.12 and 3.11.0rc1 plus its
-  seeded venv all have pip 26.2.2 / vendored certifi 2026.10.19, uv 0.13.4 and
-  120 active directory-backed system roots without G3. Node is 22.23.4. The
-  preexisting Ubuntu prerelease Python 3.11 package remains a separate development
-  image modernization gap; only its trust/bootstrap behavior was validated here,
-  not full Cursor project startup or its browser-install layout.
 - Worktree app venvs: Python 3.11.11, certifi 2026.10.19, no pip; Homebrew OpenSSL
   bundle `/opt/homebrew/etc/openssl@3/cert.pem` has 183 roots and no G3.
   A separate temporary tool venv was bootstrapped with the PSF hash-pinned wheel:
@@ -167,7 +160,7 @@ versions. The pnpm lockfile also changes peer keys and uv updates its lock revis
 1. Recheck the official advisories at execution time. Review this PR and its CI
    results before merge. A merge alone does not change a running process/image.
 2. Retire old CI caches (`setup-uv` previous namespace), Docker/BuildKit cached
-   layers and cache exports, Railway build caches, and Cursor/cloud snapshots.
+   layers and cache exports, Railway build caches, and cloud snapshots.
    Do not broadly delete shared caches or other developers' environments without
    identifying ownership. The new CI suffix avoids restoring old uv caches.
 3. Pull fresh base images and rebuild **each** relevant image without cached layers:
@@ -177,7 +170,6 @@ versions. The pnpm lockfile also changes peer keys and uv updates its lock revis
    docker build --pull --no-cache -f apps/sernia_mcp/Dockerfile -t portfolio-mcp:trust-fixed apps/sernia_mcp
    docker build --pull --no-cache -f apps/web-react-router/Dockerfile -t portfolio-web:trust-fixed .
    docker build --pull --no-cache -f apps/my-expo-app/Dockerfile -t portfolio-expo:trust-fixed .
-   docker build --pull --no-cache -f .cursor/Dockerfile -t portfolio-cursor:trust-fixed .
    ```
 
    For Railway, explicitly select a fresh build with build cache disabled and
@@ -207,11 +199,11 @@ versions. The pnpm lockfile also changes peer keys and uv updates its lock revis
    hash-pinned helper for each seeded venv; ordinary uv venvs have no pip by default.
    Upgrade host uv through a verified official release or a fixed pip in a separate
    tooling venv. Run `nvm install` for the repository's pinned Node version.
-8. Rebuild and replace Cursor snapshots; refresh Claude/Codex managed images or
+8. Refresh Claude/Codex managed images or
    their installers/system CA store before retrying the fail-closed setup guard.
    Existing shared snapshots, production containers, host kernel/Keychain and
    all environments outside this worktree remain coverage gaps until verified.
 
-The Cursor and Expo images are local validation artifacts, not deployments. Source checks are not a substitute for their final-image tests
+The Expo image is a local validation artifact, not a deployment. Source checks are not a substitute for their final-image tests
 or macOS/host OS remediation. No secret rotation is warranted solely by finding
 outdated trust tooling; separately investigate any concrete interception evidence.

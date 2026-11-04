@@ -18,7 +18,7 @@ Requires ``GITHUB_EMILIO_PERSONAL_WRITE_PAT`` env var. Without it, the workspace
 operates in local-only mode (no git sync) — useful for tests and dev. When
 the api/ copy of this file changes meaningfully, mirror the change here. The
 contract is small enough that occasional drift is acceptable; document any
-intentional divergence in CLAUDE.md.
+intentional divergence in AGENTS.md.
 
 The ``RUF059`` ruff rule (unused unpacked variables) is suppressed file-wide
 to match the upstream copy in ``api/src/sernia_ai/memory/`` — we keep this

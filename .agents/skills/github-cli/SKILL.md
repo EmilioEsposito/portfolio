@@ -5,7 +5,7 @@ description: Use the GitHub CLI (gh) for PRs, issues, reviews, and repo operatio
 
 The GitHub CLI (`gh`) is available and authenticated. Use it for GitHub operations.
 
-**Auth**: Works via `GH_TOKEN` env var (Codex Web) or local `gh auth login` (local CLI).
+**Auth**: Works via `GH_TOKEN` env var (cloud sessions) or local `gh auth login` (local CLI).
 
 # PULL REQUESTS
 

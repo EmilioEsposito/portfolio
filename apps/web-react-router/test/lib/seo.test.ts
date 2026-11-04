@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateJsonLd } from "./seo";
+import { generateJsonLd } from "../../app/lib/seo";
 
 test("JSON-LD remains an object after React Router serializes the meta descriptor", () => {
   const schema = {

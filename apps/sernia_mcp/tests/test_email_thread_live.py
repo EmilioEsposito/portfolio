@@ -16,7 +16,7 @@ Run:
     uv run pytest -m live tests/test_email_thread_live.py -v -s
 
 Skipped by default (the ``live`` marker is excluded by ``pyproject.toml``'s
-default ``addopts`` — see also `tests/conftest.py` and CLAUDE.md).
+default ``addopts`` — see also `tests/conftest.py` and AGENTS.md).
 """
 
 from __future__ import annotations

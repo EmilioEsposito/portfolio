@@ -250,7 +250,7 @@ apps/sernia_mcp/
 │   ├── config.py                # Env-driven constants
 │   ├── identity.py              # Acting-user resolver (POC: single user via SERNIA_MCP_DEFAULT_USER)
 │   ├── static/icon.png          # Server icon advertised at MCP-level + served at /icon.png
-│   ├── clients/                 # Vendored upstream HTTP clients (sync points documented in CLAUDE.md)
+│   ├── clients/                 # Vendored upstream HTTP clients (sync points documented in AGENTS.md)
 │   │   ├── google_auth.py       #   service-account delegated creds
 │   │   ├── gmail.py             #   Gmail v1 API helpers
 │   │   ├── quo.py               #   OpenPhone API helpers
@@ -289,7 +289,7 @@ apps/sernia_mcp/
 
 ## See also
 
-- [`CLAUDE.md`](CLAUDE.md) — AI-assisted-development guide for this service.
+- [`AGENTS.md`](AGENTS.md) — AI-assisted-development guide for this service.
 - [FastMCP docs](https://gofastmcp.com/) — refresh once per session for new features.
 
 ## Fixed external reminders without HITL
