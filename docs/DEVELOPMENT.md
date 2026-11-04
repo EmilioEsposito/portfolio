@@ -112,4 +112,3 @@ uv run python scripts/export_seed_fixture.py --upload-only
 Phone/email redaction and truncation are automatic; names, addresses, and other details in free text still require human review. Keep the fixture out of Git. Avoid the one-step `--upload` option when a review has not occurred.
 
 Seeding can download the fixture in non-production environments when `SEED_BUCKET_ENDPOINT_URL`, `SEED_BUCKET_NAME`, `SEED_BUCKET_ACCESS_KEY_ID`, and `SEED_BUCKET_SECRET_ACCESS_KEY` are configured. Use the bucket's full name from its Credentials tab. Keep these optional values in local secret configuration or the relevant CI/cloud secret store; leave them unset when not using the private fixture.
-
