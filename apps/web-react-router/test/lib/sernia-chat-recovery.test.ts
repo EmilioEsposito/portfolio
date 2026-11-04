@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   serverHasResponseForRequest,
   userMessageFingerprint,
-} from "./sernia-chat-recovery.ts";
+} from "../../app/lib/sernia-chat-recovery.ts";
 
 const userMessage = (text: string) => ({
   role: "user",

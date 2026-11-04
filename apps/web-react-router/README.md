@@ -4,7 +4,7 @@ React Router v8 framework mode with React 19, Tailwind, Clerk, and a FastAPI bac
 
 ## Development
 
-Use Node 22.22+ and the pnpm version pinned in the root `package.json`.
+Use the Node version in `.nvmrc` and the pnpm version pinned in the root `package.json`.
 From the repository root:
 
 ```bash

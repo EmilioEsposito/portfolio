@@ -1,21 +1,24 @@
-# API vs API_SRC Directory
+# FastAPI backend
 
-The `/api` directory hosts the FastAPI server.
+The API serves public AI demos and authenticated Sernia operations. `index.py`
+mounts routers and owns the application startup lifecycle; feature modules live
+under `src/`. SQLAlchemy models and Alembic migrations live in `src/database/`.
 
-See [.vscode/launch.json](../.vscode/launch.json) for how to run the FastAPI backend in debug mode on Emilio's local laptop.
-See [Dockerfile](./Dockerfile) for how it is ran in prod on Railway. 
-See [railway_fastapi.json](./railway_fastapi.json) for how Railway deployment configuration.
-Also see project root [README.md](../README.md) for more context.
-
-Direct run command (I think):
+From the repository root, after [development setup](../docs/DEVELOPMENT.md):
 
 ```bash
-# Activate the virtual environment from project root "portfolio" directory
-source .venv/bin/activate
-python -m hypercorn api.index:app --bind 0.0.0.0:8000 --reload
+pnpm fastapi-dev
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
 ```
 
+The launcher resolves API configuration without printing credentials. API docs
+are available at `http://localhost:8000/api/docs`. Tests live in `src/tests/`;
+live provider tests are excluded by default.
 
-
-
-
+Start with the guides for [public demos](src/ai_demos/README.md),
+[Sernia AI](src/sernia_ai/README.md), [SMS](src/open_phone/README.md),
+[Google](src/google/README.md), and [schedulers](src/schedulers/README.md).
+Production builds use [Dockerfile](Dockerfile) and
+[railway_fastapi.json](railway_fastapi.json).

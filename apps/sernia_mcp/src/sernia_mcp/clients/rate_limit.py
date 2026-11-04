@@ -1,7 +1,7 @@
 """Shared rate limiting + 429 retry for OpenPhone (Quo) API calls.
 
 VENDORED from ``api/src/open_phone/rate_limit.py`` (keep in sync — see the
-vendored-client policy in ``apps/sernia_mcp/CLAUDE.md``).
+vendored-client policy in ``apps/sernia_mcp/AGENTS.md``).
 
 OpenPhone enforces a per-API-key rate limit (~10 requests/sec). Bursts of
 parallel reads periodically exceeded it and came back ``429 Too Many Requests``

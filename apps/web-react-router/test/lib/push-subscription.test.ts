@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureCurrentPushSubscription } from "./push-subscription.ts";
+import { ensureCurrentPushSubscription } from "../../app/lib/push-subscription.ts";
 
 const key = new Uint8Array([4, 251, 255, 19]);
 const encoded = Buffer.from(key).toString("base64url");

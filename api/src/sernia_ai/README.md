@@ -19,7 +19,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 | [`tools/README.md`](tools/README.md) | SMS gates, mass-texting pattern, tool inventory |
 | [`triggers/README.md`](triggers/README.md) | Trigger flows (team SMS, AI SMS, email) with diagrams |
 | [`push/README.md`](push/README.md) | W3C Web Push + VAPID implementation |
-| [`PLAN.md`](PLAN.md) | Master architecture document (design decisions, phases) |
+| [Open work](../../../docs/ROADMAP.md) | Exploratory follow-ups and service backlog |
 
 ## Key Concepts
 

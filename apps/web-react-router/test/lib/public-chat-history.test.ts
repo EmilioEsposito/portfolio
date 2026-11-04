@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { UIMessage } from "ai";
-import { publicChatHistory } from "./public-chat-history";
+import { publicChatHistory } from "../../app/lib/public-chat-history";
 
 // Captured from the failing portfolio -> NYC weather browser request. Tool and
 // reasoning contents are replaced with dummy text, preserving its 12-part shape

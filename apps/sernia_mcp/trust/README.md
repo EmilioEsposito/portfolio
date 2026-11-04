@@ -1,7 +1,7 @@
 # Python installer and CA verification
 
 These dependency-free helpers live inside the standalone MCP Docker context and
-are also copied into the API and Cursor images and called from CI/worktree setup.
+are also copied into the API image and called from CI/worktree setup.
 No service credentials are needed. They never load application modules or dotenv.
 
 - `bootstrap-pip.sh [interpreter]` installs pip 26.2.2 from the exact official

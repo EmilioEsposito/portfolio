@@ -7,7 +7,7 @@ Tests:
 - _is_internal_contact: internal/external contact discrimination (quo_tools)
 
 ⚠️  SMS SAFETY: All SMS tests mock the send call. NEVER send
-real SMS to external contacts from tests. See CLAUDE.md.
+real SMS to external contacts from tests. See AGENTS.md.
 """
 
 from pydantic_ai.messages import (

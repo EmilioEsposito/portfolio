@@ -7,7 +7,7 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "node server.js",
-    "test": "tsx --test app/lib/*.test.ts test/*.test.mjs",
+    "test": "tsx --test test/lib/*.test.ts test/*.test.mjs",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
