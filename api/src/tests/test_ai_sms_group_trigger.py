@@ -8,7 +8,7 @@ from the local ``open_phone_events`` table with sender-name prefixes, and
 replies to ALL human participants so the answer lands in the group thread.
 
 ⚠️  SMS SAFETY: All SMS tests mock the send call. NEVER send real SMS from
-tests. See CLAUDE.md.
+tests. See AGENTS.md.
 """
 
 from unittest.mock import AsyncMock, patch

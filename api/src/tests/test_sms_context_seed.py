@@ -4,7 +4,7 @@ Unit tests for the SMS hidden context seeding feature.
 Tests _seed_sms_conversation and verifies the context flows correctly.
 
 ⚠️  SMS SAFETY: All SMS tests mock the send call. NEVER send
-real SMS to external contacts from tests. See CLAUDE.md.
+real SMS to external contacts from tests. See AGENTS.md.
 """
 
 from contextlib import asynccontextmanager

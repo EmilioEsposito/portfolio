@@ -1,8 +1,11 @@
-<!-- Provide a general summary of your changes in the Title above -->
+## Change
 
-## Description
-<!--- Describe your changes in detail -->
+<!-- State the problem and resulting behavior. -->
 
+## Validation
 
-**Required Pre-Merge Check:**
-- [ ] Synced Railway environment with Dev/Prod as needed. 
+<!-- List relevant checks and any limits. -->
+
+## Preview
+
+<!-- https://react-router-portfolio-pr-<PR_NUMBER>.up.railway.app/ -->

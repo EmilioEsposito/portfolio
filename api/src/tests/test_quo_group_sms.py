@@ -12,7 +12,7 @@ Covers:
 - mass_text_tenants batching: roommates share one group send per unit.
 
 ⚠️  SMS SAFETY: All SMS tests here mock the send call. NEVER send real SMS
-to external contacts from tests. See CLAUDE.md.
+to external contacts from tests. See AGENTS.md.
 """
 
 import json

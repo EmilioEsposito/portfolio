@@ -1,12 +1,11 @@
 ---
 name: load-prod-data
-description: Pull real production data into a dev or Codex cloud environment — ad hoc via the Neon MCP tools (sanitize before inserting locally), or the persistent sanitized baseline via the Railway seed bucket. Use when local/seeded data isn't enough — e.g. debugging against realistic conversations, reproducing a data-dependent bug, testing UI with real-shaped data.
+description: Pull real production data into a development or cloud environment — ad hoc via the Neon MCP tools (sanitize before inserting locally), or the persistent sanitized baseline via the Railway seed bucket. Use when local/seeded data isn't enough — e.g. debugging against realistic conversations, reproducing a data-dependent bug, testing UI with real-shaped data.
 ---
 
 # Load Production Data into a Dev Environment
 
-Codex cloud sandboxes **cannot** reach Neon over Postgres (outbound
-port 5432 is blocked), so `psql`/SQLAlchemy against real environments won't
+Cloud sandboxes may block direct Neon connections over outbound port 5432, so `psql`/SQLAlchemy against real environments won't
 work there. Two HTTPS paths exist instead:
 
 | Need | Path |
@@ -18,7 +17,7 @@ work there. Two HTTPS paths exist instead:
 
 The Neon MCP tools (`mcp__Neon__run_sql`, `describe_table_schema`,
 `get_database_tables`, ...) work over HTTPS from the sandbox. Production
-writes are guarded by `.Codex/hooks/` — reads are fine; prefer a dev/PR
+writes are guarded by the active tool's production hooks — reads are fine; prefer a dev/PR
 branch when one has the data you need.
 
 Recipe to copy real conversations into local Postgres:

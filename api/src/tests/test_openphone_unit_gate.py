@@ -5,7 +5,7 @@ These are pure unit tests — no API calls, no live marker.
 
 ⚠️  SMS SAFETY: All external SMS tests must mock the send call. NEVER send
 real SMS to external contacts (tenants, vendors, etc.) from tests. See
-CLAUDE.md "SMS test safety" for details.
+AGENTS.md "SMS test safety" for details.
 """
 
 from datetime import date, timedelta
