@@ -15,7 +15,7 @@ from api.src.google.common.service_account_auth import (
 )
 
 
-def main():
+def main() -> None:
 
     # Load environment variables
     load_dotenv()

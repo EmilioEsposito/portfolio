@@ -10,7 +10,7 @@ from api.src.dbos_service.dbos_scheduler import (
 )
 
 
-def main():
+def main() -> None:
 
     # For testing: import everything needed to populate the registry
     from api.src.dbos_service.dbos_config import launch_dbos
