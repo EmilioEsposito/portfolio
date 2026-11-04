@@ -138,25 +138,3 @@ def get_workflow_func(job_id: str):
                 return workflow_func
 
     return None
-
-
-if __name__ == "__main__":
-    # For testing: import everything needed to populate the registry
-    from api.src.dbos_service.dbos_config import launch_dbos
-    from api.src.utils.logfire_config import ensure_logfire_configured
-
-    # Import scheduled workflows to register them
-
-    ensure_logfire_configured(mode="test")
-
-    # Capture workflows BEFORE launch
-    capture_scheduled_workflows()
-
-    launch_dbos()
-
-    print("Getting scheduled DBOS jobs:")
-    jobs = get_scheduled_jobs()
-    print(f"Found {len(jobs)} jobs:")
-    for job in jobs:
-        print(f"  - {job['id']}: {job['trigger']}")
-    print("DONE!")
