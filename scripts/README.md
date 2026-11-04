@@ -95,3 +95,15 @@ remaining runtime consumer, so its browser API key and browser Google client ID
 are no longer forwarded. Clerk Google sign-in remains managed by Clerk; backend
 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and
 `GOOGLE_SERVICE_ACCOUNT_CREDENTIALS` remain supported.
+
+## Manual checks
+
+Run these explicitly from the repository root with development configuration:
+
+- `python -m scripts.check_google_credentials`: validate credential loading and,
+  if `TEST_DELEGATION_EMAIL` is set, construct delegated credentials.
+- `python -m scripts.inspect_dbos_scheduler`: start DBOS and print its registered
+  jobs. DBOS remains disabled in the application; this is a manual diagnostic.
+
+These replace the former inline `__main__` checks in the corresponding service
+modules. They are not part of the automated test suite.
