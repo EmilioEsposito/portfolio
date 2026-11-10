@@ -227,6 +227,29 @@ async def save_failed_run(
         )
 
 
+async def _release_connection(deps: SerniaDeps) -> None:
+    """Hand the caller's DB connection back to the pool before the model runs.
+
+    Callers load conversation history on ``deps.db_session`` and keep that
+    session open around the run. Without this the connection would sit idle
+    in a transaction for the whole run (minutes), and the save — which uses
+    its own fresh session — would need a second one on top. Enough concurrent
+    runs and the pool runs dry exactly when replies need to be saved.
+
+    Ending the transaction is safe: nothing loaded so far is an ORM object
+    the caller still uses, and the session simply begins a new transaction if
+    something touches it later. Never raises.
+    """
+    try:
+        await deps.db_session.rollback()
+    except Exception:
+        logfire.warn(
+            "sernia run: could not release the caller's DB connection",
+            conversation_id=deps.conversation_id,
+            _exc_info=True,
+        )
+
+
 async def run_and_finalize(
     prompt: str,
     *,
@@ -253,6 +276,7 @@ async def run_and_finalize(
             thing for that merge to repair.
     """
     conversation_id = deps.conversation_id
+    await _release_connection(deps)
     with capture_run_messages() as captured:
         try:
             result = await run_agent(

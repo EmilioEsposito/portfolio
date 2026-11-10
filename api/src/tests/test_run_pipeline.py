@@ -198,6 +198,33 @@ class TestRunAndFinalize:
         assert outcome is not None and outcome.reply_text == "All set."
 
     @pytest.mark.asyncio
+    async def test_callers_connection_is_released_before_the_model_runs(self, pipeline):
+        """History is loaded on the caller's session; holding that connection
+        through a minutes-long run, plus a second one for the save, drains
+        the pool under concurrent runs."""
+        deps = make_deps([PHONE])
+        order: list[str] = []
+        deps.db_session.rollback.side_effect = lambda: order.append("released")
+
+        async def run(*args, **kwargs):
+            order.append("model ran")
+            return text_result()
+
+        pipeline.agent.run.side_effect = run
+        pipeline.persist.side_effect = lambda *a, **k: order.append("saved") or True
+        await runs.run_and_finalize("hi", deps=deps, trigger_source="ai_sms", clerk_user_id="bot")
+        assert order == ["released", "model ran", "saved"]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_release_does_not_stop_the_run(self, pipeline):
+        deps = make_deps([PHONE])
+        deps.db_session.rollback.side_effect = RuntimeError("connection already gone")
+        outcome = await runs.run_and_finalize(
+            "hi", deps=deps, trigger_source="ai_sms", clerk_user_id="bot"
+        )
+        assert outcome is not None and outcome.reply_text == "All set."
+
+    @pytest.mark.asyncio
     async def test_crashed_run_returns_none_and_delivers_nothing(self, pipeline):
         pipeline.agent.run.side_effect = RuntimeError("model down")
         outcome = await runs.run_and_finalize(
