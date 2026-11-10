@@ -2,9 +2,9 @@
 FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
-import asyncio
 import json
 import os
+from datetime import datetime
 
 import logfire
 from fastapi import APIRouter, Request, Response
@@ -196,56 +196,40 @@ async def process_gmail_notification(pubsub_notification_data: dict):
 
                 # Save to database using a short-lived session (will update if message exists).
                 # This avoids holding a pooled connection during slow Gmail API calls.
-                # was_inserted tells us whether this save was a fresh insert (new logical
-                # email) or an update of an existing row (pubsub redelivery or Gmail
-                # label-change notification for a message we'd already seen).
                 async with session_context() as save_session:
-                    saved_msg, was_inserted = await save_email_message(
+                    saved_msg, _was_inserted = await save_email_message(
                         save_session, processed_email_message, history_id
                     )
                 if saved_msg:
+                    # Record Zillow emails in the durable queue BEFORE counting
+                    # this message as processed. If the enqueue raises, the
+                    # message lands in `failed_email_ids` only, the webhook
+                    # answers non-2xx, and Pub/Sub delivers it again — the
+                    # lead is not acknowledged until it is safely queued.
+                    # The enqueue is idempotent (unique message_id) and
+                    # ignores emails that are no longer fresh, so it is safe
+                    # on every notification: new email, redelivery, or a
+                    # label change.
+                    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                        enqueue_zillow_email,
+                        is_zillow_email,
+                    )
+
+                    from_addr = processed_email_message.get("from_address", "")
+                    if is_zillow_email(from_addr or ""):
+                        await enqueue_zillow_email(
+                            message_id=processed_email_message.get("message_id", ""),
+                            thread_id=processed_email_message.get("thread_id", ""),
+                            subject=processed_email_message.get("subject"),
+                            from_address=from_addr,
+                            received_at=datetime.fromisoformat(processed_email_message["date"]),
+                        )
+
                     processed_email_messages.append(processed_email_message)
                     logfire.info(
                         f"Successfully processed and saved message: "
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
-
-                    # Queue Zillow emails for debounced trigger processing —
-                    # but only on the initial insert. Upserts on an existing
-                    # message_id (redelivery / label change) are not new logical
-                    # email events and should not refire the trigger. The queue
-                    # itself also dedupes by message_id as a secondary guard.
-                    from_addr = processed_email_message.get("from_address", "")
-                    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
-                        is_zillow_email,
-                        queue_zillow_email_event,
-                    )
-
-                    is_zillow = is_zillow_email(from_addr or "")
-                    if is_zillow and was_inserted:
-                        logfire.info(
-                            "zillow_trigger_gate: queuing",
-                            email_message_id=email_message_id,
-                            from_address=from_addr,
-                            subject=processed_email_message.get("subject", ""),
-                        )
-
-                        asyncio.create_task(
-                            queue_zillow_email_event(
-                                thread_id=processed_email_message.get("thread_id", ""),
-                                message_id=processed_email_message.get("message_id", ""),
-                                subject=processed_email_message.get("subject", ""),
-                                from_address=from_addr,
-                                body_text=processed_email_message.get("body_text"),
-                            )
-                        )
-                    elif is_zillow and not was_inserted:
-                        logfire.info(
-                            "zillow_trigger_gate: skipping (not a new email — pubsub redelivery or label change)",
-                            email_message_id=email_message_id,
-                            from_address=from_addr,
-                            subject=processed_email_message.get("subject", ""),
-                        )
                 else:
                     failed_email_ids.append(email_message_id)
                     logfire.error(f"Failed to save message {email_message_id}")
