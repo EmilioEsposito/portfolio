@@ -24,7 +24,6 @@ from starlette.responses import Response
 
 from api.src.ai_demos.hitl_utils import (
     ApprovalDecision,
-    extract_pending_approvals,
     extract_tool_results,
     resume_with_approvals,
 )
@@ -36,14 +35,11 @@ from api.src.ai_demos.models import (
     get_conversation_with_pending,
     list_pending_conversations,
     list_user_conversations,
-    persist_agent_run_result,
-    save_agent_conversation,
 )
 from api.src.database.database import DBSession
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
     DEFAULT_THINKING_EFFORT,
@@ -56,8 +52,7 @@ from api.src.sernia_ai.model_config import (
 )
 from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
 from api.src.sernia_ai.push.routes import router as push_router
-from api.src.sernia_ai.push.service import notify_chat_response, notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
+from api.src.sernia_ai.runs import finalize_run, save_failed_run
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
     _merge_sms_into_history,
@@ -273,49 +268,16 @@ async def chat_sernia(
         workspace_path=WORKSPACE_PATH,
     )
 
-    async def _on_complete(result):
-        persisted = await persist_agent_run_result(
+    async def on_complete(result):
+        # Save, sync and notify through the shared pipeline. Pending approvals
+        # are team-wide alerts; a normal answer notifies only the Clerk user
+        # who asked (the service worker suppresses it while the chat is focused).
+        await finalize_run(
             result,
-            conversation_id=conversation_id,
-            agent_name=AGENT_NAME,
+            deps=deps,
             clerk_user_id=clerk_user_id,
+            notify_user_id=clerk_user_id,
         )
-        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
-
-        if not persisted:
-            logfire.warn(
-                "chat push skipped because persistence was not confirmed",
-                conversation_id=conversation_id,
-                clerk_user_id=clerk_user_id,
-            )
-            return
-
-        # Pending approvals remain team-wide operational alerts. Normal chat
-        # completions notify only the Clerk user who submitted the request; the
-        # service worker suppresses response notifications while that chat is
-        # focused.
-        pending = extract_pending_approvals(result)
-        if pending:
-            first = pending[0]
-            create_logged_task(
-                notify_pending_approval(
-                    conversation_id=conversation_id,
-                    tool_name=first["tool_name"],
-                    tool_args=first.get("args"),
-                ),
-                name="notify_pending_approval",
-            )
-        elif isinstance(result.output, str) and result.output.strip():
-            create_logged_task(
-                notify_chat_response(
-                    conversation_id=conversation_id,
-                    clerk_user_id=clerk_user_id,
-                    response_text=result.output,
-                ),
-                name="notify_chat_response",
-            )
-
-    on_complete = _on_complete
 
     run_kwargs = await resolve_active_run_kwargs()
 
@@ -477,70 +439,19 @@ async def approve_conversation(
                 **run_kwargs,
             )
 
-        # Persist the approval result (tool outputs + agent follow-up) to DB
-        # so that subsequent messages have the full conversation history.
-        persisted = await persist_agent_run_result(
+        # Save the approval result (tool outputs + agent follow-up) and deliver
+        # it through the shared pipeline. For a conversation that lives in an
+        # SMS thread, `deps.sms_reply_recipients` (set above from the
+        # conversation's trigger metadata) sends the agent's answer back into
+        # that thread — the group, not just the original sender.
+        outcome = await finalize_run(
             result,
-            conversation_id=conversation_id,
-            agent_name=AGENT_NAME,
+            deps=deps,
             clerk_user_id=clerk_user_id,
+            notify_user_id=clerk_user_id,
         )
-        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
-
-        # If this is an SMS conversation, send the agent's response back via SMS.
-        # Group conversations (ai_sms_group_*) store the full participant list
-        # in metadata — reply into the group thread, not 1:1 to the sender.
-        conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
-        if (
-            conv
-            and conv.modality == "sms"
-            and isinstance(result.output, str)
-            and result.output.strip()
-            and conv.metadata_
-            and (
-                conv.metadata_.get("trigger_group_participants")
-                or conv.metadata_.get("trigger_phone")
-            )
-        ):
-            reply_to = (
-                conv.metadata_.get("trigger_group_participants") or conv.metadata_["trigger_phone"]
-            )
-            create_logged_task(
-                _send_sms_reply(
-                    to_phone=reply_to,
-                    message=result.output,
-                ),
-                name="sms_reply",
-            )
-
-        pending = extract_pending_approvals(result)
+        pending = outcome.pending
         tool_results = extract_tool_results(result)
-
-        if not persisted:
-            logfire.warn(
-                "approval push skipped because persistence was not confirmed",
-                conversation_id=conversation_id,
-                clerk_user_id=clerk_user_id,
-            )
-        elif pending:
-            first = pending[0]
-            create_logged_task(
-                notify_pending_approval(
-                    conversation_id=conversation_id,
-                    tool_name=first["tool_name"],
-                    tool_args=first.get("args"),
-                ),
-                name="notify_pending_approval",
-            )
-        elif isinstance(result.output, str) and result.output.strip():
-            create_logged_task(
-                notify_chat_response(
-                    conversation_id=conversation_id,
-                    clerk_user_id=clerk_user_id,
-                    response_text=result.output,
-                ),
-                name="notify_chat_response",
-            )
 
         return {
             "conversation_id": conversation_id,
@@ -565,18 +476,12 @@ async def approve_conversation(
             error_type=type(e).__name__,
             provider_status=getattr(e, "status_code", None),
         )
-        if captured_messages:
-            try:
-                await save_agent_conversation(
-                    session=session,
-                    conversation_id=conversation_id,
-                    agent_name=AGENT_NAME,
-                    messages=captured_messages,
-                    clerk_user_id=clerk_user_id,
-                    metadata={"partial": True, "error": True, "llm_error": True},
-                )
-            except Exception:
-                logfire.exception("failed to save partial approval conversation")
+        await save_failed_run(
+            captured_messages,
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+            llm_error=True,
+        )
         raise HTTPException(status_code=status_code, detail=user_message)
     except Exception as e:
         logfire.exception(
@@ -585,18 +490,11 @@ async def approve_conversation(
             clerk_user_id=clerk_user_id,
             error_type=type(e).__name__,
         )
-        if captured_messages:
-            try:
-                await save_agent_conversation(
-                    session=session,
-                    conversation_id=conversation_id,
-                    agent_name=AGENT_NAME,
-                    messages=captured_messages,
-                    clerk_user_id=clerk_user_id,
-                    metadata={"partial": True, "error": True},
-                )
-            except Exception:
-                logfire.exception("failed to save partial approval conversation")
+        await save_failed_run(
+            captured_messages,
+            conversation_id=conversation_id,
+            clerk_user_id=clerk_user_id,
+        )
         raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
 
 
@@ -1165,39 +1063,6 @@ async def update_admin_settings(
         updated["zillow_email_config"] = config_dict
 
     return {"updated": updated}
-
-
-# =============================================================================
-# Helpers
-# =============================================================================
-
-
-async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
-    """Send an SMS reply from the AI phone number, auto-splitting if long.
-
-    ``to_phone`` may be a single number (1:1) or a list — a list replies
-    into the shared group thread. Never raises.
-    """
-    from api.src.open_phone.service import send_message
-    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
-    from api.src.sernia_ai.tools.quo_tools import split_sms
-
-    chunks = split_sms(message)
-    for chunk in chunks:
-        try:
-            await send_message(
-                message=chunk,
-                to_phone_number=to_phone,
-                from_phone_number=QUO_SERNIA_AI_PHONE_ID,
-            )
-        except Exception:
-            logfire.exception("post-approval SMS reply failed", to_phone=to_phone)
-            return
-    logfire.info(
-        "post-approval SMS reply sent",
-        to_phone=to_phone,
-        parts=len(chunks),
-    )
 
 
 # =============================================================================

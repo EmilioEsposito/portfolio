@@ -263,7 +263,7 @@ async def test_persist_agent_run_result_reports_commit_status(monkeypatch):
 @pytest.mark.asyncio
 async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monkeypatch):
     from api.src.ai_demos import models
-    from api.src.sernia_ai import routes
+    from api.src.sernia_ai import routes, runs
 
     save_started = asyncio.Event()
     allow_save_to_finish = asyncio.Event()
@@ -326,9 +326,9 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
 
     monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
-    monkeypatch.setattr(routes, "extract_pending_approvals", MagicMock(return_value=[]))
-    monkeypatch.setattr(routes, "notify_chat_response", capture_response_notification)
-    monkeypatch.setattr(routes, "create_logged_task", capture_task)
+    monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
+    monkeypatch.setattr(runs, "notify_chat_response", capture_response_notification)
+    monkeypatch.setattr(runs, "create_logged_task", capture_task)
     monkeypatch.setattr(routes.VercelAIAdapter, "dispatch_request", dispatch_after_persistence)
 
     chat_request = asyncio.create_task(
@@ -356,7 +356,7 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
 
 @pytest.mark.asyncio
 async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
-    from api.src.sernia_ai import routes
+    from api.src.sernia_ai import routes, runs
 
     request = MagicMock()
     request.json = AsyncMock(
@@ -385,9 +385,9 @@ async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
         return routes.Response(content="")
 
     monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
-    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=False))
+    monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
-    monkeypatch.setattr(routes, "create_logged_task", capture_task)
+    monkeypatch.setattr(runs, "create_logged_task", capture_task)
     monkeypatch.setattr(
         routes.VercelAIAdapter, "dispatch_request", dispatch_with_failed_persistence
     )
@@ -400,7 +400,7 @@ async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
-    from api.src.sernia_ai import routes
+    from api.src.sernia_ai import routes, runs
 
     body = routes.ApprovalRequest(
         decisions=[
@@ -434,16 +434,16 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
 
     monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
     monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
-    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=False))
+    monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(
-        routes,
+        runs,
         "extract_pending_approvals",
         MagicMock(return_value=[{"tool_name": "send_email", "args": {}}]),
     )
     monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
-    monkeypatch.setattr(routes, "create_logged_task", capture_task)
+    monkeypatch.setattr(runs, "create_logged_task", capture_task)
 
     response = await routes.approve_conversation(
         conversation_id="conversation-123",
@@ -458,7 +458,7 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_schedules_response_preview_after_persistence(monkeypatch):
-    from api.src.sernia_ai import routes
+    from api.src.sernia_ai import routes, runs
 
     body = routes.ApprovalRequest(
         decisions=[
@@ -501,13 +501,13 @@ async def test_approval_route_schedules_response_preview_after_persistence(monke
 
     monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
     monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
-    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=True))
+    monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=True))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
-    monkeypatch.setattr(routes, "extract_pending_approvals", MagicMock(return_value=[]))
+    monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
     monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
-    monkeypatch.setattr(routes, "notify_chat_response", capture_response_notification)
-    monkeypatch.setattr(routes, "create_logged_task", capture_task)
+    monkeypatch.setattr(runs, "notify_chat_response", capture_response_notification)
+    monkeypatch.setattr(runs, "create_logged_task", capture_task)
 
     response = await routes.approve_conversation(
         conversation_id="conversation-123",
