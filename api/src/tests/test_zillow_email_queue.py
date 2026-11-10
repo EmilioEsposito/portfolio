@@ -102,6 +102,26 @@ class TestEnqueue:
         assert await rows() == {}
 
     @pytest.mark.asyncio
+    async def test_email_date_without_a_timezone_is_read_as_utc(self):
+        """Must not raise: a raise makes Pub/Sub redeliver, forever."""
+        naive_now = datetime.now(UTC).replace(tzinfo=None)
+        assert await queue.enqueue_zillow_email(
+            message_id="naive",
+            thread_id="T1",
+            subject="s",
+            from_address=LEAD,
+            received_at=naive_now,
+        )
+        assert not await queue.enqueue_zillow_email(
+            message_id="naive-old",
+            thread_id="T1",
+            subject="s",
+            from_address=LEAD,
+            received_at=naive_now - timedelta(days=30),
+        )
+        assert list(await rows()) == ["naive"]
+
+    @pytest.mark.asyncio
     async def test_nothing_is_queued_while_automation_is_off(self, monkeypatch):
         monkeypatch.setattr(queue, "is_sernia_ai_enabled", AsyncMock(return_value=False))
         await enqueue("m1")

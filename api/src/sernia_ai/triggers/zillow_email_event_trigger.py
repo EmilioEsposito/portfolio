@@ -199,6 +199,11 @@ async def enqueue_zillow_email(
         return False
 
     now = _utcnow()
+    if received_at is not None and received_at.tzinfo is None:
+        # A Date header without an offset parses to a naive datetime; comparing
+        # it with `now` would raise, and since a raise makes Pub/Sub redeliver,
+        # it would raise again on every redelivery. Read it as UTC.
+        received_at = received_at.replace(tzinfo=UTC)
     expires_at = (received_at or now) + JOB_MAX_AGE
     if expires_at <= now:
         logfire.info(
