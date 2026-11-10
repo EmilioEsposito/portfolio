@@ -23,6 +23,9 @@ and the README nearest the code you are changing.
   force-delete checkouts.
 - Claude cloud setup and environment-specific limitations are documented in
   [.claude/README.md](.claude/README.md). Keep hooks and their production guards intact.
+- Logfire, Sernia AI, Quo, Neon, Railway, and Cloudflare come from claude.ai connectors,
+  not `.mcp.json`. Do not add a `.mcp.json` entry for a service that has a connector; see
+  [MCP servers and connectors](.claude/README.md#mcp-servers-and-connectors).
 
 ## Change boundaries
 

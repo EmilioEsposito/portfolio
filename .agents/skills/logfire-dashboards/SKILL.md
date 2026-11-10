@@ -4,7 +4,8 @@ Guide for creating and managing Pydantic Logfire dashboards via MCP tools.
 
 ## Tools
 
-All dashboard operations use `mcp__logfire__dashboard_*` tools. Key ones:
+All dashboard operations use the Logfire connector's `dashboard_*` tools (the
+`mcp__…__` prefix varies by client). Key ones:
 
 - `dashboard_list` / `dashboard_get` / `dashboard_create` / `dashboard_update` / `dashboard_delete`
 - `dashboard_add_panel` / `dashboard_update_panel` / `dashboard_remove_panel`
@@ -135,6 +136,6 @@ SELECT * FROM (SELECT ... ORDER BY value DESC) ORDER BY value ASC
 ## Debugging Dashboard Errors
 
 1. **SQL parser errors in dashboard but not API**: Usually a variable substitution issue. Remember `$var` is substituted with the quoted value.
-2. **Test queries directly**: Use `mcp__logfire__query_run` with manually substituted values to verify SQL is valid.
+2. **Test queries directly**: Use the connector's `query_run` tool with manually substituted values to verify SQL is valid.
 3. **Check panel editor**: Open panel edit view in Chrome, toggle "Show rendered query" to see the post-substitution SQL.
 4. **Column number in errors**: Count characters in the stored query to find the problematic position. Variable substitutions before that position may shift the column.
