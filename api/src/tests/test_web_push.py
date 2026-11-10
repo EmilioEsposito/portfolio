@@ -215,7 +215,7 @@ async def test_vapid_mismatch_subscriptions_are_pruned(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_persist_agent_run_result_reports_commit_status(monkeypatch):
-    from api.src.ai_demos import models
+    from api.src.agent_conversations import models
 
     session = MagicMock()
 
@@ -262,7 +262,7 @@ async def test_persist_agent_run_result_reports_commit_status(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monkeypatch):
-    from api.src.ai_demos import models
+    from api.src.agent_conversations import models
     from api.src.sernia_ai import routes, runs
 
     save_started = asyncio.Event()

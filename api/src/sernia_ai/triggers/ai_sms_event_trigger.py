@@ -40,7 +40,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from api.src.ai_demos.models import get_conversation_messages
+from api.src.agent_conversations.models import get_conversation_messages
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.service import find_contacts_by_phone
 from api.src.sernia_ai.config import (

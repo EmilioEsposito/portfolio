@@ -150,7 +150,7 @@ class TestSmoke:
         """list_user_conversations should accept clerk_user_id=None."""
         import inspect
 
-        from api.src.ai_demos.models import list_user_conversations
+        from api.src.agent_conversations.models import list_user_conversations
 
         sig = inspect.signature(list_user_conversations)
         param = sig.parameters["clerk_user_id"]

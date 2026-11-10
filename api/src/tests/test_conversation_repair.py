@@ -1,4 +1,4 @@
-"""Tests for _repair_orphaned_tool_calls in ai_demos/models.py."""
+"""Tests for _repair_orphaned_tool_calls in agent_conversations/models.py."""
 
 from pydantic_ai.messages import (
     ModelRequest,
@@ -9,7 +9,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from api.src.ai_demos.models import _repair_orphaned_tool_calls
+from api.src.agent_conversations.models import _repair_orphaned_tool_calls
 
 
 class TestRepairOrphanedToolCalls:

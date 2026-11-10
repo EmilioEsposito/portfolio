@@ -29,7 +29,7 @@ from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.ai_demos.models import (
+from api.src.agent_conversations.models import (
     extract_pending_approval_from_messages,
     get_conversation_messages,
 )

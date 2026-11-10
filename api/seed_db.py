@@ -325,7 +325,7 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
 
     from sqlalchemy import select
 
-    from api.src.ai_demos.models import AgentConversation, save_agent_conversation
+    from api.src.agent_conversations.models import AgentConversation, save_agent_conversation
     from api.src.database.database import AsyncSessionFactory
     from api.src.sernia_ai.config import AGENT_NAME
 
@@ -402,7 +402,7 @@ async def seed_fixture_conversations(dry_run: bool = False) -> None:
 
     from sqlalchemy import select
 
-    from api.src.ai_demos.models import AgentConversation
+    from api.src.agent_conversations.models import AgentConversation
     from api.src.database.database import AsyncSessionFactory
 
     rows = json.loads(fixture_file.read_text())
