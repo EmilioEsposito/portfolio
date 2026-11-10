@@ -6,6 +6,8 @@ Dynamic instruction functions take a RunContext[SerniaDeps] and return a string.
 Both are passed to Agent(instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS]).
 """
 
+import functools
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -213,6 +215,39 @@ async def refresh_from_remote(ctx: RunContext[SerniaDeps]) -> str:
     return ""
 
 
+def once_per_run(
+    fn: Callable[[RunContext[SerniaDeps]], str],
+) -> Callable[[RunContext[SerniaDeps]], str]:
+    """Evaluate a dynamic instruction once per agent run, then replay it.
+
+    pydantic-ai calls every instruction function before EACH model request,
+    not once per run. A section whose text changes between requests — the
+    clock ticking over a minute, MEMORY.md after the agent edits it, a new
+    file in the filetree — rewrites the system prompt mid-run. Providers
+    cache prompts by exact prefix, and the system prompt precedes the whole
+    message history, so one changed character there re-bills every prior
+    tool call and result at the uncached rate (and, on Anthropic, as a fresh
+    cache *write*) on every remaining request of the run.
+
+    Snapshotting on ``SerniaDeps.instruction_snapshots`` keeps the prompt
+    byte-identical for the life of one run. It also makes the static prompt's
+    claim true: the injected MEMORY.md really is a snapshot from the start of
+    the run, so the agent must re-read the file after editing it.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(ctx: RunContext[SerniaDeps]) -> str:
+        snapshots = getattr(ctx.deps, "instruction_snapshots", None)
+        if snapshots is None:  # stand-in deps in previews/tests
+            return fn(ctx)
+        if fn.__name__ not in snapshots:
+            snapshots[fn.__name__] = fn(ctx)
+        return snapshots[fn.__name__]
+
+    return wrapper
+
+
+@once_per_run
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
     from api.src.sernia_ai.config import FRONTEND_BASE_URL
 
@@ -225,6 +260,7 @@ def inject_context(ctx: RunContext[SerniaDeps]) -> str:
     )
 
 
+@once_per_run
 def inject_memory(ctx: RunContext[SerniaDeps]) -> str:
     """Inject MEMORY.md verbatim. The system prompt is prompt-cached, so a
     larger MEMORY.md is paid for once per cache window — silently truncating
@@ -242,6 +278,7 @@ def inject_memory(ctx: RunContext[SerniaDeps]) -> str:
     return f"## Your Long-Term Memory\n{content}"
 
 
+@once_per_run
 def inject_filetree(ctx: RunContext[SerniaDeps]) -> str:
     tree = _build_filetree(ctx.deps.workspace_path)
     if not tree:
@@ -280,12 +317,18 @@ def inject_modality_guidance(ctx: RunContext[SerniaDeps]) -> str:
     return result
 
 
+# Ordered most-stable first, because providers cache by exact prompt prefix:
+# a section can only be served from cache if everything before it is
+# unchanged. MEMORY.md and the filetree are identical across every
+# conversation, modality guidance is fixed per conversation, and
+# ``inject_context`` (clock, user, deeplink) differs on every run — so it goes
+# last, where it invalidates nothing but itself.
 DYNAMIC_INSTRUCTIONS = [
     refresh_from_remote,  # FIRST: pull from GitHub so memory/filetree see latest
-    inject_context,
     inject_memory,
     inject_filetree,
     inject_modality_guidance,
+    inject_context,
 ]
 
 

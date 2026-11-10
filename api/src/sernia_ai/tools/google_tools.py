@@ -269,6 +269,28 @@ def resolve_email_routing(to: list[str], user_email: str) -> EmailRouting:
     )
 
 
+def is_auto_approved_reply(
+    to: list[str],
+    reply_to_message_id: str,
+    auto_approved_domains: frozenset[str],
+) -> bool:
+    """Whether an external email may skip the HITL approval card.
+
+    True only when the run carries an auto-approval scope AND the email is a
+    threaded reply AND every recipient is at one of the scoped domains (or a
+    subdomain). Anything else — a new thread, a CC to another address, a run
+    with no scope — falls back to the approval card.
+    """
+    if not auto_approved_domains or not reply_to_message_id.strip() or not to:
+        return False
+
+    def _in_scope(address: str) -> bool:
+        domain = address.strip().lower().rpartition("@")[2]
+        return any(domain == d or domain.endswith(f".{d}") for d in auto_approved_domains)
+
+    return all(_in_scope(addr) for addr in to)
+
+
 google_toolset = FunctionToolset()
 
 GMAIL_SCOPES = [
@@ -385,13 +407,15 @@ async def send_email(
 
     routing = resolve_email_routing(to, ctx.deps.user_email)
 
-    # Conditional approval: external recipients require HITL, unless the
-    # current run has explicitly opted out (e.g. Zillow auto-reply with the
-    # per-trigger `require_approval` setting flipped off).
+    # Conditional approval: external recipients require HITL, unless this is a
+    # threaded reply inside the run's auto-approval scope (e.g. Zillow
+    # auto-reply to the Zillow relay with `require_approval` flipped off).
     if (
         not routing.is_internal
         and not ctx.tool_call_approved
-        and not ctx.deps.bypass_external_email_approval
+        and not is_auto_approved_reply(
+            to, reply_to_message_id, ctx.deps.auto_approved_reply_domains
+        )
     ):
         raise ApprovalRequired()
 

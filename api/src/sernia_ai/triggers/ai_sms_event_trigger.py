@@ -42,6 +42,7 @@ from pydantic_ai.messages import (
 
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
 from api.src.ai_demos.models import (
+    extract_run_usage,
     get_conversation_messages,
     save_agent_conversation,
 )
@@ -790,6 +791,7 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
         }
 
         # Save conversation to DB
+        total_tokens, cost = extract_run_usage(result)
         await save_agent_conversation(
             session=session,
             conversation_id=conv_id,
@@ -799,6 +801,8 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
             metadata=trigger_metadata,
             modality="sms",
             contact_identifier=from_number,
+            estimated_tokens=total_tokens,
+            cost_last_run=cost,
         )
 
         # Handle result
@@ -991,12 +995,15 @@ async def _handle_group_sms(
 
         create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
+        total_tokens, cost = extract_run_usage(result)
         await save_agent_conversation(
             session=session,
             conversation_id=conv_id,
             agent_name=AGENT_NAME,
             messages=result.all_messages(),
             clerk_user_id=TRIGGER_BOT_ID,
+            estimated_tokens=total_tokens,
+            cost_last_run=cost,
             metadata={
                 "trigger_source": "ai_sms_group",
                 "trigger_phone": from_number,
