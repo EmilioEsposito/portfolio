@@ -16,11 +16,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
+from api.src.sernia_ai.runs import send_sms_reply
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _extract_group_participants,
     _group_activities_to_model_messages,
     _group_prompt,
-    _send_sms_reply,
     _split_to_numbers,
 )
 
@@ -219,27 +219,23 @@ class TestSystemHintDedup:
 
 
 # ===========================================================================
-# _send_sms_reply — group recipients
+# send_sms_reply — group recipients
 # ===========================================================================
 
 
 class TestSendSmsReplyGroup:
     @pytest.mark.asyncio
     async def test_group_reply_sends_to_all_participants(self):
-        with patch(
-            "api.src.sernia_ai.triggers.ai_sms_event_trigger.send_message", new=AsyncMock()
-        ) as send:
-            await _send_sms_reply([EMILIO, SANA], "group answer")
+        with patch("api.src.sernia_ai.runs.send_message", new=AsyncMock()) as send:
+            await send_sms_reply([EMILIO, SANA], "group answer")
         assert send.await_count == 1
         kwargs = send.await_args.kwargs
         assert kwargs["to_phone_number"] == [EMILIO, SANA]
 
     @pytest.mark.asyncio
     async def test_single_reply_unchanged(self):
-        with patch(
-            "api.src.sernia_ai.triggers.ai_sms_event_trigger.send_message", new=AsyncMock()
-        ) as send:
-            await _send_sms_reply(EMILIO, "solo answer")
+        with patch("api.src.sernia_ai.runs.send_message", new=AsyncMock()) as send:
+            await send_sms_reply(EMILIO, "solo answer")
         assert send.await_count == 1
         assert send.await_args.kwargs["to_phone_number"] == EMILIO
 

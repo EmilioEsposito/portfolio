@@ -111,13 +111,23 @@ class TestSmoke:
         assert callable(get_clerk_user_id_by_slug)
 
     def test_background_runner_only_fires_pending_approval_push(self):
-        """Runner imports only the HITL approval notifier — generic alerts removed."""
+        """Trigger runs push only for HITL approvals — generic alerts removed.
+
+        The runner delegates delivery to the shared pipeline, which knows the
+        approval notifier and the per-user chat-response notifier (sent only
+        when a caller names a ``notify_user_id``, which the runner never does).
+        """
+        import inspect
+
+        import api.src.sernia_ai.runs as pipeline
         import api.src.sernia_ai.triggers.background_agent_runner as runner
 
-        assert hasattr(runner, "notify_pending_approval")
-        # These were removed when we ripped out non-HITL push notifications.
-        assert not hasattr(runner, "notify_trigger_alert")
-        assert not hasattr(runner, "notify_user_push")
+        assert hasattr(pipeline, "notify_pending_approval")
+        for module in (runner, pipeline):
+            # These were removed when we ripped out non-HITL push notifications.
+            assert not hasattr(module, "notify_trigger_alert")
+            assert not hasattr(module, "notify_user_push")
+        assert "notify_user_id" not in inspect.getsource(runner)
 
     def test_config_has_shared_team_contact_id(self):
         """Config should have QUO_SHARED_TEAM_CONTACT_ID and FRONTEND_BASE_URL."""
@@ -181,16 +191,12 @@ class TestBackgroundAgentRunner:
             patch(
                 "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
             ) as mock_session_factory,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.persist_agent_run_result") as mock_save,
+            patch("api.src.sernia_ai.runs.commit_and_push"),
+            patch("api.src.sernia_ai.runs.notify_pending_approval") as mock_pending,
             patch(
-                "api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"
-            ) as mock_save,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
-            patch(
-                "api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"
-            ) as mock_pending,
-            patch(
-                "api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals",
+                "api.src.sernia_ai.runs.extract_pending_approvals",
                 return_value=[],
             ),
         ):
@@ -228,11 +234,9 @@ class TestBackgroundAgentRunner:
             patch(
                 "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
             ) as mock_session_factory,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch(
-                "api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"
-            ) as mock_save,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.persist_agent_run_result") as mock_save,
+            patch("api.src.sernia_ai.runs.commit_and_push"),
         ):
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -262,8 +266,8 @@ class TestBackgroundAgentRunner:
             patch(
                 "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
             ) as mock_session_factory,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.commit_and_push"),
         ):
             mock_session = AsyncMock()
             mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -289,7 +293,7 @@ class TestBackgroundAgentRunner:
                 new_callable=AsyncMock,
                 return_value=False,
             ),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 
@@ -357,12 +361,12 @@ class TestRateLimiter:
             patch(
                 "api.src.sernia_ai.triggers.background_agent_runner.AsyncSessionFactory"
             ) as mock_sf,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
-            patch("api.src.sernia_ai.triggers.background_agent_runner.save_agent_conversation"),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.commit_and_push"),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.notify_pending_approval"),
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.persist_agent_run_result"),
+            patch("api.src.sernia_ai.runs.commit_and_push"),
+            patch("api.src.sernia_ai.runs.notify_pending_approval"),
             patch(
-                "api.src.sernia_ai.triggers.background_agent_runner.extract_pending_approvals",
+                "api.src.sernia_ai.runs.extract_pending_approvals",
                 return_value=[],
             ),
         ):
@@ -603,7 +607,6 @@ class TestAiSmsEventTriggerSmoke:
             AI_SMS_RATE_LIMIT_WINDOW_SECONDS,
             _fetch_sms_thread,
             _is_ai_sms_rate_limited,
-            _send_sms_reply,
             _sms_to_model_messages,
             _trim_sms_history,
             _verify_internal_contact,
@@ -615,7 +618,6 @@ class TestAiSmsEventTriggerSmoke:
         assert callable(_fetch_sms_thread)
         assert callable(_sms_to_model_messages)
         assert callable(_trim_sms_history)
-        assert callable(_send_sms_reply)
         assert callable(_is_ai_sms_rate_limited)
         assert AI_SMS_RATE_LIMIT_MAX_CALLS == 10
         assert AI_SMS_RATE_LIMIT_WINDOW_SECONDS == 600
@@ -1030,7 +1032,7 @@ class TestHandleAiSmsEvent:
                 return_value=internal_contact,
             ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
                 return_value=[],
@@ -1038,13 +1040,11 @@ class TestHandleAiSmsEvent:
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread", return_value=[]
             ),
+            patch("api.src.sernia_ai.runs.persist_agent_run_result") as mock_save,
+            patch("api.src.sernia_ai.runs.send_sms_reply"),
+            patch("api.src.sernia_ai.runs.commit_and_push"),
             patch(
-                "api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"
-            ) as mock_save,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
-            patch(
-                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                "api.src.sernia_ai.runs.extract_pending_approvals",
                 return_value=[],
             ),
         ):
@@ -1084,7 +1084,7 @@ class TestHandleAiSmsEvent:
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                 return_value=None,
             ),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
@@ -1143,19 +1143,19 @@ class TestHandleAiSmsEvent:
                 return_value=internal_contact,
             ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
                 return_value=existing_history,
             ),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply"),
+            patch("api.src.sernia_ai.runs.persist_agent_run_result"),
+            patch("api.src.sernia_ai.runs.send_sms_reply"),
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread"
             ) as mock_fetch,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
+            patch("api.src.sernia_ai.runs.commit_and_push"),
             patch(
-                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                "api.src.sernia_ai.runs.extract_pending_approvals",
                 return_value=[],
             ),
         ):
@@ -1210,7 +1210,7 @@ class TestHandleAiSmsEvent:
                 return_value=internal_contact,
             ),
             patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.AsyncSessionFactory") as mock_sf,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger.get_conversation_messages",
                 return_value=[],
@@ -1218,12 +1218,12 @@ class TestHandleAiSmsEvent:
             patch(
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread", return_value=[]
             ),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.save_agent_conversation"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger._send_sms_reply") as mock_reply,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.notify_pending_approval"),
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.commit_and_push"),
+            patch("api.src.sernia_ai.runs.persist_agent_run_result"),
+            patch("api.src.sernia_ai.runs.send_sms_reply") as mock_reply,
+            patch("api.src.sernia_ai.runs.notify_pending_approval"),
+            patch("api.src.sernia_ai.runs.commit_and_push"),
             patch(
-                "api.src.sernia_ai.triggers.ai_sms_event_trigger.extract_pending_approvals",
+                "api.src.sernia_ai.runs.extract_pending_approvals",
                 return_value=pending,
             ),
         ):
@@ -1588,7 +1588,7 @@ class TestUniversalKillSwitch:
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._verify_internal_contact",
                 new_callable=AsyncMock,
             ) as mock_verify,
-            patch("api.src.sernia_ai.triggers.ai_sms_event_trigger.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.ai_sms_event_trigger import handle_ai_sms_event
 
@@ -1613,7 +1613,7 @@ class TestUniversalKillSwitch:
                 new_callable=AsyncMock,
                 return_value=False,
             ),
-            patch("api.src.sernia_ai.triggers.background_agent_runner.sernia_agent") as mock_agent,
+            patch("api.src.sernia_ai.runs.sernia_agent") as mock_agent,
         ):
             from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
 

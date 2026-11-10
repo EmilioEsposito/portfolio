@@ -11,6 +11,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 - **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
 - **Model config** (`model_config.py`) — Runtime-switchable main-agent model (GPT-5.6 Luna / Sonnet 4.6 / Opus 4.7) and reasoning effort (Low / Medium / High / X-High / Max — Max is GPT-5.6's top tier, above X-High), resolved per run via the `model_config` app_setting. Web search/fetch live on the agent as provider-adaptive `WebSearch`/`WebFetch` capabilities (native web fetch is Anthropic-only and is dropped automatically on OpenRouter runs). See [Model Gateways](#model-gateways) below.
 - **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
+- **Run pipeline** (`runs.py`) — What happens after the model stops, for every run. See [Run pipeline](#run-pipeline).
 
 ## Documentation
 
@@ -105,6 +106,39 @@ retroactively.
   Completions, where caching is automatic but the Responses-only
   `prompt_cache_retention="24h"` extension isn't available — infrequent
   scheduled runs fall back to OpenAI's default cache window.
+
+### Run pipeline
+
+A run reaches the agent five ways: web chat (streaming), an approval resume, a
+1:1 SMS, a group SMS, and a background trigger (Zillow email, scheduled check).
+They differ in how the run **starts** — gates, history loading, prompt, deps —
+and that stays with each entry point. What happens **after** the model stops is
+identical and lives in `runs.py`:
+
+```
+sync the workspace -> save the conversation -> deliver the outcome
+```
+
+| Outcome | Delivered |
+|---------|-----------|
+| Paused for approval | Approval push. No reply. |
+| `NoAction` | Nothing. |
+| Text | SMS reply when the run owns an SMS thread (`deps.sms_reply_recipients`); web push to the person who asked (`notify_user_id`). |
+
+Pushes deep-link to the saved conversation, so they are sent only once the save
+is confirmed. An SMS reply does not wait on the save. The save always uses a
+fresh DB session (the caller's may have sat idle through a long run) and records
+the run's tokens and cost.
+
+| Entry point | Uses |
+|-------------|------|
+| `routes.chat_sernia` (streaming) | `finalize_run` from the stream's `on_complete` |
+| `routes.approve_conversation` | `finalize_run` after `resume_with_approvals`; `save_failed_run` on error |
+| SMS triggers, `run_agent_for_trigger` | `run_and_finalize` |
+
+Add a new entry point by building its deps and calling one of these — not by
+copying the steps. `test_run_pipeline.py::TestOnePipeline` fails if an entry
+point starts calling the pipeline's steps directly.
 
 ### Prompt stability
 

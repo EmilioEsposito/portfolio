@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api.src.sernia_ai import runs
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools import quo_tools
 from api.src.sernia_ai.triggers import ai_sms_event_trigger as trigger
@@ -40,13 +41,13 @@ async def test_tool_then_final_reply_sends_once(monkeypatch, recipients, to):
     """Reproduce tool-call + identical final answer: only final answer reaches Quo."""
     send = AsyncMock()
     tool_send = AsyncMock()
-    monkeypatch.setattr(trigger, "send_message", send)
+    monkeypatch.setattr(runs, "send_message", send)
     monkeypatch.setattr(quo_tools, "execute_sms", tool_send)
     ctx = SimpleNamespace(deps=deps(recipients), tool_call_approved=False)
     result = await sms_tool()(ctx, to, "Thanks, I marked it complete.")
     assert result.startswith("No SMS sent:")
     tool_send.assert_not_called()
-    await trigger._send_sms_reply(recipients, "Thanks, I marked it complete.")
+    await runs.send_sms_reply(recipients, "Thanks, I marked it complete.")
     send.assert_awaited_once()
     assert send.call_args.kwargs["to_phone_number"] == recipients
 
@@ -102,16 +103,17 @@ async def test_group_trigger_loads_api_history_and_sets_reply_owner(monkeypatch)
     session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
     monkeypatch.setattr(trigger, "AsyncSessionFactory", session_factory)
     monkeypatch.setattr(trigger, "get_conversation_messages", AsyncMock(return_value=[]))
-    monkeypatch.setattr(trigger, "save_agent_conversation", AsyncMock())
-    monkeypatch.setattr(trigger, "resolve_active_run_kwargs", AsyncMock(return_value={}))
-    monkeypatch.setattr(trigger, "extract_pending_approvals", lambda _: [])
+    persist = AsyncMock(return_value=True)
+    monkeypatch.setattr(runs, "persist_agent_run_result", persist)
+    monkeypatch.setattr(runs, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(runs, "extract_pending_approvals", lambda _: [])
     result = MagicMock(output="One group answer")
     result.all_messages.return_value = []
     agent = MagicMock(run=AsyncMock(return_value=result))
-    monkeypatch.setattr(trigger, "sernia_agent", agent)
+    monkeypatch.setattr(runs, "sernia_agent", agent)
     reply = AsyncMock()
-    monkeypatch.setattr(trigger, "_send_sms_reply", reply)
-    monkeypatch.setattr(trigger, "create_logged_task", lambda coro, **kwargs: coro.close())
+    monkeypatch.setattr(runs, "send_sms_reply", reply)
+    monkeypatch.setattr(runs, "create_logged_task", lambda coro, **kwargs: coro.close())
     requests = []
 
     def handler(request):
@@ -154,6 +156,12 @@ async def test_group_trigger_loads_api_history_and_sets_reply_owner(monkeypatch)
     assert agent.run.call_args.kwargs["deps"].sms_reply_recipients == sorted([PHONE, OTHER])
     assert "Earlier group message" in str(agent.run.call_args.kwargs["message_history"])
     reply.assert_awaited_once_with(sorted([PHONE, OTHER]), "One group answer")
+    # The group conversation is saved as one shared SMS conversation whose
+    # metadata lets a later approval reply into the same group thread.
+    saved = persist.await_args.kwargs
+    assert saved["conversation_id"] == "ai_sms_group_CNgroup"
+    assert saved["modality"] == "sms"
+    assert saved["metadata"]["trigger_group_participants"] == sorted([PHONE, OTHER])
 
 
 @pytest.mark.asyncio
@@ -173,13 +181,18 @@ async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_t
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=conv))
     monkeypatch.setattr(routes, "resume_with_approvals", resume)
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
-    monkeypatch.setattr(routes, "persist_agent_run_result", AsyncMock(return_value=True))
-    monkeypatch.setattr(routes, "extract_pending_approvals", lambda _: [])
+    monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=True))
+    monkeypatch.setattr(runs, "extract_pending_approvals", lambda _: [])
     monkeypatch.setattr(routes, "extract_tool_results", lambda _: {})
-    monkeypatch.setattr(routes, "create_logged_task", lambda coro, **kwargs: coro.close())
+    monkeypatch.setattr(runs, "create_logged_task", lambda coro, **kwargs: coro.close())
+    reply = AsyncMock()
+    monkeypatch.setattr(runs, "send_sms_reply", reply)
     await routes.approve_conversation(
         "sms-test", routes.ApprovalRequest(decisions=[]), user, AsyncMock()
     )
+    # The resumed answer goes back into the SMS thread it came from: 1:1 to
+    # the sender, or to the whole group.
+    reply.assert_awaited_once_with(reply_to, "Resumed answer")
     assert resume.call_args.kwargs["deps"].sms_reply_recipients == (
         [reply_to] if isinstance(reply_to, str) else reply_to
     )

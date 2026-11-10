@@ -14,25 +14,17 @@ import time
 import uuid
 
 import logfire
-from pydantic_ai import capture_run_messages
 
-from api.src.ai_demos.hitl_utils import extract_pending_approvals
-from api.src.ai_demos.models import extract_run_usage, save_agent_conversation
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
-    AGENT_NAME,
     GOOGLE_DELEGATION_EMAIL,
     TRIGGER_BOT_ID,
     TRIGGER_BOT_NAME,
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.push.service import notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
+from api.src.sernia_ai.runs import run_and_finalize
 
 # ---------------------------------------------------------------------------
 # Rate limiter — prevents the same trigger key from firing more than once
@@ -138,94 +130,47 @@ async def run_agent_for_trigger(
             auto_approved_reply_domains=auto_approved_reply_domains,
         )
 
-        run_kwargs = await resolve_active_run_kwargs()
+        # The run, the save and the approval push all happen in the shared
+        # pipeline (see sernia_ai/runs.py). Generic trigger-completion alerts
+        # were removed to cut notification noise — only a pending approval
+        # pushes; humans pull everything else from web chat.
+        outcome = await run_and_finalize(
+            trigger_prompt,
+            deps=deps,
+            trigger_source=trigger_source,
+            clerk_user_id=TRIGGER_BOT_ID,
+            metadata=trigger_metadata,
+        )
 
-        with capture_run_messages() as captured_messages:
-            try:
-                result = await sernia_agent.run(
-                    trigger_prompt,
-                    deps=deps,
-                    metadata={"trigger_source": trigger_source},
-                    **run_kwargs,
-                )
-            except Exception:
-                logfire.exception(
-                    "trigger agent run failed",
-                    trigger_source=trigger_source,
-                    conversation_id=conv_id,
-                    _tags=[_trigger_tag],
-                )
-                if captured_messages:
-                    try:
-                        await save_agent_conversation(
-                            session=session,
-                            conversation_id=conv_id,
-                            agent_name=AGENT_NAME,
-                            messages=captured_messages,
-                            clerk_user_id=TRIGGER_BOT_ID,
-                            metadata={**trigger_metadata, "partial": True, "error": True},
-                        )
-                        logfire.info("partial trigger conversation saved", conversation_id=conv_id)
-                    except Exception:
-                        logfire.exception("failed to save partial trigger conversation")
-                return None
+    if outcome is None:  # the run crashed; already logged and saved as partial
+        return None
 
-        # Commit any workspace changes (memory updates, notes)
-        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
-
-        # persist the conversation
-        total_tokens, cost = extract_run_usage(result)
-        try:
-            await save_agent_conversation(
-                session=session,
-                conversation_id=conv_id,
-                agent_name=AGENT_NAME,
-                messages=result.all_messages(),
-                clerk_user_id=TRIGGER_BOT_ID,
-                metadata=trigger_metadata,
-                estimated_tokens=total_tokens,
-                cost_last_run=cost,
-            )
-        except Exception:
-            logfire.exception(
-                "trigger conversation save failed",
-                trigger_source=trigger_source,
-                conversation_id=conv_id,
-            )
-            return None
-
-        # Check if the agent decided no action is needed
-        if isinstance(result.output, NoAction):
-            logfire.info(
-                "trigger processed silently — no action needed",
-                trigger_source=trigger_source,
-                conversation_id=conv_id,
-                reason=result.output.reason,
-                prompt_preview=trigger_prompt[:300],
-                _tags=[_trigger_tag],
-            )
-            return None
-
-        # Push notifications are restricted to HITL approval requests.
-        # Generic trigger-completion alerts were removed to cut notification
-        # noise — humans pull conversations from web chat instead.
-        pending = extract_pending_approvals(result)
-        if pending:
-            first = pending[0]
-            create_logged_task(
-                notify_pending_approval(
-                    conversation_id=conv_id,
-                    tool_name=first["tool_name"],
-                    tool_args=first.get("args"),
-                ),
-                name="notify_pending_approval",
-            )
-
-        logfire.info(
-            "trigger conversation created",
+    if not outcome.persisted:
+        # Without a saved conversation there is nothing for a human to open.
+        logfire.error(
+            "trigger conversation save failed",
             trigger_source=trigger_source,
             conversation_id=conv_id,
-            has_pending=bool(pending),
             _tags=[_trigger_tag],
         )
-        return conv_id
+        return None
+
+    if not outcome.needs_attention:
+        logfire.info(
+            "trigger processed silently — no action needed",
+            trigger_source=trigger_source,
+            conversation_id=conv_id,
+            reason=outcome.no_action_reason,
+            prompt_preview=trigger_prompt[:300],
+            _tags=[_trigger_tag],
+        )
+        return None
+
+    logfire.info(
+        "trigger conversation created",
+        trigger_source=trigger_source,
+        conversation_id=conv_id,
+        has_pending=bool(outcome.pending),
+        _tags=[_trigger_tag],
+    )
+    return conv_id
