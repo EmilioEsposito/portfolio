@@ -15,7 +15,7 @@ work there. Two HTTPS paths exist instead:
 
 ## Path A — Ad hoc via Neon MCP (primary)
 
-The Neon MCP tools (`mcp__Neon__run_sql`, `describe_table_schema`,
+The Neon connector's tools (`run_sql`, `describe_table_schema`,
 `get_database_tables`, ...) work over HTTPS from the sandbox. Production
 writes are guarded by the active tool's production hooks — reads are fine; prefer a dev/PR
 branch when one has the data you need.

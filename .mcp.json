@@ -3,44 +3,6 @@
     "shadcn": {
       "command": "npx",
       "args": ["shadcn@latest", "mcp"]
-    },
-    "cloudflare-docs": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
-    },
-    "cloudflare-dns": {
-      "type": "http",
-      "url": "https://dns-analytics.mcp.cloudflare.com/mcp"
-    },
-    "Railway": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["@railway/mcp-server"],
-      "env": {
-        "RAILWAY_API_TOKEN": "${RAILWAY_MCP_TOKEN:-}"
-      }
-    },
-    "logfire": {
-      "type": "http",
-      "url": "https://logfire-us.pydantic.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer ${LOGFIRE_MCP_API_KEY:-}"
-      }
-    },
-    "quo": {
-      "type": "http",
-      "url": "https://mcp.quo.com/sse"
-    },
-    "Neon": {
-      "type": "http",
-      "url": "https://mcp.neon.tech/mcp",
-      "headers": {
-        "Authorization": "Bearer ${NEON_MCP_API_KEY:-}"
-      }
-    },
-    "sernia": {
-      "type": "http",
-      "url": "https://sernia-fastmcp-production.up.railway.app/mcp"
     }
   }
 }

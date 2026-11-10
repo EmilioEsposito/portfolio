@@ -47,35 +47,28 @@
       "mcp__context7",
       "mcp__chrome-devtools",
       "mcp__shadcn",
-      "mcp__github",
       "mcp__Railway__whoami",
-      "mcp__Railway__list_workspaces",
-      "mcp__Railway__list_projects",
-      "mcp__Railway__list_services",
-      "mcp__Railway__list_deployments",
-      "mcp__Railway__list_variables",
-      "mcp__Railway__list_domains",
-      "mcp__Railway__list_tcp_proxies",
-      "mcp__Railway__get_logs",
-      "mcp__Railway__get_service_config",
-      "mcp__Railway__get_tcp_proxy",
-      "mcp__Railway__service_metrics",
-      "mcp__Railway__http_requests",
-      "mcp__Railway__http_error_rate",
-      "mcp__Railway__http_response_time",
-      "mcp__Railway__environment_status",
-      "mcp__Railway__domain_status",
-      "mcp__Railway__private_network_status",
-      "mcp__Railway__docs_search",
-      "mcp__Railway__docs_fetch",
-      "mcp__Railway__search_templates",
-      "mcp__Railway__link_environment",
-      "mcp__cloudflare-dns",
-      "mcp__cloudflare-docs",
+      "mcp__Railway__list-workspaces",
+      "mcp__Railway__list-projects",
+      "mcp__Railway__list-services",
+      "mcp__Railway__list-deployments",
+      "mcp__Railway__list-variables",
+      "mcp__Railway__list-domains",
+      "mcp__Railway__list-tcp-proxies",
+      "mcp__Railway__get-logs",
+      "mcp__Railway__get-service-config",
+      "mcp__Railway__get-service-metrics",
+      "mcp__Railway__http-requests",
+      "mcp__Railway__http-error-rate",
+      "mcp__Railway__http-response-time",
+      "mcp__Railway__environment-status",
+      "mcp__Railway__domain-status",
+      "mcp__Railway__search-docs",
+      "mcp__Railway__fetch-docs",
+      "mcp__Railway__search-templates",
       "mcp__cloudflare-api__docs",
       "mcp__cloudflare-api__search",
       "mcp__claude-in-chrome",
-      "mcp__logfire",
       "mcp__Logfire",
       "mcp__Neon__list_projects",
       "mcp__Neon__list_organizations",
@@ -128,20 +121,19 @@
       "Read(.env)"
     ],
     "ask": [
-      "mcp__Railway__deploy",
-      "mcp__Railway__deploy_template",
-      "mcp__Railway__create_project",
-      "mcp__Railway__create_environment",
-      "mcp__Railway__create_service",
-      "mcp__Railway__generate_domain",
-      "mcp__Railway__set_variables",
-      "mcp__Railway__link_service",
-      "mcp__Railway__scale_service",
-      "mcp__Railway__remove_service",
-      "mcp__Railway__remove_volume",
-      "mcp__Railway__remove_bucket",
-      "mcp__Railway__remove_tcp_proxy",
-      "mcp__Railway__delete_domain"
+      "mcp__Railway__create-deployment",
+      "mcp__Railway__redeploy",
+      "mcp__Railway__accept-deploy",
+      "mcp__Railway__deploy-template",
+      "mcp__Railway__create-project",
+      "mcp__Railway__create-service",
+      "mcp__Railway__generate-domain",
+      "mcp__Railway__set-variables",
+      "mcp__Railway__delete-service",
+      "mcp__Railway__delete-volume",
+      "mcp__Railway__delete-bucket",
+      "mcp__Railway__delete-tcp-proxy",
+      "mcp__Railway__delete-domain"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -169,70 +161,16 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "mcp__Railway__link-environment",
+        "matcher": "mcp__.*__(accept-deploy|connect-service-source|create-bucket|create-deployment|create-function|create-project|create-service|create-tcp-proxy|create-volume|create-webhook|delete-bucket|delete-domain|delete-feature-flag|delete-service|delete-tcp-proxy|delete-volume|delete-webhook|deploy-template|generate-domain|purge-cdn-cache|railway-agent|redeploy|reset-bucket-credentials|restart-service|retry-domain-certificate|set-beta-feature|set-feature-flag|set-service-tracing|set-variables|update-bucket|update-domain|update-function-source-code|update-service|update-volume|update-webhook)$",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/railway-link-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/railway-guard.sh"
           }
         ]
       },
       {
-        "matcher": "mcp__Railway__link_environment",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/railway-link-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__delete_branch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__delete_project",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__run_sql",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__run_sql_transaction",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__complete_database_migration",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/neon-guard.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__Neon__complete_query_tuning",
+        "matcher": "mcp__.*__(delete_branch|delete_project|run_sql|run_sql_transaction|complete_database_migration|complete_query_tuning)$",
         "hooks": [
           {
             "type": "command",

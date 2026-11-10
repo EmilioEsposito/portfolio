@@ -32,14 +32,14 @@ llm-cost/
 4. Push `rendered.json` to Logfire (see below).
 
 ### Refresh from Logfire (someone edited in the UI)
-1. Fetch the current definition: `mcp__logfire__dashboard_get(dashboard="<slug>", project="portfolio")`.
+1. Fetch the current definition: `dashboard_get(dashboard="<slug>", project="portfolio")`.
 2. Write it to `<dashboard-name>/rendered.json`.
 3. Update `template.json` and `queries/*.sql` to match any SQL or panel changes.
 4. `python logfire/dashboards/render.py --check` must exit 0 before committing.
 
 ### Push local changes up to Logfire
 ```
-mcp__logfire__dashboard_update(
+dashboard_update(
   dashboard="<slug>",
   project="portfolio",
   definition=<contents of <dashboard-name>/rendered.json>,
