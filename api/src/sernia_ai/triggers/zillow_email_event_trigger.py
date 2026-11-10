@@ -25,20 +25,24 @@ The guarantees and what provides them:
 - **Nothing is lost** — the row is committed when the email arrives.
 - **Nothing is queued twice** — ``message_id`` is unique, so Pub/Sub
   redeliveries and Gmail label-change notifications insert nothing.
-- **One worker per thread** — a claim marks rows ``running`` under a lease
-  (``lease_until``). Claims are serialized by a Postgres advisory lock, so two
-  workers can never split one thread's emails between them.
+- **One run per thread at a time** — a claim marks rows ``running`` under a
+  lease (``lease_until``), and a thread with a live lease is not claimable at
+  all: an email that arrives mid-run waits for that run to finish. Claims are
+  serialized by a Postgres advisory lock, so two workers can never split one
+  thread's emails between them.
 - **A dead worker's jobs come back** — a ``running`` row whose lease has run
   out is claimable again.
 - **A retry never duplicates work** — delivery is *at-least-once*, so the same
-  thread can be handed to the agent twice. Two things make that safe: the run
-  writes to a conversation ID derived from the jobs (a retry overwrites, it
-  doesn't add a second conversation), and a job whose conversation was already
-  saved complete is marked done without running again.
+  emails can be handed to the agent twice. Two things make that safe: a batch
+  is given its conversation ID on first claim and keeps it (a retry overwrites,
+  it doesn't add a second conversation), and a batch whose conversation was
+  already saved complete is marked done without running again.
 
 Batching: the first email in a thread starts that thread's debounce window
 (``zillow_email_config.debounce_seconds``); further emails in the same thread
-before it fires ride along in the same run.
+before it fires ride along in the same run. Once claimed, a batch's
+membership is fixed — later emails form the next batch, which keeps retries
+looking at the same conversation and counting their own attempts.
 
 Configuration: debounce length and the HITL approval gate are both
 overridable via the DB-backed ``zillow_email_config`` AppSetting (JSONB):
@@ -251,21 +255,19 @@ class ClaimedEmail:
 
 @dataclass(frozen=True)
 class ClaimedThread:
-    """The jobs of one lead thread, owned by this worker until the lease ends."""
+    """One batch of a lead thread's jobs, owned by this worker until the lease ends."""
 
     thread_id: str
     lease_token: str
     emails: tuple[ClaimedEmail, ...]
-    attempt: int  # the highest attempt number among the jobs (1 on first run)
+    attempt: int  # which attempt this is for the batch (1 on first run)
+    # Fixed when the batch is first claimed and stored on its rows, so every
+    # retry of the batch writes to the same conversation.
+    conversation_id: str
 
     @property
     def job_ids(self) -> list[int]:
         return [e.job_id for e in self.emails]
-
-    @property
-    def conversation_id(self) -> str:
-        """Same jobs -> same conversation, so a retry overwrites, not duplicates."""
-        return f"zillow-{self.thread_id}-{max(self.job_ids)}"
 
 
 def _claimable(now: datetime):
@@ -318,43 +320,15 @@ async def claim_next_thread(now: datetime | None = None) -> ClaimedThread | None
                 max_attempts=MAX_ATTEMPTS,
             )
 
-        thread_id = await session.scalar(
-            select(ZillowEmailJob.thread_id)
-            .where(_claimable(now))
-            .group_by(ZillowEmailJob.thread_id)
-            .having(func.min(ZillowEmailJob.next_attempt_at) <= now)
-            .order_by(func.min(ZillowEmailJob.next_attempt_at))
-            .limit(1)
-        )
-        if thread_id is None:
+        batch = await _next_due_batch(session, now)
+        if batch is None:
             return None
 
-        token = uuid.uuid4().hex
-        rows = (
-            await session.execute(
-                update(ZillowEmailJob)
-                .where(_claimable(now), ZillowEmailJob.thread_id == thread_id)
-                .values(
-                    state=_STATE_RUNNING,
-                    lease_token=token,
-                    lease_until=now + LEASE,
-                    attempts=ZillowEmailJob.attempts + 1,
-                )
-                .returning(
-                    ZillowEmailJob.id,
-                    ZillowEmailJob.message_id,
-                    ZillowEmailJob.subject,
-                    ZillowEmailJob.from_address,
-                    ZillowEmailJob.attempts,
-                )
-            )
-        ).all()
-
-    rows = sorted(rows, key=lambda r: r.id)
-    return ClaimedThread(
-        thread_id=thread_id,
-        lease_token=token,
-        emails=tuple(
+        # Read everything off the rows before the UPDATE below changes them.
+        thread_id = batch[0].thread_id
+        job_ids = [r.id for r in batch]
+        attempt = max(r.attempts for r in batch) + 1
+        emails = tuple(
             ClaimedEmail(
                 job_id=r.id,
                 message_id=r.message_id,
@@ -362,10 +336,83 @@ async def claim_next_thread(now: datetime | None = None) -> ClaimedThread | None
                 subject=r.subject or "",
                 from_address=r.from_address or "",
             )
-            for r in rows
-        ),
-        attempt=max(r.attempts for r in rows),
+            for r in batch
+        )
+        # A batch keeps the conversation ID it got on its first claim. That is
+        # what lets a retry find the conversation an earlier attempt saved.
+        conversation_id = batch[0].conversation_id or f"zillow-{thread_id}-{max(job_ids)}"
+
+        token = uuid.uuid4().hex
+        await session.execute(
+            update(ZillowEmailJob)
+            .where(ZillowEmailJob.id.in_(job_ids))
+            .values(
+                state=_STATE_RUNNING,
+                lease_token=token,
+                lease_until=now + LEASE,
+                attempts=ZillowEmailJob.attempts + 1,
+                conversation_id=conversation_id,
+            )
+            .execution_options(synchronize_session=False)
+        )
+    return ClaimedThread(
+        thread_id=thread_id,
+        lease_token=token,
+        emails=emails,
+        attempt=attempt,
+        conversation_id=conversation_id,
     )
+
+
+async def _next_due_batch(session, now: datetime) -> list[ZillowEmailJob] | None:
+    """Choose the batch to run next. Call only while holding the claim lock.
+
+    A **batch** is the set of a thread's jobs that are run together. Jobs
+    never claimed before (no ``conversation_id`` yet) form a new batch;
+    jobs claimed before keep their batch, identified by the conversation ID
+    they were given then. Membership is therefore fixed at first claim: a
+    later email in the thread never joins a batch that is being retried, so
+    the retry looks up the same conversation, and each batch counts its own
+    attempts.
+
+    Rules, per thread:
+
+    - A thread with a live lease is skipped entirely. Its newer emails wait
+      until the run in progress finishes — two runs on one lead at once
+      could send conflicting replies.
+    - Batches run oldest first; only the head batch is considered.
+    - The head batch is due once its earliest ``next_attempt_at`` has passed.
+
+    The queue is small (a busy season is a few leads an hour), so the
+    selection is done here rather than in one large SQL statement.
+    """
+    leased_threads = set(
+        await session.scalars(
+            select(ZillowEmailJob.thread_id).where(
+                ZillowEmailJob.state == _STATE_RUNNING, ZillowEmailJob.lease_until > now
+            )
+        )
+    )
+    candidates = (
+        await session.scalars(
+            select(ZillowEmailJob).where(_claimable(now)).order_by(ZillowEmailJob.id)
+        )
+    ).all()
+
+    by_thread: dict[str, list[ZillowEmailJob]] = {}
+    for row in candidates:
+        if row.thread_id not in leased_threads:
+            by_thread.setdefault(row.thread_id, []).append(row)
+
+    due: list[tuple[datetime, list[ZillowEmailJob]]] = []
+    for rows in by_thread.values():
+        head = [r for r in rows if r.conversation_id == rows[0].conversation_id]
+        ready_at = min(r.next_attempt_at for r in head)
+        if ready_at <= now:
+            due.append((ready_at, head))
+    if not due:
+        return None
+    return min(due, key=lambda item: item[0])[1]
 
 
 async def _finish(claim: ClaimedThread, **values) -> int:
@@ -397,7 +444,7 @@ async def _finish(claim: ClaimedThread, **values) -> int:
 
 
 async def complete_thread(claim: ClaimedThread) -> None:
-    await _finish(claim, state=_STATE_DONE, conversation_id=claim.conversation_id, last_error=None)
+    await _finish(claim, state=_STATE_DONE, last_error=None)
 
 
 async def fail_thread(claim: ClaimedThread, error: str) -> None:

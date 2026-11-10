@@ -158,6 +158,24 @@ class TestClaim:
         assert await queue.claim_next_thread() is None
 
     @pytest.mark.asyncio
+    async def test_new_email_waits_while_its_thread_is_being_worked_on(self):
+        """A second worker (e.g. the old process during a deploy) must not
+        start a run on a lead another run is still handling — with approval
+        off, the two could send conflicting replies."""
+        await enqueue(thread_id="T1")
+        running = await queue.claim_next_thread()
+        late = await enqueue(thread_id="T1")
+        other = await enqueue(thread_id="T2")
+
+        next_claim = await queue.claim_next_thread()
+        assert [e.message_id for e in next_claim.emails] == [other]  # other leads still flow
+        assert await queue.claim_next_thread() is None  # T1's new email is held back
+
+        await queue.complete_thread(running)
+        follow_up = await queue.claim_next_thread()
+        assert [e.message_id for e in follow_up.emails] == [late]
+
+    @pytest.mark.asyncio
     async def test_a_dead_workers_jobs_come_back_when_the_lease_runs_out(self):
         message_id = await enqueue(thread_id="T1")
         crashed = await queue.claim_next_thread()
@@ -167,6 +185,34 @@ class TestClaim:
         assert [e.message_id for e in reclaimed.emails] == [message_id]
         assert reclaimed.attempt == 2
         assert reclaimed.lease_token != crashed.lease_token
+
+    @pytest.mark.asyncio
+    async def test_reclaimed_batch_keeps_its_conversation_when_a_new_email_arrived(self):
+        """The crash window: the run was saved, the worker died before
+        marking it done, and another email landed meanwhile. The retry must
+        look up the SAME conversation (to see it is already complete) — so
+        the new email cannot join the batch and change its identity."""
+        original = await enqueue(thread_id="T1")
+        crashed = await queue.claim_next_thread()
+        late = await enqueue(thread_id="T1")
+
+        reclaimed = await queue.claim_next_thread(now=later(minutes=31))
+        assert [e.message_id for e in reclaimed.emails] == [original]
+        assert reclaimed.conversation_id == crashed.conversation_id
+        assert reclaimed.attempt == 2
+
+        await queue.complete_thread(reclaimed)
+        next_batch = await queue.claim_next_thread(now=later(minutes=31))
+        assert [e.message_id for e in next_batch.emails] == [late]
+        assert next_batch.conversation_id != crashed.conversation_id
+        assert next_batch.attempt == 1
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_is_recorded_when_the_batch_is_first_claimed(self):
+        message_id = await enqueue(thread_id="T1")
+        claim = await queue.claim_next_thread()
+        row = (await rows())[message_id]
+        assert row.conversation_id == claim.conversation_id == f"zillow-T1-{row.id}"
 
     @pytest.mark.asyncio
     async def test_a_worker_that_lost_its_lease_cannot_overwrite_the_new_owner(self):
@@ -287,6 +333,28 @@ class TestProcess:
         assert (await rows())[message_id].state == "failed"
         assert await queue.claim_next_thread(now=later(hours=10)) is None
         assert queue.execute_trigger_run.await_count == queue.MAX_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_a_new_email_does_not_inherit_an_old_batchs_failures(self):
+        """A lead's fresh message must get its own three attempts, not be
+        parked alongside an older batch that has just used its last one."""
+        queue.execute_trigger_run.return_value = None  # every run crashes
+        old = await enqueue(thread_id="T1")
+        for attempt in range(queue.MAX_ATTEMPTS - 1):
+            await queue.process_thread(await queue.claim_next_thread(now=later(hours=attempt)))
+        fresh = await enqueue(thread_id="T1")
+
+        last_try = await queue.claim_next_thread(now=later(hours=5))
+        assert [e.message_id for e in last_try.emails] == [old]
+        await queue.process_thread(last_try)
+
+        state = await rows()
+        assert (state[old].state, state[old].attempts) == ("failed", queue.MAX_ATTEMPTS)
+        assert (state[fresh].state, state[fresh].attempts) == ("pending", 0)
+
+        first_try = await queue.claim_next_thread(now=later(hours=6))
+        assert [e.message_id for e in first_try.emails] == [fresh]
+        assert first_try.attempt == 1
 
     @pytest.mark.asyncio
     async def test_retry_after_a_saved_run_does_not_run_the_agent_again(self, monkeypatch):
