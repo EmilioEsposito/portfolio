@@ -33,10 +33,13 @@ The guarantees and what provides them:
 - **A dead worker's jobs come back** — a ``running`` row whose lease has run
   out is claimable again.
 - **A retry never duplicates work** — delivery is *at-least-once*, so the same
-  emails can be handed to the agent twice. Two things make that safe: a batch
+  emails can be handed to the agent twice. Three things make that safe: a batch
   is given its conversation ID on first claim and keeps it (a retry overwrites,
-  it doesn't add a second conversation), and a batch whose conversation was
-  already saved complete is marked done without running again.
+  it doesn't add a second conversation); a batch whose conversation was already
+  saved complete is marked done without running again; and an automatic send is
+  reserved in ``auto_approved_sends`` before it goes out, so a retried run that
+  tries to email the lead again pauses for approval instead
+  (``google_tools._claim_auto_reply``).
 
 Batching: the first email in a thread starts that thread's debounce window
 (``zillow_email_config.debounce_seconds``); further emails in the same thread

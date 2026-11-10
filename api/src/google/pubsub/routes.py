@@ -201,18 +201,15 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                         save_session, processed_email_message, history_id
                     )
                 if saved_msg:
-                    processed_email_messages.append(processed_email_message)
-                    logfire.info(
-                        f"Successfully processed and saved message: "
-                        f"{processed_email_message['subject']} (ID: {email_message_id})"
-                    )
-
-                    # Record Zillow emails in the durable queue. The enqueue is
-                    # idempotent (unique message_id) and ignores emails that are
-                    # no longer fresh, so it is safe on every notification —
-                    # new email, Pub/Sub redelivery, or a label change. If it
-                    # raises, this message is reported as failed below and
-                    # Pub/Sub delivers it again.
+                    # Record Zillow emails in the durable queue BEFORE counting
+                    # this message as processed. If the enqueue raises, the
+                    # message lands in `failed_email_ids` only, the webhook
+                    # answers non-2xx, and Pub/Sub delivers it again — the
+                    # lead is not acknowledged until it is safely queued.
+                    # The enqueue is idempotent (unique message_id) and
+                    # ignores emails that are no longer fresh, so it is safe
+                    # on every notification: new email, redelivery, or a
+                    # label change.
                     from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
                         enqueue_zillow_email,
                         is_zillow_email,
@@ -227,6 +224,12 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                             from_address=from_addr,
                             received_at=datetime.fromisoformat(processed_email_message["date"]),
                         )
+
+                    processed_email_messages.append(processed_email_message)
+                    logfire.info(
+                        f"Successfully processed and saved message: "
+                        f"{processed_email_message['subject']} (ID: {email_message_id})"
+                    )
                 else:
                     failed_email_ids.append(email_message_id)
                     logfire.error(f"Failed to save message {email_message_id}")

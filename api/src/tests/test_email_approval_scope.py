@@ -6,6 +6,7 @@ a threaded reply to Zillow's relay — and nothing an injected instruction
 could redirect it to.
 """
 
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -52,7 +53,9 @@ def _ctx(scope: frozenset[str]) -> SimpleNamespace:
     return SimpleNamespace(
         tool_call_approved=False,
         deps=SimpleNamespace(
-            user_email="emilio@serniacapital.com", auto_approved_reply_domains=scope
+            user_email="emilio@serniacapital.com",
+            auto_approved_reply_domains=scope,
+            conversation_id="zillow-T1-1",
         ),
     )
 
@@ -73,11 +76,64 @@ class TestSendEmailGate:
         return lookup
 
     @pytest.fixture
-    def send(self, monkeypatch, headers):
+    def claim(self, monkeypatch):
+        """The at-most-once ledger; grants the send by default."""
+        claim = AsyncMock(return_value=True)
+        monkeypatch.setattr(google_tools, "claim_auto_approved_send", claim)
+        return claim
+
+    @pytest.fixture
+    def send(self, monkeypatch, headers, claim):
         send = AsyncMock(return_value={"id": "sent-1"})
         monkeypatch.setattr(google_tools, "_send_email", send)
         monkeypatch.setattr(google_tools, "get_delegated_credentials", lambda **_: object())
         return send
+
+    @pytest.mark.asyncio
+    async def test_auto_send_is_reserved_by_the_original_message_before_sending(self, send, claim):
+        order: list[str] = []
+        claim.side_effect = lambda *a, **k: order.append("reserved") or True
+        send.side_effect = lambda **k: order.append("sent") or {"id": "sent-1"}
+        await google_tools.send_email(
+            _ctx(ZILLOW_SCOPE), [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="msg-1"
+        )
+        assert order == ["reserved", "sent"]
+        # Keyed on the RFC Message-ID, which is the same in every mailbox.
+        assert claim.await_args.args == (THREADING["in_reply_to"],)
+        assert claim.await_args.kwargs == {
+            "tool_name": "send_email",
+            "conversation_id": "zillow-T1-1",
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_retried_run_cannot_auto_send_a_second_reply(self, send, claim):
+        """The run sent its reply, then failed and was retried by the queue.
+        The lead must not get the email twice — the retry goes to a human."""
+        claim.return_value = False
+        with pytest.raises(ApprovalRequired):
+            await google_tools.send_email(
+                _ctx(ZILLOW_SCOPE), [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="msg-1"
+            )
+        send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ledger_failure_falls_back_to_approval(self, send, claim):
+        claim.side_effect = RuntimeError("db down")
+        with pytest.raises(ApprovalRequired):
+            await google_tools.send_email(
+                _ctx(ZILLOW_SCOPE), [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="msg-1"
+            )
+        send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_human_approved_send_does_not_touch_the_ledger(self, send, claim):
+        ctx = _ctx(ZILLOW_SCOPE)
+        ctx.tool_call_approved = True
+        await google_tools.send_email(
+            ctx, [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="msg-1"
+        )
+        claim.assert_not_called()
+        send.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_scoped_run_sends_relay_reply_without_approval(self, send):
@@ -168,3 +224,35 @@ class TestIsZillowEmailHeaderForms:
     def test_rejects_zillow_as_a_subdomain_of_another_domain(self):
         assert not is_zillow_email("lead@zillow.com.evil.com")
         assert not is_zillow_email("Zillow <lead@convo.zillow.com.evil.com>")
+
+
+class TestAutoApprovedSendLedger:
+    """Against a real database: the reservation is what makes it at-most-once."""
+
+    @pytest.mark.asyncio
+    async def test_a_key_can_be_claimed_exactly_once(self):
+        from sqlalchemy import delete
+
+        from api.src.database.database import AsyncSessionFactory
+        from api.src.sernia_ai.models import AutoApprovedSend, claim_auto_approved_send
+
+        key = f"<{uuid.uuid4().hex}@convo.zillow.com>"
+        try:
+            first = await claim_auto_approved_send(
+                key, tool_name="send_email", conversation_id="zillow-T1-1"
+            )
+            again = await claim_auto_approved_send(
+                key, tool_name="send_email", conversation_id="zillow-T1-1"
+            )
+            other = await claim_auto_approved_send(
+                key + "-other", tool_name="send_email", conversation_id=None
+            )
+            assert (first, again, other) == (True, False, True)
+        finally:
+            async with AsyncSessionFactory() as session:
+                await session.execute(
+                    delete(AutoApprovedSend).where(
+                        AutoApprovedSend.idempotency_key.in_([key, key + "-other"])
+                    )
+                )
+                await session.commit()
