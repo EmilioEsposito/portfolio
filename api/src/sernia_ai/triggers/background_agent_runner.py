@@ -17,7 +17,7 @@ import logfire
 from pydantic_ai import capture_run_messages
 
 from api.src.ai_demos.hitl_utils import extract_pending_approvals
-from api.src.ai_demos.models import save_agent_conversation
+from api.src.ai_demos.models import extract_run_usage, save_agent_conversation
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.agent import NoAction, sernia_agent
 from api.src.sernia_ai.config import (
@@ -61,7 +61,8 @@ async def run_agent_for_trigger(
     trigger_metadata: dict,
     rate_limit_key: str | None = None,
     conversation_id: str | None = None,
-    bypass_external_email_approval: bool = False,
+    auto_approved_reply_domains: frozenset[str] = frozenset(),
+    apply_cooldown: bool = True,
 ) -> str | None:
     """
     Run the Sernia agent in background for a trigger event.
@@ -79,9 +80,17 @@ async def run_agent_for_trigger(
         conversation_id: Pre-generated conversation ID. When provided, the runner
             uses this instead of generating a new UUID. Useful when the caller
             needs to embed a deeplink in the trigger prompt.
-        bypass_external_email_approval: When True, this run skips the external
-            email HITL approval card. Used by triggers that have their own
-            opt-out toggle (e.g. Zillow auto-reply with `require_approval=False`).
+        auto_approved_reply_domains: Recipient domains this run may send
+            threaded email replies to without the HITL approval card (see
+            ``SerniaDeps.auto_approved_reply_domains``). Empty keeps every
+            external email behind approval. Used by triggers that have their
+            own opt-out toggle (e.g. Zillow auto-reply with
+            `require_approval=False`).
+        apply_cooldown: Set False for callers that already throttle
+            themselves and must not lose an event to the cooldown — a skipped
+            trigger is dropped, not queued. The Zillow trigger debounces its
+            own batches, and its debounce can legitimately be shorter than
+            the cooldown.
 
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
@@ -97,7 +106,7 @@ async def run_agent_for_trigger(
 
     # --- Rate-limit check ---
     cooldown_key = f"{trigger_source}:{rate_limit_key or '_global'}"
-    if _is_rate_limited(cooldown_key):
+    if apply_cooldown and _is_rate_limited(cooldown_key):
         logfire.info(
             "trigger rate-limited — skipping",
             trigger_source=trigger_source,
@@ -126,7 +135,7 @@ async def run_agent_for_trigger(
             user_email=GOOGLE_DELEGATION_EMAIL,
             modality="web_chat",
             workspace_path=WORKSPACE_PATH,
-            bypass_external_email_approval=bypass_external_email_approval,
+            auto_approved_reply_domains=auto_approved_reply_domains,
         )
 
         run_kwargs = await resolve_active_run_kwargs()
@@ -165,6 +174,7 @@ async def run_agent_for_trigger(
         create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
         # persist the conversation
+        total_tokens, cost = extract_run_usage(result)
         try:
             await save_agent_conversation(
                 session=session,
@@ -173,6 +183,8 @@ async def run_agent_for_trigger(
                 messages=result.all_messages(),
                 clerk_user_id=TRIGGER_BOT_ID,
                 metadata=trigger_metadata,
+                estimated_tokens=total_tokens,
+                cost_last_run=cost,
             )
         except Exception:
             logfire.exception(

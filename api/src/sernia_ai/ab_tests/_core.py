@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 
+from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.settings import ModelSettings
 from pydantic_evals import Case, Dataset
@@ -76,49 +77,40 @@ def _model_settings_for(model: str, thinking: str) -> ModelSettings | AnthropicM
     return ModelSettings(thinking=thinking)
 
 
-@contextmanager
-def _filter_builtin_tools_for_provider(agent, model: str, *, disable_all: bool = False):
-    """Strip builtin tools the target provider doesn't support.
-
-    - WebSearchTool: Anthropic, OpenRouter (via its `web` plugin), OpenAI
-      Responses, Groq, Google, xAI.
-    - `disable_all=True` clears everything (used for rote experiments so the
-      only thing in context is the system prompt + user text).
-    """
-    saved = agent._cap_builtin_tools
-    if disable_all:
-        agent._cap_builtin_tools = []
-    # All of sernia_agent's builtin tools are currently WebSearchTool-compatible,
-    # so no per-provider filtering is needed beyond the disable-all path.
-    try:
-        yield
-    finally:
-        agent._cap_builtin_tools = saved
-
-
 @asynccontextmanager
 async def _agent_run_context(
-    model: str,
+    model: str | Model,
     *,
     with_tools: bool,
     disable_builtin_tools: bool,
     thinking: str,
 ):
-    """Apply model + model_settings + toolset overrides for a single run."""
-    overrides: dict = {
-        # `resolve_model` keeps the web-search domain allowlist on OpenRouter
-        # variants (see model_config.SerniaOpenRouterModel); non-OpenRouter
-        # strings pass through untouched.
-        "model": resolve_model(model),
-        "model_settings": _model_settings_for(model, thinking),
-    }
+    """Apply model + model_settings + toolset overrides for a single run.
+
+    ``model`` is normally a model string. A ``Model`` instance is used as-is
+    with no provider settings — that is how the offline smoke test drives the
+    harness without a network call.
+    """
+    if isinstance(model, str):
+        overrides: dict = {
+            # `resolve_model` keeps the web-search domain allowlist on OpenRouter
+            # variants (see model_config.SerniaOpenRouterModel); non-OpenRouter
+            # strings pass through untouched.
+            "model": resolve_model(model),
+            "model_settings": _model_settings_for(model, thinking),
+        }
+    else:
+        overrides = {"model": model}
     if not with_tools:
         overrides["toolsets"] = []
+    if disable_builtin_tools:
+        # Clears the native web search/fetch tools the WebSearch/WebFetch
+        # capabilities contribute (rote experiments want zero tool noise).
+        # Providers that can't serve a native tool drop it on their own
+        # (`optional=True` in agent.py), so no per-provider filtering is needed.
+        overrides["native_tools"] = []
 
-    with (
-        sernia_agent.override(**overrides),
-        _filter_builtin_tools_for_provider(sernia_agent, model, disable_all=disable_builtin_tools),
-    ):
+    with sernia_agent.override(**overrides):
         yield
 
 
@@ -136,7 +128,7 @@ async def _build_deps(session: AsyncSession) -> SerniaDeps:
 
 
 def _make_task(
-    model: str,
+    model: str | Model,
     *,
     with_tools: bool,
     disable_builtin_tools: bool,
@@ -172,7 +164,7 @@ async def run_experiment(
     *,
     experiment_name: str,
     prompts: Iterable[str],
-    variants: dict[str, str] | None = None,
+    variants: dict[str, str | Model] | None = None,
     with_tools: bool = False,
     disable_builtin_tools: bool = False,
     thinking: str = "medium",
@@ -183,13 +175,14 @@ async def run_experiment(
     Args:
         experiment_name: Name for the Dataset (= classical-DS "experiment").
         prompts: Prompts to evaluate; each becomes one Case.
-        variants: name -> model string. Defaults to `DEFAULT_VARIANTS`.
+        variants: name -> model string (or a `Model` instance, for offline
+            runs). Defaults to `DEFAULT_VARIANTS`.
         with_tools: If True, include sernia's full production toolsets
             (SMS/email/ClickUp — has side effects, use with care).
-        disable_builtin_tools: If True, also clear builtin WebSearchTool.
+        disable_builtin_tools: If True, also clear native web search/fetch.
             Useful for rote prompt sets where you want zero tool-call noise.
         thinking: PydanticAI unified reasoning-effort setting
-            (minimal/low/medium/high/xhigh).
+            (minimal/low/medium/high/xhigh; `max` on OpenRouter variants).
         max_concurrency: Max parallel cases per variant (None = unlimited).
     """
     variants = variants or DEFAULT_VARIANTS
@@ -219,7 +212,7 @@ async def run_experiment(
             task_name=variant,
             metadata={
                 "experiment_name": experiment_name,
-                "model": model,
+                "model": model if isinstance(model, str) else type(model).__name__,
                 "thinking": thinking,
                 # trigger_source keeps runs visible in the existing LLM Cost
                 # dashboard bucketed under their own label so they don't pollute

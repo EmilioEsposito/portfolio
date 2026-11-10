@@ -92,7 +92,7 @@ async def test_general_external_email_still_requires_approval(monkeypatch):
     ctx = SimpleNamespace(
         tool_call_approved=False,
         deps=SimpleNamespace(
-            user_email="emilio@serniacapital.com", bypass_external_email_approval=False
+            user_email="emilio@serniacapital.com", auto_approved_reply_domains=frozenset()
         ),
     )
     with pytest.raises(ApprovalRequired):

@@ -187,3 +187,94 @@ class TestSyntheticRun:
                 output_type=str,
             )
         assert calls == ["summarize", "compact"]
+
+
+class TestInstructionsStableWithinRun:
+    """The system prompt must be byte-identical across every request of a run.
+
+    pydantic-ai re-evaluates instruction functions before each model request.
+    Providers cache prompts by exact prefix and the system prompt precedes the
+    message history, so a section that changes mid-run (the clock, MEMORY.md
+    after an edit) re-bills the entire history uncached on every later request.
+    """
+
+    @pytest.fixture
+    def deps(self, tmp_path: Path):
+        from api.src.sernia_ai.deps import SerniaDeps
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "MEMORY.md").write_text("ORIGINAL MEMORY")
+        return SerniaDeps(
+            db_session=None,  # type: ignore[arg-type] — no tool in this run touches the DB
+            conversation_id="test-stable-instructions",
+            user_identifier="user_test",
+            user_name="Test User",
+            user_email="test@serniacapital.com",
+            modality="web_chat",
+            workspace_path=workspace,
+        )
+
+    @pytest.mark.asyncio
+    async def test_clock_and_memory_changes_do_not_rewrite_the_prompt(self, deps, monkeypatch):
+        from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart
+        from pydantic_ai.messages import ToolCallPart as _ToolCallPart
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai import instructions
+
+        ticks = iter(f"TICK-{i}" for i in range(100))
+        monkeypatch.setattr(instructions, "format_current_datetime", lambda: next(ticks))
+
+        def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            if len(messages) == 1:
+                # Mid-run: the agent's own edit lands on disk, then it calls a tool.
+                (deps.workspace_path / "MEMORY.md").write_text("EDITED MEMORY")
+                (deps.workspace_path / "new_file.md").write_text("x")
+                return ModelResponse(
+                    parts=[_ToolCallPart(tool_name="search_files", args={"query": "nothing"})]
+                )
+            return ModelResponse(parts=[TextPart("done")])
+
+        with sernia_agent.override(native_tools=[]):
+            result = await sernia_agent.run(
+                "Hi.", deps=deps, model=FunctionModel(model_fn), output_type=str
+            )
+
+        prompts = [m.instructions for m in result.all_messages() if isinstance(m, ModelRequest)]
+        assert len(prompts) == 2, "expected one request per model call"
+        assert prompts[0] == prompts[1]
+        assert "TICK-0" in prompts[0]
+        assert "ORIGINAL MEMORY" in prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_each_run_takes_a_fresh_snapshot(self, deps, monkeypatch):
+        """Snapshots are scoped to one run's deps — the next run sees new state."""
+        from dataclasses import replace
+
+        with sernia_agent.override(native_tools=[]):
+            first = await sernia_agent.run(
+                "Hi.",
+                deps=deps,
+                model=TestModel(call_tools=[], custom_output_text="ok"),
+                output_type=str,
+            )
+            (deps.workspace_path / "MEMORY.md").write_text("EDITED MEMORY")
+            second = await sernia_agent.run(
+                "Hi again.",
+                deps=replace(deps, instruction_snapshots={}),
+                model=TestModel(call_tools=[], custom_output_text="ok"),
+                output_type=str,
+            )
+        assert "ORIGINAL MEMORY" in (first.all_messages()[0].instructions or "")
+        assert "EDITED MEMORY" in (second.all_messages()[0].instructions or "")
+
+    def test_shared_sections_precede_per_run_context(self):
+        """Stable-first ordering: what every conversation shares comes before
+        what differs per run, so the shared part stays a cacheable prefix."""
+        from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS
+
+        names = [fn.__name__ for fn in DYNAMIC_INSTRUCTIONS]
+        assert names.index("inject_memory") < names.index("inject_context")
+        assert names.index("inject_filetree") < names.index("inject_context")
+        assert names[-1] == "inject_context"
