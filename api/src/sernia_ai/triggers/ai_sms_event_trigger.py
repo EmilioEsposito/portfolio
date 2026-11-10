@@ -40,17 +40,10 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from api.src.ai_demos.hitl_utils import extract_pending_approvals
-from api.src.ai_demos.models import (
-    extract_run_usage,
-    get_conversation_messages,
-    save_agent_conversation,
-)
+from api.src.ai_demos.models import get_conversation_messages
 from api.src.database.database import AsyncSessionFactory
-from api.src.open_phone.service import find_contacts_by_phone, send_message
-from api.src.sernia_ai.agent import NoAction, sernia_agent
+from api.src.open_phone.service import find_contacts_by_phone
 from api.src.sernia_ai.config import (
-    AGENT_NAME,
     GOOGLE_DELEGATION_EMAIL,
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
@@ -61,11 +54,8 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.memory.git_sync import commit_and_push
-from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.push.service import notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
+from api.src.sernia_ai.runs import RunOutcome, run_and_finalize
 
 # ---------------------------------------------------------------------------
 # Sliding-window rate limiter — allows up to AI_SMS_RATE_LIMIT_MAX_CALLS
@@ -602,32 +592,6 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
     return sanitized
 
 
-async def _send_sms_reply(to_phone: str | list[str], message: str) -> None:
-    """Send an SMS reply from the AI phone number, auto-splitting if long.
-
-    ``to_phone`` may be a single number (1:1 reply) or a list of numbers —
-    a list replies into the shared group thread. Never raises.
-    """
-    from api.src.sernia_ai.tools.quo_tools import split_sms
-
-    chunks = split_sms(message)
-    for chunk in chunks:
-        try:
-            await send_message(
-                message=chunk,
-                to_phone_number=to_phone,
-                from_phone_number=QUO_SERNIA_AI_PHONE_ID,
-            )
-        except Exception:
-            logfire.exception("ai_sms_event: failed to send SMS reply", to_phone=to_phone)
-            return
-    logfire.info(
-        "ai_sms_event: reply sent",
-        to_phone=to_phone,
-        parts=len(chunks),
-    )
-
-
 # Serialize history/load/run/save/reply for each SMS conversation in this process.
 # Weak entries disappear after the last run/waiter releases its reference.
 _sms_thread_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
@@ -762,85 +726,47 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
             sms_reply_recipients=[from_number],
         )
 
-        run_kwargs = await resolve_active_run_kwargs()
-
-        try:
-            result = await sernia_agent.run(
-                message_text + sms_context_hint,
-                message_history=history,
-                deps=deps,
-                metadata={"trigger_source": "ai_sms"},
-                **run_kwargs,
-            )
-        except Exception:
-            logfire.exception(
-                "ai_sms_event: agent run failed",
-                from_number=from_number,
-                conversation_id=conv_id,
-            )
-            return
-
-        # Commit any workspace changes
-        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
-
-        trigger_metadata = {
-            "trigger_source": "ai_sms",
-            "trigger_phone": from_number,
-            "trigger_contact_name": contact_name,
-            "openphone_conversation_id": event_data.get("conversation_id"),
-        }
-
-        # Save conversation to DB
-        total_tokens, cost = extract_run_usage(result)
-        await save_agent_conversation(
-            session=session,
-            conversation_id=conv_id,
-            agent_name=AGENT_NAME,
-            messages=result.all_messages(),
+        outcome = await run_and_finalize(
+            message_text + sms_context_hint,
+            deps=deps,
+            trigger_source="ai_sms",
             clerk_user_id=TRIGGER_BOT_ID,
-            metadata=trigger_metadata,
+            message_history=history,
+            metadata={
+                "trigger_source": "ai_sms",
+                "trigger_phone": from_number,
+                "trigger_contact_name": contact_name,
+                "openphone_conversation_id": event_data.get("conversation_id"),
+            },
             modality="sms",
             contact_identifier=from_number,
-            estimated_tokens=total_tokens,
-            cost_last_run=cost,
+            keep_failed_run=False,
         )
 
-        # Handle result
-        pending = extract_pending_approvals(result)
-        if pending:
-            # HITL pause — push the approval prompt; don't send SMS yet.
-            first = pending[0]
-            create_logged_task(
-                notify_pending_approval(
-                    conversation_id=conv_id,
-                    tool_name=first["tool_name"],
-                    tool_args=first.get("args"),
-                ),
-                name="notify_pending_approval",
-            )
-            logfire.info(
-                "ai_sms_event: HITL pause — awaiting approval",
-                conversation_id=conv_id,
-                tool_name=first["tool_name"],
-            )
-        elif isinstance(result.output, NoAction):
-            logfire.info(
-                "ai_sms_event: NoAction — no SMS reply",
-                conversation_id=conv_id,
-                reason=result.output.reason,
-            )
-        else:
-            # Send agent's text response back via SMS
-            output_text = result.output if isinstance(result.output, str) else ""
-            if output_text:
-                await _send_sms_reply(from_number, output_text)
+    _log_sms_outcome("ai_sms_event", conv_id, outcome, from_number=from_number)
 
+
+def _log_sms_outcome(label: str, conv_id: str, outcome: RunOutcome | None, **fields) -> None:
+    """One line saying how an SMS-triggered run ended (delivery itself is the
+    shared pipeline's job — see ``sernia_ai/runs.py``)."""
+    if outcome is None:
+        return  # the run crashed; the pipeline already logged it
+    if outcome.pending:
         logfire.info(
-            "ai_sms_event: completed",
+            f"{label}: HITL pause — awaiting approval",
             conversation_id=conv_id,
-            from_number=from_number,
-            has_pending=bool(pending),
+            tool_name=outcome.pending[0]["tool_name"],
+            **fields,
         )
+    elif outcome.reply_text is None:
+        logfire.info(
+            f"{label}: NoAction — no SMS reply",
+            conversation_id=conv_id,
+            reason=outcome.no_action_reason,
+            **fields,
+        )
+    else:
+        logfire.info(f"{label}: completed", conversation_id=conv_id, **fields)
 
 
 async def _handle_group_sms(
@@ -976,34 +902,12 @@ async def _handle_group_sms(
             sms_reply_recipients=all_humans,
         )
 
-        run_kwargs = await resolve_active_run_kwargs()
-
-        try:
-            result = await sernia_agent.run(
-                _group_prompt(sender_name, message_text) + group_hint,
-                message_history=history,
-                deps=deps,
-                metadata={"trigger_source": "ai_sms_group"},
-                **run_kwargs,
-            )
-        except Exception:
-            logfire.exception(
-                "ai_sms_event: group agent run failed",
-                conversation_id=conv_id,
-            )
-            return
-
-        create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
-
-        total_tokens, cost = extract_run_usage(result)
-        await save_agent_conversation(
-            session=session,
-            conversation_id=conv_id,
-            agent_name=AGENT_NAME,
-            messages=result.all_messages(),
+        outcome = await run_and_finalize(
+            _group_prompt(sender_name, message_text) + group_hint,
+            deps=deps,
+            trigger_source="ai_sms_group",
             clerk_user_id=TRIGGER_BOT_ID,
-            estimated_tokens=total_tokens,
-            cost_last_run=cost,
+            message_history=history,
             metadata={
                 "trigger_source": "ai_sms_group",
                 "trigger_phone": from_number,
@@ -1018,39 +922,9 @@ async def _handle_group_sms(
             },
             modality="sms",
             contact_identifier=",".join(all_humans),
+            keep_failed_run=False,
         )
 
-        pending = extract_pending_approvals(result)
-        if pending:
-            first = pending[0]
-            create_logged_task(
-                notify_pending_approval(
-                    conversation_id=conv_id,
-                    tool_name=first["tool_name"],
-                    tool_args=first.get("args"),
-                ),
-                name="notify_pending_approval",
-            )
-            logfire.info(
-                "ai_sms_event: group HITL pause — awaiting approval",
-                conversation_id=conv_id,
-                tool_name=first["tool_name"],
-            )
-        elif isinstance(result.output, NoAction):
-            logfire.info(
-                "ai_sms_event: group NoAction — no SMS reply",
-                conversation_id=conv_id,
-                reason=result.output.reason,
-            )
-        else:
-            output_text = result.output if isinstance(result.output, str) else ""
-            if output_text:
-                await _send_sms_reply(all_humans, output_text)
-
-        logfire.info(
-            "ai_sms_event: group completed",
-            conversation_id=conv_id,
-            from_number=from_number,
-            participants=all_humans,
-            has_pending=bool(pending),
-        )
+    _log_sms_outcome(
+        "ai_sms_event: group", conv_id, outcome, from_number=from_number, participants=all_humans
+    )

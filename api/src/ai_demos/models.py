@@ -425,6 +425,8 @@ async def persist_agent_run_result(
     agent_name: str,
     clerk_user_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    modality: str | None = None,
+    contact_identifier: str | None = None,
 ) -> bool:
     """
     Convenience function to persist an agent run result to the database.
@@ -446,7 +448,9 @@ async def persist_agent_run_result(
         conversation_id: Unique ID for the conversation
         agent_name: Name of the agent
         clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
-        metadata: Optional metadata to store
+        metadata: Optional metadata, merged onto what is stored
+        modality, contact_identifier: Set on the row when given; left
+            untouched when ``None``
 
     Returns:
         True only when the conversation was successfully committed. Existing
@@ -479,6 +483,8 @@ async def persist_agent_run_result(
                     metadata=metadata,
                     estimated_tokens=total_tokens,
                     cost_last_run=cost,
+                    modality=modality,
+                    contact_identifier=contact_identifier,
                 )
             logfire.info(
                 f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}"

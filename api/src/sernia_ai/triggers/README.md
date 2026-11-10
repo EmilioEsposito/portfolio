@@ -43,7 +43,7 @@ A `message.received` on the AI line whose webhook `to` field contains recipients
 1. **Gate** — *every* human participant (sender + other recipients) must be an internal contact. One external/unknown member and the whole event is silently ignored.
 2. **Conversation key** — `ai_sms_group_{CN...}` (the Quo conversation ID), so all group members share **one** AI conversation, instead of the sender's personal `ai_sms_from_{digits}`.
 3. **History** — reconstructed from the local `open_phone_events` webhook table (the only source of full group history — OpenPhone's API can't list group messages by participant filter), merged with DB history. Inbound turns are prefixed `[Sender Name]:` so the agent can tell members apart; the same prefix format is used for the live prompt so text-dedup in the merge works. The current message is excluded from reconstruction (the webhook saves it to the events table *before* the background task runs) since it becomes the run's prompt.
-4. **Reply** — sent to **all** human participants in one API call (`to` array), landing in the same group thread. Post-approval replies do the same: the conversation's `trigger_group_participants` metadata routes `routes.approve_conversation()`'s SMS reply to the group instead of 1:1.
+4. **Reply** — sent to **all** human participants in one API call (`to` array), landing in the same group thread. Post-approval replies do the same: `routes.approve_conversation()` reads the conversation's `trigger_group_participants` metadata into `deps.sms_reply_recipients`, and the shared pipeline replies to the group instead of 1:1.
 
 `send_sms`'s hidden-context seeding for group sends targets the same `ai_sms_group_{CN...}` conversation (looked up via `_find_group_conversation` after the send), so the agent has the context when any member replies.
 
@@ -81,14 +81,14 @@ flowchart TD
     QUO --> MERGE
 
     MERGE --> TRIM["_trim_sms_history()<br/>(last 3 days or last 3 exchanges)"]
-    TRIM --> AGENT["Run sernia_agent<br/>modality=sms"]
+    TRIM --> AGENT["runs.run_and_finalize()<br/>modality=sms"]
 
-    AGENT --> SAVE["models.save_agent_conversation()<br/>(modality=sms, upsert)"]
+    AGENT --> SAVE["Save conversation<br/>(modality=sms, upsert)"]
     SAVE --> RESULT{"Pending<br/>approvals?"}
     RESULT -->|Yes| HITL["push/service.notify_pending_approval()"]
     RESULT -->|No| CHECK{"NoAction?"}
     CHECK -->|Yes| LOG["Log reason, no SMS reply"]
-    CHECK -->|No| REPLY["ai_sms_event_trigger._send_sms_reply()"]
+    CHECK -->|No| REPLY["runs.send_sms_reply()"]
 ```
 
 ### Post-Approval SMS Reply
@@ -105,9 +105,9 @@ sequenceDiagram
     User->>Web: Approve tool call
     Web->>API: POST /conversation/{id}/approve
     API->>API: Resume agent, execute tool
-    API->>API: models.persist_agent_run_result()
-    API->>API: Check: modality == "sms"?
-    API->>SMS: routes._send_sms_reply()
+    API->>API: runs.finalize_run() saves the result
+    API->>API: deps.sms_reply_recipients set?
+    API->>SMS: runs.send_sms_reply()
     API->>Web: Return result (tool outputs + agent text)
 ```
 
@@ -178,7 +178,7 @@ The schedule is configurable via the Settings page (`/sernia-settings`) or the `
 
 The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `.claude/skills/scheduled-checks/SKILL.md`, not in trigger code.
 
-Uses `background_agent_runner.run_agent_for_trigger()` with the silent/alert pattern. When the agent uses the `NoAction` structured output, the runner persists the conversation but skips push notifications.
+Uses `background_agent_runner.run_agent_for_trigger()` with the silent/alert pattern. When the agent uses the `NoAction` structured output, the shared pipeline persists the conversation but delivers nothing.
 
 ## Universal Kill Switch (`is_sernia_ai_enabled`)
 
@@ -224,9 +224,10 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 
 | File | Purpose |
 |------|---------|
-| `background_agent_runner.py` | Core async runner: triggers-enabled check, rate limiting, agent run, `NoAction` handling, HITL approval push (`notify_pending_approval` only — generic completion alerts removed) |
+| `background_agent_runner.py` | Trigger gate: triggers-enabled check, rate limiting, deps; then hands the run to the shared pipeline (`../runs.py`) |
+| `../runs.py` | Shared run pipeline used by every entry point: agent run, workspace sync, save, `NoAction` handling, HITL approval push (`notify_pending_approval` only for triggers — generic completion alerts removed), SMS reply |
 | `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
-| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, agent run with `modality="sms"`, SMS reply. Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, verified API history with webhook fallback, reply to all participants |
+| `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, then `run_and_finalize` with `modality="sms"` (the pipeline sends the SMS reply). Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, verified API history with webhook fallback, reply to all participants |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
 
 ## Config (`config.py`)

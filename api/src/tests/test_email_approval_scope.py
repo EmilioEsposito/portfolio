@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic_ai import ApprovalRequired
 
+from api.src.sernia_ai import runs as run_pipeline
 from api.src.sernia_ai.tools import google_tools
 from api.src.sernia_ai.tools.google_tools import is_auto_approved_reply
 from api.src.sernia_ai.triggers import background_agent_runner as runner
@@ -208,7 +209,7 @@ class TestZillowTriggerWiring:
         monkeypatch.setattr(runner, "is_sernia_ai_enabled", AsyncMock(return_value=True))
         monkeypatch.setattr(runner, "_trigger_cooldowns", {})
         runs = AsyncMock(side_effect=RuntimeError("stop after the cooldown check"))
-        monkeypatch.setattr(runner.sernia_agent, "run", runs)
+        monkeypatch.setattr(run_pipeline.sernia_agent, "run", runs)
 
         for _ in range(2):
             await runner.run_agent_for_trigger(
