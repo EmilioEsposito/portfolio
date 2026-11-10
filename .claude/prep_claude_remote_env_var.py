@@ -7,10 +7,8 @@ LOCAL_DATABASE_URL = "postgresql://portfolio:portfolio@localhost:5432/portfolio"
 
 # Keys to pull from ~/.zprofile for Claude Code dev tooling (not used by the app itself)
 ZPROFILE_KEYS = [
-    "LOGFIRE_MCP_API_KEY",
     "RAILWAY_MCP_TOKEN",
     "GH_TOKEN",
-    "NEON_MCP_API_KEY",
 ]
 
 # Keys from .env that must NOT be injected into the Claude Code remote env.

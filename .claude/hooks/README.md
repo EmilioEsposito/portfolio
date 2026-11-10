@@ -11,14 +11,24 @@ These hooks implement parameter-based permission control for MCP tools. Claude C
 - Production modifications require explicit confirmation
 - Destructive operations (deletes) always require confirmation
 
-## Railway (`railway-link-guard.sh`)
+## Railway (`railway-guard.sh`)
 
-| Environment | Decision |
-|-------------|----------|
-| `production` | ask |
-| All others (dev, PR envs, etc.) | allow |
+| Call | Decision |
+|------|----------|
+| Any `delete-*` tool | ask |
+| Write tool with no `environmentId` | ask |
+| Write tool targeting a production `environmentId` | ask |
+| Write tool targeting any other environment | no decision (normal permissions apply) |
+| Read tools | no hook |
 
-**Why:** Prevents accidental production deploys/changes. Development and PR environments are sandboxed.
+**Why:** The Railway connector has no link step. Write tools take an `environmentId`,
+and when it is omitted they act on `production` or on every environment.
+
+Production environment IDs are listed in `PRODUCTION_ENVIRONMENT_IDS` at the top of the
+script; add an ID there to guard another project. The matcher lists the connector's
+write tools under any server prefix. Other connectors reuse a few of those names, so
+the script ignores calls that neither come from a server named Railway nor carry a
+`projectId` or `environmentId`.
 
 ## Neon (`neon-guard.sh`)
 
@@ -32,6 +42,9 @@ These hooks implement parameter-based permission control for MCP tools. Claude C
 | `run_sql` on PR/feature branches | allow | Safe sandbox |
 | `reset_from_parent` | allow | Only refreshes child from main, doesn't modify production |
 | All read-only tools | allow (no hook) | No modification risk |
+
+The matcher is `mcp__.*__(<tool>|…)`, so it applies to the Neon connector under any
+server prefix, including the desktop app's opaque connector IDs.
 
 **Key insight:** Neon's `branchId` parameter is optional - if omitted, it defaults to the main branch. This is the primary risk vector for accidental production writes.
 
@@ -62,16 +75,23 @@ committer-agnostic guard too, add `pre-commit` with `ruff-pre-commit`.
 1. Create a bash script in this directory
 2. Read JSON from stdin: `INPUT=$(cat)`
 3. Extract parameters with jq: `echo "$INPUT" | jq -r '.tool_input.paramName'`
-4. Output decision JSON: `{"decision":"allow"}` or `{"decision":"ask","reason":"..."}`
+4. Output a decision as `hookSpecificOutput` with `permissionDecision` (`allow`, `ask`
+   or `deny`) and `permissionDecisionReason`, or print nothing to leave the call to
+   normal permissions
 5. Register in `.claude/settings.json` under `hooks.PreToolUse`
 
 ## Testing Hooks
 
 ```bash
-# Test with sample input
 echo '{"tool_name":"mcp__Neon__run_sql","tool_input":{"sql":"SELECT 1"}}' | ./neon-guard.sh
-# Should output: {"decision":"ask","reason":"SQL with no branchId (defaults to main) - requires confirmation"}
+# permissionDecision "ask": SQL with no branchId (defaults to main)
 
 echo '{"tool_name":"mcp__Neon__run_sql","tool_input":{"sql":"SELECT 1","branchId":"br-pr-123"}}' | ./neon-guard.sh
-# Should output: {"decision":"allow"}
+# permissionDecision "allow"
+
+echo '{"tool_name":"mcp__Railway__set-variables","tool_input":{"projectId":"p","variables":{}}}' | ./railway-guard.sh
+# permissionDecision "ask": no environmentId
+
+echo '{"tool_name":"mcp__Railway__set-variables","tool_input":{"projectId":"p","environmentId":"some-pr-env","variables":{}}}' | ./railway-guard.sh
+# no output
 ```

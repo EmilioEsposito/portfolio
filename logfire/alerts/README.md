@@ -33,17 +33,19 @@ One JSON file per alert, named after the alert (kebab-case). Fields mirror the
 
 ## Common operations
 
+Tool names below are the Logfire connector's; the `mcp__…__` prefix varies by client.
+
 ### Create a new alert
-1. `mcp__logfire__alert_create(...)` with the params.
-2. `mcp__logfire__alert_get(alert_id=...)` to read back the canonical definition.
+1. `alert_create(...)` with the params.
+2. `alert_get(alert_id=...)` to read back the canonical definition.
 3. Save it here as `<alert-name>.json` (scrub the channel webhook URL).
 
 ### Edit an existing alert
-1. Edit the live alert: `mcp__logfire__alert_update(alert_id=..., ...)`.
+1. Edit the live alert: `alert_update(alert_id=..., ...)`.
 2. Re-fetch with `alert_get` and update the JSON file to match.
 
 ### Refresh from Logfire (someone edited in the UI)
-1. `mcp__logfire__alert_get(alert_id=...)`.
+1. `alert_get(alert_id=...)`.
 2. Overwrite the JSON file (drop the webhook secret from `channels[].config`).
 
 ## Channels
