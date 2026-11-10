@@ -10,7 +10,7 @@ import logfire
 from pydantic_ai import FunctionToolset, RunContext
 from sqlalchemy import String, and_, cast, or_, select
 
-from api.src.ai_demos.models import AgentConversation
+from api.src.agent_conversations.models import AgentConversation
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.models import OpenPhoneEvent
 from api.src.sernia_ai.deps import SerniaDeps

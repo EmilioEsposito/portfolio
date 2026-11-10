@@ -21,8 +21,8 @@ from pydantic_ai.messages import (
 from api.src.sernia_ai.tools.quo_tools import _seed_sms_conversation
 
 # Patch targets — _seed_sms_conversation uses deferred imports
-_GET_MSGS = "api.src.ai_demos.models.get_conversation_messages"
-_SAVE_CONV = "api.src.ai_demos.models.save_agent_conversation"
+_GET_MSGS = "api.src.agent_conversations.models.get_conversation_messages"
+_SAVE_CONV = "api.src.agent_conversations.models.save_agent_conversation"
 _SESSION_FACTORY = "api.src.database.database.AsyncSessionFactory"
 
 

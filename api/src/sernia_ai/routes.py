@@ -22,12 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from starlette.responses import Response
 
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     ApprovalDecision,
     extract_tool_results,
     resume_with_approvals,
 )
-from api.src.ai_demos.models import (
+from api.src.agent_conversations.models import (
     delete_conversation,
     extract_pending_approval_from_messages,
     get_agent_conversation,

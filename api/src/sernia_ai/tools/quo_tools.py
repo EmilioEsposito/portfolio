@@ -1607,7 +1607,7 @@ async def _seed_sms_conversation(
     the context lands in the conversation the AI SMS trigger loads when a
     group member replies.
     """
-    from api.src.ai_demos.models import (
+    from api.src.agent_conversations.models import (
         get_conversation_messages,
         save_agent_conversation,
     )

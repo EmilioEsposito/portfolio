@@ -22,7 +22,7 @@ from pydantic_ai import (
 )
 from pydantic_ai.capabilities import Instrumentation
 
-from api.src.ai_demos.models import (
+from api.src.agent_conversations.models import (
     get_conversation_messages,
     persist_agent_run_result,
 )
