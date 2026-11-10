@@ -10,6 +10,7 @@ import io
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from email.utils import parseaddr
 from typing import Annotated
 
 import logfire
@@ -107,7 +108,15 @@ _ZILLOW_BOILERPLATE_COMPILED = [
 
 
 def _is_zillow_content(from_addr: str = "", content: str = "") -> bool:
-    """Return True if this email appears to be from Zillow."""
+    """Return True if this email appears to be from Zillow.
+
+    Never true for email we sent. Our replies quote the lead's Zillow message
+    underneath, and the Zillow cleaner keeps only what follows the last
+    "[Name] says:" line — in a reply that is the quoted history, so the reply
+    itself would be thrown away.
+    """
+    if parseaddr(from_addr)[1].lower().endswith(f"@{INTERNAL_EMAIL_DOMAIN}"):
+        return False
     return "zillow.com" in from_addr.lower() or "zillow.com" in content[:500].lower()
 
 

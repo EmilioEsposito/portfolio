@@ -17,6 +17,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import ZillowEmailJob
 from api.src.sernia_ai.runs import RunOutcome
 from api.src.sernia_ai.triggers import zillow_email_event_trigger as queue
+from api.src.sernia_ai.zillow_leads.thread import SharedCopy
 
 LEAD = "abc123@convo.zillow.com"
 OK = RunOutcome(persisted=True, reply_text="Drafted a reply.")
@@ -40,6 +41,8 @@ async def clean_queue(monkeypatch):
     )
     monkeypatch.setattr(queue, "_already_completed", AsyncMock(return_value=False))
     monkeypatch.setattr(queue, "execute_trigger_run", AsyncMock(return_value=OK))
+    # No Gmail in tests: by default no email has a shared-mailbox copy.
+    monkeypatch.setattr(queue, "find_shared_copy", AsyncMock(return_value=None))
     yield
     await wipe()
 
@@ -294,6 +297,71 @@ class TestProcess:
         await queue.process_zillow_email_queue()
         prompt = queue.execute_trigger_run.await_args.kwargs["trigger_prompt"]
         assert f'reply_to_message_id="{message_id}"' in prompt
+
+    @pytest.mark.asyncio
+    async def test_prompt_uses_the_shared_mailbox_ids_not_the_watched_ones(self, monkeypatch):
+        # The queue holds IDs from the watched mailbox; they do not exist in
+        # the shared mailbox the agent reads and replies from.
+        message_id = await enqueue(thread_id="T1")
+        monkeypatch.setattr(
+            queue,
+            "find_shared_copy",
+            AsyncMock(return_value=SharedCopy("shared-msg", "shared-thread", "<rfc@zillow>")),
+        )
+
+        await queue.process_zillow_email_queue()
+
+        queue.find_shared_copy.assert_awaited_once_with(message_id)
+        prompt = queue.execute_trigger_run.await_args.kwargs["trigger_prompt"]
+        assert 'reply_to_message_id="shared-msg"' in prompt
+        assert "Gmail Message ID (all@ account): shared-msg" in prompt
+        assert "Thread ID (Gmail): shared-thread" in prompt
+        assert message_id not in prompt
+        assert "emilio@" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_email_with_no_shared_copy_is_labelled_with_its_real_mailbox(self):
+        message_id = await enqueue(thread_id="T1")  # fixture: no shared copy
+
+        await queue.process_zillow_email_queue()
+
+        prompt = queue.execute_trigger_run.await_args.kwargs["trigger_prompt"]
+        assert f"Gmail Message ID (emilio@ account): {message_id}" in prompt
+        assert f'reply_to_message_id="{message_id}"' in prompt
+        assert 'user_email_account="emilio@serniacapital.com"' in prompt
+
+    @pytest.mark.asyncio
+    async def test_batch_prompt_says_which_mailbox_each_id_belongs_to(self, monkeypatch):
+        first = await enqueue(thread_id="T1")
+        second = await enqueue(thread_id="T1")
+
+        async def only_first(message_id):
+            if message_id == first:
+                return SharedCopy("shared-first", "shared-thread", "<rfc1@zillow>")
+            return None
+
+        monkeypatch.setattr(queue, "find_shared_copy", only_first)
+
+        await queue.process_zillow_email_queue()
+
+        prompt = queue.execute_trigger_run.await_args.kwargs["trigger_prompt"]
+        lines = {line.split(".")[0]: line for line in prompt.splitlines() if "Message ID:" in line}
+        assert "Message ID: shared-first" in lines["1"] and lines["1"].endswith("Mailbox: all@")
+        assert f"Message ID: {second}" in lines["2"] and lines["2"].endswith("Mailbox: emilio@")
+
+    @pytest.mark.asyncio
+    async def test_gmail_failure_during_lookup_retries_the_batch(self, monkeypatch):
+        message_id = await enqueue(thread_id="T1")
+        monkeypatch.setattr(
+            queue, "find_shared_copy", AsyncMock(side_effect=RuntimeError("gmail down"))
+        )
+
+        await queue.process_zillow_email_queue()
+
+        queue.execute_trigger_run.assert_not_called()
+        job = (await rows())[message_id]
+        assert job.state == "pending" and job.attempts == 1
+        assert "gmail down" in job.last_error
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zillow reply review</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1e1c; --muted:#6b6a65; --line:#dcdad2;
+          --pass:#1d7a4f; --fail:#b3362b; --warn:#8a5a00; --tint:#f0eee7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#191918; --card:#232321; --ink:#ecebe6; --muted:#a3a29b; --line:#3a3936;
+            --pass:#5fc795; --fail:#f08a7f; --warn:#e3b55a; --tint:#2c2b29; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  header { position:sticky; top:0; z-index:1; background:var(--bg); border-bottom:1px solid var(--line);
+           padding:10px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .grow { flex:1; }
+  main { max-width:1200px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:18px; }
+  .card.pass { border-left:5px solid var(--pass); }
+  .card.fail { border-left:5px solid var(--fail); }
+  .top { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .id { font:12px ui-monospace, monospace; color:var(--muted); }
+  .badge { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--tint); }
+  .badge.bad { color:var(--fail); }
+  .cols { display:grid; grid-template-columns:1fr 1fr; }
+  .col { padding:12px 14px; min-width:0; }
+  .col + .col { border-left:1px solid var(--line); }
+  @media (max-width: 800px) { .cols { grid-template-columns:1fr; } .col + .col { border-left:0; border-top:1px solid var(--line); } }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 6px; font-weight:600; }
+  .text { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 12px; font:inherit; }
+  .reason { color:var(--muted); margin:0 0 10px; }
+  details { margin:0 0 10px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  details .text { background:var(--tint); padding:10px; border-radius:6px; margin-top:6px; font-size:13px; }
+  .facts { font-size:13px; color:var(--muted); margin:0 0 10px; }
+  .label { padding:10px 14px; border-top:1px solid var(--line); display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+  button, select { font:inherit; padding:6px 14px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.on.pass { background:var(--pass); border-color:var(--pass); color:#fff; }
+  button.on.fail { background:var(--fail); border-color:var(--fail); color:#fff; }
+  textarea { flex:1; min-width:240px; min-height:38px; font:inherit; padding:7px 9px; border-radius:6px;
+             border:1px solid var(--line); background:var(--card); color:var(--ink); resize:vertical; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Review</h1>
+  <span id="progress"></span>
+  <span class="grow"></span>
+  <select id="filter" aria-label="Show">
+    <option value="all">Show all</option>
+    <option value="todo">Not labelled yet</option>
+    <option value="reply">Replies</option>
+    <option value="no_reply">No reply</option>
+    <option value="escalate">Escalations</option>
+    <option value="fail">Marked fail</option>
+  </select>
+  <button id="download">Download labels</button>
+</header>
+<main id="cases"></main>
+<script type="application/json" id="data">__REVIEW_DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const KEY = 'zillow-review:' + DATA.run;
+let labels = {};
+try { labels = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { labels = {}; }
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+function section(parent, heading, text, cls) {
+  parent.append(el('h2', '', heading), el('pre', cls || 'text', text));
+}
+function fold(parent, summary, text) {
+  const d = el('details');
+  d.append(el('summary', '', summary), el('pre', 'text', text));
+  parent.append(d);
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(labels)); } catch (e) {}
+  refresh();
+}
+function refresh() {
+  const done = DATA.cases.filter(c => labels[c.id] && labels[c.id].verdict).length;
+  const passed = DATA.cases.filter(c => labels[c.id] && labels[c.id].verdict === 'pass').length;
+  document.getElementById('progress').textContent =
+    done + ' of ' + DATA.cases.length + ' labelled' + (done ? ' · ' + passed + ' pass, ' + (done - passed) + ' fail' : '');
+  const show = document.getElementById('filter').value;
+  for (const c of DATA.cases) {
+    const verdict = (labels[c.id] || {}).verdict;
+    const card = document.getElementById('card-' + c.id);
+    card.classList.toggle('pass', verdict === 'pass');
+    card.classList.toggle('fail', verdict === 'fail');
+    card.querySelector('button.pass').classList.toggle('on', verdict === 'pass');
+    card.querySelector('button.fail').classList.toggle('on', verdict === 'fail');
+    card.hidden = !(show === 'all' || (show === 'todo' && !verdict) || show === c.action || (show === 'fail' && verdict === 'fail'));
+  }
+}
+function setVerdict(id, verdict) {
+  const current = labels[id] || {};
+  labels[id] = { verdict: current.verdict === verdict ? null : verdict, note: current.note || '' };
+  save();
+}
+
+const ACTIONS = { reply: 'Reply', no_reply: 'No reply', escalate: 'Escalate' };
+const list = document.getElementById('cases');
+DATA.cases.forEach((c, index) => {
+  const card = el('section', 'card');
+  card.id = 'card-' + c.id;
+
+  const top = el('div', 'top');
+  top.append(el('strong', '', (index + 1) + ' of ' + DATA.cases.length), el('span', 'badge', ACTIONS[c.action] || c.action));
+  for (const name of c.failed_checks) top.append(el('span', 'badge bad', 'check failed: ' + name));
+  if (c.action === 'reply') top.append(el('span', 'badge', c.offered + ' tour times offered'));
+  top.append(el('span', 'id', c.id));
+  card.append(top);
+
+  const cols = el('div', 'cols');
+  const left = el('div', 'col');
+  section(left, 'The lead wrote', c.lead_message);
+  fold(left, 'Everything the model was given', c.case_text);
+  fold(left, c.actual_reply ? 'What we actually sent (' + c.actual_delay + ' min later)' : 'We never answered this one', c.actual_reply || '(nothing sent)');
+
+  const right = el('div', 'col');
+  right.append(el('h2', '', 'The model decided: ' + (ACTIONS[c.action] || c.action)), el('p', 'reason', c.reason));
+  if (c.reply) section(right, 'Draft reply', c.reply);
+  if (c.question) section(right, 'It needs to know', c.question);
+  if (c.team_notes.length) section(right, 'Notes for the team', c.team_notes.map(n => '• ' + n).join('\n'));
+  right.append(el('p', 'facts', c.recorded));
+  cols.append(left, right);
+  card.append(cols);
+
+  const row = el('div', 'label');
+  const pass = el('button', 'pass', 'Pass');
+  const fail = el('button', 'fail', 'Fail');
+  pass.addEventListener('click', () => setVerdict(c.id, 'pass'));
+  fail.addEventListener('click', () => setVerdict(c.id, 'fail'));
+  const note = el('textarea');
+  note.placeholder = 'One line on why (most useful on a fail)';
+  note.setAttribute('aria-label', 'Note');
+  note.value = (labels[c.id] || {}).note || '';
+  note.addEventListener('input', () => {
+    labels[c.id] = { verdict: (labels[c.id] || {}).verdict || null, note: note.value };
+    try { localStorage.setItem(KEY, JSON.stringify(labels)); } catch (e) {}
+  });
+  row.append(pass, fail, note);
+  card.append(row);
+  list.append(card);
+});
+
+document.getElementById('title').textContent = 'Review: ' + DATA.run;
+document.title = 'Review: ' + DATA.run;
+document.getElementById('filter').addEventListener('change', refresh);
+document.getElementById('download').addEventListener('click', () => {
+  const rows = DATA.cases
+    .filter(c => labels[c.id] && (labels[c.id].verdict || labels[c.id].note))
+    .map(c => ({ scenario_id: c.id, verdict: labels[c.id].verdict, note: labels[c.id].note, action: c.action }));
+  const file = { run: DATA.run, policy_commit: DATA.policy_commit, exported_at: new Date().toISOString(), labels: rows };
+  const link = el('a');
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+  link.download = DATA.run + '-labels.json';
+  document.body.append(link);
+  link.click();
+  link.remove();
+});
+refresh();
+</script>
+</body>
+</html>

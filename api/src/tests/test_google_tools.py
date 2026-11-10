@@ -656,6 +656,15 @@ class TestIsZillowContent:
     def test_non_zillow(self):
         assert not _is_zillow_content(from_addr="tenant@gmail.com", content="Plain email")
 
+    def test_our_own_reply_is_never_zillow_content(self):
+        # Our replies quote the lead's Zillow message; cleaning them as Zillow
+        # email keeps only that quoted tail and drops what we actually wrote.
+        reply = "Hello Jane,\n\nOn Fri, Jane <x@convo.zillow.com> wrote:\n> Jane says: Hi"
+        assert not _is_zillow_content(
+            from_addr="Sernia Capital <all@serniacapital.com>", content=reply
+        )
+        assert _is_zillow_content(from_addr="Jane <x@convo.zillow.com>", content=reply)
+
 
 # ---------------------------------------------------------------------------
 # Unit Tests: _summarize_if_long

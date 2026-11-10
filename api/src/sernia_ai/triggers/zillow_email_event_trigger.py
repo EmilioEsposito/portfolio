@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
@@ -81,9 +82,12 @@ from api.src.sernia_ai.config import (
     DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
     DEFAULT_ZILLOW_REQUIRE_APPROVAL,
     FRONTEND_BASE_URL,
+    GOOGLE_DELEGATION_EMAIL,
+    SHARED_EXTERNAL_EMAIL,
 )
 from api.src.sernia_ai.models import AppSetting, ZillowEmailJob, is_sernia_ai_enabled
 from api.src.sernia_ai.triggers.background_agent_runner import execute_trigger_run
+from api.src.sernia_ai.zillow_leads.thread import SharedCopy, find_shared_copy
 
 # Zillow's mail domain. Lead inquiries arrive from (and are answered at) a
 # relay address under it, so this one constant decides both which inbound
@@ -483,29 +487,81 @@ async def fail_thread(claim: ClaimedThread, error: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def find_shared_copies(emails: Sequence[ClaimedEmail]) -> dict[str, SharedCopy]:
+    """Each queued email's copy in the shared mailbox, keyed by its queued message ID.
+
+    The queue holds IDs from the watched mailbox; the agent reads and replies
+    in the shared one, where the IDs are different. An email with no shared
+    copy is left out and the caller hands the agent its original ID instead.
+    """
+    copies: dict[str, SharedCopy] = {}
+    for email in emails:
+        copy = await find_shared_copy(email.message_id)
+        if copy is None:
+            logfire.warn(
+                "zillow_email_queue: no shared-mailbox copy found",
+                message_id=email.message_id,
+                thread_id=email.thread_id,
+            )
+        else:
+            copies[email.message_id] = copy
+    return copies
+
+
 def build_trigger_prompt(
-    emails: tuple[ClaimedEmail, ...] | list[ClaimedEmail], deeplink: str
+    emails: Sequence[ClaimedEmail],
+    deeplink: str,
+    shared_copies: Mapping[str, SharedCopy] | None = None,
 ) -> str:
-    """The synthetic user message that starts a Zillow run."""
+    """The synthetic user message that starts a Zillow run.
+
+    Every ID is given in the mailbox it belongs to: the shared mailbox when
+    ``shared_copies`` has the email, otherwise the watched mailbox.
+    """
+    shared_copies = shared_copies or {}
+
+    def ids(email: ClaimedEmail) -> tuple[str, str, str]:
+        copy = shared_copies.get(email.message_id)
+        if copy is None:
+            return email.message_id, email.thread_id, GOOGLE_DELEGATION_EMAIL
+        return copy.message_id, copy.thread_id, SHARED_EXTERNAL_EMAIL
+
+    def label(mailbox: str) -> str:
+        return f"{mailbox.split('@')[0]}@"
+
     if len(emails) == 1:
         email = emails[0]
+        message_id, thread_id, mailbox = ids(email)
         email_details = dedent(f"""\
             **Email details:**
-            - Gmail Message ID (all@ account): {email.message_id}
-            - Thread ID (Gmail): {email.thread_id}
+            - Gmail Message ID ({label(mailbox)} account): {message_id}
+            - Thread ID (Gmail): {thread_id}
             - Subject: {email.subject}
             - From: {email.from_address}""")
-        reply_hint = (
-            f'When replying, pass reply_to_message_id="{email.message_id}" to thread correctly.'
-        )
+        reply_hint = f'When replying, pass reply_to_message_id="{message_id}" to thread correctly.'
     else:
-        lines = [
-            f"{i}. Subject: {email.subject} | From: {email.from_address} "
-            f"| Message ID: {email.message_id} | Thread ID: {email.thread_id}"
-            for i, email in enumerate(emails, 1)
-        ]
+        lines = []
+        for i, email in enumerate(emails, 1):
+            message_id, thread_id, mailbox = ids(email)
+            lines.append(
+                f"{i}. Subject: {email.subject} | From: {email.from_address} "
+                f"| Message ID: {message_id} | Thread ID: {thread_id} "
+                f"| Mailbox: {label(mailbox)}"
+            )
         email_details = "**Emails received (oldest first):**\n" + "\n".join(lines)
         reply_hint = "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
+
+    if all(email.message_id in shared_copies for email in emails):
+        mailbox_hint = (
+            f"These IDs are from {SHARED_EXTERNAL_EMAIL}. Always search/read there "
+            f'(use user_email_account="{SHARED_EXTERNAL_EMAIL}").'
+        )
+    else:
+        mailbox_hint = (
+            f"IDs marked {label(GOOGLE_DELEGATION_EMAIL)} had no copy in {SHARED_EXTERNAL_EMAIL}: "
+            f'read those with user_email_account="{GOOGLE_DELEGATION_EMAIL}". '
+            f'Read everything else from {SHARED_EXTERNAL_EMAIL} (user_email_account="{SHARED_EXTERNAL_EMAIL}").'
+        )
 
     return dedent(f"""\
         {len(emails)} new Zillow email(s) arrived. Load the zillow-auto-reply skill and follow it.
@@ -515,7 +571,7 @@ def build_trigger_prompt(
 
         Read each email using its Message ID, then draft replies or NoAction per email.
         {reply_hint}
-        Always search/read from all@serniacapital.com (use user_email_account="all@serniacapital.com").""")
+        {mailbox_hint}""")
 
 
 async def _already_completed(conversation_id: str) -> bool:
@@ -549,7 +605,9 @@ async def process_thread(claim: ClaimedThread) -> None:
         outcome = await execute_trigger_run(
             trigger_source=TRIGGER_SOURCE,
             trigger_prompt=build_trigger_prompt(
-                claim.emails, f"{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}"
+                claim.emails,
+                f"{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}",
+                await find_shared_copies(claim.emails),
             ),
             trigger_metadata={
                 "trigger_source": TRIGGER_SOURCE,
