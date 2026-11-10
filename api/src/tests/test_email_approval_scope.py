@@ -59,13 +59,26 @@ def _ctx(scope: frozenset[str]) -> SimpleNamespace:
     )
 
 
+THREADING = {
+    "thread_id": "t1",
+    "in_reply_to": "<orig@zillow.com>",
+    "references": "<orig@zillow.com>",
+}
+
+
 class TestSendEmailGate:
     @pytest.fixture
-    def send(self, monkeypatch):
+    def headers(self, monkeypatch):
+        """Gmail's answer for the message being replied to; found by default."""
+        lookup = AsyncMock(return_value=dict(THREADING))
+        monkeypatch.setattr(google_tools, "_get_threading_headers", lookup)
+        return lookup
+
+    @pytest.fixture
+    def send(self, monkeypatch, headers):
         send = AsyncMock(return_value={"id": "sent-1"})
         monkeypatch.setattr(google_tools, "_send_email", send)
         monkeypatch.setattr(google_tools, "get_delegated_credentials", lambda **_: object())
-        monkeypatch.setattr(google_tools, "_get_threading_headers", AsyncMock(return_value={}))
         return send
 
     @pytest.mark.asyncio
@@ -75,6 +88,48 @@ class TestSendEmailGate:
         )
         assert "Email sent" in result
         send.assert_awaited_once()
+        # The reply is actually threaded onto the message it named.
+        assert send.await_args.kwargs["in_reply_to"] == THREADING["in_reply_to"]
+
+    @pytest.mark.asyncio
+    async def test_scoped_run_gates_a_reply_id_that_does_not_resolve(self, send, headers):
+        """A fabricated or stale ID (or a failed Gmail lookup) yields no
+        headers; without this check the email would go out unreviewed as a
+        brand-new thread."""
+        headers.return_value = {}
+        with pytest.raises(ApprovalRequired):
+            await google_tools.send_email(
+                _ctx(ZILLOW_SCOPE), [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="made-up"
+            )
+        send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reply_found_only_in_the_users_mailbox_still_counts(self, send, headers):
+        """The trigger's message IDs come from a different mailbox than the
+        one replies are sent from; the fallback lookup must keep working."""
+
+        async def lookup(message_id: str, user_email: str) -> dict:
+            return {} if user_email == google_tools.SHARED_EXTERNAL_EMAIL else dict(THREADING)
+
+        headers.side_effect = lookup
+        await google_tools.send_email(
+            _ctx(ZILLOW_SCOPE), [LEAD], "Re: 320 Main St", "Hi", reply_to_message_id="msg-1"
+        )
+        sent = send.await_args.kwargs
+        assert sent["in_reply_to"] == THREADING["in_reply_to"]
+        assert "thread_id" not in sent  # mailbox-specific, dropped on fallback
+
+    @pytest.mark.asyncio
+    async def test_approved_send_with_unresolved_reply_id_still_sends(self, send, headers):
+        """Unchanged behavior once a human approves: an unresolvable ID just
+        means the email goes out unthreaded."""
+        headers.return_value = {}
+        ctx = _ctx(frozenset())
+        ctx.tool_call_approved = True
+        result = await google_tools.send_email(
+            ctx, ["tenant@example.com"], "Hello", "Hi", reply_to_message_id="gone"
+        )
+        assert "Email sent" in result
 
     @pytest.mark.asyncio
     async def test_scoped_run_still_gates_email_to_anyone_else(self, send):

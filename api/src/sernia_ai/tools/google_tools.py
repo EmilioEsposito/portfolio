@@ -276,10 +276,14 @@ def is_auto_approved_reply(
 ) -> bool:
     """Whether an external email may skip the HITL approval card.
 
-    True only when the run carries an auto-approval scope AND the email is a
-    threaded reply AND every recipient is at one of the scoped domains (or a
-    subdomain). Anything else — a new thread, a CC to another address, a run
-    with no scope — falls back to the approval card.
+    True only when the run carries an auto-approval scope AND the email
+    names a message to reply to AND every recipient is at one of the scoped
+    domains (or a subdomain). Anything else — a new thread, a CC to another
+    address, a run with no scope — falls back to the approval card.
+
+    This is the cheap, pure half of the check. ``send_email`` additionally
+    requires the named message to resolve to real threading headers before it
+    skips the card.
     """
     if not auto_approved_domains or not reply_to_message_id.strip() or not to:
         return False
@@ -371,6 +375,31 @@ async def _get_threading_headers(message_id: str, user_email: str) -> dict:
         return {}
 
 
+async def _resolve_reply_threading(
+    reply_to_message_id: str, routing: EmailRouting, user_email: str
+) -> dict:
+    """Threading headers for a reply, or ``{}`` when the message can't be found.
+
+    Internal sends look in the user's mailbox. External sends go out from the
+    shared mailbox, so that is tried first; the user's own mailbox is the
+    fallback, minus ``thread_id`` (it is mailbox-specific and would 404 on the
+    shared mailbox — the RFC headers alone still thread the reply).
+    """
+    if routing.is_internal:
+        return await _get_threading_headers(reply_to_message_id, user_email)
+
+    thread_kwargs = await _get_threading_headers(reply_to_message_id, SHARED_EXTERNAL_EMAIL)
+    if not thread_kwargs and user_email != SHARED_EXTERNAL_EMAIL:
+        logfire.info(
+            "reply_to_message_id not found in shared mailbox, trying user account",
+            message_id=reply_to_message_id,
+            user_email=user_email,
+        )
+        thread_kwargs = await _get_threading_headers(reply_to_message_id, user_email)
+        thread_kwargs.pop("thread_id", None)
+    return thread_kwargs
+
+
 @google_toolset.tool
 async def send_email(
     ctx: RunContext[SerniaDeps],
@@ -410,34 +439,33 @@ async def send_email(
     # Conditional approval: external recipients require HITL, unless this is a
     # threaded reply inside the run's auto-approval scope (e.g. Zillow
     # auto-reply to the Zillow relay with `require_approval` flipped off).
-    if (
-        not routing.is_internal
-        and not ctx.tool_call_approved
-        and not is_auto_approved_reply(
-            to, reply_to_message_id, ctx.deps.auto_approved_reply_domains
-        )
+    thread_kwargs: dict | None = None
+    needs_approval = not routing.is_internal and not ctx.tool_call_approved
+    if needs_approval and is_auto_approved_reply(
+        to, reply_to_message_id, ctx.deps.auto_approved_reply_domains
     ):
+        # "Threaded reply" has to be a fact, not a claim: a made-up or stale
+        # ID, or a failed Gmail lookup, resolves to no headers and the email
+        # would go out as a brand-new thread. Resolve it before granting the
+        # bypass, and fall back to the approval card when it doesn't resolve.
+        thread_kwargs = await _resolve_reply_threading(
+            reply_to_message_id, routing, ctx.deps.user_email
+        )
+        needs_approval = not thread_kwargs.get("in_reply_to")
+        if needs_approval:
+            logfire.warn(
+                "send_email: auto-approval denied — reply_to_message_id did not resolve",
+                reply_to_message_id=reply_to_message_id,
+            )
+    if needs_approval:
         raise ApprovalRequired()
 
-    # Resolve threading
-    thread_kwargs: dict = {}
-    if reply_to_message_id:
-        if routing.is_internal:
-            thread_kwargs = await _get_threading_headers(reply_to_message_id, ctx.deps.user_email)
-        else:
-            # Try shared mailbox first (send mailbox), fall back to user's mailbox
-            thread_kwargs = await _get_threading_headers(reply_to_message_id, SHARED_EXTERNAL_EMAIL)
-            if not thread_kwargs and ctx.deps.user_email != SHARED_EXTERNAL_EMAIL:
-                logfire.info(
-                    "reply_to_message_id not found in shared mailbox, trying user account",
-                    message_id=reply_to_message_id,
-                    user_email=ctx.deps.user_email,
-                )
-                thread_kwargs = await _get_threading_headers(
-                    reply_to_message_id, ctx.deps.user_email
-                )
-                # Drop threadId — it's from user's mailbox, not the send mailbox
-                thread_kwargs.pop("thread_id", None)
+    if thread_kwargs is None:
+        thread_kwargs = (
+            await _resolve_reply_threading(reply_to_message_id, routing, ctx.deps.user_email)
+            if reply_to_message_id
+            else {}
+        )
 
     to_str = ", ".join(addr.strip() for addr in to)
     credentials = get_delegated_credentials(
