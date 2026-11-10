@@ -15,7 +15,7 @@ def upgrade() -> None:
         sa.Column('tool_name', sa.String(), nullable=False),
         sa.Column('conversation_id', sa.String()),
         sa.Column(
-            'created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True
+            'created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
     )
 
