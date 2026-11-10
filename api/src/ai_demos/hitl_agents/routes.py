@@ -27,15 +27,7 @@ from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
-    ApprovalDecision,
-    HITLAgentContext,
-    extract_pending_approvals,
-    extract_tool_results,
-    hitl_sms_agent,
-    resume_with_approvals,
-)
-from api.src.ai_demos.models import (
+from api.src.agent_conversations.models import (
     delete_conversation,
     extract_pending_approval_from_messages,
     get_conversation_messages,
@@ -43,6 +35,14 @@ from api.src.ai_demos.models import (
     list_pending_conversations,
     list_user_conversations,
     persist_agent_run_result,
+)
+from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
+    ApprovalDecision,
+    HITLAgentContext,
+    extract_pending_approvals,
+    extract_tool_results,
+    hitl_sms_agent,
+    resume_with_approvals,
 )
 from api.src.database.database import DBSession
 from api.src.utils.clerk import SerniaUser

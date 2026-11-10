@@ -41,7 +41,7 @@ Recipe to copy real conversations into local Postgres:
    # uv run python - <<'EOF'  (paste rows from step 2 as `rows`)
    import asyncio, json
    from api.src.utils.seed_fixture import digest, sanitize_text, sanitize_value
-   from api.src.ai_demos.models import AgentConversation
+   from api.src.agent_conversations.models import AgentConversation
    from api.src.database.database import AsyncSessionFactory  # local PG here
 
    async def load(rows):

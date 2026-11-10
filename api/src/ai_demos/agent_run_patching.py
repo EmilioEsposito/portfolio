@@ -3,7 +3,7 @@ from types import MethodType
 
 import logfire
 
-from api.src.ai_demos.models import persist_agent_run_result
+from api.src.agent_conversations.models import persist_agent_run_result
 
 
 def patch_run_with_persistence(agent):

@@ -36,8 +36,8 @@ from pydantic_ai import capture_run_messages
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage
 
-from api.src.ai_demos.hitl_utils import extract_pending_approvals
-from api.src.ai_demos.models import persist_agent_run_result, save_agent_conversation
+from api.src.agent_conversations.hitl import extract_pending_approvals
+from api.src.agent_conversations.models import persist_agent_run_result, save_agent_conversation
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.service import send_message
 from api.src.sernia_ai.agent import NoAction, sernia_agent

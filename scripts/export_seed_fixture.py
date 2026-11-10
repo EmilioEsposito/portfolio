@@ -37,7 +37,7 @@ from api.src.utils.seed_fixture import (
 async def export(limit: int) -> None:
     from sqlalchemy import select
 
-    from api.src.ai_demos.models import AgentConversation
+    from api.src.agent_conversations.models import AgentConversation
     from api.src.database.database import AsyncSessionFactory
 
     async with AsyncSessionFactory() as session:

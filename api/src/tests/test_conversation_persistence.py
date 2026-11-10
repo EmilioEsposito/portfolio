@@ -9,7 +9,7 @@ import pytest_asyncio
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.usage import RunUsage
 
-from api.src.ai_demos.models import (
+from api.src.agent_conversations.models import (
     AgentConversation,
     extract_run_usage,
     save_agent_conversation,

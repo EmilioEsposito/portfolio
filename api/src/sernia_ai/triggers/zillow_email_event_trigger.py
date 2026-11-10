@@ -75,7 +75,7 @@ import logfire
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from api.src.ai_demos.models import get_agent_conversation
+from api.src.agent_conversations.models import get_agent_conversation
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.config import (
     DEFAULT_ZILLOW_DEBOUNCE_SECONDS,

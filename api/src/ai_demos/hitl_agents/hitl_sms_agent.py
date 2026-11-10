@@ -17,22 +17,22 @@ from pydantic_ai import Agent, AgentRunResult, DeferredToolRequests
 from pydantic_ai.capabilities import Instrumentation
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     ApprovalDecision,
 )
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     extract_pending_approval as _extract_pending_approval,
 )
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     extract_pending_approvals as _extract_pending_approvals,
 )
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     extract_tool_results as _extract_tool_results,
 )
-from api.src.ai_demos.hitl_utils import (
+from api.src.agent_conversations.hitl import (
     resume_with_approvals as _resume_with_approvals_generic,
 )
+from api.src.ai_demos.agent_run_patching import patch_run_with_persistence
 from api.src.contact.service import get_contact_by_slug
 from api.src.open_phone.service import send_message
 from api.src.utils.llm import OPERATIONS_MODEL, demo_model_settings
@@ -99,13 +99,13 @@ patch_run_with_persistence(hitl_sms_agent)
 # patch_run_with_persistence(dbos_hitl_sms_agent)
 
 
-# --- Helper Functions (delegated to shared hitl_utils) ---
+# --- Helper Functions (delegated to agent_conversations.hitl) ---
 
 # Re-export for backward compatibility (hitl_agents/routes.py imports from here)
 extract_pending_approval = _extract_pending_approval
 extract_pending_approvals = _extract_pending_approvals
 extract_tool_results = _extract_tool_results
-# ApprovalDecision is imported from hitl_utils and re-exported above
+# ApprovalDecision is imported from agent_conversations.hitl and re-exported above
 
 
 async def resume_with_approvals(
