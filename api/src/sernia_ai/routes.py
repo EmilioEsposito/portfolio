@@ -997,10 +997,10 @@ async def get_admin_settings(
     ]
 
     # Zillow config is reported as-is on every env. Unlike the trigger kill
-    # switch / schedule, the bypass-approval flag is only consulted inside
-    # `bypass_external_email_approval`-aware code paths, which are themselves
-    # gated by `is_sernia_ai_enabled` (hard-off on non-prod). Showing the real
-    # value lets PR envs see what production has configured.
+    # switch / schedule, `require_approval` is only consulted by the Zillow
+    # trigger when it sets `auto_approved_reply_domains`, and that trigger is
+    # itself gated by `is_sernia_ai_enabled` (hard-off on non-prod). Showing
+    # the real value lets PR envs see what production has configured.
     zillow_email_config = await get_zillow_email_config()
 
     if not _IS_PRODUCTION:

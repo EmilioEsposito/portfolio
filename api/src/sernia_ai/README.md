@@ -7,7 +7,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 ## Architecture
 
 - **Agent** (`agent.py`) — Main PydanticAI agent with tool use, sub-agents, and persistent memory
-- **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (datetime, memory, filetree, modality, triggers)
+- **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (memory, filetree, modality, then per-run context: datetime, user, deeplink). See [Prompt stability](#prompt-stability).
 - **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
 - **Model config** (`model_config.py`) — Runtime-switchable main-agent model (GPT-5.6 Luna / Sonnet 4.6 / Opus 4.7) and reasoning effort (Low / Medium / High / X-High / Max — Max is GPT-5.6's top tier, above X-High), resolved per run via the `model_config` app_setting. Web search/fetch live on the agent as provider-adaptive `WebSearch`/`WebFetch` capabilities (native web fetch is Anthropic-only and is dropped automatically on OpenRouter runs). See [Model Gateways](#model-gateways) below.
 - **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
@@ -106,6 +106,40 @@ retroactively.
   `prompt_cache_retention="24h"` extension isn't available — infrequent
   scheduled runs fall back to OpenAI's default cache window.
 
+### Prompt stability
+
+pydantic-ai re-evaluates every instruction function before **each model
+request**, not once per run. Providers cache prompts by exact prefix, and the
+system prompt precedes the whole message history — so a section that changes
+mid-run (the clock ticking over, `MEMORY.md` after the agent edits it) would
+re-bill every earlier tool call and result at the uncached rate on each
+remaining request. Two rules in `instructions.py` prevent that:
+
+- **Snapshot per run** — `@once_per_run` evaluates a section once and replays
+  it for the rest of the run (stored on `SerniaDeps.instruction_snapshots`).
+  The injected `MEMORY.md` is therefore a true start-of-run snapshot, which is
+  what the static prompt tells the agent.
+- **Stable sections first** — `DYNAMIC_INSTRUCTIONS` is ordered from what every
+  conversation shares (memory, filetree) to what differs per run (datetime,
+  user, deeplink), so the shared part stays a cacheable prefix.
+
+`test_sernia_agent_wiring.py::TestInstructionsStableWithinRun` fails if a
+section starts changing between requests. Wrap any new volatile section in
+`@once_per_run` and place it after the stable ones.
+
+### Conversation metadata
+
+`save_agent_conversation` **merges** `metadata` onto what is stored (`None`
+leaves it untouched). A conversation is saved by several paths over its life —
+the trigger that created it, then web-chat turns and approvals — and the
+trigger's keys must survive those: `trigger_phone` /
+`trigger_group_participants` route post-approval SMS replies, and
+`trigger_source` identifies how a conversation started. The failure flags
+(`partial`, `error`, `llm_error`) describe a single save and are dropped on the
+next one. Per-run cost comes from the amount OpenRouter reports on each
+response (`extract_run_usage`), since genai-prices has no entries for
+OpenRouter model slugs.
+
 ### Modalities
 
 The agent operates in three modalities, each with distinct behavior:
@@ -120,7 +154,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 - **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; mixed internal+external **group texts** are hard-blocked deterministically — a group is always all-internal or all-external (see [`tools/README.md`](tools/README.md))
 - **Unit isolation** — Cross-unit tenant group texts blocked; roommates within a unit share one group thread (see [`tools/README.md`](tools/README.md))
-- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated.
+- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The one opt-out is the Zillow auto-reply toggle, and it covers only threaded replies to Zillow relay addresses (see [`triggers/README.md`](triggers/README.md#key-design-choices)).
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
 - **Repeat-call loop breaker** — A tool call that fails identically twice in one run gets a "STOP, change approach" instruction appended to the error, so the agent can't spend its whole request budget re-sending arguments that already failed. See [`tools/README.md`](tools/README.md#repeat-call-loop-breaker-_loggingpy)

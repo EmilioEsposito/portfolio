@@ -38,7 +38,7 @@ def build_parser(description: str, *, default_experiment_prefix: str) -> argpars
     )
     parser.add_argument(
         "--thinking",
-        choices=("minimal", "low", "medium", "high", "xhigh"),
+        choices=("minimal", "low", "medium", "high", "xhigh", "max"),
         default="medium",
         help="Unified reasoning-effort level for both variants.",
     )

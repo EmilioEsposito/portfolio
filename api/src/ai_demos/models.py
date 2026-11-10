@@ -265,6 +265,61 @@ def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float |
         return None
 
 
+def _reported_cost(messages: list[ModelMessage]) -> float | None:
+    """Sum the cost the gateway itself reported for these responses.
+
+    OpenRouter returns the exact billed amount per request (surfaced on
+    ``ModelResponse.provider_details["cost"]`` when usage accounting is on).
+    That is the only cost signal for OpenRouter-routed models: genai-prices
+    has no entries for slugs like ``openai/gpt-5.6-luna``, so price-table
+    lookups return nothing and the conversation's cost columns stay at zero.
+    """
+    total = 0.0
+    found = False
+    for msg in messages:
+        if not isinstance(msg, ModelResponse):
+            continue
+        cost = (msg.provider_details or {}).get("cost")
+        if isinstance(cost, int | float) and not isinstance(cost, bool):
+            total += float(cost)
+            found = True
+    return round(total, 6) if found else None
+
+
+def extract_run_usage(result: AgentRunResult) -> tuple[int | None, float | None]:
+    """Return ``(total_tokens, cost_usd)`` for one agent run. Never raises.
+
+    Cost prefers what the gateway billed (see ``_reported_cost``) and falls
+    back to a genai-prices estimate for providers that don't report one.
+    """
+    try:
+        usage = result.usage()
+        raw_total = usage.total_tokens
+        total_tokens = raw_total if isinstance(raw_total, int) and raw_total else None
+
+        cost = _reported_cost(result.new_messages())
+        if (
+            cost is None
+            and isinstance(usage.input_tokens, int)
+            and isinstance(usage.output_tokens, int)
+            and usage.input_tokens
+            and usage.output_tokens
+        ):
+            for msg in reversed(result.all_messages()):
+                if isinstance(msg, ModelResponse) and msg.model_name:
+                    cost = _calc_cost(usage.input_tokens, usage.output_tokens, msg.model_name)
+                    break
+        return total_tokens, cost
+    except Exception:
+        return None, None
+
+
+# Flags describing how one particular save went. They are dropped from the
+# metadata carried over to the next save so a recovered conversation doesn't
+# stay marked as failed.
+_TRANSIENT_METADATA_KEYS = frozenset({"partial", "error", "llm_error"})
+
+
 async def save_agent_conversation(
     session: AsyncSession,
     conversation_id: str,
@@ -283,6 +338,13 @@ async def save_agent_conversation(
 
     Args:
         clerk_user_id: Clerk user ID (e.g., "user_2abc123...") - used for ownership
+        metadata: Merged onto the conversation's existing metadata (new keys
+            win); ``None`` leaves it untouched. A conversation is saved by
+            several code paths over its life — the trigger that created it,
+            then web-chat turns and approvals that know nothing about how it
+            started — and a replace here let any of them erase the trigger's
+            routing data (``trigger_phone``, ``trigger_group_participants``)
+            and provenance (``trigger_source``).
     """
     # Convert messages to JSON-safe format using Pydantic's adapter
     # mode='json' ensures bytes are serialized (e.g. to utf-8 string if valid, but care needed for raw binary)
@@ -314,13 +376,24 @@ async def save_agent_conversation(
 
     # Use session.merge which performs an upsert (SELECT + INSERT/UPDATE)
     # This is idiomatic SQLAlchemy ORM.
+    # populate_existing: the caller's session may have loaded this row before a
+    # long agent run; re-read it so we merge onto what is in the DB now.
+    existing = await session.get(AgentConversation, conversation_id, populate_existing=True)
+    prior_metadata = existing.metadata_ if existing is not None else None
+    carried = {
+        k: v
+        for k, v in (prior_metadata if isinstance(prior_metadata, dict) else {}).items()
+        if k not in _TRANSIENT_METADATA_KEYS
+    }
+    merged_metadata = {**carried, **(metadata or {})}
+
     conversation = AgentConversation(
         id=conversation_id,
         agent_name=agent_name,
         clerk_user_id=clerk_user_id,
         user_email=user_email,
         messages=messages_json,
-        metadata_=metadata,
+        metadata_=merged_metadata or None,
     )
     if modality is not None:
         conversation.modality = modality
@@ -329,7 +402,6 @@ async def save_agent_conversation(
 
     # Accumulate tokens, cost, and run_count from existing record
     if cost_last_run is not None or estimated_tokens is not None:
-        existing = await session.get(AgentConversation, conversation_id)
         prev_tokens = existing.estimated_tokens if existing else 0
         prev_cost = float(existing.cost_total) if existing else 0.0
         prev_count = existing.run_count if existing else 0
@@ -396,23 +468,7 @@ async def persist_agent_run_result(
                     f"Persisting {len(all_messages)} messages for conversation {conversation_id}"
                 )
 
-                # Extract token usage and compute cost
-                total_tokens: int | None = None
-                cost: float | None = None
-                try:
-                    usage = result.usage()
-                    total_tokens = usage.total_tokens if usage.total_tokens else None
-                    if usage.input_tokens and usage.output_tokens:
-                        # Get model name from the last ModelResponse in messages
-                        model_name: str | None = None
-                        for msg in reversed(all_messages):
-                            if isinstance(msg, ModelResponse) and getattr(msg, "model_name", None):
-                                model_name = msg.model_name
-                                break
-                        if model_name:
-                            cost = _calc_cost(usage.input_tokens, usage.output_tokens, model_name)
-                except Exception:
-                    pass
+                total_tokens, cost = extract_run_usage(result)
 
                 await save_agent_conversation(
                     session=s,

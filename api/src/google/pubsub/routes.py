@@ -216,21 +216,18 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                     # email events and should not refire the trigger. The queue
                     # itself also dedupes by message_id as a secondary guard.
                     from_addr = processed_email_message.get("from_address", "")
-                    is_zillow = bool(
-                        from_addr
-                        and (
-                            "@zillow.com" in from_addr.lower() or ".zillow.com" in from_addr.lower()
-                        )
+                    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                        is_zillow_email,
+                        queue_zillow_email_event,
                     )
+
+                    is_zillow = is_zillow_email(from_addr or "")
                     if is_zillow and was_inserted:
                         logfire.info(
                             "zillow_trigger_gate: queuing",
                             email_message_id=email_message_id,
                             from_address=from_addr,
                             subject=processed_email_message.get("subject", ""),
-                        )
-                        from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
-                            queue_zillow_email_event,
                         )
 
                         asyncio.create_task(

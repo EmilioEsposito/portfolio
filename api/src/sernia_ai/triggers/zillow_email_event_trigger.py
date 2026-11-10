@@ -17,8 +17,9 @@ overridable via the DB-backed ``zillow_email_config`` AppSetting (JSONB):
 
 Defaults come from ``DEFAULT_ZILLOW_DEBOUNCE_SECONDS`` and
 ``DEFAULT_ZILLOW_REQUIRE_APPROVAL`` in ``config.py``. ``require_approval=False``
-opts the agent's outbound Zillow replies out of the standard external email
-HITL approval card (the agent calls ``send_email`` directly for these runs).
+lets the agent send threaded replies to Zillow relay addresses without the
+standard external email HITL approval card. Email to any other external
+address still pauses for approval, even in these runs.
 
 Deduplication: Gmail Pub/Sub has at-least-once delivery, and a single logical
 message can show up in multiple history notifications (e.g. when Gmail label
@@ -36,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from email.utils import parseaddr
 from textwrap import dedent
 
 import logfire
@@ -47,6 +49,11 @@ from api.src.sernia_ai.config import (
     FRONTEND_BASE_URL,
 )
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+
+# Zillow's mail domain. Lead inquiries arrive from (and are answered at) a
+# relay address under it, so this one constant decides both which inbound
+# email wakes the agent and where an auto-approved reply may go.
+ZILLOW_EMAIL_DOMAIN = "zillow.com"
 
 # TTL for the recently-fired message_id cache. Must comfortably exceed the
 # debounce window so a redelivery landing after a batch fires still dedupes.
@@ -113,15 +120,18 @@ def _prune_recently_fired(now: float | None = None) -> None:
 
 
 def is_zillow_email(from_address: str) -> bool:
-    """Return True if the sender is a Zillow email address."""
+    """Return True if the sender's address is at zillow.com or a subdomain.
+
+    Accepts a raw ``From`` header (``"Zillow" <x@convo.zillow.com>``) as well
+    as a bare address. Only the parsed address's domain counts: a substring
+    test would also accept ``"noreply@zillow.com" <attacker@evil.com>`` and
+    ``lead@zillow.com.evil.com``, and this check decides whether a stranger's
+    email wakes the agent.
+    """
     if not from_address:
         return False
-    addr = from_address.lower()
-    return (
-        addr.endswith("@zillow.com")
-        or "@" in addr
-        and addr.split("@", 1)[1].endswith(".zillow.com")
-    )
+    domain = parseaddr(from_address)[1].lower().rpartition("@")[2]
+    return domain == ZILLOW_EMAIL_DOMAIN or domain.endswith(f".{ZILLOW_EMAIL_DOMAIN}")
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +305,13 @@ async def _fire_batched_trigger(emails: list[dict]) -> str | None:
         trigger_metadata=trigger_metadata,
         rate_limit_key="zillow_batch",
         conversation_id=conv_id,
-        bypass_external_email_approval=not require_approval,
+        auto_approved_reply_domains=(
+            frozenset() if require_approval else frozenset({ZILLOW_EMAIL_DOMAIN})
+        ),
+        # The debounce window already throttles this trigger, and it may be
+        # set as low as 60s — shorter than the runner's 120s cooldown, which
+        # would silently drop every second batch of leads.
+        apply_cooldown=False,
     )
 
     logfire.info(

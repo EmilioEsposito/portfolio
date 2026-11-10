@@ -156,10 +156,12 @@ flowchart TD
 ### Key design choices
 
 - **Debounce window** — First email starts the window (default 5 min, set by `zillow_email_config.debounce_seconds`); subsequent emails are accumulated. The agent fires once at the end with the full batch, so it can see all new leads at once. This prevents N agent runs for N emails arriving in quick succession.
-- **Per-trigger HITL toggle** — `zillow_email_config.require_approval` controls whether outbound Zillow replies pause for the external-email HITL approval card. The plumbing lives on `SerniaDeps.bypass_external_email_approval`: when the toggle is off, the trigger passes `bypass_external_email_approval=True` to `run_agent_for_trigger`, and `send_email` short-circuits its `is_internal=False` approval gate for that one run. Other triggers (and web chat) never set the flag, so the standard HITL behavior is preserved everywhere else.
+- **Per-trigger HITL toggle, scoped to the lead** — `zillow_email_config.require_approval` controls whether outbound Zillow replies pause for the external-email HITL approval card. When the toggle is off, the trigger passes `auto_approved_reply_domains={"zillow.com"}` to `run_agent_for_trigger`, which sets it on `SerniaDeps`; `send_email` then skips its approval gate only for a **threaded reply whose every recipient is a Zillow relay address** (`google_tools.is_auto_approved_reply`), and only after `reply_to_message_id` has resolved to real threading headers in Gmail — a stale or made-up ID, or a failed lookup, falls back to the approval card instead of sending a new thread unreviewed. Email to any other external address, or a new unthreaded email, still pauses for approval in the same run. The scope is narrow on purpose: these runs read email written by strangers, so text inside a lead's message must not be able to redirect an auto-send. Other triggers (and web chat) never set the scope, so the standard HITL behavior is preserved everywhere else.
+- **One sender check** — `is_zillow_email()` parses the `From` header and matches the address's domain (`zillow.com` or a subdomain). The Pub/Sub route calls it rather than testing for a substring, which would also accept `"noreply@zillow.com" <someone@elsewhere.com>`.
+- **No runner cooldown** — the trigger passes `apply_cooldown=False`. The debounce window is its throttle, and it can be set as low as 60s; the runner's 120s cooldown would silently drop the second of two back-to-back batches (a cooldown skip is a drop, not a deferral).
 - **Dedup to logical *new* emails** — Gmail Pub/Sub has at-least-once delivery and every label change (e.g. INBOX→READ) fires another history notification that re-references the same `message_id`. Two guards collapse these back down to one event per logical email:
   1. **Pubsub route gate** — `save_email_message()` returns `(email, was_inserted)`. The Zillow trigger is only queued when `was_inserted=True`. Redeliveries / label-change upserts don't refire the trigger.
-  2. **Queue-level dedup** — `queue_zillow_email_event()` skips a `message_id` that is already in `_pending_emails` or in `_recently_fired_message_ids` (1-hour TTL). This catches anything that slips past the pubsub gate (e.g. a redelivery that races the DB commit).
+  2. **Queue-level dedup** — `queue_zillow_email_event()` skips a `message_id` that is already in `_pending_emails` or in `_recently_fired_message_ids` (2-hour TTL). This catches anything that slips past the pubsub gate (e.g. a redelivery that races the DB commit).
 - **Trigger instructions stay lean** — point to `areas/zillow_auto_reply.md` for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
 - **No completion push** — Zillow drafts (and other trigger completions) do not fire push notifications. Only HITL approval prompts (`notify_pending_approval`) push. Drafts surface via the web-chat conversation list to keep notification volume low.
 - **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net, catching anything the event trigger misses (e.g., server downtime).
@@ -204,7 +206,7 @@ The scheduled-checks job itself is only registered on production and only when b
 
 Shared in-memory rate limiter in `background_agent_runner.py`:
 
-- **Cooldown**: 2 minutes per key
+- **Cooldown**: 2 minutes per key (callers that throttle themselves pass `apply_cooldown=False` — currently the Zillow trigger)
 - **Key format**: `{trigger_source}:{rate_limit_key}` (e.g., `ai_sms:+14155550100`)
 - **Scope**: Per-process, resets on restart
 - **Behavior**: First call within window proceeds, subsequent calls are logged and skipped

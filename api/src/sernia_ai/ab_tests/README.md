@@ -28,7 +28,7 @@ python -m api.src.sernia_ai.ab_tests.model_comparison_rote
 
 # Override variants, reasoning, concurrency:
 python -m api.src.sernia_ai.ab_tests.model_comparison_search \
-    --variant sonnet=anthropic:claude-sonnet-4-6 \
+    --variant sonnet=openrouter:anthropic/claude-sonnet-4.6 \
     --variant gpt5=openrouter:openai/gpt-5.6-luna \
     --thinking high \
     --max-concurrency 2
@@ -88,6 +88,10 @@ ORDER BY v.variant;
 `sernia_agent` has many write-capable tools (SMS, email, ClickUp, scheduling). **By default** this harness passes `toolsets=[]` via `agent.override()`, so the run is a pure LLM comparison with no tool calls and no side effects.
 
 To run with the full toolset (e.g. to compare tool-calling behaviour), pass `--with-tools`. Only do this with prompts you've vetted to be read-only and idempotent.
+
+`api/src/tests/test_ab_harness.py` runs one case through the harness against a
+local model on every test run, so a pydantic-ai upgrade that breaks the wiring
+fails CI instead of the next experiment.
 
 ## Provider-specific settings
 
