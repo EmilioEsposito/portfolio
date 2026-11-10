@@ -47,6 +47,7 @@ from api.src.sernia_ai.config import (
     SUB_AGENT_MODEL,
 )
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.models import claim_auto_approved_send
 
 # Reusable annotated type for tools that accept an email account override
 UserEmailAccount = Annotated[
@@ -400,6 +401,31 @@ async def _resolve_reply_threading(
     return thread_kwargs
 
 
+async def _claim_auto_reply(in_reply_to: str, conversation_id: str) -> bool:
+    """Whether this run may auto-send its reply to the message ``in_reply_to``.
+
+    At most one automatic reply is ever sent per original message. The run
+    that sends it can still crash afterwards and be retried (the Zillow queue
+    retries failed runs), and a retried run must not email the lead again —
+    so the second attempt is refused here and goes to a human. Any error
+    reserving the send is also a refusal. Never raises.
+    """
+    try:
+        claimed = await claim_auto_approved_send(
+            in_reply_to, tool_name="send_email", conversation_id=conversation_id
+        )
+    except Exception:
+        logfire.exception("send_email: could not reserve the auto-approved send")
+        return False
+    if not claimed:
+        logfire.warn(
+            "send_email: auto-approval denied — this message already got an automatic reply",
+            in_reply_to=in_reply_to,
+            conversation_id=conversation_id,
+        )
+    return claimed
+
+
 @google_toolset.tool
 async def send_email(
     ctx: RunContext[SerniaDeps],
@@ -451,12 +477,14 @@ async def send_email(
         thread_kwargs = await _resolve_reply_threading(
             reply_to_message_id, routing, ctx.deps.user_email
         )
-        needs_approval = not thread_kwargs.get("in_reply_to")
-        if needs_approval:
+        in_reply_to = thread_kwargs.get("in_reply_to")
+        if not in_reply_to:
             logfire.warn(
                 "send_email: auto-approval denied — reply_to_message_id did not resolve",
                 reply_to_message_id=reply_to_message_id,
             )
+        elif await _claim_auto_reply(in_reply_to, ctx.deps.conversation_id):
+            needs_approval = False
     if needs_approval:
         raise ApprovalRequired()
 

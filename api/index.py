@@ -145,6 +145,11 @@ async def _apscheduler_startup_async() -> None:
             # Legacy Zillow jobs disabled — replaced by Sernia AI triggers below
             # register_zillow_apscheduler_jobs()
             await register_scheduled_triggers()
+            from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                register_zillow_email_queue,
+            )
+
+            register_zillow_email_queue()
             from api.src.open_phone.escalation_delivery import register_escalation_recovery
 
             register_escalation_recovery()

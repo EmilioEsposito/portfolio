@@ -17,21 +17,14 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 @pytest.fixture(autouse=True)
 def _clear_trigger_cooldowns():
     """Reset the in-memory rate-limit cooldowns and dedupe state between tests."""
-    import api.src.sernia_ai.triggers.zillow_email_event_trigger as zillow_mod
     from api.src.sernia_ai.triggers.ai_sms_event_trigger import _ai_sms_call_timestamps
     from api.src.sernia_ai.triggers.background_agent_runner import _trigger_cooldowns
 
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
-    zillow_mod._pending_emails.clear()
-    zillow_mod._pending_task = None
-    zillow_mod._recently_fired_message_ids.clear()
     yield
     _trigger_cooldowns.clear()
     _ai_sms_call_timestamps.clear()
-    zillow_mod._pending_emails.clear()
-    zillow_mod._pending_task = None
-    zillow_mod._recently_fired_message_ids.clear()
 
 
 # =========================================================================
@@ -86,14 +79,14 @@ class TestSmoke:
 
     def test_zillow_email_event_trigger_imports(self):
         from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
-            _fire_batched_trigger,
+            enqueue_zillow_email,
             is_zillow_email,
-            queue_zillow_email_event,
+            process_zillow_email_queue,
         )
 
         assert callable(is_zillow_email)
-        assert callable(queue_zillow_email_event)
-        assert callable(_fire_batched_trigger)
+        assert callable(enqueue_zillow_email)
+        assert callable(process_zillow_email_queue)
 
     def test_notify_user_push_imports(self):
         from api.src.sernia_ai.push.service import notify_user_push
@@ -1274,302 +1267,6 @@ class TestIsZillowEmail:
         assert is_zillow_email("") is False
         # is_zillow_email requires str, but guard handles falsy
         assert is_zillow_email("") is False
-
-
-class TestQueueZillowEmailEventDedup:
-    """Dedup behavior of queue_zillow_email_event by Gmail message_id."""
-
-    @pytest.mark.asyncio
-    async def test_dedup_within_pending_window(self):
-        """Re-queuing the same message_id while pending should be a no-op."""
-        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
-
-        # Replace asyncio.create_task so the debounce timer never actually starts.
-        def _close_coro(coro, *args, **kwargs):
-            # Close the coroutine so pytest doesn't warn about it never being awaited.
-            if hasattr(coro, "close"):
-                coro.close()
-            return MagicMock()
-
-        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
-            await mod.queue_zillow_email_event(
-                thread_id="t1",
-                message_id="msg_dup_1",
-                subject="Amelia requesting info",
-                from_address="lead@convo.zillow.com",
-                body_text="hi",
-            )
-            # Three pubsub redeliveries of the same logical email
-            for _ in range(3):
-                await mod.queue_zillow_email_event(
-                    thread_id="t1",
-                    message_id="msg_dup_1",
-                    subject="Amelia requesting info",
-                    from_address="lead@convo.zillow.com",
-                    body_text="hi",
-                )
-
-        assert len(mod._pending_emails) == 1
-        assert mod._pending_emails[0]["message_id"] == "msg_dup_1"
-
-    @pytest.mark.asyncio
-    async def test_distinct_ids_accumulate(self):
-        """Distinct message_ids should all be accumulated in the batch."""
-        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
-
-        def _close_coro(coro, *args, **kwargs):
-            # Close the coroutine so pytest doesn't warn about it never being awaited.
-            if hasattr(coro, "close"):
-                coro.close()
-            return MagicMock()
-
-        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
-            for mid in ("msg_a", "msg_b", "msg_c"):
-                await mod.queue_zillow_email_event(
-                    thread_id="t1",
-                    message_id=mid,
-                    subject="Subj",
-                    from_address="lead@convo.zillow.com",
-                    body_text=None,
-                )
-
-        ids = [e["message_id"] for e in mod._pending_emails]
-        assert ids == ["msg_a", "msg_b", "msg_c"]
-
-    @pytest.mark.asyncio
-    async def test_recently_fired_ttl_blocks_requeue(self):
-        """A message_id marked as recently fired should be rejected on re-queue."""
-        import time as _time
-
-        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
-
-        mod._recently_fired_message_ids["msg_just_fired"] = _time.monotonic()
-
-        def _close_coro(coro, *args, **kwargs):
-            # Close the coroutine so pytest doesn't warn about it never being awaited.
-            if hasattr(coro, "close"):
-                coro.close()
-            return MagicMock()
-
-        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
-            await mod.queue_zillow_email_event(
-                thread_id="t1",
-                message_id="msg_just_fired",
-                subject="Subj",
-                from_address="lead@convo.zillow.com",
-                body_text=None,
-            )
-
-        assert mod._pending_emails == []
-
-    @pytest.mark.asyncio
-    async def test_recently_fired_prunes_expired(self):
-        """TTL cache entries older than RECENTLY_FIRED_TTL_SECONDS should be pruned."""
-        import time as _time
-
-        import api.src.sernia_ai.triggers.zillow_email_event_trigger as mod
-
-        # Entry from three hours ago — older than the 2h TTL
-        mod._recently_fired_message_ids["msg_expired"] = _time.monotonic() - 10800
-
-        def _close_coro(coro, *args, **kwargs):
-            # Close the coroutine so pytest doesn't warn about it never being awaited.
-            if hasattr(coro, "close"):
-                coro.close()
-            return MagicMock()
-
-        with patch.object(mod.asyncio, "create_task", side_effect=_close_coro):
-            await mod.queue_zillow_email_event(
-                thread_id="t1",
-                message_id="msg_expired",
-                subject="Subj",
-                from_address="lead@convo.zillow.com",
-                body_text=None,
-            )
-
-        # Expired entry was pruned, so the email was accepted into the batch
-        assert "msg_expired" not in mod._recently_fired_message_ids
-        assert len(mod._pending_emails) == 1
-        assert mod._pending_emails[0]["message_id"] == "msg_expired"
-
-
-class TestZillowEmailBatchedTrigger:
-    """Test _fire_batched_trigger (the core trigger logic after debounce)."""
-
-    @pytest.mark.asyncio
-    async def test_single_email_calls_runner_with_correct_source(self):
-        """Single-email batch should call run_agent_for_trigger with correct source and metadata."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = "conv-zillow-1"
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            emails = [
-                {
-                    "thread_id": "thread_abc123",
-                    "message_id": "msg_1",
-                    "subject": "Rental Inquiry - 320 S Mathilda",
-                    "from_address": "noreply@zillow.com",
-                    "body_text": "Hi, I'm interested in the 1BR unit.",
-                }
-            ]
-
-            result = await _fire_batched_trigger(emails)
-
-            assert result == "conv-zillow-1"
-            mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args[1]
-            assert call_kwargs["trigger_source"] == "zillow_email_event"
-
-            meta = call_kwargs["trigger_metadata"]
-            assert meta["trigger_source"] == "zillow_email_event"
-            assert meta["trigger_type"] == "email_event"
-            assert meta["email_count"] == 1
-
-    @pytest.mark.asyncio
-    async def test_includes_body_snippet_in_prompt(self):
-        """Single-email trigger prompt should include a preview of the email body."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = None
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            await _fire_batched_trigger(
-                [
-                    {
-                        "thread_id": "thread_xyz",
-                        "message_id": "msg_2",
-                        "subject": "Inquiry",
-                        "from_address": "noreply@zillow.com",
-                        "body_text": "I have great credit and want to move in July.",
-                    }
-                ]
-            )
-
-            call_kwargs = mock_run.call_args[1]
-            assert "great credit" in call_kwargs["trigger_prompt"]
-
-    @pytest.mark.asyncio
-    async def test_handles_none_body_text(self):
-        """Should not crash when body_text is None."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = None
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            await _fire_batched_trigger(
-                [
-                    {
-                        "thread_id": "thread_null",
-                        "message_id": "msg_3",
-                        "subject": "Test",
-                        "from_address": "noreply@zillow.com",
-                        "body_text": None,
-                    }
-                ]
-            )
-
-            mock_run.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_returns_none_when_agent_takes_no_action(self):
-        """When run_agent_for_trigger returns None (NoAction), should return None."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = None
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            result = await _fire_batched_trigger(
-                [
-                    {
-                        "thread_id": "thread_cold",
-                        "message_id": "msg_4",
-                        "subject": "Re: Tour - 320 S Mathilda",
-                        "from_address": "noreply@zillow.com",
-                        "body_text": "Thanks, we'll let you know.",
-                    }
-                ]
-            )
-
-            assert result is None
-
-    @pytest.mark.asyncio
-    async def test_prompt_has_deeplink_and_skill_reference(self):
-        """Trigger prompt should reference the skill and include a deeplink."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = None
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            await _fire_batched_trigger(
-                [
-                    {
-                        "thread_id": "t1",
-                        "message_id": "msg_6",
-                        "subject": "Test",
-                        "from_address": "noreply@zillow.com",
-                        "body_text": "Test body",
-                    }
-                ]
-            )
-
-            call_kwargs = mock_run.call_args[1]
-            prompt = call_kwargs["trigger_prompt"]
-            assert "zillow-auto-reply" in prompt  # references the skill
-            assert "sernia-chat?id=" in prompt  # deeplink embedded
-            assert call_kwargs["conversation_id"] is not None
-
-    @pytest.mark.asyncio
-    async def test_multi_email_batch_prompt(self):
-        """Multi-email batch should list all emails in the prompt."""
-        with patch(
-            "api.src.sernia_ai.triggers.zillow_email_event_trigger.run_agent_for_trigger"
-        ) as mock_run:
-            mock_run.return_value = "conv-batch"
-
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import _fire_batched_trigger
-
-            emails = [
-                {
-                    "thread_id": "t1",
-                    "message_id": "m1",
-                    "subject": "Inquiry A",
-                    "from_address": "a@zillow.com",
-                    "body_text": "A",
-                },
-                {
-                    "thread_id": "t2",
-                    "message_id": "m2",
-                    "subject": "Inquiry B",
-                    "from_address": "b@zillow.com",
-                    "body_text": "B",
-                },
-            ]
-
-            result = await _fire_batched_trigger(emails)
-
-            assert result == "conv-batch"
-            call_kwargs = mock_run.call_args[1]
-            prompt = call_kwargs["trigger_prompt"]
-            assert "2 new Zillow email(s)" in prompt
-            assert "Inquiry A" in prompt
-            assert "Inquiry B" in prompt
-            assert call_kwargs["trigger_metadata"]["email_count"] == 2
-
-
-# =========================================================================
-# Universal Kill Switch Tests
-# =========================================================================
 
 
 class TestUniversalKillSwitch:
