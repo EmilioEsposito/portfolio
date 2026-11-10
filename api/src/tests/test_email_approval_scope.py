@@ -7,16 +7,13 @@ could redirect it to.
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic_ai import ApprovalRequired
 
-from api.src.sernia_ai import runs as run_pipeline
 from api.src.sernia_ai.tools import google_tools
 from api.src.sernia_ai.tools.google_tools import is_auto_approved_reply
-from api.src.sernia_ai.triggers import background_agent_runner as runner
-from api.src.sernia_ai.triggers import zillow_email_event_trigger as zillow
 from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
     ZILLOW_EMAIL_DOMAIN,
     is_zillow_email,
@@ -171,52 +168,3 @@ class TestIsZillowEmailHeaderForms:
     def test_rejects_zillow_as_a_subdomain_of_another_domain(self):
         assert not is_zillow_email("lead@zillow.com.evil.com")
         assert not is_zillow_email("Zillow <lead@convo.zillow.com.evil.com>")
-
-
-EMAIL = {
-    "thread_id": "t1",
-    "message_id": "m1",
-    "subject": "New lead",
-    "from_address": LEAD,
-    "body_text": "Is it available?",
-}
-
-
-class TestZillowTriggerWiring:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("require_approval", "expected_scope"),
-        [(True, frozenset()), (False, ZILLOW_SCOPE)],
-    )
-    async def test_require_approval_setting_controls_the_scope(
-        self, require_approval, expected_scope
-    ):
-        config = {"debounce_seconds": 300, "require_approval": require_approval}
-        with (
-            patch.object(zillow, "get_zillow_email_config", AsyncMock(return_value=config)),
-            patch.object(zillow, "run_agent_for_trigger", AsyncMock(return_value="c")) as run,
-        ):
-            await zillow._fire_batched_trigger([EMAIL])
-
-        kwargs = run.await_args.kwargs
-        assert kwargs["auto_approved_reply_domains"] == expected_scope
-        assert kwargs["apply_cooldown"] is False
-
-    @pytest.mark.asyncio
-    async def test_back_to_back_batches_are_not_dropped_by_the_cooldown(self, monkeypatch):
-        """Debounce may be 60s, under the runner's 120s cooldown. A cooldown
-        skip drops the batch for good, so the Zillow trigger opts out of it."""
-        monkeypatch.setattr(runner, "is_sernia_ai_enabled", AsyncMock(return_value=True))
-        monkeypatch.setattr(runner, "_trigger_cooldowns", {})
-        runs = AsyncMock(side_effect=RuntimeError("stop after the cooldown check"))
-        monkeypatch.setattr(run_pipeline.sernia_agent, "run", runs)
-
-        for _ in range(2):
-            await runner.run_agent_for_trigger(
-                trigger_source="zillow_email_event",
-                trigger_prompt="p",
-                trigger_metadata={},
-                rate_limit_key="zillow_batch",
-                apply_cooldown=False,
-            )
-        assert runs.await_count == 2

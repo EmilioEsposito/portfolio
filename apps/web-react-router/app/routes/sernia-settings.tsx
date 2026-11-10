@@ -566,8 +566,9 @@ export default function SerniaSettingsPage() {
                       Debounce Window (seconds)
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      First Zillow email starts a timer; additional Zillow emails arriving within
-                      this window are batched into a single agent run. 60–3600 seconds.
+                      The first email in a lead&apos;s thread starts a timer; further emails in that
+                      thread within this window are handled in the same agent run. Each lead gets
+                      its own run. 60–3600 seconds.
                     </p>
                     <Input
                       id="zillow-debounce"
@@ -592,8 +593,10 @@ export default function SerniaSettingsPage() {
                     <Label className="text-sm font-medium">Require HITL Approval</Label>
                     <p className="text-xs text-muted-foreground">
                       When on, every outbound Zillow reply pauses for human approval (the standard
-                      external-email HITL card). Turn off only once the agent has earned trust to
-                      auto-send Zillow replies — flip back on if it goes off the rails.
+                      external-email HITL card). When off, the agent may send threaded replies to
+                      Zillow leads on its own; email to anyone else still needs approval. Turn off
+                      only once the agent has earned that trust — flip back on if it goes off the
+                      rails.
                     </p>
                     <div className="flex items-center gap-3 pt-1">
                       <Switch

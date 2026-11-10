@@ -2,9 +2,9 @@
 FastAPI routes for Google Pub/Sub webhook endpoints.
 """
 
-import asyncio
 import json
 import os
+from datetime import datetime
 
 import logfire
 from fastapi import APIRouter, Request, Response
@@ -196,11 +196,8 @@ async def process_gmail_notification(pubsub_notification_data: dict):
 
                 # Save to database using a short-lived session (will update if message exists).
                 # This avoids holding a pooled connection during slow Gmail API calls.
-                # was_inserted tells us whether this save was a fresh insert (new logical
-                # email) or an update of an existing row (pubsub redelivery or Gmail
-                # label-change notification for a message we'd already seen).
                 async with session_context() as save_session:
-                    saved_msg, was_inserted = await save_email_message(
+                    saved_msg, _was_inserted = await save_email_message(
                         save_session, processed_email_message, history_id
                     )
                 if saved_msg:
@@ -210,41 +207,25 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                         f"{processed_email_message['subject']} (ID: {email_message_id})"
                     )
 
-                    # Queue Zillow emails for debounced trigger processing —
-                    # but only on the initial insert. Upserts on an existing
-                    # message_id (redelivery / label change) are not new logical
-                    # email events and should not refire the trigger. The queue
-                    # itself also dedupes by message_id as a secondary guard.
-                    from_addr = processed_email_message.get("from_address", "")
+                    # Record Zillow emails in the durable queue. The enqueue is
+                    # idempotent (unique message_id) and ignores emails that are
+                    # no longer fresh, so it is safe on every notification —
+                    # new email, Pub/Sub redelivery, or a label change. If it
+                    # raises, this message is reported as failed below and
+                    # Pub/Sub delivers it again.
                     from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                        enqueue_zillow_email,
                         is_zillow_email,
-                        queue_zillow_email_event,
                     )
 
-                    is_zillow = is_zillow_email(from_addr or "")
-                    if is_zillow and was_inserted:
-                        logfire.info(
-                            "zillow_trigger_gate: queuing",
-                            email_message_id=email_message_id,
+                    from_addr = processed_email_message.get("from_address", "")
+                    if is_zillow_email(from_addr or ""):
+                        await enqueue_zillow_email(
+                            message_id=processed_email_message.get("message_id", ""),
+                            thread_id=processed_email_message.get("thread_id", ""),
+                            subject=processed_email_message.get("subject"),
                             from_address=from_addr,
-                            subject=processed_email_message.get("subject", ""),
-                        )
-
-                        asyncio.create_task(
-                            queue_zillow_email_event(
-                                thread_id=processed_email_message.get("thread_id", ""),
-                                message_id=processed_email_message.get("message_id", ""),
-                                subject=processed_email_message.get("subject", ""),
-                                from_address=from_addr,
-                                body_text=processed_email_message.get("body_text"),
-                            )
-                        )
-                    elif is_zillow and not was_inserted:
-                        logfire.info(
-                            "zillow_trigger_gate: skipping (not a new email — pubsub redelivery or label change)",
-                            email_message_id=email_message_id,
-                            from_address=from_addr,
-                            subject=processed_email_message.get("subject", ""),
+                            received_at=datetime.fromisoformat(processed_email_message["date"]),
                         )
                 else:
                     failed_email_ids.append(email_message_id)

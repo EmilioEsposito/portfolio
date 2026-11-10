@@ -24,7 +24,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.models import is_sernia_ai_enabled
-from api.src.sernia_ai.runs import run_and_finalize
+from api.src.sernia_ai.runs import RunOutcome, run_and_finalize
 
 # ---------------------------------------------------------------------------
 # Rate limiter — prevents the same trigger key from firing more than once
@@ -47,14 +47,53 @@ def _is_rate_limited(key: str) -> bool:
     return False
 
 
+async def execute_trigger_run(
+    *,
+    trigger_source: str,
+    trigger_prompt: str,
+    trigger_metadata: dict,
+    conversation_id: str,
+    auto_approved_reply_domains: frozenset[str] = frozenset(),
+) -> RunOutcome | None:
+    """Run the agent as the trigger bot and finish it through the shared pipeline.
+
+    No gates: the kill switch and any throttling are the caller's job.
+    ``run_agent_for_trigger`` adds them for fire-and-forget triggers; the
+    Zillow queue worker calls this directly because it needs the outcome
+    (to retry a failed run) and does its own gating.
+
+    Returns the run's outcome, or None if the run crashed.
+    """
+    async with AsyncSessionFactory() as session:
+        deps = SerniaDeps(
+            db_session=session,
+            conversation_id=conversation_id,
+            user_identifier=TRIGGER_BOT_ID,
+            user_name=TRIGGER_BOT_NAME,
+            user_email=GOOGLE_DELEGATION_EMAIL,
+            modality="web_chat",
+            workspace_path=WORKSPACE_PATH,
+            auto_approved_reply_domains=auto_approved_reply_domains,
+        )
+        # The run, the save and the approval push all happen in the shared
+        # pipeline (see sernia_ai/runs.py). Generic trigger-completion alerts
+        # were removed to cut notification noise — only a pending approval
+        # pushes; humans pull everything else from web chat.
+        return await run_and_finalize(
+            trigger_prompt,
+            deps=deps,
+            trigger_source=trigger_source,
+            clerk_user_id=TRIGGER_BOT_ID,
+            metadata=trigger_metadata,
+        )
+
+
 async def run_agent_for_trigger(
     trigger_source: str,
     trigger_prompt: str,
     trigger_metadata: dict,
     rate_limit_key: str | None = None,
     conversation_id: str | None = None,
-    auto_approved_reply_domains: frozenset[str] = frozenset(),
-    apply_cooldown: bool = True,
 ) -> str | None:
     """
     Run the Sernia agent in background for a trigger event.
@@ -72,17 +111,6 @@ async def run_agent_for_trigger(
         conversation_id: Pre-generated conversation ID. When provided, the runner
             uses this instead of generating a new UUID. Useful when the caller
             needs to embed a deeplink in the trigger prompt.
-        auto_approved_reply_domains: Recipient domains this run may send
-            threaded email replies to without the HITL approval card (see
-            ``SerniaDeps.auto_approved_reply_domains``). Empty keeps every
-            external email behind approval. Used by triggers that have their
-            own opt-out toggle (e.g. Zillow auto-reply with
-            `require_approval=False`).
-        apply_cooldown: Set False for callers that already throttle
-            themselves and must not lose an event to the cooldown — a skipped
-            trigger is dropped, not queued. The Zillow trigger debounces its
-            own batches, and its debounce can legitimately be shorter than
-            the cooldown.
 
     Returns:
         The conversation_id if a conversation was created (agent needs human attention),
@@ -98,7 +126,7 @@ async def run_agent_for_trigger(
 
     # --- Rate-limit check ---
     cooldown_key = f"{trigger_source}:{rate_limit_key or '_global'}"
-    if apply_cooldown and _is_rate_limited(cooldown_key):
+    if _is_rate_limited(cooldown_key):
         logfire.info(
             "trigger rate-limited — skipping",
             trigger_source=trigger_source,
@@ -118,29 +146,12 @@ async def run_agent_for_trigger(
 
     conv_id = conversation_id or str(uuid.uuid4())
 
-    async with AsyncSessionFactory() as session:
-        deps = SerniaDeps(
-            db_session=session,
-            conversation_id=conv_id,
-            user_identifier=TRIGGER_BOT_ID,
-            user_name=TRIGGER_BOT_NAME,
-            user_email=GOOGLE_DELEGATION_EMAIL,
-            modality="web_chat",
-            workspace_path=WORKSPACE_PATH,
-            auto_approved_reply_domains=auto_approved_reply_domains,
-        )
-
-        # The run, the save and the approval push all happen in the shared
-        # pipeline (see sernia_ai/runs.py). Generic trigger-completion alerts
-        # were removed to cut notification noise — only a pending approval
-        # pushes; humans pull everything else from web chat.
-        outcome = await run_and_finalize(
-            trigger_prompt,
-            deps=deps,
-            trigger_source=trigger_source,
-            clerk_user_id=TRIGGER_BOT_ID,
-            metadata=trigger_metadata,
-        )
+    outcome = await execute_trigger_run(
+        trigger_source=trigger_source,
+        trigger_prompt=trigger_prompt,
+        trigger_metadata=trigger_metadata,
+        conversation_id=conv_id,
+    )
 
     if outcome is None:  # the run crashed; already logged and saved as partial
         return None
