@@ -180,6 +180,23 @@ class TestListDatasets:
 
 
 class TestLoadDataset:
+    def test_sibling_prefix_traversal_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("api.src.sernia_ai.tools.duckdb_tools.DATA_BASE", tmp_path)
+        sibling = tmp_path / "conv-1-other" / "secret.csv"
+        _write_csv(sibling, ["Private"], [["should not be read"]])
+        ctx = _make_ctx("conv-1", tmp_path)
+        assert load_dataset(ctx, "../conv-1-other/secret") == "Error: Invalid dataset path."
+
+    def test_symlink_escape_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("api.src.sernia_ai.tools.duckdb_tools.DATA_BASE", tmp_path)
+        sibling = tmp_path / "conv-1-other" / "secret.csv"
+        _write_csv(sibling, ["Private"], [["should not be read"]])
+        own_dir = tmp_path / "conv-1"
+        own_dir.mkdir()
+        (own_dir / "link.csv").symlink_to(sibling)
+        ctx = _make_ctx("conv-1", tmp_path)
+        assert load_dataset(ctx, "link") == "Error: Invalid dataset path."
+
     def test_load(self, tmp_path, monkeypatch):
         monkeypatch.setattr("api.src.sernia_ai.tools.duckdb_tools.DATA_BASE", tmp_path)
         monkeypatch.setattr("api.src.sernia_ai.tools.duckdb_tools.DUCKDB_BASE", tmp_path / "db")
