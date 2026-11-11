@@ -28,8 +28,10 @@ from api.src.sernia_ai.zillow_leads.decision import LeadDecision
 from api.src.sernia_ai.zillow_leads.evals import (
     Label,
     ReplyChecks,
+    assign_splits,
     build_dataset,
     case_for,
+    in_split,
     review_page,
     scenarios_from_thread,
 )
@@ -377,7 +379,46 @@ class TestReviewPage:
 
     def test_a_downloaded_label_parses(self):
         label = Label.model_validate(
-            {"scenario_id": "T-3", "verdict": "fail", "note": "Too long", "action": "reply"}
+            {
+                "scenario_id": "T-3",
+                "verdict": "fail",
+                "note": "Too long",
+                "corrected_reply": "Hello, yes. Tuesday at 10?",
+                "action": "reply",
+            }
         )
-        assert label.verdict == "fail"
+        assert label.verdict == "fail" and label.corrected_reply.startswith("Hello")
         assert Label(scenario_id="T-3").verdict is None  # a note without a verdict yet
+
+
+class TestSplits:
+    threads = [f"thread-{number:03d}" for number in range(100)]
+
+    def test_every_thread_gets_one_split_in_the_stated_shares(self):
+        splits = assign_splits(self.threads, seen=set(), seed=1)
+
+        assert set(splits) == set(self.threads)
+        counts = {name: list(splits.values()).count(name) for name in ("train", "dev", "test")}
+        assert counts == {"train": 15, "dev": 45, "test": 40}
+
+    def test_the_same_seed_gives_the_same_split(self):
+        again = assign_splits(list(reversed(self.threads)), seen=set(), seed=1)
+        assert again == assign_splits(self.threads, seen=set(), seed=1)
+        assert again != assign_splits(self.threads, seen=set(), seed=2)
+
+    def test_threads_already_looked_at_can_only_be_dev(self):
+        seen = set(self.threads[:30])
+        splits = assign_splits(self.threads, seen=seen, seed=1)
+
+        assert {splits[thread] for thread in seen} == {"dev"}
+        assert list(splits.values()).count("test") == 40  # test keeps its full share
+
+    def test_a_thread_keeps_all_its_scenarios_in_one_split(self):
+        first = thread(message(0), message(30, sernia=True), message(60))
+        other = first.model_copy(update={"thread_id": "U"})
+        scenarios = scenarios_from_thread(first) + scenarios_from_thread(other)
+
+        dev = in_split(scenarios, {"T": "dev", "U": "test"}, "dev")
+
+        assert [item.scenario_id for item in dev] == ["T-0", "T-2"]
+        assert in_split(scenarios, {"T": "dev"}, "test") == []  # unassigned is in no split

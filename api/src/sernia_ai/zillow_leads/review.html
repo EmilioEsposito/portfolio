@@ -40,6 +40,8 @@
   button, select { font:inherit; padding:6px 14px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
   button.on.pass { background:var(--pass); border-color:var(--pass); color:#fff; }
   button.on.fail { background:var(--fail); border-color:var(--fail); color:#fff; }
+  .instead { padding:0 14px 10px; }
+  .instead textarea { display:block; width:100%; min-height:160px; margin-top:8px; }
   textarea { flex:1; min-width:240px; min-height:38px; font:inherit; padding:7px 9px; border-radius:6px;
              border:1px solid var(--line); background:var(--card); color:var(--ink); resize:vertical; }
 </style>
@@ -101,9 +103,16 @@ function refresh() {
     card.hidden = !(show === 'all' || (show === 'todo' && !verdict) || show === c.action || (show === 'fail' && verdict === 'fail'));
   }
 }
+function entry(id) {
+  if (!labels[id]) labels[id] = { verdict: null, note: '', corrected: '' };
+  return labels[id];
+}
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(labels)); } catch (e) {}
+}
 function setVerdict(id, verdict) {
-  const current = labels[id] || {};
-  labels[id] = { verdict: current.verdict === verdict ? null : verdict, note: current.note || '' };
+  const current = entry(id);
+  current.verdict = current.verdict === verdict ? null : verdict;
   save();
 }
 
@@ -144,12 +153,28 @@ DATA.cases.forEach((c, index) => {
   note.placeholder = 'One line on why (most useful on a fail)';
   note.setAttribute('aria-label', 'Note');
   note.value = (labels[c.id] || {}).note || '';
-  note.addEventListener('input', () => {
-    labels[c.id] = { verdict: (labels[c.id] || {}).verdict || null, note: note.value };
-    try { localStorage.setItem(KEY, JSON.stringify(labels)); } catch (e) {}
-  });
+  note.addEventListener('input', () => { entry(c.id).note = note.value; persist(); });
   row.append(pass, fail, note);
   card.append(row);
+
+  const instead = el('details', 'instead');
+  const corrected = el('textarea');
+  corrected.setAttribute('aria-label', 'What you would have sent');
+  corrected.placeholder = 'Optional. The reply you would have sent.';
+  corrected.value = (labels[c.id] || {}).corrected || '';
+  corrected.addEventListener('input', () => { entry(c.id).corrected = corrected.value; persist(); });
+  instead.open = Boolean(corrected.value);
+  instead.append(el('summary', '', 'Write what you would have sent (optional)'));
+  if (c.reply) {
+    const copy = el('button', '', 'Start from the draft');
+    copy.addEventListener('click', () => {
+      if (!corrected.value) { corrected.value = c.reply; entry(c.id).corrected = c.reply; persist(); }
+      corrected.focus();
+    });
+    instead.append(copy);
+  }
+  instead.append(corrected);
+  card.append(instead);
   list.append(card);
 });
 
@@ -158,8 +183,9 @@ document.title = 'Review: ' + DATA.run;
 document.getElementById('filter').addEventListener('change', refresh);
 document.getElementById('download').addEventListener('click', () => {
   const rows = DATA.cases
-    .filter(c => labels[c.id] && (labels[c.id].verdict || labels[c.id].note))
-    .map(c => ({ scenario_id: c.id, verdict: labels[c.id].verdict, note: labels[c.id].note, action: c.action }));
+    .filter(c => labels[c.id] && (labels[c.id].verdict || labels[c.id].note || labels[c.id].corrected))
+    .map(c => ({ scenario_id: c.id, verdict: labels[c.id].verdict || null, note: labels[c.id].note || '',
+                 corrected_reply: labels[c.id].corrected || '', action: c.action }));
   const file = { run: DATA.run, policy_commit: DATA.policy_commit, exported_at: new Date().toISOString(), labels: rows };
   const link = el('a');
   link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));

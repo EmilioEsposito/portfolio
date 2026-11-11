@@ -2,8 +2,11 @@
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals export \
         --after 2026-04-01 --before 2026-08-01 --out <private>/scenarios.jsonl
+    uv run python -m api.src.sernia_ai.zillow_leads.evals split \
+        --scenarios <private>/scenarios.jsonl --out <private>/splits.json
     uv run python -m api.src.sernia_ai.zillow_leads.evals run \
         --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
+        --splits <private>/splits.json --split dev \
         --name first-round --sample 30 --out <private>/runs/first-round.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals review \
         --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
@@ -86,7 +89,46 @@ class Label(BaseModel):
     scenario_id: str
     verdict: Literal["pass", "fail"] | None = None
     note: str = ""
+    # Optional: the reply the reviewer would have sent. One good answer, not
+    # the only one, so it is an example to learn from, never an exact target.
+    corrected_reply: str = ""
     action: str = ""  # what the model did in the run that was reviewed
+
+
+# Each thread belongs to one split, for good. Whole threads, because a later
+# scenario in a thread contains the earlier ones.
+#   train: worked examples that may be pasted into a prompt as few-shot
+#          examples: a case paired with the reply a person would send (for
+#          the policy), or a reply paired with its verdict (for an LLM judge).
+#          Nothing is trained; the name is inherited from machine learning
+#   dev:   run, read, label and change things against these, as often as needed
+#   test:  not looked at until a version is thought finished, then run once
+SPLIT_SHARES = {"train": 0.15, "test": 0.40}  # dev is the remainder
+SPLITS = ("train", "dev", "test")
+
+
+def assign_splits(thread_ids: list[str], *, seen: set[str], seed: int = 0) -> dict[str, str]:
+    """Assign every thread to train, dev or test.
+
+    ``seen`` are threads whose scenarios have already been run and looked at.
+    They can only be dev: a test set is worth something only if nothing about
+    it has influenced a change.
+    """
+    threads = sorted(set(thread_ids))
+    unseen = [thread for thread in threads if thread not in seen]
+    random.Random(seed).shuffle(unseen)
+    train = round(len(threads) * SPLIT_SHARES["train"])
+    test = round(len(threads) * SPLIT_SHARES["test"])
+    splits = {thread: "dev" for thread in threads if thread in seen}
+    for position, thread in enumerate(unseen):
+        splits[thread] = (
+            "train" if position < train else "test" if position < train + test else "dev"
+        )
+    return splits
+
+
+def in_split(scenarios: list[Scenario], splits: dict[str, str], split: str) -> list[Scenario]:
+    return [item for item in scenarios if splits.get(item.thread.thread_id) == split]
 
 
 def scenarios_from_thread(thread: LeadThread) -> list[Scenario]:
@@ -201,6 +243,24 @@ async def export(args: argparse.Namespace) -> None:
     )
 
 
+async def split(args: argparse.Namespace) -> None:
+    if args.out.exists():
+        raise SystemExit(f"{args.out} exists. A split is made once; delete it to start over.")
+    scenarios = read_scenarios(args.scenarios)
+    by_id = {item.scenario_id: item.thread.thread_id for item in scenarios}
+    seen = {
+        by_id[json.loads(line)["case_id"]]
+        for run_file in args.seen_run
+        for line in run_file.read_text().splitlines()
+        if line
+    }
+    splits = assign_splits(list(by_id.values()), seen=seen, seed=args.seed)
+    args.out.write_text(json.dumps(splits, indent=1, sort_keys=True))
+    for name in SPLITS:
+        threads = sum(value == name for value in splits.values())
+        print(f"{name}: {threads} threads, {len(in_split(scenarios, splits, name))} scenarios")
+
+
 async def run(args: argparse.Namespace) -> None:
     import logfire
 
@@ -211,6 +271,9 @@ async def run(args: argparse.Namespace) -> None:
 
     operating = OperatingData.model_validate_json(args.operating.read_text())
     scenarios = read_scenarios(args.scenarios)
+    if args.splits:
+        scenarios = in_split(scenarios, json.loads(args.splits.read_text()), args.split)
+        print(f"split: {args.split}  scenarios in it: {len(scenarios)}")
     if args.sample and args.sample < len(scenarios):
         scenarios = random.Random(args.seed).sample(scenarios, args.sample)
 
@@ -224,6 +287,7 @@ async def run(args: argparse.Namespace) -> None:
             "policy_commit": policy_commit,
             "model": MAIN_AGENT_MODEL,
             "operating": _fingerprint(args.operating),
+            "split": args.split if args.splits else "unsplit",
         },
     )
 
@@ -321,9 +385,18 @@ def main() -> None:
     export_parser.add_argument("--query", default=LEAD_QUERY)
     export_parser.set_defaults(handler=export)
 
+    split_parser = commands.add_parser("split", help="Assign threads to train, dev, test, once")
+    split_parser.add_argument("--scenarios", type=Path, required=True)
+    split_parser.add_argument("--out", type=Path, required=True)
+    split_parser.add_argument("--seen-run", type=Path, action="append", default=[])
+    split_parser.add_argument("--seed", type=int, default=0)
+    split_parser.set_defaults(handler=split)
+
     run_parser = commands.add_parser("run", help="Run the decision over stored scenarios")
     run_parser.add_argument("--scenarios", type=Path, required=True)
     run_parser.add_argument("--operating", type=Path, required=True)
+    run_parser.add_argument("--splits", type=Path, help="Split file; without it every scenario")
+    run_parser.add_argument("--split", choices=SPLITS, default="dev")
     run_parser.add_argument("--out", type=Path, required=True)
     run_parser.add_argument("--name", required=True)
     run_parser.add_argument("--sample", type=int, default=0)

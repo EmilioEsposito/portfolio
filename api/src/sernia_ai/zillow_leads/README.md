@@ -5,7 +5,7 @@ quiet**, or **hand it to a person**. This package makes that decision a single
 step that can be replayed on past emails and scored, so it is improved by
 measurement instead of by reading production conversations.
 
-## The whole thing in one picture
+## Overview
 
 ```mermaid
 flowchart LR
@@ -27,18 +27,18 @@ flowchart LR
 
 | Word | Meaning | Changes when |
 |---|---|---|
-| **Scenario** | A real conversation up to a moment where we owed a response. Only the emails. | Never. It is history. |
-| **Operating data** | What was true of the business then: units, facts about each, standard answers, when tours can happen. | Weekly in season. Its format can change too. |
-| **Case** | Scenario + operating data, rendered as text. The model's whole input. | Rebuilt on every run. |
+| **Scenario** | A real conversation up to a moment where we owed a response, containing only the emails. | Never; it is a record of what happened. |
+| **Operating data** | What was true of the business then: units, facts about each, standard answers, when tours can happen. | Weekly in season, and its format can change too. |
+| **Case** | Scenario + operating data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
 | **Policy** | The instructions: when to reply, what is allowed, how to write. | By commit, after an eval run says the change helps. |
 | **Decision** | The model's structured output. | Every run. |
 | **Check** | A rule with an exact answer, written as code. | Rarely. |
 | **Label** | A person's verdict on one decision, tied to the scenario. | Added each review round. |
 
-Scenarios and labels are the durable assets. Everything between them is free to
-change, which is the point: move listings from a notes file to a database, or
-tour times from a weekly pattern to a booking service, and the same scenarios
-and labels still measure whether replies got better or worse.
+Scenarios and labels are kept permanently. Everything between them can change:
+listings can move from a notes file to a database, or tour times from a weekly
+pattern to a booking service, and the same scenarios and labels still measure
+whether replies got better or worse.
 
 ## One example, start to finish
 
@@ -106,9 +106,13 @@ no staff names ✓ · no em-dash ✓
 **Label** (you): `fail`, "answered the question but buried it under four tour
 times; lead with the answer."
 
-Thirty labels like that, grouped, say what to fix next and in which layer.
+Grouping thirty labels like that one shows which failure is most common and
+which layer it belongs to.
 
 ## The loop
+
+The method in full, with the data splits and the sources it follows, is in
+[EVALS.md](EVALS.md).
 
 ```mermaid
 flowchart LR
@@ -123,17 +127,18 @@ flowchart LR
 | "Didn't know the unit has parking" | Operating data: the unit's fact sheet | the prompt |
 | "Offered a time inside the notice period" | Code: slot arithmetic | the prompt |
 | "Tone too stiff", "replied when it should have waited" | Policy: `policy.md` | code |
-| "Asked for a discount" | Nowhere. Escalating is correct | |
+| "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
-Two rounds so far, same 30 real scenarios:
+Two experiments so far, both on the same 30 real scenarios:
 
-| Round | Operating data | Reply | No reply | Escalate |
+| Experiment | Operating data | Reply | No reply | Escalate |
 |---|---|---|---|---|
 | 1 | rent and lease dates only | 12 | 6 | 12 |
 | 2 | + fact sheets and standard answers | 20 | 5 | 5 |
 
-The policy barely changed between them. Most escalations were missing facts,
-not bad judgement, and only running the cases showed that.
+The policy barely changed between them. Most escalations in the first were
+requests for facts the case did not contain, which became clear from running
+the cases.
 
 ## What a listing needs
 
@@ -160,16 +165,17 @@ space, furnished or not. Add a line whenever an escalation shows one missing.
 when, the fee, who must apply, how long review takes, what holds the unit after
 approval, deposit amount.
 
-Exceptions stay out of both on purpose: a discount, an odd lease length, an
-applicant without a credit file. Those escalate.
+Exceptions are deliberately left out of both, for example a discount, an
+unusual lease length, or an applicant without a credit file. The agent
+escalates those.
 
-Tour times are the same idea. Today a weekly pattern per person is turned into
+Tour times follow the same approach. Today a weekly pattern per person is turned into
 slots by `offerable_slots()`. A calendar or booking service can supply the
 slots instead (`build_case(..., slots=...)`); the case stores the times, never
-their source. Checked once, not built: the existing service account can read
-free/busy for a domain user's calendar and for an outside calendar shared with
-that user. A calendar that is not shared comes back as an error, which must be
-read as "unknown", never as "free".
+their source. This was tested once and is not built: the existing service
+account can read free/busy for a domain user's calendar and for an outside
+calendar shared with that user. A calendar that is not shared comes back as an
+error, which must be read as "unknown", never as "free".
 
 ## Running it
 
@@ -178,9 +184,14 @@ read as "unknown", never as "free".
 uv run python -m api.src.sernia_ai.zillow_leads.evals export \
     --after 2026-04-01 --before 2026-08-01 --out <private>/scenarios.jsonl
 
-# Each round: run a sample and send the experiment to Logfire
+# Once per season: assign each thread to train, dev or test
+uv run python -m api.src.sernia_ai.zillow_leads.evals split \
+    --scenarios <private>/scenarios.jsonl --out <private>/splits.json
+
+# Each experiment: run a dev sample and send it to Logfire
 uv run python -m api.src.sernia_ai.zillow_leads.evals run \
     --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
+    --splits <private>/splits.json --split dev \
     --name round-3 --sample 30 --seed 7 --out <private>/runs/round-3.jsonl
 
 # Then: write the page you label that run on, and open it in a browser
@@ -196,16 +207,20 @@ are kept in the browser as you go; **Download labels** saves them as
 `<run>-labels.json`, one row per scenario:
 
 ```json
-{"scenario_id": "…", "verdict": "fail", "note": "buried the answer under the tour times", "action": "reply"}
+{"scenario_id": "…", "verdict": "fail", "note": "buried the answer under the tour times",
+ "corrected_reply": "", "action": "reply"}
 ```
+
+`corrected_reply` is optional: the reply you would have sent.
 
 A run records the policy commit, the model, and a hash of the operating file,
 prints counts only, and appears in Logfire under AI Evaluations. The same
-`--seed` picks the same scenarios, so rounds compare like for like.
+`--seed` picks the same scenarios, so experiments can be compared on the same
+cases.
 
 Real scenarios, review pages, labels and the season's operating file hold
-applicant emails and business details. They stay out of Git and out of CI. A small synthetic set
-will live in the repo for CI.
+applicant emails and business details. They stay out of Git and out of CI. A
+small synthetic set will live in the repo for CI.
 
 ## In production
 
@@ -220,9 +235,10 @@ flowchart LR
     A --> W["Approved unchanged = pass<br/>edited or denied = fail<br/>→ new labelled scenario"]
 ```
 
-Same `decide()` as the evals; only the source of the case differs. Code picks
-the recipient, subject and thread, never the model. Every approval becomes a
-label, so the set keeps growing without a review session.
+Production calls the same `decide()` as the evals; only the source of the case
+differs. Code picks the recipient, subject and thread; the model does not.
+Every approval becomes a label, so the set keeps growing without a review
+session.
 
 **One mailbox.** The Gmail watch is on one person's mailbox and replies go out
 from the shared one. Gmail IDs differ per mailbox, so `thread.py` finds the
@@ -239,9 +255,10 @@ uses shared-mailbox IDs.
 | Policy and decision step | `policy.md`, `decision.py` | Built, under review |
 | Scenario export, runner, exact checks | `evals.py` | Built |
 | Review page and label format | `evals.py`, `review.html` | Built |
+| Train / dev / test split by thread | `evals.py` | Built |
 | Error analysis from labels | | Next, after the first labelled round |
-| Model graders, synthetic set, CI | | Planned |
+| LLM judges, synthetic set, CI | | Planned |
 | Apply step; queue switched to this task | | Planned |
 
-Until the last row lands, the queue still starts a general Sernia agent run
+Until the last row is built, the queue still starts a general Sernia agent run
 that follows the `zillow-auto-reply` workspace skill.

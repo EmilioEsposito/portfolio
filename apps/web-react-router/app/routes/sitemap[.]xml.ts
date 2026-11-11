@@ -8,6 +8,7 @@ function getPublicPages(): string[] {
     "/systems/sernia-ai",
     "/systems/emergency-routing",
     "/systems/leasing-leads",
+    "/systems/leasing-evals",
   ];
 }
 
