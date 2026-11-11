@@ -79,6 +79,7 @@ dependencies = [
     # LLM-cost dashboard. 0.1.1 matches OpenAI's published rates and adds
     # the >272k long-context tiers.
     "genai-prices>=0.1.1",
+    "pillow>=12.0.0",
 ]
 
 [dependency-groups]
