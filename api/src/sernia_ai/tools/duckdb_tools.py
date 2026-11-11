@@ -53,6 +53,7 @@ def list_datasets(ctx: RunContext[SerniaDeps]) -> str:
 
     Use load_dataset to import a dataset into DuckDB for SQL querying.
     """
+    _validate_conversation_id(ctx.deps.conversation_id)
     data_dir = DATA_BASE / ctx.deps.conversation_id
     if not data_dir.exists():
         return "No datasets available. Data-fetching tools (like read_google_sheet) will create datasets automatically."
@@ -96,7 +97,7 @@ def load_dataset(
     csv_path = (DATA_BASE / cid / f"{dataset_name}.csv").resolve()
     # Validate resolved path is within expected directory
     expected_prefix = (DATA_BASE / cid).resolve()
-    if not str(csv_path).startswith(str(expected_prefix)):
+    if not csv_path.is_relative_to(expected_prefix):
         return "Error: Invalid dataset path."
     if not csv_path.exists():
         return f"Dataset '{dataset_name}' not found. Use list_datasets to see available datasets."

@@ -58,6 +58,7 @@ from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
+from api.src.utils.chat_attachments import read_chat_request
 from api.src.utils.clerk import verify_serniacapital_user
 
 # =============================================================================
@@ -225,7 +226,7 @@ async def chat_sernia(
     clerk_user_id = user.id
     user_name = _display_name(user)
 
-    request_json = await request.json()
+    request_json = await read_chat_request(request)
     conversation_id = request_json.get("id")
     frontend_messages = request_json.get("messages", [])
 

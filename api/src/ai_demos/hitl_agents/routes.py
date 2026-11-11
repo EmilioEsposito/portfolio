@@ -45,6 +45,7 @@ from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
     resume_with_approvals,
 )
 from api.src.database.database import DBSession
+from api.src.utils.chat_attachments import read_chat_request
 from api.src.utils.clerk import SerniaUser
 
 router = APIRouter(
@@ -109,7 +110,7 @@ async def chat(request: Request, user: SerniaUser, session: DBSession) -> Respon
 
     clerk_user_id = user.id
 
-    request_json = await request.json()
+    request_json = await read_chat_request(request)
     conversation_id = request_json.get("id")
     frontend_messages = request_json.get("messages", [])
 
