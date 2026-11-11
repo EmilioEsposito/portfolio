@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cleanup LLM Tics"
+  short_description: "Remove formulaic AI prose while preserving meaning"
+  default_prompt: "Use $cleanup-llm-tics to clean up the specified page, document, or passage while preserving its meaning and voice."
