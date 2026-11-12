@@ -153,7 +153,7 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/worktree-provision.sh --once",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-provision.sh",
             "timeout": 600
           }
         ]

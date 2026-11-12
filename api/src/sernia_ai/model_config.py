@@ -37,7 +37,7 @@ from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
 
 from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
-from api.src.utils.llm_cost_breakdown import ATTR_BILLED_COST
+from api.src.utils.llm_cost_breakdown import ATTR_BILLED_COST, gateway_billed_cost
 
 # pydantic-ai's provider prefix for OpenRouter model strings.
 _OPENROUTER_PREFIX = "openrouter"
@@ -263,14 +263,15 @@ class SerniaOpenRouterModel(OpenRouterModel):
 def stamp_openrouter_cost(response: ModelResponse) -> None:
     """Copy OpenRouter's reported request cost onto the active LLM span.
 
-    Sets both ``operation.cost`` and ``operation.billed_cost``; the latter is
+    The cost is OpenRouter's fee plus, on BYOK requests, the upstream
+    provider's charge (see ``gateway_billed_cost``). Sets both ``operation.cost`` and ``operation.billed_cost``; the latter is
     what ``BilledCostSpanProcessor`` restores after pydantic-ai overwrites the
     former with its list-price estimate. No-ops when the cost is absent (usage
     accounting off, or a provider that doesn't report it) or when the span
     isn't recording. Never raises — a telemetry gap must not fail an agent run.
     """
     try:
-        cost = (response.provider_details or {}).get("cost")
+        cost = gateway_billed_cost(response.provider_details)
         if cost is None:
             return
         span = trace.get_current_span()

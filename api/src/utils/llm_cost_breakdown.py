@@ -40,6 +40,32 @@ _ATTR_CACHE_WRITE = "gen_ai.usage.details.cache_write_tokens"
 # writes it, so it survives the instrumentation overwriting `operation.cost`.
 ATTR_BILLED_COST = "operation.billed_cost"
 
+
+def _usd(value: Any) -> float | None:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def gateway_billed_cost(provider_details: dict[str, Any] | None) -> float | None:
+    """Total USD a request really cost, from OpenRouter's usage accounting.
+
+    ``cost`` is what OpenRouter charged its own account. On BYOK requests
+    (``is_byok``: the call ran on our own provider key, as Sernia's OpenAI
+    route does) that is only OpenRouter's fee, often $0, and pydantic-ai drops
+    a zero ``cost`` entirely. The inference itself is billed to our key and
+    reported as ``upstream_inference_cost``, which OpenRouter only populates
+    for BYOK. So the total is ``cost`` plus, for BYOK, the upstream charge.
+    Returns None when neither is reported.
+    """
+    details = provider_details or {}
+    fee = _usd(details.get("cost"))
+    upstream = _usd(details.get("upstream_inference_cost")) if details.get("is_byok") else None
+    if fee is None and upstream is None:
+        return None
+    return (fee or 0.0) + (upstream or 0.0)
+
+
 # Span attribute names we write.
 ATTR_COST_INPUT_NON_CACHED = "gen_ai.cost.input_non_cached"
 ATTR_COST_CACHE_READ = "gen_ai.cost.cache_read"

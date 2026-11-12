@@ -70,6 +70,17 @@ reason. This closes that gap at the source.
 It does **not** cover human hand-edits (only Claude's tool calls). If you want a
 committer-agnostic guard too, add `pre-commit` with `ruff-pre-commit`.
 
+## Worktree provisioning (`worktree-provision.sh`) — SessionStart
+
+Runs `scripts/worktree-provision.sh <checkout> --once` for the checkout the session works
+in, which first moves a brand-new branch to freshly fetched `origin/main`. See
+[the worktree guide](../../docs/WORKTREES.md#codex-and-claude).
+
+**Why a wrapper:** desktop worktree sessions run hooks in the main checkout with
+`CLAUDE_PROJECT_DIR` pointing there, and the provisioner skips the main checkout. The
+session's checkout is the hook input's `cwd`. The wrapper runs that checkout's own
+provisioner, and exits 0 outside a Git checkout or where the script is absent.
+
 ## Adding New Hooks
 
 1. Create a bash script in this directory
