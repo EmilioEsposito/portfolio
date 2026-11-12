@@ -35,6 +35,11 @@ _ATTR_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
 _ATTR_CACHE_READ = "gen_ai.usage.details.cache_read_tokens"
 _ATTR_CACHE_WRITE = "gen_ai.usage.details.cache_write_tokens"
 
+# Exact amount the gateway billed for the request (OpenRouter's `usage.cost`).
+# Stamped by `sernia_ai.model_config.stamp_openrouter_cost`; pydantic-ai never
+# writes it, so it survives the instrumentation overwriting `operation.cost`.
+ATTR_BILLED_COST = "operation.billed_cost"
+
 # Span attribute names we write.
 ATTR_COST_INPUT_NON_CACHED = "gen_ai.cost.input_non_cached"
 ATTR_COST_CACHE_READ = "gen_ai.cost.cache_read"
@@ -102,19 +107,78 @@ def _get_int_attr(attrs: Any, key: str) -> int:
         return 0
 
 
-class CostBreakdownSpanProcessor(SpanProcessor):
-    """On span end, enrich LLM call spans with per-token-bucket cost attrs.
+def _write_ending_span_attributes(span: Any, values: dict[str, float]) -> bool:
+    """Write attributes onto a span from a processor's ``_on_ending`` hook.
 
-    Triggers only on spans that already have both `operation.cost` and a model
-    name, which pydantic_ai sets together on the LLM call span. Writes directly
-    to the span's `_attributes` dict because `Span.set_attribute()` silently
-    no-ops after end() per OTel Python SDK semantics.
+    The OTel Python SDK (1.45) marks a span's attributes immutable at the top of
+    ``Span.end()``, *before* it calls ``_on_ending`` and then ``on_end`` with a
+    read-only snapshot, so ``set_attribute()`` warns and no-ops and a direct
+    ``_attributes[...] = ...`` raises ``TypeError``. ``_on_ending`` still runs on
+    the live span ahead of every processor's ``on_end`` (including logfire's
+    exporters), so lifting the flag around the write there lands the values in
+    what gets exported. ``test_llm_cost_breakdown.py`` pins this against the
+    installed SDK. Returns False (and logs) if the write did not happen.
     """
+    attrs = getattr(span, "_attributes", None)
+    if attrs is None:
+        return False
+    was_immutable = getattr(attrs, "_immutable", False)
+    try:
+        attrs._immutable = False
+        for key, value in values.items():
+            attrs[key] = value
+        return True
+    except Exception:
+        logger.debug("failed to write ending-span attributes", exc_info=True)
+        return False
+    finally:
+        if was_immutable:
+            attrs._immutable = True
+
+
+class _EndingSpanProcessor(SpanProcessor):
+    """Base for processors that enrich a span as it ends (see ``_on_ending``)."""
 
     def on_start(self, span, parent_context=None):  # pragma: no cover - no-op
         pass
 
-    def on_end(self, span: ReadableSpan) -> None:
+    def on_end(self, span: ReadableSpan) -> None:  # pragma: no cover - work is in _on_ending
+        pass
+
+    def shutdown(self) -> None:  # pragma: no cover - no resources held
+        pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # pragma: no cover
+        return True
+
+
+class BilledCostSpanProcessor(_EndingSpanProcessor):
+    """As a span ends, make a gateway's billed cost its ``operation.cost``.
+
+    pydantic-ai sets ``operation.cost`` from genai-prices' list rates when the
+    request finishes, after the model has returned. For OpenRouter routes that
+    genai-prices knows (genai-prices >= 0.1.5), that estimate would overwrite
+    the billed amount ``SerniaOpenRouterModel`` stamps, which is strictly
+    better data: it reflects the endpoint actually routed to and includes
+    web-plugin charges. Register this before ``CostBreakdownSpanProcessor``,
+    which reads ``operation.cost``.
+    """
+
+    def _on_ending(self, span: Any) -> None:
+        billed = (span.attributes or {}).get(ATTR_BILLED_COST)
+        if billed is None:
+            return
+        _write_ending_span_attributes(span, {_ATTR_COST: float(billed)})
+
+
+class CostBreakdownSpanProcessor(_EndingSpanProcessor):
+    """As a span ends, enrich LLM call spans with per-token-bucket cost attrs.
+
+    Triggers only on spans that already have both `operation.cost` and a model
+    name, which pydantic_ai sets together on the LLM call span.
+    """
+
+    def _on_ending(self, span: Any) -> None:
         attrs = span.attributes
         if not attrs:
             return
@@ -134,21 +198,12 @@ class CostBreakdownSpanProcessor(SpanProcessor):
         if breakdown is None:
             return
 
-        # Span is ended; set_attribute() logs a warning and no-ops. The
-        # underlying `_attributes` BoundedAttributes dict is still mutable.
-        mutable_attrs = getattr(span, "_attributes", None)
-        if mutable_attrs is None:
-            return
-        try:
-            mutable_attrs[ATTR_COST_INPUT_NON_CACHED] = breakdown["input_non_cached"]
-            mutable_attrs[ATTR_COST_CACHE_READ] = breakdown["cache_read"]
-            mutable_attrs[ATTR_COST_CACHE_WRITE] = breakdown["cache_write"]
-            mutable_attrs[ATTR_COST_OUTPUT] = breakdown["output"]
-        except Exception:
-            logger.debug("failed to attach cost breakdown attributes", exc_info=True)
-
-    def shutdown(self) -> None:  # pragma: no cover - no resources held
-        pass
-
-    def force_flush(self, timeout_millis: int = 30000) -> bool:  # pragma: no cover
-        return True
+        _write_ending_span_attributes(
+            span,
+            {
+                ATTR_COST_INPUT_NON_CACHED: breakdown["input_non_cached"],
+                ATTR_COST_CACHE_READ: breakdown["cache_read"],
+                ATTR_COST_CACHE_WRITE: breakdown["cache_write"],
+                ATTR_COST_OUTPUT: breakdown["output"],
+            },
+        )

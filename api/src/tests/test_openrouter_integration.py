@@ -15,9 +15,9 @@ our *request*, not about what OpenRouter actually accepts:
    hard failure at runtime, not a silent downgrade.
 2. Effort actually changes behaviour end to end (low burns far fewer reasoning
    tokens than max) — i.e. the knob is honoured, not just accepted.
-3. Usage accounting comes back with a real cost, which is the only cost signal
-   for OpenRouter runs (genai-prices has no entry for these routes — see
-   `test_model_pricing.py`).
+3. Usage accounting comes back with a real cost: the billed amount that wins
+   over genai-prices' list estimate on `operation.cost` — see
+   `test_model_pricing.py`.
 4. The web-search domain allowlist reaches OpenRouter's `web` plugin: search
    results are confined to `WEB_SEARCH_ALLOWED_DOMAINS`.
 """
@@ -85,7 +85,7 @@ async def test_max_effort_reasons_more_than_low():
 
 @pytest.mark.asyncio
 async def test_usage_accounting_returns_a_real_cost():
-    """`usage.include` is the only cost signal on OpenRouter runs."""
+    """`usage.include` returns the billed cost that becomes `operation.cost`."""
     result = await _bare_agent("low").run("Reply with exactly: OK")
 
     response = result.all_messages()[-1]

@@ -256,9 +256,9 @@ def test_web_search_domain_allowlist_reaches_openrouter_plugin():
 def test_openrouter_cost_stamped_on_span():
     """OpenRouter runs get `operation.cost` from OpenRouter's own usage accounting.
 
-    genai-prices has no entry for the `openai/gpt-5.6-luna` OpenRouter route, so
-    pydantic-ai's own pricing raises LookupError and never sets the attribute —
-    which would drop the main agent out of the LLM-cost dashboard. See
+    The billed amount also lands on `operation.billed_cost`, which
+    `BilledCostSpanProcessor` restores after pydantic-ai overwrites
+    `operation.cost` with its genai-prices list estimate. See
     `SerniaOpenRouterModel` and `test_model_pricing.py`.
     """
     from opentelemetry.sdk.trace import TracerProvider
