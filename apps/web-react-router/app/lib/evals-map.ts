@@ -281,7 +281,7 @@ export const stages: Stage[] = [
       "An experiment runs one fixed version of the system over a set of test cases and stores each output with enough to reproduce it.",
       "A version is everything that can change the output: the prompt, the model, and any data the prompt is built from.",
     ],
-    here: "Ten so far, on the same 30 dev cases. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
+    here: "Eleven so far: ten on one sample of 30 dev cases, and one on a second sample once the first stopped producing fails. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
     example: {
       caption: "One stored output",
       blocks: [
@@ -712,6 +712,14 @@ export const experimentLog = [
     quiet: 3,
     escalate: 9,
     annotated: "24 of 26",
+  },
+  {
+    name: "Experiment 11",
+    change: "No change. First run on a second sample of 30 dev cases.",
+    reply: 13,
+    quiet: 5,
+    escalate: 12,
+    annotated: "No",
   },
 ];
 

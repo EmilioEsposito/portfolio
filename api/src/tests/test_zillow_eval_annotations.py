@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from api.src.sernia_ai.zillow_leads.evals.cli import not_in_runs
 from api.src.sernia_ai.zillow_leads.evals.labels import (
     Label,
     add_annotations,
@@ -96,3 +97,20 @@ class TestStore:
 
         assert counts["added"] == 1 and counts["output not found"] == 1
         assert read_labels(store)[0].output is None
+
+
+class TestFreshSample:
+    def test_scenarios_an_earlier_run_covered_are_left_out(self, tmp_path: Path):
+        class _Scenario:
+            def __init__(self, scenario_id: str) -> None:
+                self.scenario_id = scenario_id
+
+        _run(tmp_path, "experiment-1", {"T-1": DECISION})
+        _run(tmp_path, "experiment-2", {"T-2": OTHER})
+        scenarios = [_Scenario("T-1"), _Scenario("T-2"), _Scenario("T-3")]
+
+        fresh = not_in_runs(
+            scenarios, [tmp_path / "experiment-1.jsonl", tmp_path / "experiment-2.jsonl"]
+        )
+
+        assert [scenario.scenario_id for scenario in fresh] == ["T-3"]

@@ -109,6 +109,17 @@ async def split(args: argparse.Namespace) -> None:
         print(f"{name}: {threads} threads, {len(in_split(scenarios, splits, name))} scenarios")
 
 
+def not_in_runs(scenarios: list[Scenario], run_files: list[Path]) -> list[Scenario]:
+    """Scenarios no earlier run has produced an output for: a fresh sample."""
+    seen = {
+        json.loads(line)["case_id"]
+        for run_file in run_files
+        for line in run_file.read_text().splitlines()
+        if line
+    }
+    return [scenario for scenario in scenarios if scenario.scenario_id not in seen]
+
+
 async def run(args: argparse.Namespace) -> None:
     import logfire
 
@@ -122,6 +133,9 @@ async def run(args: argparse.Namespace) -> None:
     if args.splits:
         scenarios = in_split(scenarios, json.loads(args.splits.read_text()), args.split)
         print(f"split: {args.split}  scenarios in it: {len(scenarios)}")
+    if args.exclude_run:
+        scenarios = not_in_runs(scenarios, args.exclude_run)
+        print(f"not yet run: {len(scenarios)}")
     if args.sample and args.sample < len(scenarios):
         scenarios = random.Random(args.seed).sample(scenarios, args.sample)
 
@@ -289,6 +303,13 @@ def main() -> None:
     run_parser.add_argument("--seed", type=int, default=0)
     run_parser.add_argument("--concurrency", type=int, default=4)
     run_parser.add_argument("--model", help="Model to run on instead of the configured one")
+    run_parser.add_argument(
+        "--exclude-run",
+        type=Path,
+        action="append",
+        default=[],
+        help="Leave out scenarios this earlier run already covered; repeat for several",
+    )
     run_parser.set_defaults(handler=run)
 
     review_parser = commands.add_parser("review", help="Write a page for labelling a run")

@@ -194,7 +194,8 @@ result is used to tune the system, the test split has become part of dev.
 | 7 | Escalation rule narrowed to what the reply depends on | same 30 | 19 / 4 / 7 | 23 of 26 |
 | 8 | Escalation and confirmed-tour rules spelled out case by case | same 30 | 17 / 4 / 9 | 24 of 26 |
 | 9 | Same policy as 8 on a newer, cheaper model | same 30 | 15 / 4 / 11 | 23 of 26 |
-| 10 | Booking line reworded by the owner to say "in-person showing" | same 30 | 18 / 3 / 9 | 24 of 26 |
+| 10 | Booking line reworded by the owner to say "in-person showing" | same 30 | 18 / 3 / 9 | 24 of 26. 15 annotated afresh: all pass |
+| 11 | Nothing. Same policy and model as 10 | 30 new dev cases | 13 / 5 / 12 | Not yet |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -215,7 +216,16 @@ the new wording. Four cases changed action against experiment 9 and only 2 of
 30 outputs were word-for-word the same, which is the run-to-run variation seen
 before, so those four changes are not credited to the edit.
 
-The split was made after experiment 2. The 30 scenarios are all in dev.
+Experiment 11 is the first on a second sample: 30 dev scenarios that no earlier
+run had covered, drawn with `--exclude-run`. The first sample had stopped
+producing fails, so it could no longer show where the policy is weak. In the
+model's own reasons, most of the 12 escalations on the new sample share one
+cause: our earlier message in the thread offered a tour time that the case does
+not list. The season's operating file holds one set of tour times, not the
+times that were on offer on each past date, so this may be a gap in the replay
+data and not in the agent. That reading is not a human judgement yet.
+
+The split was made after experiment 2. Both samples are all in dev.
 
 ## First error analysis
 
