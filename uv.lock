@@ -1430,15 +1430,15 @@ wheels = [
 
 [[package]]
 name = "genai-prices"
-version = "0.1.1"
+version = "0.1.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx2" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/9b/85e646305a90a2da18f1edf055498668391e71f9849d3e1754d66559a311/genai_prices-0.1.1.tar.gz", hash = "sha256:54a2237691e0aaefb057d10a0c3c20160accc9fc09521c64c03fcdb7a4a69f68", size = 91182, upload-time = "2026-08-01T09:02:49.552Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/2f/3a15823dd7ff3719eacc61996d50a8434ec4b08b69b9bee1cc017c42f2a4/genai_prices-0.1.8.tar.gz", hash = "sha256:8134e38492003f105510a398e5c08f903d24a117f4e4e1a8ee039001c9470227", size = 116620, upload-time = "2026-09-23T00:01:10.981Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6e/5e/cfe36dff790ffad6aeff8a069b6f36743987ac17053579035ee0a67635dd/genai_prices-0.1.1-py3-none-any.whl", hash = "sha256:de2e3d8ea3ca1d0d292025995c598da447a74e94f22cd3342df46941aeb5416b", size = 95300, upload-time = "2026-08-01T09:02:48.308Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/1f/f6f0eb76a0f91133e181caa1a3cfaba56b7ada0228917a3ae7f2ba71249b/genai_prices-0.1.8-py3-none-any.whl", hash = "sha256:40ca900089b50052597d44fc5189122addcfdccba7772dd11099b4ad574a0d9f", size = 123682, upload-time = "2026-09-23T00:01:09.72Z" },
 ]
 
 [[package]]
@@ -3478,7 +3478,7 @@ requires-dist = [
     { name = "email-validator", specifier = ">=2.2.0" },
     { name = "fastapi", specifier = ">=0.115.12" },
     { name = "fastmcp", extras = ["apps"], specifier = ">=3.2.4" },
-    { name = "genai-prices", specifier = ">=0.1.1" },
+    { name = "genai-prices", specifier = ">=0.1.8" },
     { name = "google-api-python-client", specifier = ">=2.108.0" },
     { name = "google-auth-httplib2", specifier = ">=0.1.1" },
     { name = "google-auth-oauthlib", specifier = ">=1.1.0" },

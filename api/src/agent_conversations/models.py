@@ -270,9 +270,9 @@ def _reported_cost(messages: list[ModelMessage]) -> float | None:
 
     OpenRouter returns the exact billed amount per request (surfaced on
     ``ModelResponse.provider_details["cost"]`` when usage accounting is on).
-    That is the only cost signal for OpenRouter-routed models: genai-prices
-    has no entries for slugs like ``openai/gpt-5.6-luna``, so price-table
-    lookups return nothing and the conversation's cost columns stay at zero.
+    It is preferred over genai-prices: ``_calc_cost`` looks slugs like
+    ``openai/gpt-6-luna`` up without a provider and finds nothing, and even a
+    provider-qualified list price misses web-plugin charges.
     """
     total = 0.0
     found = False
