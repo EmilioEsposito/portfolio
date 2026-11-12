@@ -12,19 +12,19 @@ There are two cost signals, one per gateway:
   model/version genai-prices doesn't know and `test_direct_model_is_priced...`
   fails — telling you to bump `genai-prices` (and add a v1 hardcoded tier in
   `cost_by_token_type.sql`) as part of the change.
-* **OpenRouter routes** (`openrouter:...`) are *not* in genai-prices' data —
-  neither the pinned snapshot nor upstream main carries e.g.
-  `openai/gpt-5.6-luna` under the `openrouter` provider. `ModelResponse.cost()`
-  raises LookupError there. Instead we ask OpenRouter for the real billed
-  amount (`openrouter_usage={"include": True}`) and `SerniaOpenRouterModel`
-  stamps it. `test_openrouter_route_carries_usage_accounting` guards that
-  wiring, so an OpenRouter model added without usage accounting fails here.
+* **OpenRouter routes** (`openrouter:...`) carry the exact billed amount:
+  we ask OpenRouter for it (`openrouter_usage={"include": True}`) and
+  `SerniaOpenRouterModel` stamps it. Since genai-prices 0.1.5 pydantic-ai can
+  also price these routes itself and writes that list-price estimate to
+  `operation.cost` after the model returns, so `BilledCostSpanProcessor`
+  restores the billed amount when the span ends. The billed amount is better
+  data: it reflects the endpoint actually routed to and includes web-plugin
+  charges. `test_openrouter_route_carries_usage_accounting` guards the request
+  side and `test_billed_cost_wins_on_the_exported_span` the span side.
 
-Known gap: the per-token-type breakdown (`utils/llm_cost_breakdown.py`) still
-needs genai-prices to split a total across input/cache/output buckets, so
-OpenRouter runs contribute to total cost but not to the by-bucket panel. If
-genai-prices later adds the OpenRouter routes, that resolves itself and the
-OpenRouter branch below can collapse into the genai-prices one.
+Known gap: the per-token-type breakdown (`utils/llm_cost_breakdown.py`) looks
+models up without a provider, so OpenRouter routes get no per-bucket attrs and
+the v1 SQL panel remains their only by-bucket source.
 
 No API keys needed — genai-prices ships an offline price snapshot.
 """
@@ -95,20 +95,138 @@ def test_openrouter_route_carries_usage_accounting(model_string: str):
     )
 
 
-@pytest.mark.parametrize("model_string", _openrouter_model_strings())
-def test_openrouter_route_still_unknown_to_genai_prices(model_string: str):
-    """Tripwire: if genai-prices learns these routes, drop the custom stamping.
+# --- Billed cost wins over pydantic-ai's list-price estimate -----------------
 
-    This asserts the *reason* SerniaOpenRouterModel stamps cost by hand. When it
-    starts failing, genai-prices has added the route — at which point
-    pydantic-ai prices the response itself, per-bucket breakdown starts working
-    again, and the manual stamp should be removed rather than double-counted.
+_BILLED_COST = 0.0123  # deliberately unlike any list-price estimate
+_PROMPT_TOKENS = 1_000
+_COMPLETION_TOKENS = 100
+
+
+def _openrouter_completion_body() -> dict:
+    return {
+        "id": "gen-test",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "openai/gpt-6-luna",
+        "provider": "OpenAI",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "native_finish_reason": "stop",
+                "message": {"role": "assistant", "content": "OK"},
+            }
+        ],
+        "usage": {
+            "prompt_tokens": _PROMPT_TOKENS,
+            "completion_tokens": _COMPLETION_TOKENS,
+            "total_tokens": _PROMPT_TOKENS + _COMPLETION_TOKENS,
+            "cost": _BILLED_COST,
+        },
+    }
+
+
+def _openrouter_stream_body() -> bytes:
+    import json
+
+    base = {"id": "gen-test", "object": "chat.completion.chunk", "created": 1}
+    base |= {"model": "openai/gpt-6-luna", "provider": "OpenAI"}
+    first = base | {
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": "OK"}}],
+    }
+    last = base | {
+        "choices": [
+            {"index": 0, "delta": {}, "finish_reason": "stop", "native_finish_reason": "stop"}
+        ],
+        "usage": _openrouter_completion_body()["usage"],
+    }
+    events = [f"data: {json.dumps(chunk)}\n\n" for chunk in (first, last)]
+    return ("".join(events) + "data: [DONE]\n\n").encode()
+
+
+def _mock_openrouter_model(stream: bool):
+    import httpx
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+    from api.src.sernia_ai.model_config import SerniaOpenRouterModel
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if stream:
+            return httpx.Response(
+                200,
+                content=_openrouter_stream_body(),
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(200, json=_openrouter_completion_body())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenRouterProvider(api_key="test-key", http_client=client)
+    return SerniaOpenRouterModel("openai/gpt-6-luna", provider=provider)
+
+
+def _list_price_estimate() -> float:
+    """What pydantic-ai would put on operation.cost for the mocked usage."""
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.usage import RequestUsage
+
+    response = ModelResponse(
+        parts=[TextPart("OK")],
+        model_name="openai/gpt-6-luna",
+        provider_name="openrouter",
+        provider_url="https://openrouter.ai/api/v1",
+        usage=RequestUsage(input_tokens=_PROMPT_TOKENS, output_tokens=_COMPLETION_TOKENS),
+    )
+    return float(response.cost().total_price)
+
+
+def test_pydantic_ai_prices_the_openrouter_route_itself():
+    """The reason BilledCostSpanProcessor exists: pydantic-ai's own estimate.
+
+    If genai-prices ever stops pricing the route, the processor becomes a
+    harmless no-op override (the stamp then survives on its own).
     """
-    from api.src.utils.llm_cost_breakdown import compute_cost_breakdown
+    assert _list_price_estimate() != pytest.approx(_BILLED_COST)
 
-    model_id = model_string.split(":", 1)[1]
-    assert compute_cost_breakdown(model_id, input_tokens=1000, output_tokens=100) is None, (
-        f"genai-prices now prices {model_id!r}. Remove the manual cost stamping in "
-        "sernia_ai/model_config.SerniaOpenRouterModel and let pydantic-ai set "
-        "operation.cost, or the two will fight over the attribute."
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True], ids=["request", "stream"])
+async def test_billed_cost_wins_on_the_exported_span(stream: bool):
+    """End to end: instrumented run -> exported LLM span carries the billed cost."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from pydantic_ai import Agent
+    from pydantic_ai.capabilities import Instrumentation
+    from pydantic_ai.models.instrumented import InstrumentationSettings
+
+    from api.src.sernia_ai.model_config import build_openrouter_settings
+    from api.src.utils.llm_cost_breakdown import BilledCostSpanProcessor
+
+    exporter = InMemorySpanExporter()
+    tracer_provider = TracerProvider()
+    # Exporter first, as logfire's are in prod: the override must still reach it.
+    tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer_provider.add_span_processor(BilledCostSpanProcessor())
+
+    agent = Agent(
+        _mock_openrouter_model(stream),
+        model_settings=build_openrouter_settings("low"),
+        capabilities=[Instrumentation(InstrumentationSettings(tracer_provider=tracer_provider))],
+    )
+    if stream:
+        async with agent.run_stream("hi") as result:
+            assert await result.get_output() == "OK"
+    else:
+        assert (await agent.run("hi")).output == "OK"
+
+    llm_spans = [
+        s for s in exporter.get_finished_spans() if (s.attributes or {}).get("gen_ai.request.model")
+    ]
+    assert len(llm_spans) == 1, [s.name for s in exporter.get_finished_spans()]
+    attrs = llm_spans[0].attributes
+    assert attrs["operation.billed_cost"] == pytest.approx(_BILLED_COST)
+    assert attrs["operation.cost"] == pytest.approx(_BILLED_COST), (
+        f"operation.cost is {attrs['operation.cost']} but OpenRouter billed {_BILLED_COST}; "
+        f"pydantic-ai's list estimate is {_list_price_estimate()}. "
+        "BilledCostSpanProcessor did not restore the billed amount."
     )

@@ -56,19 +56,36 @@ _REPRESENTATIVE_MODEL = {
     "gpt-5.4-nano%": "gpt-5.4-nano",
     "gpt-5.4-mini%": "gpt-5.4-mini",
     "gpt-5.4%": "gpt-5.4",
+    "gpt-6-luna%": "gpt-6-luna",
     "gpt-5.6-luna%": "gpt-5.6-luna",
     "gpt-5.6-terra%": "gpt-5.6-terra",
     "gpt-5.6-sol%": "gpt-5.6-sol",
     # OpenRouter routes — same upstream model, OpenRouter's own rate.
+    "openai/gpt-6-luna%": "gpt-6-luna",
     "openai/gpt-5.6-luna%": "gpt-5.6-luna",
     "openai/gpt-5.6-terra%": "gpt-5.6-terra",
     "openai/gpt-5.6-sol%": "gpt-5.6-sol",
 }
 
-# OpenRouter currently bills a flat 50% of OpenAI list across every bucket.
-# Verified against real billed amounts (see test_openrouter_integration.py).
-# If OpenRouter ends that discount this test fails and the SQL needs updating.
-_OPENROUTER_DISCOUNT = 0.5
+# OpenRouter's rate as a fraction of OpenAI list, by route prefix. The gpt-5.6
+# family has billed at a flat 50% across every bucket (verified against real
+# billed amounts). gpt-6-luna is listed by OpenRouter's models API at OpenAI
+# list (checked 2026-11-11), so it gets no discount. A new `openai/...` route
+# must be registered here, so its rate is a deliberate choice.
+_OPENROUTER_DISCOUNT = {
+    "openai/gpt-5.6-": 0.5,
+    "openai/gpt-6-luna": 1.0,
+}
+
+
+def _openrouter_discount(pattern: str) -> float:
+    matches = [d for prefix, d in _OPENROUTER_DISCOUNT.items() if pattern.startswith(prefix)]
+    assert len(matches) == 1, (
+        f"OpenRouter route {pattern!r} needs exactly one entry in _OPENROUTER_DISCOUNT "
+        "(check OpenRouter's listed price against OpenAI list)."
+    )
+    return matches[0]
+
 
 _BUCKET_RE = re.compile(r"\(case(?P<body>.*?)end\)\s*/\s*1e6\s+as\s+(?P<alias>\w+)", re.DOTALL)
 _BRANCH_RE = re.compile(r"when\s+model\s+like\s+'(?P<pattern>[^']+)'\s+then\s+(?P<rate>[\d.]+)")
@@ -136,9 +153,9 @@ def test_sql_rate_matches_genai_prices(alias: str, pattern: str, sql_rate: float
         "Remove the branch or bump genai-prices."
     )
     via_openrouter = pattern.startswith("openai/")
-    if via_openrouter:
-        expected *= _OPENROUTER_DISCOUNT
-    discount_note = f", x{_OPENROUTER_DISCOUNT} OpenRouter discount" if via_openrouter else ""
+    discount = _openrouter_discount(pattern) if via_openrouter else 1.0
+    expected *= discount
+    discount_note = f", x{discount} OpenRouter rate" if via_openrouter else ""
 
     assert sql_rate == pytest.approx(expected, rel=1e-6), (
         f"{pattern!r} {alias}: dashboard SQL says ${sql_rate}/MTok, genai-prices says "

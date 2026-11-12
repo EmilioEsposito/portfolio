@@ -10,7 +10,7 @@ from logfire import LogfireLoggingHandler
 from logfire.sampling import TailSamplingSpanInfo
 from opentelemetry import trace as otel_trace
 
-from api.src.utils.llm_cost_breakdown import CostBreakdownSpanProcessor
+from api.src.utils.llm_cost_breakdown import BilledCostSpanProcessor, CostBreakdownSpanProcessor
 
 _CONFIGURED: bool = False
 _CONFIGURED_MODE: str | None = None  # e.g. "prod", "test"
@@ -148,11 +148,14 @@ def ensure_logfire_configured(
     # Uses custom handler that applies log level rules (see _LOG_LEVEL_RULES above)
     logging.getLogger().addHandler(_RuleBasedLoggingHandler(level=logging.INFO))
 
-    # Enrich LLM call spans with per-token-bucket cost attributes so the
-    # Logfire "Cost By Token Type" panel can sum them directly without a
-    # hard-coded per-model pricing table in SQL.
+    # Make a gateway's billed cost win over pydantic-ai's list-price estimate
+    # on `operation.cost`, then enrich LLM call spans with per-token-bucket
+    # cost attributes so the Logfire "Cost By Token Type" panel can sum them
+    # directly without a hard-coded per-model pricing table in SQL. Order
+    # matters: the breakdown reads `operation.cost`.
     tracer_provider = otel_trace.get_tracer_provider()
     if hasattr(tracer_provider, "add_span_processor"):
+        tracer_provider.add_span_processor(BilledCostSpanProcessor())
         tracer_provider.add_span_processor(CostBreakdownSpanProcessor())
 
     _CONFIGURED = True
