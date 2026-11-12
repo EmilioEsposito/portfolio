@@ -83,9 +83,15 @@ Things worth knowing about the OpenRouter path (all handled in
   per-token-type breakdown looks models up without a provider, so OpenRouter
   runs show total cost but not the v2 by-bucket panel (the v1 panel covers
   them via hard-coded tiers). `test_model_pricing.py` guards both halves.
-- **OpenRouter bills 50% of OpenAI list** on this route today — a standing
-  discount, verified against real billed amounts. The dashboard's `openai/...`
-  tiers encode that; `test_dashboard_pricing.py` fails if it ends.
+- **The GPT route is BYOK.** OpenRouter calls OpenAI with our own key, so
+  OpenAI bills list price and OpenRouter's own `cost` is $0. The spend arrives
+  as `upstream_inference_cost`, and `gateway_billed_cost`
+  (`utils/llm_cost_breakdown.py`) adds it to OpenRouter's fee. Before
+  2026-11-12 only `cost` was read, so main-agent spend went unrecorded from
+  late July, and the dashboard priced these routes at 50% of list. Production
+  billing matches full list. BYOK responses also report 0 input and output
+  tokens (the prompt shows up as `cache_write_tokens`), so token-based
+  estimates for this route are unreliable; trust the billed cost.
 
 ### A note on reported LLM cost
 

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.src.database.database import Base, provide_session
+from api.src.utils.llm_cost_breakdown import gateway_billed_cost
 
 
 class AgentConversation(Base):
@@ -268,20 +269,22 @@ def _calc_cost(input_tokens: int, output_tokens: int, model_ref: str) -> float |
 def _reported_cost(messages: list[ModelMessage]) -> float | None:
     """Sum the cost the gateway itself reported for these responses.
 
-    OpenRouter returns the exact billed amount per request (surfaced on
-    ``ModelResponse.provider_details["cost"]`` when usage accounting is on).
-    It is preferred over genai-prices: ``_calc_cost`` looks slugs like
-    ``openai/gpt-6-luna`` up without a provider and finds nothing, and even a
-    provider-qualified list price misses web-plugin charges.
+    OpenRouter returns the exact billed amount per request on
+    ``ModelResponse.provider_details`` when usage accounting is on: its own
+    fee as ``cost`` and, on BYOK requests, the provider's charge as
+    ``upstream_inference_cost`` (see ``gateway_billed_cost``). It is preferred
+    over genai-prices: ``_calc_cost`` looks slugs like ``openai/gpt-6-luna``
+    up without a provider and finds nothing, and even a provider-qualified
+    list price misses web-plugin charges.
     """
     total = 0.0
     found = False
     for msg in messages:
         if not isinstance(msg, ModelResponse):
             continue
-        cost = (msg.provider_details or {}).get("cost")
-        if isinstance(cost, int | float) and not isinstance(cost, bool):
-            total += float(cost)
+        cost = gateway_billed_cost(msg.provider_details)
+        if cost is not None:
+            total += cost
             found = True
     return round(total, 6) if found else None
 
