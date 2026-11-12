@@ -247,18 +247,157 @@ class WorktreeTests(unittest.TestCase):
             self.assertFalse(wt.choose_start(checkout))
         self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
 
-    def test_attached_branches_and_existing_detached_history_are_preserved(self) -> None:
+    def start_reason(self, checkout: wt.Checkout) -> str:
+        return json.loads((checkout.git_dir / wt.START_FILE).read_text())["reason"]
+
+    def test_new_attached_branch_fast_forwards_to_remote_main(self) -> None:
         initial = self.git(self.main, "rev-parse", "HEAD")
         remote = self.advance_remote()
-        attached = self.checkout()
-        self.assertFalse(wt.choose_start(attached))
-        self.assertEqual(self.git(attached.root, "rev-parse", "HEAD"), initial)
+        checkout = self.checkout()
+        self.assertTrue(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), remote)
+        self.assertEqual(self.git(checkout.root, "symbolic-ref", "--short", "HEAD"), "feature")
+        self.assertEqual(self.git(self.main, "rev-parse", "HEAD"), initial)
+        self.assertEqual(self.start_reason(checkout), "fresh-remote-main")
+        self.assertFalse(wt.choose_start(checkout))
+
+    def test_desktop_branch_without_reflog_ignores_seeded_node_modules(self) -> None:
+        remote = self.advance_remote()
+        target = self.root / "desktop"
+        self.git(
+            self.main,
+            *("-c", "core.logAllRefUpdates=false"),
+            *("worktree", "add", "--no-track", "-b", "claude/desktop", str(target)),
+            "origin/main",
+        )
+        checkout = wt.Checkout.find(target)
+        self.assertEqual(wt.reflog(checkout, "HEAD"), [])
+        (checkout.root / "node_modules").mkdir()
+        self.assertFalse(wt.choose_start(checkout))
+        self.assertEqual(self.start_reason(checkout), "existing-resources")
+        (checkout.git_dir / wt.START_FILE).unlink()
+        (checkout.git_dir / wt.DESKTOP_MARKER).touch()
+        self.assertTrue(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), remote)
+        self.assertEqual(
+            self.git(checkout.root, "symbolic-ref", "--short", "HEAD"), "claude/desktop"
+        )
+
+    def test_branch_tracking_remote_main_is_still_a_new_seed(self) -> None:
+        remote = self.advance_remote()
+        target = self.root / "tracking"
+        self.git(self.main, "worktree", "add", "-b", "tracking", str(target), "origin/main")
+        checkout = wt.Checkout.find(target)
+        self.assertEqual(self.git(target, "config", "branch.tracking.merge"), "refs/heads/main")
+        self.assertTrue(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), remote)
+
+    def test_feature_branches_and_existing_detached_history_are_preserved(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        remote = self.advance_remote()
+
+        committed = self.checkout("committed")
+        self.git(committed.root, "commit", "--allow-empty", "-m", "Feature work")
+        work = self.git(committed.root, "rev-parse", "HEAD")
+        self.assertFalse(wt.choose_start(committed))
+        self.assertEqual(self.git(committed.root, "rev-parse", "HEAD"), work)
+
+        # A commit followed by a reset back to main is still a used branch.
+        rewound = self.checkout("rewound")
+        self.git(rewound.root, "commit", "--allow-empty", "-m", "Abandoned")
+        self.git(rewound.root, "reset", "--hard", initial)
+        self.assertFalse(wt.choose_start(rewound))
+
+        tracking = self.checkout("tracking")
+        self.git(tracking.root, "config", "branch.tracking.remote", "origin")
+        self.git(tracking.root, "config", "branch.tracking.merge", "refs/heads/release")
+        self.assertFalse(wt.choose_start(tracking))
+
+        published = self.checkout("published")
+        self.git(published.root, "push", "origin", "published")
+        self.git(self.main, "fetch", "origin", "published:refs/remotes/origin/published")
+        self.assertFalse(wt.choose_start(published))
+
+        edited = self.checkout("edited")
+        (edited.root / "file.txt").write_text("work in progress")
+        self.assertFalse(wt.choose_start(edited))
+        self.assertEqual(self.start_reason(edited), "uncommitted-changes")
+        self.assertEqual((edited.root / "file.txt").read_text(), "work in progress")
+
+        for checkout in (committed, rewound, tracking, published):
+            self.assertEqual(self.start_reason(checkout), "selected-ref")
+        for checkout in (rewound, tracking, published, edited):
+            self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+
         checkout = self.detached()
         self.git(self.main, "fetch", "origin")
         self.git(checkout.root, "switch", "--detach", remote)
         self.git(checkout.root, "switch", "--detach", initial)
         self.assertFalse(wt.choose_start(checkout))
         self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+
+    def test_branch_seeded_from_unpushed_local_main_keeps_those_commits(self) -> None:
+        self.advance_remote()
+        self.git(self.main, "commit", "--allow-empty", "-m", "Unpushed local main")
+        local = self.git(self.main, "rev-parse", "HEAD")
+        checkout = self.checkout()
+        self.assertFalse(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), local)
+        self.assertEqual(self.start_reason(checkout), "ahead-of-remote-main")
+
+    def test_attached_refresh_preserves_ignored_file_collisions(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        self.advance_remote()
+        writer = self.root / "writer"
+        (writer / "collision").write_text("remote tracked file")
+        self.git(writer, "add", ".")
+        self.git(writer, "commit", "-m", "Track collision")
+        self.git(writer, "push", "origin", "main")
+        (self.main / ".git/info/exclude").write_text("collision\n")
+        checkout = self.checkout()
+        (checkout.root / "collision").write_text("valuable ignored file")
+        with self.assertRaises(wt.WorktreeError):
+            wt.choose_start(checkout)
+        self.assertEqual((checkout.root / "collision").read_text(), "valuable ignored file")
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+        self.assertFalse((checkout.git_dir / wt.START_FILE).exists())
+
+    def test_created_worktree_keeps_its_explicit_base(self) -> None:
+        initial = self.git(self.main, "rev-parse", "HEAD")
+        self.advance_remote()
+        previous = Path.cwd()
+        self.addCleanup(os.chdir, previous)
+        os.chdir(self.main)
+        with patch.object(wt, "provision"):
+            wt.create("pinned", initial)
+        checkout = wt.Checkout.find(self.main / ".claude/worktrees/pinned")
+        self.assertEqual(self.start_reason(checkout), "created")
+        self.assertFalse(wt.choose_start(checkout))
+        self.assertEqual(self.git(checkout.root, "rev-parse", "HEAD"), initial)
+
+    def test_claude_hook_provisions_session_worktree_from_main_checkout(self) -> None:
+        hook = Path(wt.__file__).parents[1] / ".claude/hooks/worktree-provision.sh"
+        checkout = self.checkout()
+        scripts = checkout.root / "scripts"
+        scripts.mkdir()
+        provisioner = scripts / "worktree-provision.sh"
+        provisioner.write_text('#!/bin/sh\necho "provision $1 $2"\n')
+        provisioner.chmod(0o755)
+
+        def run(cwd: Path, payload: str) -> subprocess.CompletedProcess:
+            return subprocess.run(
+                ["bash", str(hook)], cwd=cwd, input=payload, capture_output=True, text=True
+            )
+
+        # Desktop worktree sessions run hooks in the main checkout.
+        result = run(self.main, json.dumps({"cwd": str(checkout.root / "scripts")}))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"provision {checkout.root} --once")
+        result = run(checkout.root, "")
+        self.assertEqual(result.stdout.strip(), f"provision {checkout.root} --once")
+        for cwd in (self.main, self.root):
+            result = run(cwd, json.dumps({"cwd": str(cwd)}))
+            self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
 
     def test_creation_fetches_remote_main_even_with_different_origin_head(self) -> None:
         remote = self.advance_remote()
