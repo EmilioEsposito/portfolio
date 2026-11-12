@@ -28,6 +28,7 @@ zillow_leads/
     ├── labels.py    a person's verdict on one output
     ├── pages.py     builds the review page and the dataset page
     ├── templates/   review.html, dataset.html
+    ├── data/        private and git-ignored: scenarios, labels, runs, pages
     └── cli.py       the commands
 ```
 
@@ -36,6 +37,7 @@ zillow_leads/
 | Runtime code | `*.py` at the top level | Changes what production does |
 | Runtime prompts | `prompts/` | Changes what the model is told, so it also changes behaviour. Run an experiment before merging |
 | Offline eval tooling | `evals/` | Changes how outputs are measured and reviewed, never what is sent |
+| Private eval data | `evals/data/`, ignored by Git | Never committed: it holds applicants' emails |
 | Documentation | `README.md` here and in `evals/` | Changes nothing at runtime |
 
 ## Overview
@@ -221,31 +223,34 @@ error, which must be read as "unknown", never as "free".
 ## Running it
 
 ```bash
-# Once per season: cut past threads into scenarios (applicant emails: keep outside the repo)
+# Private data lives in evals/data, which Git ignores. See evals/README.md.
+DATA=api/src/sernia_ai/zillow_leads/evals/data
+
+# Once per season: cut past threads into scenarios
 uv run python -m api.src.sernia_ai.zillow_leads.evals export \
-    --after 2026-04-01 --before 2026-08-01 --out <private>/scenarios.jsonl
+    --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios.jsonl
 
 # Once per season: assign each thread to train, dev or test
 uv run python -m api.src.sernia_ai.zillow_leads.evals split \
-    --scenarios <private>/scenarios.jsonl --out <private>/splits.json
+    --scenarios $DATA/scenarios.jsonl --out $DATA/splits.json
 
 # Any time: write a page for reading the train and dev splits (test stays sealed)
 uv run python -m api.src.sernia_ai.zillow_leads.evals browse \
-    --scenarios <private>/scenarios.jsonl --splits <private>/splits.json \
-    --run <private>/runs/round-3.jsonl --review <private>/review.html \
-    --out <private>/dataset.html
+    --scenarios $DATA/scenarios.jsonl --splits $DATA/splits.json \
+    --run $DATA/runs/round-3.jsonl --review $DATA/review.html \
+    --out $DATA/dataset.html
 
 # Each experiment: run a dev sample and send it to Logfire
 uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-    --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
-    --splits <private>/splits.json --split dev \
-    --name round-3 --sample 30 --seed 7 --out <private>/runs/round-3.jsonl
+    --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
+    --splits $DATA/splits.json --split dev \
+    --name round-3 --sample 30 --seed 7 --out $DATA/runs/round-3.jsonl
 
 # Then: write the page you label that run on, and open it in a browser.
 # Keep --out the same every time, so there is one review page to bookmark.
 uv run python -m api.src.sernia_ai.zillow_leads.evals review \
-    --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
-    --run <private>/runs/round-3.jsonl --out <private>/review.html
+    --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
+    --run $DATA/runs/round-3.jsonl --out $DATA/review.html
 ```
 
 `run` saves the policy as it was beside its output (`round-3.policy.md`), and

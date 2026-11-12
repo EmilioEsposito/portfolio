@@ -9,24 +9,25 @@ Offline only. Nothing the running service imports lives in this package.
 - ``cli.py``: the commands below
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals export \
-        --after 2026-04-01 --before 2026-08-01 --out <private>/scenarios.jsonl
+        --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals split \
-        --scenarios <private>/scenarios.jsonl --out <private>/splits.json
+        --scenarios $DATA/scenarios.jsonl --out $DATA/splits.json
     uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-        --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
-        --splits <private>/splits.json --split dev \
-        --name first-round --sample 30 --out <private>/runs/first-round.jsonl
+        --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
+        --splits $DATA/splits.json --split dev \
+        --name first-round --sample 30 --out $DATA/runs/first-round.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals review \
-        --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
-        --run <private>/runs/first-round.jsonl --out <private>/runs/first-round.html
+        --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
+        --run $DATA/runs/first-round.jsonl --out $DATA/runs/first-round.html
 
 A scenario is a moment in a real thread; operating data is what was true of
 the business then. They are stored apart and joined into a case at run time,
 so listings and schedules can change shape without touching the scenarios or
 the labels people have put on them.
 
-Scenarios hold applicants' emails. Keep every path above outside the
-repository; nothing here prints their content, only counts.
+``$DATA`` is ``evals/data``, which Git ignores. Scenarios hold applicants'
+emails: keep every path above inside it. Nothing here prints their content,
+only counts.
 
 ``run`` sends the experiment to Logfire when a token is configured. ``review``
 writes one self-contained page for a person to mark each decision pass or

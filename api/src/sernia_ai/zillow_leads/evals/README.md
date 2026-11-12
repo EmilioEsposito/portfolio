@@ -251,6 +251,41 @@ differently each time, so experiments 7, 8 and 9 are not distinguishable on 26
 labels. Telling them apart needs more labelled cases, several runs per case, or
 both.
 
+## Where the data lives
+
+Everything real is in `evals/data/`, which Git ignores. Nothing in it is ever
+committed, pushed or used in CI, because scenarios are applicants' emails.
+
+| File | What it is | Can it be rebuilt? |
+|---|---|---|
+| `scenarios-<season>.jsonl` | Past threads cut at each point a reply was owed | Yes, by `export`, from Gmail |
+| `splits-<season>.json` | Which thread is train, dev or test | No. A split is made once |
+| `operating-<season>.json` | Listings, tour times and booking links as they were that season | No. Written by hand |
+| `labels*.json` | A person's verdicts and notes | No |
+| `runs/*.jsonl`, `runs/*.policy.md` | Each experiment's outputs and the instructions it ran on | Only by paying for the run again, and the wording will differ |
+| `review.html`, `dataset.html` | The pages, generated from the files above | Yes |
+
+Where a case comes from and where copies of it go:
+
+| Place | What is there |
+|---|---|
+| Gmail, the shared mailbox | The original emails. `export` reads them with read-only access; this is the only source |
+| `evals/data/` on one machine | The only stored copy of the scenarios, splits, labels and runs. It is not backed up by anything in this project |
+| The browser | Labels in progress, in the review page's local storage, until **Download labels** saves them to a file |
+| The model provider | During `run`, each case is sent to the model through OpenRouter, the same as a live lead would be |
+| Logfire | `run` records each experiment as traces, which include the case text and the output |
+
+The production database also holds copies of the same emails, kept by the
+email pipeline. The evals do not read it.
+
+In a disposable Git worktree, make `evals/data` a symlink to a folder that
+outlives the worktree, because removing a worktree deletes its ignored files:
+
+```bash
+ln -s "$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)/.local/zillow-evals" \
+    api/src/sernia_ai/zillow_leads/evals/data
+```
+
 ## Sources
 
 - Hamel Husain and Shreya Shankar, [AI Evals: Everything You Need to Know](https://hamel.dev/blog/posts/evals-faq/):

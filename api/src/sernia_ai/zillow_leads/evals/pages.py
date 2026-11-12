@@ -1,8 +1,8 @@
 """The two pages a person reads: one to label a run, one to read the dataset.
 
 Each is a single self-contained HTML file: a template from ``templates/`` with
-the data written into it. Both hold applicant emails, so they are written
-outside the repository.
+the data written into it. Both hold applicant emails, so they are written to
+``evals/data``, which Git ignores.
 """
 
 import json
