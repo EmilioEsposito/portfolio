@@ -102,7 +102,24 @@ _PROMPT_TOKENS = 1_000
 _COMPLETION_TOKENS = 100
 
 
-def _openrouter_completion_body() -> dict:
+def _usage(byok: bool) -> dict:
+    """OpenRouter's usage block. BYOK (Sernia's real OpenAI route) reports a $0
+    OpenRouter fee and puts the spend in `cost_details.upstream_inference_cost`."""
+    usage = {
+        "prompt_tokens": _PROMPT_TOKENS,
+        "completion_tokens": _COMPLETION_TOKENS,
+        "total_tokens": _PROMPT_TOKENS + _COMPLETION_TOKENS,
+    }
+    if byok:
+        return usage | {
+            "cost": 0,
+            "is_byok": True,
+            "cost_details": {"upstream_inference_cost": _BILLED_COST},
+        }
+    return usage | {"cost": _BILLED_COST}
+
+
+def _openrouter_completion_body(byok: bool) -> dict:
     return {
         "id": "gen-test",
         "object": "chat.completion",
@@ -117,16 +134,11 @@ def _openrouter_completion_body() -> dict:
                 "message": {"role": "assistant", "content": "OK"},
             }
         ],
-        "usage": {
-            "prompt_tokens": _PROMPT_TOKENS,
-            "completion_tokens": _COMPLETION_TOKENS,
-            "total_tokens": _PROMPT_TOKENS + _COMPLETION_TOKENS,
-            "cost": _BILLED_COST,
-        },
+        "usage": _usage(byok),
     }
 
 
-def _openrouter_stream_body() -> bytes:
+def _openrouter_stream_body(byok: bool) -> bytes:
     import json
 
     base = {"id": "gen-test", "object": "chat.completion.chunk", "created": 1}
@@ -138,13 +150,13 @@ def _openrouter_stream_body() -> bytes:
         "choices": [
             {"index": 0, "delta": {}, "finish_reason": "stop", "native_finish_reason": "stop"}
         ],
-        "usage": _openrouter_completion_body()["usage"],
+        "usage": _usage(byok),
     }
     events = [f"data: {json.dumps(chunk)}\n\n" for chunk in (first, last)]
     return ("".join(events) + "data: [DONE]\n\n").encode()
 
 
-def _mock_openrouter_model(stream: bool):
+def _mock_openrouter_model(stream: bool, byok: bool):
     import httpx
     from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -154,10 +166,10 @@ def _mock_openrouter_model(stream: bool):
         if stream:
             return httpx.Response(
                 200,
-                content=_openrouter_stream_body(),
+                content=_openrouter_stream_body(byok),
                 headers={"content-type": "text/event-stream"},
             )
-        return httpx.Response(200, json=_openrouter_completion_body())
+        return httpx.Response(200, json=_openrouter_completion_body(byok))
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     provider = OpenRouterProvider(api_key="test-key", http_client=client)
@@ -189,8 +201,9 @@ def test_pydantic_ai_prices_the_openrouter_route_itself():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("byok", [False, True], ids=["openrouter-billed", "byok"])
 @pytest.mark.parametrize("stream", [False, True], ids=["request", "stream"])
-async def test_billed_cost_wins_on_the_exported_span(stream: bool):
+async def test_billed_cost_wins_on_the_exported_span(stream: bool, byok: bool):
     """End to end: instrumented run -> exported LLM span carries the billed cost."""
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -209,7 +222,7 @@ async def test_billed_cost_wins_on_the_exported_span(stream: bool):
     tracer_provider.add_span_processor(BilledCostSpanProcessor())
 
     agent = Agent(
-        _mock_openrouter_model(stream),
+        _mock_openrouter_model(stream, byok),
         model_settings=build_openrouter_settings("low"),
         capabilities=[Instrumentation(InstrumentationSettings(tracer_provider=tracer_provider))],
     )

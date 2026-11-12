@@ -116,3 +116,28 @@ def test_breakdown_processor_attrs_reach_the_exporter() -> None:
         expected["input_non_cached"]
     )
     assert exported.attributes[ATTR_COST_OUTPUT] == pytest.approx(expected["output"])
+
+
+@pytest.mark.parametrize(
+    ("provider_details", "expected"),
+    [
+        ({"cost": 0.0125}, 0.0125),  # OpenRouter-billed (not BYOK)
+        ({"cost": 0.0125, "is_byok": False}, 0.0125),
+        # BYOK: fee is $0 so pydantic-ai drops `cost`; the spend is upstream.
+        ({"upstream_inference_cost": 0.0065, "is_byok": True}, 0.0065),
+        ({"cost": 0.0001, "upstream_inference_cost": 0.0065, "is_byok": True}, 0.0066),
+        # Upstream is only meaningful for BYOK; never double-count it otherwise.
+        ({"cost": 0.0125, "upstream_inference_cost": 0.0125}, 0.0125),
+        ({}, None),
+        (None, None),
+        ({"cost": True}, None),
+    ],
+)
+def test_gateway_billed_cost(provider_details: dict | None, expected: float | None) -> None:
+    from api.src.utils.llm_cost_breakdown import gateway_billed_cost
+
+    result = gateway_billed_cost(provider_details)
+    if expected is None:
+        assert result is None
+    else:
+        assert result == pytest.approx(expected)

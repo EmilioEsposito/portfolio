@@ -49,11 +49,11 @@ priced as (
     --
     -- `openai/...` model ids are OpenRouter routes (Sernia AI reaches GPT
     -- through OpenRouter — see api/src/sernia_ai/model_config.py). They must be
-    -- matched BEFORE the bare `gpt-...` patterns, and priced at OpenRouter's
-    -- own rates. For the gpt-5.6 family that has been 50% of OpenAI list across
-    -- every bucket (confirmed against real billed amounts). `gpt-6-luna` is
-    -- listed by OpenRouter at OpenAI list (0.10/0.01/0.125/0.50, per its models
-    -- API on 2026-11-11), so it carries no discount.
+    -- matched BEFORE the bare `gpt-...` patterns. They are priced at OpenAI
+    -- list: Sernia calls them BYOK (our own OpenAI key behind OpenRouter), so
+    -- OpenAI bills list and OpenRouter's fee is $0. Production
+    -- `upstream_inference_cost` matched list on 2026-11-12. These routes were
+    -- priced at 50% of list before then, which understated them 2x.
     -- The bare `gpt-5.6-luna%` tiers stay for spans emitted before the
     -- migration — those were 5x too high (1.0/0.10/6.0 vs OpenAI's actual
     -- 0.20/0.02/1.20), which overstated Sernia AI's reported spend ~5x.
@@ -71,9 +71,9 @@ priced as (
       when model like 'gpt-5.4%' then 2.5
       when model like 'openai/gpt-6-luna%' then 0.10
       when model like 'gpt-6-luna%' then 0.10
-      when model like 'openai/gpt-5.6-luna%' then 0.10
-      when model like 'openai/gpt-5.6-terra%' then 1.0
-      when model like 'openai/gpt-5.6-sol%' then 2.0
+      when model like 'openai/gpt-5.6-luna%' then 0.20
+      when model like 'openai/gpt-5.6-terra%' then 2.0
+      when model like 'openai/gpt-5.6-sol%' then 4.0
       when model like 'gpt-5.6-luna%' then 0.20
       when model like 'gpt-5.6-terra%' then 2.0
       when model like 'gpt-5.6-sol%' then 4.0
@@ -95,9 +95,9 @@ priced as (
       when model like 'gpt-5.4%' then 0.25
       when model like 'openai/gpt-6-luna%' then 0.01
       when model like 'gpt-6-luna%' then 0.01
-      when model like 'openai/gpt-5.6-luna%' then 0.01
-      when model like 'openai/gpt-5.6-terra%' then 0.10
-      when model like 'openai/gpt-5.6-sol%' then 0.20
+      when model like 'openai/gpt-5.6-luna%' then 0.02
+      when model like 'openai/gpt-5.6-terra%' then 0.20
+      when model like 'openai/gpt-5.6-sol%' then 0.40
       when model like 'gpt-5.6-luna%' then 0.02
       when model like 'gpt-5.6-terra%' then 0.20
       when model like 'gpt-5.6-sol%' then 0.40
@@ -114,9 +114,9 @@ priced as (
       when model like 'claude-opus%' then 6.25
       when model like 'openai/gpt-6-luna%' then 0.125
       when model like 'gpt-6-luna%' then 0.125
-      when model like 'openai/gpt-5.6-luna%' then 0.125
-      when model like 'openai/gpt-5.6-terra%' then 1.25
-      when model like 'openai/gpt-5.6-sol%' then 2.5
+      when model like 'openai/gpt-5.6-luna%' then 0.25
+      when model like 'openai/gpt-5.6-terra%' then 2.5
+      when model like 'openai/gpt-5.6-sol%' then 5.0
       when model like 'gpt-5.6-luna%' then 0.25
       when model like 'gpt-5.6-terra%' then 2.5
       when model like 'gpt-5.6-sol%' then 5.0
@@ -136,9 +136,9 @@ priced as (
       when model like 'gpt-5.4%' then 15.0
       when model like 'openai/gpt-6-luna%' then 0.50
       when model like 'gpt-6-luna%' then 0.50
-      when model like 'openai/gpt-5.6-luna%' then 0.60
-      when model like 'openai/gpt-5.6-terra%' then 6.0
-      when model like 'openai/gpt-5.6-sol%' then 10.0
+      when model like 'openai/gpt-5.6-luna%' then 1.20
+      when model like 'openai/gpt-5.6-terra%' then 12.0
+      when model like 'openai/gpt-5.6-sol%' then 20.0
       when model like 'gpt-5.6-luna%' then 1.20
       when model like 'gpt-5.6-terra%' then 12.0
       when model like 'gpt-5.6-sol%' then 20.0

@@ -108,6 +108,25 @@ def test_cost_uses_gateway_reported_amount():
     assert cost == pytest.approx(0.02)
 
 
+def test_cost_counts_the_byok_upstream_charge():
+    """BYOK: OpenRouter's fee is $0 (so pydantic-ai stores no `cost`) and the
+    real spend arrives as `upstream_inference_cost`. Production shape."""
+    responses = [
+        ModelResponse(
+            parts=[TextPart("a")],
+            model_name="openai/gpt-6-luna",
+            provider_details={"upstream_inference_cost": 0.00652035, "is_byok": True},
+        ),
+        ModelResponse(
+            parts=[TextPart("b")],
+            model_name="openai/gpt-6-luna",
+            provider_details={"cost": 0.0001, "upstream_inference_cost": 0.002, "is_byok": True},
+        ),
+    ]
+    _, cost = extract_run_usage(_result(responses))
+    assert cost == pytest.approx(0.00862)  # rounded to 6 dp, like stored costs
+
+
 def test_cost_falls_back_to_price_table_when_gateway_reports_none():
     responses = [ModelResponse(parts=[TextPart("a")], model_name="gpt-4o-mini")]
     _, cost = extract_run_usage(_result(responses, input_tokens=1_000_000, output_tokens=1_000_000))
