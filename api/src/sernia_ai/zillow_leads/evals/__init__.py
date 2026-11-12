@@ -9,15 +9,15 @@ Offline only. Nothing the running service imports lives in this package.
 - ``cli.py``: the commands below
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals export \
-        --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios.jsonl
+        --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios/scenarios.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals split \
-        --scenarios $DATA/scenarios.jsonl --out $DATA/splits.json
+        --scenarios $DATA/scenarios/scenarios.jsonl --out $DATA/scenarios/splits.json
     uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-        --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
-        --splits $DATA/splits.json --split dev \
+        --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+        --splits $DATA/scenarios/splits.json --split dev \
         --name first-round --sample 30 --out $DATA/runs/first-round.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals review \
-        --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
+        --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
         --run $DATA/runs/first-round.jsonl --out $DATA/runs/first-round.html
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals serve
@@ -31,6 +31,8 @@ the labels people have put on them.
 emails: keep every path above inside it. Nothing here prints their content,
 only counts.
 
+``collect`` adds a labels file downloaded from the review page to
+``$DATA/annotations/annotations.jsonl``, the one store of every verdict.
 ``serve`` serves the pages in ``evals/data`` at http://localhost:8377, to this
 machine only. ``run`` sends the experiment to Logfire when a token is configured. ``review``
 writes one self-contained page for a person to mark each decision pass or

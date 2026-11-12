@@ -262,14 +262,42 @@ both.
 Everything real is in `evals/data/`, which Git ignores. Nothing in it is ever
 committed, pushed or used in CI, because scenarios are applicants' emails.
 
+```
+evals/data/
+├── review.html, dataset.html   the two pages, at the top so their links stay put
+├── scenarios/                  the season's scenarios and the split
+├── operating/                  the season's listings, tour times, booking links
+├── runs/                       each experiment's outputs and the instructions it ran on
+└── annotations/
+    ├── annotations.jsonl       every verdict ever given, one row each
+    └── downloads/              the files the review page saved, as they were
+```
+
 | File | What it is | Can it be rebuilt? |
 |---|---|---|
-| `scenarios-<season>.jsonl` | Past threads cut at each point a reply was owed | Yes, by `export`, from Gmail |
-| `splits-<season>.json` | Which thread is train, dev or test | No. A split is made once |
-| `operating-<season>.json` | Listings, tour times and booking links as they were that season | No. Written by hand |
-| `labels*.json` | A person's verdicts and notes | No |
+| `scenarios/scenarios-<season>.jsonl` | Past threads cut at each point a reply was owed | Yes, by `export`, from Gmail |
+| `scenarios/splits-<season>.json` | Which thread is train, dev or test | No. A split is made once |
+| `operating/operating-<season>.json` | Listings, tour times and booking links as they were that season | No. Written by hand |
 | `runs/*.jsonl`, `runs/*.policy.md` | Each experiment's outputs and the instructions it ran on | Only by paying for the run again, and the wording will differ |
+| `annotations/annotations.jsonl` | The store of verdicts | No |
 | `review.html`, `dataset.html` | The pages, generated from the files above | Yes |
+
+### Annotations
+
+"Label" and "annotation" mean the same row here: a verdict, the reviewer's
+note and, optionally, the reply they would have sent.
+
+The store only grows. `collect` appends the verdicts in a downloaded file and
+never rewrites a row, so a changed verdict is a later row and the earlier one
+stays. Each row holds the scenario, the run, the date and the output that was
+judged, so it can be read without the run file.
+
+A verdict is true of one output on one input, for the rules in force on its
+date. That makes every row usable twice:
+
+- as data for an LLM judge: an input, an output and a person's verdict;
+- as a regression case: the scenario and the note say what a good answer
+  needs, and each later output on that scenario is judged again.
 
 Where a case comes from and where copies of it go:
 

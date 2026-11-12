@@ -78,7 +78,9 @@ def review_page(
             "cases": cases,
             # Labels made before this page was generated, and the outputs of
             # earlier runs, so the page can tell which labels still apply.
-            "seed_labels": [label.model_dump() for label in labels or []],
+            "seed_labels": [
+                label.model_dump(mode="json", exclude={"output"}) for label in labels or []
+            ],
             "previous": {
                 name: {row["case_id"]: output_hash(row["decision"]) for row in old_rows}
                 for name, old_rows in (previous or {}).items()

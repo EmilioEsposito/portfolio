@@ -8,6 +8,7 @@ import http.server
 import json
 import os
 import random
+import shutil
 import subprocess
 from collections import Counter
 from datetime import date
@@ -22,7 +23,11 @@ from api.src.sernia_ai.zillow_leads.agent import (
 )
 from api.src.sernia_ai.zillow_leads.case import OperatingData
 from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
-from api.src.sernia_ai.zillow_leads.evals.labels import read_labels
+from api.src.sernia_ai.zillow_leads.evals.labels import (
+    add_annotations,
+    latest_per_scenario,
+    read_labels,
+)
 from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
 from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     SPLITS,
@@ -201,12 +206,27 @@ async def review(args: argparse.Namespace) -> None:
         operating,
         rows,
         policy,
-        labels=read_labels(args.labels) if args.labels else None,
+        # The store holds every verdict ever given; the page starts from the latest.
+        labels=latest_per_scenario(read_labels(args.labels)) if args.labels else None,
         previous=previous,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(page)
     print(f"decisions to review: {len(rows)}  page: {args.out}")
+
+
+async def collect(args: argparse.Namespace) -> None:
+    """Add a labels file the review page downloaded to the annotations store."""
+    counts = add_annotations(args.store, read_labels(args.labels), args.runs)
+    # Keep the download as it was, beside the store.
+    kept = args.store.parent / "downloads" / args.labels.name
+    if args.labels.resolve() != kept.resolve():
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        if kept.exists() and kept.read_bytes() != args.labels.read_bytes():
+            kept = kept.with_stem(f"{kept.stem}-{_fingerprint(args.labels).split('@')[1]}")
+        shutil.copy2(args.labels, kept)
+    print("  ".join(f"{name}: {count}" for name, count in counts.items()))
+    print(f"annotations in the store: {len(read_labels(args.store)) if args.store.exists() else 0}")
 
 
 class _PageHandler(http.server.SimpleHTTPRequestHandler):
@@ -289,6 +309,16 @@ def main() -> None:
     browse_parser.add_argument("--review", type=Path, help="Review page to link to")
     browse_parser.add_argument("--out", type=Path, required=True)
     browse_parser.set_defaults(handler=browse)
+
+    collect_parser = commands.add_parser(
+        "collect", help="Add downloaded labels to the annotations store"
+    )
+    collect_parser.add_argument("--labels", type=Path, required=True)
+    collect_parser.add_argument(
+        "--store", type=Path, default=DATA_DIR / "annotations" / "annotations.jsonl"
+    )
+    collect_parser.add_argument("--runs", type=Path, default=DATA_DIR / "runs")
+    collect_parser.set_defaults(handler=collect)
 
     serve_parser = commands.add_parser("serve", help="Serve the pages on this machine only")
     serve_parser.add_argument("--data", type=Path, default=DATA_DIR)
