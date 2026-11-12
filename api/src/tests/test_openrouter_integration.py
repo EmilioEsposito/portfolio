@@ -57,7 +57,7 @@ def _bare_agent(effort: str):
     """
     from pydantic_ai import Agent
 
-    kw = build_run_kwargs("gpt-5.6-luna", effort)
+    kw = build_run_kwargs("gpt-6-luna", effort)
     return Agent(kw["model"], model_settings=kw["model_settings"])
 
 
@@ -123,7 +123,7 @@ async def test_web_search_is_confined_to_allowed_domains():
     from pydantic_ai.capabilities import WebSearch
     from pydantic_ai.native_tools import WebSearchTool
 
-    kw = build_run_kwargs("gpt-5.6-luna", "low")
+    kw = build_run_kwargs("gpt-6-luna", "low")
     agent = Agent(
         kw["model"],
         model_settings=kw["model_settings"],

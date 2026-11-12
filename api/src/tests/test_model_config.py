@@ -84,9 +84,9 @@ def test_build_run_kwargs_anthropic_shape():
 def test_build_run_kwargs_unknown_key_falls_back_to_default():
     from api.src.sernia_ai.model_config import DEFAULT_MODEL_KEY, build_run_kwargs
 
-    assert DEFAULT_MODEL_KEY == "gpt-5.6-luna"
-    assert build_run_kwargs(None)["model"].model_name == "openai/gpt-5.6-luna"
-    assert build_run_kwargs("nonsense")["model"].model_name == "openai/gpt-5.6-luna"
+    assert DEFAULT_MODEL_KEY == "gpt-6-luna"
+    assert build_run_kwargs(None)["model"].model_name == "openai/gpt-6-luna"
+    assert build_run_kwargs("nonsense")["model"].model_name == "openai/gpt-6-luna"
 
 
 def test_default_thinking_effort_is_medium():
@@ -203,7 +203,7 @@ def test_available_models_cover_all_keys():
     from api.src.sernia_ai.model_config import AVAILABLE_MODELS
 
     keys = {m.key for m in AVAILABLE_MODELS}
-    assert keys == {"gpt-5.6-luna", "sonnet-4-6", "opus-4-7"}
+    assert keys == {"gpt-6-luna", "gpt-5.6-luna", "sonnet-4-6", "opus-4-7"}
     providers = {m.provider for m in AVAILABLE_MODELS}
     assert providers == {"openrouter"}
     # Opus carries a cost note so the UI can warn users.

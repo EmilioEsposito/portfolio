@@ -103,8 +103,9 @@ interface Settings {
   available_models: ModelChoice[];
 }
 
-const DEFAULT_MODEL_KEY = "gpt-5.6-luna";
+const DEFAULT_MODEL_KEY = "gpt-6-luna";
 const FALLBACK_MODELS: ModelChoice[] = [
+  { key: "gpt-6-luna", label: "GPT-6 Luna", provider: "openrouter", cost_note: null },
   { key: "gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openrouter", cost_note: null },
   { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
   { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },

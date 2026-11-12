@@ -41,7 +41,7 @@ from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
 # pydantic-ai's provider prefix for OpenRouter model strings.
 _OPENROUTER_PREFIX = "openrouter"
 
-ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
+ModelKey = Literal["gpt-6-luna", "gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
 # Reasoning-effort tiers, ascending. low/medium/high/xhigh come from OpenAI's
 # reasoning_effort scale; "max" is GPT-5.6's top tier (added *above* xhigh — it
 # gives the model even more time to explore alternatives, run checks, and
@@ -51,7 +51,7 @@ ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
 # Anthropic models it clamps to "xhigh" (see build_run_kwargs).
 ThinkingEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
-DEFAULT_MODEL_KEY: ModelKey = "gpt-5.6-luna"
+DEFAULT_MODEL_KEY: ModelKey = "gpt-6-luna"
 # Safe fallback only — used when the DB lookup fails or is bypassed. The active
 # effort is the DB-backed `model_config` row (seeded/migrated to "max").
 DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium"
@@ -63,14 +63,20 @@ class ModelChoice:
     key: ModelKey
     label: str
     # Gateway the model is reached through, not the lab that trained it —
-    # GPT-5.6 Luna is served by OpenAI but billed and routed via OpenRouter.
+    # GPT-6 Luna is served by OpenAI but billed and routed via OpenRouter.
     # `build_run_kwargs` branches on this to pick the settings class.
     provider: Literal["openrouter"]
-    model_string: str  # e.g. "openrouter:openai/gpt-5.6-luna"
+    model_string: str  # e.g. "openrouter:openai/gpt-6-luna"
     cost_note: str | None = None
 
 
 AVAILABLE_MODELS: tuple[ModelChoice, ...] = (
+    ModelChoice(
+        key="gpt-6-luna",
+        label="GPT-6 Luna",
+        provider="openrouter",
+        model_string="openrouter:openai/gpt-6-luna",
+    ),
     ModelChoice(
         key="gpt-5.6-luna",
         label="GPT-5.6 Luna",

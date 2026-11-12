@@ -28,7 +28,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 
 | Model | Gateway | Key | Model string |
 |-------|---------|-----|--------------|
-| GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-5.6-luna` |
+| GPT-6 Luna (default) / GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-6-luna` / `openrouter:openai/gpt-5.6-luna` |
 | Claude Sonnet 4.6 / Opus 4.7 | **OpenRouter** | same | `openrouter:anthropic/claude-sonnet-4.6` / `openrouter:anthropic/claude-opus-4.7` |
 | Sub-agents (summarize / compact) | **OpenRouter** | same | `openrouter:anthropic/claude-haiku-4.5` |
 | Default escalation assessor (Luna, low) | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` | `openai/gpt-5.6-luna` |
