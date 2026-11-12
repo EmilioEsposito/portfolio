@@ -170,7 +170,7 @@
         ]
       },
       {
-        "matcher": "mcp__.*__(delete_branch|delete_project|run_sql|run_sql_transaction|complete_database_migration|complete_query_tuning)$",
+        "matcher": "mcp__.*__(delete_branch|delete_project|run_sql|run_sql_transaction|explain_sql_statement|complete_database_migration|complete_query_tuning)$",
         "hooks": [
           {
             "type": "command",
