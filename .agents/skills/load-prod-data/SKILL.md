@@ -16,8 +16,9 @@ work there. Two HTTPS paths exist instead:
 ## Path A — Ad hoc via Neon MCP (primary)
 
 The Neon connector's tools (`run_sql`, `describe_table_schema`,
-`get_database_tables`, ...) work over HTTPS from the sandbox. Production
-writes are guarded by the active tool's production hooks — reads are fine; prefer a dev/PR
+`get_database_tables`, ...) work over HTTPS from the sandbox. The connector is
+read-only, and the production hook lets a single read-only statement (`SELECT`, `WITH`,
+`SHOW`, `EXPLAIN`) run on production without a prompt. Anything else asks. Prefer a dev/PR
 branch when one has the data you need.
 
 Recipe to copy real conversations into local Postgres:
