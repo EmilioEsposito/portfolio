@@ -67,25 +67,10 @@ _REPRESENTATIVE_MODEL = {
     "openai/gpt-5.6-sol%": "gpt-5.6-sol",
 }
 
-# OpenRouter's rate as a fraction of OpenAI list, by route prefix. The gpt-5.6
-# family has billed at a flat 50% across every bucket (verified against real
-# billed amounts). gpt-6-luna is listed by OpenRouter's models API at OpenAI
-# list (checked 2026-11-11), so it gets no discount. A new `openai/...` route
-# must be registered here, so its rate is a deliberate choice.
-_OPENROUTER_DISCOUNT = {
-    "openai/gpt-5.6-": 0.5,
-    "openai/gpt-6-luna": 1.0,
-}
-
-
-def _openrouter_discount(pattern: str) -> float:
-    matches = [d for prefix, d in _OPENROUTER_DISCOUNT.items() if pattern.startswith(prefix)]
-    assert len(matches) == 1, (
-        f"OpenRouter route {pattern!r} needs exactly one entry in _OPENROUTER_DISCOUNT "
-        "(check OpenRouter's listed price against OpenAI list)."
-    )
-    return matches[0]
-
+# `openai/...` routes are priced at OpenAI list, the same as the bare model:
+# Sernia calls them BYOK (our own OpenAI key behind OpenRouter), so OpenAI bills
+# list and OpenRouter's fee is $0. Production `upstream_inference_cost` matched
+# list to the cent on 2026-11-12; the earlier "50% of list" rate was wrong.
 
 _BUCKET_RE = re.compile(r"\(case(?P<body>.*?)end\)\s*/\s*1e6\s+as\s+(?P<alias>\w+)", re.DOTALL)
 _BRANCH_RE = re.compile(r"when\s+model\s+like\s+'(?P<pattern>[^']+)'\s+then\s+(?P<rate>[\d.]+)")
@@ -152,14 +137,10 @@ def test_sql_rate_matches_genai_prices(alias: str, pattern: str, sql_rate: float
         f"genai-prices has no {_BUCKET_TO_PRICE_FIELD[alias]} price for {model_id!r}. "
         "Remove the branch or bump genai-prices."
     )
-    via_openrouter = pattern.startswith("openai/")
-    discount = _openrouter_discount(pattern) if via_openrouter else 1.0
-    expected *= discount
-    discount_note = f", x{discount} OpenRouter rate" if via_openrouter else ""
 
     assert sql_rate == pytest.approx(expected, rel=1e-6), (
         f"{pattern!r} {alias}: dashboard SQL says ${sql_rate}/MTok, genai-prices says "
-        f"${expected}/MTok (model {model_id!r}{discount_note}). "
+        f"${expected}/MTok (model {model_id!r}). "
         "Fix the rate in logfire/dashboards/llm-cost/queries/cost_by_token_type.sql "
         "(then re-run logfire/dashboards/render.py), or bump genai-prices if it's the stale one."
     )
