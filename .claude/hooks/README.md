@@ -32,21 +32,40 @@ the script ignores calls that neither come from a server named Railway nor carry
 
 ## Neon (`neon-guard.sh`)
 
-| Operation | Decision | Rationale |
-|-----------|----------|-----------|
+| Call | Decision | Rationale |
+|------|----------|-----------|
 | `delete_branch`, `delete_project` | ask | Permanently destroys data |
-| `complete_database_migration` | ask | Applies DDL to parent (main) branch |
-| `complete_query_tuning` | ask | Applies changes to main branch |
-| `run_sql` without `branchId` | ask | Neon defaults to main branch when omitted |
-| `run_sql` on main/production branch | ask | Direct production write |
-| `run_sql` on PR/feature branches | allow | Safe sandbox |
-| `reset_from_parent` | allow | Only refreshes child from main, doesn't modify production |
-| All read-only tools | allow (no hook) | No modification risk |
+| `complete_database_migration`, `complete_query_tuning` | ask | Applies changes to the parent (production) branch |
+| `run_sql` with provably read-only SQL, any branch | allow | A read cannot change production |
+| `explain_sql_statement` without `analyze` | allow | Plans the statement without executing it |
+| `explain_sql_statement` with `analyze` | same as `run_sql` | `EXPLAIN ANALYZE` executes the statement |
+| Other SQL on a non-production branch of a listed project | allow | Safe sandbox |
+| Other SQL with no `branch_id`, on production, or on an unlisted project | ask | Could write to production |
+| `run_sql_transaction` | never treated as a read | Multi-statement; follows the two rows above |
+| Other read-only tools | no hook | No modification risk |
 
 The matcher is `mcp__.*__(<tool>|…)`, so it applies to the Neon connector under any
 server prefix, including the desktop app's opaque connector IDs.
 
-**Key insight:** Neon's `branchId` parameter is optional - if omitted, it defaults to the main branch. This is the primary risk vector for accidental production writes.
+**Production is identified by ID.** `branch_id` takes a `br-…` ID and is optional; when it
+is omitted Neon uses the default branch, which is production. `SANDBOX_PROJECTS` at the top
+of the script maps each project ID to its production branch ID. SQL that is not a read runs
+without a prompt only on another branch of a listed project. Add a line there to give
+another project a sandbox.
+
+**What counts as a read.** One statement that starts with `SELECT`, `WITH`, `SHOW`,
+`EXPLAIN`, `VALUES` or `TABLE`, contains none of the words in `WRITE_WORDS` (for example
+`INSERT`, `UPDATE`, `DELETE`, `INTO`), and calls none of the functions in
+`SIDE_EFFECT_FUNCTION_PREFIXES` (for example `setval`, `pg_terminate_backend`). The script
+does not parse comments or string literals, so a query that mentions `update` in a literal
+or starts with a comment asks. Rephrase the query or approve the prompt.
+
+**The check stops accidents; the connector is the boundary.** A word list cannot know
+whether a user-defined function writes. The Neon connector is configured read-only, and
+Neon runs its `run_sql` in a read-only transaction
+(`SELECT current_setting('transaction_read_only')` returns `on`). Keep the connector
+read-only for this guard's allow rule to be safe. A write-capable Neon server still gets a
+prompt for everything the word lists catch.
 
 ## Ruff auto-format (`ruff-format.sh`) — PostToolUse
 
@@ -84,10 +103,10 @@ committer-agnostic guard too, add `pre-commit` with `ruff-pre-commit`.
 
 ```bash
 echo '{"tool_name":"mcp__Neon__run_sql","tool_input":{"sql":"SELECT 1"}}' | ./neon-guard.sh
-# permissionDecision "ask": SQL with no branchId (defaults to main)
+# permissionDecision "allow": read-only SQL
 
-echo '{"tool_name":"mcp__Neon__run_sql","tool_input":{"sql":"SELECT 1","branchId":"br-pr-123"}}' | ./neon-guard.sh
-# permissionDecision "allow"
+echo '{"tool_name":"mcp__Neon__run_sql","tool_input":{"sql":"DELETE FROM t"}}' | ./neon-guard.sh
+# permissionDecision "ask": not provably read-only, no branch_id (defaults to production)
 
 echo '{"tool_name":"mcp__Railway__set-variables","tool_input":{"projectId":"p","variables":{}}}' | ./railway-guard.sh
 # permissionDecision "ask": no environmentId
@@ -95,3 +114,6 @@ echo '{"tool_name":"mcp__Railway__set-variables","tool_input":{"projectId":"p","
 echo '{"tool_name":"mcp__Railway__set-variables","tool_input":{"projectId":"p","environmentId":"some-pr-env","variables":{}}}' | ./railway-guard.sh
 # no output
 ```
+
+`scripts/tests/neon-guard.test.cjs` covers the Neon guard's decision table and runs in CI
+with `pnpm test:security`. Add a case there when you change the script.
