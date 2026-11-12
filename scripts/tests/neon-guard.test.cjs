@@ -11,10 +11,11 @@ const PROJECT = 'sweet-butterfly-10388995';
 const PRODUCTION = 'br-small-forest-af9ve5ur';
 const SANDBOX = 'br-purple-fog-afgqu99y';
 
-function decision(tool, toolInput, prefix = PREFIXES[0]) {
+function decision(tool, toolInput, prefix = PREFIXES[0], env = {}) {
   const result = spawnSync('bash', [hook], {
     input: JSON.stringify({ tool_name: `${prefix}${tool}`, tool_input: toolInput }),
     encoding: 'utf8',
+    env: { ...process.env, ...env },
   });
   assert.equal(result.status, 0, result.stderr);
   if (result.stdout.trim() === '') return 'none';
@@ -67,6 +68,9 @@ const NOT_READS = [
   "SELECT dblink_exec('dbname=neondb', 'drop table contacts')",
   "SELECT query_to_xml('select 1', true, false, '')",
   "SELECT lo_unlink(1)",
+  'SELECT U&"\\0073etval"(\'contacts_id_seq\', 1)',
+  'SELECT "setval"(\'contacts_id_seq\', 1)',
+  'SELECT pg_catalog.setval(\'contacts_id_seq\', 1)',
   '-- just a read\nSELECT 1',
   'VACUUM contacts',
   "COPY contacts TO PROGRAM 'cat'",
@@ -105,6 +109,28 @@ test('writes run without a prompt on a non-production branch of a listed project
   assert.equal(decision('run_sql', onSandbox('DELETE FROM contacts')), 'allow');
   assert.equal(decision('run_sql', onSandbox('SELECT 1')), 'allow');
   assert.equal(decision('run_sql_transaction', { ...onSandbox(undefined), sql_statements: ['DELETE FROM x'] }), 'allow');
+});
+
+test('malformed arguments never reach an allow for a write', () => {
+  const sql = 'DELETE FROM contacts';
+  // A newline in an ID must not shift a made-up branch into the branch field.
+  assert.equal(decision('run_sql', { sql, project_id: `${PROJECT}\n${SANDBOX}` }), 'ask');
+  assert.equal(decision('run_sql', { sql, project_id: PROJECT, branch_id: `${SANDBOX}\n` }), 'ask');
+  assert.equal(decision('run_sql', { sql, project_id: PROJECT, branch_id: '' }), 'ask');
+  assert.equal(decision('run_sql', { sql, project_id: PROJECT, branch_id: null }), 'ask');
+  // SQL that is not a string is never a read.
+  assert.equal(decision('run_sql', { sql: ['SELECT 1'], project_id: PROJECT }), 'ask');
+  assert.equal(decision('run_sql', { project_id: PROJECT }), 'ask');
+});
+
+test('lowercasing does not depend on the locale', () => {
+  // In a Turkish locale "I" lowercases to a dotless i, which would hide INSERT.
+  for (const locale of ['tr_TR.UTF-8', 'C', 'en_US.UTF-8']) {
+    const env = { LC_ALL: locale, LANG: locale };
+    assert.equal(decision('run_sql', onProduction("INSERT INTO contacts (name) VALUES ('x')"), PREFIXES[0], env), 'ask');
+    assert.equal(decision('run_sql', onProduction('WITH x AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM x'), PREFIXES[0], env), 'ask');
+    assert.equal(decision('run_sql', onProduction('SELECT ID FROM contacts'), PREFIXES[0], env), 'allow');
+  }
 });
 
 test('the legacy camelCase arguments are still read', () => {

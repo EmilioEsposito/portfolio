@@ -56,9 +56,10 @@ another project a sandbox.
 **What counts as a read.** One statement that starts with `SELECT`, `WITH`, `SHOW`,
 `EXPLAIN`, `VALUES` or `TABLE`, contains none of the words in `WRITE_WORDS` (for example
 `INSERT`, `UPDATE`, `DELETE`, `INTO`), and calls none of the functions in
-`SIDE_EFFECT_FUNCTION_PREFIXES` (for example `setval`, `pg_terminate_backend`). The script
-does not parse comments or string literals, so a query that mentions `update` in a literal
-or starts with a comment asks. Rephrase the query or approve the prompt.
+`SIDE_EFFECT_FUNCTION_PREFIXES` (for example `setval`, `pg_terminate_backend`). A
+`U&"…"` identifier also asks, because it can spell a function name the lists would miss.
+The script does not parse comments or string literals, so a query that mentions `update`
+in a literal or starts with a comment asks. Rephrase the query or approve the prompt.
 
 **The check stops accidents; the connector is the boundary.** A word list cannot know
 whether a user-defined function writes. The Neon connector is configured read-only, and

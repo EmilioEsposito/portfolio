@@ -8,6 +8,9 @@
 # The SQL check below stops accidental writes. It is not the security boundary: that is
 # the connector's read-only mode (see .claude/README.md), which Neon enforces server-side.
 
+# Byte-wise text handling, so lowercasing does not depend on the caller's locale.
+export LC_ALL=C
+
 # "<project id>:<production branch id>". SQL that is not provably read-only runs without
 # a prompt only on a non-production branch of a project listed here.
 SANDBOX_PROJECTS=(
@@ -44,7 +47,7 @@ decide() {
 # True only when the statement is provably a read. Comments and string literals are not
 # parsed, so a write word inside one makes the statement ask; that errs on the safe side.
 is_read_only_sql() {
-  local sql="$1" words first word prefix
+  local sql="$1" lower words first word prefix
 
   # Drop trailing whitespace and one trailing semicolon. Any other semicolon could start
   # a second statement.
@@ -52,8 +55,14 @@ is_read_only_sql() {
   sql="${sql%;}"
   [[ "$sql" == *";"* ]] && return 1
 
-  # Lowercase and reduce to space-separated words, with a space at both ends.
-  words=$(printf ' %s ' "$sql" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_' ' ')
+  lower=$(printf ' %s ' "$sql" | tr 'A-Z' 'a-z')
+
+  # U&"..." spells an identifier with Unicode escapes, which would hide a name from the
+  # word lists below.
+  [[ "$lower" == *'u&"'* ]] && return 1
+
+  # Reduce to space-separated words, with a space at both ends.
+  words=$(printf '%s' "$lower" | tr -cs 'a-z0-9_' ' ')
 
   first="${words# }"
   first="${first%% *}"
@@ -88,13 +97,16 @@ command -v jq >/dev/null 2>&1 || decide ask "Neon guard cannot inspect this call
 
 INPUT=$(cat)
 # One field per line: tool name, project, branch, whether EXPLAIN will execute, then the SQL
-# as a JSON string so that newlines in it stay on one line.
+# as a JSON string so that newlines in it stay on one line. An ID with any character outside
+# the ID alphabet reads as empty, so it cannot span lines or match a listed project.
 FIELDS=$(printf '%s' "$INPUT" | jq -r '
-  (.tool_name // ""),
-  (.tool_input.project_id // .tool_input.projectId // ""),
-  (.tool_input.branch_id // .tool_input.branchId // ""),
+  def id: if type == "string" and test("\\A[A-Za-z0-9_-]+\\z") then . else "" end;
+  def text: if type == "string" then . else "" end;
+  (.tool_name | text | gsub("\\s"; "")),
+  (.tool_input.project_id // .tool_input.projectId | id),
+  (.tool_input.branch_id // .tool_input.branchId | id),
   (if (.tool_input.analyze // false) == false then "plan" else "execute" end),
-  ((.tool_input.sql // "") | tostring | tojson)
+  (.tool_input.sql | text | tojson)
 ' 2>/dev/null) || decide ask "Neon guard cannot parse this call - requires confirmation"
 
 {
