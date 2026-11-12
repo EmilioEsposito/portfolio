@@ -75,3 +75,44 @@ def test_breakdown_reconciles_with_total(model: str, usage_kwargs: dict) -> None
 
 def test_unknown_model_returns_none() -> None:
     assert compute_cost_breakdown("not-a-real-model-xyz", input_tokens=100) is None
+
+
+def test_breakdown_processor_attrs_reach_the_exporter() -> None:
+    """Pins the write path against the installed OTel SDK.
+
+    The SDK freezes span attributes before calling processors, so a processor
+    that writes in ``on_end`` silently no-ops (this processor did, unnoticed,
+    until 2026-11). The exporter is registered first, as logfire's are in prod.
+    """
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from api.src.utils.llm_cost_breakdown import (
+        ATTR_COST_INPUT_NON_CACHED,
+        ATTR_COST_OUTPUT,
+        CostBreakdownSpanProcessor,
+    )
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    provider.add_span_processor(CostBreakdownSpanProcessor())
+
+    with provider.get_tracer(__name__).start_as_current_span("chat claude-sonnet-4-6") as span:
+        span.set_attributes(
+            {
+                "operation.cost": 0.0045,
+                "gen_ai.request.model": "claude-sonnet-4-6",
+                "gen_ai.usage.input_tokens": 1000,
+                "gen_ai.usage.output_tokens": 100,
+            }
+        )
+
+    (exported,) = exporter.get_finished_spans()
+    expected = compute_cost_breakdown("claude-sonnet-4-6", input_tokens=1000, output_tokens=100)
+    assert expected is not None
+    assert exported.attributes[ATTR_COST_INPUT_NON_CACHED] == pytest.approx(
+        expected["input_non_cached"]
+    )
+    assert exported.attributes[ATTR_COST_OUTPUT] == pytest.approx(expected["output"])

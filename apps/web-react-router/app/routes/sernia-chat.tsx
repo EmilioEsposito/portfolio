@@ -1,3 +1,4 @@
+import { privateChatInput } from "~/lib/private-chat-input";
 import type { Route } from "./+types/sernia-chat";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
@@ -329,7 +330,7 @@ function ChatView({
         return { Authorization: `Bearer ${token}` };
       },
       prepareSendMessagesRequest: ({ messages, body, trigger }) => {
-        const transformedMessages = messages.map((msg: any) => {
+        const transformedMessages = privateChatInput(messages).map((msg: any) => {
           if (msg.parts) {
             return {
               id: msg.id || crypto.randomUUID(),

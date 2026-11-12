@@ -85,7 +85,7 @@ class TestProviderAdaptiveNativeTools:
         """
         from api.src.sernia_ai.model_config import build_run_kwargs
 
-        model = build_run_kwargs("gpt-5.6-luna")["model"]
+        model = build_run_kwargs("gpt-6-luna")["model"]
         assert WebSearchTool in model.profile.supported_native_tools
         assert WebFetchTool not in model.profile.supported_native_tools
 

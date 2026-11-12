@@ -317,7 +317,11 @@ class TestRoutes:
         history = AsyncMock(return_value=[])
         monkeypatch.setattr(routes, "get_conversation_messages", history)
         request = MagicMock()
-        request.json = AsyncMock(return_value={"id": "c1", "messages": [{"role": "user"}]})
+        monkeypatch.setattr(
+            routes,
+            "read_chat_request",
+            AsyncMock(return_value={"id": "c1", "messages": [{"role": "user"}]}),
+        )
 
         with pytest.raises(HTTPException) as refused:
             await routes.chat_sernia(request=request, user=self.user(), session=MagicMock())

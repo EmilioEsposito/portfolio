@@ -53,3 +53,17 @@ controls and `GET /api/cron/cron_job_example_private` use this dependency; the
 public cron example is unchanged. Provision a high-entropy secret in the backend
 secret manager and pass the same token from authorized cron clients during the
 separate recovery process. Never log the token or put it in a query string.
+
+## Private chat attachments
+
+Sernia AI and authenticated HITL chat validate attachments server-side before
+provider dispatch or message persistence. Only inline base64 JPEG, PNG, GIF, WebP
+and PDF are accepted. Image decoding/PDF structure must match the declared type;
+remote URLs, path-like filenames and mismatched extensions are rejected. Filenames
+are display metadata, never local storage paths. Files are not publicly served.
+
+Limits are 5 MB per file, 5 files and 10 MB combined per latest message, 20 million
+pixels per image, and a 16 MB/15-second streamed request ceiling (including history).
+Encrypted PDFs are rejected. Validation is not antivirus or a guarantee that a
+document is trustworthy; document text remains untrusted model input. Existing
+authentication and public-demo attachment exclusion remain unchanged.

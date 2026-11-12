@@ -1,3 +1,4 @@
+import { privateChatInput } from "~/lib/private-chat-input";
 import type { Route } from "./+types/hitl-agent-chat";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
@@ -526,7 +527,7 @@ export default function HITLAgentChatPage() {
       prepareSendMessagesRequest: ({ messages, body, trigger }) => {
         // Transform messages to proper format
         // Backend extracts only the last message and loads history from DB
-        const transformedMessages = messages.map((msg: any) => {
+        const transformedMessages = privateChatInput(messages).map((msg: any) => {
           if (msg.parts) {
             return { id: msg.id || crypto.randomUUID(), role: msg.role, parts: msg.parts };
           }

@@ -32,8 +32,8 @@ WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
 ]
 
 # Compaction: trigger at ~85% of context window token estimate.
-# All currently supported models (GPT-5.6 Luna, Claude Sonnet 4.6, Claude Opus
-# 4.7) have a 200k context window; adjust if adding a smaller model.
+# All currently supported models (GPT-6 Luna, GPT-5.6 Luna, Claude Sonnet 4.6,
+# Claude Opus 4.7) have at least a 200k context window; adjust if adding a smaller model.
 TOKEN_COMPACTION_THRESHOLD = 170_000
 
 # Summarization: tool results larger than this (chars) get summarized by the sub-agent.
@@ -47,10 +47,10 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 # directly; `openrouter:` model strings take OpenRouter's `<vendor>/<model>`
 # ids. OpenRouter serves WebSearchTool through its `web` plugin, so the tool
 # baked in at Agent construction still resolves natively.
-MAIN_AGENT_MODEL = "openrouter:openai/gpt-5.6-luna"
+MAIN_AGENT_MODEL = "openrouter:openai/gpt-6-luna"
 
 # OpenRouter provider routing for the main agent. OpenRouter load-balances a
-# model across every upstream that serves it (for gpt-5.6-luna: OpenAI, Azure,
+# model across every upstream that serves it (for gpt-6-luna: OpenAI, Azure,
 # Amazon Bedrock), and those upstreams differ in price by up to ~10x and in
 # supported parameters (Bedrock drops `response_format`/`structured_outputs`).
 # Pinning to OpenAI keeps the served compute identical to the pre-OpenRouter

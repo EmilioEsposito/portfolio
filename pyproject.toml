@@ -78,7 +78,11 @@ dependencies = [
     # actually charges $0.20/$1.20, overstating Sernia AI spend ~5x on the
     # LLM-cost dashboard. 0.1.1 matches OpenAI's published rates and adds
     # the >272k long-context tiers.
-    "genai-prices>=0.1.1",
+    # >=0.1.8: first release that prices gpt-6-luna (the Sernia AI default).
+    # It also prices OpenRouter's `openai/gpt-*-luna` routes, so pydantic-ai
+    # now sets operation.cost from list rates on those runs.
+    "genai-prices>=0.1.8",
+    "pillow>=12.0.0",
 ]
 
 [dependency-groups]

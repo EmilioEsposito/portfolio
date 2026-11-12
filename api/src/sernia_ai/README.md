@@ -28,7 +28,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 
 | Model | Gateway | Key | Model string |
 |-------|---------|-----|--------------|
-| GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-5.6-luna` |
+| GPT-6 Luna (default) / GPT-5.6 Luna | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` → bridged to `OPENROUTER_API_KEY` in `api/__init__.py` | `openrouter:openai/gpt-6-luna` / `openrouter:openai/gpt-5.6-luna` |
 | Claude Sonnet 4.6 / Opus 4.7 | **OpenRouter** | same | `openrouter:anthropic/claude-sonnet-4.6` / `openrouter:anthropic/claude-opus-4.7` |
 | Sub-agents (summarize / compact) | **OpenRouter** | same | `openrouter:anthropic/claude-haiku-4.5` |
 | Default escalation assessor (Luna, low) | **OpenRouter** | `PORTFOLIO_OPENROUTER_API_KEY` | `openai/gpt-5.6-luna` |
@@ -73,15 +73,16 @@ Things worth knowing about the OpenRouter path (all handled in
   fixes the keying, and a canary test
   (`test_upstream_still_merges_encrypted_reasoning_items`) fails when upstream
   fixes it so the subclass can be deleted.
-- **Cost tracking** comes from OpenRouter, not genai-prices. genai-prices has
-  no entry for the `openai/gpt-5.6-luna` OpenRouter route, so pydantic-ai's own
-  pricing raises `LookupError` and never stamps `operation.cost`. We enable
+- **Cost tracking** comes from OpenRouter, not genai-prices. We enable
   OpenRouter usage accounting (`usage.include`) and stamp the exact billed
-  amount instead. Known gap: the per-token-type breakdown
-  (`utils/llm_cost_breakdown.py`) still needs genai-prices to split a total
-  across buckets, so OpenRouter runs show total cost but not the v2 by-bucket
-  panel (the v1 panel covers them via hard-coded tiers).
-  `test_model_pricing.py` guards both halves.
+  amount, which includes web-plugin charges. genai-prices (>= 0.1.5) also
+  prices these routes, and pydantic-ai writes that list estimate to
+  `operation.cost` after the model returns, so the billed amount also goes on
+  `operation.billed_cost` and `BilledCostSpanProcessor`
+  (`utils/llm_cost_breakdown.py`) restores it as the span ends. Known gap: the
+  per-token-type breakdown looks models up without a provider, so OpenRouter
+  runs show total cost but not the v2 by-bucket panel (the v1 panel covers
+  them via hard-coded tiers). `test_model_pricing.py` guards both halves.
 - **OpenRouter bills 50% of OpenAI list** on this route today — a standing
   discount, verified against real billed amounts. The dashboard's `openai/...`
   tiers encode that; `test_dashboard_pricing.py` fails if it ends.

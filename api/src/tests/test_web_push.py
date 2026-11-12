@@ -6,6 +6,7 @@ Live:  Sends a real push notification to all subscribed devices (requires VAPID 
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -293,12 +294,16 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
     monkeypatch.setattr(models, "save_agent_conversation", delayed_successful_save)
 
     request = MagicMock()
-    request.json = AsyncMock(
-        return_value={
-            "id": "conversation-123",
-            "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
-        }
-    )
+
+    async def stream_request():
+        yield json.dumps(
+            {
+                "id": "conversation-123",
+                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
+            }
+        ).encode()
+
+    request.stream = stream_request
     user = MagicMock()
     user.id = "user-456"
     user.first_name = "Test"
@@ -339,7 +344,7 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
             session=MagicMock(),
         )
     )
-    await save_started.wait()
+    await asyncio.wait_for(save_started.wait(), timeout=5)
 
     chat_request.cancel()
     allow_save_to_finish.set()
@@ -360,12 +365,16 @@ async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
     from api.src.sernia_ai import routes, runs
 
     request = MagicMock()
-    request.json = AsyncMock(
-        return_value={
-            "id": "conversation-123",
-            "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
-        }
-    )
+
+    async def stream_request():
+        yield json.dumps(
+            {
+                "id": "conversation-123",
+                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
+            }
+        ).encode()
+
+    request.stream = stream_request
     user = MagicMock()
     user.id = "user-456"
     user.first_name = "Test"

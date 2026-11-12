@@ -37,11 +37,12 @@ from pydantic_ai.settings import ModelSettings
 from sqlalchemy import select
 
 from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
+from api.src.utils.llm_cost_breakdown import ATTR_BILLED_COST
 
 # pydantic-ai's provider prefix for OpenRouter model strings.
 _OPENROUTER_PREFIX = "openrouter"
 
-ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
+ModelKey = Literal["gpt-6-luna", "gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
 # Reasoning-effort tiers, ascending. low/medium/high/xhigh come from OpenAI's
 # reasoning_effort scale; "max" is GPT-5.6's top tier (added *above* xhigh — it
 # gives the model even more time to explore alternatives, run checks, and
@@ -51,7 +52,7 @@ ModelKey = Literal["gpt-5.6-luna", "sonnet-4-6", "opus-4-7"]
 # Anthropic models it clamps to "xhigh" (see build_run_kwargs).
 ThinkingEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
-DEFAULT_MODEL_KEY: ModelKey = "gpt-5.6-luna"
+DEFAULT_MODEL_KEY: ModelKey = "gpt-6-luna"
 # Safe fallback only — used when the DB lookup fails or is bypassed. The active
 # effort is the DB-backed `model_config` row (seeded/migrated to "max").
 DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium"
@@ -63,14 +64,20 @@ class ModelChoice:
     key: ModelKey
     label: str
     # Gateway the model is reached through, not the lab that trained it —
-    # GPT-5.6 Luna is served by OpenAI but billed and routed via OpenRouter.
+    # GPT-6 Luna is served by OpenAI but billed and routed via OpenRouter.
     # `build_run_kwargs` branches on this to pick the settings class.
     provider: Literal["openrouter"]
-    model_string: str  # e.g. "openrouter:openai/gpt-5.6-luna"
+    model_string: str  # e.g. "openrouter:openai/gpt-6-luna"
     cost_note: str | None = None
 
 
 AVAILABLE_MODELS: tuple[ModelChoice, ...] = (
+    ModelChoice(
+        key="gpt-6-luna",
+        label="GPT-6 Luna",
+        provider="openrouter",
+        model_string="openrouter:openai/gpt-6-luna",
+    ),
     ModelChoice(
         key="gpt-5.6-luna",
         label="GPT-5.6 Luna",
@@ -191,15 +198,17 @@ class SerniaOpenRouterModel(OpenRouterModel):
     The domains are read back off the tool instance rather than imported from
     config, so an overridden tool (e.g. in A/B tests) carries its own list.
 
-    **2. ``operation.cost`` on the LLM span.** pydantic-ai prices each response
-    with genai-prices, whose data has no entry for OpenRouter's
-    ``openai/gpt-5.6-luna`` route (neither the pinned snapshot nor upstream
-    main as of 2026-08). ``ModelResponse.cost()`` raises ``LookupError``, the
-    attribute is never set, and the model vanishes from the LLM-cost dashboard.
-    OpenRouter reports the exact billed amount per request instead — see
-    ``build_openrouter_settings``'s ``usage.include`` — so we stamp that. It is
-    strictly better data than a price table: it reflects the endpoint actually
-    routed to and includes web-plugin charges.
+    **2. The billed ``operation.cost`` on the LLM span.** OpenRouter reports
+    the exact billed amount per request (see ``build_openrouter_settings``'s
+    ``usage.include``), and we stamp it. It is strictly better data than a
+    price table: it reflects the endpoint actually routed to and includes
+    web-plugin charges. pydantic-ai also prices each response with
+    genai-prices, which knows OpenRouter's ``openai/gpt-*-luna`` routes since
+    0.1.5, and writes that list-price estimate to ``operation.cost`` *after*
+    this model returns. So the billed amount also goes on
+    ``operation.billed_cost``, which pydantic-ai never touches, and
+    ``BilledCostSpanProcessor`` copies it back onto ``operation.cost`` when the
+    span ends. Routes genai-prices doesn't know keep our stamp directly.
 
     **3. Distinct encrypted reasoning items in streamed responses.** See
     :class:`SerniaOpenRouterStreamedResponse` — without it, a streamed
@@ -254,9 +263,11 @@ class SerniaOpenRouterModel(OpenRouterModel):
 def stamp_openrouter_cost(response: ModelResponse) -> None:
     """Copy OpenRouter's reported request cost onto the active LLM span.
 
-    No-ops when the cost is absent (usage accounting off, or a provider that
-    doesn't report it) or when the span isn't recording. Never raises — a
-    telemetry gap must not fail an agent run.
+    Sets both ``operation.cost`` and ``operation.billed_cost``; the latter is
+    what ``BilledCostSpanProcessor`` restores after pydantic-ai overwrites the
+    former with its list-price estimate. No-ops when the cost is absent (usage
+    accounting off, or a provider that doesn't report it) or when the span
+    isn't recording. Never raises — a telemetry gap must not fail an agent run.
     """
     try:
         cost = (response.provider_details or {}).get("cost")
@@ -264,7 +275,7 @@ def stamp_openrouter_cost(response: ModelResponse) -> None:
             return
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attribute(_COST_SPAN_ATTR, float(cost))
+            span.set_attributes({_COST_SPAN_ATTR: float(cost), ATTR_BILLED_COST: float(cost)})
     except Exception:  # pragma: no cover - defensive
         logfire.debug("failed to stamp OpenRouter cost on span", exc_info=True)
 
@@ -340,10 +351,10 @@ def build_openrouter_settings(effort: str | None = None) -> OpenRouterModelSetti
     unavailable — so infrequent scheduled runs fall back to OpenAI's default
     cache window.
 
-    ``usage.include`` makes OpenRouter return the real dollar cost per request.
-    The pinned genai-prices snapshot has no entry for ``openai/gpt-5.6-luna``
-    under ``openrouter``, so this is the only cost signal on OpenRouter runs —
-    see ``test_model_pricing.py``.
+    ``usage.include`` makes OpenRouter return the real dollar cost per request,
+    which becomes the span's ``operation.cost`` in place of genai-prices'
+    list-price estimate — see ``SerniaOpenRouterModel`` and
+    ``test_model_pricing.py``.
     """
     return OpenRouterModelSettings(
         openrouter_reasoning=cast(Any, {"effort": get_openrouter_effort(effort), "enabled": True}),
