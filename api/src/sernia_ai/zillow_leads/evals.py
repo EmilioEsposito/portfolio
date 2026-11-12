@@ -52,7 +52,7 @@ from api.src.sernia_ai.zillow_leads.agent import (
     NoReply,
     Reply,
     lead_agent,
-    load_policy,
+    load_instructions,
     respond,
 )
 from api.src.sernia_ai.zillow_leads.case import (
@@ -200,7 +200,7 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
         # Every link the model was given: in the case, or in its instructions.
         given = _bare(
             " ".join(
-                [load_policy()]
+                [load_instructions()]
                 + [f"{listing.booking_url} {listing.facts}" for listing in case.listings]
             )
         )
@@ -335,7 +335,7 @@ async def run(args: argparse.Namespace) -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # The instructions exactly as they were for this run, to read beside its outputs.
-    _policy_snapshot(args.out).write_text(load_policy())
+    _policy_snapshot(args.out).write_text(load_instructions())
     with args.out.open("w") as out:
         for case in report.cases:
             row = {

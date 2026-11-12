@@ -323,8 +323,20 @@ Background: [the lethal trifecta](https://simonwillison.net/2025/Jun/16/the-leth
 ## What came from the workspace skill
 
 The general agent used to handle Zillow email by following a
-`zillow-auto-reply` skill. Every rule in
+`zillow-auto-reply` skill kept in its workspace. Every rule in
 it was checked against this package; this is where each one went.
+
+`policy.md` is now the only copy of these rules, and both agents read it:
+
+| Reader | Gets | From |
+|---|---|---|
+| Lead agent | `role.md`, then `policy.md`, then `record.md`, as its instructions | `load_instructions()` in `agent.py` |
+| General agent | A short preface, then `policy.md`, as the `zillow-auto-reply` skill | `skill.py`, registered in `sernia_ai/agent.py` |
+
+`role.md` (who the lead agent is, that it has no tools) and `record.md` (how to
+fill in its output fields) are true only for the lead agent, so they stay out
+of `policy.md`. The skill is built in code, so it changes only by deploy, and a
+workspace skill of the same name cannot replace it.
 
 | Rule in the skill | Now lives in | State |
 |---|---|---|
@@ -358,7 +370,8 @@ it was checked against this package; this is where each one went.
 | Durable queue of incoming email | [triggers](../triggers/README.md) | Built |
 | Thread loader | `thread.py` | Built |
 | Case builder, slot arithmetic | `case.py` | Built |
-| Policy and the lead agent | `policy.md`, `agent.py` | Built, under review |
+| Policy and the lead agent | `role.md`, `policy.md`, `record.md`, `agent.py` | Built, under review |
+| The same policy as a skill for the general agent | `skill.py` | Built |
 | Scenario export, runner, exact checks | `evals.py` | Built |
 | Review page and label format | `evals.py`, `review.html` | Built |
 | Train / dev / test split by thread | `evals.py` | Built |

@@ -54,7 +54,7 @@ GITKEEP_FILES: dict[str, str] = {
         "# Path mirrors Claude Code's .claude/skills/ convention so the workspace\n"
         "# is interoperable with `cd workspace && claude` runs.\n"
         "# Example:\n"
-        "#   .claude/skills/zillow-auto-reply/SKILL.md\n"
+        "#   .claude/skills/move-out-inspection/SKILL.md\n"
         "#   .claude/skills/lease-renewal/SKILL.md\n"
     ),
 }

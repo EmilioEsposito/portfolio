@@ -22,8 +22,15 @@ private to the case. If it needs to know something new, have code put it in
 the case.
 
 ``respond(case)`` is also the unit the evals measure, so an experiment runs
-exactly what production runs. Its instructions are ``policy.md`` in this
-package, so the policy in force for any run is the commit the code was at.
+exactly what production runs. Its instructions are three files in this
+package, joined in order, so the instructions in force for any run are the
+commit the code was at:
+
+- ``role.md``: who this agent is and what it is given. Lead agent only.
+- ``policy.md``: the rules for answering a lead. The general agent reads the
+  same file as a skill (see ``skill.py``), so keep it free of anything that is
+  true only for this agent.
+- ``record.md``: how to fill in the output fields. Lead agent only.
 """
 
 from datetime import datetime
@@ -42,7 +49,9 @@ from api.src.sernia_ai.model_config import (
 )
 from api.src.sernia_ai.zillow_leads.case import LeadCase, render_case
 
+ROLE_PATH = Path(__file__).with_name("role.md")
 POLICY_PATH = Path(__file__).with_name("policy.md")
+RECORD_PATH = Path(__file__).with_name("record.md")
 # This agent has its own model setting, so it can change, and be evaluated,
 # without changing the model the general agent runs on.
 LEAD_AGENT_MODEL = "openrouter:openai/gpt-6-luna"
@@ -116,7 +125,13 @@ LeadOutcome = Annotated[Reply | NoReply | Escalate, Field(discriminator="action"
 
 
 def load_policy() -> str:
+    """The rules for answering a lead: the part both agents share."""
     return POLICY_PATH.read_text()
+
+
+def load_instructions() -> str:
+    """Everything the lead agent is told: its role, the policy, what to record."""
+    return "\n".join(path.read_text() for path in (ROLE_PATH, POLICY_PATH, RECORD_PATH))
 
 
 @cache
@@ -132,7 +147,7 @@ def lead_agent() -> Agent[None, Reply | NoReply | Escalate]:
             ToolOutput(NoReply, name="no_reply"),
             ToolOutput(Escalate, name="escalate"),
         ],
-        instructions=load_policy(),
+        instructions=load_instructions(),
         name="zillow_lead_agent",
     )
 
