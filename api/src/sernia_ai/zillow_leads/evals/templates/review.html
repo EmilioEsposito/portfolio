@@ -87,7 +87,16 @@
 </aside>
 <script type="application/json" id="data">__REVIEW_DATA__</script>
 <script>
-const DATA = JSON.parse(document.getElementById('data').textContent);
+// Opened as it sits in the repository, this file is a template with no data.
+const RAW = document.getElementById('data').textContent;
+if (RAW.startsWith('__')) {
+  document.body.innerHTML = '<p style="max-width:40rem;margin:3rem auto;padding:0 1rem;font:16px/1.5 system-ui">' +
+    'This is the page template, so it has no data to show. The page with data is ' +
+    '<code>evals/data/review.html</code>, or <a href="http://localhost:8377/review.html">localhost:8377/review.html</a> ' +
+    'while <code>evals serve</code> is running.</p>';
+  throw new Error('This file is the template. Open evals/data/review.html instead.');
+}
+const DATA = JSON.parse(RAW);
 // One store for every experiment, keyed by scenario. Each label remembers which
 // output it judged, so a re-run never silently reuses or discards a verdict.
 const STORE = 'zillow-review:labels';
