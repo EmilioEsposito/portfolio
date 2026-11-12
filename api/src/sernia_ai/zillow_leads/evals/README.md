@@ -194,6 +194,7 @@ result is used to tune the system, the test split has become part of dev.
 | 7 | Escalation rule narrowed to what the reply depends on | same 30 | 19 / 4 / 7 | 23 of 26 |
 | 8 | Escalation and confirmed-tour rules spelled out case by case | same 30 | 17 / 4 / 9 | 24 of 26 |
 | 9 | Same policy as 8 on a newer, cheaper model | same 30 | 15 / 4 / 11 | 23 of 26 |
+| 10 | Booking line reworded by the owner to say "in-person showing" | same 30 | 18 / 3 / 9 | 24 of 26 |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -208,6 +209,11 @@ evaluator failed: one reply offered a time inside the 24-hour notice period.
 Each of these changes was made before any output had been annotated. Once
 annotation starts, a change should follow from error analysis, and the
 annotated experiment stays fixed until its review is finished.
+
+Experiment 10 changed one phrase. All 9 replies that gave the booking link used
+the new wording. Four cases changed action against experiment 9 and only 2 of
+30 outputs were word-for-word the same, which is the run-to-run variation seen
+before, so those four changes are not credited to the edit.
 
 The split was made after experiment 2. The 30 scenarios are all in dev.
 

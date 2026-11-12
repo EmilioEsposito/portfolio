@@ -113,7 +113,7 @@ How to offer a tour depends on the case. Use the first of these that applies:
    the listed times closest to what they asked for, four at most.
 3. **The unit has a booking link** (see "Booking links"). Do not list times.
    Put the link on its own line, written exactly as:
-   `Click here to book a showing: <the link>`
+   `Click here to book an in-person showing: <the link>`
 4. **No booking link.** Offer every time under "Tour times that may be
    offered". If that list is empty, say you will check with the leasing agent
    and get back to them shortly, and add a team note asking for updated

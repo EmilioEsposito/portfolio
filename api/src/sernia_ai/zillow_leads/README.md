@@ -162,7 +162,7 @@ flowchart LR
 | "Tone too stiff", "replied when it should have waited" | Policy: `prompts/policy.md` | code |
 | "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
-Nine experiments so far, all on the same 30 real scenarios. The first five:
+Ten experiments so far, all on the same 30 real scenarios. The first five:
 
 | Experiment | Operating data | Reply | No reply | Escalate |
 |---|---|---|---|---|
