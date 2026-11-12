@@ -2,7 +2,9 @@
 
 import argparse
 import asyncio
+import functools
 import hashlib
+import http.server
 import json
 import os
 import random
@@ -36,6 +38,10 @@ from api.src.sernia_ai.zillow_leads.thread import find_lead_thread_ids, load_lea
 LEAD_QUERY = "from:convo.zillow.com"
 # The whole package: the prompts and the code that builds the case.
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = Path(__file__).with_name("data")
+# One fixed port. The review page keeps labels in the browser per address, so
+# a port that moved would leave them behind.
+SERVE_PORT = 8377
 
 
 def _fingerprint(path: Path) -> str:
@@ -203,6 +209,37 @@ async def review(args: argparse.Namespace) -> None:
     print(f"decisions to review: {len(rows)}  page: {args.out}")
 
 
+class _PageHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        # A page is rewritten by every `review` or `browse`: never show a stale one.
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        pass  # request lines would put thread ids in the terminal
+
+
+def page_server(directory: Path, port: int) -> http.server.ThreadingHTTPServer:
+    """Serves the pages to this machine only: they hold applicants' emails."""
+    handler = functools.partial(_PageHandler, directory=str(directory))
+    return http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+
+async def serve(args: argparse.Namespace) -> None:
+    if not args.data.is_dir():
+        raise SystemExit(
+            f"{args.data} is not a folder. See evals/README.md, 'Where the data lives'."
+        )
+    server = page_server(args.data, args.port)
+    base = f"http://localhost:{args.port}"
+    print(f"review:  {base}/review.html")
+    print(f"dataset: {base}/dataset.html")
+    try:
+        await asyncio.to_thread(server.serve_forever)
+    finally:
+        server.server_close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(required=True)
@@ -252,6 +289,11 @@ def main() -> None:
     browse_parser.add_argument("--review", type=Path, help="Review page to link to")
     browse_parser.add_argument("--out", type=Path, required=True)
     browse_parser.set_defaults(handler=browse)
+
+    serve_parser = commands.add_parser("serve", help="Serve the pages on this machine only")
+    serve_parser.add_argument("--data", type=Path, default=DATA_DIR)
+    serve_parser.add_argument("--port", type=int, default=SERVE_PORT)
+    serve_parser.set_defaults(handler=serve)
 
     args = parser.parse_args()
     asyncio.run(args.handler(args))

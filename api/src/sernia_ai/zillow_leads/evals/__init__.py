@@ -20,6 +20,8 @@ Offline only. Nothing the running service imports lives in this package.
         --scenarios $DATA/scenarios.jsonl --operating $DATA/operating.json \
         --run $DATA/runs/first-round.jsonl --out $DATA/runs/first-round.html
 
+    uv run python -m api.src.sernia_ai.zillow_leads.evals serve
+
 A scenario is a moment in a real thread; operating data is what was true of
 the business then. They are stored apart and joined into a case at run time,
 so listings and schedules can change shape without touching the scenarios or
@@ -29,7 +31,8 @@ the labels people have put on them.
 emails: keep every path above inside it. Nothing here prints their content,
 only counts.
 
-``run`` sends the experiment to Logfire when a token is configured. ``review``
+``serve`` serves the pages in ``evals/data`` at http://localhost:8377, to this
+machine only. ``run`` sends the experiment to Logfire when a token is configured. ``review``
 writes one self-contained page for a person to mark each decision pass or
 fail. ``browse`` writes a page for reading the train and dev splits, with
 links into the review pages. Both pages hold applicant emails too.

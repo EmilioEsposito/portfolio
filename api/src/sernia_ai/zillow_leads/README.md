@@ -253,6 +253,18 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals review \
     --run $DATA/runs/round-3.jsonl --out $DATA/review.html
 ```
 
+To open the pages over localhost instead of as files:
+
+```bash
+uv run python -m api.src.sernia_ai.zillow_leads.evals serve
+```
+
+It serves `evals/data` to this machine only, at `http://localhost:8377/review.html`
+and `/dataset.html`. The review page keeps labels in the browser per address,
+so pick one way of opening it and stay with it. In Claude Code, `/eval-links`
+lists these pages and the flow diagram with this checkout's ports (the mod is
+in `.claude/skills/eval-links`).
+
 `run` saves the policy as it was beside its output (`round-3.policy.md`), and
 the review page shows it behind a **Policy** button.
 
