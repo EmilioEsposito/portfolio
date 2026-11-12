@@ -235,7 +235,7 @@ function PhaseBand({
             <span>One square is one test case.</span>
             <span className="inline-flex items-center gap-1.5">
               <span aria-hidden="true" className={cn("size-1.5 rounded-[1px]", inReviewCell)} />
-              being annotated now
+              annotated so far
             </span>
             <span className="inline-flex items-center gap-1.5">
               <span aria-hidden="true" className={cn("size-1.5 rounded-[1px]", cellClass.test)} />

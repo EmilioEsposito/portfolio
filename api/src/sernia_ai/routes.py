@@ -58,6 +58,8 @@ from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
+from api.src.sernia_ai.zillow_leads.handle import apply_approval as apply_lead_approval
+from api.src.sernia_ai.zillow_leads.handle import is_lead_conversation
 from api.src.utils.clerk import verify_serniacapital_user
 
 # =============================================================================
@@ -228,6 +230,22 @@ async def chat_sernia(
     request_json = await request.json()
     conversation_id = request_json.get("id")
     frontend_messages = request_json.get("messages", [])
+
+    if conversation_id:
+        existing = await get_agent_conversation(
+            session, conversation_id, clerk_user_id=None, retries=1
+        )
+        if existing and is_lead_conversation(existing.metadata_):
+            # This agent has tools and access to company data. A lead
+            # conversation holds email written by a stranger, so it is never
+            # loaded as this agent's history.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This conversation belongs to the Zillow lead agent and cannot be "
+                    "continued in chat. Approve or reject its draft, or start a new chat."
+                ),
+            )
 
     # Load message history from DB (authoritative source)
     # clerk_user_id=None for shared team access — all Sernia users see all conversations
@@ -407,6 +425,17 @@ async def approve_conversation(
         ]
 
         conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+        if conv and is_lead_conversation(conv.metadata_):
+            # A Zillow lead conversation is decided in code: an approved reply
+            # is sent as approved, to the address stored with it. No agent is
+            # resumed, so nothing a lead wrote is read by a model with tools.
+            return await apply_lead_approval(
+                session,
+                conversation_id=conversation_id,
+                metadata=conv.metadata_ or {},
+                decisions=decisions,
+                approver=user_name,
+            )
         reply_to = None
         if conv and conv.modality == "sms" and conv.metadata_:
             reply_to = conv.metadata_.get("trigger_group_participants") or conv.metadata_.get(

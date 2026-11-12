@@ -42,7 +42,7 @@ export interface Split extends Entry {
   id: SplitId;
   threads: number;
   cases: number;
-  /** Test cases in the experiment being annotated now. */
+  /** Test cases that have been run and annotated. */
   inReview: number;
 }
 
@@ -123,7 +123,7 @@ export const splits: Split[] = [
       "All iteration happens on these cases: running experiments, reading outputs, annotating, and checking each change. They can be read as often as needed.",
       "Its score is optimistic, because every change made after reading dev results fits the system a little more closely to these particular cases.",
     ],
-    here: "191 test cases. 30 of them are in the experiment being annotated now.",
+    here: "191 test cases. 30 of them have been run and annotated.",
     example: {
       caption: "What the dev split is for",
       blocks: [
@@ -281,7 +281,7 @@ export const stages: Stage[] = [
       "An experiment runs one fixed version of the system over a set of test cases and stores each output with enough to reproduce it.",
       "A version is everything that can change the output: the prompt, the model, and any data the prompt is built from.",
     ],
-    here: "Two so far, on the same 30 dev cases. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
+    here: "Nine so far, on the same 30 dev cases. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
     example: {
       caption: "One stored output",
       blocks: [
@@ -296,7 +296,7 @@ export const stages: Stage[] = [
     id: "annotation",
     phase: "offline",
     loop: true,
-    status: "now",
+    status: "done",
     touches: ["dev"],
     term: "Human annotation",
     aka: ["labeling", "human review"],
@@ -306,7 +306,7 @@ export const stages: Stage[] = [
       "The next stage works from the written reasons, so they matter more than the verdicts.",
       "No rubric and no reference outputs are needed first. The criteria come from reading real outputs.",
     ],
-    here: "In progress on 30 decisions, in a small review page that shows what the lead wrote, what the model decided, and what was actually sent at the time. The reviewer can also write the reply they would have sent.",
+    here: "Done for the first sample: 26 of 30 decisions annotated, 23 pass and 3 fail, in a small review page that shows what the lead wrote, what the model decided, and what was actually sent at the time. The four left out were the hardest to judge, so the pass rate is likely a little high.",
     example: {
       caption: "One annotation",
       blocks: [
@@ -323,7 +323,7 @@ export const stages: Stage[] = [
     id: "error-analysis",
     phase: "offline",
     loop: true,
-    status: "next",
+    status: "done",
     touches: ["dev"],
     term: "Error analysis",
     aka: ["failure analysis", "open and axial coding"],
@@ -333,12 +333,12 @@ export const stages: Stage[] = [
       "The most frequent failure mode is the one to work on first. Without counts, effort tends to go to whichever failure was seen most recently.",
       "Stop adding cases when new annotations stop producing new failure modes. Thirty is a start; about a hundred is typical.",
     ],
-    here: "Not started. It needs the annotations.",
+    here: "Done for the first sample. The three fails gave two failure modes. Three is too few to rank with confidence, so the next sample is new cases from the dev split.",
     example: {
-      caption: "A failure taxonomy (an illustration)",
+      caption: "The first failure taxonomy, from 26 annotated decisions",
       blocks: [
         {
-          text: "Too many tour times offered    9\nAnswer buried in the reply     4\nReplied when it should wait    2\nWrong lease start date         1",
+          text: "Replied when our own earlier message\nconflicts with the case; should escalate   2\n\nOffered to move a tour that was\nalready confirmed                           1",
         },
       ],
     },
@@ -348,7 +348,7 @@ export const stages: Stage[] = [
     id: "improve",
     phase: "offline",
     loop: true,
-    status: "next",
+    status: "now",
     touches: ["train", "dev"],
     term: "Improve",
     aka: ["iterate", "prompt engineering"],
@@ -358,7 +358,7 @@ export const stages: Stage[] = [
       "The thing changed is most often the prompt: the system prompt or skill, and any few-shot examples in it. But anything that shapes the output can be the fix: the context the prompt is built from, tool definitions and their descriptions, the output schema, the model and its settings, or the code around the call.",
       "Where the fix goes depends on the failure. A missing fact is a data problem. A rule with an exact answer belongs in code. Only judgement belongs in the prompt, sometimes as a few-shot example from the train split.",
     ],
-    here: "One improvement so far, made before any annotation: a fact sheet for each unit.",
+    here: "The first fix from error analysis made things worse: a rule to escalate when our own earlier message conflicts with the case fixed two fails and broke six decisions that had passed. The labels on passing decisions caught it, and two narrower versions followed.",
     example: {
       caption: "Which layer owns the failure",
       blocks: [
@@ -652,7 +652,58 @@ export const experimentLog = [
     reply: 20,
     quiet: 5,
     escalate: 5,
-    annotated: "In progress",
+    annotated: "No",
+  },
+  {
+    name: "Experiment 3",
+    change:
+      "Policy checked against the instructions it replaced: decline a low self-reported credit score, restored tour rules.",
+    reply: 19,
+    quiet: 5,
+    escalate: 6,
+    annotated: "No",
+  },
+  {
+    name: "Experiment 4",
+    change:
+      "Tours offered through a booking link by default; times only for an already-booked tour or a time the lead named.",
+    reply: 20,
+    quiet: 4,
+    escalate: 6,
+    annotated: "No",
+  },
+  {
+    name: "Experiment 5",
+    change: "Answers that are the same for every lead moved from the case into the prompt.",
+    reply: 19,
+    quiet: 4,
+    escalate: 7,
+    annotated: "26 of 30: 23 pass",
+  },
+  {
+    name: "Experiment 6",
+    change:
+      "First fixes from error analysis. The new escalation rule fired on almost any earlier message.",
+    reply: 11,
+    quiet: 2,
+    escalate: 17,
+    annotated: "Scored against labels: 19 of 26",
+  },
+  {
+    name: "Experiment 8",
+    change: "Escalation and confirmed-tour rules spelled out case by case.",
+    reply: 17,
+    quiet: 4,
+    escalate: 9,
+    annotated: "24 of 26",
+  },
+  {
+    name: "Experiment 9",
+    change: "Same prompt on a newer, cheaper model.",
+    reply: 15,
+    quiet: 4,
+    escalate: 11,
+    annotated: "23 of 26",
   },
 ];
 

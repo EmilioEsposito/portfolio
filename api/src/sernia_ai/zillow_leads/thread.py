@@ -12,6 +12,7 @@ today can be stored and replayed later with the same content.
 """
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parseaddr
@@ -124,6 +125,82 @@ async def find_shared_copy(
     )
 
 
+# Zillow relays a lead's message inside its own form text. Two shapes carry it:
+#   a later message: "<message> Regarding your listing at: <address> <suggested
+#       replies> <scam warning> RENTER'S NAME <name> RENTER'S MESSAGE <message>"
+#       The address ends at its ZIP code; the suggested replies are dropped.
+#   a first inquiry: "<message> Send application About <name> Move in <date>
+#       Credit score <range> Income ... Number of Occupants <n>"
+_RELAY = re.compile(
+    r"Regarding your listing at:\s*(?P<address>.*?\b\d{5}\b).*?Some rental inquiries may be scams\."
+    r".*?RENTER'S NAME\s+(?P<name>.*?)\s+RENTER'S MESSAGE\s*(?P<message>.*)\Z",
+    re.S,
+)
+# The same form with its tail cut off, which leaves only the first copy of the message.
+_RELAY_HEAD = re.compile(
+    r"\s*Regarding your listing at:\s*(?P<address>.*?\b\d{5}\b).*?Some rental inquiries may be scams\..*\Z",
+    re.S,
+)
+_PROFILE_FIELDS = (
+    "Move in",
+    "Credit score",
+    "Income",
+    "Pets",
+    "Lease Length",
+    "Number of Bedrooms",
+    "Number of Occupants",
+)
+_PROFILE = re.compile(
+    r"\s*(?:Send application\s*)?About\s+(?P<name>\S.*?)\s{2,}(?=Move in\s)", re.S
+)
+_PROFILE_FIELD = re.compile("(" + "|".join(map(re.escape, _PROFILE_FIELDS)) + r")\s+")
+_PADDING = " \xa0\n"  # Zillow separates fields with non-breaking spaces
+# The button ends the lead's message. Zillow sometimes follows it with suggested
+# replies and an advert for its own application, which go with it.
+_BUTTON = re.compile(r"\s*Send application.*\Z", re.S)
+
+
+def tidy_zillow_form(body: str) -> str:
+    """A lead's message with Zillow's form text removed or labelled.
+
+    The lead's own words come first, once. What Zillow added that is worth
+    keeping (the listing, the lead's name, the profile they filled in) follows
+    under a heading that says where it came from, so it is not mistaken for
+    something the lead wrote to us. Button text such as "Send application" is
+    dropped. Safe to apply twice.
+    """
+    details: list[str] = []
+    relay = _RELAY.search(body)
+    if relay:
+        # The complete copy follows RENTER'S MESSAGE; fall back to the first copy.
+        body = relay["message"].strip() or body[: relay.start()]
+        details += [f"- Listing: {relay['address']}", f"- Name: {relay['name'].strip()}"]
+    elif head := _RELAY_HEAD.search(body):
+        body = body[: head.start()]
+        details.append(f"- Listing: {head['address']}")
+    profile = _PROFILE.search(body)
+    if profile:
+        parts = _PROFILE_FIELD.split(body[profile.end() :])
+        body = body[: profile.start()]
+        details.append(f"- Name: {profile['name'].strip()}")
+        details += [
+            f"- {label}: {value.strip(_PADDING)}"
+            for label, value in zip(parts[1::2], parts[2::2], strict=True)
+        ]
+    body = _BUTTON.sub("", body).strip()
+    if not details:
+        return body
+    # Zillow sometimes relays the form with no message in it at all.
+    return "\n".join(
+        [
+            body or "(no message text)",
+            "",
+            "Zillow form details (not written by the lead):",
+            *details,
+        ]
+    )
+
+
 def _to_lead_message(message: dict[str, Any]) -> LeadMessage:
     headers = _headers(message)
     from_header = headers.get("from", "")
@@ -137,6 +214,8 @@ def _to_lead_message(message: dict[str, Any]) -> LeadMessage:
     if _is_zillow_content(from_header, body):
         body = _clean_zillow_email(body)
     body = _strip_quoted_replies(body).strip()
+    if not from_address.endswith(f"@{INTERNAL_EMAIL_DOMAIN}"):
+        body = tidy_zillow_form(body)
 
     return LeadMessage(
         message_id=message["id"],

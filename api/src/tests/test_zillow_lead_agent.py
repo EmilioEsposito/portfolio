@@ -1,4 +1,4 @@
-"""The Zillow lead case, decision contract and exact-answer checks (no network)."""
+"""The Zillow lead case, the agent's outcomes and the exact-answer checks (no network)."""
 
 import json
 import re
@@ -6,12 +6,13 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_ai.models.test import TestModel
 from pydantic_evals.evaluators import EvaluatorContext
 from pydantic_evals.otel.span_tree import SpanTree
 
-from api.src.sernia_ai.zillow_leads import decision as decision_module
+from api.src.sernia_ai.zillow_leads import agent as agent_module
+from api.src.sernia_ai.zillow_leads.agent import Escalate, LeadOutcome, NoReply, Reply
 from api.src.sernia_ai.zillow_leads.case import (
     AgentAvailability,
     BookedTour,
@@ -24,13 +25,14 @@ from api.src.sernia_ai.zillow_leads.case import (
     offerable_slots,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.decision import LeadDecision
 from api.src.sernia_ai.zillow_leads.evals import (
     Label,
     ReplyChecks,
+    _output_hash,
     assign_splits,
     build_dataset,
     case_for,
+    dataset_page,
     in_split,
     review_page,
     scenarios_from_thread,
@@ -178,53 +180,65 @@ class TestBuildCase:
         assert "Can I tour Tuesday?" in text
 
 
-def decision(**overrides) -> LeadDecision:
-    fields = {
-        "lead": {},
-        "tour": {},
-        "action": "reply",
-        "reason": "New lead.",
-        "reply_body": "Hello,\n\nSernia Capital Team",
-    }
-    return LeadDecision.model_validate({**fields, **overrides})
+_OUTCOME = TypeAdapter(LeadOutcome)
 
 
-class TestDecisionContract:
-    def test_a_reply_must_carry_its_text(self):
-        with pytest.raises(ValidationError, match="needs reply_body"):
-            decision(reply_body=None)
+def decision(**overrides) -> Reply | NoReply | Escalate:
+    """An outcome, a reply unless ``action`` says otherwise."""
+    action = overrides.get("action", "reply")
+    fields: dict = {"lead": {}, "tour": {}, "action": action, "reason": "New lead."}
+    if action == "reply":
+        fields["reply_body"] = "Hello,\n\nSernia Capital Team"
+    return _OUTCOME.validate_python({**fields, **overrides})
+
+
+class TestOutcomes:
+    def test_the_three_outcomes_are_three_types(self):
+        assert isinstance(decision(), Reply)
+        assert isinstance(decision(action="no_reply"), NoReply)
+        assert isinstance(decision(action="escalate", question="Is 12-C listed?"), Escalate)
+
+    def test_a_reply_cannot_exist_without_its_text(self):
+        with pytest.raises(ValidationError, match="reply_body"):
+            _OUTCOME.validate_python(
+                {"lead": {}, "tour": {}, "action": "reply", "reason": "New lead."}
+            )
+        with pytest.raises(ValidationError, match="reply_body"):
+            decision(reply_body="")
 
     def test_staying_quiet_cannot_carry_a_draft(self):
-        with pytest.raises(ValidationError, match="must not carry reply_body"):
-            decision(action="no_reply")
+        with pytest.raises(ValidationError, match="reply_body"):
+            decision(action="no_reply", reply_body="Hello")
 
     def test_escalating_must_say_what_is_needed(self):
-        with pytest.raises(ValidationError, match="needs question"):
-            decision(action="escalate", reply_body=None)
-        assert decision(action="escalate", reply_body=None, question="Is 12-C listed?")
+        with pytest.raises(ValidationError, match="question"):
+            decision(action="escalate")
 
     @pytest.mark.asyncio
-    async def test_decide_sends_the_policy_and_the_rendered_case(self):
+    async def test_the_agent_gets_the_policy_the_case_and_no_tools(self):
         case = build_case(thread(message(0, body="Is it available?")), OPERATING, upto=0)
         model = TestModel(
             custom_output_args={
                 "lead": {},
                 "tour": {},
-                "action": "no_reply",
                 "reason": "Test.",
+                "reply_body": "Hello,\n\nSernia Capital Team",
             }
         )
 
-        with decision_module.decider().override(model=model):
-            result = await decision_module.decide(case)
+        with agent_module.lead_agent().override(model=model):
+            result = await agent_module.respond(case)
 
-        assert result.action == "no_reply"
+        assert isinstance(result, Reply)
         params = model.last_model_request_parameters
-        assert params is not None and params.function_tools == []  # no tools, by design
-        assert decision_module.decider()._instructions == [decision_module.load_policy()]
+        assert params is not None
+        # The whole design rests on this: nothing to call, three ways to finish.
+        assert params.function_tools == []
+        assert [tool.name for tool in params.output_tools] == ["reply", "no_reply", "escalate"]
+        assert agent_module.lead_agent()._instructions == [agent_module.load_policy()]
 
 
-def check(case: LeadCase, output: LeadDecision) -> dict[str, bool]:
+def check(case: LeadCase, output: Reply | NoReply | Escalate) -> dict[str, bool]:
     ctx = EvaluatorContext(
         name=case.case_id,
         inputs=case,
@@ -251,6 +265,7 @@ class TestReplyChecks:
             "no_em_dash": True,
             "has_signature": True,
             "no_staff_names": True,
+            "links_allowed": True,
         }
 
     def test_offering_a_time_that_is_not_allowed_fails(self):
@@ -267,8 +282,45 @@ class TestReplyChecks:
         assert result["has_signature"] is False
         assert result["no_staff_names"] is False
 
+    def test_a_reply_may_only_use_links_the_case_supplied(self):
+        with_link = OPERATING.model_copy(update={"booking_url": "https://book.example/tours"})
+        case = build_case(thread(message(0)), with_link, upto=0)
+        signed = "\n\nSernia Capital Team"
+
+        text = render_case(case)
+        assert "## Booking links\n- 12-A: https://book.example/tours" in text
+        assert "## Booking links\n- (none)" in render_case(self.case)
+
+        good = "Click here to book a showing: https://book.example/tours." + signed
+        assert check(case, decision(reply_body=good))["links_allowed"] is True
+        invented = "Book at https://book.example/other" + signed
+        assert check(case, decision(reply_body=invented))["links_allowed"] is False
+        # The same link is not allowed where the case did not supply it.
+        assert check(self.case, decision(reply_body=good))["links_allowed"] is False
+        # A link from the policy is allowed, however the address is written.
+        ours = "Apply at https://www.serniacapital.com/." + signed
+        assert check(self.case, decision(reply_body=ours))["links_allowed"] is True
+        deeper = "Apply at https://serniacapital.com/apply-now" + signed
+        assert check(self.case, decision(reply_body=deeper))["links_allowed"] is False
+
+    def test_a_unit_can_have_its_own_booking_link(self):
+        operating = OPERATING.model_copy(
+            update={
+                "booking_url": "https://book.example/any",
+                "listings": [
+                    Listing(unit="12-A", booking_url="https://book.example/12a"),
+                    Listing(unit="12-C"),
+                ],
+            }
+        )
+        case = build_case(thread(message(0)), operating, upto=0)
+        assert [item.booking_url for item in case.listings] == [
+            "https://book.example/12a",
+            "https://book.example/any",
+        ]
+
     def test_no_reply_is_not_scored(self):
-        assert check(self.case, decision(action="no_reply", reply_body=None)) == {}
+        assert check(self.case, decision(action="no_reply")) == {}
 
 
 class TestScenarios:
@@ -302,7 +354,7 @@ class TestScenarios:
         richer = OPERATING.model_copy(
             update={
                 "listings": [Listing(unit="12-A", facts="Second floor\n- Dishwasher")],
-                "standard_answers": "Apply at example.com after a tour.",
+                "booking_url": "https://book.example/tours",
             }
         )
 
@@ -312,8 +364,11 @@ class TestScenarios:
         assert before.now == after.now and before.thread == after.thread
         text = render_case(after)
         assert "  - Second floor\n  - Dishwasher" in text
-        assert "## Standard answers\n- Apply at example.com after a tour." in text
-        assert "## Standard answers\n- (none on file)" in render_case(before)
+        assert "## Booking links\n- 12-A: https://book.example/tours" in text
+        assert "## Booking links\n- (none)" in render_case(before)
+        # What is the same for every lead lives in the policy, not in the case.
+        assert "Standard answers" not in text
+        assert "## Standard answers" in agent_module.load_policy()
         dataset = build_dataset([first], richer)
         assert [case.name for case in dataset.cases] == ["T-0"]
 
@@ -352,7 +407,7 @@ class TestReviewPage:
                 "checks": {"has_signature": True, "no_em_dash": False},
             }
         ]
-        page = review_page("round-x", scenarios, OPERATING, rows)
+        page = review_page("round-x", scenarios, OPERATING, rows, "Reply when </script> owed.")
         embedded = re.search(
             r'<script type="application/json" id="data">(.*?)</script>', page, re.S
         )
@@ -363,6 +418,7 @@ class TestReviewPage:
         _, data = self.page_data()
 
         assert (data["run"], data["policy_commit"]) == ("round-x", "abc1234")
+        assert data["policy"] == "Reply when </script> owed."
         (case,) = data["cases"]
         assert case["id"] == "T-3"
         # The lead's latest burst, not the whole thread and not our reply.
@@ -376,6 +432,41 @@ class TestReviewPage:
     def test_email_text_cannot_break_out_of_the_page(self):
         page, _ = self.page_data()
         assert page.count("</script>") == 2  # the data block and the page's own script
+
+    def test_a_label_is_tied_to_the_output_it_judged(self):
+        scenarios = scenarios_from_thread(self.past)
+        first = decision(reply_body="Hello, Tuesday at 10?\n\nSernia Capital Team")
+        reworded = decision(reply_body="Hi, how about Tuesday at 10?\n\nSernia Capital Team")
+        old_row = {"case_id": "T-3", "decision": first.model_dump(mode="json"), "checks": {}}
+        new_row = {"case_id": "T-3", "decision": reworded.model_dump(mode="json"), "checks": {}}
+        label = Label(
+            scenario_id="T-3",
+            verdict="fail",
+            note="Too vague",
+            output_hash=_output_hash(old_row["decision"]),
+            run="round-old",
+        )
+
+        page = review_page(
+            "round-new",
+            scenarios,
+            OPERATING,
+            [new_row],
+            labels=[label],
+            previous={"round-old": [old_row]},
+        )
+        embedded = re.search(
+            r'<script type="application/json" id="data">(.*?)</script>', page, re.S
+        )
+        assert embedded is not None
+        data = json.loads(embedded.group(1))
+
+        # The reworded output has a different identity, so the page will offer the
+        # old verdict for confirmation instead of applying it.
+        assert data["cases"][0]["hash"] != label.output_hash
+        assert data["previous"] == {"round-old": {"T-3": label.output_hash}}
+        assert data["seed_labels"][0]["verdict"] == "fail"
+        assert _output_hash(old_row["decision"]) == _output_hash(first.model_dump(mode="json"))
 
     def test_a_downloaded_label_parses(self):
         label = Label.model_validate(
@@ -422,3 +513,67 @@ class TestSplits:
 
         assert [item.scenario_id for item in dev] == ["T-0", "T-2"]
         assert in_split(scenarios, {"T": "dev"}, "test") == []  # unassigned is in no split
+
+
+class TestDatasetPage:
+    def scenarios(self):
+        dev = thread(
+            message(0, body="Is it available?"),
+            message(30, sernia=True, body="Yes, tours Tuesday."),
+            message(60, body="Great </script> see you"),
+        )
+        train = dev.model_copy(
+            update={"thread_id": "TR", "messages": [message(5, body="Train thread question")]}
+        )
+        sealed = dev.model_copy(
+            update={"thread_id": "TE", "messages": [message(7, body="SEALED lead message")]}
+        )
+        return [s for t in (dev, train, sealed) for s in scenarios_from_thread(t)]
+
+    def page_data(self) -> tuple[str, dict]:
+        runs = {"round-x": [{"case_id": "T-2", "decision": {"action": "no_reply"}}]}
+        page = dataset_page(
+            self.scenarios(),
+            {"T": "dev", "TR": "train", "TE": "test"},
+            runs,
+            {"round-x": "runs/round-x.html"},
+        )
+        embedded = re.search(
+            r'<script type="application/json" id="data">(.*?)</script>', page, re.S
+        )
+        assert embedded is not None
+        return page, json.loads(embedded.group(1))
+
+    def test_train_and_dev_are_readable_and_the_test_split_is_only_a_count(self):
+        page, data = self.page_data()
+
+        assert data["totals"] == {
+            "train": {"threads": 1, "cases": 1},
+            "dev": {"threads": 1, "cases": 2},
+            "test": {"threads": 1, "cases": 1},
+        }
+        assert {case["id"]: case["split"] for case in data["cases"]} == {
+            "T-0": "dev",
+            "T-2": "dev",
+            "TR-0": "train",
+        }
+        assert "SEALED" not in page
+
+    def test_each_case_shows_the_lead_message_the_history_and_links_to_its_review(self):
+        _, data = self.page_data()
+        by_id = {case["id"]: case for case in data["cases"]}
+
+        follow_up = by_id["T-2"]
+        assert follow_up["first"] is False and by_id["T-0"]["first"] is True
+        assert follow_up["lead_message"] == "Great </script> see you"
+        assert [m["who"] for m in follow_up["earlier"]] == ["Lead", "Us"]
+        assert follow_up["when"] == "Mon May 4, 10:00 AM"
+        assert follow_up["runs"] == [
+            {"run": "round-x", "action": "no_reply", "href": "runs/round-x.html#card-T-2"}
+        ]
+        assert by_id["T-0"]["actual_reply"] == "Yes, tours Tuesday."
+        assert data["reviews"] == [{"run": "round-x", "href": "runs/round-x.html", "count": 1}]
+
+    def test_email_text_cannot_break_out_of_the_page(self):
+        page, _ = self.page_data()
+        assert page.count("</script>") == 2

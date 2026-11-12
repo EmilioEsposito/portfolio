@@ -73,13 +73,16 @@ export default function LeasingEvalsPage() {
 
       <section aria-labelledby="log-title" className="mt-14 max-w-3xl">
         <h2 id="log-title" className="text-xl font-semibold">
-          What the first two experiments showed
+          What the first experiments showed
         </h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Both experiments ran on the same 30 test cases, before and after one change. In the
-          first, most escalations were the agent asking for facts it had not been given, so the fix
-          was to the data. Neither experiment measures whether the replies are good; the
-          annotations will.
+          Every experiment ran on the same 30 test cases, with one kind of change between each. In
+          the first, most escalations were the agent asking for facts it had not been given, so the
+          fix was to the data. The third followed a line-by-line check of the prompt against the
+          instructions it replaced, and the fourth a decision to offer tours through a booking
+          link. The counts alone do not say whether the replies are good.
+          Annotation of the fifth does: 23 of 26 decisions passed. Later experiments were scored by
+          code against those 26 labels, which is how the sixth was caught making things worse.
         </p>
         <div className="mt-4 overflow-x-auto rounded-2xl border">
           <table className="w-full min-w-[34rem] text-left text-sm">

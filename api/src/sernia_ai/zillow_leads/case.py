@@ -6,9 +6,11 @@ tour times may be offered right now, where a thread has a decision to make —
 are computed here rather than left to the model.
 
 Only what code or a grader reads is a typed field. Everything else the model
-needs to know about a unit or about how we work is free text (``Listing.facts``,
-``OperatingData.standard_answers``), so it can come from a note, a listing page
-or a database without this module changing.
+needs to know about a unit is free text (``Listing.facts``), so it can come
+from a note, a listing page or a database without this module changing.
+
+A case holds what differs from one lead or one week to the next. Anything that
+is the same for every lead, such as how to apply, belongs in ``policy.md``.
 """
 
 from datetime import UTC, date, datetime, time, timedelta
@@ -40,6 +42,9 @@ class Listing(BaseModel):
     # From this date the unit is taken: it moves from the listings to the
     # "rented, do not offer" list. Dated so a past case sees the past state.
     rented_on: date | None = None
+    # Where a lead can book a showing for this unit themselves. Empty means
+    # use ``OperatingData.booking_url``, and if that is empty too, offer times.
+    booking_url: str = ""
     # Whatever else is true of the unit, one fact per line: bedrooms, floor,
     # utilities, laundry, parking, appliances, pets. The model answers unit
     # questions from this and nothing else.
@@ -60,9 +65,8 @@ class OperatingData(BaseModel):
     timezone: str = "America/New_York"
     listings: list[Listing] = Field(default_factory=list)
     rented_units: list[str] = Field(default_factory=list)
-    # Answers that hold for every unit: how to apply, fees, screening, what
-    # happens after approval. Plain text, one answer per line.
-    standard_answers: str = ""
+    # The self-serve booking page for showings, when one exists.
+    booking_url: str = ""
     availability: list[AgentAvailability] = Field(default_factory=list)
     blackout_dates: list[date] = Field(default_factory=list)
 
@@ -86,7 +90,6 @@ class LeadCase(BaseModel):
     thread: LeadThread
     listings: list[Listing]
     rented_units: list[str]
-    standard_answers: str = ""
     offerable_slots: list[TourSlot]
     booked_tours: list[BookedTour]
 
@@ -167,9 +170,12 @@ def build_case(
         now=now,
         timezone=operating.timezone,
         thread=visible,
-        listings=[item for item in operating.listings if item not in rented],
+        listings=[
+            item.model_copy(update={"booking_url": item.booking_url or operating.booking_url})
+            for item in operating.listings
+            if item not in rented
+        ],
         rented_units=operating.rented_units + [item.unit for item in rented],
-        standard_answers=operating.standard_answers,
         offerable_slots=offerable_slots(operating, now) if slots is None else slots,
         booked_tours=[tour for tour in (booked_tours or []) if tour.start > now],
     )
@@ -217,8 +223,12 @@ def render_case(case: LeadCase) -> str:
     if case.rented_units:
         lines.append(f"- Rented, do not offer: {', '.join(case.rented_units)}")
 
-    lines += ["", "## Standard answers"]
-    lines += [f"- {fact}" for fact in _fact_lines(case.standard_answers)] or ["- (none on file)"]
+    lines += ["", "## Booking links"]
+    lines += [
+        f"- {listing.unit}: {listing.booking_url}"
+        for listing in case.listings
+        if listing.booking_url
+    ] or ["- (none)"]
 
     lines += ["", "## Tour times that may be offered"]
     by_day: dict[date, list[str]] = {}

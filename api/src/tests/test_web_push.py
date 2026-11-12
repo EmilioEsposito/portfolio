@@ -324,6 +324,7 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
         await kwargs["on_complete"](result)
         return routes.Response(content="")
 
+    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
     monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
@@ -384,6 +385,7 @@ async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
         await kwargs["on_complete"](result)
         return routes.Response(content="")
 
+    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
     monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))

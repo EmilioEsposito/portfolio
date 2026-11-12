@@ -114,18 +114,11 @@ sequenceDiagram
 
 ## Zillow Email Event Trigger Flow
 
-Zillow lead processing through a **durable queue**. When an email from `zillow.com` arrives via Gmail Pub/Sub, a row is written to the `zillow_email_jobs` table. A scheduled worker (every 30 seconds) picks up due jobs, groups them by lead thread, and runs the agent **once per thread**.
+Zillow lead processing through a **durable queue**. When an email from `zillow.com` arrives via Gmail Pub/Sub, a row is written to the `zillow_email_jobs` table. A scheduled worker (every 30 seconds) picks up due jobs, groups them by lead thread, and hands each thread to the **dedicated lead agent** ([`zillow_leads`](../zillow_leads/README.md)), once per thread.
 
-The agent loads the `zillow-auto-reply` workspace skill and replies via `send_email`. By default, every outbound reply pauses for the standard external-email HITL approval card. Both the debounce length and the HITL gate are runtime-configurable via the **Zillow Email Auto-Reply** section of the Settings page (`/sernia-settings`), backed by the `zillow_email_config` AppSetting:
+Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Every reply it drafts waits for the standard approval card, and on approval code sends it to the lead's Zillow relay address. See the package README for the design and for what must be true before approval is relaxed.
 
-```json
-{
-  "debounce_seconds": 300,
-  "require_approval": true
-}
-```
-
-Turning `require_approval` off lets the agent auto-send Zillow replies without the HITL prompt — intended only after the agent has earned trust on this flow. Flip it back on if the agent goes off the rails.
+The debounce length is runtime-configurable via the **Zillow Email Auto-Reply** section of the Settings page (`/sernia-settings`), backed by the `zillow_email_config` AppSetting (`{"debounce_seconds": 300}`). That setting and page also carry a `require_approval` switch from when this queue ran the general agent. Nothing reads it now: approval is always required.
 
 ```mermaid
 flowchart TD
@@ -141,7 +134,7 @@ flowchart TD
     ROW -.-> CLAIM
     CLAIM --> SEEN{"Conversation already<br/>saved in full?"}
     SEEN -->|Yes| MARK["Mark done<br/>(no second run)"]
-    SEEN -->|No| RUN["execute_trigger_run()<br/>agent follows zillow-auto-reply skill"]
+    SEEN -->|No| RUN["zillow_leads.handle_thread()<br/>lead agent, no tools;<br/>reply saved for approval"]
     RUN -->|saved| OK["state = done"]
     RUN -->|crashed / not saved| RETRY{"Attempts<br/>left?"}
     RETRY -->|Yes| BACK["state = pending<br/>retry in 2, then 4 min"]
@@ -169,14 +162,13 @@ flowchart TD
 - **At-least-once, made safe** — the same emails can be handed to the agent twice (a run that crashed part-way, or a crash between "saved" and "marked done"). Three things keep a lead from getting two replies:
   1. a retry reuses the batch's conversation ID, so it overwrites rather than adds a second conversation;
   2. a batch whose conversation was already saved in full is marked done without running again;
-  3. **an automatic send happens at most once per original message.** With approval off, `send_email` reserves the send in the `auto_approved_sends` table (keyed on the original email's RFC `Message-ID`) *before* sending. A retried run that reaches `send_email` again finds the reservation and pauses for human approval instead. The reservation is deliberately not released if the send fails: a possibly-missing automatic reply is the price of never sending two.
+  3. **nothing is sent by a run.** A reply waits for a person and is sent once, on approval; a conversation that is no longer pending cannot be approved again.
 - **Retries with backoff, then stop** — a crashed or unsaved run goes back to `pending` (2 minutes, then 4). After three attempts it is parked as `failed` with an error-level log.
 - **No email content in the table** — a job holds IDs, subject and sender only. The agent reads the email from Gmail when it runs.
-- **Per-trigger HITL toggle, scoped to the lead** — `zillow_email_config.require_approval` controls whether outbound Zillow replies pause for the external-email HITL approval card. When the toggle is off, the worker passes `auto_approved_reply_domains={"zillow.com"}`, which sets it on `SerniaDeps`; `send_email` then skips its approval gate only for a **threaded reply whose every recipient is a Zillow relay address** (`google_tools.is_auto_approved_reply`), and only after `reply_to_message_id` has resolved to real threading headers in Gmail — a stale or made-up ID, or a failed lookup, falls back to the approval card instead of sending a new thread unreviewed. Email to any other external address, or a new unthreaded email, still pauses for approval in the same run. The scope is narrow on purpose: these runs read email written by strangers, so text inside a lead's message must not be able to redirect an auto-send. Other triggers (and web chat) never set the scope, so the standard HITL behavior is preserved everywhere else.
-- **Shared-mailbox IDs in the prompt** — a job holds the Gmail IDs of the watched mailbox, but the agent reads and replies in the shared one, where the same email has different IDs. Before each run the worker looks up the shared copy by RFC `Message-ID` ([`zillow_leads/thread.py`](../zillow_leads/README.md)) and gives the agent those IDs, so its first read succeeds and the reply threads in the shared mailbox. An email with no shared copy keeps its original ID and the prompt names the mailbox it belongs to. A Gmail error during the lookup fails the batch, which is retried.
+- **Shared-mailbox thread** — a job holds the Gmail IDs of the watched mailbox, but the lead agent works in the shared one, where the same email has different IDs. The worker looks up the shared copy by RFC `Message-ID` ([`zillow_leads/thread.py`](../zillow_leads/README.md)) and passes that thread on. An email with no shared copy yet, or a Gmail error during the lookup, fails the batch, which is retried.
+- **Instructions are in the repository** — the lead agent's prompt is [`zillow_leads/policy.md`](../zillow_leads/policy.md), versioned by commit so a change can be evaluated before it merges. It no longer uses the `zillow-auto-reply` workspace skill.
 - **One sender check** — `is_zillow_email()` parses the `From` header and matches the address's domain (`zillow.com` or a subdomain). The Pub/Sub route calls it rather than testing for a substring, which would also accept `"noreply@zillow.com" <someone@elsewhere.com>`.
-- **Trigger instructions stay lean** — the prompt points to the `zillow-auto-reply` skill for detailed guidance (qualification criteria, availability schedule, response tone). This allows iterating on AI behavior without code deploys.
-- **No completion push** — Zillow drafts (and other trigger completions) do not fire push notifications. Only HITL approval prompts (`notify_pending_approval`) push. Drafts surface via the web-chat conversation list to keep notification volume low.
+- **Pushes only when a person is needed** — a drafted reply or an escalation fires the approval push (`notify_pending_approval`). A lead that needs no reply is saved without one.
 - **Coexists with scheduled check** — `run_scheduled_checks()` still runs as a safety net.
 
 ### Inspecting the queue

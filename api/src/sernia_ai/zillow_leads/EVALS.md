@@ -186,14 +186,70 @@ result is used to tune the system, the test split has become part of dev.
 | Experiment | Change before it | Sample | Reply / quiet / escalate | Annotated |
 |---|---|---|---|---|
 | 1 | Baseline prompt. Listings had rent and lease dates only | 30 | 12 / 6 / 12 | No |
-| 2 | Fact sheets and standard answers added to operating data | same 30 | 20 / 5 / 5 | In progress |
+| 2 | Fact sheets and standard answers added to operating data | same 30 | 20 / 5 / 5 | No |
+| 3 | Policy checked against the original skill: decline a low self-reported credit score, apply only after a tour, restored tour and virtual-tour rules | same 30 | 19 / 5 / 6 | No |
+| 4 | Tours offered through a booking link by default; times only when a tour is already booked or the lead named a time | same 30 | 20 / 4 / 6 | No |
+| 5 | Standard answers moved from the case into the policy | same 30 | 19 / 4 / 7 | 26 of 30: 23 pass, 3 fail |
+| 6 | First fixes from error analysis: escalate when our earlier message is not in the case; leave confirmed tours alone; Zillow form text cleaned | same 30 | 11 / 2 / 17 | Scored against the labels: 19 of 26 |
+| 7 | Escalation rule narrowed to what the reply depends on | same 30 | 19 / 4 / 7 | 23 of 26 |
+| 8 | Escalation and confirmed-tour rules spelled out case by case | same 30 | 17 / 4 / 9 | 24 of 26 |
+| 9 | Same policy as 8 on a newer, cheaper model | same 30 | 15 / 4 / 11 | 23 of 26 |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
 lacked. That is a fair reason to fix the data, but it is not a human judgement
-of quality: experiment 2 is the first with annotations, and so the baseline.
+of quality. The change before experiment 3 came from the owner reading the
+policy against the original skill, and the change before experiment 4 was a
+decision by the owner about how tours are offered. Experiment 5 only moved text
+that is the same for every lead from the case into the policy. It is the first
+to be annotated, and so the baseline. It is also the first in which a code
+evaluator failed: one reply offered a time inside the 24-hour notice period.
 
-The split was made after experiment 2. Its 30 scenarios are all in dev.
+Each of these changes was made before any output had been annotated. Once
+annotation starts, a change should follow from error analysis, and the
+annotated experiment stays fixed until its review is finished.
+
+The split was made after experiment 2. The 30 scenarios are all in dev.
+
+## First error analysis
+
+Experiment 5, 26 annotated decisions. The four left out were the ones the
+reviewer found hardest to judge, three of them escalations, so the 88% pass
+rate is likely a little high.
+
+| Failure mode | Fails | Owner |
+|---|---|---|
+| Replied when our own earlier message in the thread conflicts with the case (a unit or a tour time the case does not list). The case can lag behind what the team has said, so this should escalate | 2 | Policy |
+| Offered to move a tour that was already confirmed, when the lead had only confirmed it | 1 | Policy. The code check on allowed times also caught it |
+
+Two notes on decisions that passed:
+
+| Observation | Seen in | Owner |
+|---|---|---|
+| Zillow's own form text is left in lead messages (a scam warning, field labels, a "Send application" button), and one reply treated the button as a request | Form text in 19 of 30 lead messages; the button in 4 | Code: the thread cleaner |
+| The answer about applying gives the steps to someone who has not toured. The reviewer's rewrite withholds them and states the rule | 1 corrected reply | Policy |
+
+Three fails are too few to rank with confidence. The next sample should be new
+dev cases, not these 30, until new annotations stop revealing new failure modes.
+
+## Checking a fix against the labels
+
+Experiments 6 to 9 were not annotated again. Each was scored by code against
+the 26 labels: a decision the reviewer passed should keep the same action, and
+a decision they failed should take the action their note asked for. This is a
+regression check, not a judgement of quality. It cannot tell whether a reworded
+reply is still a good one, and no LLM judge exists yet to do that.
+
+It did its job on the first attempt. The first escalation rule fixed two of the
+three fails and broke six decisions that had passed, by escalating whenever an
+earlier message mentioned anything the case lacked. Without the 23 passing
+labels that would have looked like an improvement.
+
+A difference of one decision between two experiments is within the variation
+from one run to the next. The model words, and sometimes decides, the same case
+differently each time, so experiments 7, 8 and 9 are not distinguishable on 26
+labels. Telling them apart needs more labelled cases, several runs per case, or
+both.
 
 ## Sources
 

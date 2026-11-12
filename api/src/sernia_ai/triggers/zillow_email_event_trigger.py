@@ -1,9 +1,10 @@
 """
-Zillow email event trigger for the Sernia AI agent — a durable queue.
+Zillow email event trigger — a durable queue in front of the lead agent.
 
 When a Zillow email arrives via Gmail Pub/Sub it is written to the
 ``zillow_email_jobs`` table. A scheduled worker picks up due jobs, groups them
-by lead thread, and runs the agent once per thread.
+by lead thread, and hands each thread to the dedicated lead agent
+(``zillow_leads``), once per thread. The general Sernia agent is not involved.
 
 Lifecycle of a job row::
 
@@ -33,13 +34,12 @@ The guarantees and what provides them:
 - **A dead worker's jobs come back** — a ``running`` row whose lease has run
   out is claimable again.
 - **A retry never duplicates work** — delivery is *at-least-once*, so the same
-  emails can be handed to the agent twice. Three things make that safe: a batch
+  emails can be handed to the agent twice. Two things make that safe: a batch
   is given its conversation ID on first claim and keeps it (a retry overwrites,
-  it doesn't add a second conversation); a batch whose conversation was already
-  saved complete is marked done without running again; and an automatic send is
-  reserved in ``auto_approved_sends`` before it goes out, so a retried run that
-  tries to email the lead again pauses for approval instead
-  (``google_tools._claim_auto_reply``).
+  it doesn't add a second conversation); and a batch whose conversation was
+  already saved complete is marked done without running again. Nothing is sent
+  by a run: every reply waits for a person, and the send happens once, on
+  approval (``zillow_leads/handle.py``).
 
 Batching: the first email in a thread starts that thread's debounce window
 (``zillow_email_config.debounce_seconds``); further emails in the same thread
@@ -47,30 +47,24 @@ before it fires ride along in the same run. Once claimed, a batch's
 membership is fixed — later emails form the next batch, which keeps retries
 looking at the same conversation and counting their own attempts.
 
-Configuration: debounce length and the HITL approval gate are both
-overridable via the DB-backed ``zillow_email_config`` AppSetting (JSONB):
+Configuration: the debounce length is overridable via the DB-backed
+``zillow_email_config`` AppSetting (JSONB), ``{"debounce_seconds": 300}``; the
+default is ``DEFAULT_ZILLOW_DEBOUNCE_SECONDS`` in ``config.py``.
 
-    {
-        "debounce_seconds": 300,
-        "require_approval": true
-    }
-
-Defaults come from ``DEFAULT_ZILLOW_DEBOUNCE_SECONDS`` and
-``DEFAULT_ZILLOW_REQUIRE_APPROVAL`` in ``config.py``. ``require_approval=False``
-lets the agent send threaded replies to Zillow relay addresses without the
-standard external email HITL approval card. Email to any other external
-address still pauses for approval, even in these runs.
+That setting also carries ``require_approval``, from when this queue ran the
+general agent. It is still stored and still shown on the settings page, but
+nothing reads it: every reply from the lead agent waits for approval. When
+approval is relaxed it will be per kind of reply, not one switch.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
-from textwrap import dedent
 
 import logfire
 from sqlalchemy import and_, func, or_, select, update
@@ -81,12 +75,9 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.config import (
     DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
     DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-    FRONTEND_BASE_URL,
-    GOOGLE_DELEGATION_EMAIL,
-    SHARED_EXTERNAL_EMAIL,
 )
 from api.src.sernia_ai.models import AppSetting, ZillowEmailJob, is_sernia_ai_enabled
-from api.src.sernia_ai.triggers.background_agent_runner import execute_trigger_run
+from api.src.sernia_ai.zillow_leads.handle import handle_thread
 from api.src.sernia_ai.zillow_leads.thread import SharedCopy, find_shared_copy
 
 # Zillow's mail domain. Lead inquiries arrive from (and are answered at) a
@@ -508,72 +499,6 @@ async def find_shared_copies(emails: Sequence[ClaimedEmail]) -> dict[str, Shared
     return copies
 
 
-def build_trigger_prompt(
-    emails: Sequence[ClaimedEmail],
-    deeplink: str,
-    shared_copies: Mapping[str, SharedCopy] | None = None,
-) -> str:
-    """The synthetic user message that starts a Zillow run.
-
-    Every ID is given in the mailbox it belongs to: the shared mailbox when
-    ``shared_copies`` has the email, otherwise the watched mailbox.
-    """
-    shared_copies = shared_copies or {}
-
-    def ids(email: ClaimedEmail) -> tuple[str, str, str]:
-        copy = shared_copies.get(email.message_id)
-        if copy is None:
-            return email.message_id, email.thread_id, GOOGLE_DELEGATION_EMAIL
-        return copy.message_id, copy.thread_id, SHARED_EXTERNAL_EMAIL
-
-    def label(mailbox: str) -> str:
-        return f"{mailbox.split('@')[0]}@"
-
-    if len(emails) == 1:
-        email = emails[0]
-        message_id, thread_id, mailbox = ids(email)
-        email_details = dedent(f"""\
-            **Email details:**
-            - Gmail Message ID ({label(mailbox)} account): {message_id}
-            - Thread ID (Gmail): {thread_id}
-            - Subject: {email.subject}
-            - From: {email.from_address}""")
-        reply_hint = f'When replying, pass reply_to_message_id="{message_id}" to thread correctly.'
-    else:
-        lines = []
-        for i, email in enumerate(emails, 1):
-            message_id, thread_id, mailbox = ids(email)
-            lines.append(
-                f"{i}. Subject: {email.subject} | From: {email.from_address} "
-                f"| Message ID: {message_id} | Thread ID: {thread_id} "
-                f"| Mailbox: {label(mailbox)}"
-            )
-        email_details = "**Emails received (oldest first):**\n" + "\n".join(lines)
-        reply_hint = "For each email that needs a reply, pass the corresponding reply_to_message_id to thread correctly."
-
-    if all(email.message_id in shared_copies for email in emails):
-        mailbox_hint = (
-            f"These IDs are from {SHARED_EXTERNAL_EMAIL}. Always search/read there "
-            f'(use user_email_account="{SHARED_EXTERNAL_EMAIL}").'
-        )
-    else:
-        mailbox_hint = (
-            f"IDs marked {label(GOOGLE_DELEGATION_EMAIL)} had no copy in {SHARED_EXTERNAL_EMAIL}: "
-            f'read those with user_email_account="{GOOGLE_DELEGATION_EMAIL}". '
-            f'Read everything else from {SHARED_EXTERNAL_EMAIL} (user_email_account="{SHARED_EXTERNAL_EMAIL}").'
-        )
-
-    return dedent(f"""\
-        {len(emails)} new Zillow email(s) arrived. Load the zillow-auto-reply skill and follow it.
-
-        {email_details}
-        - Conversation deeplink: {deeplink}
-
-        Read each email using its Message ID, then draft replies or NoAction per email.
-        {reply_hint}
-        {mailbox_hint}""")
-
-
 async def _already_completed(conversation_id: str) -> bool:
     """True if an earlier attempt saved this conversation in full.
 
@@ -589,7 +514,18 @@ async def _already_completed(conversation_id: str) -> bool:
 
 
 async def process_thread(claim: ClaimedThread) -> None:
-    """Run the agent for one claimed lead thread and record the result. Never raises."""
+    """Hand one claimed lead thread to the lead agent and record the result. Never raises.
+
+    Zillow email goes to the dedicated lead agent and nowhere else. It used to
+    start a run of the general Sernia agent, which can read company email,
+    files and contacts and can send messages. A lead's email is text from a
+    stranger, and that agent would read it with all of that within reach, so
+    the only thing between an instruction hidden in an inquiry and an outbound
+    message was a person approving every send. The lead agent has no tools and
+    sees nothing private (see ``zillow_leads/agent.py``), which is what makes
+    it reasonable to drop approval for routine replies later. Do not route
+    this queue back to the general agent.
+    """
     conversation_id = claim.conversation_id
     try:
         if await _already_completed(conversation_id):
@@ -601,34 +537,36 @@ async def process_thread(claim: ClaimedThread) -> None:
             await complete_thread(claim)
             return
 
-        config = await get_zillow_email_config()
-        outcome = await execute_trigger_run(
-            trigger_source=TRIGGER_SOURCE,
-            trigger_prompt=build_trigger_prompt(
-                claim.emails,
-                f"{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}",
-                await find_shared_copies(claim.emails),
-            ),
-            trigger_metadata={
+        # The queue's IDs are from the watched mailbox; the lead agent works
+        # in the shared one. The newest email that has a copy there names the
+        # thread.
+        copies = await find_shared_copies(claim.emails)
+        shared = next(
+            (copies[e.message_id] for e in reversed(claim.emails) if e.message_id in copies), None
+        )
+        if shared is None:
+            await fail_thread(claim, "no copy in the shared mailbox yet")
+            return
+
+        handled = await handle_thread(
+            shared.thread_id,
+            conversation_id=conversation_id,
+            metadata={
                 "trigger_source": TRIGGER_SOURCE,
                 "trigger_type": "email_event",
                 "email_count": len(claim.emails),
                 "subjects": [e.subject for e in claim.emails],
                 "thread_ids": [claim.thread_id],
             },
-            conversation_id=conversation_id,
-            auto_approved_reply_domains=(
-                frozenset() if config["require_approval"] else frozenset({ZILLOW_EMAIL_DOMAIN})
-            ),
         )
     except Exception as exc:
         logfire.exception("zillow_email_queue: processing error", thread_id=claim.thread_id)
         await fail_thread(claim, f"{type(exc).__name__}: {exc}")
         return
 
-    if outcome is None:
-        await fail_thread(claim, "agent run crashed")
-    elif not outcome.persisted:
+    if handled is None:
+        await fail_thread(claim, "thread not found in the shared mailbox")
+    elif not handled.persisted:
         await fail_thread(claim, "conversation was not saved")
     else:
         await complete_thread(claim)
@@ -637,8 +575,8 @@ async def process_thread(claim: ClaimedThread) -> None:
             thread_id=claim.thread_id,
             conversation_id=conversation_id,
             email_count=len(claim.emails),
-            has_pending=bool(outcome.pending),
-            no_action=outcome.no_action_reason is not None,
+            action=handled.action,
+            has_pending=handled.pending,
         )
 
 

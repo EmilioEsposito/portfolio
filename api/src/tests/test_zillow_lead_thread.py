@@ -253,3 +253,105 @@ class TestLoadLeadThread:
     @pytest.mark.usefixtures("mailboxes")
     async def test_none_when_the_thread_is_not_in_the_shared_mailbox(self):
         assert await lead_thread.load_lead_thread("watched-thread") is None
+
+
+class TestTidyZillowForm:
+    def test_a_relayed_message_keeps_the_lead_words_once(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        body = (
+            "Could we do 11 tomorrow?  Regarding your listing at:  12 Example St #A, Town, PA 15224 "
+            "Some rental inquiries may be scams. If a message asks you to scan a QR code, select a "
+            "link, verify your identity, or send payment, don't respond. Report it to us instead. "
+            "RENTER'S NAME  Pat Doe  RENTER'S MESSAGE  Could we do 11 tomorrow?"
+        )
+
+        assert tidy_zillow_form(body) == (
+            "Could we do 11 tomorrow?\n\n"
+            "Zillow form details (not written by the lead):\n"
+            "- Listing: 12 Example St #A, Town, PA 15224\n"
+            "- Name: Pat Doe"
+        )
+
+    def test_a_first_inquiry_keeps_the_profile_and_drops_the_button(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        body = (
+            "I would like to schedule a tour. Send application About Pat Doe  Move in  Aug 01, 2026 "
+            "\xa0 Credit score  660 to 719 \xa0 Income  $39996 \xa0 Pets  No \xa0 Lease Length  "
+            "12 months \xa0 Number of Bedrooms  1 \xa0 Number of Occupants  1"
+        )
+
+        tidy = tidy_zillow_form(body)
+
+        assert tidy.splitlines() == [
+            "I would like to schedule a tour.",
+            "",
+            "Zillow form details (not written by the lead):",
+            "- Name: Pat Doe",
+            "- Move in: Aug 01, 2026",
+            "- Credit score: 660 to 719",
+            "- Income: $39996",
+            "- Pets: No",
+            "- Lease Length: 12 months",
+            "- Number of Bedrooms: 1",
+            "- Number of Occupants: 1",
+        ]
+        assert "Send application" not in tidy
+        assert tidy_zillow_form(tidy) == tidy  # applying it again changes nothing
+
+    def test_a_bare_button_is_dropped_and_plain_text_is_left_alone(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        assert tidy_zillow_form("Texting is preferred. Send application") == "Texting is preferred."
+        assert tidy_zillow_form("See you then!") == "See you then!"
+        # Someone writing about themselves is not a Zillow profile.
+        about = "A bit about me: I work nights. Move in whenever."
+        assert tidy_zillow_form(about) == about
+
+    def test_suggested_replies_after_the_button_go_with_it(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        body = (
+            "Just confirming you don't allow any dogs? Send applicationYes that's fineSorry I "
+            "don't allow that Pat will receive your message.  Use our online application with "
+            "tenant screening. Questions? Learn more about our online applications. "
+            "About Pat Doe  Move in  Aug 01, 2026 \xa0 Pets  Yes"
+        )
+
+        tidy = tidy_zillow_form(body)
+
+        assert tidy.splitlines()[0] == "Just confirming you don't allow any dogs?"
+        assert "- Pets: Yes" in tidy and "online application" not in tidy
+        assert tidy_zillow_form(tidy) == tidy
+
+    def test_a_relayed_message_with_its_tail_cut_off(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        warning = (
+            "Some rental inquiries may be scams. If a message asks you to scan a QR code, select "
+            "a link, verify your identity, or send payment, don't respond. Report it to us instead."
+        )
+        listing = "Regarding your listing at:  12 Example St #A, Town, PA 15224"
+        wanted = (
+            "A friend will come.\n\nZillow form details (not written by the lead):\n"
+            "- Listing: 12 Example St #A, Town, PA 15224"
+        )
+
+        # Nothing after the warning but a stray fragment.
+        assert tidy_zillow_form(f"A friend will come. {listing} {warning} 555-0100") == wanted
+        # The second copy of the message is missing.
+        cut = f"A friend will come. {listing} {warning} RENTER'S NAME  Pat Doe  RENTER'S MESSAGE"
+        assert tidy_zillow_form(cut) == wanted + "\n- Name: Pat Doe"
+        # Zillow's suggested replies sit between the address and the warning.
+        buttons = f"Running late. {listing} Okay see you soon!Sorry, almost there! {warning}"
+        assert tidy_zillow_form(
+            buttons + " RENTER'S NAME  Pat Doe  RENTER'S MESSAGE  Running late."
+        ) == (
+            "Running late.\n\nZillow form details (not written by the lead):\n"
+            "- Listing: 12 Example St #A, Town, PA 15224\n- Name: Pat Doe"
+        )
+        # No message in either place.
+        bare = tidy_zillow_form(f"{listing} {warning} RENTER'S NAME  Pat Doe  RENTER'S MESSAGE")
+        assert bare.splitlines()[0] == "(no message text)"
+        assert tidy_zillow_form(bare) == bare

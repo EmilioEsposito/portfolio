@@ -10,10 +10,10 @@ measurement instead of by reading production conversations.
 ```mermaid
 flowchart LR
     S["<b>Scenario</b><br/>a past thread, cut where<br/>the lead spoke last"]
-    O["<b>Operating data</b><br/>listings + fact sheets,<br/>standard answers, tour times"]
+    O["<b>Operating data</b><br/>listings + fact sheets,<br/>booking link, tour times"]
     C["<b>Case</b><br/>what the model reads"]
-    P["<b>Policy</b><br/>policy.md"]
-    D["<b>Decision</b><br/>reply / no_reply / escalate<br/>+ the draft"]
+    P["<b>Policy</b><br/>policy.md: rules and<br/>standard answers"]
+    D["<b>Outcome</b><br/>Reply (with the email),<br/>NoReply or Escalate"]
     K["<b>Checks</b><br/>code, exact answers"]
     L["<b>Label</b><br/>a person: pass or fail,<br/>one line why"]
     S --> C
@@ -28,10 +28,10 @@ flowchart LR
 | Word | Meaning | Changes when |
 |---|---|---|
 | **Scenario** | A real conversation up to a moment where we owed a response, containing only the emails. | Never; it is a record of what happened. |
-| **Operating data** | What was true of the business then: units, facts about each, standard answers, when tours can happen. | Weekly in season, and its format can change too. |
+| **Operating data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. | Weekly in season, and its format can change too. |
 | **Case** | Scenario + operating data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
-| **Policy** | The instructions: when to reply, what is allowed, how to write. | By commit, after an eval run says the change helps. |
-| **Decision** | The model's structured output. | Every run. |
+| **Policy** | The instructions: when to reply, what is allowed, how to write, and the answers that are the same for every lead (how to apply, the fee). | By commit, after an eval run says the change helps. |
+| **Outcome** | What the lead agent returns: a `Reply` with the full email, a `NoReply`, or an `Escalate` with a question. Three types, so a reply cannot exist without its text. | Every run. |
 | **Check** | A rule with an exact answer, written as code. | Rarely. |
 | **Label** | A person's verdict on one decision, tied to the scenario. | Added each review round. |
 
@@ -56,7 +56,6 @@ whether replies got better or worse.
     "lease_start_earliest": "2026-07-01",
     "facts": "1 bedroom, second floor\nDishwasher\nTenant pays gas and electric"
   }],
-  "standard_answers": "How to apply: on our website, after a tour\nApplication fee: $32",
   "availability": [{"agent": "Alex", "weekday_times": ["10:00", "17:30"]}]
 }
 ```
@@ -72,9 +71,8 @@ Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)
   - Dishwasher
   - Tenant pays gas and electric
 
-## Standard answers
-- How to apply: on our website, after a tour
-- Application fee: $32
+## Booking links
+- (none)
 
 ## Tour times that may be offered
 - Tuesday, May 5: 10:00 AM, 5:30 PM
@@ -87,7 +85,7 @@ Hi, I'd like to see 12 Example St #A this week. Does it have a dishwasher?
 
 Code already removed Monday's times (24-hour notice) and the agent's name.
 
-**Decision** (from the model)
+**Outcome** (from the lead agent; this one is a `Reply`)
 
 ```json
 {
@@ -129,16 +127,19 @@ flowchart LR
 | "Tone too stiff", "replied when it should have waited" | Policy: `policy.md` | code |
 | "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
-Two experiments so far, both on the same 30 real scenarios:
+Nine experiments so far, all on the same 30 real scenarios. The first five:
 
 | Experiment | Operating data | Reply | No reply | Escalate |
 |---|---|---|---|---|
 | 1 | rent and lease dates only | 12 | 6 | 12 |
 | 2 | + fact sheets and standard answers | 20 | 5 | 5 |
+| 3 | same data; policy checked against the original skill | 19 | 5 | 6 |
+| 4 | + a booking link; tours offered through it by default | 20 | 4 | 6 |
+| 5 | standard answers moved from the data into the policy | 19 | 4 | 7 |
 
-The policy barely changed between them. Most escalations in the first were
-requests for facts the case did not contain, which became clear from running
-the cases.
+The policy barely changed between the first two. Most escalations in the first
+were requests for facts the case did not contain, which became clear from
+running the cases.
 
 ## What a listing needs
 
@@ -161,13 +162,20 @@ bedrooms and layout, floor, pets, utilities (included / tenant pays), lease
 length, laundry, dishwasher and air conditioning, parking, deposit, outdoor
 space, furnished or not. Add a line whenever an escalation shows one missing.
 
-**`standard_answers`**: free text, the same for every unit. How to apply and
-when, the fee, who must apply, how long review takes, what holds the unit after
-approval, deposit amount.
+Answers that are the same for every unit are not listing data. How to apply,
+the fee, who must apply, how long review takes and what holds a unit after
+approval are in `policy.md` under "Standard answers". The case holds only what
+differs from one lead or one week to the next.
 
 Exceptions are deliberately left out of both, for example a discount, an
 unusual lease length, or an applicant without a credit file. The agent
 escalates those.
+
+**`booking_url`**: where a lead can book a showing themselves, one for the
+business or one per listing. When a unit has one, a reply to a lead with no
+stated preference gives the link and lists no times. Times are still offered
+when a tour is already booked for the unit (so leads share a showing) or when
+the lead named a day or time.
 
 Tour times follow the same approach. Today a weekly pattern per person is turned into
 slots by `offerable_slots()`. A calendar or booking service can supply the
@@ -188,17 +196,27 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals export \
 uv run python -m api.src.sernia_ai.zillow_leads.evals split \
     --scenarios <private>/scenarios.jsonl --out <private>/splits.json
 
+# Any time: write a page for reading the train and dev splits (test stays sealed)
+uv run python -m api.src.sernia_ai.zillow_leads.evals browse \
+    --scenarios <private>/scenarios.jsonl --splits <private>/splits.json \
+    --run <private>/runs/round-3.jsonl --review <private>/review.html \
+    --out <private>/dataset.html
+
 # Each experiment: run a dev sample and send it to Logfire
 uv run python -m api.src.sernia_ai.zillow_leads.evals run \
     --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
     --splits <private>/splits.json --split dev \
     --name round-3 --sample 30 --seed 7 --out <private>/runs/round-3.jsonl
 
-# Then: write the page you label that run on, and open it in a browser
+# Then: write the page you label that run on, and open it in a browser.
+# Keep --out the same every time, so there is one review page to bookmark.
 uv run python -m api.src.sernia_ai.zillow_leads.evals review \
     --scenarios <private>/scenarios.jsonl --operating <private>/operating.json \
-    --run <private>/runs/round-3.jsonl --out <private>/runs/round-3.html
+    --run <private>/runs/round-3.jsonl --out <private>/review.html
 ```
+
+`run` saves the policy as it was beside its output (`round-3.policy.md`), and
+the review page shows it behind a **Policy** button.
 
 The review page shows, per decision: what the lead wrote, what the model
 decided and drafted, and (folded away) everything the model was given and what
@@ -208,10 +226,21 @@ are kept in the browser as you go; **Download labels** saves them as
 
 ```json
 {"scenario_id": "…", "verdict": "fail", "note": "buried the answer under the tour times",
- "corrected_reply": "", "action": "reply"}
+ "corrected_reply": "", "action": "reply", "output_hash": "…", "run": "round-3"}
 ```
 
 `corrected_reply` is optional: the reply you would have sent.
+
+A label belongs to the output it judged. The model words the same decision
+differently on every run, so after a re-run the page does not reuse a verdict
+silently. It shows "On an earlier draft you marked this fail: …" with a **Still
+applies** button, and counts the case as unlabelled until you confirm or decide
+again. To start a page from labels made elsewhere, pass `--labels <file>`; to
+let it recognise labels made on earlier runs, pass `--previous <run.jsonl>`.
+
+The lead agent has its own model setting, `LEAD_AGENT_MODEL` in `agent.py`,
+separate from the general agent's. `run --model <name>` tries another model on
+the same cases without editing code.
 
 A run records the policy commit, the model, and a hash of the operating file,
 prints counts only, and appears in Logfire under AI Evaluations. The same
@@ -228,22 +257,99 @@ small synthetic set will live in the repo for CI.
 flowchart LR
     Q["Queue<br/>new Zillow email"] --> T["Load thread<br/>shared mailbox"]
     T --> B["Build case<br/>live operating data"]
-    B --> X["Decide"]
-    X -->|reply| A["Approval, then send"]
-    X -->|no_reply| N["Nothing"]
-    X -->|escalate| H["Person, with the question"]
-    A --> W["Approved unchanged = pass<br/>edited or denied = fail<br/>→ new labelled scenario"]
+    B --> X["Lead agent<br/>no tools"]
+    X -->|Reply| A["Approval card<br/>then code sends"]
+    X -->|NoReply| N["Saved, nothing sent"]
+    X -->|Escalate| H["Approval card<br/>with the question"]
+    A --> W["Approved unchanged = pass<br/>edited or rejected = fail<br/>→ a label"]
 ```
 
-Production calls the same `decide()` as the evals; only the source of the case
-differs. Code picks the recipient, subject and thread; the model does not.
-Every approval becomes a label, so the set keeps growing without a review
-session.
+The queue hands every Zillow thread to the lead agent and to nothing else. It
+no longer starts the general Sernia agent, which has tools and access to
+company data and so should not read email written by strangers.
+
+- **Same function as the evals.** Production calls `respond(case)`, exactly as
+  an experiment does; only where the case comes from differs.
+- **Code does the acting** (`handle.py`). It works out where a reply goes
+  before the agent runs: the reply address of the lead's latest message, and
+  only if that is a Zillow relay. The route is stored with the conversation.
+  An approver can edit the words of a reply, not its recipient.
+- **Nothing is sent without a person.** A `Reply` or an `Escalate` is saved as
+  a pending approval on the same screen the general agent uses. On approval
+  code sends the approved text; no model runs again.
+- **A lead conversation cannot be continued in chat.** The chat endpoint
+  refuses it, so the lead's words are never loaded as the general agent's
+  history.
+- **Each approval is recorded** as sent unchanged, edited, or rejected, with
+  the text that went out, ready to be read back as labels.
+
+Listings, the booking link and tour availability come from the
+`zillow_operating_data` app setting, a JSON document with the shape of
+`OperatingData`. Until it is filled in, the agent sees no listings and
+escalates every lead.
+
+Not built yet: the phone contact and calendar event that followed a confirmed
+tour under the general agent, tours already booked (the case gets none), and
+turning approvals into labelled scenarios automatically.
 
 **One mailbox.** The Gmail watch is on one person's mailbox and replies go out
 from the shared one. Gmail IDs differ per mailbox, so `thread.py` finds the
 shared mailbox's copy by its RFC `Message-ID` header and everything after that
 uses shared-mailbox IDs.
+
+## Before any reply is sent without approval
+
+Every reply waits for a person today, and that stays until the points below are
+met. A lead's email is untrusted text that the model reads, so it can contain
+instructions aimed at the model (prompt injection). Leaking data that way needs
+three things together: access to private data, exposure to untrusted content,
+and a way to send something out. The design keeps the step that reads lead
+email away from the first of those.
+
+| Requirement | State |
+|---|---|
+| The agent that reads lead email has no tools, and its input holds nothing private: listings, tour times and the thread itself | Built: `agent.py` |
+| Its output is one of three fixed types, and code chooses the recipient, subject and thread | Built: `handle.py`. Replies go only to a Zillow relay address |
+| A reply contains only links that were supplied to the model | Built as a check. It must block the send, not just score it |
+| Text written by a lead does not reach an agent that has tools | Built for the app: Zillow email never starts the general agent, and a lead conversation cannot be continued in chat. A person can still paste a lead's words into a new chat |
+| The dataset includes messages that try to redirect the model, with checks that the action and the reply are unaffected | Planned |
+| Approval is dropped one kind of reply at a time, lowest risk first, with the measured pass rate for that kind as the bar | Planned |
+
+Background: [the lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/)
+(Willison) and
+[Design Patterns for Securing LLM Agents against Prompt Injections](https://arxiv.org/abs/2506.08837)
+(Beurer-Kellner et al.).
+
+## What came from the workspace skill
+
+The general agent used to handle Zillow email by following a
+`zillow-auto-reply` skill. Every rule in
+it was checked against this package; this is where each one went.
+
+| Rule in the skill | Now lives in | State |
+|---|---|---|
+| When to reply, when to stay quiet | `policy.md` | Carried over |
+| Credit thresholds; decline a self-reported score below 600 | `policy.md` | Carried over. The skill said both "politely decline" and "do not reply"; the policy declines once |
+| Pets, move-in mismatch, no implied flexibility on lease start | `policy.md` | Carried over |
+| Virtual tour wording, friend attending in person | `policy.md` | Carried over |
+| Naming an inconsistency and offering the next step conditionally | `policy.md` | Carried over |
+| Tone, plain text, no staff names, bullet format, signature | `policy.md`, checked by `ReplyChecks` | Carried over |
+| Confirmed, inferred, rescheduled and cancelled tours | `policy.md`, recorded in `tour` | Carried over |
+| Text the lead a day before; give the resident notice | `policy.md`, as team notes | Carried over |
+| Offer every available time | `policy.md` | Changed: a booking link is the default; every time is listed only when there is no link |
+| Past slots, 24-hour notice, showing hours, blackout dates | `case.py` | Built |
+| Same-unit tour already booked: offer that time first | `policy.md`; `ReplyChecks` allows those times | Built, not yet exercised: past cases have no booked tours |
+| Active units, rent, lease start, virtual tours allowed | Operating data | Built |
+| Find the email in the shared mailbox | `thread.py`, queue | Built |
+| One run per lead when several emails arrive | Queue | Built |
+| Reply only to the lead's external address, never an internal one; no valid address means no send | `handle.py` | Built, and stricter: only a Zillow relay address |
+| Create a phone contact tagged as a Zillow lead when a number is known | `handle.py` | Planned |
+| Calendar event on confirmation: title, host required, 30 minutes, no duplicates, replace on reschedule | `handle.py` | Planned |
+| A tour at another building blocks that host's time; the same building does not | Slot calculation | Planned |
+| Broad availability such as "after 5 PM" or "any time" | Slot calculation | Planned; availability is a list of start times today |
+| Ask a host for more availability when theirs runs out within 3 days | A scheduled check | Planned; the policy adds a team note only when no times are left |
+| Skip leads whose email was archived in the watched mailbox | | Not carried over. The queue starts a run for every Zillow email |
+| Rewrite these instructions after each run | | Dropped on purpose: an evaluated prompt cannot change between the run and the review |
 
 ## Status
 
@@ -252,13 +358,12 @@ uses shared-mailbox IDs.
 | Durable queue of incoming email | [triggers](../triggers/README.md) | Built |
 | Thread loader | `thread.py` | Built |
 | Case builder, slot arithmetic | `case.py` | Built |
-| Policy and decision step | `policy.md`, `decision.py` | Built, under review |
+| Policy and the lead agent | `policy.md`, `agent.py` | Built, under review |
 | Scenario export, runner, exact checks | `evals.py` | Built |
 | Review page and label format | `evals.py`, `review.html` | Built |
 | Train / dev / test split by thread | `evals.py` | Built |
+| Dataset page for reading train and dev | `evals.py`, `dataset.html` | Built |
 | Error analysis from labels | | Next, after the first labelled round |
+| Queue runs only the lead agent; approval, then code sends | `handle.py`, [triggers](../triggers/README.md) | Built. Not yet run on a live lead |
+| Contact and calendar updates after a confirmed tour | | Planned |
 | LLM judges, synthetic set, CI | | Planned |
-| Apply step; queue switched to this task | | Planned |
-
-Until the last row is built, the queue still starts a general Sernia agent run
-that follows the `zillow-auto-reply` workspace skill.

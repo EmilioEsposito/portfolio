@@ -22,26 +22,39 @@ repository; nothing here prints their content, only counts.
 
 ``run`` sends the experiment to Logfire when a token is configured. ``review``
 writes one self-contained page for a person to mark each decision pass or
-fail; it holds applicant emails too.
+fail. ``browse`` writes a page for reading the train and dev splits, with
+links into the review pages. Both pages hold applicant emails too.
 """
 
 import argparse
 import asyncio
 import hashlib
 import json
+import os
 import random
+import re
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
-from api.src.sernia_ai.config import MAIN_AGENT_MODEL
+from api.src.sernia_ai.model_config import resolve_model
+from api.src.sernia_ai.zillow_leads.agent import (
+    LEAD_AGENT_MODEL,
+    Escalate,
+    NoReply,
+    Reply,
+    lead_agent,
+    load_policy,
+    respond,
+)
 from api.src.sernia_ai.zillow_leads.case import (
     LeadCase,
     OperatingData,
@@ -49,7 +62,6 @@ from api.src.sernia_ai.zillow_leads.case import (
     decision_points,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.decision import LeadDecision, decide
 from api.src.sernia_ai.zillow_leads.thread import (
     LeadThread,
     find_lead_thread_ids,
@@ -59,13 +71,15 @@ from api.src.sernia_ai.zillow_leads.thread import (
 # Leads reach us through Zillow's relay addresses.
 LEAD_QUERY = "from:convo.zillow.com"
 SIGNATURE = "Sernia Capital Team"
+LINK = re.compile(r"https?://[^\s<>\"')\]]+")
 REVIEW_TEMPLATE = Path(__file__).with_name("review.html")
+DATASET_TEMPLATE = Path(__file__).with_name("dataset.html")
 
 
 class Scenario(BaseModel):
     """A moment in a real thread where a decision was owed, and what happened next.
 
-    It holds only the conversation. Listings, schedules and standard answers
+    It holds only the conversation. Listings, schedules and booking links
     come from operating data when the scenario is run.
 
     ``actual_reply`` is context for the person reviewing. It is never shown to
@@ -93,6 +107,11 @@ class Label(BaseModel):
     # the only one, so it is an example to learn from, never an exact target.
     corrected_reply: str = ""
     action: str = ""  # what the model did in the run that was reviewed
+    # Which output this verdict judged. The model words the same decision
+    # differently on every run, so a label applies to one output, and a later
+    # run shows it as an earlier verdict to confirm, not as settled.
+    output_hash: str = ""
+    run: str = ""
 
 
 # Each thread belongs to one split, for good. Whole threads, because a later
@@ -156,34 +175,54 @@ def case_for(scenario: Scenario, operating: OperatingData) -> LeadCase:
     return build_case(scenario.thread, operating, upto=len(scenario.thread.messages) - 1)
 
 
+def _bare(text: str) -> str:
+    """Links without scheme, ``www.`` or trailing punctuation, so the same
+    address written two ways compares equal."""
+    return re.sub(r"https?://(www\.)?", "", text.lower()).rstrip("/.,")
+
+
 @dataclass
-class ReplyChecks(Evaluator[LeadCase, LeadDecision, dict]):
+class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
     """Rules about a reply that have exact answers. Skipped when there is no reply."""
 
-    def evaluate(self, ctx: EvaluatorContext[LeadCase, LeadDecision, dict]) -> dict[str, bool]:
-        decision, case = ctx.output, ctx.inputs
-        if decision.action != "reply" or not decision.reply_body:
+    def evaluate(
+        self, ctx: EvaluatorContext[LeadCase, Reply | NoReply | Escalate, dict]
+    ) -> dict[str, bool]:
+        outcome, case = ctx.output, ctx.inputs
+        if not isinstance(outcome, Reply):
             return {}
-        body = decision.reply_body
+        body = outcome.reply_body
         allowed = {slot.start for slot in case.offerable_slots} | {
             tour.start for tour in case.booked_tours
         }
         staff = {slot.agent.split()[0].lower() for slot in case.offerable_slots if slot.agent}
         words = {word.strip(".,!?:;()").lower() for word in body.split()}
+        # Every link the model was given: in the case, or in its instructions.
+        given = _bare(
+            " ".join(
+                [load_policy()]
+                + [f"{listing.booking_url} {listing.facts}" for listing in case.listings]
+            )
+        )
         return {
             # A time without a UTC offset cannot be compared, so it fails.
             "offered_slots_allowed": all(
-                slot.tzinfo is not None and slot in allowed for slot in decision.offered_slots
+                slot.tzinfo is not None and slot in allowed for slot in outcome.offered_slots
             ),
             "no_em_dash": "—" not in body,
             "has_signature": SIGNATURE in body,
             "no_staff_names": not (staff & words),
+            # A link the case did not supply was written from memory or invented.
+            "links_allowed": all(
+                re.search(rf"(?<![\w.-]){re.escape(_bare(link))}(?![\w/-])", given)
+                for link in LINK.findall(body)
+            ),
         }
 
 
 def build_dataset(
     scenarios: list[Scenario], operating: OperatingData
-) -> Dataset[LeadCase, LeadDecision, dict]:
+) -> Dataset[LeadCase, Reply | NoReply | Escalate, dict]:
     return Dataset(
         name="zillow-lead-replies",
         cases=[
@@ -278,25 +317,31 @@ async def run(args: argparse.Namespace) -> None:
         scenarios = random.Random(args.seed).sample(scenarios, args.sample)
 
     policy_commit = _policy_commit()
-    report = await build_dataset(scenarios, operating).evaluate(
-        decide,
-        name=args.name,
-        max_concurrency=args.concurrency,
-        progress=False,
-        metadata={
-            "policy_commit": policy_commit,
-            "model": MAIN_AGENT_MODEL,
-            "operating": _fingerprint(args.operating),
-            "split": args.split if args.splits else "unsplit",
-        },
-    )
+    model = args.model or LEAD_AGENT_MODEL
+    # --model tries another model on the same cases without editing the code.
+    with lead_agent().override(model=resolve_model(model)):
+        report = await build_dataset(scenarios, operating).evaluate(
+            respond,
+            name=args.name,
+            max_concurrency=args.concurrency,
+            progress=False,
+            metadata={
+                "policy_commit": policy_commit,
+                "model": model,
+                "operating": _fingerprint(args.operating),
+                "split": args.split if args.splits else "unsplit",
+            },
+        )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    # The instructions exactly as they were for this run, to read beside its outputs.
+    _policy_snapshot(args.out).write_text(load_policy())
     with args.out.open("w") as out:
         for case in report.cases:
             row = {
                 "case_id": case.name,
                 "policy_commit": policy_commit,
+                "model": model,
                 "decision": case.output.model_dump(mode="json"),
                 "checks": {name: result.value for name, result in case.assertions.items()},
                 "trace_id": case.trace_id,
@@ -310,6 +355,7 @@ async def run(args: argparse.Namespace) -> None:
         for name, result in case.assertions.items()
         if not result.value
     )
+    print(f"model: {model}")
     print(f"cases: {len(report.cases)}  errors: {len(report.failures)}")
     print(f"actions: {dict(actions)}")
     print(f"failed checks: {dict(failed_checks)}")
@@ -325,8 +371,32 @@ def _recorded(decision: dict) -> str:
     return " · ".join([*lead, state])
 
 
+def _policy_snapshot(run_file: Path) -> Path:
+    return run_file.with_suffix(".policy.md")
+
+
+def _output_hash(decision: dict) -> str:
+    """Identifies one output: the action and the words a reviewer judges."""
+    judged = [decision["action"], decision.get("reply_body"), decision.get("question")]
+    return hashlib.sha256(json.dumps(judged).encode()).hexdigest()[:12]
+
+
+def read_labels(path: Path) -> list[Label]:
+    """Labels from a file the review page downloaded, or a plain list of them."""
+    content = json.loads(path.read_text())
+    rows = content["labels"] if isinstance(content, dict) else content
+    return [Label.model_validate(row) for row in rows]
+
+
 def review_page(
-    run_name: str, scenarios: list[Scenario], operating: OperatingData, rows: list[dict]
+    run_name: str,
+    scenarios: list[Scenario],
+    operating: OperatingData,
+    rows: list[dict],
+    policy: str = "",
+    *,
+    labels: list[Label] | None = None,
+    previous: dict[str, list[dict]] | None = None,
 ) -> str:
     """One self-contained HTML page for labelling a run's decisions.
 
@@ -345,6 +415,7 @@ def review_page(
         cases.append(
             {
                 "id": scenario.scenario_id,
+                "hash": _output_hash(decision),
                 "action": decision["action"],
                 "reason": decision["reason"],
                 "reply": decision.get("reply_body"),
@@ -360,15 +431,149 @@ def review_page(
             }
         )
     policy_commit = rows[0].get("policy_commit", "unknown") if rows else "unknown"
-    data = json.dumps({"run": run_name, "policy_commit": policy_commit, "cases": cases})
+    data = json.dumps(
+        {
+            "run": run_name,
+            "policy_commit": policy_commit,
+            "model": rows[0].get("model", "") if rows else "",
+            "policy": policy,
+            "cases": cases,
+            # Labels made before this page was generated, and the outputs of
+            # earlier runs, so the page can tell which labels still apply.
+            "seed_labels": [label.model_dump() for label in labels or []],
+            "previous": {
+                name: {row["case_id"]: _output_hash(row["decision"]) for row in old_rows}
+                for name, old_rows in (previous or {}).items()
+            },
+            "previous_actions": {
+                name: {row["case_id"]: row["decision"]["action"] for row in old_rows}
+                for name, old_rows in (previous or {}).items()
+            },
+        }
+    )
     # The data sits inside a <script> element: keep an email from closing it.
     return REVIEW_TEMPLATE.read_text().replace("__REVIEW_DATA__", data.replace("</", "<\\/"))
+
+
+def _when(moment, zone: ZoneInfo) -> str:
+    local = moment.astimezone(zone)
+    return f"{local:%a %b} {local.day}, {local:%I:%M %p}".replace(", 0", ", ")
+
+
+def dataset_page(
+    scenarios: list[Scenario],
+    splits: dict[str, str],
+    runs: dict[str, list[dict]],
+    review_hrefs: dict[str, str],
+    *,
+    timezone: str = "America/New_York",
+) -> str:
+    """One self-contained HTML page for reading the dataset.
+
+    Train and dev test cases are shown in full. The test split appears as a
+    count only: none of its content is written into the page, so reading the
+    dataset cannot leak it into a later change.
+    """
+    zone = ZoneInfo(timezone)
+    in_runs: dict[str, list[dict]] = {}
+    for name, rows in runs.items():
+        for row in rows:
+            in_runs.setdefault(row["case_id"], []).append(
+                {
+                    "run": name,
+                    "action": row["decision"]["action"],
+                    "href": f"{review_hrefs[name]}#card-{row['case_id']}",
+                }
+            )
+    totals = {
+        name: {
+            "threads": sum(value == name for value in splits.values()),
+            "cases": len(in_split(scenarios, splits, name)),
+        }
+        for name in SPLITS
+    }
+    cases = []
+    for scenario in scenarios:
+        split_name = splits.get(scenario.thread.thread_id)
+        if split_name not in ("train", "dev"):
+            continue
+        messages = scenario.thread.messages
+        start = len(messages)
+        while start > 0 and not messages[start - 1].from_sernia:
+            start -= 1
+        cases.append(
+            {
+                "id": scenario.scenario_id,
+                "split": split_name,
+                "when": _when(messages[-1].sent_at, zone),
+                "sent_at": messages[-1].sent_at.isoformat(),
+                "messages": len(messages),
+                "first": start == 0,
+                "lead_message": "\n\n".join(m.body or "(empty)" for m in messages[start:]),
+                "earlier": [
+                    {
+                        "who": "Us" if m.from_sernia else "Lead",
+                        "when": _when(m.sent_at, zone),
+                        "body": m.body or "(empty)",
+                    }
+                    for m in messages[:start]
+                ],
+                "actual_reply": scenario.actual_reply,
+                "actual_delay": scenario.actual_reply_delay_minutes,
+                "runs": in_runs.get(scenario.scenario_id, []),
+            }
+        )
+    cases.sort(key=lambda case: case["sent_at"])
+    data = json.dumps(
+        {
+            "totals": totals,
+            "cases": cases,
+            "reviews": [
+                {"run": name, "href": review_hrefs[name], "count": len(rows)}
+                for name, rows in runs.items()
+            ],
+        }
+    )
+    return DATASET_TEMPLATE.read_text().replace("__DATASET_DATA__", data.replace("</", "<\\/"))
+
+
+async def browse(args: argparse.Namespace) -> None:
+    scenarios = read_scenarios(args.scenarios)
+    splits = json.loads(args.splits.read_text())
+    runs, hrefs = {}, {}
+    for run_file in args.run:
+        runs[run_file.stem] = [
+            json.loads(line) for line in run_file.read_text().splitlines() if line
+        ]
+        # A review page sits beside its run with the same name, unless told otherwise.
+        hrefs[run_file.stem] = os.path.relpath(
+            args.review or run_file.with_suffix(".html"), args.out.parent
+        )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(dataset_page(scenarios, splits, runs, hrefs))
+    readable = len(in_split(scenarios, splits, "train")) + len(in_split(scenarios, splits, "dev"))
+    print(f"readable test cases: {readable}  sealed: {len(in_split(scenarios, splits, 'test'))}")
+    print(f"page: {args.out}")
 
 
 async def review(args: argparse.Namespace) -> None:
     operating = OperatingData.model_validate_json(args.operating.read_text())
     rows = [json.loads(line) for line in args.run.read_text().splitlines() if line]
-    page = review_page(args.run.stem, read_scenarios(args.scenarios), operating, rows)
+    snapshot = _policy_snapshot(args.run)
+    policy = snapshot.read_text() if snapshot.exists() else ""
+    previous = {
+        run_file.stem: [json.loads(line) for line in run_file.read_text().splitlines() if line]
+        for run_file in args.previous
+    }
+    page = review_page(
+        args.run.stem,
+        read_scenarios(args.scenarios),
+        operating,
+        rows,
+        policy,
+        labels=read_labels(args.labels) if args.labels else None,
+        previous=previous,
+    )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(page)
     print(f"decisions to review: {len(rows)}  page: {args.out}")
@@ -402,6 +607,7 @@ def main() -> None:
     run_parser.add_argument("--sample", type=int, default=0)
     run_parser.add_argument("--seed", type=int, default=0)
     run_parser.add_argument("--concurrency", type=int, default=4)
+    run_parser.add_argument("--model", help="Model to run on instead of the configured one")
     run_parser.set_defaults(handler=run)
 
     review_parser = commands.add_parser("review", help="Write a page for labelling a run")
@@ -409,7 +615,19 @@ def main() -> None:
     review_parser.add_argument("--operating", type=Path, required=True)
     review_parser.add_argument("--run", type=Path, required=True)
     review_parser.add_argument("--out", type=Path, required=True)
+    review_parser.add_argument("--labels", type=Path, help="Labels to start from")
+    review_parser.add_argument(
+        "--previous", type=Path, action="append", default=[], help="An earlier run's output"
+    )
     review_parser.set_defaults(handler=review)
+
+    browse_parser = commands.add_parser("browse", help="Write a page for reading the dataset")
+    browse_parser.add_argument("--scenarios", type=Path, required=True)
+    browse_parser.add_argument("--splits", type=Path, required=True)
+    browse_parser.add_argument("--run", type=Path, action="append", default=[])
+    browse_parser.add_argument("--review", type=Path, help="Review page to link to")
+    browse_parser.add_argument("--out", type=Path, required=True)
+    browse_parser.set_defaults(handler=browse)
 
     args = parser.parse_args()
     asyncio.run(args.handler(args))
