@@ -31,9 +31,11 @@ from api.src.sernia_ai.zillow_leads.evals.labels import (
 from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
 from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     SPLITS,
+    CaseEdit,
     Scenario,
     assign_splits,
     in_split,
+    read_case_edits,
     read_scenarios,
     scenarios_from_thread,
 )
@@ -120,6 +122,21 @@ def not_in_runs(scenarios: list[Scenario], run_files: list[Path]) -> list[Scenar
     return [scenario for scenario in scenarios if scenario.scenario_id not in seen]
 
 
+def carry_over(
+    earlier: list[dict], edits: dict[str, CaseEdit]
+) -> tuple[list[str], dict[str, dict]]:
+    """Split an earlier run into the cases to run again and the rows to keep.
+
+    A case is run again when it has a hand edit the earlier row was not run
+    with. Every other row is kept as it was, marked with the run it came from.
+    """
+    again = [
+        row["case_id"] for row in earlier if row["case_id"] in edits and not row.get("case_edit")
+    ]
+    kept = {row["case_id"]: row for row in earlier if row["case_id"] not in again}
+    return again, kept
+
+
 async def run(args: argparse.Namespace) -> None:
     import logfire
 
@@ -130,6 +147,19 @@ async def run(args: argparse.Namespace) -> None:
 
     operating = OperatingData.model_validate_json(args.operating.read_text())
     scenarios = read_scenarios(args.scenarios)
+    edits = read_case_edits(args.case_edits) if args.case_edits else {}
+    order: list[str] = []
+    kept: dict[str, dict] = {}
+    if args.carry:
+        # The kept rows stand for this run only if the model would be told the same.
+        if _policy_snapshot(args.carry).read_text() != load_instructions():
+            raise SystemExit(f"The instructions have changed since {args.carry.name}: run it all.")
+        earlier = [json.loads(line) for line in args.carry.read_text().splitlines() if line]
+        order = [row["case_id"] for row in earlier]
+        again, kept = carry_over(earlier, edits)
+        kept = {case_id: {"carried_from": args.carry.stem, **row} for case_id, row in kept.items()}
+        scenarios = [item for item in scenarios if item.scenario_id in again]
+        print(f"from {args.carry.stem}: running {len(scenarios)} again, keeping {len(kept)}")
     if args.splits:
         scenarios = in_split(scenarios, json.loads(args.splits.read_text()), args.split)
         print(f"split: {args.split}  scenarios in it: {len(scenarios)}")
@@ -143,7 +173,7 @@ async def run(args: argparse.Namespace) -> None:
     model = args.model or LEAD_AGENT_MODEL
     # --model tries another model on the same cases without editing the code.
     with lead_agent().override(model=resolve_model(model)):
-        report = await build_dataset(scenarios, operating).evaluate(
+        report = await build_dataset(scenarios, operating, edits).evaluate(
             respond,
             name=args.name,
             max_concurrency=args.concurrency,
@@ -159,19 +189,25 @@ async def run(args: argparse.Namespace) -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # The instructions exactly as they were for this run, to read beside its outputs.
     _policy_snapshot(args.out).write_text(load_instructions())
+    rows = dict(kept)
+    for case in report.cases:
+        rows[case.name] = {
+            "case_id": case.name,
+            "policy_commit": policy_commit,
+            "model": model,
+            "decision": case.output.model_dump(mode="json"),
+            "checks": {name: result.value for name, result in case.assertions.items()},
+            "trace_id": case.trace_id,
+            # Whether this case was run with hand-set tour times (see CaseEdit).
+            "case_edit": case.name in edits,
+        }
     with args.out.open("w") as out:
-        for case in report.cases:
-            row = {
-                "case_id": case.name,
-                "policy_commit": policy_commit,
-                "model": model,
-                "decision": case.output.model_dump(mode="json"),
-                "checks": {name: result.value for name, result in case.assertions.items()},
-                "trace_id": case.trace_id,
-            }
-            out.write(json.dumps(row) + "\n")
+        # A carried run keeps the earlier run's order, so the page reads the same.
+        for case_id in order or rows:
+            if case_id in rows:
+                out.write(json.dumps(rows[case_id]) + "\n")
 
-    actions = Counter(case.output.action for case in report.cases)
+    actions = Counter(row["decision"]["action"] for row in rows.values())
     failed_checks = Counter(
         name
         for case in report.cases
@@ -179,9 +215,9 @@ async def run(args: argparse.Namespace) -> None:
         if not result.value
     )
     print(f"model: {model}")
-    print(f"cases: {len(report.cases)}  errors: {len(report.failures)}")
+    print(f"cases run: {len(report.cases)}  errors: {len(report.failures)}  kept: {len(kept)}")
     print(f"actions: {dict(actions)}")
-    print(f"failed checks: {dict(failed_checks)}")
+    print(f"failed checks in the cases run: {dict(failed_checks)}")
     print(f"experiment trace: {report.trace_id}")
     logfire.force_flush()
 
@@ -223,6 +259,7 @@ async def review(args: argparse.Namespace) -> None:
         # The store holds every verdict ever given; the page starts from the latest.
         labels=latest_per_scenario(read_labels(args.labels)) if args.labels else None,
         previous=previous,
+        edits=read_case_edits(args.case_edits) if args.case_edits else None,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(page)
@@ -310,6 +347,12 @@ def main() -> None:
         default=[],
         help="Leave out scenarios this earlier run already covered; repeat for several",
     )
+    run_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
+    run_parser.add_argument(
+        "--carry",
+        type=Path,
+        help="An earlier run: run again only its cases that have a new edit, keep its other rows",
+    )
     run_parser.set_defaults(handler=run)
 
     review_parser = commands.add_parser("review", help="Write a page for labelling a run")
@@ -318,6 +361,7 @@ def main() -> None:
     review_parser.add_argument("--run", type=Path, required=True)
     review_parser.add_argument("--out", type=Path, required=True)
     review_parser.add_argument("--labels", type=Path, help="Labels to start from")
+    review_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
     review_parser.add_argument(
         "--previous", type=Path, action="append", default=[], help="An earlier run's output"
     )

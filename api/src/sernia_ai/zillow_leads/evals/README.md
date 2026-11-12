@@ -196,6 +196,7 @@ result is used to tune the system, the test split has become part of dev.
 | 9 | Same policy as 8 on a newer, cheaper model | same 30 | 15 / 4 / 11 | 23 of 26 |
 | 10 | Booking line reworded by the owner to say "in-person showing" | same 30 | 18 / 3 / 9 | 24 of 26. 15 annotated afresh: all pass |
 | 11 | Nothing. Same policy and model as 10 | 30 new dev cases | 13 / 5 / 12 | Not yet |
+| 12 | No policy change. Tour state set by hand in 6 cases of the second sample; only those 6 run again | same 30 as 11 | 17 / 6 / 7 | Not yet |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -224,6 +225,16 @@ cause: our earlier message in the thread offered a tour time that the case does
 not list. The season's operating file holds one set of tour times, not the
 times that were on offer on each past date, so this may be a gap in the replay
 data and not in the agent. That reading is not a human judgement yet.
+
+Experiment 12 tests that reading. The owner's grading rule is that a decision
+is judged on what the case contained, so those escalations were correct, but
+30 cases in which a third test one rule teach little. Six of them were given a
+tour state by hand (see "Setting the tour state by hand" below) and run again;
+the other 24 rows are experiment 11's, unchanged. Five of the six decisions
+changed: four became replies and one became no reply. The sixth still
+escalates, for a different reason: the time the lead accepted is now in the
+case but is less than 24 hours away. Two cases with an offered time were left
+as they were, so the rule about a time the case lacks still has tests.
 
 The split was made after experiment 2. Both samples are all in dev.
 
@@ -267,6 +278,42 @@ differently each time, so experiments 7, 8 and 9 are not distinguishable on 26
 labels. Telling them apart needs more labelled cases, several runs per case, or
 both.
 
+## Setting the tour state by hand
+
+A scenario is a real thread. The tour state in its case is not history: a
+replay builds "Tour times that may be offered" from one weekly pattern for the
+whole season, and "Tours already booked" is empty. So the state can be set on
+purpose, per scenario, to cover what the agent will meet in production:
+
+| State | How | What it tests |
+|---|---|---|
+| The time in the thread may be offered | `offered` in the edit | Confirming, or offering the nearest listed time when the lead asks for another |
+| The tour in the thread is already booked | `booked` in the edit | Treating a booked tour as settled; group showings |
+| The time in the thread is not in the case | No edit | The rule to escalate when the case lags behind what the team said |
+
+Edits live in `scenarios/case-edits-<season>.json`, keyed by scenario id. Each
+has a `note` saying whether it matches the thread or was set on purpose. They
+are written by a person, never by the model being evaluated.
+
+```bash
+# Run again only the cases of an earlier run that have a new edit; keep its other rows
+uv run python -m api.src.sernia_ai.zillow_leads.evals run \
+    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --case-edits $DATA/scenarios/case-edits.json --carry $DATA/runs/experiment-11.jsonl \
+    --name experiment-12 --out $DATA/runs/experiment-12.jsonl
+```
+
+`--carry` refuses to run when the instructions differ from the earlier run's,
+because a kept row would then stand for a policy it was not produced by. A row
+run with an edit records `case_edit: true`, and a kept row records the run it
+came from. Pass the same `--case-edits` file to `review`: the card says "case
+edited by hand", lists what was added and why, and shows the case as the model
+read it. Grade an edited case like any other, on what the case contained.
+
+One scenario has one tour state at a time. Running the same thread under two
+states would need a case id per state, which the labels and pages do not have
+yet.
+
 ## Where the data lives
 
 Everything real is in `evals/data/`, which Git ignores. Nothing in it is ever
@@ -275,7 +322,7 @@ committed, pushed or used in CI, because scenarios are applicants' emails.
 ```
 evals/data/
 ├── review.html, dataset.html   the two pages, at the top so their links stay put
-├── scenarios/                  the season's scenarios and the split
+├── scenarios/                  the season's scenarios, the split, hand-set tour state
 ├── operating/                  the season's listings, tour times, booking links
 ├── runs/                       each experiment's outputs and the instructions it ran on
 └── annotations/
@@ -287,6 +334,7 @@ evals/data/
 |---|---|---|
 | `scenarios/scenarios-<season>.jsonl` | Past threads cut at each point a reply was owed | Yes, by `export`, from Gmail |
 | `scenarios/splits-<season>.json` | Which thread is train, dev or test | No. A split is made once |
+| `scenarios/case-edits-<season>.json` | Tour state set by hand for some scenarios | No. Written by hand |
 | `operating/operating-<season>.json` | Listings, tour times and booking links as they were that season | No. Written by hand |
 | `runs/*.jsonl`, `runs/*.policy.md` | Each experiment's outputs and the instructions it ran on | Only by paying for the run again, and the wording will differ |
 | `annotations/annotations.jsonl` | The store of verdicts | No |

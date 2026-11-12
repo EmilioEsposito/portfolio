@@ -235,6 +235,7 @@ DATA.cases.forEach((c, index) => {
   top.append(el('strong', '', (index + 1) + ' of ' + DATA.cases.length), el('span', 'badge', ACTIONS[c.action] || c.action));
   for (const name of c.failed_checks) top.append(el('span', 'badge bad', 'check failed: ' + name));
   if (c.action === 'reply') top.append(el('span', 'badge', c.offered + ' tour times offered'));
+  if (c.case_edit) top.append(el('span', 'badge', 'case edited by hand'));
   const changed = el('span', 'badge bad was', 'decision changed');
   changed.hidden = true;
   top.append(changed);
@@ -244,6 +245,16 @@ DATA.cases.forEach((c, index) => {
   const cols = el('div', 'cols');
   const left = el('div', 'col');
   section(left, 'The lead wrote', c.lead_message);
+  if (c.case_edit) {
+    // Tour times a person put into this case from reading the thread. The
+    // model saw them as ordinary lines under the two tour headings.
+    const lines = [
+      ...c.case_edit.offered.map(t => '• May be offered: ' + t),
+      ...c.case_edit.booked.map(t => '• Already booked: ' + t),
+    ];
+    if (c.case_edit.note) lines.push('Why: ' + c.case_edit.note);
+    section(left, 'Added to this case by hand', lines.join('\n'));
+  }
   fold(left, 'Everything the model was given', c.case_text);
   fold(left, c.actual_reply ? 'What we actually sent (' + c.actual_delay + ' min later)' : 'We never answered this one', c.actual_reply || '(nothing sent)');
 

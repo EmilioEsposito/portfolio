@@ -31,6 +31,9 @@ the labels people have put on them.
 emails: keep every path above inside it. Nothing here prints their content,
 only counts.
 
+``run --case-edits`` sets the tour state of some cases by hand, and ``--carry``
+runs again only the cases of an earlier run that have a new edit.
+
 ``collect`` adds a labels file downloaded from the review page to
 ``$DATA/annotations/annotations.jsonl``, the one store of every verdict.
 ``serve`` serves the pages in ``evals/data`` at http://localhost:8377, to this

@@ -1,11 +1,20 @@
 """Scenarios cut from past threads, and the train / dev / test split."""
 
+import json
 import random
+from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
-from api.src.sernia_ai.zillow_leads.case import LeadCase, OperatingData, build_case, decision_points
+from api.src.sernia_ai.zillow_leads.case import (
+    BookedTour,
+    LeadCase,
+    OperatingData,
+    TourSlot,
+    build_case,
+    decision_points,
+)
 from api.src.sernia_ai.zillow_leads.thread import LeadThread
 
 
@@ -84,9 +93,44 @@ def scenarios_from_thread(thread: LeadThread) -> list[Scenario]:
     return scenarios
 
 
-def case_for(scenario: Scenario, operating: OperatingData) -> LeadCase:
+class CaseEdit(BaseModel):
+    """Tour facts a person added to one scenario's case, from reading its thread.
+
+    A replay takes tour times from one weekly pattern, so it cannot know a time
+    the team offered that week or a tour that was booked. Where the thread shows
+    one plainly, an edit puts it in the case, as live operating data would have
+    held it. Edits are made by hand, never by the model being evaluated.
+    """
+
+    offered: list[AwareDatetime] = Field(default_factory=list)
+    booked: list[BookedTour] = Field(default_factory=list)
+    note: str = ""  # what in the thread shows it
+
+
+def read_case_edits(path: Path) -> dict[str, CaseEdit]:
+    """Edits by scenario id, from a JSON file."""
+    return {
+        scenario_id: CaseEdit.model_validate(edit)
+        for scenario_id, edit in json.loads(path.read_text()).items()
+    }
+
+
+def case_for(
+    scenario: Scenario, operating: OperatingData, edit: CaseEdit | None = None
+) -> LeadCase:
     """The scenario as a case: the conversation plus what was true at that moment."""
-    return build_case(scenario.thread, operating, upto=len(scenario.thread.messages) - 1)
+    upto = len(scenario.thread.messages) - 1
+    if edit is None:
+        return build_case(scenario.thread, operating, upto=upto)
+    case = build_case(scenario.thread, operating, upto=upto, booked_tours=edit.booked)
+    known = {slot.start for slot in case.offerable_slots}
+    added = [TourSlot(start=start, agent="") for start in edit.offered if start not in known]
+    slots = sorted(case.offerable_slots + added, key=_slot_order)
+    return case.model_copy(update={"offerable_slots": slots})
+
+
+def _slot_order(slot: TourSlot) -> tuple[datetime, str]:
+    return (slot.start, slot.agent)
 
 
 def read_scenarios(path: Path) -> list[Scenario]:

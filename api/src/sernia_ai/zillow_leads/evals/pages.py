@@ -11,7 +11,13 @@ from zoneinfo import ZoneInfo
 
 from api.src.sernia_ai.zillow_leads.case import OperatingData, render_case
 from api.src.sernia_ai.zillow_leads.evals.labels import Label, output_hash
-from api.src.sernia_ai.zillow_leads.evals.scenarios import SPLITS, Scenario, case_for, in_split
+from api.src.sernia_ai.zillow_leads.evals.scenarios import (
+    SPLITS,
+    CaseEdit,
+    Scenario,
+    case_for,
+    in_split,
+)
 
 TEMPLATES = Path(__file__).with_name("templates")
 REVIEW_TEMPLATE = TEMPLATES / "review.html"
@@ -35,16 +41,22 @@ def review_page(
     *,
     labels: list[Label] | None = None,
     previous: dict[str, list[dict]] | None = None,
+    edits: dict[str, CaseEdit] | None = None,
 ) -> str:
     """One self-contained HTML page for labelling a run's decisions.
 
     Labels are kept in the browser and downloaded as a file of ``Label`` rows.
+    ``edits`` are the hand-set tour times a row was run with; the page says so
+    on the card, so the reviewer knows the case differs from the weekly pattern.
     """
     by_id = {scenario.scenario_id: scenario for scenario in scenarios}
+    zone = ZoneInfo(operating.timezone)
     cases = []
     for row in rows:
         scenario = by_id[row["case_id"]]
         decision = row["decision"]
+        # Only a row that was run with its edit shows the edited case.
+        edit = (edits or {}).get(scenario.scenario_id) if row.get("case_edit") else None
         burst: list[str] = []
         for message in reversed(scenario.thread.messages):
             if message.from_sernia:
@@ -63,7 +75,8 @@ def review_page(
                 "recorded": _recorded(decision),
                 "failed_checks": [name for name, ok in row.get("checks", {}).items() if not ok],
                 "lead_message": "\n\n".join(burst),
-                "case_text": render_case(case_for(scenario, operating)),
+                "case_text": render_case(case_for(scenario, operating, edit)),
+                "case_edit": _edit_summary(edit, zone) if edit else None,
                 "actual_reply": scenario.actual_reply,
                 "actual_delay": scenario.actual_reply_delay_minutes,
             }
@@ -98,6 +111,14 @@ def review_page(
 def _when(moment, zone: ZoneInfo) -> str:
     local = moment.astimezone(zone)
     return f"{local:%a %b} {local.day}, {local:%I:%M %p}".replace(", 0", ", ")
+
+
+def _edit_summary(edit: CaseEdit, zone: ZoneInfo) -> dict:
+    return {
+        "offered": [_when(start, zone) for start in edit.offered],
+        "booked": [f"{tour.unit}: {_when(tour.start, zone)}" for tour in edit.booked],
+        "note": edit.note,
+    }
 
 
 def dataset_page(
