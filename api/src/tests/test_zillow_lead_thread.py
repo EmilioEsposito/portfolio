@@ -300,6 +300,43 @@ class TestTidyZillowForm:
         assert "Send application" not in tidy
         assert tidy_zillow_form(tidy) == tidy  # applying it again changes nothing
 
+    def test_a_profile_with_fields_missing_is_still_recognised(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        # No move-in date and no button: the profile starts at another field.
+        body = (
+            "I would like to schedule a tour. I am available Saturday  About Pat Doe \xa0 "
+            "Credit score  740 to 799 \xa0 Income  $49992 \xa0 Pets  Not answered \xa0 "
+            "Lease Length  12 months \xa0 Number of Bedrooms  2 \xa0 Number of Occupants  2"
+        )
+
+        tidy = tidy_zillow_form(body)
+
+        assert tidy.splitlines() == [
+            "I would like to schedule a tour. I am available Saturday",
+            "",
+            "Zillow form details (not written by the lead):",
+            "- Name: Pat Doe",
+            "- Credit score: 740 to 799",
+            "- Income: $49992",
+            "- Pets: Not answered",
+            "- Lease Length: 12 months",
+            "- Number of Bedrooms: 2",
+            "- Number of Occupants: 2",
+        ]
+        assert tidy_zillow_form(tidy) == tidy
+        assert tidy_zillow_form("Hi  About Pat Doe  Pets  Yes").endswith("- Pets: Yes")
+
+    def test_a_sentence_that_mentions_a_field_is_not_a_profile(self):
+        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+
+        for text in (
+            "A question about pets: Pets are allowed, right?",
+            "About the lease. Income is not a problem for us.",
+            "I asked About Pets  yesterday and heard nothing.",
+        ):
+            assert tidy_zillow_form(text) == text
+
     def test_a_bare_button_is_dropped_and_plain_text_is_left_alone(self):
         from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
 

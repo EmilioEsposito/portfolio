@@ -130,7 +130,8 @@ async def find_shared_copy(
 #       replies> <scam warning> RENTER'S NAME <name> RENTER'S MESSAGE <message>"
 #       The address ends at its ZIP code; the suggested replies are dropped.
 #   a first inquiry: "<message> Send application About <name> Move in <date>
-#       Credit score <range> Income ... Number of Occupants <n>"
+#       Credit score <range> Income ... Number of Occupants <n>". Any field may
+#       be missing, "Send application" too.
 _RELAY = re.compile(
     r"Regarding your listing at:\s*(?P<address>.*?\b\d{5}\b).*?Some rental inquiries may be scams\."
     r".*?RENTER'S NAME\s+(?P<name>.*?)\s+RENTER'S MESSAGE\s*(?P<message>.*)\Z",
@@ -150,10 +151,16 @@ _PROFILE_FIELDS = (
     "Number of Bedrooms",
     "Number of Occupants",
 )
-_PROFILE = re.compile(
-    r"\s*(?:Send application\s*)?About\s+(?P<name>\S.*?)\s{2,}(?=Move in\s)", re.S
-)
 _PROFILE_FIELD = re.compile("(" + "|".join(map(re.escape, _PROFILE_FIELDS)) + r")\s+")
+# The profile starts at "About <name>" followed by any field label. A lead who
+# gave no move-in date has no "Move in" field, so the first label varies. The
+# name is short and on one line, which keeps a sentence that merely contains
+# "about" from matching.
+_PROFILE = re.compile(
+    r"\s*(?:Send application\s*)?About\s+(?P<name>\S[^\n]{0,60}?)\s{2,}(?="
+    + _PROFILE_FIELD.pattern
+    + ")"
+)
 _PADDING = " \xa0\n"  # Zillow separates fields with non-breaking spaces
 # The button ends the lead's message. Zillow sometimes follows it with suggested
 # replies and an advert for its own application, which go with it.
