@@ -5,6 +5,39 @@ quiet**, or **hand it to a person**. This package makes that decision a single
 step that can be replayed on past emails and scored, so it is improved by
 measurement instead of by reading production conversations.
 
+## Layout
+
+Three kinds of file live here, kept apart:
+
+```
+zillow_leads/
+├── README.md        this file
+├── agent.py         the lead agent and its three outcome types
+├── case.py          builds the case the agent reads
+├── thread.py        loads a lead's email thread
+├── handle.py        saves an outcome for approval, sends on approval
+├── skill.py         the policy as a skill for the general agent
+├── prompts/         text a model reads at runtime
+│   ├── role.md      lead agent only: who it is, what it is given
+│   ├── policy.md    the rules; both agents read this
+│   └── record.md    lead agent only: how to fill in its output
+└── evals/           offline only; the running service imports nothing from it
+    ├── README.md    the method, the terms and the experiment log
+    ├── scenarios.py scenarios and the train / dev / test split
+    ├── checks.py    rules code can check exactly
+    ├── labels.py    a person's verdict on one output
+    ├── pages.py     builds the review page and the dataset page
+    ├── templates/   review.html, dataset.html
+    └── cli.py       the commands
+```
+
+| Kind | Where | A change here |
+|---|---|---|
+| Runtime code | `*.py` at the top level | Changes what production does |
+| Runtime prompts | `prompts/` | Changes what the model is told, so it also changes behaviour. Run an experiment before merging |
+| Offline eval tooling | `evals/` | Changes how outputs are measured and reviewed, never what is sent |
+| Documentation | `README.md` here and in `evals/` | Changes nothing at runtime |
+
 ## Overview
 
 ```mermaid
@@ -110,7 +143,7 @@ which layer it belongs to.
 ## The loop
 
 The method in full, with the data splits and the sources it follows, is in
-[EVALS.md](EVALS.md).
+[evals/README.md](evals/README.md).
 
 ```mermaid
 flowchart LR
@@ -124,7 +157,7 @@ flowchart LR
 |---|---|---|
 | "Didn't know the unit has parking" | Operating data: the unit's fact sheet | the prompt |
 | "Offered a time inside the notice period" | Code: slot arithmetic | the prompt |
-| "Tone too stiff", "replied when it should have waited" | Policy: `policy.md` | code |
+| "Tone too stiff", "replied when it should have waited" | Policy: `prompts/policy.md` | code |
 | "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
 Nine experiments so far, all on the same 30 real scenarios. The first five:
@@ -164,7 +197,7 @@ space, furnished or not. Add a line whenever an escalation shows one missing.
 
 Answers that are the same for every unit are not listing data. How to apply,
 the fee, who must apply, how long review takes and what holds a unit after
-approval are in `policy.md` under "Standard answers". The case holds only what
+approval are in `prompts/policy.md` under "Standard answers". The case holds only what
 differs from one lead or one week to the next.
 
 Exceptions are deliberately left out of both, for example a discount, an
@@ -326,11 +359,11 @@ The general agent used to handle Zillow email by following a
 `zillow-auto-reply` skill kept in its workspace. Every rule in
 it was checked against this package; this is where each one went.
 
-`policy.md` is now the only copy of these rules, and both agents read it:
+`prompts/policy.md` is now the only copy of these rules, and both agents read it:
 
 | Reader | Gets | From |
 |---|---|---|
-| Lead agent | `role.md`, then `policy.md`, then `record.md`, as its instructions | `load_instructions()` in `agent.py` |
+| Lead agent | `prompts/role.md`, then `prompts/policy.md`, then `prompts/record.md`, as its instructions | `load_instructions()` in `agent.py` |
 | General agent | A short preface, then `policy.md`, as the `zillow-auto-reply` skill | `skill.py`, registered in `sernia_ai/agent.py` |
 
 `role.md` (who the lead agent is, that it has no tools) and `record.md` (how to
@@ -370,12 +403,12 @@ workspace skill of the same name cannot replace it.
 | Durable queue of incoming email | [triggers](../triggers/README.md) | Built |
 | Thread loader | `thread.py` | Built |
 | Case builder, slot arithmetic | `case.py` | Built |
-| Policy and the lead agent | `role.md`, `policy.md`, `record.md`, `agent.py` | Built, under review |
+| Policy and the lead agent | `prompts/`, `agent.py` | Built, under review |
 | The same policy as a skill for the general agent | `skill.py` | Built |
-| Scenario export, runner, exact checks | `evals.py` | Built |
-| Review page and label format | `evals.py`, `review.html` | Built |
-| Train / dev / test split by thread | `evals.py` | Built |
-| Dataset page for reading train and dev | `evals.py`, `dataset.html` | Built |
+| Scenario export, runner, exact checks | `evals/scenarios.py`, `evals/cli.py`, `evals/checks.py` | Built |
+| Review page and label format | `evals/pages.py`, `evals/templates/review.html`, `evals/labels.py` | Built |
+| Train / dev / test split by thread | `evals/scenarios.py` | Built |
+| Dataset page for reading train and dev | `evals/pages.py`, `evals/templates/dataset.html` | Built |
 | Error analysis from labels | | Next, after the first labelled round |
 | Queue runs only the lead agent; approval, then code sends | `handle.py`, [triggers](../triggers/README.md) | Built. Not yet run on a live lead |
 | Contact and calendar updates after a confirmed tour | | Planned |

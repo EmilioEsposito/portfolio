@@ -1,7 +1,7 @@
 # How the reply decision is evaluated
 
 The method this package follows, the name the field gives each part, and where
-we are in it. [README.md](README.md) describes the system; this describes the
+we are in it. [The package README](../README.md) describes the system; this describes the
 method. An interactive version, with an example for every stage, is at
 [eesposito.com/systems/leasing-evals](https://eesposito.com/systems/leasing-evals).
 
@@ -96,7 +96,7 @@ without agreeing on a name.
   Synthetic data finds failures but cannot say how common they are. We had 143
   real threads.
 - **Baseline prompt.** A first version written to have outputs to read. Ours is
-  `policy.md`, rewritten from the old workspace skill.
+  `prompts/policy.md`, rewritten from the old workspace skill.
 - **Dataset.** Each thread is cut at every point where the lead spoke last and
   a response was owed. Past replies are kept for the reviewer to see and are
   not treated as correct.

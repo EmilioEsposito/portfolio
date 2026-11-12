@@ -1,8 +1,8 @@
 """The lead policy as a skill for the general agent.
 
-``policy.md`` is the one place that says how Zillow leads are answered. The
-lead agent gets it in its instructions (see ``agent.py``). The general agent
-gets the same text here, so a person asking it about a lead hears the rules
+``prompts/policy.md`` is the one place that says how Zillow leads are
+answered. The lead agent gets it in its instructions (see ``agent.py``). The
+general agent gets the same text here, so a person asking it about a lead hears the rules
 the lead agent applies.
 
 The skill is built in code, not kept in the workspace, for two reasons:

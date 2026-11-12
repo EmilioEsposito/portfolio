@@ -22,8 +22,8 @@ private to the case. If it needs to know something new, have code put it in
 the case.
 
 ``respond(case)`` is also the unit the evals measure, so an experiment runs
-exactly what production runs. Its instructions are three files in this
-package, joined in order, so the instructions in force for any run are the
+exactly what production runs. Its instructions are the three files in
+``prompts/``, joined in order, so the instructions in force for any run are the
 commit the code was at:
 
 - ``role.md``: who this agent is and what it is given. Lead agent only.
@@ -49,9 +49,12 @@ from api.src.sernia_ai.model_config import (
 )
 from api.src.sernia_ai.zillow_leads.case import LeadCase, render_case
 
-ROLE_PATH = Path(__file__).with_name("role.md")
-POLICY_PATH = Path(__file__).with_name("policy.md")
-RECORD_PATH = Path(__file__).with_name("record.md")
+# Everything in prompts/ is read by a model at runtime. Editing a file there
+# changes behaviour, the same as editing code.
+PROMPTS = Path(__file__).with_name("prompts")
+ROLE_PATH = PROMPTS / "role.md"
+POLICY_PATH = PROMPTS / "policy.md"
+RECORD_PATH = PROMPTS / "record.md"
 # This agent has its own model setting, so it can change, and be evaluated,
 # without changing the model the general agent runs on.
 LEAD_AGENT_MODEL = "openrouter:openai/gpt-6-luna"

@@ -25,16 +25,13 @@ from api.src.sernia_ai.zillow_leads.case import (
     offerable_slots,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.evals import (
-    Label,
-    ReplyChecks,
-    _output_hash,
+from api.src.sernia_ai.zillow_leads.evals.checks import ReplyChecks, build_dataset
+from api.src.sernia_ai.zillow_leads.evals.labels import Label, output_hash
+from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
+from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     assign_splits,
-    build_dataset,
     case_for,
-    dataset_page,
     in_split,
-    review_page,
     scenarios_from_thread,
 )
 from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
@@ -443,7 +440,7 @@ class TestReviewPage:
             scenario_id="T-3",
             verdict="fail",
             note="Too vague",
-            output_hash=_output_hash(old_row["decision"]),
+            output_hash=output_hash(old_row["decision"]),
             run="round-old",
         )
 
@@ -466,7 +463,7 @@ class TestReviewPage:
         assert data["cases"][0]["hash"] != label.output_hash
         assert data["previous"] == {"round-old": {"T-3": label.output_hash}}
         assert data["seed_labels"][0]["verdict"] == "fail"
-        assert _output_hash(old_row["decision"]) == _output_hash(first.model_dump(mode="json"))
+        assert output_hash(old_row["decision"]) == output_hash(first.model_dump(mode="json"))
 
     def test_a_downloaded_label_parses(self):
         label = Label.model_validate(

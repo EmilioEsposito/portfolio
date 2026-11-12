@@ -10,7 +10,8 @@ needs to know about a unit is free text (``Listing.facts``), so it can come
 from a note, a listing page or a database without this module changing.
 
 A case holds what differs from one lead or one week to the next. Anything that
-is the same for every lead, such as how to apply, belongs in ``policy.md``.
+is the same for every lead, such as how to apply, belongs in
+``prompts/policy.md``.
 """
 
 from datetime import UTC, date, datetime, time, timedelta
