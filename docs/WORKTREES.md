@@ -113,18 +113,31 @@ Cleanup requires that exact variable and releases only recorded local resources;
 Git checkout deletion. The local environment configuration follows the existing Ventures setup.
 Dev and typecheck actions also use `worktree-run.sh` so the app does not inherit an incompatible Node from a login shell.
 
-On first setup, a pristine detached checkout seeded at local main or cached `origin/main` fetches
-current `origin/main` before installing anything. A private `portfolio-start-ref.json` records the
-choice; retries never refresh again. Setup executes the fetched provisioner if the revision changes.
-Attached feature branches, prior HEAD history, recorded provisioning state, and existing local
-environments/dependencies are preserved. Dirty new main seeds, ignored-file collisions, and failed
-fetches stop setup instead of discarding work or using stale main. For an intentional detached main
-revision, set `PORTFOLIO_WORKTREE_KEEP_REF=1` on its first setup. The main checkout is never moved.
+On first setup, a new checkout still sitting on local main or cached `origin/main` fetches
+current `origin/main` before installing anything. That covers both agent shapes: Codex seeds a
+detached checkout, which is switched to the fetched commit; the Claude desktop app and
+`claude --worktree` seed a new attached branch (`claude/<name>`, `worktree-<name>`) from a cached
+`origin/main` that their own throttled fetch can leave stale, and that branch is fast-forwarded.
+A private `portfolio-start-ref.json` records the choice; retries never refresh again. Setup
+executes the fetched provisioner if the revision changes.
 
-Claude's SessionStart hook calls the same `--once` provisioner. It quietly skips the main checkout,
-non-Git directories, cloud sessions, temporary `wf_*` worktrees, and completed setups. A failed run
-is retried next time. A per-worktree lifecycle lock prevents setup, tests, and cleanup from running
-over one another. Existing cloud bootstrap scripts remain responsible for their cloud containers.
+Anything already in use keeps its revision: branches with commits, HEAD history, an upstream
+other than main, or a published `origin/<branch>`; uncommitted changes on a branch; recorded
+provisioning state; and existing local environments/dependencies. The one exception is the
+`node_modules` copy the desktop app seeds into its own worktrees. A branch seeded from a local
+main with unpushed commits keeps them. Worktrees from `worktree-create.sh` keep the base that
+command chose. Dirty detached main seeds, ignored-file collisions, and failed fetches stop setup
+instead of discarding work or using stale main. For an intentional older main revision, set
+`PORTFOLIO_WORKTREE_KEEP_REF=1` on its first setup. The main checkout is never moved.
+
+Claude's SessionStart hook, `.claude/hooks/worktree-provision.sh`, calls the same `--once`
+provisioner for the session's checkout. It takes that checkout from the hook input's `cwd`:
+desktop worktree sessions run hooks in the main checkout, where the provisioner would skip.
+Desktop sessions load the hook from the main checkout, so pull main there after changing it.
+The provisioner quietly skips the main checkout, non-Git directories, cloud sessions, temporary
+`wf_*` worktrees, and completed setups. A failed run is retried next time. A per-worktree
+lifecycle lock prevents setup, tests, and cleanup from running over one another. Existing cloud
+bootstrap scripts remain responsible for their cloud containers.
 
 ## Audit and cleanup
 

@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 STATE_FILE = "portfolio-worktree.json"
+START_FILE = "portfolio-start-ref.json"
+DESKTOP_MARKER = "claude-desktop-worktree"  # Written by the Claude desktop app.
 WEB_DIR = Path("apps/web-react-router")
 LOCAL_URL = "postgresql://portfolio:portfolio@127.0.0.1:5432/"
 
@@ -466,58 +468,117 @@ def default_base(checkout: Checkout) -> str:
         return "main"
 
 
+def succeeds(root: Path, *args: str) -> bool:
+    try:
+        git(root, *args)
+    except WorktreeError:
+        return False
+    return True
+
+
+def attached_branch(checkout: Checkout) -> str | None:
+    try:
+        return git(checkout.root, "symbolic-ref", "-q", "--short", "HEAD")
+    except WorktreeError:
+        return None
+
+
+def reflog(checkout: Checkout, ref: str) -> list[str]:
+    try:
+        return git(checkout.root, "reflog", "show", "--format=%H", ref).splitlines()
+    except WorktreeError:
+        return []
+
+
+def unused_branch(checkout: Checkout, branch: str) -> bool:
+    """A branch that was only created: never committed to, published, or tracking a feature."""
+    if branch == "main" or len(reflog(checkout, f"refs/heads/{branch}")) > 1:
+        return False
+    if succeeds(checkout.root, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{branch}"):
+        return False
+    try:
+        upstream = git(checkout.root, "config", "--get", f"branch.{branch}.merge")
+    except WorktreeError:
+        return True
+    # `git worktree add -b <new> <path> origin/main` tracks main without being a feature branch.
+    return upstream == "refs/heads/main"
+
+
+def fetch_main(checkout: Checkout) -> str:
+    # The desktop app fetches origin around session start; retry a ref-lock collision.
+    for attempt in range(3):
+        try:
+            git(
+                checkout.root,
+                "fetch",
+                "--no-tags",
+                "origin",
+                "+refs/heads/main:refs/remotes/origin/main",
+            )
+            break
+        except WorktreeError:
+            if attempt == 2:
+                raise
+            time.sleep(1)
+    return git(checkout.root, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")
+
+
 def choose_start(checkout: Checkout) -> bool:
-    """Refresh only a new detached main seed, before provisioning owns any resources."""
-    marker = checkout.git_dir / "portfolio-start-ref.json"
+    """Move a brand-new main seed to current origin/main before provisioning owns resources.
+
+    Codex seeds a detached checkout; Claude seeds an attached `claude/<name>` branch from a
+    cached origin/main. Either is refreshed only while it is still exactly a main seed.
+    """
+    marker = checkout.git_dir / START_FILE
     if marker.exists() or checkout.state_path.exists():
         return False
     initial = git(checkout.root, "rev-parse", "HEAD")
-    try:
-        git(checkout.root, "symbolic-ref", "-q", "HEAD")
-        detached = False
-    except WorktreeError:
-        detached = True
+    branch = attached_branch(checkout)
     seeds = set()
     for ref in ("refs/heads/main", "refs/remotes/origin/main"):
         try:
             seeds.add(git(checkout.root, "rev-parse", "--verify", ref))
         except WorktreeError:
             pass
-    history = git(checkout.root, "reflog", "show", "--format=%H", "-2", "HEAD").splitlines()
-    resources = (".env", ".venv", "node_modules", WEB_DIR / ".env", WEB_DIR / "node_modules")
-    candidate = detached and initial in seeds and len(history) == 1
+    resources = [".env", ".venv", "node_modules", WEB_DIR / ".env", WEB_DIR / "node_modules"]
+    if (checkout.git_dir / DESKTOP_MARKER).exists():
+        # The desktop app copies node_modules from the main checkout as the session starts.
+        resources = [resource for resource in resources if Path(resource).name != "node_modules"]
+    history = reflog(checkout, "HEAD")
+    if branch is None:
+        unused = len(history) <= 1
+    else:
+        # `git worktree add -b` logs the creation and its checkout, both at the seed.
+        unused = set(history) <= {initial} and unused_branch(checkout, branch)
+    candidate = initial in seeds and unused
     chosen, reason = initial, "selected-ref"
     if os.getenv("PORTFOLIO_WORKTREE_KEEP_REF") == "1":
         reason = "explicit-keep-ref"
     elif any((checkout.root / resource).exists() for resource in resources):
         reason = "existing-resources"
-    elif candidate:
-        if git(checkout.root, "status", "--porcelain", "--untracked-files=all"):
+    elif candidate and git(checkout.root, "status", "--porcelain", "--untracked-files=all"):
+        if branch is None:
             raise WorktreeError("New main worktree is dirty; refusing to refresh or provision.")
+        reason = "uncommitted-changes"
+    elif candidate:
         print("Fetching origin/main before first provisioning…", flush=True)
-        git(
-            checkout.root,
-            "fetch",
-            "--no-tags",
-            "origin",
-            "+refs/heads/main:refs/remotes/origin/main",
-        )
-        chosen = git(checkout.root, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")
-        try:
-            git(checkout.root, "symbolic-ref", "-q", "HEAD")
-            still_detached = False
-        except WorktreeError:
-            still_detached = True
+        fresh = fetch_main(checkout)
         if (
             git(checkout.root, "rev-parse", "HEAD") != initial
-            or not still_detached
+            or attached_branch(checkout) != branch
             or git(checkout.root, "status", "--porcelain", "--untracked-files=all")
         ):
             raise WorktreeError("Worktree changed during fetch; refusing to refresh or provision.")
-        if initial != chosen:
-            git(checkout.root, "switch", "--detach", "--no-overwrite-ignore", chosen)
-        reason = "fresh-remote-main"
-        print(f"Starting from origin/main {chosen[:12]} (initial {initial[:12]}).", flush=True)
+        if branch and not succeeds(checkout.root, "merge-base", "--is-ancestor", initial, fresh):
+            # Seeded from a local main with unpushed commits; a fast-forward would drop them.
+            reason = "ahead-of-remote-main"
+        else:
+            chosen, reason = fresh, "fresh-remote-main"
+            if initial != chosen and branch:
+                git(checkout.root, "merge", "--ff-only", "--no-overwrite-ignore", chosen)
+            elif initial != chosen:
+                git(checkout.root, "switch", "--detach", "--no-overwrite-ignore", chosen)
+            print(f"Starting from origin/main {chosen[:12]} (initial {initial[:12]}).", flush=True)
     marker.write_text(json.dumps({"initial": initial, "chosen": chosen, "reason": reason}) + "\n")
     return chosen != initial
 
@@ -549,6 +610,9 @@ def create(description: str, base: str | None) -> None:
         f"Created {target} from {base}. Setup can be retried with worktree-provision.sh.",
         flush=True,
     )
+    # The base was chosen here, fetched or explicit; provisioning must not move it.
+    record = {"initial": start, "chosen": start, "reason": "created"}
+    (Checkout.find(target).git_dir / START_FILE).write_text(json.dumps(record) + "\n")
     provision(target)
 
 
