@@ -183,6 +183,13 @@ For reliable processing, the Pub/Sub subscription should have:
 - Acknowledgement deadline: At least 120 seconds
 - Retry policy: Exponential backoff (currently 10s min, 600s max)
 
+## Authentication diagnostics
+
+Webhook logs record authorization presence and fixed verification outcomes. Never log
+request headers, bearer-token prefixes, decoded JWT claims, or verifier exception text.
+JWT parser errors can include the original credential, so verification failures also
+use fixed response details and suppress exception chaining before reaching route logging.
+
 ## Common Issues and Debugging
 
 - **Same notification appears multiple times**: This is normal if the Gmail API hasn't made the messages available yet. The 429 status code triggers Pub/Sub to retry.
