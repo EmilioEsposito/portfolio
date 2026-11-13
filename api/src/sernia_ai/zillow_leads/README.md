@@ -27,6 +27,8 @@ zillow_leads/
     ├── checks.py    rules code can check exactly
     ├── labels.py    a person's verdict on one output
     ├── pages.py     builds the review page and the dataset page
+    ├── judge.py     an LLM judge that grades a decision against the policy
+    ├── prompts/     judge.md: read by the judge, never by the running service
     ├── templates/   review.html, dataset.html
     ├── data/        private and git-ignored: scenarios, annotations, runs, pages
     └── cli.py       the commands
@@ -162,7 +164,7 @@ flowchart LR
 | "Tone too stiff", "replied when it should have waited" | Policy: `prompts/policy.md` | code |
 | "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
-Twelve experiments so far: ten on one sample of 30 real scenarios and two on a second sample. The first five:
+Seventeen experiments so far: ten on one sample of 30 real scenarios and seven on a second sample. The first five:
 
 | Experiment | Operating data | Reply | No reply | Escalate |
 |---|---|---|---|---|
@@ -247,6 +249,7 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals run \
     --name round-3 --sample 30 --seed 7 --out $DATA/runs/round-3.jsonl
 # Add --exclude-run <earlier run> (repeatable) to sample only scenarios no
 # earlier run covered, and --concurrency 10 to run more at once.
+# --cases-from <earlier run> runs exactly that run's cases again.
 # --case-edits and --carry set a case's tour state by hand and run again only
 # the edited cases: see evals/README.md, "Setting the tour state by hand".
 

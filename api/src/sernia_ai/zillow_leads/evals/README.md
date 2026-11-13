@@ -196,7 +196,12 @@ result is used to tune the system, the test split has become part of dev.
 | 9 | Same policy as 8 on a newer, cheaper model | same 30 | 15 / 4 / 11 | 23 of 26 |
 | 10 | Booking line reworded by the owner to say "in-person showing" | same 30 | 18 / 3 / 9 | 24 of 26. 15 annotated afresh: all pass |
 | 11 | Nothing. Same policy and model as 10 | 30 new dev cases | 13 / 5 / 12 | Not yet |
-| 12 | No policy change. Tour state set by hand in 6 cases of the second sample; only those 6 run again | same 30 as 11 | 17 / 6 / 7 | Not yet |
+| 12 | No policy change. Tour state set by hand in 6 cases of the second sample; only those 6 run again | same 30 as 11 | 17 / 6 / 7 | 30 of 30: 26 pass, 4 fail. Two passes later regraded as fails |
+| 13 | Fixes from the second error analysis: a clarification leads the reply and the rest assumes the answer works; a turned-down time is not offered again; the apply address is a link; an accepted time gets one confirming reply; every reply opens with a greeting | same 30 as 11 | 20 / 3 / 7 | No. Replaced the same day by 14 |
+| 14 | A lead who names a time we do not have gets the booking link, not a list of the closest times. Nearby booked or preferred times come first when the case has them | same 30 as 11 | 20 / 3 / 7 | Not by a person. By action, 20 of 24 passes kept; the first sample kept 24 of 26 |
+| 15 | A time less than 24 hours away is not available, even when it is listed or we offered it: say so and give the booking link | same 30 as 11 | 21 / 2 / 7 | By the judge: 20 of 30 pass; 18 of 30 on the first sample |
+| 16 | Five policy questions answered by the owner: acknowledge a cancelled tour once; answer an earlier unanswered question while the lead still qualifies; the lead-in to the booking link may vary. Three exact rules moved into code checks | same 30 as 11 | 21 / 3 / 6 | By the judge: 25 of 30 pass; 19 of 30 on the first sample |
+| 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | No. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -265,7 +270,8 @@ Experiments 6 to 9 were not annotated again. Each was scored by code against
 the 26 labels: a decision the reviewer passed should keep the same action, and
 a decision they failed should take the action their note asked for. This is a
 regression check, not a judgement of quality. It cannot tell whether a reworded
-reply is still a good one, and no LLM judge exists yet to do that.
+reply is still a good one. At the time no LLM judge existed to do that; see
+"The LLM judge" below.
 
 It did its job on the first attempt. The first escalation rule fixed two of the
 three fails and broke six decisions that had passed, by escalating whenever an
@@ -277,6 +283,166 @@ from one run to the next. The model words, and sometimes decides, the same case
 differently each time, so experiments 7, 8 and 9 are not distinguishable on 26
 labels. Telling them apart needs more labelled cases, several runs per case, or
 both.
+
+## Second error analysis
+
+Experiment 12, all 30 decisions annotated: 26 pass, 4 fail. Every escalation
+(7) and every no-reply (6) passed. All four fails are replies, 4 of 17.
+
+| Failure mode | Fails | Same note on a pass | Owner |
+|---|---|---|---|
+| A qualifying question (pet type, a move-in date that does not fit the lease start) comes after the rest of the reply or is mixed into it. The reviewer wants it first, as a short clarification that states the rule plainly (cats yes, dogs no; the lease start date), with the rest of the reply going ahead on the assumption that the answer is fine | 3 | 2 | Policy |
+| The lead asked for a time that is not offered, and the reply asked whether the offered time would work. The lead had already implied it would not; say the requested time is not available and give the booking link | 1 | 0 | Policy |
+
+Notes on decisions that passed:
+
+| Observation | Seen in | Owner |
+|---|---|---|
+| The address to apply at is written without `https://`, so many email clients will not make it a link | 1 | Policy: the standard answer |
+| The lead accepted a time we had offered and the agent stayed quiet. A reply confirming the date, time and place would have been better | 1 | Policy |
+
+The first failure mode is the first one with enough examples to write a rule
+from. It was also graded both ways: fail three times, pass with a note twice.
+A judge needs one rule for it, so that has to be settled before the judge is
+calibrated on these labels.
+
+The reviewer settled it the same day: it is a fail. The two passes were
+regraded, as later rows in the store, so the earlier verdicts are still there.
+The store now holds 72 rows; counting the latest verdict on each output, 10
+are fails.
+
+### What the fixes did (experiments 13 and 14)
+
+All six failed decisions are replies again, now in the order the reviewer
+asked for. Whether they pass is his call; they have not been annotated. Of the
+24 decisions that passed, 20 kept their action and four changed:
+
+| Change | Cause |
+|---|---|
+| No reply became a confirming reply after the lead accepted a time | Intended: the new rule |
+| No reply became an escalation: the lead accepted a time the case does not list | The same new rule. A confirmation is now owed, and the case cannot support it |
+| An escalation over the 24-hour notice became a reply confirming the time | The new rule again. The time had been offered by us and is in the case |
+| No reply became a reply that answers an earlier question and asks three clarifications | Not intended by any rule; needs a verdict |
+
+The same policy on the first sample kept the action of 24 of the 26 decisions
+that had passed there, which is inside the run-to-run variation seen before.
+
+Two wordings were tried and dropped before the run that was kept, each because
+of a side effect a count caught, not a reading. Telling the model to put the
+clarification "first" removed the greeting from two thirds of replies. Telling
+it to mention the time the lead had turned down made it escalate when that
+time was not in the case. A change to one rule is checked against every
+reply, not only the ones it was written for.
+
+One question was left open by experiment 13: when a lead asks for a time we
+do not have, the reviewer's note on one case said to give the booking link,
+and his rewrite of another kept a list of the closest times. He chose the
+booking link, with one refinement for later: when the case has preferred
+times near what the lead asked for, offer those first. The policy now reads
+that way, and experiment 14 ran it. No reply in either sample lists times any
+more, every action in the second sample is the same as in experiment 13, and
+the first sample again kept 24 of 26.
+
+Preferred times are not in the case yet. The rule is written so that it
+starts working when operating data supplies them.
+
+## The LLM judge
+
+After the second error analysis the reviewer's verdicts had stopped being the
+efficient signal. Most of his notes were decisions about the policy, not
+judgements of quality, and the model was following rules more closely than a
+person reading 30 replies could check. So the work changed direction:
+
+- **Before:** read outputs, label them, and derive rules from the fails.
+- **Now:** the owner decides rules directly, as short questions with a default
+  answer. A judge checks every output against the written policy.
+
+The judge (`judge.py`, prompt in `prompts/judge.md`) is a second model call.
+It reads the agent's instructions, the case and the decision, and returns
+`pass` or `fail`, the rule broken with the words that break it, and, when the
+policy does not cover the situation, a `policy_gap`: one question for the
+owner. It runs on a stronger model than the agent. It is told to grade only on
+what the case contained, which is the reviewer's own rule.
+
+```bash
+# Grade a run
+uv run python -m api.src.sernia_ai.zillow_leads.evals judge \
+    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --case-edits $DATA/scenarios/case-edits.json \
+    --run $DATA/runs/experiment-15.jsonl --out $DATA/judgements/experiment-15.jsonl
+
+# Measure the judge against every output a person has graded
+uv run python -m api.src.sernia_ai.zillow_leads.evals judge ... \
+    --run <each run with graded outputs> --labels $DATA/annotations/annotations.jsonl \
+    --only-labelled --out $DATA/judgements/labelled.jsonl
+```
+
+### How far it can be trusted
+
+Measured once, with the prompt as first written, on all 70 graded outputs:
+
+| | Outputs | Judge agrees | Rate |
+|---|---|---|---|
+| The reviewer failed it | 10 | 10 | True negative rate 100% |
+| The reviewer passed it | 60 | 22 | True positive rate 37% |
+
+The first row is the useful one, and it is small: 10 fails, 5 in each half.
+The second row does not measure the judge. It grades against the policy as it
+is now, and most of those passes were given under an earlier policy: of the 38
+it fails, 28 cite at least one rule added after the reviewer graded them
+(clarification order, the greeting, the booking link in place of times, the
+link prefix). The other 10 cite older rules and have not been adjudicated.
+Each is either the judge being too strict or something the reviewer missed.
+
+After the owner answered five policy questions the judge was run again on the
+same 70 outputs. It again failed all 10 of the reviewer's fails, and failed
+37 of his 60 passes. Sorting those 37 by hand (the sorting is the author's
+judgement, not the reviewer's):
+
+| Cause | Outputs |
+|---|---|
+| Fails a code check added since: no greeting, or the site address without `https://` | 9 |
+| Breaks another rule added after it was graded, mostly the order of a clarification | 24 |
+| A question the policy did not settle then: the fact sheet says a detail is "not on file", and the agent escalated where the judge wanted a reply saying so. The owner has since decided: escalate, because the detail may exist and be missing from the case | 2 |
+| The judge looks too strict | 2 |
+
+That leaves 27 of the reviewer's passes that no later rule touches. The judge
+passes 23 of them and disputes 4, two of which are a policy question and not
+an error on either side.
+
+**Criteria drift.** The reviewer's standard moved as he read more outputs:
+each fail became a rule, and the rule then applied to outputs he had already
+passed. This is expected (Shankar et al., "Who Validates the Validators?",
+2024), and it means the labels from this phase are discovery labels, not a
+benchmark. Three things follow, and all three are in place:
+
+- Old verdicts are kept as they were. Each one was true under the rules of its
+  day; `collect` now records a hash of those rules with every new verdict.
+- A rule with an exact answer is a code check, so it can be applied to old
+  outputs with no judgement involved: a greeting, the site address as a link,
+  a clarification right after the greeting.
+- The judge's verdicts are never written into the annotations store. If they
+  were, measuring the judge against the store would be circular.
+
+So the judge catches what the reviewer catches, and on outputs no later rule
+touches it passes most of what he passed. Both figures rest on small numbers. The labelled outputs are split in two by thread
+(`half` in `judge.py`). The prompt has not been tuned, so both halves are
+still unseen for that purpose.
+
+On experiment 15 the judge passes 38 of 60 decisions across both samples. The
+22 fails are spread over about twenty rules, with no single cause, and it
+raised two policy gaps. That list, not a person's read of 60 replies, is the
+input to the next change. After the owner's five answers, experiment 16 passes
+44 of 60.
+
+### What a person still does
+
+- Answers the policy questions the judge raises. A judge applies the policy;
+  it cannot say what the policy should be.
+- Reads the disagreements, not the whole run: outputs the judge fails that a
+  code check passes, and a small random sample as an audit.
+- In production, approves each reply. Every approval, edit or rejection is a
+  label, at no extra cost.
 
 ## Setting the tour state by hand
 
@@ -325,6 +491,7 @@ evals/data/
 ├── scenarios/                  the season's scenarios, the split, hand-set tour state
 ├── operating/                  the season's listings, tour times, booking links
 ├── runs/                       each experiment's outputs and the instructions it ran on
+├── judgements/                 the LLM judge's verdicts on runs
 └── annotations/
     ├── annotations.jsonl       every verdict ever given, one row each
     └── downloads/              the files the review page saved, as they were

@@ -6,6 +6,8 @@ Offline only. Nothing the running service imports lives in this package.
 - ``checks.py``: rules about a reply that code can check exactly
 - ``labels.py``: a person's verdict on one output
 - ``pages.py``: the review page and the dataset page, from ``templates/``
+- ``judge.py``: an LLM judge that grades a decision against the instructions,
+  with its prompt in ``prompts/judge.md``
 - ``cli.py``: the commands below
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals export \
@@ -33,6 +35,9 @@ only counts.
 
 ``run --case-edits`` sets the tour state of some cases by hand, and ``--carry``
 runs again only the cases of an earlier run that have a new edit.
+
+``judge`` grades the outputs of one or more runs with the LLM judge and, given
+the annotations store, reports how often it agrees with a person.
 
 ``collect`` adds a labels file downloaded from the review page to
 ``$DATA/annotations/annotations.jsonl``, the one store of every verdict.

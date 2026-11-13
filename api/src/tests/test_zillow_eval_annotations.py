@@ -89,6 +89,22 @@ class TestStore:
         assert [label.verdict for label in read_labels(store)] == ["pass", "fail"]
         assert [label.verdict for label in latest_per_scenario(read_labels(store))] == ["fail"]
 
+    def test_a_verdict_records_the_policy_its_run_was_made_with(self, tmp_path: Path):
+        _run(tmp_path / "runs", "experiment-5", {"T-1": DECISION})
+        (tmp_path / "runs" / "experiment-5.policy.md").write_text("Reply when owed.")
+        _run(tmp_path / "runs", "experiment-6", {"T-1": OTHER})
+        (tmp_path / "runs" / "experiment-6.policy.md").write_text("Reply when owed. Greet first.")
+        store = tmp_path / "annotations.jsonl"
+        labels = [
+            Label(**_row("T-1", DECISION, "pass", "experiment-5")),
+            Label(**_row("T-1", OTHER, "fail", "experiment-6")),
+        ]
+
+        add_annotations(store, labels, tmp_path / "runs")
+
+        first, second = read_labels(store)
+        assert len(first.policy) == 8 and first.policy != second.policy
+
     def test_a_verdict_whose_run_is_gone_is_kept_without_its_output(self, tmp_path: Path):
         store = tmp_path / "annotations.jsonl"
         label = Label(scenario_id="T-9", verdict="fail", output_hash="abc", run="lost-run")

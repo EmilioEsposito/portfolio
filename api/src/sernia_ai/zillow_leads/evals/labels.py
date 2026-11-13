@@ -39,6 +39,11 @@ class Label(BaseModel):
     # The action and words that were judged, copied from the run: what a
     # regression check or an LLM judge needs to pair with the verdict.
     output: dict | None = None
+    # A short hash of the instructions the judged run was made with. Criteria
+    # move as a reviewer reads more outputs, so a verdict is read against the
+    # rules of its day. Empty on rows stored before this was recorded; the
+    # run's ``.policy.md`` snapshot gives it.
+    policy: str = ""
 
 
 def judged(decision: dict) -> dict:
@@ -88,6 +93,24 @@ def latest_per_scenario(labels: list[Label]) -> list[Label]:
     return list(latest.values())
 
 
+def latest_per_output(labels: list[Label]) -> dict[tuple[str, str], Label]:
+    """The most recent verdict on each output, by scenario and output hash.
+
+    A verdict belongs to one output. A changed verdict is a later row, so the
+    later one is the reviewer's current view of that output.
+    """
+    latest: dict[tuple[str, str], Label] = {}
+    floor = datetime.min.replace(tzinfo=UTC)
+    for label in labels:
+        if not label.verdict:
+            continue
+        key = (label.scenario_id, label.output_hash)
+        current = latest.get(key)
+        if current is None or (label.annotated_at or floor) >= (current.annotated_at or floor):
+            latest[key] = label
+    return latest
+
+
 def _same_verdict(label: Label) -> tuple[str, str, str | None, str, str]:
     return (
         label.scenario_id,
@@ -132,6 +155,10 @@ def add_annotations(store: Path, labels: list[Label], runs_dir: Path) -> dict[st
             if found is None:
                 counts["output not found"] += 1
             label = label.model_copy(update={"output": found})
+        snapshot = runs_dir / f"{label.run}.policy.md"
+        if label.run and not label.policy and snapshot.exists():
+            policy = hashlib.sha256(snapshot.read_bytes()).hexdigest()[:8]
+            label = label.model_copy(update={"policy": policy})
         known.add(_same_verdict(label))
         lines.append(label.model_dump_json() + "\n")
         counts["added"] += 1

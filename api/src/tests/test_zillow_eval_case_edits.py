@@ -14,7 +14,7 @@ from api.src.sernia_ai.zillow_leads.case import (
     render_case,
 )
 from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
-from api.src.sernia_ai.zillow_leads.evals.cli import carry_over
+from api.src.sernia_ai.zillow_leads.evals.cli import carry_over, in_run
 from api.src.sernia_ai.zillow_leads.evals.pages import review_page
 from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     CaseEdit,
@@ -167,3 +167,24 @@ class TestReviewPage:
 
         assert "7:00 PM" not in card["case_text"]
         assert card["case_edit"] is None
+
+
+class TestSameCasesAgain:
+    def test_the_cases_of_an_earlier_run_are_picked_in_its_order(self, tmp_path: Path):
+        other = SCENARIO.model_copy(
+            update={"thread": SCENARIO.thread.model_copy(update={"thread_id": "U"})}
+        )
+        unused = SCENARIO.model_copy(
+            update={"thread": SCENARIO.thread.model_copy(update={"thread_id": "V"})}
+        )
+        run_file = tmp_path / "earlier.jsonl"
+        run_file.write_text(
+            "".join(
+                json.dumps({"case_id": case_id, "decision": _decision()}) + "\n"
+                for case_id in (other.scenario_id, SCENARIO.scenario_id, "gone-0")
+            )
+        )
+
+        picked = in_run([SCENARIO, unused, other], run_file)
+
+        assert [item.scenario_id for item in picked] == [other.scenario_id, SCENARIO.scenario_id]

@@ -281,7 +281,7 @@ export const stages: Stage[] = [
       "An experiment runs one fixed version of the system over a set of test cases and stores each output with enough to reproduce it.",
       "A version is everything that can change the output: the prompt, the model, and any data the prompt is built from.",
     ],
-    here: "Twelve so far: ten on one sample of 30 dev cases, and two on a second sample once the first stopped producing fails. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
+    here: "Seventeen so far: ten on one sample of 30 dev cases, and seven on a second sample once the first stopped producing fails. Each records the policy's commit, the model and a hash of the listing data. The first showed that half the escalations were asking for facts the case did not contain; adding a fact sheet per unit cut escalations from 12 to 5.",
     example: {
       caption: "One stored output",
       blocks: [
@@ -383,7 +383,7 @@ export const stages: Stage[] = [
       "A code evaluator (also: assertion, code-based grader) covers rules with exact answers. An LLM judge (also: LLM-as-judge, model-based grader) covers judgement: one judge per failure mode, each answering one yes-or-no question.",
       "Generic scores such as “helpfulness” or text similarity rarely correspond to the failure modes that error analysis found.",
     ],
-    here: "Partly built. Four code evaluators run on every reply: offered times are on the allowed list, the signature is present, no staff names, no em-dash. There is no LLM judge yet, because there is no failure taxonomy to build one from.",
+    here: "Partly built. Code evaluators run on every reply: offered times are on the allowed list, the signature and a greeting are present, no staff names, no em-dash, links come from the case, the site address is written as a link, and a clarifying question comes right after the greeting. One LLM judge is built. It grades a decision against the whole policy on a stronger model than the one that writes replies, quotes the rule that was broken, and raises a question for the owner when the policy does not cover the case. It is not yet split into one judge per failure mode.",
     example: {
       caption: "The two kinds",
       blocks: [
@@ -408,9 +408,9 @@ export const stages: Stage[] = [
     what: [
       "An LLM judge is itself a prompt, and can be wrong. Before its verdicts count, compare them with human annotations.",
       "This needs a second split, of annotations this time. A few annotated outputs go into the judge's prompt as examples (its train). Most are used to refine the judge's wording (its dev). The rest are held back and scored once (its test).",
-      "Report two numbers: how many real fails it catches (true positive rate) and how many good outputs it passes (true negative rate). A single agreement figure can look high for a judge that passes everything, when most outputs are good.",
+      "Report two numbers: how many good outputs it passes (true positive rate) and how many real fails it catches (true negative rate). A single agreement figure can look high for a judge that passes everything, when most outputs are good.",
     ],
-    here: "Not started. The annotations will come from the dev split of test cases, then be split again for the judge.",
+    here: "Started. On 70 annotated outputs the judge failed all 10 that the reviewer had failed. It also failed 37 of the 60 he had passed. Of those, 33 break a rule added to the policy after he graded them, so the older passes cannot measure it. Four are real disagreements: two turn on a question the policy does not settle, and in the other two the judge looks too strict. The annotated outputs are split in two by thread, so the judge's prompt can be tuned on one half and scored on the other.",
     example: {
       caption: "A judge's report card (an illustration)",
       blocks: [
@@ -728,7 +728,52 @@ export const experimentLog = [
     reply: 17,
     quiet: 6,
     escalate: 7,
+    annotated: "30 of 30: 26 pass",
+  },
+  {
+    name: "Experiment 13",
+    change:
+      "Fixes from the second error analysis: a clarifying question leads the reply, a turned-down time is not offered again, an accepted time gets one confirming reply.",
+    reply: 20,
+    quiet: 3,
+    escalate: 7,
     annotated: "No",
+  },
+  {
+    name: "Experiment 14",
+    change:
+      "A lead who names a time we do not have gets the booking link, not a list of the closest times.",
+    reply: 20,
+    quiet: 3,
+    escalate: 7,
+    annotated: "No",
+  },
+  {
+    name: "Experiment 15",
+    change:
+      "A time less than 24 hours away is not available, even when we offered it. First run graded by the LLM judge.",
+    reply: 21,
+    quiet: 2,
+    escalate: 7,
+    annotated: "By the judge: 20 of 30 pass",
+  },
+  {
+    name: "Experiment 16",
+    change:
+      "Five policy questions answered by the owner directly, with a default offered for each, and three exact rules moved into code checks.",
+    reply: 21,
+    quiet: 3,
+    escalate: 6,
+    annotated: "By the judge: 25 of 30 pass",
+  },
+  {
+    name: "Experiment 17",
+    change:
+      "Confirming run before merge. A detail the fact sheet marks as not on file is escalated, not answered with a no.",
+    reply: 21,
+    quiet: 3,
+    escalate: 6,
+    annotated: "No. Same action as experiment 16 in all 30",
   },
 ];
 

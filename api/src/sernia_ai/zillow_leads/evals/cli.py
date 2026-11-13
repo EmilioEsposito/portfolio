@@ -21,11 +21,22 @@ from api.src.sernia_ai.zillow_leads.agent import (
     load_instructions,
     respond,
 )
-from api.src.sernia_ai.zillow_leads.case import OperatingData
+from api.src.sernia_ai.zillow_leads.case import OperatingData, render_case
 from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
+from api.src.sernia_ai.zillow_leads.evals.judge import (
+    JUDGE_MODEL,
+    agreement,
+    fingerprint,
+    half,
+    judge,
+    judge_agent,
+    load_judge_prompt,
+)
 from api.src.sernia_ai.zillow_leads.evals.labels import (
     add_annotations,
+    latest_per_output,
     latest_per_scenario,
+    output_hash,
     read_labels,
 )
 from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
@@ -34,6 +45,7 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     CaseEdit,
     Scenario,
     assign_splits,
+    case_for,
     in_split,
     read_case_edits,
     read_scenarios,
@@ -122,6 +134,13 @@ def not_in_runs(scenarios: list[Scenario], run_files: list[Path]) -> list[Scenar
     return [scenario for scenario in scenarios if scenario.scenario_id not in seen]
 
 
+def in_run(scenarios: list[Scenario], run_file: Path) -> list[Scenario]:
+    """The scenarios an earlier run covered, in that run's order: the same sample again."""
+    by_id = {scenario.scenario_id: scenario for scenario in scenarios}
+    order = [json.loads(line)["case_id"] for line in run_file.read_text().splitlines() if line]
+    return [by_id[case_id] for case_id in order if case_id in by_id]
+
+
 def carry_over(
     earlier: list[dict], edits: dict[str, CaseEdit]
 ) -> tuple[list[str], dict[str, dict]]:
@@ -160,6 +179,9 @@ async def run(args: argparse.Namespace) -> None:
         kept = {case_id: {"carried_from": args.carry.stem, **row} for case_id, row in kept.items()}
         scenarios = [item for item in scenarios if item.scenario_id in again]
         print(f"from {args.carry.stem}: running {len(scenarios)} again, keeping {len(kept)}")
+    if args.cases_from:
+        scenarios = in_run(scenarios, args.cases_from)
+        print(f"same cases as {args.cases_from.stem}: {len(scenarios)}")
     if args.splits:
         scenarios = in_split(scenarios, json.loads(args.splits.read_text()), args.split)
         print(f"split: {args.split}  scenarios in it: {len(scenarios)}")
@@ -186,6 +208,11 @@ async def run(args: argparse.Namespace) -> None:
             },
         )
 
+    if scenarios and not report.cases:
+        # Every call failed (a spent key, a wrong model name). Say so and write
+        # nothing: an empty run file would look like a run with no decisions.
+        first = report.failures[0].error_message if report.failures else "no error recorded"
+        raise SystemExit(f"No case produced an output; nothing written. First error: {first[:300]}")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # The instructions exactly as they were for this run, to read beside its outputs.
     _policy_snapshot(args.out).write_text(load_instructions())
@@ -280,6 +307,97 @@ async def collect(args: argparse.Namespace) -> None:
     print(f"annotations in the store: {len(read_labels(args.store)) if args.store.exists() else 0}")
 
 
+def outputs_to_judge(
+    runs: dict[str, list[dict]], labelled: set[tuple[str, str]] | None
+) -> list[tuple[str, dict]]:
+    """Each distinct output in the runs, once, as ``(run name, row)``.
+
+    With ``labelled``, only the outputs a person has given a verdict on: that
+    is the set a judge is measured against.
+    """
+    seen: set[tuple[str, str, bool]] = set()
+    picked: list[tuple[str, dict]] = []
+    for name, rows in runs.items():
+        for row in rows:
+            output = (row["case_id"], output_hash(row["decision"]))
+            key = (*output, bool(row.get("case_edit")))
+            if key in seen or (labelled is not None and output not in labelled):
+                continue
+            seen.add(key)
+            picked.append((name, row))
+    return picked
+
+
+async def judge_runs(args: argparse.Namespace) -> None:
+    """Grade outputs with the LLM judge, and compare with a person's verdicts."""
+    import logfire
+
+    from api.src.utils.logfire_config import ensure_logfire_configured
+
+    ensure_logfire_configured(mode="prod", service_name="zillow-evals", environment="local")
+    logfire.instrument_pydantic_ai()
+
+    operating = OperatingData.model_validate_json(args.operating.read_text())
+    by_id = {item.scenario_id: item for item in read_scenarios(args.scenarios)}
+    edits = read_case_edits(args.case_edits) if args.case_edits else {}
+    verdicts = latest_per_output(read_labels(args.labels)) if args.labels else {}
+    runs = {
+        run_file.stem: [json.loads(line) for line in run_file.read_text().splitlines() if line]
+        for run_file in args.run
+    }
+    picked = outputs_to_judge(runs, set(verdicts) if args.only_labelled else None)
+    # The standard is the instructions as they are now, whatever the run had.
+    instructions = load_instructions()
+    model = args.model or JUDGE_MODEL
+    stamp = {
+        "judge_model": model,
+        "judge_prompt": fingerprint(load_judge_prompt()),
+        "instructions": fingerprint(instructions),
+    }
+    limit = asyncio.Semaphore(args.concurrency)
+
+    async def one(name: str, row: dict) -> dict | None:
+        scenario = by_id[row["case_id"]]
+        edit = edits.get(row["case_id"]) if row.get("case_edit") else None
+        case_text = render_case(case_for(scenario, operating, edit))
+        async with limit:
+            try:
+                judgement = await judge(instructions, case_text, row["decision"])
+            except Exception as error:  # noqa: BLE001 - one bad call must not lose the rest
+                print(f"judge error on {row['case_id']}: {type(error).__name__}")
+                return None
+        return {
+            "case_id": row["case_id"],
+            "run": name,
+            "output_hash": output_hash(row["decision"]),
+            "action": row["decision"]["action"],
+            **judgement.model_dump(),
+            **stamp,
+        }
+
+    with judge_agent().override(model=resolve_model(model)):
+        done = await asyncio.gather(*(one(name, row) for name, row in picked))
+    judged = [row for row in done if row]
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text("".join(json.dumps(row) + "\n" for row in judged))
+
+    print(f"judge: {model}  outputs judged: {len(judged)} of {len(picked)}")
+    print(f"verdicts: {dict(Counter(row['verdict'] for row in judged))}")
+    print(f"policy gaps raised: {sum(bool(row['policy_gap']) for row in judged)}")
+    pairs: dict[str, list[tuple[str, str]]] = {"all": [], "judge-dev": [], "judge-test": []}
+    for row in judged:
+        label = verdicts.get((row["case_id"], row["output_hash"]))
+        if label:
+            pair = (label.verdict or "", row["verdict"])
+            pairs["all"].append(pair)
+            pairs[half(by_id[row["case_id"]].thread.thread_id)].append(pair)
+    for name, group in pairs.items():
+        if group:
+            print(f"agreement, {name}: {agreement(group)}")
+    print(f"judgements: {args.out}")
+    logfire.force_flush()
+
+
 class _PageHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         # A page is rewritten by every `review` or `browse`: never show a stale one.
@@ -347,6 +465,9 @@ def main() -> None:
         default=[],
         help="Leave out scenarios this earlier run already covered; repeat for several",
     )
+    run_parser.add_argument(
+        "--cases-from", type=Path, help="Run exactly the cases an earlier run covered"
+    )
     run_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
     run_parser.add_argument(
         "--carry",
@@ -384,6 +505,20 @@ def main() -> None:
     )
     collect_parser.add_argument("--runs", type=Path, default=DATA_DIR / "runs")
     collect_parser.set_defaults(handler=collect)
+
+    judge_parser = commands.add_parser("judge", help="Grade outputs with the LLM judge")
+    judge_parser.add_argument("--scenarios", type=Path, required=True)
+    judge_parser.add_argument("--operating", type=Path, required=True)
+    judge_parser.add_argument("--run", type=Path, action="append", required=True)
+    judge_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
+    judge_parser.add_argument("--labels", type=Path, help="The annotations store, to compare with")
+    judge_parser.add_argument(
+        "--only-labelled", action="store_true", help="Judge only outputs a person has graded"
+    )
+    judge_parser.add_argument("--out", type=Path, required=True)
+    judge_parser.add_argument("--concurrency", type=int, default=6)
+    judge_parser.add_argument("--model", help="Model to judge with instead of the configured one")
+    judge_parser.set_defaults(handler=judge_runs)
 
     serve_parser = commands.add_parser("serve", help="Serve the pages on this machine only")
     serve_parser.add_argument("--data", type=Path, default=DATA_DIR)
