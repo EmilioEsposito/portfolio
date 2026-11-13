@@ -15,16 +15,18 @@ from sqlalchemy import delete, select
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.models import ZillowEmailJob
-from api.src.sernia_ai.runs import RunOutcome
 from api.src.sernia_ai.triggers import zillow_email_event_trigger as queue
+from api.src.sernia_ai.zillow_leads.handle import Handled
+from api.src.sernia_ai.zillow_leads.thread import SharedCopy
 
 LEAD = "abc123@convo.zillow.com"
-OK = RunOutcome(persisted=True, reply_text="Drafted a reply.")
+OK = Handled(persisted=True, action="reply", pending=True)
+SHARED = SharedCopy("shared-msg", "shared-thread", "<rfc@zillow>")
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def clean_queue(monkeypatch):
-    """Empty table, kill switch on, zero debounce, no real agent."""
+    """Empty table, kill switch on, zero debounce, no real agent or Gmail."""
 
     async def wipe():
         async with AsyncSessionFactory() as s:
@@ -39,7 +41,9 @@ async def clean_queue(monkeypatch):
         AsyncMock(return_value={"debounce_seconds": 0, "require_approval": True}),
     )
     monkeypatch.setattr(queue, "_already_completed", AsyncMock(return_value=False))
-    monkeypatch.setattr(queue, "execute_trigger_run", AsyncMock(return_value=OK))
+    monkeypatch.setattr(queue, "handle_thread", AsyncMock(return_value=OK))
+    # No Gmail in tests: every email has this copy in the shared mailbox.
+    monkeypatch.setattr(queue, "find_shared_copy", AsyncMock(return_value=SHARED))
     yield
     await wipe()
 
@@ -275,56 +279,79 @@ class TestProcess:
         assert row.conversation_id == f"zillow-T1-{row.id}"
 
     @pytest.mark.asyncio
-    async def test_run_is_told_which_emails_arrived(self):
+    async def test_the_lead_agent_gets_the_shared_mailbox_thread(self):
+        # The queue holds IDs from the watched mailbox; they do not exist in
+        # the shared mailbox the lead agent reads and replies from.
         first = await enqueue(thread_id="T1", subject="Is it available?")
         second = await enqueue(thread_id="T1", subject="Also, pets?")
         await queue.process_zillow_email_queue()
 
-        kwargs = queue.execute_trigger_run.await_args.kwargs
-        assert kwargs["trigger_source"] == "zillow_email_event"
-        assert first in kwargs["trigger_prompt"] and second in kwargs["trigger_prompt"]
-        assert "zillow-auto-reply skill" in kwargs["trigger_prompt"]
-        assert kwargs["conversation_id"] in kwargs["trigger_prompt"]  # deeplink
-        assert kwargs["trigger_metadata"]["subjects"] == ["Is it available?", "Also, pets?"]
-        assert kwargs["trigger_metadata"]["email_count"] == 2
+        assert [call.args[0] for call in queue.find_shared_copy.await_args_list] == [first, second]
+        call = queue.handle_thread.await_args
+        assert call.args == ("shared-thread",)
+        assert call.kwargs["conversation_id"].startswith("zillow-T1-")
+        metadata = call.kwargs["metadata"]
+        assert metadata["trigger_source"] == "zillow_email_event"
+        assert metadata["subjects"] == ["Is it available?", "Also, pets?"]
+        assert metadata["email_count"] == 2
 
     @pytest.mark.asyncio
-    async def test_single_email_prompt_names_the_message_to_reply_to(self):
+    async def test_zillow_email_never_starts_the_general_agent(self):
+        """The general agent has tools and private data; a lead's email must not reach it."""
+        assert not hasattr(queue, "execute_trigger_run")
+        assert not hasattr(queue, "build_trigger_prompt")
+
+    @pytest.mark.asyncio
+    async def test_the_newest_email_with_a_shared_copy_names_the_thread(self, monkeypatch):
+        first = await enqueue(thread_id="T1")
+        await enqueue(thread_id="T1")  # no copy yet: the shared mailbox can lag
+
+        async def only_first(message_id):
+            return SharedCopy("m", "thread-of-first", "<r@z>") if message_id == first else None
+
+        monkeypatch.setattr(queue, "find_shared_copy", only_first)
+        await queue.process_zillow_email_queue()
+
+        assert queue.handle_thread.await_args.args == ("thread-of-first",)
+
+    @pytest.mark.asyncio
+    async def test_no_shared_copy_yet_retries_the_batch(self, monkeypatch):
         message_id = await enqueue(thread_id="T1")
+        monkeypatch.setattr(queue, "find_shared_copy", AsyncMock(return_value=None))
+
         await queue.process_zillow_email_queue()
-        prompt = queue.execute_trigger_run.await_args.kwargs["trigger_prompt"]
-        assert f'reply_to_message_id="{message_id}"' in prompt
+
+        queue.handle_thread.assert_not_called()
+        job = (await rows())[message_id]
+        assert job.state == "pending" and job.attempts == 1
+        assert "shared mailbox" in job.last_error
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("require_approval", "expected_scope"),
-        [(True, frozenset()), (False, frozenset({"zillow.com"}))],
-    )
-    async def test_approval_setting_controls_the_auto_send_scope(
-        self, monkeypatch, require_approval, expected_scope
-    ):
+    async def test_gmail_failure_during_lookup_retries_the_batch(self, monkeypatch):
+        message_id = await enqueue(thread_id="T1")
         monkeypatch.setattr(
-            queue,
-            "get_zillow_email_config",
-            AsyncMock(return_value={"debounce_seconds": 0, "require_approval": require_approval}),
+            queue, "find_shared_copy", AsyncMock(side_effect=RuntimeError("gmail down"))
         )
-        await enqueue(thread_id="T1")
+
         await queue.process_zillow_email_queue()
-        scope = queue.execute_trigger_run.await_args.kwargs["auto_approved_reply_domains"]
-        assert scope == expected_scope
+
+        queue.handle_thread.assert_not_called()
+        job = (await rows())[message_id]
+        assert job.state == "pending" and job.attempts == 1
+        assert "gmail down" in job.last_error
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "bad_outcome",
-        [None, RunOutcome(persisted=False), RuntimeError("gmail down")],
-        ids=["run crashed", "not saved", "unexpected error"],
+        [None, Handled(persisted=False, action="reply"), RuntimeError("gmail down")],
+        ids=["thread not found", "not saved", "unexpected error"],
     )
     async def test_failed_run_is_retried_later_not_dropped(self, bad_outcome):
         """The old in-memory trigger lost the lead on any failure."""
         if isinstance(bad_outcome, Exception):
-            queue.execute_trigger_run.side_effect = bad_outcome
+            queue.handle_thread.side_effect = bad_outcome
         else:
-            queue.execute_trigger_run.return_value = bad_outcome
+            queue.handle_thread.return_value = bad_outcome
         message_id = await enqueue(thread_id="T1")
         await queue.process_zillow_email_queue()
 
@@ -335,8 +362,8 @@ class TestProcess:
         assert row.next_attempt_at > datetime.now(UTC) + timedelta(minutes=1)  # backoff
 
         # Recovers on the retry.
-        queue.execute_trigger_run.side_effect = None
-        queue.execute_trigger_run.return_value = OK
+        queue.handle_thread.side_effect = None
+        queue.handle_thread.return_value = OK
         claim = await queue.claim_next_thread(now=later(minutes=3))
         await queue.process_thread(claim)
         row = (await rows())[message_id]
@@ -344,7 +371,7 @@ class TestProcess:
 
     @pytest.mark.asyncio
     async def test_run_that_always_fails_is_parked_after_max_attempts(self):
-        queue.execute_trigger_run.return_value = None
+        queue.handle_thread.return_value = None
         message_id = await enqueue(thread_id="T1")
         for attempt in range(queue.MAX_ATTEMPTS):
             claim = await queue.claim_next_thread(now=later(hours=attempt))
@@ -352,13 +379,13 @@ class TestProcess:
 
         assert (await rows())[message_id].state == "failed"
         assert await queue.claim_next_thread(now=later(hours=10)) is None
-        assert queue.execute_trigger_run.await_count == queue.MAX_ATTEMPTS
+        assert queue.handle_thread.await_count == queue.MAX_ATTEMPTS
 
     @pytest.mark.asyncio
     async def test_a_new_email_does_not_inherit_an_old_batchs_failures(self):
         """A lead's fresh message must get its own three attempts, not be
         parked alongside an older batch that has just used its last one."""
-        queue.execute_trigger_run.return_value = None  # every run crashes
+        queue.handle_thread.return_value = None  # every run crashes
         old = await enqueue(thread_id="T1")
         for attempt in range(queue.MAX_ATTEMPTS - 1):
             await queue.process_thread(await queue.claim_next_thread(now=later(hours=attempt)))
@@ -384,7 +411,7 @@ class TestProcess:
         message_id = await enqueue(thread_id="T1")
         await queue.process_zillow_email_queue()
 
-        queue.execute_trigger_run.assert_not_called()
+        queue.handle_thread.assert_not_called()
         assert (await rows())[message_id].state == "done"
 
     @pytest.mark.asyncio
@@ -405,7 +432,7 @@ class TestProcess:
         message_id = await enqueue(thread_id="T1")
         monkeypatch.setattr(queue, "is_sernia_ai_enabled", AsyncMock(return_value=False))
         await queue.process_zillow_email_queue()
-        queue.execute_trigger_run.assert_not_called()
+        queue.handle_thread.assert_not_called()
         assert (await rows())[message_id].state == "pending"
 
 

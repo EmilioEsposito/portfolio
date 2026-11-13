@@ -94,3 +94,7 @@ api/seed_fixtures/
 
 # Shared private credential custody in the primary checkout; never force-add.
 /.local/credential-recovery/
+
+# Zillow eval data: real applicant emails, labels and run outputs. Never
+# force-add. No trailing slash, so a symlink of this name is ignored too.
+/api/src/sernia_ai/zillow_leads/evals/data

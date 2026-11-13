@@ -46,6 +46,7 @@ from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
+from api.src.sernia_ai.zillow_leads.skill import lead_policy_skill
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
@@ -79,7 +80,13 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # manual ``reload_skills()`` decorator pattern, which never injected the
 # skill registry into the prompt — meaning the agent had skill *tools* but
 # couldn't see what skills existed without calling list_skills first.
+#
+# One skill is built in code instead: the Zillow lead policy, which the lead
+# agent also runs on. A skill passed in ``skills`` takes priority over a
+# workspace skill of the same name and survives every reload, so the workspace
+# cannot replace it. See zillow_leads/skill.py.
 skills_capability = SkillsCapability(
+    skills=[lead_policy_skill()],
     directories=[WORKSPACE_PATH / ".claude" / "skills"],
     auto_reload=True,
 )

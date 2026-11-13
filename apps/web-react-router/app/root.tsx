@@ -105,7 +105,7 @@ export default function App({ loaderData }: Route.ComponentProps) {
         ) : (
           <SidebarProvider>
             <AppSidebar />
-            <SidebarInset className="min-w-0 overflow-x-hidden">
+            <SidebarInset className="min-w-0 overflow-x-clip">
               <Navbar />
               <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
               <Outlet />

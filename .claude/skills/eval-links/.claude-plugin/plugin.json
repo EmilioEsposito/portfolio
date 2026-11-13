@@ -1,0 +1,6 @@
+{
+  "name": "eval-links",
+  "version": "0.1.0",
+  "description": "/eval-links: local links to the Zillow lead eval pages (review, dataset, flow diagram) and whether each server is running",
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zillow reply review</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1f1e1c; --muted:#6b6a65; --line:#dcdad2;
+          --pass:#1d7a4f; --fail:#b3362b; --warn:#8a5a00; --tint:#f0eee7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#191918; --card:#232321; --ink:#ecebe6; --muted:#a3a29b; --line:#3a3936;
+            --pass:#5fc795; --fail:#f08a7f; --warn:#e3b55a; --tint:#2c2b29; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  header { position:sticky; top:0; z-index:1; background:var(--bg); border-bottom:1px solid var(--line);
+           padding:10px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .grow { flex:1; }
+  main { max-width:1200px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; margin-bottom:18px; scroll-margin-top:64px; }
+  .card.pass { border-left:5px solid var(--pass); }
+  .card.fail { border-left:5px solid var(--fail); }
+  .top { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .id { font:12px ui-monospace, monospace; color:var(--muted); }
+  .badge { font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--tint); }
+  .badge.bad { color:var(--fail); }
+  .cols { display:grid; grid-template-columns:1fr 1fr; }
+  .col { padding:12px 14px; min-width:0; }
+  .col + .col { border-left:1px solid var(--line); }
+  @media (max-width: 800px) { .cols { grid-template-columns:1fr; } .col + .col { border-left:0; border-top:1px solid var(--line); } }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 6px; font-weight:600; }
+  .text { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 12px; font:inherit; }
+  .reason { color:var(--muted); margin:0 0 10px; }
+  details { margin:0 0 10px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  details .text { background:var(--tint); padding:10px; border-radius:6px; margin-top:6px; font-size:13px; }
+  .facts { font-size:13px; color:var(--muted); margin:0 0 10px; }
+  .label { padding:10px 14px; border-top:1px solid var(--line); display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
+  button, select { font:inherit; padding:6px 14px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.on.pass { background:var(--pass); border-color:var(--pass); color:#fff; }
+  button.on.fail { background:var(--fail); border-color:var(--fail); color:#fff; }
+  .instead { padding:0 14px 10px; }
+  .instead textarea { display:block; width:100%; min-height:160px; margin-top:8px; }
+  #policy { position:fixed; top:0; right:0; bottom:0; z-index:5; width:min(580px, 94vw); overflow-y:auto;
+            background:var(--card); border-left:1px solid var(--line); padding:14px 18px 40px;
+            box-shadow:-12px 0 32px rgba(0,0,0,.25); }
+  #policy header { position:static; padding:0 0 10px; margin-bottom:12px; background:none; }
+  #policy-text h3 { font-size:15px; margin:18px 0 6px; }
+  #policy-text p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 10px; font-size:14px; line-height:1.55; }
+  .earlier { margin:0 14px 10px; padding:8px 10px; border:1px dashed var(--warn); border-radius:6px;
+             font-size:13px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .earlier[hidden] { display:none; }
+  .earlier span { flex:1; min-width:200px; }
+  #saved { font-size:12px; color:var(--muted); }
+  textarea { flex:1; min-width:240px; min-height:38px; font:inherit; padding:7px 9px; border-radius:6px;
+             border:1px solid var(--line); background:var(--card); color:var(--ink); resize:vertical; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Review</h1>
+  <span id="progress"></span>
+  <span id="saved">Saved in this browser as you go</span>
+  <span class="grow"></span>
+  <select id="filter" aria-label="Show">
+    <option value="all">Show all</option>
+    <option value="todo">Not labelled yet</option>
+    <option value="reply">Replies</option>
+    <option value="no_reply">No reply</option>
+    <option value="escalate">Escalations</option>
+    <option value="fail">Marked fail</option>
+    <option value="changed">Decision changed since your verdict</option>
+  </select>
+  <button id="show-policy" aria-expanded="false" aria-controls="policy">Policy</button>
+  <button id="download">Download labels</button>
+</header>
+<main id="cases"></main>
+<aside id="policy" hidden aria-label="The policy this run used">
+  <header>
+    <h1>The policy</h1>
+    <span class="id" id="policy-note"></span>
+    <span class="grow"></span>
+    <button id="hide-policy">Close</button>
+  </header>
+  <div id="policy-text"></div>
+</aside>
+<script type="application/json" id="data">__REVIEW_DATA__</script>
+<script>
+// Opened as it sits in the repository, this file is a template with no data.
+const RAW = document.getElementById('data').textContent;
+if (RAW.startsWith('__')) {
+  document.body.innerHTML = '<p style="max-width:40rem;margin:3rem auto;padding:0 1rem;font:16px/1.5 system-ui">' +
+    'This is the page template, so it has no data to show. The page with data is ' +
+    '<code>evals/data/review.html</code>, or <a href="http://localhost:8377/review.html">localhost:8377/review.html</a> ' +
+    'while <code>evals serve</code> is running.</p>';
+  throw new Error('This file is the template. Open evals/data/review.html instead.');
+}
+const DATA = JSON.parse(RAW);
+// One store for every experiment, keyed by scenario. Each label remembers which
+// output it judged, so a re-run never silently reuses or discards a verdict.
+const STORE = 'zillow-review:labels';
+let labels = {};
+try { labels = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { labels = {}; }
+function filled(e) { return Boolean(e && (e.verdict || e.note || e.corrected)); }
+// Labels saved by earlier versions of this page, which kept one store per run.
+try {
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith('zillow-review:') || key === STORE) continue;
+    const run = key.slice('zillow-review:'.length);
+    const old = JSON.parse(localStorage.getItem(key) || '{}');
+    for (const id of Object.keys(old)) {
+      if (labels[id] || !filled(old[id])) continue;
+      labels[id] = { verdict: old[id].verdict || null, note: old[id].note || '', corrected: old[id].corrected || '',
+                     hash: ((DATA.previous || {})[run] || {})[id] || '', run };
+    }
+  }
+} catch (e) {}
+// Labels supplied when the page was generated, such as a file downloaded earlier.
+for (const seed of DATA.seed_labels || []) {
+  if (labels[seed.scenario_id]) continue;
+  labels[seed.scenario_id] = { verdict: seed.verdict || null, note: seed.note || '', corrected: seed.corrected_reply || '',
+                               hash: seed.output_hash || '', run: seed.run || '' };
+}
+const HASH = Object.fromEntries(DATA.cases.map(c => [c.id, c.hash]));
+// The label for the output shown now, if there is one.
+function current(id) {
+  const e = labels[id];
+  return e && e.hash === HASH[id] ? e : null;
+}
+// What the model decided in the run a verdict was given on, when it differs from now.
+function wasAction(c) {
+  const before = earlier(c.id);
+  const then = before && ((DATA.previous_actions || {})[before.run] || {})[c.id];
+  return then && then !== c.action ? then : null;
+}
+// A verdict given on a different output of the same scenario.
+function earlier(id) {
+  const e = labels[id];
+  if (!e) return null;
+  if (e.hash !== HASH[id]) return filled(e) ? e : null;
+  return e.verdict ? null : (e.earlier || null);
+}
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+function section(parent, heading, text, cls) {
+  parent.append(el('h2', '', heading), el('pre', cls || 'text', text));
+}
+function fold(parent, summary, text) {
+  const d = el('details');
+  d.append(el('summary', '', summary), el('pre', 'text', text));
+  parent.append(d);
+}
+function persist() {
+  const saved = document.getElementById('saved');
+  try {
+    localStorage.setItem(STORE, JSON.stringify(labels));
+    saved.textContent = 'Saved in this browser at ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    saved.textContent = 'Could not save in this browser. Download labels before closing.';
+  }
+}
+function save() {
+  persist();
+  refresh();
+}
+function refresh() {
+  const verdicts = DATA.cases.map(c => (current(c.id) || {}).verdict).filter(Boolean);
+  const passed = verdicts.filter(v => v === 'pass').length;
+  document.getElementById('progress').textContent =
+    verdicts.length + ' of ' + DATA.cases.length + ' labelled' +
+    (verdicts.length ? ' · ' + passed + ' pass, ' + (verdicts.length - passed) + ' fail' : '');
+  const show = document.getElementById('filter').value;
+  for (const c of DATA.cases) {
+    const verdict = (current(c.id) || {}).verdict;
+    const card = document.getElementById('card-' + c.id);
+    const before = earlier(c.id);
+    const banner = card.querySelector('.earlier');
+    banner.hidden = !before;
+    const was = wasAction(c);
+    if (before) {
+      banner.querySelector('span').textContent =
+        'On an earlier draft' + (before.run ? ' (' + before.run + ')' : '') +
+        (was ? ', where the model chose "' + (ACTIONS[was] || was) + '",' : '') + ' you marked this ' +
+        (before.verdict || 'with a note only') + (before.note ? ': ' + before.note : '.');
+    }
+    card.querySelector('.was').hidden = !was;
+    card.classList.toggle('pass', verdict === 'pass');
+    card.classList.toggle('fail', verdict === 'fail');
+    card.querySelector('button.pass').classList.toggle('on', verdict === 'pass');
+    card.querySelector('button.fail').classList.toggle('on', verdict === 'fail');
+    card.hidden = !(show === 'all' || (show === 'todo' && !verdict) || show === c.action ||
+                    (show === 'fail' && verdict === 'fail') || (show === 'changed' && was));
+  }
+}
+// The label for the output shown now, created on first use. A verdict on an
+// earlier output is kept beside it until this one is decided.
+function entry(id) {
+  if (current(id)) return labels[id];
+  const before = earlier(id);
+  labels[id] = { verdict: null, note: '', corrected: '', hash: HASH[id], run: DATA.run };
+  if (before) labels[id].earlier = { verdict: before.verdict, note: before.note, corrected: before.corrected, run: before.run };
+  return labels[id];
+}
+function setVerdict(id, verdict) {
+  const e = entry(id);
+  e.verdict = e.verdict === verdict ? null : verdict;
+  save();
+}
+function keepEarlier(id, note, corrected) {
+  const before = earlier(id);
+  if (!before) return;
+  const e = entry(id);
+  e.verdict = before.verdict;
+  if (!e.note) e.note = before.note || '';
+  if (!e.corrected) e.corrected = before.corrected || '';
+  note.value = e.note;
+  corrected.value = e.corrected;
+  save();
+}
+
+const ACTIONS = { reply: 'Reply', no_reply: 'No reply', escalate: 'Escalate' };
+const list = document.getElementById('cases');
+DATA.cases.forEach((c, index) => {
+  const card = el('section', 'card');
+  card.id = 'card-' + c.id;
+
+  const top = el('div', 'top');
+  top.append(el('strong', '', (index + 1) + ' of ' + DATA.cases.length), el('span', 'badge', ACTIONS[c.action] || c.action));
+  for (const name of c.failed_checks) top.append(el('span', 'badge bad', 'check failed: ' + name));
+  if (c.action === 'reply') top.append(el('span', 'badge', c.offered + ' tour times offered'));
+  if (c.case_edit) top.append(el('span', 'badge', 'case edited by hand'));
+  const changed = el('span', 'badge bad was', 'decision changed');
+  changed.hidden = true;
+  top.append(changed);
+  top.append(el('span', 'id', c.id));
+  card.append(top);
+
+  const cols = el('div', 'cols');
+  const left = el('div', 'col');
+  section(left, 'The lead wrote', c.lead_message);
+  if (c.case_edit) {
+    // Tour times a person put into this case from reading the thread. The
+    // model saw them as ordinary lines under the two tour headings.
+    const lines = [
+      ...c.case_edit.offered.map(t => '• May be offered: ' + t),
+      ...c.case_edit.booked.map(t => '• Already booked: ' + t),
+    ];
+    if (c.case_edit.note) lines.push('Why: ' + c.case_edit.note);
+    section(left, 'Added to this case by hand', lines.join('\n'));
+  }
+  fold(left, 'Everything the model was given', c.case_text);
+  fold(left, c.actual_reply ? 'What we actually sent (' + c.actual_delay + ' min later)' : 'We never answered this one', c.actual_reply || '(nothing sent)');
+
+  const right = el('div', 'col');
+  right.append(el('h2', '', 'The model decided: ' + (ACTIONS[c.action] || c.action)), el('p', 'reason', c.reason));
+  if (c.reply) section(right, 'Draft reply', c.reply);
+  if (c.question) section(right, 'It needs to know', c.question);
+  if (c.team_notes.length) section(right, 'Notes for the team', c.team_notes.map(n => '• ' + n).join('\n'));
+  right.append(el('p', 'facts', c.recorded));
+  cols.append(left, right);
+  card.append(cols);
+
+  const row = el('div', 'label');
+  const pass = el('button', 'pass', 'Pass');
+  const fail = el('button', 'fail', 'Fail');
+  pass.addEventListener('click', () => setVerdict(c.id, 'pass'));
+  fail.addEventListener('click', () => setVerdict(c.id, 'fail'));
+  const note = el('textarea');
+  note.placeholder = 'One line on why (most useful on a fail)';
+  note.setAttribute('aria-label', 'Note');
+  note.value = (current(c.id) || {}).note || '';
+  note.addEventListener('input', () => { entry(c.id).note = note.value; persist(); });
+  row.append(pass, fail, note);
+  card.append(row);
+
+  const banner = el('div', 'earlier');
+  banner.hidden = true;
+  const still = el('button', '', 'Still applies');
+  banner.append(el('span'), still);
+  card.append(banner);
+
+  const instead = el('details', 'instead');
+  const corrected = el('textarea');
+  corrected.setAttribute('aria-label', 'What you would have sent');
+  corrected.placeholder = 'Optional. The reply you would have sent.';
+  corrected.value = (current(c.id) || {}).corrected || '';
+  still.addEventListener('click', () => keepEarlier(c.id, note, corrected));
+  corrected.addEventListener('input', () => { entry(c.id).corrected = corrected.value; persist(); });
+  instead.open = Boolean(corrected.value);
+  instead.append(el('summary', '', 'Write what you would have sent (optional)'));
+  if (c.reply) {
+    const copy = el('button', '', 'Start from the draft');
+    copy.addEventListener('click', () => {
+      if (!corrected.value) { corrected.value = c.reply; entry(c.id).corrected = c.reply; persist(); }
+      corrected.focus();
+    });
+    instead.append(copy);
+  }
+  instead.append(corrected);
+  card.append(instead);
+  list.append(card);
+});
+
+document.getElementById('title').textContent =
+  'Review: ' + DATA.run + (DATA.model ? ' on ' + DATA.model.split('/').pop() : '');
+document.title = 'Review: ' + DATA.run;
+document.getElementById('filter').addEventListener('change', refresh);
+
+const policyPanel = document.getElementById('policy');
+const policyButton = document.getElementById('show-policy');
+// The policy file is hard-wrapped Markdown. Rejoin wrapped lines so it reads at
+// any width, keeping headings and list items on their own lines.
+function renderPolicy(text, into) {
+  for (const block of text.split(/\n\s*\n/)) {
+    if (!block.trim()) continue;
+    if (block.startsWith('#')) {
+      into.append(el('h3', '', block.replace(/^#+\s*/, '')));
+      continue;
+    }
+    const lines = [];
+    for (const line of block.split('\n')) {
+      const startsItem = /^\s*(-|\d+\.)\s/.test(line);
+      if (startsItem || lines.length === 0) lines.push(line);
+      else lines[lines.length - 1] += ' ' + line.trim();
+    }
+    into.append(el('p', '', lines.join('\n').replace(/\*\*/g, '')));
+  }
+}
+renderPolicy(
+  DATA.policy || 'This run did not record its policy. Run it again to capture one.',
+  document.getElementById('policy-text'),
+);
+document.getElementById('policy-note').textContent =
+  'the instructions the model had for this run, commit ' + DATA.policy_commit;
+function showPolicy(open) {
+  policyPanel.hidden = !open;
+  policyButton.setAttribute('aria-expanded', String(open));
+  if (open) document.getElementById('hide-policy').focus(); else policyButton.focus();
+}
+policyButton.addEventListener('click', () => showPolicy(policyPanel.hidden));
+document.getElementById('hide-policy').addEventListener('click', () => showPolicy(false));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !policyPanel.hidden) showPolicy(false);
+});
+document.getElementById('download').addEventListener('click', () => {
+  const rows = DATA.cases
+    .filter(c => filled(current(c.id)))
+    .map(c => ({ scenario_id: c.id, verdict: labels[c.id].verdict || null, note: labels[c.id].note || '',
+                 corrected_reply: labels[c.id].corrected || '', action: c.action,
+                 output_hash: c.hash, run: DATA.run }));
+  const file = { run: DATA.run, policy_commit: DATA.policy_commit, exported_at: new Date().toISOString(), labels: rows };
+  const link = el('a');
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+  link.download = DATA.run + '-labels.json';
+  document.body.append(link);
+  link.click();
+  link.remove();
+});
+refresh();
+// Cards are built after load, so a link to one decision has to be followed by hand.
+if (location.hash) {
+  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  if (target) target.scrollIntoView();
+}
+</script>
+</body>
+</html>
