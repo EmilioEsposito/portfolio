@@ -38,9 +38,16 @@ def _as_listing(record: RentalListingRecord) -> RentalListing:
 async def _record(
     session: AsyncSession, name: str, *, lock: bool = False
 ) -> RentalListingRecord | None:
-    query = select(RentalListingRecord).where(
-        func.lower(RentalListingRecord.unit) == name.strip().lower()
-    )
+    key = name.strip().lower()
+    if lock:
+        # A row lock cannot hold a unit that has no listing yet, so two callers
+        # creating "12-A" and "12-a" at once would both find nothing and both
+        # insert. This lock is on the name itself, held until commit.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"rental_listing:{key}"},
+        )
+    query = select(RentalListingRecord).where(func.lower(RentalListingRecord.unit) == key)
     return (await session.execute(query.with_for_update() if lock else query)).scalar_one_or_none()
 
 
@@ -57,7 +64,11 @@ async def read_listings(session: AsyncSession) -> list[RentalListing]:
 async def read_listing(
     session: AsyncSession, name: str, *, lock: bool = False
 ) -> RentalListing | None:
-    """One unit's listing, matched without regard to case. ``lock`` holds the row until commit."""
+    """One unit's listing, matched without regard to case.
+
+    ``lock`` holds that unit, listed or not, until the session commits, so a
+    caller that reads, changes and saves it cannot race another.
+    """
     record = await _record(session, name, lock=lock)
     return _as_listing(record) if record else None
 

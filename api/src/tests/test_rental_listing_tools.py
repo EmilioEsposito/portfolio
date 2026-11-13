@@ -236,6 +236,17 @@ class TestFreeTextWaitsForAPerson:
         assert (await unit("12-C")).public_facts == ["Studio"]
 
     @pytest.mark.asyncio
+    async def test_two_approved_creations_of_one_unit_in_different_case_make_one_listing(self):
+        said = await asyncio.gather(
+            tools.rental_listing_update(ctx(approved=True), unit="12-C", create=True),
+            tools.rental_listing_update(ctx(approved=True), unit="12-c", create=True),
+        )
+
+        assert sorted(text.split(".")[0] for text in said) == ["Not saved", "Saved"]
+        names = [item.unit.lower() for item in await units()]
+        assert names == ["12-a", "12-b", "12-c"]
+
+    @pytest.mark.asyncio
     async def test_the_shared_booking_link_waits_too(self):
         with pytest.raises(ApprovalRequired):
             await tools.showing_rules_update(ctx(), showing_booking_url="https://book.example.com")

@@ -10,6 +10,7 @@ import pytest
 import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
@@ -192,6 +193,29 @@ class TestUnits:
         await service.save_listing(session, rented, changed_by="Pat")
 
         assert await service.read_listings(session) == [rented]
+
+    @pytest.mark.asyncio
+    async def test_the_database_refuses_two_listings_whose_units_differ_only_in_case(self, session):
+        session.add(RentalListingRecord(unit="12-A"))
+        session.add(RentalListingRecord(unit="12-a"))
+
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+    @pytest.mark.asyncio
+    async def test_a_locked_read_of_an_unlisted_unit_holds_off_another_creator(self, session):
+        """No row exists to lock, so the lock is on the name, whatever its case."""
+        async with AsyncSessionFactory() as first, AsyncSessionFactory() as second:
+            assert await service.read_listing(first, "12-A", lock=True) is None
+            waiting = asyncio.create_task(service.read_listing(second, "12-a", lock=True))
+            await asyncio.sleep(0.3)
+            assert not waiting.done()
+
+            await service.save_listing(first, RentalListing(unit="12-A"), changed_by="Pat")
+
+            assert await asyncio.wait_for(waiting, 5) == RentalListing(unit="12-A")
+            await second.rollback()
 
     @pytest.mark.asyncio
     async def test_units_come_back_in_name_order(self, session):
