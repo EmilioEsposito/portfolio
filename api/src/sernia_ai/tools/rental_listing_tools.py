@@ -334,7 +334,7 @@ async def showing_rules_update(
     """
     async with AsyncSessionFactory() as session:
         try:
-            current = await service.read_showing_rules(session)
+            current = await service.read_showing_rules(session, lock=True)
         except RentalDataInvalid as error:
             return f"Not saved. The showing rules on file fail their checks: {error}."
         blackout = (set(current.blackout_dates) | set(add_blackout_dates or [])) - set(

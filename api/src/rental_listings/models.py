@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,9 @@ class RentalListingRecord(Base):
     """
 
     __tablename__ = "rental_listings"
+    # Units are matched without regard to case, so they are unique that way too.
+    # The same expression as migration 0039, so autogenerate sees no difference.
+    __table_args__ = (Index("uq_rental_listings_unit_lower", text("lower(unit)"), unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     unit: Mapped[str] = mapped_column(String, unique=True)

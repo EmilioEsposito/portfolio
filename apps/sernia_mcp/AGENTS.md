@@ -16,7 +16,7 @@ Run from `apps/sernia_mcp/`, without activating the parent environment:
 uv sync --locked
 uv run pytest -q -m 'not live'
 uv run uvicorn sernia_mcp.app:app --port 8090
-uv run fastmcp dev apps src/sernia_mcp/dev_server.py
+SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 ```
 
 The development harness mocks sends. Use it for approval-card browser checks;

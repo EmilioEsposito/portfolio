@@ -5,6 +5,10 @@ Each conversation gets a file-backed DuckDB at /tmp/sernia_duckdb/<conversation_
 """
 
 import csv
+import json
+import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -13,38 +17,58 @@ from pydantic_ai import FunctionToolset, RunContext
 
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools.data_export import DATA_BASE, _validate_conversation_id
+from api.src.sernia_ai.tools.duckdb_worker import MAX_CHARS, MAX_CSV_BYTES, open_connection
 
 duckdb_toolset = FunctionToolset()
 
 DUCKDB_BASE = Path("/tmp/sernia_duckdb")
 
 
-def _get_connection(conversation_id: str) -> duckdb.DuckDBPyConnection:
-    """Open a file-backed DuckDB for this conversation."""
+QUERY_TIMEOUT_SECONDS = 30
+MAX_QUERY_CHARS = 64_000
+_WORKER_SLOTS = threading.BoundedSemaphore(2)
+
+
+def _database_path(conversation_id: str) -> Path:
     _validate_conversation_id(conversation_id)
     DUCKDB_BASE.mkdir(parents=True, exist_ok=True)
-    db_path = DUCKDB_BASE / f"{conversation_id}.duckdb"
-    return duckdb.connect(str(db_path))
+    return DUCKDB_BASE / f"{conversation_id}.duckdb"
 
 
-def _format_result(
-    columns: list[str],
-    rows: list[tuple],
-    max_rows: int = 100,
-    max_chars: int = 8000,
-) -> str:
-    """Format query results as a pipe-separated table."""
-    lines: list[str] = []
-    lines.append(" | ".join(columns))
-    lines.append("-" * len(lines[0]))
+def _get_connection(conversation_id: str) -> duckdb.DuckDBPyConnection:
+    """Restricted connection for internal callers; model tools use bounded workers."""
+    return open_connection(_database_path(conversation_id))
 
-    for row in rows[:max_rows]:
-        lines.append(" | ".join(str(v) for v in row))
 
-    text = "\n".join(lines)
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n...(truncated)"
-    return text
+def _run_worker(conversation_id: str, operation: str, **arguments: str | None) -> str:
+    if not _WORKER_SLOTS.acquire(blocking=False):
+        return "SQL error: Analytics is busy. Try again shortly."
+    try:
+        request = {
+            "db_path": str(_database_path(conversation_id)),
+            "operation": operation,
+            **arguments,
+        }
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-I", str(Path(__file__).with_name("duckdb_worker.py"))],
+                input=json.dumps(request),
+                text=True,
+                capture_output=True,
+                timeout=QUERY_TIMEOUT_SECONDS,
+                # No API/provider credentials, dotenv, Python path overrides or
+                # inherited filesystem handles reach the analytics interpreter.
+                env={"LANG": "C.UTF-8", "OPENBLAS_NUM_THREADS": "1"},
+                cwd=DUCKDB_BASE,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return "SQL error: Analytics exceeded its time limit. Simplify the query or use a smaller dataset."
+        if completed.returncode:
+            return "SQL error: Analytics worker exceeded a resource limit or failed. Simplify the query or use a smaller dataset."
+        return json.loads(completed.stdout)
+    finally:
+        _WORKER_SLOTS.release()
 
 
 @duckdb_toolset.tool
@@ -63,8 +87,13 @@ def list_datasets(ctx: RunContext[SerniaDeps]) -> str:
         return "No datasets available."
 
     lines: list[str] = []
-    for f in csv_files:
+    for f in csv_files[:100]:
         try:
+            if not f.resolve().is_relative_to(data_dir.resolve()):
+                continue
+            if f.stat().st_size > MAX_CSV_BYTES:
+                lines.append(f"- {f.stem} (exceeds 10 MiB dataset limit)")
+                continue
             with open(f, encoding="utf-8") as fh:
                 reader = csv.reader(fh)
                 headers = next(reader, [])
@@ -76,7 +105,7 @@ def list_datasets(ctx: RunContext[SerniaDeps]) -> str:
         except Exception as e:
             lines.append(f"- {f.stem} (error reading: {e})")
 
-    return "\n".join(lines)
+    return "\n".join(lines)[:MAX_CHARS]
 
 
 @duckdb_toolset.tool
@@ -102,22 +131,11 @@ def load_dataset(
     if not csv_path.exists():
         return f"Dataset '{dataset_name}' not found. Use list_datasets to see available datasets."
 
-    tbl = table_name or dataset_name
-    conn = _get_connection(cid)
-    try:
-        conn.execute(f'DROP TABLE IF EXISTS "{tbl}"')
-        conn.execute(
-            f"CREATE TABLE \"{tbl}\" AS SELECT * FROM read_csv('{csv_path}', "
-            f"header=true, auto_detect=true, null_padding=true, "
-            f"ignore_errors=true, parallel=false)"
-        )
-        # Get schema info
-        schema = conn.execute(f'DESCRIBE "{tbl}"').fetchall()
-        row_count = conn.execute(f'SELECT count(*) FROM "{tbl}"').fetchone()[0]
-        col_info = ", ".join(f"{col[0]} ({col[1]})" for col in schema)
-        return f"Table '{tbl}' created ({row_count} rows). Columns: {col_info}"
-    finally:
-        conn.close()
+    if not csv_path.is_file() or any(char in str(csv_path) for char in "*?[]"):
+        return "Error: Invalid dataset path."
+    if csv_path.stat().st_size > MAX_CSV_BYTES:
+        return "Error: Dataset exceeds the 10 MiB import limit."
+    return _run_worker(cid, "load", csv_path=str(csv_path), table_name=table_name or dataset_name)
 
 
 @duckdb_toolset.tool
@@ -130,59 +148,24 @@ def describe_table(
     Args:
         table_name: Table to describe. Omit to list all tables.
     """
-    conn = _get_connection(ctx.deps.conversation_id)
-    try:
-        if table_name is None:
-            tables = conn.execute("SHOW TABLES").fetchall()
-            if not tables:
-                return "No tables loaded. Use load_dataset to import a CSV first."
-            lines: list[str] = []
-            for (tbl,) in tables:
-                count = conn.execute(f'SELECT count(*) FROM "{tbl}"').fetchone()[0]
-                lines.append(f"- {tbl} ({count} rows)")
-            return "Tables:\n" + "\n".join(lines)
-        else:
-            schema = conn.execute(f'DESCRIBE "{table_name}"').fetchall()
-            row_count = conn.execute(f'SELECT count(*) FROM "{table_name}"').fetchone()[0]
-            lines = [f"Table '{table_name}' ({row_count} rows):", ""]
-            lines.append("Column | Type | Nullable")
-            lines.append("--- | --- | ---")
-            for col in schema:
-                lines.append(f"{col[0]} | {col[1]} | {col[2]}")
-            return "\n".join(lines)
-    except duckdb.CatalogException:
-        return f"Table '{table_name}' not found. Use describe_table() with no args to list tables."
-    finally:
-        conn.close()
+    return _run_worker(ctx.deps.conversation_id, "describe", table_name=table_name)
 
 
 @duckdb_toolset.tool
 def run_sql(ctx: RunContext[SerniaDeps], query: str) -> str:
-    """Execute any SQL query against the conversation's DuckDB database.
+    """Execute one analytics SQL statement against the conversation's DuckDB.
 
-    Supports full DuckDB SQL: SELECT, JOIN, GROUP BY, window functions, CREATE TABLE, etc.
-    Results are capped at 100 rows / 8K characters.
+    Supports SELECT, JOIN, GROUP BY, window functions and local table creation/
+    updates. File/network access, extensions and configuration changes are disabled.
+    Use load_dataset to import a conversation CSV. Queries have a 30-second deadline
+    and resource limits; results show at most 100 rows / 8K characters.
 
     Args:
-        query: SQL query to execute.
+        query: One SQL statement to execute.
     """
-    conn = _get_connection(ctx.deps.conversation_id)
-    try:
-        result = conn.execute(query)
-        if result.description is None:
-            return "Query executed successfully (no results returned)."
-
-        columns = [desc[0] for desc in result.description]
-        rows = result.fetchall()
-        total_rows = len(rows)
-        total_cols = len(columns)
-
-        formatted = _format_result(columns, rows)
-        return f"{formatted}\n\nQuery returned {total_rows} rows, {total_cols} columns."
-    except duckdb.Error as e:
-        return f"SQL error: {e}"
-    finally:
-        conn.close()
+    if len(query) > MAX_QUERY_CHARS:
+        return "SQL error: Query exceeds the 64,000-character limit."
+    return _run_worker(ctx.deps.conversation_id, "sql", query=query)
 
 
 def cleanup_stale_data(max_age_hours: int = 24) -> None:

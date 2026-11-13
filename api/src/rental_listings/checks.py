@@ -12,6 +12,7 @@ change to free text made by an agent waits for a person's approval.
 """
 
 import re
+from datetime import time
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -24,9 +25,11 @@ MAX_NAME_LENGTH = 120
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)")
 _LINK = re.compile(r"https?://|www\.", re.I)
+# No word boundaries: "frontdoor code", "keycode" and "lockbox4821" must match
+# too. A rare false positive ("monkey code") is refused and can be reworded.
 _ACCESS = re.compile(
-    r"\b(lock\s?box|pass\s?code|password"
-    r"|(?:door|gate|access|alarm|entry|garage|key|keypad)\s+code)\b",
+    r"lock\s*box|pass\s*(?:code|word)"
+    r"|(?:door|gate|access|alarm|entry|garage|key|keypad)\s*code",
     re.I,
 )
 
@@ -76,6 +79,18 @@ def _lines_problems(where: str, kind: str, lines: list[str]) -> list[str]:
     return problems
 
 
+_LOCAL_TIME = "must be a local time of day with no UTC offset, e.g. 09:00"
+
+
+def _has_offset(*moments: time) -> bool:
+    """Times of day here are local to the showing rules' time zone and carry no offset.
+
+    A time with one cannot be compared with a local time, so it is refused
+    before anything compares it.
+    """
+    return any(moment.tzinfo is not None for moment in moments)
+
+
 def listing_problems(listing: RentalListing) -> list[str]:
     """Every reason this listing must not be saved or used. Empty means it may be."""
     name = listing.unit.strip()
@@ -96,7 +111,9 @@ def listing_problems(listing: RentalListing) -> list[str]:
     problems += _lines_problems(where, "public fact", listing.public_facts)
     problems += _lines_problems(where, "internal note", listing.internal_notes)
     for preferred in listing.preferred_showing_times:
-        if not preferred.days or preferred.start > preferred.end:
+        if _has_offset(preferred.start, preferred.end):
+            problems.append(f"{where}: a preferred showing time {_LOCAL_TIME}")
+        elif not preferred.days or preferred.start > preferred.end:
             problems.append(f"{where}: a preferred time has no days, or starts after it ends")
     return problems
 
@@ -108,7 +125,9 @@ def rules_problems(rules: ShowingRules) -> list[str]:
         ZoneInfo(rules.timezone)
     except Exception:
         problems.append(f"timezone: {rules.timezone!r} is not a time zone")
-    if rules.earliest_start > rules.latest_start:
+    if _has_offset(rules.earliest_start, rules.latest_start):
+        problems.append(f"showing rules: earliest_start and latest_start {_LOCAL_TIME}")
+    elif rules.earliest_start > rules.latest_start:
         problems.append("showing rules: earliest_start is after latest_start")
     problems += _booking_url_problems(
         "showing rules showing_booking_url", rules.showing_booking_url

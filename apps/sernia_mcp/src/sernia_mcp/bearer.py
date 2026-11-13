@@ -64,8 +64,7 @@ def _bearer_email() -> str:
 
 def internal_bearer_configured() -> bool:
     """True iff ``SERNIA_MCP_INTERNAL_BEARER_TOKEN`` is set and long enough."""
-    raw = os.environ.get(_BEARER_ENV_VAR, "").strip()
-    return bool(raw) and len(raw) >= _BEARER_MIN_LENGTH
+    return _expected_token() is not None
 
 
 def _expected_token() -> str | None:
