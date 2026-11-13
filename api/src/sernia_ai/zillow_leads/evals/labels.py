@@ -124,11 +124,16 @@ def _same_verdict(label: Label) -> tuple[str, str, str | None, str, str]:
 def add_annotations(store: Path, labels: list[Label], runs_dir: Path) -> dict[str, int]:
     """Append new verdicts to the store. Nothing in it is ever rewritten.
 
-    A row is new unless the same verdict, note and corrected reply on the same
-    output is already there, so adding a download twice changes nothing, and a
-    changed verdict becomes a later row. Rows without a verdict are skipped.
+    Adding a download twice changes nothing: a row is skipped when the store
+    has the same annotation (same verdict, note, corrected reply and time), or
+    when it only repeats the reviewer's current verdict on that output. Any
+    other verdict is a later row, including one that goes back to an earlier
+    verdict (pass, then fail, then pass again). Rows without a verdict are
+    skipped.
     """
-    known = {_same_verdict(label) for label in read_labels(store)} if store.exists() else set()
+    stored = read_labels(store) if store.exists() else []
+    known = {(_same_verdict(label), label.annotated_at) for label in stored}
+    current = {key: _same_verdict(label) for key, label in latest_per_output(stored).items()}
     outputs: dict[str, dict[tuple[str, str], dict]] = {}
     counts = {"added": 0, "already there": 0, "no verdict": 0, "output not found": 0}
     lines: list[str] = []
@@ -136,7 +141,9 @@ def add_annotations(store: Path, labels: list[Label], runs_dir: Path) -> dict[st
         if label.verdict is None:
             counts["no verdict"] += 1
             continue
-        if _same_verdict(label) in known:
+        key = (label.scenario_id, label.output_hash)
+        same = _same_verdict(label)
+        if (same, label.annotated_at) in known or current.get(key) == same:
             counts["already there"] += 1
             continue
         if label.output is None and label.run:
@@ -159,7 +166,8 @@ def add_annotations(store: Path, labels: list[Label], runs_dir: Path) -> dict[st
         if label.run and not label.policy and snapshot.exists():
             policy = hashlib.sha256(snapshot.read_bytes()).hexdigest()[:8]
             label = label.model_copy(update={"policy": policy})
-        known.add(_same_verdict(label))
+        known.add((same, label.annotated_at))
+        current[key] = same
         lines.append(label.model_dump_json() + "\n")
         counts["added"] += 1
     if lines:

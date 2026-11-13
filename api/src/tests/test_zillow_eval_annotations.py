@@ -8,6 +8,7 @@ from api.src.sernia_ai.zillow_leads.evals.cli import not_in_runs
 from api.src.sernia_ai.zillow_leads.evals.labels import (
     Label,
     add_annotations,
+    latest_per_output,
     latest_per_scenario,
     output_hash,
     read_labels,
@@ -88,6 +89,62 @@ class TestStore:
         assert store.read_text().startswith(first_line)
         assert [label.verdict for label in read_labels(store)] == ["pass", "fail"]
         assert [label.verdict for label in latest_per_scenario(read_labels(store))] == ["fail"]
+
+    def test_a_verdict_changed_back_is_kept_as_the_latest(self, tmp_path: Path):
+        _run(tmp_path / "runs", "experiment-5", {"T-1": DECISION})
+        store = tmp_path / "annotations.jsonl"
+        downloads = [
+            _download(
+                tmp_path / f"{day}.json",
+                "experiment-5",
+                [_row("T-1", DECISION, verdict, "experiment-5")],
+                f"2026-11-{day}T00:00:00Z",
+            )
+            for day, verdict in (("12", "pass"), ("13", "fail"), ("14", "pass"))
+        ]
+
+        for download in downloads:
+            add_annotations(store, read_labels(download), tmp_path / "runs")
+
+        stored = read_labels(store)
+        assert [label.verdict for label in stored] == ["pass", "fail", "pass"]
+        assert latest_per_output(stored)[("T-1", output_hash(DECISION))].verdict == "pass"
+        assert [label.verdict for label in latest_per_scenario(stored)] == ["pass"]
+
+    def test_an_old_download_added_again_changes_nothing(self, tmp_path: Path):
+        _run(tmp_path / "runs", "experiment-5", {"T-1": DECISION})
+        store = tmp_path / "annotations.jsonl"
+        early = _download(
+            tmp_path / "a.json",
+            "experiment-5",
+            [_row("T-1", DECISION, "pass", "experiment-5")],
+            "2026-11-12T00:00:00Z",
+        )
+        late = _download(
+            tmp_path / "b.json",
+            "experiment-5",
+            [_row("T-1", DECISION, "fail", "experiment-5")],
+            "2026-11-13T00:00:00Z",
+        )
+        add_annotations(store, read_labels(early), tmp_path / "runs")
+        add_annotations(store, read_labels(late), tmp_path / "runs")
+
+        again = add_annotations(store, read_labels(early), tmp_path / "runs")
+
+        assert again["added"] == 0 and again["already there"] == 1
+        assert [label.verdict for label in read_labels(store)] == ["pass", "fail"]
+
+    def test_the_current_verdict_exported_again_later_is_not_a_new_row(self, tmp_path: Path):
+        _run(tmp_path / "runs", "experiment-5", {"T-1": DECISION})
+        store = tmp_path / "annotations.jsonl"
+        rows = [_row("T-1", DECISION, "pass", "experiment-5")]
+        first = _download(tmp_path / "a.json", "experiment-5", rows, "2026-11-12T00:00:00Z")
+        second = _download(tmp_path / "b.json", "experiment-5", rows, "2026-11-13T00:00:00Z")
+        add_annotations(store, read_labels(first), tmp_path / "runs")
+
+        again = add_annotations(store, read_labels(second), tmp_path / "runs")
+
+        assert again["added"] == 0 and len(read_labels(store)) == 1
 
     def test_a_verdict_records_the_policy_its_run_was_made_with(self, tmp_path: Path):
         _run(tmp_path / "runs", "experiment-5", {"T-1": DECISION})

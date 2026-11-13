@@ -6,6 +6,8 @@ from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from api.src.sernia_ai.zillow_leads.case import (
     AgentAvailability,
     BookedTour,
@@ -20,6 +22,8 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     CaseEdit,
     Scenario,
     case_for,
+    edit_fingerprint,
+    edit_run_with,
     read_case_edits,
 )
 from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
@@ -131,14 +135,63 @@ class TestCarryOver:
         earlier = [
             {"case_id": "A", "decision": _decision()},
             {"case_id": "B", "decision": _decision()},
-            {"case_id": "C", "decision": _decision(), "case_edit": True},
+            {
+                "case_id": "C",
+                "decision": _decision(),
+                "case_edit": True,
+                "case_edit_hash": edit_fingerprint(EDIT),
+            },
         ]
         edits = {"B": EDIT, "C": EDIT}
 
         again, kept = carry_over(earlier, edits)
 
         assert again == ["B"]
-        assert list(kept) == ["A", "C"]  # C was already run with its edit
+        assert list(kept) == ["A", "C"]  # C was already run with this edit
+
+    def test_a_case_whose_edit_changed_or_was_removed_is_run_again(self):
+        ran_with = {"case_edit": True, "case_edit_hash": edit_fingerprint(EDIT)}
+        earlier = [
+            {"case_id": "changed", "decision": _decision(), **ran_with},
+            {"case_id": "removed", "decision": _decision(), **ran_with},
+            {"case_id": "same", "decision": _decision(), **ran_with},
+        ]
+        other = CaseEdit(booked=[BookedTour(unit="12-A", start=THURSDAY_7PM)])
+
+        again, kept = carry_over(earlier, {"changed": other, "same": EDIT})
+
+        assert again == ["changed", "removed"]
+        assert list(kept) == ["same"]
+
+    def test_a_row_edited_before_fingerprints_were_stored_is_run_again(self):
+        earlier = [{"case_id": "old", "decision": _decision(), "case_edit": True}]
+
+        again, _ = carry_over(earlier, {"old": EDIT})
+
+        assert again == ["old"]  # nothing says which edit it was run with
+
+
+class TestEditFingerprint:
+    def test_it_follows_the_tour_facts_and_not_the_note(self):
+        reworded = EDIT.model_copy(update={"note": "Same time, explained differently."})
+        same_instant = CaseEdit(offered=[THURSDAY_7PM.astimezone(UTC)])
+        moved = CaseEdit(offered=[THURSDAY_7PM + timedelta(hours=1)])
+
+        assert edit_fingerprint(reworded) == edit_fingerprint(EDIT)
+        assert edit_fingerprint(same_instant) == edit_fingerprint(EDIT)
+        assert edit_fingerprint(moved) != edit_fingerprint(EDIT)
+        assert edit_fingerprint(None) == ""
+
+    def test_a_stored_row_is_rebuilt_only_with_the_edit_it_was_run_with(self):
+        row = {"case_id": "T", "case_edit": True, "case_edit_hash": edit_fingerprint(EDIT)}
+        moved = CaseEdit(offered=[THURSDAY_7PM + timedelta(hours=1)])
+
+        assert edit_run_with(row, {"T": EDIT}) == EDIT
+        assert edit_run_with({"case_id": "T"}, {"T": EDIT}) is None  # run before the edit
+        with pytest.raises(ValueError, match="different in"):
+            edit_run_with(row, {"T": moved})
+        with pytest.raises(ValueError, match="missing from"):
+            edit_run_with(row, {})
 
 
 class TestReviewPage:

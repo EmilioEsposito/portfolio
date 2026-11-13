@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.agent_conversations.hitl import ApprovalDecision
 from api.src.agent_conversations.models import (
+    AgentConversation,
     extract_pending_approval_from_messages,
     get_conversation_messages,
     save_agent_conversation,
@@ -302,7 +303,17 @@ async def apply_approval(
     an escalation sends nothing. Each decision is recorded in the conversation
     so it is no longer pending, and so approvals can later be read as labels:
     sent unchanged, edited, or rejected.
+
+    Two approvals of one reply send one email. The conversation's row is locked
+    from here until the decisions are saved, so a second approval (two people
+    at once, or a double click) waits, then finds nothing pending.
     """
+    # Lock the row and re-read it: the caller's session may hold a copy loaded
+    # before another request decided this conversation. The lock is released
+    # when the save below commits, or when the session ends after an error.
+    await session.get(
+        AgentConversation, conversation_id, with_for_update=True, populate_existing=True
+    )
     messages = await get_conversation_messages(conversation_id, None, session=session)
     if not messages:
         raise ValueError(f"No conversation found with ID: {conversation_id}")
@@ -315,7 +326,8 @@ async def apply_approval(
     results: dict[str, str] = {}
     record: list[dict[str, Any]] = []
     for decision in decisions:
-        call = pending.get(decision.tool_call_id)
+        # Taken out as it is decided, so the same id twice in one request acts once.
+        call = pending.pop(decision.tool_call_id, None)
         if call is None:  # already decided, or never existed
             continue
         args = call["args"] or {}

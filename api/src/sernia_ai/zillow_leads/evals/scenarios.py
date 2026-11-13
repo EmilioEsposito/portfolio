@@ -1,8 +1,9 @@
 """Scenarios cut from past threads, and the train / dev / test split."""
 
+import hashlib
 import json
 import random
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import AwareDatetime, BaseModel, Field
@@ -113,6 +114,44 @@ def read_case_edits(path: Path) -> dict[str, CaseEdit]:
         scenario_id: CaseEdit.model_validate(edit)
         for scenario_id, edit in json.loads(path.read_text()).items()
     }
+
+
+def edit_fingerprint(edit: CaseEdit | None) -> str:
+    """Identifies the tour facts an edit adds to a case; empty when there is no edit.
+
+    A run stores it with each row, so a later change to the edits file can be
+    told apart from the edit the row was run with. The note is left out: it
+    explains the edit and does not reach the model.
+    """
+    if edit is None:
+        return ""
+    facts = {
+        "offered": sorted(start.astimezone(UTC).isoformat() for start in edit.offered),
+        "booked": sorted(
+            [tour.unit, tour.start.astimezone(UTC).isoformat()] for tour in edit.booked
+        ),
+    }
+    return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:12]
+
+
+def edit_run_with(row: dict, edits: dict[str, CaseEdit]) -> CaseEdit | None:
+    """The hand edit a stored row's case was built with, for rebuilding that case.
+
+    Raises when the edits given are not the ones the row was run with: the
+    rebuilt case would then show tour facts the model never received. A row
+    from before fingerprints were stored is trusted if its edit still exists.
+    """
+    if not row.get("case_edit"):
+        return None
+    edit = edits.get(row["case_id"])
+    recorded = row.get("case_edit_hash")
+    if edit is None or (recorded is not None and recorded != edit_fingerprint(edit)):
+        raise ValueError(
+            f"{row['case_id']} was run with a hand edit that is "
+            f"{'missing from' if edit is None else 'different in'} the edits given, "
+            "so its case cannot be rebuilt. Pass the edits it was run with, or run it again."
+        )
+    return edit
 
 
 def case_for(

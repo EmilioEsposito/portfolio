@@ -340,6 +340,9 @@ company data and so should not read email written by strangers.
 - **Nothing is sent without a person.** A `Reply` or an `Escalate` is saved as
   a pending approval on the same screen the general agent uses. On approval
   code sends the approved text; no model runs again.
+- **Two approvals of one reply send one email.** The conversation's row is locked while an
+  approval is applied, so two people approving at the same moment, or a double
+  click, send one email.
 - **A lead conversation cannot be continued in chat.** The chat endpoint
   refuses it, so the lead's words are never loaded as the general agent's
   history.

@@ -507,8 +507,14 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals run \
 
 `--carry` refuses to run when the instructions differ from the earlier run's,
 because a kept row would then stand for a policy it was not produced by. A row
-run with an edit records `case_edit: true`, and a kept row records the run it
-came from. Pass the same `--case-edits` file to `review`: the card says "case
+run with an edit records `case_edit: true` and a fingerprint of that edit's
+tour facts, and a kept row records the run it came from. A case whose edit was
+added, changed or removed since the earlier run is run again. `review` and
+`judge` rebuild a row's case from the edits file, and stop if the edit there is
+not the one the row was run with: the page or the judge would otherwise show
+tour facts the model never received.
+
+Pass the same `--case-edits` file to `review`: the card says "case
 edited by hand", lists what was added and why, and shows the case as the model
 read it. Grade an edited case like any other, on what the case contained.
 
@@ -550,7 +556,9 @@ note and, optionally, the reply they would have sent.
 
 The store only grows. `collect` appends the verdicts in a downloaded file and
 never rewrites a row, so a changed verdict is a later row and the earlier one
-stays. Each row holds the scenario, the run, the date and the output that was
+stays. That includes a verdict changed back (pass, fail, pass again): the last
+row is the reviewer's current view. Adding the same download twice adds
+nothing. Each row holds the scenario, the run, the date and the output that was
 judged, so it can be read without the run file.
 
 A verdict is true of one output on one input, for the rules in force on its

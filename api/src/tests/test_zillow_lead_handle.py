@@ -1,6 +1,7 @@
 """The code around the lead agent: where a reply may go, what a person is shown,
 and what an approval sends. Uses the test database; no Gmail and no model."""
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -272,6 +273,57 @@ class TestApplyApproval:
             await self.decide(conversation_id, row, approve)
 
         assert handle.send_reply.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_two_approvals_at_once_send_one_reply(self, conversation_id, monkeypatch):
+        row, card = await self.pending_reply(conversation_id, monkeypatch)
+        approve = ApprovalDecision(card["tool_call_id"], approved=True)
+
+        async def slow_send(route, body):
+            await asyncio.sleep(0.3)  # long enough for the other request to arrive
+            return "Email sent."
+
+        handle.send_reply.side_effect = slow_send
+
+        async def request():
+            # As the endpoint does: load the conversation, then apply the decision.
+            async with AsyncSessionFactory() as session:
+                loaded = await get_agent_conversation(session, conversation_id)
+                return await handle.apply_approval(
+                    session,
+                    conversation_id=conversation_id,
+                    metadata=loaded.metadata_,
+                    decisions=[approve],
+                    approver="Pat",
+                )
+
+        results = await asyncio.gather(request(), request(), return_exceptions=True)
+
+        assert handle.send_reply.await_count == 1
+        refused = [item for item in results if isinstance(item, Exception)]
+        assert len(refused) == 1 and "Nothing is waiting" in str(refused[0])
+        row, _ = await stored(conversation_id)
+        assert len(row.metadata_["approval"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_same_decision_twice_in_one_request_sends_once(
+        self, conversation_id, monkeypatch
+    ):
+        row, card = await self.pending_reply(conversation_id, monkeypatch)
+        approve = ApprovalDecision(card["tool_call_id"], approved=True)
+
+        async with AsyncSessionFactory() as session:
+            await handle.apply_approval(
+                session,
+                conversation_id=conversation_id,
+                metadata=row.metadata_,
+                decisions=[approve, approve],
+                approver="Pat",
+            )
+
+        assert handle.send_reply.await_count == 1
+        row, _ = await stored(conversation_id)
+        assert len(row.metadata_["approval"]) == 1
 
     @pytest.mark.asyncio
     async def test_acknowledging_an_escalation_sends_nothing(self, conversation_id, monkeypatch):

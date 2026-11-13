@@ -16,6 +16,7 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     CaseEdit,
     Scenario,
     case_for,
+    edit_run_with,
     in_split,
 )
 
@@ -56,7 +57,7 @@ def review_page(
         scenario = by_id[row["case_id"]]
         decision = row["decision"]
         # Only a row that was run with its edit shows the edited case.
-        edit = (edits or {}).get(scenario.scenario_id) if row.get("case_edit") else None
+        edit = edit_run_with(row, edits or {})
         burst: list[str] = []
         for message in reversed(scenario.thread.messages):
             if message.from_sernia:

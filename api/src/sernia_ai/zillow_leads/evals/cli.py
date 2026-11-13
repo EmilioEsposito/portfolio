@@ -46,6 +46,8 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     Scenario,
     assign_splits,
     case_for,
+    edit_fingerprint,
+    edit_run_with,
     in_split,
     read_case_edits,
     read_scenarios,
@@ -146,11 +148,21 @@ def carry_over(
 ) -> tuple[list[str], dict[str, dict]]:
     """Split an earlier run into the cases to run again and the rows to keep.
 
-    A case is run again when it has a hand edit the earlier row was not run
-    with. Every other row is kept as it was, marked with the run it came from.
+    A case is run again when its hand edit is not the one the earlier row was
+    run with: added, changed or removed since. Every other row is kept as it
+    was, marked with the run it came from. A row run with an edit before
+    fingerprints were stored cannot be compared, so it is run again.
     """
+
+    def recorded(row: dict) -> str | None:
+        if "case_edit_hash" in row:
+            return row["case_edit_hash"]
+        return None if row.get("case_edit") else ""
+
     again = [
-        row["case_id"] for row in earlier if row["case_id"] in edits and not row.get("case_edit")
+        row["case_id"]
+        for row in earlier
+        if recorded(row) != edit_fingerprint(edits.get(row["case_id"]))
     ]
     kept = {row["case_id"]: row for row in earlier if row["case_id"] not in again}
     return again, kept
@@ -227,6 +239,8 @@ async def run(args: argparse.Namespace) -> None:
             "trace_id": case.trace_id,
             # Whether this case was run with hand-set tour times (see CaseEdit).
             "case_edit": case.name in edits,
+            # Which edit, so a later change to the edits file can be noticed.
+            "case_edit_hash": edit_fingerprint(edits.get(case.name)),
         }
     with args.out.open("w") as out:
         # A carried run keeps the earlier run's order, so the page reads the same.
@@ -277,17 +291,20 @@ async def review(args: argparse.Namespace) -> None:
         run_file.stem: [json.loads(line) for line in run_file.read_text().splitlines() if line]
         for run_file in args.previous
     }
-    page = review_page(
-        args.run.stem,
-        read_scenarios(args.scenarios),
-        operating,
-        rows,
-        policy,
-        # The store holds every verdict ever given; the page starts from the latest.
-        labels=latest_per_scenario(read_labels(args.labels)) if args.labels else None,
-        previous=previous,
-        edits=read_case_edits(args.case_edits) if args.case_edits else None,
-    )
+    try:
+        page = review_page(
+            args.run.stem,
+            read_scenarios(args.scenarios),
+            operating,
+            rows,
+            policy,
+            # The store holds every verdict ever given; the page starts from the latest.
+            labels=latest_per_scenario(read_labels(args.labels)) if args.labels else None,
+            previous=previous,
+            edits=read_case_edits(args.case_edits) if args.case_edits else None,
+        )
+    except ValueError as error:  # a row whose hand edit cannot be matched
+        raise SystemExit(str(error)) from None
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(page)
     print(f"decisions to review: {len(rows)}  page: {args.out}")
@@ -315,12 +332,12 @@ def outputs_to_judge(
     With ``labelled``, only the outputs a person has given a verdict on: that
     is the set a judge is measured against.
     """
-    seen: set[tuple[str, str, bool]] = set()
+    seen: set[tuple[str, str, str | bool]] = set()
     picked: list[tuple[str, dict]] = []
     for name, rows in runs.items():
         for row in rows:
             output = (row["case_id"], output_hash(row["decision"]))
-            key = (*output, bool(row.get("case_edit")))
+            key = (*output, row.get("case_edit_hash") or bool(row.get("case_edit")))
             if key in seen or (labelled is not None and output not in labelled):
                 continue
             seen.add(key)
@@ -346,6 +363,11 @@ async def judge_runs(args: argparse.Namespace) -> None:
         for run_file in args.run
     }
     picked = outputs_to_judge(runs, set(verdicts) if args.only_labelled else None)
+    try:  # before any model call: every case must be rebuilt as it was run
+        for _, row in picked:
+            edit_run_with(row, edits)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     # The standard is the instructions as they are now, whatever the run had.
     instructions = load_instructions()
     model = args.model or JUDGE_MODEL
@@ -358,8 +380,7 @@ async def judge_runs(args: argparse.Namespace) -> None:
 
     async def one(name: str, row: dict) -> dict | None:
         scenario = by_id[row["case_id"]]
-        edit = edits.get(row["case_id"]) if row.get("case_edit") else None
-        case_text = render_case(case_for(scenario, operating, edit))
+        case_text = render_case(case_for(scenario, operating, edit_run_with(row, edits)))
         async with limit:
             try:
                 judgement = await judge(instructions, case_text, row["decision"])
