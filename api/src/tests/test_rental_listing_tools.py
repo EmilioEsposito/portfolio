@@ -1,4 +1,4 @@
-"""The general agent's tools for rental unit data (test database, no network).
+"""The general agent's tools for rental listing data (test database, no network).
 
 The tools are called directly for the rules, and through the real agent with a
 scripted model for the wiring: the deferred capability and the approval pause.
@@ -24,28 +24,28 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.rental_units import service
-from api.src.rental_units.models import RentalUnitRecord
-from api.src.rental_units.schema import PreferredWindow, RentalUnit, ShowingRules
+from api.src.rental_listings import service
+from api.src.rental_listings.models import RentalListingRecord
+from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
 from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.tools import rental_unit_tools as tools
+from api.src.sernia_ai.tools import rental_listing_tools as tools
 from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
-from api.src.tests.test_rental_units import clear_rental_data
+from api.src.tests.test_rental_listings import clear_rental_data
 
 ON_FILE = [
-    RentalUnit(
+    RentalListing(
         unit="12-A",
         address="12 Example St #A",
-        rent=1500,
+        asking_rent=1500,
         public_facts=["1 bedroom, second floor", "Dishwasher"],
         internal_notes=["Resident wants 48 hours' notice where possible"],
     ),
-    RentalUnit(
+    RentalListing(
         unit="12-B",
-        rent=1400,
-        rented_on=date(2026, 6, 1),
-        booking_url="https://book.example.com/12-b",
+        asking_rent=1400,
+        off_market_on=date(2026, 6, 1),
+        showing_booking_url="https://book.example.com/12-b",
     ),
 ]
 RULES = ShowingRules(blackout_dates=[date(2027, 7, 4)])
@@ -57,7 +57,7 @@ async def on_file():
     await clear_rental_data()
     async with AsyncSessionFactory() as session:
         for unit in ON_FILE:
-            await service.save_unit(session, unit, changed_by="setup")
+            await service.save_listing(session, unit, changed_by="setup")
         await service.save_showing_rules(session, RULES, changed_by="setup")
     yield
     await clear_rental_data()
@@ -75,14 +75,14 @@ def ctx(approved: bool = False):
     return SimpleNamespace(deps=deps, tool_call_approved=approved)
 
 
-async def units() -> list[RentalUnit]:
+async def units() -> list[RentalListing]:
     async with AsyncSessionFactory() as session:
-        return await service.read_units(session)
+        return await service.read_listings(session)
 
 
-async def unit(name: str) -> RentalUnit:
+async def unit(name: str) -> RentalListing:
     async with AsyncSessionFactory() as session:
-        found = await service.read_unit(session, name)
+        found = await service.read_listing(session, name)
     assert found is not None
     return found
 
@@ -101,46 +101,52 @@ async def history(subject: str | None = None):
 class TestTypedFieldsAreSavedAtOnce:
     @pytest.mark.asyncio
     async def test_marking_a_unit_rented(self):
-        said = await tools.rental_unit_update(ctx(), unit="12-a ", rented_on=date(2027, 6, 1))
+        said = await tools.rental_listing_update(
+            ctx(), unit="12-a ", off_market_on=date(2027, 6, 1)
+        )
 
-        assert said.startswith("Saved.") and "rented_on: 2027-06-01" in said
-        assert await unit("12-A") == ON_FILE[0].model_copy(update={"rented_on": date(2027, 6, 1)})
+        assert said.startswith("Saved.") and "off_market_on: 2027-06-01" in said
+        assert await unit("12-A") == ON_FILE[0].model_copy(
+            update={"off_market_on": date(2027, 6, 1)}
+        )
         assert await unit("12-B") == ON_FILE[1]
 
     @pytest.mark.asyncio
     async def test_the_change_is_recorded_with_who_and_which_conversation(self):
-        await tools.rental_unit_update(ctx(), unit="12-A", rent=1550)
+        await tools.rental_listing_update(ctx(), unit="12-A", asking_rent=1550)
 
         newest = (await history("12-A"))[0]
 
         assert newest.changed_by == "Pat (via Sernia AI)" and newest.source == "conversation-1"
-        assert newest.snapshot["rent"] == 1550
+        assert newest.snapshot["asking_rent"] == 1550
 
     @pytest.mark.asyncio
     async def test_rent_dates_virtual_tours_and_preferred_times(self):
         afternoons = PreferredWindow(days=["mon", "tue"], start=time(15), end=time(18))
 
-        await tools.rental_unit_update(
+        await tools.rental_listing_update(
             ctx(),
             unit="12-A",
-            rent=1550,
-            lease_start_earliest=date(2027, 7, 1),
-            lease_start_latest=date(2027, 8, 1),
-            virtual_tours=True,
-            preferred_times=[afternoons],
+            asking_rent=1550,
+            next_lease_start_earliest=date(2027, 7, 1),
+            next_lease_start_latest=date(2027, 8, 1),
+            virtual_tours_allowed=True,
+            preferred_showing_times=[afternoons],
         )
 
         saved = await unit("12-A")
-        assert (saved.rent, saved.virtual_tours) == (1550, True)
-        assert saved.lease_start_latest == date(2027, 8, 1)
-        assert saved.preferred_times == [afternoons]
+        assert (saved.asking_rent, saved.virtual_tours_allowed) == (1550, True)
+        assert saved.next_lease_start_latest == date(2027, 8, 1)
+        assert saved.preferred_showing_times == [afternoons]
 
     @pytest.mark.asyncio
     async def test_a_rented_unit_is_listed_again_by_clearing_the_date(self):
-        await tools.rental_unit_update(ctx(), unit="12-B", rent=1450, clear=["rented_on"])
+        await tools.rental_listing_update(
+            ctx(), unit="12-B", asking_rent=1450, clear=["off_market_on"]
+        )
 
         saved = await unit("12-B")
-        assert saved.rented_on is None and saved.rent == 1450
+        assert saved.off_market_on is None and saved.asking_rent == 1450
 
     @pytest.mark.asyncio
     async def test_the_showing_window_and_blackout_dates(self):
@@ -168,7 +174,7 @@ class TestFreeTextWaitsForAPerson:
     @pytest.mark.parametrize(
         "change",
         [
-            {"unit": "12-C", "create": True, "rent": 1300},
+            {"unit": "12-C", "create": True, "asking_rent": 1300},
             {"unit": "12-A", "address": "12 Example Street, Unit A"},
             {"unit": "12-A", "add_public_facts": ["Cats allowed"]},
             {"unit": "12-A", "remove_public_facts": ["Dishwasher"]},
@@ -177,23 +183,23 @@ class TestFreeTextWaitsForAPerson:
                 "unit": "12-A",
                 "remove_internal_notes": ["Resident wants 48 hours' notice where possible"],
             },
-            {"unit": "12-A", "booking_url": "https://book.example.com/12-a"},
-            {"unit": "12-B", "booking_url": ""},  # taking a link off
+            {"unit": "12-A", "showing_booking_url": "https://book.example.com/12-a"},
+            {"unit": "12-B", "showing_booking_url": ""},  # taking a link off
             # One text change makes the whole call wait, typed fields included.
-            {"unit": "12-A", "rent": 1600, "add_public_facts": ["Cats allowed"]},
+            {"unit": "12-A", "asking_rent": 1600, "add_public_facts": ["Cats allowed"]},
         ],
     )
     @pytest.mark.asyncio
     async def test_nothing_is_saved_until_it_is_approved(self, change):
         with pytest.raises(ApprovalRequired):
-            await tools.rental_unit_update(ctx(), **change)
+            await tools.rental_listing_update(ctx(), **change)
 
         assert await units() == ON_FILE
         assert len(await history()) == 3  # the fixture's saves only
 
     @pytest.mark.asyncio
     async def test_an_approved_change_is_saved(self):
-        said = await tools.rental_unit_update(
+        said = await tools.rental_listing_update(
             ctx(approved=True),
             unit="12-A",
             add_public_facts=["Cats allowed", "  Tenant pays\ngas and electric ", "dishwasher"],
@@ -216,12 +222,12 @@ class TestFreeTextWaitsForAPerson:
 
     @pytest.mark.asyncio
     async def test_an_approved_new_unit_is_added(self):
-        await tools.rental_unit_update(
+        await tools.rental_listing_update(
             ctx(approved=True),
             unit="12-C",
             create=True,
             address="12 Example St #C",
-            rent=1300,
+            asking_rent=1300,
             add_public_facts=["Studio"],
         )
 
@@ -231,11 +237,13 @@ class TestFreeTextWaitsForAPerson:
     @pytest.mark.asyncio
     async def test_the_shared_booking_link_waits_too(self):
         with pytest.raises(ApprovalRequired):
-            await tools.showing_rules_update(ctx(), booking_url="https://book.example.com")
+            await tools.showing_rules_update(ctx(), showing_booking_url="https://book.example.com")
         assert await rules() == RULES
 
-        await tools.showing_rules_update(ctx(approved=True), booking_url="https://book.example.com")
-        assert (await rules()).booking_url == "https://book.example.com"
+        await tools.showing_rules_update(
+            ctx(approved=True), showing_booking_url="https://book.example.com"
+        )
+        assert (await rules()).showing_booking_url == "https://book.example.com"
 
 
 @pytest.mark.usefixtures("on_file")
@@ -247,8 +255,8 @@ class TestRefusals:
             ({"add_public_facts": ["Door code is 4821"]}, "access code"),
             ({"add_internal_notes": ["Lockbox code on the rail"]}, "access code"),
             ({"add_internal_notes": ["Resident: sam@example.com"]}, "email address"),
-            ({"booking_url": "http://book.example.com"}, "https"),
-            ({"rent": -5}, "rent"),
+            ({"showing_booking_url": "http://book.example.com"}, "https"),
+            ({"asking_rent": -5}, "asking_rent"),
         ],
     )
     @pytest.mark.asyncio
@@ -257,29 +265,29 @@ class TestRefusals:
     ):
         # Approved or not: the checks come first, so approval cannot let it through.
         for approved in (False, True):
-            said = await tools.rental_unit_update(ctx(approved), unit="12-A", **change)
+            said = await tools.rental_listing_update(ctx(approved), unit="12-A", **change)
             assert said.startswith("Not saved.") and reason in said
 
         assert await units() == ON_FILE
 
     @pytest.mark.asyncio
     async def test_an_unknown_unit_is_not_created_by_accident(self):
-        said = await tools.rental_unit_update(ctx(), unit="12A", rented_on=date(2027, 6, 1))
+        said = await tools.rental_listing_update(ctx(), unit="12A", off_market_on=date(2027, 6, 1))
 
         assert said.startswith("Not saved.") and "12-A, 12-B" in said
         assert await units() == ON_FILE
 
     @pytest.mark.asyncio
     async def test_a_unit_on_file_is_not_created_twice(self):
-        said = await tools.rental_unit_update(ctx(), unit="12-A", create=True)
+        said = await tools.rental_listing_update(ctx(), unit="12-A", create=True)
         assert said.startswith("Not saved.")
 
     @pytest.mark.asyncio
     async def test_removing_a_line_that_is_not_on_file_says_what_is(self):
-        fact = await tools.rental_unit_update(
+        fact = await tools.rental_listing_update(
             ctx(approved=True), unit="12-A", remove_public_facts=["Dish washer"]
         )
-        note = await tools.rental_unit_update(
+        note = await tools.rental_listing_update(
             ctx(approved=True), unit="12-A", remove_internal_notes=["Dishwasher"]
         )
 
@@ -289,8 +297,8 @@ class TestRefusals:
 
     @pytest.mark.asyncio
     async def test_setting_and_clearing_one_field_is_refused(self):
-        said = await tools.rental_unit_update(
-            ctx(), unit="12-B", rented_on=date(2027, 6, 1), clear=["rented_on"]
+        said = await tools.rental_listing_update(
+            ctx(), unit="12-B", off_market_on=date(2027, 6, 1), clear=["off_market_on"]
         )
         assert said.startswith("Not saved.")
 
@@ -303,7 +311,7 @@ class TestRefusals:
 
     @pytest.mark.asyncio
     async def test_a_change_that_changes_nothing_says_so_and_is_not_recorded(self):
-        said = await tools.rental_unit_update(ctx(), unit="12-A", rent=1500)
+        said = await tools.rental_listing_update(ctx(), unit="12-A", asking_rent=1500)
         same_rules = await tools.showing_rules_update(ctx(), add_blackout_dates=[date(2027, 7, 4)])
 
         assert said.startswith("Nothing to change")
@@ -314,14 +322,14 @@ class TestRefusals:
     async def test_a_row_someone_broke_by_hand_is_reported_not_built_on(self):
         async with AsyncSessionFactory() as session:
             await session.execute(
-                update(RentalUnitRecord)
-                .where(RentalUnitRecord.unit == "12-A")
+                update(RentalListingRecord)
+                .where(RentalListingRecord.unit == "12-A")
                 .values(public_facts=["Door code is 4821"])
             )
             await session.commit()
 
-        changed = await tools.rental_unit_update(ctx(approved=True), unit="12-A", rent=1)
-        read = await tools.rental_units_read(ctx())
+        changed = await tools.rental_listing_update(ctx(approved=True), unit="12-A", asking_rent=1)
+        read = await tools.rental_listings_read(ctx())
 
         assert changed.startswith("Not saved.") and "fails its checks" in changed
         assert "fails its checks" in read and "access code" in read
@@ -331,7 +339,7 @@ class TestRead:
     @pytest.mark.usefixtures("on_file")
     @pytest.mark.asyncio
     async def test_it_returns_every_unit_and_the_rules(self):
-        said = await tools.rental_units_read(ctx())
+        said = await tools.rental_listings_read(ctx())
 
         assert '"unit": "12-A"' in said and '"unit": "12-B"' in said
         assert "Resident wants 48 hours' notice where possible" in said
@@ -340,13 +348,15 @@ class TestRead:
     @pytest.mark.usefixtures("nothing_on_file")
     @pytest.mark.asyncio
     async def test_with_nothing_on_file_it_says_how_to_start(self):
-        said = await tools.rental_units_read(ctx())
-        assert "No rental units are on file" in said and "create=True" in said
+        said = await tools.rental_listings_read(ctx())
+        assert "No rental listings are on file" in said and "create=True" in said
 
     @pytest.mark.usefixtures("nothing_on_file")
     @pytest.mark.asyncio
     async def test_the_first_unit_can_be_added(self):
-        await tools.rental_unit_update(ctx(approved=True), unit="12-A", create=True, rent=1500)
+        await tools.rental_listing_update(
+            ctx(approved=True), unit="12-A", create=True, asking_rent=1500
+        )
         assert [item.unit for item in await units()] == ["12-A"]
 
 
@@ -354,26 +364,28 @@ class TestRead:
 class TestHistory:
     @pytest.mark.asyncio
     async def test_it_lists_changes_newest_first_with_who_made_them(self):
-        await tools.rental_unit_update(ctx(), unit="12-A", rent=1550)
+        await tools.rental_listing_update(ctx(), unit="12-A", asking_rent=1550)
 
-        said = await tools.rental_unit_history(ctx(), unit="12-A")
+        said = await tools.rental_listing_history(ctx(), unit="12-A")
         newest, oldest = said.split("\n\n")
 
-        assert "12-A, by Pat (via Sernia AI)" in newest and '"rent": 1550' in newest
-        assert "by setup" in oldest and '"rent": 1500' in oldest
+        assert "12-A, by Pat (via Sernia AI)" in newest and '"asking_rent": 1550' in newest
+        assert "by setup" in oldest and '"asking_rent": 1500' in oldest
 
     @pytest.mark.asyncio
     async def test_it_can_show_the_showing_rules_or_everything(self):
-        assert "2027-07-04" in await tools.rental_unit_history(ctx(), unit="showing_rules")
-        assert len((await tools.rental_unit_history(ctx())).split("\n\n")) == 3
-        assert len((await tools.rental_unit_history(ctx(), limit=1)).split("\n\n")) == 1
-        assert (await tools.rental_unit_history(ctx(), unit="12-Z")).startswith("No saved changes")
+        assert "2027-07-04" in await tools.rental_listing_history(ctx(), unit="showing_rules")
+        assert len((await tools.rental_listing_history(ctx())).split("\n\n")) == 3
+        assert len((await tools.rental_listing_history(ctx(), limit=1)).split("\n\n")) == 1
+        assert (await tools.rental_listing_history(ctx(), unit="12-Z")).startswith(
+            "No saved changes"
+        )
 
 
 def _deps(root: Path) -> SerniaDeps:
     return SerniaDeps(
         db_session=None,  # type: ignore[arg-type] — the tools open their own sessions
-        conversation_id="test-rental-unit-tools",
+        conversation_id="test-rental-listing-tools",
         user_identifier="user_test",
         user_name="Test User",
         user_email="test@serniacapital.com",
@@ -423,7 +435,9 @@ class TestOnTheGeneralAgent:
 
     @pytest.mark.asyncio
     async def test_the_tools_appear_only_once_loaded_and_a_typed_change_is_saved(self, tmp_path):
-        script = _Script(LOAD, ("rental_unit_update", {"unit": "12-A", "rented_on": "2027-06-01"}))
+        script = _Script(
+            LOAD, ("rental_listing_update", {"unit": "12-A", "off_market_on": "2027-06-01"})
+        )
 
         with sernia_agent.override(native_tools=[]):
             result = await sernia_agent.run(
@@ -432,21 +446,21 @@ class TestOnTheGeneralAgent:
 
         assert result.output == "done"
         assert f"- {tools.CAPABILITY_ID}: " in script.instructions[0]
-        assert not any(name.startswith("rental_unit") for name in script.tools[0])
+        assert not any(name.startswith("rental_listing") for name in script.tools[0])
         assert {
-            "rental_units_read",
-            "rental_unit_update",
+            "rental_listings_read",
+            "rental_listing_update",
             "showing_rules_update",
-            "rental_unit_history",
+            "rental_listing_history",
         } <= set(script.tools[1])
-        assert _returns(result.all_messages())["rental_unit_update"].startswith("Saved.")
-        assert (await unit("12-A")).rented_on == date(2027, 6, 1)
-        assert (await history("12-A"))[0].source == "test-rental-unit-tools"
+        assert _returns(result.all_messages())["rental_listing_update"].startswith("Saved.")
+        assert (await unit("12-A")).off_market_on == date(2027, 6, 1)
+        assert (await history("12-A"))[0].source == "test-rental-listing-tools"
 
     @pytest.mark.asyncio
     async def test_a_note_pauses_the_run_for_approval_and_is_saved_once_approved(self, tmp_path):
         change = {"unit": "12-A", "add_internal_notes": ["Lease start can move to June 15"]}
-        script = _Script(LOAD, ("rental_unit_update", change))
+        script = _Script(LOAD, ("rental_listing_update", change))
 
         with sernia_agent.override(native_tools=[]):
             paused = await sernia_agent.run(
@@ -455,7 +469,7 @@ class TestOnTheGeneralAgent:
             assert isinstance(paused.output, DeferredToolRequests)
             (call,) = paused.output.approvals
             # The card a person sees is the change itself.
-            assert call.tool_name == "rental_unit_update"
+            assert call.tool_name == "rental_listing_update"
             assert call.args_as_dict() == change
             assert await units() == ON_FILE
 
@@ -483,7 +497,7 @@ class TestOnTheGeneralAgent:
     @pytest.mark.asyncio
     async def test_a_rejected_fact_is_not_saved(self, tmp_path):
         script = _Script(
-            LOAD, ("rental_unit_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]})
+            LOAD, ("rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]})
         )
 
         with sernia_agent.override(native_tools=[]):

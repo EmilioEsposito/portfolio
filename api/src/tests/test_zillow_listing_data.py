@@ -1,4 +1,4 @@
-"""How a live case gets its listings from the rental units tables.
+"""How a live case gets its listings from the rental listings tables.
 
 Uses the test database. All unit data here is invented.
 """
@@ -11,24 +11,24 @@ import pytest_asyncio
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.rental_units import service
-from api.src.rental_units.models import RentalUnitRecord
-from api.src.rental_units.schema import PreferredWindow, RentalUnit, ShowingRules
-from api.src.sernia_ai.zillow_leads import unit_data
+from api.src.rental_listings import service
+from api.src.rental_listings.models import RentalListingRecord
+from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
+from api.src.sernia_ai.zillow_leads import listing_data
 from api.src.sernia_ai.zillow_leads.case import Listing, OperatingData, ShowingWindow
-from api.src.tests.test_rental_units import clear_rental_data
+from api.src.tests.test_rental_listings import clear_rental_data
 
 AFTERNOONS = PreferredWindow(days=["mon", "tue"], start=time(15), end=time(18))
-UNIT = RentalUnit(
+LISTING = RentalListing(
     unit="12-A",
     address="12 Example St #A",
-    rent=1500,
-    lease_start_earliest=date(2027, 7, 1),
-    lease_start_latest=date(2027, 8, 1),
-    virtual_tours=True,
-    rented_on=date(2027, 6, 1),
-    booking_url="https://book.example.com/12-a",
-    preferred_times=[AFTERNOONS],
+    asking_rent=1500,
+    next_lease_start_earliest=date(2027, 7, 1),
+    next_lease_start_latest=date(2027, 8, 1),
+    virtual_tours_allowed=True,
+    off_market_on=date(2027, 6, 1),
+    showing_booking_url="https://book.example.com/12-a",
+    preferred_showing_times=[AFTERNOONS],
     public_facts=["1 bedroom, second floor", "Dishwasher"],
     internal_notes=["Resident wants 48 hours' notice where possible"],
 )
@@ -36,7 +36,7 @@ RULES = ShowingRules(
     earliest_start=time(10),
     latest_start=time(17),
     blackout_dates=[date(2027, 7, 4)],
-    booking_url="https://book.example.com",
+    showing_booking_url="https://book.example.com",
 )
 
 
@@ -44,7 +44,7 @@ RULES = ShowingRules(
 async def saved():
     await clear_rental_data()
     async with AsyncSessionFactory() as session:
-        await service.save_unit(session, UNIT, changed_by="setup")
+        await service.save_listing(session, LISTING, changed_by="setup")
         await service.save_showing_rules(session, RULES, changed_by="setup")
     yield
     await clear_rental_data()
@@ -52,7 +52,7 @@ async def saved():
 
 class TestShape:
     def test_every_field_reaches_the_case_builder(self):
-        operating = unit_data.as_operating_data([UNIT], RULES)
+        operating = listing_data.as_operating_data([LISTING], RULES)
 
         assert operating == OperatingData(
             listings=[
@@ -82,53 +82,53 @@ class TestShape:
         mapped = {
             "unit",
             "address",
-            "rent",
-            "lease_start_earliest",
-            "lease_start_latest",
-            "virtual_tours",
-            "rented_on",
-            "booking_url",
-            "preferred_times",
+            "asking_rent",
+            "next_lease_start_earliest",
+            "next_lease_start_latest",
+            "virtual_tours_allowed",
+            "off_market_on",
+            "showing_booking_url",
+            "preferred_showing_times",
             "public_facts",
             "internal_notes",
         }
-        assert set(RentalUnit.model_fields) == mapped
+        assert set(RentalListing.model_fields) == mapped
 
     def test_the_defaults_match_what_the_evals_have_always_used(self):
-        assert unit_data.as_operating_data([], ShowingRules()) == OperatingData()
+        assert listing_data.as_operating_data([], ShowingRules()) == OperatingData()
 
 
 class TestLoad:
     @pytest.mark.usefixtures("saved")
     @pytest.mark.asyncio
     async def test_it_reads_what_is_saved(self):
-        loaded = await unit_data.load()
+        loaded = await listing_data.load()
 
         assert loaded.problem is None
-        assert loaded.data == unit_data.as_operating_data([UNIT], RULES)
+        assert loaded.data == listing_data.as_operating_data([LISTING], RULES)
 
     @pytest.mark.asyncio
     async def test_with_nothing_saved_there_is_no_data_and_no_problem(self):
         await clear_rental_data()
 
-        assert await unit_data.load() == unit_data.Loaded()
+        assert await listing_data.load() == listing_data.Loaded()
 
     @pytest.mark.usefixtures("saved")
     @pytest.mark.asyncio
     async def test_a_row_that_fails_its_checks_makes_all_of_it_unusable(self):
         async with AsyncSessionFactory() as session:
-            await session.execute(update(RentalUnitRecord).values(rent=-1))
+            await session.execute(update(RentalListingRecord).values(asking_rent=-1))
             await session.commit()
 
-        loaded = await unit_data.load()
+        loaded = await listing_data.load()
 
         assert loaded.data == OperatingData()
         assert "rent must be more than 0" in loaded.problem
 
     @pytest.mark.asyncio
     async def test_a_database_that_cannot_be_read_is_reported_and_never_raises(self, monkeypatch):
-        monkeypatch.setattr(service, "read_units", AsyncMock(side_effect=RuntimeError("no db")))
+        monkeypatch.setattr(service, "read_listings", AsyncMock(side_effect=RuntimeError("no db")))
 
-        loaded = await unit_data.load()
+        loaded = await listing_data.load()
 
         assert loaded.data == OperatingData() and loaded.problem == "no db"

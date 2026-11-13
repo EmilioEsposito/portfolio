@@ -1,4 +1,4 @@
-"""What a rental unit or the showing rules must pass before they are saved or used.
+"""What a rental listing or the showing rules must pass before they are saved or used.
 
 The types in ``schema.py`` say what shape a value has. These checks cover the
 rest: values that make no sense, and free text that must not be stored here.
@@ -15,9 +15,9 @@ import re
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from api.src.rental_units.schema import RentalUnit, ShowingRules
+from api.src.rental_listings.schema import RentalListing, ShowingRules
 
-MAX_LINES = 60  # public facts, or internal notes, per unit
+MAX_LINES = 60  # public facts, or internal notes, per listing
 MAX_LINE_LENGTH = 300
 MAX_NAME_LENGTH = 120
 
@@ -32,7 +32,7 @@ _ACCESS = re.compile(
 
 
 class RentalDataInvalid(Exception):
-    """A unit or the showing rules that must not be saved or used, with every reason."""
+    """A listing or the showing rules that must not be saved or used, with every reason."""
 
     def __init__(self, problems: list[str]) -> None:
         self.problems = problems
@@ -47,7 +47,7 @@ def _text_problems(where: str, text: str) -> list[str]:
     if _PHONE.search(text):
         found.append(f"{where}: holds a phone number")
     if _LINK.search(text):
-        found.append(f"{where}: holds a link (links go in booking_url only)")
+        found.append(f"{where}: holds a link (links go in showing_booking_url only)")
     if _ACCESS.search(text):
         found.append(f"{where}: mentions an access code, lockbox or password")
     return found
@@ -76,26 +76,26 @@ def _lines_problems(where: str, kind: str, lines: list[str]) -> list[str]:
     return problems
 
 
-def unit_problems(unit: RentalUnit) -> list[str]:
-    """Every reason this unit must not be saved or used. Empty means it may be."""
-    name = unit.unit.strip()
+def listing_problems(listing: RentalListing) -> list[str]:
+    """Every reason this listing must not be saved or used. Empty means it may be."""
+    name = listing.unit.strip()
     where = f"unit {name or '(unnamed)'}"
     problems: list[str] = []
-    if not name or name != unit.unit:
+    if not name or name != listing.unit:
         problems.append(f"{where}: the name is empty or has spaces around it")
-    if len(name) > MAX_NAME_LENGTH or len(unit.address) > MAX_NAME_LENGTH:
+    if len(name) > MAX_NAME_LENGTH or len(listing.address) > MAX_NAME_LENGTH:
         problems.append(f"{where}: name or address is over {MAX_NAME_LENGTH} characters")
-    if unit.rent is not None and unit.rent <= 0:
-        problems.append(f"{where}: rent must be more than 0")
-    first, final = unit.lease_start_earliest, unit.lease_start_latest
+    if listing.asking_rent is not None and listing.asking_rent <= 0:
+        problems.append(f"{where}: asking_rent must be more than 0")
+    first, final = listing.next_lease_start_earliest, listing.next_lease_start_latest
     if first and final and first > final:
-        problems.append(f"{where}: lease_start_earliest is after lease_start_latest")
-    problems += _booking_url_problems(f"{where} booking_url", unit.booking_url)
-    problems += _text_problems(f"{where} name", unit.unit)
-    problems += _text_problems(f"{where} address", unit.address)
-    problems += _lines_problems(where, "public fact", unit.public_facts)
-    problems += _lines_problems(where, "internal note", unit.internal_notes)
-    for preferred in unit.preferred_times:
+        problems.append(f"{where}: next_lease_start_earliest is after next_lease_start_latest")
+    problems += _booking_url_problems(f"{where} showing_booking_url", listing.showing_booking_url)
+    problems += _text_problems(f"{where} name", listing.unit)
+    problems += _text_problems(f"{where} address", listing.address)
+    problems += _lines_problems(where, "public fact", listing.public_facts)
+    problems += _lines_problems(where, "internal note", listing.internal_notes)
+    for preferred in listing.preferred_showing_times:
         if not preferred.days or preferred.start > preferred.end:
             problems.append(f"{where}: a preferred time has no days, or starts after it ends")
     return problems
@@ -110,5 +110,7 @@ def rules_problems(rules: ShowingRules) -> list[str]:
         problems.append(f"timezone: {rules.timezone!r} is not a time zone")
     if rules.earliest_start > rules.latest_start:
         problems.append("showing rules: earliest_start is after latest_start")
-    problems += _booking_url_problems("showing rules booking_url", rules.booking_url)
+    problems += _booking_url_problems(
+        "showing rules showing_booking_url", rules.showing_booking_url
+    )
     return problems

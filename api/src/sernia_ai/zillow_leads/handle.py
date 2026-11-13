@@ -64,7 +64,7 @@ from api.src.sernia_ai.tools.google_tools import (
     _get_threading_headers,
     _send_email,
 )
-from api.src.sernia_ai.zillow_leads import unit_data
+from api.src.sernia_ai.zillow_leads import listing_data
 from api.src.sernia_ai.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     Escalate,
@@ -109,7 +109,7 @@ class Handled:
 
 
 def unusable_data_escalation(problem: str) -> Escalate:
-    """The outcome when unit data cannot be used: a person, with the reason.
+    """The outcome when listing data cannot be used: a person, with the reason.
 
     Decided by code, without the agent. An agent with no facts could only
     escalate or guess, and the person needs to know the data is the cause.
@@ -117,9 +117,9 @@ def unusable_data_escalation(problem: str) -> Escalate:
     return Escalate(
         lead=LeadFacts(),
         tour=TourState(),
-        reason="Unit data could not be used, so no reply was drafted.",
+        reason="Listing data could not be used, so no reply was drafted.",
         question=(
-            f"The lead agent's unit data (the rental_units tables) cannot be used: {problem}. "
+            f"The lead agent's listing data (the rental_listings table) cannot be used: {problem}. "
             "Every lead comes to a person until it is fixed. Please fix the data, then "
             "answer this lead."
         ),
@@ -210,7 +210,7 @@ async def handle_thread(
         return Handled(persisted=True, action="skipped")
 
     now = datetime.now(UTC)
-    loaded = await unit_data.load()
+    loaded = await listing_data.load()
     tours = await tours_for_case(TOUR_SOURCE, loaded.data, now)
     case = build_case(
         thread, loaded.data, now=now, slots=tours.open_times, booked_tours=tours.booked

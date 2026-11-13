@@ -1,7 +1,7 @@
 """Where a live case gets its tour times and booked tours.
 
-Unit data (``unit_data.py``) holds what a person decides and that changes
-slowly: the units, the showing window, blackout dates. Which times are
+Listing data (``listing_data.py``) holds what a person decides and that
+changes slowly: the listings, the showing window, blackout dates. Which times are
 actually open, and which showings are already booked, change by the hour and
 belong to whatever keeps the calendars. That is a ``TourSource``:
 

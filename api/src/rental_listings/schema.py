@@ -1,4 +1,4 @@
-"""What a rental unit and the showing rules look like, wherever they are stored.
+"""What a rental listing and the showing rules look like, wherever they are stored.
 
 These are the shapes code depends on. The database rows (``models.py``) are
 read into them and every save goes through them, so a value of the wrong type
@@ -27,8 +27,12 @@ class PreferredWindow(BaseModel):
         return _WEEKDAYS[local.weekday()] in self.days and self.start <= local.time() <= self.end
 
 
-class RentalUnit(BaseModel):
-    """One unit as it stands now: what it is, what is on offer, and what we know.
+class RentalListing(BaseModel):
+    """One unit's listing: the next lease on offer, and what may be said about the unit.
+
+    A unit has one listing, reused each time the unit goes back on offer. It
+    is not a record of the unit itself or of who lives there now: the current
+    lease and rent are kept in the property management system, not here.
 
     Two kinds of free text, kept apart because they are used differently:
 
@@ -45,15 +49,18 @@ class RentalUnit(BaseModel):
 
     unit: str
     address: str = ""
-    rent: int | None = None
-    lease_start_earliest: date | None = None
-    lease_start_latest: date | None = None
-    virtual_tours: bool = False
-    # From this date the unit is taken and is no longer offered.
-    rented_on: date | None = None
+    # The terms of the next lease on offer. Not the current resident's rent or
+    # lease: a unit let at 1,000 today can be on offer at 1,200.
+    asking_rent: int | None = None
+    next_lease_start_earliest: date | None = None
+    next_lease_start_latest: date | None = None
+    virtual_tours_allowed: bool = False
+    # From this date the unit is no longer on offer, usually because the next
+    # lease is signed. Cleared when it goes back on offer.
+    off_market_on: date | None = None
     # Where a prospect books a showing of this unit themselves.
-    booking_url: str = ""
-    preferred_times: list[PreferredWindow] = Field(default_factory=list)
+    showing_booking_url: str = ""
+    preferred_showing_times: list[PreferredWindow] = Field(default_factory=list)
     public_facts: list[str] = Field(default_factory=list)
     internal_notes: list[str] = Field(default_factory=list)
 
@@ -69,14 +76,14 @@ class ShowingRules(BaseModel):
     latest_start: time = time(18, 0)
     blackout_dates: list[date] = Field(default_factory=list)
     # The booking page for any unit without its own link.
-    booking_url: str = ""
+    showing_booking_url: str = ""
 
 
 class Change(BaseModel):
     """One saved change, as the history shows it."""
 
-    subject: str  # the unit's name, or "showing_rules"
+    subject: str  # the listing's unit, or "showing_rules"
     changed_at: datetime
     changed_by: str
     source: str | None
-    snapshot: dict  # the unit, or the rules, as they were after the change
+    snapshot: dict  # the listing, or the rules, as they were after the change
