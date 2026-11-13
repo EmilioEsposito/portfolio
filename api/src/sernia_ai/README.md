@@ -206,6 +206,7 @@ Git-backed persistent workspace at `/workspace/`, read and written with the `wor
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
+- `zillow_leads/operating_data.json` — What the Zillow lead agent is told about units. Not memory: code checks it on every lead, and the agent changes it only through the `zillow-lead-data` tools (see [`zillow_leads/README.md`](zillow_leads/README.md#operating-data-in-production))
 - `.claude/skills/` — Playbooks and procedures. The harness `Skills` capability (`pydantic_ai_harness.Skills`) reads them at the start of every run: the catalog (name + description) is injected into the instructions, and the agent loads a skill's body with the `load_capability` tool. It reads `SKILL.md` only; a skill's other files are ordinary workspace files, and nothing runs scripts. Workspace file tools (`workspace_write_file` / `workspace_edit_file`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs. One skill is not in the workspace: `zillow-auto-reply` is built in code from `zillow_leads/prompts/policy.md` (see `zillow_leads/skill.py`) as a deferred capability in the same catalog. It ships with the deploy, and a workspace skill of the same name is left out of the catalog.
 
 ### Server-Side vs Knowledge-Repo Content

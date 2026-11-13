@@ -68,6 +68,10 @@ AGENT_NAME = "sernia"
 WORKSPACE_PATH = Path(
     os.environ.get("WORKSPACE_PATH", Path(__file__).resolve().parent / "workspace")
 )
+# The Zillow lead agent's operating data, relative to the workspace root. Here,
+# not in zillow_leads, so the workspace file tools can name it without
+# importing that package. See zillow_leads/operating_store.py.
+ZILLOW_OPERATING_FILE = "zillow_leads/operating_data.json"
 
 # ClickUp
 CLICKUP_TEAM_ID = "90131316997"

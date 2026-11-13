@@ -15,20 +15,37 @@ is the same for every lead, such as how to apply, belongs in
 """
 
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.src.sernia_ai.zillow_leads.thread import LeadThread
 
 # Current residents get a day's notice before a showing.
 MIN_NOTICE = timedelta(hours=24)
 # Showings start no earlier than 9:00 and, at 30 minutes long, no later than 18:00.
+# These are the defaults; operating data can set another window.
 EARLIEST_START = time(9, 0)
 LATEST_START = time(18, 0)
 DEFAULT_DAYS_AHEAD = 7
 # A lead's burst of messages is answered once, shortly after the last one.
 DECISION_DELAY = timedelta(minutes=5)
+
+
+Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_WEEKDAYS: tuple[Weekday, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+class PreferredWindow(BaseModel):
+    """Start times we would like a showing to land on: a nudge, never a limit."""
+
+    days: list[Weekday]
+    start: time
+    end: time  # the last preferred start time, included
+
+    def covers(self, local: datetime) -> bool:
+        return _WEEKDAYS[local.weekday()] in self.days and self.start <= local.time() <= self.end
 
 
 class Listing(BaseModel):
@@ -50,6 +67,18 @@ class Listing(BaseModel):
     # utilities, laundry, parking, appliances, pets. The model answers unit
     # questions from this and nothing else.
     facts: str = ""
+    # When we would like this unit shown, if there is a choice (the resident
+    # asked for afternoons, say). Of the times that may be offered, the ones
+    # inside these windows are listed in the case as preferred.
+    preferred_times: list[PreferredWindow] = Field(default_factory=list)
+
+    @field_validator("facts", mode="before")
+    @classmethod
+    def _facts_from_lines(cls, value: object) -> object:
+        """Accept a list of lines, which is easier to edit by hand in JSON."""
+        if isinstance(value, list) and all(isinstance(line, str) for line in value):
+            return "\n".join(value)
+        return value
 
 
 class AgentAvailability(BaseModel):
@@ -60,6 +89,13 @@ class AgentAvailability(BaseModel):
     weekend_times: list[time] = Field(default_factory=list)
 
 
+class ShowingWindow(BaseModel):
+    """The outer limits on when a showing may start, every day."""
+
+    earliest_start: time = EARLIEST_START
+    latest_start: time = LATEST_START
+
+
 class OperatingData(BaseModel):
     """What changes week to week in season: listings, schedules, days off."""
 
@@ -68,6 +104,10 @@ class OperatingData(BaseModel):
     rented_units: list[str] = Field(default_factory=list)
     # The self-serve booking page for showings, when one exists.
     booking_url: str = ""
+    showing_window: ShowingWindow = Field(default_factory=ShowingWindow)
+    # A weekly pattern of tour times kept by hand. The evals' season file has
+    # one. Production does not read it: there, tour times come from a
+    # ``TourSource`` (see ``tours.py``).
     availability: list[AgentAvailability] = Field(default_factory=list)
     blackout_dates: list[date] = Field(default_factory=list)
 
@@ -78,6 +118,13 @@ class TourSlot(BaseModel):
 
 
 class BookedTour(BaseModel):
+    unit: str
+    start: datetime
+
+
+class PreferredTime(BaseModel):
+    """A time that may be offered and that falls in a unit's preferred windows."""
+
     unit: str
     start: datetime
 
@@ -93,6 +140,25 @@ class LeadCase(BaseModel):
     rented_units: list[str]
     offerable_slots: list[TourSlot]
     booked_tours: list[BookedTour]
+    preferred_times: list[PreferredTime] = Field(default_factory=list)
+
+
+def within_showing_rules(start: datetime, operating: OperatingData, now: datetime) -> bool:
+    """Whether a showing may start at ``start``, as far as the fixed rules go.
+
+    The rules with exact answers, whatever supplied the time: not in the past
+    or inside the notice period, not outside the showing window, not on a
+    blackout date. A time without a UTC offset cannot be placed and is refused.
+    """
+    if start.tzinfo is None:
+        return False
+    local = start.astimezone(ZoneInfo(operating.timezone))
+    window = operating.showing_window
+    return (
+        start >= now + MIN_NOTICE
+        and window.earliest_start <= local.time() <= window.latest_start
+        and local.date() not in operating.blackout_dates
+    )
 
 
 def offerable_slots(
@@ -108,6 +174,7 @@ def offerable_slots(
     local_now = now.astimezone(zone)
     earliest = local_now + MIN_NOTICE
     blackout = set(operating.blackout_dates)
+    window = operating.showing_window
 
     slots: list[TourSlot] = []
     for offset in range(days_ahead + 2):  # +2: notice pushes the window out a day
@@ -117,7 +184,7 @@ def offerable_slots(
         weekend = day.weekday() >= 5
         for person in operating.availability:
             for start_time in person.weekend_times if weekend else person.weekday_times:
-                if not EARLIEST_START <= start_time <= LATEST_START:
+                if not window.earliest_start <= start_time <= window.latest_start:
                     continue
                 start = datetime.combine(day, start_time, tzinfo=zone)
                 if earliest <= start <= local_now + timedelta(days=days_ahead + 1):
@@ -164,22 +231,39 @@ def build_case(
     visible = thread.model_copy(update={"messages": thread.messages[: last + 1]})
     if now is None:
         now = thread.messages[last].sent_at + DECISION_DELAY if upto is not None else _utc_now()
-    today = now.astimezone(ZoneInfo(operating.timezone)).date()
+    zone = ZoneInfo(operating.timezone)
+    today = now.astimezone(zone).date()
     rented = [item for item in operating.listings if item.rented_on and item.rented_on <= today]
+    listed = [
+        item.model_copy(update={"booking_url": item.booking_url or operating.booking_url})
+        for item in operating.listings
+        if item not in rented
+    ]
+    offerable = offerable_slots(operating, now) if slots is None else slots
     return LeadCase(
         case_id=f"{thread.thread_id}-{last}",
         now=now,
         timezone=operating.timezone,
         thread=visible,
-        listings=[
-            item.model_copy(update={"booking_url": item.booking_url or operating.booking_url})
-            for item in operating.listings
-            if item not in rented
-        ],
+        listings=listed,
         rented_units=operating.rented_units + [item.unit for item in rented],
-        offerable_slots=offerable_slots(operating, now) if slots is None else slots,
+        offerable_slots=offerable,
         booked_tours=[tour for tour in (booked_tours or []) if tour.start > now],
+        preferred_times=_preferred_times(listed, offerable, zone),
     )
+
+
+def _preferred_times(
+    listings: list[Listing], slots: list[TourSlot], zone: ZoneInfo
+) -> list[PreferredTime]:
+    """The times that may be offered that fall in each unit's preferred windows."""
+    starts = sorted({slot.start for slot in slots})
+    return [
+        PreferredTime(unit=listing.unit, start=start)
+        for listing in listings
+        for start in starts
+        if any(window.covers(start.astimezone(zone)) for window in listing.preferred_times)
+    ]
 
 
 def _utc_now() -> datetime:
@@ -250,6 +334,18 @@ def render_case(case: LeadCase) -> str:
         lines.append(f"- {tour.unit}: {_day(local)} at {_clock(local)}")
     if not case.booked_tours:
         lines.append("- (none)")
+
+    # Only when there are some, so a case without preferences reads exactly as
+    # it did before they existed and earlier eval runs stay comparable.
+    if case.preferred_times:
+        lines += ["", "## Preferred showing times"]
+        preferred: dict[tuple[str, date], list[str]] = {}
+        for item in case.preferred_times:
+            local = item.start.astimezone(zone)
+            preferred.setdefault((item.unit, local.date()), []).append(_clock(local))
+        for (unit, day), times in preferred.items():
+            label = _day(datetime.combine(day, time(), tzinfo=zone))
+            lines.append(f"- {unit}: {label} at {', '.join(times)}")
 
     lines += ["", "## Thread (oldest first)"]
     for number, message in enumerate(case.thread.messages, 1):
