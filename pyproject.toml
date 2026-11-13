@@ -32,7 +32,6 @@ dependencies = [
     # First-party `Skills` capability for the Sernia AI workspace skills. Each
     # harness release pins one exact pydantic-ai-slim, so the two upgrade together.
     "pydantic-ai-harness[skills]>=0.68.0,<1",
-    "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=1.6.0,<2",
     "fastmcp[apps]>=3.2.4",
     # Jev decisions through OpenRouter (TypeSafe SDK uses httpx2).

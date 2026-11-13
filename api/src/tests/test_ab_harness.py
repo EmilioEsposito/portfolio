@@ -40,8 +40,7 @@ async def test_harness_runs_a_case_end_to_end(
 
     assert len(seen) == 1, "expected exactly one model request for one case"
     # Default is side-effect free: none of the production toolsets (SMS,
-    # email, ClickUp, scheduling, workspace writes) reach the model. Only the
-    # read-only workspace search registered directly on the agent remains,
-    # with `load_capability`, which only loads a skill's instructions.
-    assert {t.name for t in seen[0].function_tools} <= {"search_files", "load_capability"}
+    # email, ClickUp, scheduling, workspace files) reach the model. Only
+    # `load_capability` remains, which only loads a skill's instructions.
+    assert {t.name for t in seen[0].function_tools} <= {"load_capability"}
     assert "evaluating variant=local" in capsys.readouterr().out

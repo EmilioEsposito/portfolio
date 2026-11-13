@@ -179,7 +179,8 @@ the automatic SMS-webhook escalation pipeline (`analyze_for_twilio_escalation`).
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
 | `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
 | `code_tools.py` | `run_python`: Python sandbox (pydantic-monty 1.x) for math, formatting, data manipulation. See [Python sandbox](#python-sandbox-code_toolspy). |
-| `_logging.py` | Shared error logging wrapper for tool failures. Sandbox file-tool errors log at warn (not error) so they don't page; `EditError` gets a "re-read the file, don't guess whitespace" hint, and repeated identical recoverable failures escalate with explicit STOP guidance. |
+| `workspace_tools.py` | Workspace file tools (`workspace_read_file`, `_write_file`, `_edit_file`, `_list_directory`, `_find_files`, `_search_files`, `_delete_file`). The harness `FileSystem` tools behind an adapter: `/workspace/...` and relative paths both work, only `.md`/`.txt`/`.json` files, `.git` denied, parent directories created on write, and recoverable errors raised as `WorkspaceToolError` instead of tool retries. Contributed by the `SerniaWorkspace` capability, which also makes each run's `deps.workspace_path` its workspace; the harness refuses its file tools from plain `toolsets=`. |
+| `_logging.py` | Shared error logging wrapper for tool failures. Workspace file-tool errors (`WorkspaceToolError`) log at warn (not error) so they don't page; a missed edit (`WorkspaceEditMiss`) gets a "re-read the file, don't guess whitespace" hint, and repeated identical recoverable failures escalate with explicit STOP guidance. |
 
 ## Python sandbox (`code_tools.py`)
 

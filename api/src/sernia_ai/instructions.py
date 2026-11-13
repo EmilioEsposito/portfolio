@@ -62,10 +62,13 @@ skill, write to `/workspace/.claude/skills/<name>/SKILL.md` via \
 `workspace_write_file` / `workspace_edit_file`. The workspace tools are for \
 editing skills, not reading them.
 - **General workspace I/O** — `workspace_read_file`, `workspace_write_file`, \
-`workspace_edit_file`, `workspace_list_files`, `search_files`, \
+`workspace_edit_file`, `workspace_list_directory`, `workspace_find_files` \
+(by name), `workspace_search_files` (by content, regex), \
 `workspace_delete_file` for everything else under `/workspace/`.
 - **Editing any workspace file** — `workspace_edit_file` matches its search \
-text byte-for-byte. If it reports "text not found in file", do **not** retry \
+text byte-for-byte. `workspace_read_file` shows a line number at the start of \
+each line; it is not part of the file, so never copy it into an edit. If an \
+edit reports "old_text not found", do **not** retry \
 with a reworded or re-indented guess: `workspace_read_file` the file, copy \
 the exact lines, then edit once. Repeated blind retries burn the run's \
 request budget and abort the whole run.
