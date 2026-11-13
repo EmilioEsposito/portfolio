@@ -10,31 +10,72 @@ history with the person's name.
 A write may send ``based_on``: the listing (or the rules) as the caller last read
 it. If what is on file has changed since, nothing is saved and the answer is
 409, so an edit made from a stale screen cannot undo someone else's change.
+
+A write with ``?dry_run=true`` runs every check and answers as it would, but
+saves nothing. The Sernia MCP service uses it so a person is never asked to
+approve a change that would be refused.
+
+Two kinds of caller (``rental_listing_caller``):
+
+- A browser session of a Sernia user, from the edit screen.
+- The Sernia MCP service, acting for a signed-in Sernia user with the Clerk
+  OAuth access token that user gave it. Only a token issued to the MCP
+  service's own OAuth client (``SERNIA_MCP_CLERK_OAUTH_CLIENT_ID``) is
+  accepted, and the user's email is checked the same way. Changes are
+  recorded with the source "Sernia MCP". The MCP service asks the person to
+  approve any change to free text or a link before it calls here.
 """
 
+import os
+from dataclasses import dataclass
 from typing import Annotated
 
 from clerk_backend_api import User
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from clerk_backend_api.security.types import TokenPrefix
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import DBSession
 from api.src.rental_listings import service
-from api.src.rental_listings.checks import RentalDataInvalid
+from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.schema import Change, RentalListing, ShowingRules
-from api.src.utils.clerk import verify_serniacapital_user
+from api.src.utils.clerk import verify_serniacapital_oauth_user, verify_serniacapital_user
 
-# Recorded as the source of every change made through these endpoints.
+# Recorded as the source of every change, by who made the call.
 SOURCE = "rental listings screen"
+MCP_SOURCE = "Sernia MCP"
+# The Clerk OAuth client the Sernia MCP service signs users in with.
+MCP_CLIENT_ID_ENV = "SERNIA_MCP_CLERK_OAUTH_CLIENT_ID"
+
+
+@dataclass(frozen=True)
+class Caller:
+    user: User
+    source: str
+
+
+async def rental_listing_caller(request: Request) -> Caller:
+    """Who is calling, and so what to record as the change's source."""
+    header = request.headers.get("authorization", "")
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+    if token.startswith(TokenPrefix.OAUTH_TOKEN_PREFIX.value):
+        client_id = os.environ.get(MCP_CLIENT_ID_ENV, "").strip()
+        user = await verify_serniacapital_oauth_user(request, client_id=client_id)
+        return Caller(user=user, source=MCP_SOURCE)
+    return Caller(user=await verify_serniacapital_user(request), source=SOURCE)
+
 
 router = APIRouter(
     prefix="/rental-listings",
     tags=["rental-listings"],
-    dependencies=[Depends(verify_serniacapital_user)],
+    dependencies=[Depends(rental_listing_caller)],
 )
 
-SerniaUser = Annotated[User, Depends(verify_serniacapital_user)]
+SerniaCaller = Annotated[Caller, Depends(rental_listing_caller)]
+DryRun = Annotated[
+    bool, Query(description="Run every check and answer as a save would, but save nothing.")
+]
 
 
 class RentalData(BaseModel):
@@ -105,6 +146,14 @@ def _broken_on_file(error: RentalDataInvalid) -> HTTPException:
     )
 
 
+async def _checked_only(session: DBSession, listing: RentalListing) -> RentalListing:
+    """A dry run's answer: the listing as it would be saved, or 422. Saves nothing."""
+    if problems := listing_problems(listing):
+        raise _refused(RentalDataInvalid(problems))
+    await session.rollback()  # releases the lock
+    return listing
+
+
 async def _saved_listing(session: DBSession, name: str) -> RentalListing:
     listing = await service.read_listing(session, name)
     assert listing is not None  # just saved
@@ -124,7 +173,9 @@ async def read_rental_data(session: DBSession) -> RentalData:
 
 
 @router.post("/listings", response_model=RentalListing, status_code=status.HTTP_201_CREATED)
-async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession) -> RentalListing:
+async def create_listing(
+    body: ListingSave, caller: SerniaCaller, session: DBSession, dry_run: DryRun = False
+) -> RentalListing:
     """Add a unit's listing. Refused with 409 if that unit (in any case) has one."""
     name = body.listing.unit
     try:
@@ -134,8 +185,12 @@ async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession
         raise _broken_on_file(error) from error
     if existing is not None:
         raise _already_listed(name)
+    if dry_run:
+        return await _checked_only(session, body.listing)
     try:
-        await service.save_listing(session, body.listing, changed_by=_person(user), source=SOURCE)
+        await service.save_listing(
+            session, body.listing, changed_by=_person(caller.user), source=caller.source
+        )
     except RentalDataInvalid as error:
         raise _refused(error) from error
     except IntegrityError as error:
@@ -148,7 +203,11 @@ async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession
 # ``path`` so a unit named like "12/14" can be edited: its slash arrives decoded.
 @router.put("/listings/{name:path}", response_model=RentalListing)
 async def update_listing(
-    name: str, body: ListingSave, user: SerniaUser, session: DBSession
+    name: str,
+    body: ListingSave,
+    caller: SerniaCaller,
+    session: DBSession,
+    dry_run: DryRun = False,
 ) -> RentalListing:
     """Replace a listing. The unit may change case but not spelling: it is not renamed."""
     if body.listing.unit.strip().casefold() != name.strip().casefold():
@@ -167,8 +226,12 @@ async def update_listing(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"No listing for unit {name!r}.")
     if body.based_on is not None and current != body.based_on:
         raise _changed_since()
+    if dry_run:
+        return await _checked_only(session, body.listing)
     try:
-        await service.save_listing(session, body.listing, changed_by=_person(user), source=SOURCE)
+        await service.save_listing(
+            session, body.listing, changed_by=_person(caller.user), source=caller.source
+        )
     except RentalDataInvalid as error:
         raise _refused(error) from error
     return await _saved_listing(session, body.listing.unit)
@@ -176,7 +239,7 @@ async def update_listing(
 
 @router.put("/showing-rules", response_model=ShowingRules)
 async def update_showing_rules(
-    body: RulesSave, user: SerniaUser, session: DBSession
+    body: RulesSave, caller: SerniaCaller, session: DBSession, dry_run: DryRun = False
 ) -> ShowingRules:
     """Replace the showing rules that apply to every unit."""
     try:
@@ -188,9 +251,14 @@ async def update_showing_rules(
         current = None  # rules broken on file may be replaced without based_on
     if body.based_on is not None and current != body.based_on:
         raise _changed_since()
+    if dry_run:
+        if problems := rules_problems(body.showing_rules):
+            raise _refused(RentalDataInvalid(problems))
+        await session.rollback()  # releases the lock
+        return body.showing_rules
     try:
         await service.save_showing_rules(
-            session, body.showing_rules, changed_by=_person(user), source=SOURCE
+            session, body.showing_rules, changed_by=_person(caller.user), source=caller.source
         )
     except RentalDataInvalid as error:
         raise _refused(error) from error

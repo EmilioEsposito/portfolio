@@ -117,6 +117,68 @@ async def get_auth_user(request: Request) -> User:
 AuthUser = Annotated[User, Depends(get_auth_user)]
 
 
+def _require_verified_domain(user: User, domain: str) -> User:
+    """``user`` if they have a verified email at ``domain``, otherwise 401."""
+    for email in user.email_addresses:
+        if (
+            email.email_address.endswith(domain)
+            and email.verification
+            and email.verification.status == "verified"
+        ):
+            logfire.info(
+                f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}."
+            )
+            return user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=f"User is not authorized to access this resource. Please use a verified {domain} email.",
+    )
+
+
+async def verify_serniacapital_oauth_user(request: Request, *, client_id: str) -> User:
+    """The user behind a Clerk OAuth access token issued to one OAuth client.
+
+    For a service that holds a signed-in user's OAuth token and calls this API
+    on their behalf (the Sernia MCP service). Clerk verifies the token, which
+    must have been issued to ``client_id``; a token any other OAuth client was
+    given is refused. The user must have a verified @serniacapital.com email,
+    the same as for a browser session.
+
+    Only OAuth access tokens are accepted here: a session token, API key or
+    machine token is refused.
+    """
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="OAuth access tokens are not accepted here.",
+        )
+    auth_state = await asyncio.to_thread(
+        clerk_client.authenticate_request,
+        request,
+        AuthenticateRequestOptions(accepts_token=["oauth_token"]),
+    )
+    payload = auth_state.payload or {}
+    if not auth_state.is_signed_in or payload.get("client_id") != client_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This OAuth access token is not accepted here.",
+        )
+    user_id = payload.get("subject")
+    if not isinstance(user_id, str) or not user_id.startswith("user_"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This OAuth access token does not belong to a user.",
+        )
+    user = _get_cached_user(user_id)
+    if user is None:
+        # Only a fresh lookup is cached, so a cached profile still expires
+        # however often the caller comes back, as in ``get_auth_user``.
+        user = await clerk_client.users.get_async(user_id=user_id)
+        if user:
+            _set_cached_user(user_id, user)
+    return _require_verified_domain(user, "@serniacapital.com")
+
+
 async def verify_domain(request: Request, domain: str) -> User:
     """
     FastAPI dependency that verifies if the user has a verified email from a specific domain.
@@ -129,22 +191,7 @@ async def verify_domain(request: Request, domain: str) -> User:
         The authenticated User if authorized. Raises HTTPException with status 401 if not authorized.
     """
     user: User = await get_auth_user(request)
-    for email in user.email_addresses:
-        if (
-            email.email_address.endswith(domain)
-            and email.verification
-            and email.verification.status == "verified"
-        ):
-            logfire.info(
-                f"User {user.id} successfully verified for domain '{domain}' with email: {email.email_address}."
-            )  # Log success
-            return user  # Return the user instead of True
-
-    # If the loop completes, it means no verified email for the domain was found.
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=f"User is not authorized to access this resource. Please use a verified {domain} email.",
-    )
+    return _require_verified_domain(user, domain)
 
 
 async def verify_serniacapital_user(request: Request) -> User:
