@@ -97,6 +97,12 @@ GOOGLE_DELEGATION_EMAIL: str = os.environ.get("SERNIA_MCP_DEFAULT_USER", "emilio
 # `api/src/sernia_ai/workspace/` so the agent and MCP read/write the same files.
 WORKSPACE_PATH: Path = Path(os.environ.get("SERNIA_MCP_WORKSPACE_PATH", "./workspace")).resolve()
 
+# ---- Portfolio API ---------------------------------------------------------
+# Where the rental listing tools send their requests, e.g.
+# https://fastapi-production-xxxx.up.railway.app. The API records each change
+# under the signed-in user's name. Empty turns the rental listing tools off.
+SERNIA_MCP_API_BASE_URL: str = os.environ.get("SERNIA_MCP_API_BASE_URL", "").strip()
+
 # ---- Quo (OpenPhone) routing -----------------------------------------------
 QUO_SERNIA_AI_PHONE_ID: str = os.environ.get("QUO_SERNIA_AI_PHONE_ID", "PNWvNqsFFy")
 QUO_SHARED_EXTERNAL_PHONE_ID: str = os.environ.get("QUO_SHARED_EXTERNAL_PHONE_ID", "PNpTZEJ7la")

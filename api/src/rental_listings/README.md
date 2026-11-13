@@ -76,8 +76,15 @@ in either kind of text.
 
 The Rental Listings page (`/sernia-rental-listings`, linked from the Sernia
 sidebar) edits each listing's fields and the showing rules, and shows the
-history. It calls these endpoints. They are open to signed-in Sernia users,
-the same as the admin settings:
+history. It calls these endpoints, and so does the Sernia MCP service. They
+are open to signed-in Sernia users, the same as the admin settings, by two
+routes (`rental_listing_caller` in `routes.py`):
+
+- a browser session, from the edit screen;
+- a Clerk OAuth access token that a Sernia user gave the Sernia MCP service.
+  Only a token issued to the MCP service's own OAuth client is accepted
+  (`SERNIA_MCP_CLERK_OAUTH_CLIENT_ID` on this service), and the user's email
+  is checked the same way. Without that variable no OAuth token is accepted.
 
 | Method and path | Does |
 |---|---|
@@ -87,19 +94,27 @@ the same as the admin settings:
 | `PUT /api/rental-listings/showing-rules` | Replace the showing rules |
 | `GET /api/rental-listings/history?subject=&limit=` | Changes, newest first: one unit, `showing_rules`, or everything |
 
-- A write records the signed-in person as `changed_by` and
-  `rental listings screen` as `source`.
+- A write records the signed-in person as `changed_by`, and
+  `rental listings screen` or `Sernia MCP` as `source`.
+- A write with `?dry_run=true` runs every check, including `based_on`, and
+  answers as a save would, but saves nothing. The MCP service uses it so a
+  person is not asked to approve a change that would be refused.
 - A failed check answers 422 with `detail.problems`, the reasons.
 - A write may send `based_on`, the listing or rules as last read. If what is
   on file has changed since, nothing is saved and the answer is 409, so a
   stale screen cannot undo someone else's change.
 - A person's own edit needs no approval step. The general agent's tools ask
   for one because the agent may be acting on what a stranger wrote. Here the
-  person is the one typing. The checks still apply.
+  person is the one typing. The checks still apply. The MCP service is a
+  model acting for a person, so it asks for approval itself, on the same
+  rule as the general agent, before it calls these endpoints.
 - A row broken by a hand edit in the database makes the list answer 409 with
   the reasons. Fix it in the database.
 
-## Not built
+## Sernia MCP
 
-The same operations in the standalone MCP service, which has no database
-access. It can call the endpoints above.
+The standalone MCP service has the same four tools as the general agent
+(`apps/sernia_mcp/src/sernia_mcp/tools/rental_listings.py`). It has no
+database access, so it calls the endpoints above with the signed-in user's
+Clerk token. Its approval cards and their rule are described in its
+[README](../../../apps/sernia_mcp/README.md#rental-listings).
