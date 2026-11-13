@@ -11,6 +11,11 @@ from api.src.sernia_ai.zillow_leads.case import LeadCase, OperatingData
 from api.src.sernia_ai.zillow_leads.evals.scenarios import CaseEdit, Scenario, case_for
 
 SIGNATURE = "Sernia Capital Team"
+GREETING = re.compile(r"\s*(hi|hello)\b", re.I)
+# The site's address written without a scheme (and not as part of an email
+# address or a longer host name): most email clients will not make it a link.
+BARE_SITE = re.compile(r"(?<![\w@/.-])serniacapital\.com")
+CLARIFICATION = "Quick clarification"
 LINK = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
@@ -18,6 +23,19 @@ def _bare(text: str) -> str:
     """Links without scheme, ``www.`` or trailing punctuation, so the same
     address written two ways compares equal."""
     return re.sub(r"https?://(www\.)?", "", text.lower()).rstrip("/.,")
+
+
+def _clarification_leads(body: str) -> bool:
+    """A clarification, when there is one, comes right after the greeting.
+
+    One short paragraph may sit between them: the policy allows a line saying
+    that something the lead asked for cannot be done.
+    """
+    paragraphs = [part.strip() for part in body.split("\n\n") if part.strip()]
+    places = [index for index, part in enumerate(paragraphs) if part.startswith(CLARIFICATION)]
+    if CLARIFICATION not in body:
+        return True
+    return bool(places) and places[0] <= 2
 
 
 @dataclass
@@ -49,6 +67,9 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
                 slot.tzinfo is not None and slot in allowed for slot in outcome.offered_slots
             ),
             "no_em_dash": "—" not in body,
+            "has_greeting": bool(GREETING.match(body)),
+            "site_address_is_a_link": not BARE_SITE.search(body),
+            "clarification_leads": _clarification_leads(body),
             "has_signature": SIGNATURE in body,
             "no_staff_names": not (staff & words),
             # A link the case did not supply was written from memory or invented.

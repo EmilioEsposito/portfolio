@@ -260,10 +260,39 @@ class TestReplyChecks:
         assert result == {
             "offered_slots_allowed": True,
             "no_em_dash": True,
+            "has_greeting": True,
+            "site_address_is_a_link": True,
+            "clarification_leads": True,
             "has_signature": True,
             "no_staff_names": True,
             "links_allowed": True,
         }
+
+    def test_a_reply_opens_with_a_greeting(self):
+        signed = "\n\nSernia Capital Team"
+        assert check(self.case, decision(reply_body="Hi Sam,\n\nYes." + signed))["has_greeting"]
+        assert not check(self.case, decision(reply_body="Yes, it is." + signed))["has_greeting"]
+
+    def test_the_site_address_is_written_as_a_link(self):
+        signed = "\n\nSernia Capital Team\nall@serniacapital.com"
+        linked = "Hello,\n\nApply at https://serniacapital.com." + signed
+        bare = "Hello,\n\nApply at serniacapital.com." + signed
+        # The email address in the signature is not the site address.
+        assert check(self.case, decision(reply_body=linked))["site_address_is_a_link"]
+        assert not check(self.case, decision(reply_body=bare))["site_address_is_a_link"]
+
+    def test_a_clarification_comes_right_after_the_greeting(self):
+        signed = "\n\nSernia Capital Team"
+        ask = "Quick clarification: what kind of pet do you have?"
+        first = f"Hi Sam,\n\n{ask}\n\nAssuming you have a cat, book here." + signed
+        after_one_line = f"Hi Sam,\n\n4:30 is not available.\n\n{ask}" + signed
+        buried = f"Hi Sam,\n\nYou can book here.\n\nThe unit has a deck.\n\n{ask}" + signed
+        inline = "Hi Sam,\n\nYou can book here. Quick clarification: any pets?" + signed
+        results = [
+            check(self.case, decision(reply_body=body))["clarification_leads"]
+            for body in (first, after_one_line, buried, inline)
+        ]
+        assert results == [True, True, False, False]
 
     def test_offering_a_time_that_is_not_allowed_fails(self):
         inside_notice = datetime(2026, 5, 4, 10, 0, tzinfo=ET)
