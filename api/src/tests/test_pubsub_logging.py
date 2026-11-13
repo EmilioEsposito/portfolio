@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import logfire
 import pytest
+from fastapi import HTTPException, Response
 from logfire.testing import TestExporter
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from starlette.requests import Request
@@ -104,9 +105,14 @@ async def test_webhook_does_not_log_credentials(monkeypatch, telemetry, outcome)
         receive=receive,
     )
 
-    response = await routes.handle_gmail_notifications(request)
-
-    assert response.status_code == (204 if outcome == "success" else 500)
+    if outcome in {"success", "processing_failure"}:
+        response = await routes.handle_gmail_notifications(request)
+        assert response.status_code == (204 if outcome == "success" else 500)
+    else:
+        with pytest.raises(HTTPException) as caught:
+            await routes.handle_gmail_notifications(request)
+        assert caught.value.status_code == 401
+        response = Response(status_code=401, content=caught.value.detail)
     if outcome in {"success", "processing_failure"}:
         processor.assert_awaited_once_with(notification)
     else:

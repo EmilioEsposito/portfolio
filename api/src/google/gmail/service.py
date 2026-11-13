@@ -22,6 +22,7 @@ from api.src.google.common.service_account_auth import (
     get_delegated_credentials,
     get_service_credentials,
 )
+from api.src.google.gmail.config import GMAIL_WATCH_MAILBOX
 from api.src.oauth.service import get_oauth_credentials
 
 SCOPES = [
@@ -475,7 +476,7 @@ def stop_gmail_watch(user_id: str = "me"):
     """
     try:
         credentials = get_delegated_credentials(
-            user_email="emilio@serniacapital.com",
+            user_email=GMAIL_WATCH_MAILBOX,
             scopes=["https://www.googleapis.com/auth/gmail.readonly"],
         )
         service = get_gmail_service(credentials)
@@ -507,7 +508,7 @@ def setup_gmail_watch(
 
         # Get delegated credentials with necessary scopes
         credentials = get_delegated_credentials(
-            user_email="emilio@serniacapital.com",
+            user_email=GMAIL_WATCH_MAILBOX,
             scopes=[
                 "https://www.googleapis.com/auth/gmail.readonly",
                 "https://www.googleapis.com/auth/pubsub",

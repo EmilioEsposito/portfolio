@@ -182,3 +182,30 @@ Gmail PubSub notifications are used to notify the server when new emails arrive.
 It requires a watch to be set up and refreshed at least every 7 days. There is a cron job calling the `/api/google/gmail/watch/refresh` endpoint every day at 7am UTC.
 
 You can monitor the [gmail-notifications-sub here.](https://console.cloud.google.com/cloudpubsub/subscription/detail/gmail-notifications-sub?inv=1&invt=Abpamw&project=portfolio-450200)
+### Push authentication and mailbox boundary
+
+The FastAPI service must explicitly configure both non-secret variables:
+
+- `PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL`: exactly the service account selected under
+  the subscription's push authentication settings (`pushConfig.oidcToken.serviceAccountEmail`).
+  This is the push identity, which need not be the application's delegated Gmail account.
+- `PUBSUB_AUDIENCE_URL`: exactly `pushConfig.oidcToken.audience`, or the complete
+  push endpoint URL when the subscription has no audience override. Query strings
+  and trailing slashes are significant; request headers never select the audience.
+
+Read the subscription settings before deployment and set these variables on the
+owning API service. Missing or blank configuration returns 503 without processing
+notifications. Invalid signatures, expiry, issuer, audience, service-account email,
+missing required claims, or an `email_verified` claim other than boolean `true`
+return 401. See [Google's push authentication guidance](https://cloud.google.com/pubsub/docs/authenticate-push-subscriptions).
+
+The watch and notification processor share `GMAIL_WATCH_MAILBOX` in
+`gmail/config.py`. Notifications for any other mailbox return 403 before delegated
+credentials, Gmail reads, database writes, or downstream queue work. The mailbox
+is intentionally fixed to the existing single-mailbox ingestion workflow; changing
+it requires reviewing the Zillow shared-copy workflow as well. Watch refresh and
+successful-delivery acknowledgements are otherwise unchanged.
+
+Validate a rollout with synthetic negative requests and passive delivery telemetry.
+Do not publish test messages to the live topic or send real emails to exercise it.
+The synthetic regression suite is `api/src/tests/test_pubsub_identity.py`.
