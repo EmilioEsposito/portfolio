@@ -7,7 +7,7 @@ from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from api.src.sernia_ai.zillow_leads.agent import Escalate, NoReply, Reply, load_instructions
-from api.src.sernia_ai.zillow_leads.case import LeadCase, OperatingData
+from api.src.sernia_ai.zillow_leads.case import LeadCase, ListingData
 from api.src.sernia_ai.zillow_leads.evals.scenarios import CaseEdit, Scenario, case_for
 
 SIGNATURE = "Sernia Capital Team"
@@ -82,7 +82,7 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
 
 def build_dataset(
     scenarios: list[Scenario],
-    operating: OperatingData,
+    listing_data: ListingData,
     edits: dict[str, CaseEdit] | None = None,
 ) -> Dataset[LeadCase, Reply | NoReply | Escalate, dict]:
     edits = edits or {}
@@ -91,7 +91,7 @@ def build_dataset(
         cases=[
             Case(
                 name=scenario.scenario_id,
-                inputs=case_for(scenario, operating, edits.get(scenario.scenario_id)),
+                inputs=case_for(scenario, listing_data, edits.get(scenario.scenario_id)),
                 metadata={
                     "actual_reply": scenario.actual_reply,
                     "actual_reply_delay_minutes": scenario.actual_reply_delay_minutes,

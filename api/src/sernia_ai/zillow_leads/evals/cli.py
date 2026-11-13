@@ -21,7 +21,7 @@ from api.src.sernia_ai.zillow_leads.agent import (
     load_instructions,
     respond,
 )
-from api.src.sernia_ai.zillow_leads.case import OperatingData, render_case
+from api.src.sernia_ai.zillow_leads.case import ListingData, render_case
 from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
 from api.src.sernia_ai.zillow_leads.evals.judge import (
     JUDGE_MODEL,
@@ -63,6 +63,9 @@ DATA_DIR = Path(__file__).with_name("data")
 # One fixed port. The review page keeps labels in the browser per address, so
 # a port that moved would leave them behind.
 SERVE_PORT = 8377
+# The season file of listings, tour times and booking links. --operating is its
+# old name, kept so existing commands and notes still run.
+LISTINGS_HELP = "the season's listing data file (old name: --operating)"
 
 
 def _fingerprint(path: Path) -> str:
@@ -176,7 +179,7 @@ async def run(args: argparse.Namespace) -> None:
     ensure_logfire_configured(mode="prod", service_name="zillow-evals", environment="local")
     logfire.instrument_pydantic_ai()
 
-    operating = OperatingData.model_validate_json(args.operating.read_text())
+    listing_data = ListingData.model_validate_json(args.listings.read_text())
     scenarios = read_scenarios(args.scenarios)
     edits = read_case_edits(args.case_edits) if args.case_edits else {}
     order: list[str] = []
@@ -207,7 +210,7 @@ async def run(args: argparse.Namespace) -> None:
     model = args.model or LEAD_AGENT_MODEL
     # --model tries another model on the same cases without editing the code.
     with lead_agent().override(model=resolve_model(model)):
-        report = await build_dataset(scenarios, operating, edits).evaluate(
+        report = await build_dataset(scenarios, listing_data, edits).evaluate(
             respond,
             name=args.name,
             max_concurrency=args.concurrency,
@@ -215,7 +218,8 @@ async def run(args: argparse.Namespace) -> None:
             metadata={
                 "policy_commit": policy_commit,
                 "model": model,
-                "operating": _fingerprint(args.operating),
+                # Key kept from before the rename, so old and new runs compare.
+                "operating": _fingerprint(args.listings),
                 "split": args.split if args.splits else "unsplit",
             },
         )
@@ -283,7 +287,7 @@ async def browse(args: argparse.Namespace) -> None:
 
 
 async def review(args: argparse.Namespace) -> None:
-    operating = OperatingData.model_validate_json(args.operating.read_text())
+    listing_data = ListingData.model_validate_json(args.listings.read_text())
     rows = [json.loads(line) for line in args.run.read_text().splitlines() if line]
     snapshot = _policy_snapshot(args.run)
     policy = snapshot.read_text() if snapshot.exists() else ""
@@ -295,7 +299,7 @@ async def review(args: argparse.Namespace) -> None:
         page = review_page(
             args.run.stem,
             read_scenarios(args.scenarios),
-            operating,
+            listing_data,
             rows,
             policy,
             # The store holds every verdict ever given; the page starts from the latest.
@@ -354,7 +358,7 @@ async def judge_runs(args: argparse.Namespace) -> None:
     ensure_logfire_configured(mode="prod", service_name="zillow-evals", environment="local")
     logfire.instrument_pydantic_ai()
 
-    operating = OperatingData.model_validate_json(args.operating.read_text())
+    listing_data = ListingData.model_validate_json(args.listings.read_text())
     by_id = {item.scenario_id: item for item in read_scenarios(args.scenarios)}
     edits = read_case_edits(args.case_edits) if args.case_edits else {}
     verdicts = latest_per_output(read_labels(args.labels)) if args.labels else {}
@@ -380,7 +384,7 @@ async def judge_runs(args: argparse.Namespace) -> None:
 
     async def one(name: str, row: dict) -> dict | None:
         scenario = by_id[row["case_id"]]
-        case_text = render_case(case_for(scenario, operating, edit_run_with(row, edits)))
+        case_text = render_case(case_for(scenario, listing_data, edit_run_with(row, edits)))
         async with limit:
             try:
                 judgement = await judge(instructions, case_text, row["decision"])
@@ -470,7 +474,9 @@ def main() -> None:
 
     run_parser = commands.add_parser("run", help="Run the decision over stored scenarios")
     run_parser.add_argument("--scenarios", type=Path, required=True)
-    run_parser.add_argument("--operating", type=Path, required=True)
+    run_parser.add_argument(
+        "--listings", "--operating", dest="listings", type=Path, required=True, help=LISTINGS_HELP
+    )
     run_parser.add_argument("--splits", type=Path, help="Split file; without it every scenario")
     run_parser.add_argument("--split", choices=SPLITS, default="dev")
     run_parser.add_argument("--out", type=Path, required=True)
@@ -499,7 +505,9 @@ def main() -> None:
 
     review_parser = commands.add_parser("review", help="Write a page for labelling a run")
     review_parser.add_argument("--scenarios", type=Path, required=True)
-    review_parser.add_argument("--operating", type=Path, required=True)
+    review_parser.add_argument(
+        "--listings", "--operating", dest="listings", type=Path, required=True, help=LISTINGS_HELP
+    )
     review_parser.add_argument("--run", type=Path, required=True)
     review_parser.add_argument("--out", type=Path, required=True)
     review_parser.add_argument("--labels", type=Path, help="Labels to start from")
@@ -529,7 +537,9 @@ def main() -> None:
 
     judge_parser = commands.add_parser("judge", help="Grade outputs with the LLM judge")
     judge_parser.add_argument("--scenarios", type=Path, required=True)
-    judge_parser.add_argument("--operating", type=Path, required=True)
+    judge_parser.add_argument(
+        "--listings", "--operating", dest="listings", type=Path, required=True, help=LISTINGS_HELP
+    )
     judge_parser.add_argument("--run", type=Path, action="append", required=True)
     judge_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
     judge_parser.add_argument("--labels", type=Path, help="The annotations store, to compare with")

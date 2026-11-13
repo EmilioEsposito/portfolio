@@ -15,16 +15,16 @@ Offline only. Nothing the running service imports lives in this package.
     uv run python -m api.src.sernia_ai.zillow_leads.evals split \
         --scenarios $DATA/scenarios/scenarios.jsonl --out $DATA/scenarios/splits.json
     uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-        --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+        --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
         --splits $DATA/scenarios/splits.json --split dev \
         --name first-round --sample 30 --out $DATA/runs/first-round.jsonl
     uv run python -m api.src.sernia_ai.zillow_leads.evals review \
-        --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+        --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
         --run $DATA/runs/first-round.jsonl --out $DATA/runs/first-round.html
 
     uv run python -m api.src.sernia_ai.zillow_leads.evals serve
 
-A scenario is a moment in a real thread; operating data is what was true of
+A scenario is a moment in a real thread; listing data is what was true of
 the business then. They are stored apart and joined into a case at run time,
 so listings and schedules can change shape without touching the scenarios or
 the labels people have put on them.
