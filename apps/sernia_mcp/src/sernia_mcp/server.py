@@ -24,11 +24,11 @@ layer (``SerniaAuthMiddleware``).
      produces a token that explicitly passes it.
 
 Combinations:
-  - Clerk + bearer (production): ``BearerClerkProvider`` (subclasses
+  - Clerk + bearer (development): ``BearerClerkProvider`` (subclasses
     ``ClerkProvider``, intercepts ``verify_token``).
   - Bearer only: ``BearerOnlyProvider`` (no OAuth UI).
   - Clerk only: plain ``ClerkProvider``.
-  - Neither: server boots **without** auth (local dev only).
+  - Neither: startup fails unless explicit local auth bypass is enabled.
 """
 
 from __future__ import annotations
@@ -55,6 +55,9 @@ from sernia_mcp.config import (
     SERNIA_MCP_BASE_URL,
     SERNIA_MCP_DISABLE_AUTH,
     clerk_oauth_configured,
+    is_hosted,
+    local_auth_bypass_enabled,
+    validate_clerk_configuration,
 )
 
 _ICON_PATH = Path(__file__).parent / "static" / "icon.png"
@@ -80,18 +83,26 @@ def _build_auth_provider():
 
     Returns one of:
       - ``BearerClerkProvider`` (Clerk + bearer): bearer checked first, then
-        Clerk. Production default.
+        Clerk. Development only.
       - ``ClerkProvider`` (Clerk only): standard human-OAuth flow.
       - ``BearerOnlyProvider`` (bearer only): no OAuth UI; service-to-service.
-      - ``None`` (neither): caller logs a warning; server runs unauthenticated.
+      - Missing or incomplete configuration raises before an HTTP app is built.
     """
     from fastmcp.server.auth.providers.clerk import ClerkProvider
 
+    validate_clerk_configuration()
     clerk_on = clerk_oauth_configured()
     bearer_on = internal_bearer_configured()
 
+    if os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower() == "production":
+        if not clerk_on or bearer_on:
+            raise RuntimeError("Production requires Clerk OAuth only; internal bearer is forbidden")
+
     if not clerk_on and not bearer_on:
-        return None
+        raise RuntimeError(
+            "Authentication is required. Configure Clerk OAuth or a development bearer; "
+            "for local-only exploration explicitly set SERNIA_MCP_DISABLE_AUTH=true."
+        )
 
     if not clerk_on and bearer_on:
         return BearerOnlyProvider()
@@ -134,36 +145,32 @@ def _disable_auth_requested() -> bool:
 
     The kill switch (``SERNIA_MCP_DISABLE_AUTH``) is for local exploration
     only — never to be set on a deployed service. We detect "deployed" via
-    Railway's standard ``RAILWAY_ENVIRONMENT_NAME`` env var. If the flag is
+    Railway deployment identity and domain environment variables. If the flag is
     set in a hosted env, refuse to boot rather than silently exposing an
     unauthenticated MCP endpoint.
     """
     if not SERNIA_MCP_DISABLE_AUTH:
         return False
-    if os.environ.get("RAILWAY_ENVIRONMENT_NAME"):
+    if is_hosted():
         raise RuntimeError(
             "SERNIA_MCP_DISABLE_AUTH must not be set in a hosted env "
-            "(RAILWAY_ENVIRONMENT_NAME is present). This is a local-dev "
+            "(Railway deployment metadata is present). This is a local-dev "
             "kill switch for unauthenticated MCP exploration."
         )
+    if not local_auth_bypass_enabled():
+        raise RuntimeError("SERNIA_MCP_DISABLE_AUTH requires a loopback SERNIA_MCP_BASE_URL")
     return True
 
 
 _disable_auth = _disable_auth_requested()
-_clerk_on = clerk_oauth_configured() and not _disable_auth
-_bearer_on = internal_bearer_configured() and not _disable_auth
-_auth_configured = _clerk_on or _bearer_on
+_clerk_on = not _disable_auth and clerk_oauth_configured()
+_bearer_on = not _disable_auth and internal_bearer_configured()
+_auth_provider = None if _disable_auth else _build_auth_provider()
 
 if SERNIA_MCP_DISABLE_AUTH:
     logfire.warn(
         "sernia_mcp: SERNIA_MCP_DISABLE_AUTH=true — all auth bypassed "
         "(Clerk + bearer). LOCAL DEV ONLY. Never set in production."
-    )
-elif not _auth_configured:
-    logfire.warn(
-        "sernia_mcp: no auth configured (neither Clerk OAuth nor internal "
-        "bearer token) — server will run UNAUTHENTICATED. Acceptable for "
-        "local dev and tests; never expose this state publicly."
     )
 else:
     logfire.info(
@@ -190,7 +197,7 @@ mcp = FastMCP(
             sizes=["379x379"],
         ),
     ],
-    auth=_build_auth_provider() if _auth_configured else None,
+    auth=_auth_provider,
     # Authorization layer on top of Clerk authentication: only emails whose
     # domain is in ``config.ALLOWED_EMAIL_DOMAINS`` are accepted. Even valid
     # Clerk tokens are rejected if their email isn't on the allowlist. The
@@ -212,7 +219,9 @@ mcp.add_provider(approvals_app)
 # accepts POST/DELETE per the protocol, so it's not usable as a healthcheck).
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_request: Request) -> JSONResponse:
-    if not _auth_configured:
+    auth_available = mcp.auth is not None
+    healthy = auth_available or local_auth_bypass_enabled()
+    if not auth_available:
         auth_label = "unauthenticated"
     elif _clerk_on and _bearer_on:
         auth_label = "clerk-oauth+bearer"
@@ -222,11 +231,12 @@ async def health(_request: Request) -> JSONResponse:
         auth_label = "bearer"
     return JSONResponse(
         {
-            "status": "ok",
+            "status": "ok" if healthy else "error",
             "service": "sernia-mcp",
             "version": __version__,
             "auth": auth_label,
-        }
+        },
+        status_code=200 if healthy else 503,
     )
 
 
