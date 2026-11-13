@@ -65,7 +65,7 @@ async def test_health_endpoint_returns_200(monkeypatch, clerk, bearer, label):
 
     # Boot flags are captured at import time. Cover every supported mode explicitly
     # rather than letting whichever auth test imported server first choose this case.
-    monkeypatch.setattr(server, "_auth_configured", clerk or bearer)
+    monkeypatch.setattr(server.mcp, "auth", object() if clerk or bearer else None)
     monkeypatch.setattr(server, "_clerk_on", clerk)
     monkeypatch.setattr(server, "_bearer_on", bearer)
 

@@ -2,7 +2,7 @@
 
 Run::
 
-    uv run fastmcp dev apps src/sernia_mcp/dev_server.py
+    SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 
 What this does:
 
