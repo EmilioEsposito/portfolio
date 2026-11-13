@@ -73,6 +73,7 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 # from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
 from api.src.sernia_ai.memory import initialize_workspace
+from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
 from api.src.user.routes import router as user_router
 
@@ -195,6 +196,12 @@ async def lifespan(app: FastAPI):
             else:
                 logfire.info("Skipping DB connection test (local dev)")
 
+            # Sernia AI's run_python sandbox runs a bundled worker binary. Prove it
+            # runs in this image on Railway so a bad deploy fails the health check;
+            # locally the pool starts on first use.
+            if is_hosted:
+                await warm_code_sandbox()
+
             # Start APScheduler in the background so FastAPI can begin serving immediately.
             if background_automation_enabled():
                 app.state.apscheduler_startup_task = asyncio.create_task(
@@ -235,6 +242,12 @@ async def lifespan(app: FastAPI):
                 await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
             except (TimeoutError, asyncio.CancelledError):
                 pass
+
+    # Stop the run_python sandbox's worker subprocesses
+    try:
+        await asyncio.wait_for(shutdown_code_sandbox(), timeout=3.0)
+    except Exception as e:
+        logfire.warn(f"Code sandbox shutdown error: {e}")
 
     # Shutdown APScheduler
     logfire.info("Shutting down APScheduler...")
