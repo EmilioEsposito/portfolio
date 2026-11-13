@@ -1,13 +1,14 @@
 """Rental listing endpoints: who may call them, what they save, and what they refuse.
 
-Uses the test database. Sign-in is replaced by a stand-in user; the gate
-itself is ``verify_serniacapital_user``, tested where it lives. All unit data
+Uses the test database. Sign-in is replaced by a stand-in caller; the gate
+itself, ``rental_listing_caller``, is tested at the end with Clerk mocked. All unit data
 here is invented.
 """
 
 import asyncio
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -21,7 +22,7 @@ from api.src.rental_listings import routes, service
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.rental_listings.schema import RentalListing, ShowingRules
 from api.src.tests.test_rental_listings import LISTING, clear_rental_data
-from api.src.utils.clerk import verify_serniacapital_user
+from api.src.utils import clerk as clerk_module
 
 PERSON = SimpleNamespace(
     id="user_test",
@@ -32,16 +33,16 @@ PERSON = SimpleNamespace(
 WHO = "Pat Example <pat@serniacapital.com>"
 
 
-def _app(user=PERSON) -> FastAPI:
+def _app(user=PERSON, source=routes.SOURCE) -> FastAPI:
     app = FastAPI()
     app.include_router(routes.router, prefix="/api")
 
     async def signed_in():
         if user is None:
             raise HTTPException(401, "User is not signed in.")
-        return user
+        return routes.Caller(user=user, source=source)
 
-    app.dependency_overrides[verify_serniacapital_user] = signed_in
+    app.dependency_overrides[routes.rental_listing_caller] = signed_in
     return app
 
 
@@ -65,7 +66,7 @@ async def _history(subject: str | None = None) -> list:
 
 def test_every_endpoint_is_behind_the_sernia_sign_in():
     gate = [dependency.dependency for dependency in routes.router.dependencies]
-    assert gate == [verify_serniacapital_user]
+    assert gate == [routes.rental_listing_caller]
 
 
 @pytest.mark.asyncio
@@ -363,3 +364,159 @@ async def test_an_add_that_hits_the_unique_index_is_a_409_not_a_500(api, monkeyp
 
     assert response.status_code == 409
     assert "already has a listing" in response.json()["detail"]["problems"][0]
+
+
+@pytest.mark.asyncio
+async def test_a_dry_run_answers_as_a_save_would_and_saves_nothing(api):
+    created = await api.post(
+        "/api/rental-listings/listings?dry_run=true", json={"listing": _json(LISTING)}
+    )
+    assert created.status_code == 201 and created.json() == _json(LISTING)
+    assert (await api.get("/api/rental-listings")).json()["listings"] == []
+
+    await api.post("/api/rental-listings/listings", json={"listing": _json(LISTING)})
+    changed = LISTING.model_copy(update={"asking_rent": 1600})
+    edited = await api.put(
+        "/api/rental-listings/listings/12-A?dry_run=true",
+        json={"listing": _json(changed), "based_on": _json(LISTING)},
+    )
+    refused = await api.put(
+        "/api/rental-listings/listings/12-A?dry_run=true",
+        json={
+            "listing": _json(LISTING.model_copy(update={"public_facts": ["Door code is 4821"]})),
+            "based_on": _json(LISTING),
+        },
+    )
+    stale = await api.put(
+        "/api/rental-listings/listings/12-A?dry_run=true",
+        json={"listing": _json(changed), "based_on": _json(changed)},
+    )
+    rules = ShowingRules(blackout_dates=[date(2027, 7, 4)])
+    rules_run = await api.put(
+        "/api/rental-listings/showing-rules?dry_run=true",
+        json={"showing_rules": rules.model_dump(mode="json")},
+    )
+
+    assert edited.status_code == 200 and edited.json()["asking_rent"] == 1600
+    assert refused.status_code == 422 and "access code" in str(refused.json())
+    assert stale.status_code == 409
+    assert rules_run.status_code == 200
+    on_file = (await api.get("/api/rental-listings")).json()
+    assert on_file["listings"] == [_json(LISTING)]
+    assert on_file["showing_rules"] == ShowingRules().model_dump(mode="json")
+    assert len(await _history()) == 1  # the one real save
+
+
+@pytest.mark.asyncio
+async def test_a_change_through_the_mcp_service_is_recorded_as_such():
+    await clear_rental_data()
+    transport = httpx.ASGITransport(app=_app(source=routes.MCP_SOURCE))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/rental-listings/listings", json={"listing": _json(LISTING)})
+
+    (change,) = await _history("12-A")
+    assert (change.changed_by, change.source) == (WHO, "Sernia MCP")
+    await clear_rental_data()
+
+
+class TestCaller:
+    """Which tokens ``rental_listing_caller`` accepts, with Clerk mocked."""
+
+    MCP_CLIENT = "client_mcp"
+
+    def request(self, token: str):
+        return SimpleNamespace(headers={"authorization": f"Bearer {token}"})
+
+    def user(self, email="pat@serniacapital.com", status="verified"):
+        return SimpleNamespace(
+            id="user_test",
+            email_addresses=[
+                SimpleNamespace(email_address=email, verification=SimpleNamespace(status=status))
+            ],
+        )
+
+    @pytest.fixture
+    def clerk(self, monkeypatch):
+        monkeypatch.setenv(routes.MCP_CLIENT_ID_ENV, self.MCP_CLIENT)
+        state = SimpleNamespace(
+            is_signed_in=True,
+            payload={"client_id": self.MCP_CLIENT, "subject": "user_test", "scopes": ["email"]},
+        )
+        seen = {}
+
+        def authenticate(request, options):
+            seen["accepts"] = options.accepts_token
+            return state
+
+        users = SimpleNamespace(get_async=AsyncMock(return_value=self.user()))
+        monkeypatch.setattr(
+            clerk_module,
+            "clerk_client",
+            SimpleNamespace(authenticate_request=authenticate, users=users),
+        )
+        clerk_module._user_cache.clear()
+        yield SimpleNamespace(state=state, users=users, seen=seen)
+        clerk_module._user_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_an_mcp_oauth_token_for_a_sernia_user_is_accepted_as_the_mcp(self, clerk):
+        caller = await routes.rental_listing_caller(self.request("oat_abc"))
+
+        assert caller.source == "Sernia MCP" and caller.user.id == "user_test"
+        assert clerk.seen["accepts"] == ["oauth_token"]
+
+    @pytest.mark.asyncio
+    async def test_a_token_issued_to_another_oauth_client_is_refused(self, clerk):
+        clerk.state.payload["client_id"] = "client_someone_else"
+
+        with pytest.raises(HTTPException) as refused:
+            await routes.rental_listing_caller(self.request("oat_abc"))
+        assert refused.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_an_invalid_or_revoked_token_is_refused(self, clerk):
+        clerk.state.is_signed_in = False
+
+        with pytest.raises(HTTPException) as refused:
+            await routes.rental_listing_caller(self.request("oat_abc"))
+        assert refused.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_oauth_tokens_are_refused_when_no_mcp_client_is_configured(
+        self, clerk, monkeypatch
+    ):
+        monkeypatch.delenv(routes.MCP_CLIENT_ID_ENV)
+
+        with pytest.raises(HTTPException) as refused:
+            await routes.rental_listing_caller(self.request("oat_abc"))
+        assert refused.value.status_code == 401
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("email", "status"),
+        [("pat@gmail.com", "verified"), ("pat@serniacapital.com", "unverified")],
+    )
+    async def test_the_user_must_have_a_verified_sernia_email(self, clerk, email, status):
+        clerk.users.get_async.return_value = self.user(email=email, status=status)
+
+        with pytest.raises(HTTPException) as refused:
+            await routes.rental_listing_caller(self.request("oat_abc"))
+        assert refused.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_a_token_that_is_not_for_a_user_is_refused(self, clerk):
+        clerk.state.payload["subject"] = "mch_machine"
+
+        with pytest.raises(HTTPException) as refused:
+            await routes.rental_listing_caller(self.request("oat_abc"))
+        assert refused.value.status_code == 401
+        clerk.users.get_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_any_other_token_goes_through_the_browser_sign_in(self, monkeypatch):
+        person = self.user()
+        monkeypatch.setattr(routes, "verify_serniacapital_user", AsyncMock(return_value=person))
+
+        caller = await routes.rental_listing_caller(self.request("eyJhbGciOi.session.jwt"))
+
+        assert caller == routes.Caller(user=person, source=routes.SOURCE)

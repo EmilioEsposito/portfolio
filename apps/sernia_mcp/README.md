@@ -38,6 +38,33 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 | `google_read_email` | read | Full body + headers by message ID |
 | `google_send_email` | **UI-gated** | Returns Approve/Reject card. No send without click. |
 
+### Rental listings
+
+The same four tools, parameter names and approval rule as the Sernia
+agent's. Each unit's listing (the next lease on offer, public facts, internal
+notes) is what the Zillow lead agent answers leads from. The data lives in
+the API's database, which this service does not reach: the tools call
+`/api/rental-listings` with the signed-in user's own Clerk OAuth token, and
+the API records each change under that person's name with the source
+"Sernia MCP".
+
+| Tool | Kind | Notes |
+|------|------|-------|
+| `rental_listings_read` | read | Every listing and the showing rules |
+| `rental_listing_history` | read | Changes, newest first, with who and from where |
+| `rental_listing_update` | write / **UI-gated** | Typed fields (asking rent, dates, off-market date, virtual tours, preferred showing times) save at once and return a "Saved" card. A new listing, an address, a public fact, an internal note or a booking link returns an Approve/Reject card |
+| `showing_rules_update` | write / **UI-gated** | The showing window and blackout dates save at once; a booking link returns an Approve/Reject card |
+
+- Every change is sent to the API as a dry run first, so a card is never
+  shown for a change the API would refuse.
+- A save sends the listing as it was read. If someone changed it in between,
+  the API refuses the save and nothing is overwritten.
+- The hidden confirm tool saves only in the session of the user who asked.
+- Configuration: `SERNIA_MCP_API_BASE_URL` on this service (empty turns the
+  tools off), and `SERNIA_MCP_CLERK_OAUTH_CLIENT_ID` on the API, set to this
+  service's `FASTMCP_SERVER_AUTH_CLERK_CLIENT_ID`. Without the second, the
+  API refuses the tools' calls.
+
 ### ClickUp
 
 | Tool | Kind | Notes |
