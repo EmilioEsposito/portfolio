@@ -178,8 +178,32 @@ the automatic SMS-webhook escalation pipeline (`analyze_for_twilio_escalation`).
 | `google_tools.py` | Gmail (search, read, send), Calendar (list, create), Drive (search, read docs/sheets/PDFs). Core email routing (`EmailRouting`, `resolve_email_routing`) exported for scheduling. Email tools include: Zillow email boilerplate cleanup (`_clean_zillow_email`), and LLM summarization fallback (`_summarize_if_long`) that replaces hard truncation with Haiku-based summarization. Each email/thread message includes its Message ID for daisy-chaining with `send_email`'s `reply_to_message_id`. |
 | `clickup_tools.py` | Task management (list, search, create, update, delete) |
 | `db_search_tools.py` | Search past agent conversations and SMS history; chronological contact SMS history |
-| `code_tools.py` | Python sandbox (pydantic-monty) for math, formatting, data manipulation |
+| `code_tools.py` | `run_python`: Python sandbox (pydantic-monty 1.x) for math, formatting, data manipulation. See [Python sandbox](#python-sandbox-code_toolspy). |
 | `_logging.py` | Shared error logging wrapper for tool failures. Sandbox file-tool errors log at warn (not error) so they don't page; `EditError` gets a "re-read the file, don't guess whitespace" hint, and repeated identical recoverable failures escalate with explicit STOP guidance. |
+
+## Python sandbox (`code_tools.py`)
+
+`run_python` runs model-written Python in [Monty](https://pydantic.dev/docs/monty/) 1.x. The interpreter never runs in the API process: `AsyncMonty` owns a pool of `monty` worker subprocesses, and the binary ships in the `pydantic-monty-runtime` wheel (it lands in `.venv/bin/monty`; the path is pinned so `PATH` and `MONTY_BIN` cannot swap it).
+
+**Contract with the model.** Captured `print()` output, then the value of the last expression; `(no return value)` when there is neither; cut at `_OUTPUT_CAP` (5,000 characters) with `...(truncated)`. Every failure comes back as a `Code execution error: ...` string and nothing is raised into the run. Snippet errors read `ErrorType: message (line N)`.
+
+**What the code can reach.** Nothing is mounted and no `os=` handler is passed, so there is no filesystem (`open()` raises `PermissionError`), no environment variables, and no network or subprocess modules. Monty's standard-library subset is importable (`json`, `re`, `math`, `datetime`, `decimal`, `csv`, `collections`, `itertools`, `functools`, `random`, `hashlib`, `base64` and a few more); third-party packages, `zoneinfo` and `statistics` are not. The sandbox clock is UTC. The only host code it can call is the helper functions in `_EXTERNAL_FUNCTIONS` (`now_iso`, `hours_between`, `json_loads`, `re_findall`, `math_fn`, ...). Those date from 0.0.9 and are kept so existing skills keep working; they run in the API process, so keep them pure and never evaluate their arguments.
+
+**Limits** (`_LIMITS`, per call):
+
+| Limit | Value | Why |
+|-------|-------|-----|
+| Execution time | 10 s | Snippets are millisecond jobs; a runaway loop ends in seconds. Time inside helpers and sleeps is not counted. |
+| Memory | 64 MiB heap | Far above what reshaping tool output needs; at most 4 workers, so 256 MiB worst case. |
+| Recursion depth | 1000 | Monty's default. |
+| Host round trips | 10,000 | Each helper call is one. Monty's default of 1000 would stop a per-row helper loop. |
+| Total sleep | 5 s | `time.sleep()` is importable; a tool call has no reason to wait. |
+
+Host-side backstops on the pool: a call waits at most 10 s for a free worker, and a worker that has not answered for 30 s is killed.
+
+**Lifecycle.** One pool per process, created on the first call (1 warm worker, up to 4). Each call checks out a fresh session, so no state carries between calls and a session that hit a limit is never reused. The pool replaces a worker that crashes or is killed, so one bad snippet cannot break later calls. `api/index.py` stops the pool on shutdown and, on Railway, calls `warm_code_sandbox()` at startup so an image that cannot run the binary fails its health check instead of going live.
+
+Do not replace this with the harness `CodeMode` capability: it folds the agent's other tools into code execution, which would route approval-gated tools around their gates.
 
 ## Repeat-call loop breaker (`_logging.py`)
 

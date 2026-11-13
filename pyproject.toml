@@ -29,7 +29,7 @@ dependencies = [
     # <2: stay on the v1 line (API-stable) until a deliberate v2 migration.
     "pydantic-ai[dbos]>=1.107.6,<2",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
-    "pydantic-monty>=0.0.7",
+    "pydantic-monty>=1.6.0,<2",
     "fastmcp[apps]>=3.2.4",
     # Jev decisions through OpenRouter (TypeSafe SDK uses httpx2).
     "typesafe-sdk>=0.7,<0.8",
