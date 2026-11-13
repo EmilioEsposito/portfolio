@@ -464,6 +464,7 @@ function UnitEditor({
   onCancel,
   onReload,
   onDirtyChange,
+  onSavingChange,
 }: {
   original: RentalListing;
   isNew: boolean;
@@ -472,6 +473,7 @@ function UnitEditor({
   onCancel: () => void;
   onReload: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
 }) {
   const api = useApi();
   const [draft, setDraft] = useState<RentalListing>(original);
@@ -483,6 +485,9 @@ function UnitEditor({
 
   const dirty = isNew || !sameListing(draft, original);
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  // Nothing can be edited while a save is on its way: the saved result
+  // replaces the draft, so an edit made meanwhile would be lost unseen.
+  useEffect(() => onSavingChange(saving), [saving, onSavingChange]);
 
   const set = <K extends keyof RentalListing>(field: K, value: RentalListing[K]) => {
     setDraft((unit) => ({ ...unit, [field]: value }));
@@ -514,6 +519,7 @@ function UnitEditor({
 
   return (
     <div className="space-y-4">
+      <fieldset disabled={saving} aria-busy={saving} className="m-0 min-w-0 space-y-4 border-0 p-0">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -691,6 +697,8 @@ function UnitEditor({
         </section>
       </div>
 
+      </fieldset>
+
       <SaveBar
         dirty={dirty}
         saving={saving}
@@ -735,11 +743,13 @@ function RulesEditor({
   onSaved,
   onReload,
   onDirtyChange,
+  onSavingChange,
 }: {
   original: ShowingRules;
   onSaved: (rules: ShowingRules) => void;
   onReload: () => void;
   onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
 }) {
   const api = useApi();
   const [draft, setDraft] = useState<ShowingRules>(original);
@@ -753,6 +763,9 @@ function RulesEditor({
 
   const dirty = !sameRules(draft, original);
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  // Nothing can be edited while a save is on its way: the saved result
+  // replaces the draft, so an edit made meanwhile would be lost unseen.
+  useEffect(() => onSavingChange(saving), [saving, onSavingChange]);
   const set = <K extends keyof ShowingRules>(field: K, value: ShowingRules[K]) => {
     setDraft((rules) => ({ ...rules, [field]: value }));
     setJustSaved(false);
@@ -784,6 +797,7 @@ function RulesEditor({
   const blackouts = cleanRules(draft).blackout_dates;
   return (
     <div className="space-y-4">
+      <fieldset disabled={saving} aria-busy={saving} className="m-0 min-w-0 space-y-4 border-0 p-0">
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -904,6 +918,7 @@ function RulesEditor({
           </section>
         </CardContent>
       </Card>
+      </fieldset>
       <SaveBar
         dirty={dirty}
         saving={saving}
@@ -979,6 +994,7 @@ function RentalUnitsScreen() {
   const [newNameProblem, setNewNameProblem] = useState<string | null>(null);
   const [tab, setTab] = useState("units");
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   // Bumped when what is on file is loaded again, so open editors start over from it.
   const [version, setVersion] = useState(0);
   const today = localToday();
@@ -1019,6 +1035,7 @@ function RentalUnitsScreen() {
 
   const leaveEdits = () => !dirty || window.confirm(LEAVE_WARNING);
   const onDirtyChange = useCallback((value: boolean) => setDirty(value), []);
+  const onSavingChange = useCallback((value: boolean) => setSaving(value), []);
 
   const selectUnit = (name: string) => {
     if (name === selected && !draftNew) return;
@@ -1075,7 +1092,7 @@ function RentalUnitsScreen() {
     <Tabs
       value={tab}
       onValueChange={(next) => {
-        if (leaveEdits()) {
+        if (!saving && leaveEdits()) {
           setTab(next);
           setDirty(false);
         }
@@ -1083,14 +1100,15 @@ function RentalUnitsScreen() {
       className="mx-auto max-w-6xl space-y-4 p-4"
     >
       <TabsList>
-        <TabsTrigger value="units">Units</TabsTrigger>
-        <TabsTrigger value="rules">Showing rules</TabsTrigger>
-        <TabsTrigger value="changes">All changes</TabsTrigger>
+        <TabsTrigger value="units" disabled={saving}>Units</TabsTrigger>
+        <TabsTrigger value="rules" disabled={saving}>Showing rules</TabsTrigger>
+        <TabsTrigger value="changes" disabled={saving}>All changes</TabsTrigger>
       </TabsList>
 
       <TabsContent value="units" className="mt-0">
         <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-          <nav aria-label="Rental listings" className="space-y-3">
+          <nav aria-label="Rental listings">
+            <fieldset disabled={saving} className="m-0 min-w-0 space-y-3 border-0 p-0">
             <ul className="flex gap-2 overflow-x-auto pb-1 md:flex-col md:overflow-visible">
               {data.listings.map((unit) => {
                 const active = unit.unit === selected && !draftNew;
@@ -1147,6 +1165,7 @@ function RentalUnitsScreen() {
               )}
               <p className="text-xs text-muted-foreground">A unit's name cannot be changed once added.</p>
             </form>
+            </fieldset>
           </nav>
 
           <div className="min-w-0">
@@ -1164,6 +1183,7 @@ function RentalUnitsScreen() {
                 }}
                 onReload={load}
                 onDirtyChange={onDirtyChange}
+                onSavingChange={onSavingChange}
               />
             ) : current ? (
               <UnitEditor
@@ -1175,6 +1195,7 @@ function RentalUnitsScreen() {
                 onCancel={() => {}}
                 onReload={load}
                 onDirtyChange={onDirtyChange}
+                onSavingChange={onSavingChange}
               />
             ) : (
               <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -1192,6 +1213,7 @@ function RentalUnitsScreen() {
           onReload={load}
           onSaved={(rules) => setData((current) => (current ? { ...current, showing_rules: rules } : current))}
           onDirtyChange={onDirtyChange}
+          onSavingChange={onSavingChange}
         />
       </TabsContent>
 
