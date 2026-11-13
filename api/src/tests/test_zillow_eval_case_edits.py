@@ -12,7 +12,7 @@ from api.src.sernia_ai.zillow_leads.case import (
     AgentAvailability,
     BookedTour,
     Listing,
-    UnitData,
+    ListingData,
     render_case,
 )
 from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
@@ -34,7 +34,7 @@ MONDAY_9AM = datetime(2026, 5, 4, 9, 0, tzinfo=ET)
 THURSDAY_7PM = datetime(2026, 5, 7, 19, 0, tzinfo=ET)
 PATTERN_TIME = datetime(2026, 5, 6, 10, 0, tzinfo=ET)
 
-UNIT_DATA = UnitData(
+LISTING_DATA = ListingData(
     listings=[Listing(unit="12-A", address="12 Example St", rent=1500)],
     availability=[AgentAvailability(agent="Alex Agent", weekday_times=[time(10, 0)])],
 )
@@ -80,13 +80,13 @@ def _decision(action: str = "escalate") -> dict:
 
 class TestCaseEdit:
     def test_without_an_edit_the_case_has_only_the_weekly_pattern(self):
-        case = case_for(SCENARIO, UNIT_DATA)
+        case = case_for(SCENARIO, LISTING_DATA)
 
         assert THURSDAY_7PM not in {slot.start for slot in case.offerable_slots}
         assert "7:00 PM" not in render_case(case)
 
     def test_an_offered_time_joins_the_times_that_may_be_offered(self):
-        case = case_for(SCENARIO, UNIT_DATA, EDIT)
+        case = case_for(SCENARIO, LISTING_DATA, EDIT)
         text = render_case(case)
 
         assert THURSDAY_7PM in {slot.start for slot in case.offerable_slots}
@@ -97,24 +97,24 @@ class TestCaseEdit:
         assert starts == sorted(starts) and len(starts) > 1
 
     def test_a_time_the_pattern_already_has_is_not_listed_twice(self):
-        case = case_for(SCENARIO, UNIT_DATA, CaseEdit(offered=[PATTERN_TIME]))
+        case = case_for(SCENARIO, LISTING_DATA, CaseEdit(offered=[PATTERN_TIME]))
 
         assert [slot.start for slot in case.offerable_slots].count(PATTERN_TIME) == 1
 
     def test_a_booked_tour_is_listed_as_booked(self):
         edit = CaseEdit(booked=[BookedTour(unit="12-A", start=THURSDAY_7PM)])
 
-        text = render_case(case_for(SCENARIO, UNIT_DATA, edit))
+        text = render_case(case_for(SCENARIO, LISTING_DATA, edit))
 
         assert "- 12-A: Thursday, May 7 at 7:00 PM" in text.split("## Tours already booked")[1]
 
     def test_an_edit_never_names_a_person(self):
-        case = case_for(SCENARIO, UNIT_DATA, EDIT)
+        case = case_for(SCENARIO, LISTING_DATA, EDIT)
 
         assert [slot.agent for slot in case.offerable_slots if slot.start == THURSDAY_7PM] == [""]
 
     def test_the_dataset_gives_the_model_the_edited_case(self):
-        dataset = build_dataset([SCENARIO], UNIT_DATA, {SCENARIO.scenario_id: EDIT})
+        dataset = build_dataset([SCENARIO], LISTING_DATA, {SCENARIO.scenario_id: EDIT})
 
         assert THURSDAY_7PM in {slot.start for slot in dataset.cases[0].inputs.offerable_slots}
 
@@ -196,7 +196,7 @@ class TestEditFingerprint:
 
 class TestReviewPage:
     def _card(self, row: dict) -> dict:
-        page = review_page("x", [SCENARIO], UNIT_DATA, [row], edits={SCENARIO.scenario_id: EDIT})
+        page = review_page("x", [SCENARIO], LISTING_DATA, [row], edits={SCENARIO.scenario_id: EDIT})
         embedded = re.search(
             r'<script type="application/json" id="data">(.*?)</script>', page, re.S
         )

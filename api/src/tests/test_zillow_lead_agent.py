@@ -18,8 +18,8 @@ from api.src.sernia_ai.zillow_leads.case import (
     BookedTour,
     LeadCase,
     Listing,
+    ListingData,
     TourSlot,
-    UnitData,
     build_case,
     decision_points,
     offerable_slots,
@@ -39,7 +39,7 @@ from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
 ET = ZoneInfo("America/New_York")
 MONDAY_9AM = datetime(2026, 5, 4, 9, 0, tzinfo=ET)
 
-UNIT_DATA = UnitData(
+LISTING_DATA = ListingData(
     listings=[
         Listing(
             unit="12-A",
@@ -85,33 +85,33 @@ def starts(slots) -> list[datetime]:
 
 class TestOfferableSlots:
     def test_nothing_inside_the_24_hour_notice_period(self):
-        slots = offerable_slots(UNIT_DATA, MONDAY_9AM)
+        slots = offerable_slots(LISTING_DATA, MONDAY_9AM)
         assert min(starts(slots)) == datetime(2026, 5, 5, 10, 0, tzinfo=ET)
 
     def test_a_slot_exactly_24_hours_out_is_allowed(self):
-        slots = offerable_slots(UNIT_DATA, datetime(2026, 5, 4, 10, 0, tzinfo=ET))
+        slots = offerable_slots(LISTING_DATA, datetime(2026, 5, 4, 10, 0, tzinfo=ET))
         assert datetime(2026, 5, 5, 10, 0, tzinfo=ET) in starts(slots)
-        just_late = offerable_slots(UNIT_DATA, datetime(2026, 5, 4, 10, 1, tzinfo=ET))
+        just_late = offerable_slots(LISTING_DATA, datetime(2026, 5, 4, 10, 1, tzinfo=ET))
         assert datetime(2026, 5, 5, 10, 0, tzinfo=ET) not in starts(just_late)
 
     def test_only_showing_hours(self):
         # 8:00 is before showings start; 18:30 would end after they stop.
-        clock_times = {slot.start.time() for slot in offerable_slots(UNIT_DATA, MONDAY_9AM)}
+        clock_times = {slot.start.time() for slot in offerable_slots(LISTING_DATA, MONDAY_9AM)}
         assert clock_times == {time(10, 0), time(12, 0), time(18, 0)}
 
     def test_blackout_date_is_skipped_but_the_other_weekend_day_is_not(self):
-        days = {slot.start.date() for slot in offerable_slots(UNIT_DATA, MONDAY_9AM)}
+        days = {slot.start.date() for slot in offerable_slots(LISTING_DATA, MONDAY_9AM)}
         assert date(2026, 5, 9) in days  # Saturday
         assert date(2026, 5, 10) not in days  # Sunday, blacked out
 
     def test_weekday_and_weekend_patterns_do_not_mix(self):
-        for slot in offerable_slots(UNIT_DATA, MONDAY_9AM):
+        for slot in offerable_slots(LISTING_DATA, MONDAY_9AM):
             weekend = slot.start.weekday() >= 5
             assert (slot.start.time() == time(12, 0)) == weekend
 
     def test_the_clock_is_read_in_local_time(self):
         # 23:30 UTC on Monday is 19:30 Monday in New York, not Tuesday.
-        slots = offerable_slots(UNIT_DATA, datetime(2026, 5, 4, 23, 30, tzinfo=UTC))
+        slots = offerable_slots(LISTING_DATA, datetime(2026, 5, 4, 23, 30, tzinfo=UTC))
         assert min(starts(slots)) == datetime(2026, 5, 6, 10, 0, tzinfo=ET)
 
 
@@ -133,7 +133,7 @@ class TestBuildCase:
             BookedTour(unit="12-A", start=MONDAY_9AM + timedelta(days=2)),
         ]
 
-        case = build_case(t, UNIT_DATA, upto=0, booked_tours=booked)
+        case = build_case(t, LISTING_DATA, upto=0, booked_tours=booked)
 
         assert [m.body for m in case.thread.messages] == ["Is it available?"]
         assert case.now == t.messages[0].sent_at + timedelta(minutes=5)
@@ -143,7 +143,7 @@ class TestBuildCase:
         assert len(t.messages) == 2  # the source thread is not modified
 
     def test_a_unit_leaves_the_listings_on_the_day_it_is_rented(self):
-        unit_data = UNIT_DATA.model_copy(
+        listing_data = LISTING_DATA.model_copy(
             update={
                 "listings": [
                     Listing(unit="12-A", lease_start_earliest=date(2026, 7, 1)),
@@ -153,14 +153,14 @@ class TestBuildCase:
             }
         )
 
-        case = build_case(thread(message(0)), unit_data, upto=0)  # Monday May 4
+        case = build_case(thread(message(0)), listing_data, upto=0)  # Monday May 4
 
         assert [item.unit for item in case.listings] == ["12-A", "12-D"]
         assert case.rented_units == ["12-B", "12-C"]
         assert "12-A: lease starts July 1, 2026" in render_case(case)
 
     def test_rendered_case_never_names_staff_and_lists_a_shared_time_once(self):
-        case = build_case(thread(message(0, body="Can I tour Tuesday?")), UNIT_DATA, upto=0)
+        case = build_case(thread(message(0, body="Can I tour Tuesday?")), LISTING_DATA, upto=0)
 
         text = render_case(case)
 
@@ -213,7 +213,7 @@ class TestOutcomes:
 
     @pytest.mark.asyncio
     async def test_the_agent_gets_the_policy_the_case_and_no_tools(self):
-        case = build_case(thread(message(0, body="Is it available?")), UNIT_DATA, upto=0)
+        case = build_case(thread(message(0, body="Is it available?")), LISTING_DATA, upto=0)
         model = TestModel(
             custom_output_args={
                 "lead": {},
@@ -253,7 +253,7 @@ def check(case: LeadCase, output: Reply | NoReply | Escalate) -> dict[str, bool]
 
 
 class TestReplyChecks:
-    case = build_case(thread(message(0)), UNIT_DATA, upto=0)
+    case = build_case(thread(message(0)), LISTING_DATA, upto=0)
     allowed = datetime(2026, 5, 5, 10, 0, tzinfo=ET)
 
     def test_a_clean_reply_passes_every_check(self):
@@ -311,7 +311,7 @@ class TestReplyChecks:
         assert result["no_staff_names"] is False
 
     def test_a_reply_may_only_use_links_the_case_supplied(self):
-        with_link = UNIT_DATA.model_copy(update={"booking_url": "https://book.example/tours"})
+        with_link = LISTING_DATA.model_copy(update={"booking_url": "https://book.example/tours"})
         case = build_case(thread(message(0)), with_link, upto=0)
         signed = "\n\nSernia Capital Team"
 
@@ -332,7 +332,7 @@ class TestReplyChecks:
         assert check(self.case, decision(reply_body=deeper))["links_allowed"] is False
 
     def test_a_unit_can_have_its_own_booking_link(self):
-        unit_data = UNIT_DATA.model_copy(
+        listing_data = LISTING_DATA.model_copy(
             update={
                 "booking_url": "https://book.example/any",
                 "listings": [
@@ -341,7 +341,7 @@ class TestReplyChecks:
                 ],
             }
         )
-        case = build_case(thread(message(0)), unit_data, upto=0)
+        case = build_case(thread(message(0)), listing_data, upto=0)
         assert [item.booking_url for item in case.listings] == [
             "https://book.example/12a",
             "https://book.example/any",
@@ -367,7 +367,7 @@ class TestScenarios:
         assert first.actual_reply_delay_minutes == 45
         assert second.actual_reply is None and second.actual_reply_delay_minutes is None
         # What we really sent is never part of what the model reads.
-        assert "tours Tuesday" not in render_case(case_for(first, UNIT_DATA))
+        assert "tours Tuesday" not in render_case(case_for(first, LISTING_DATA))
 
     def test_a_scenario_holds_the_conversation_and_nothing_about_the_business(self):
         first = scenarios_from_thread(self.past)[0]
@@ -377,16 +377,16 @@ class TestScenarios:
             "actual_reply_delay_minutes",
         }
 
-    def test_the_same_scenario_runs_against_changed_unit_data(self):
+    def test_the_same_scenario_runs_against_changed_listing_data(self):
         first = scenarios_from_thread(self.past)[0]
-        richer = UNIT_DATA.model_copy(
+        richer = LISTING_DATA.model_copy(
             update={
                 "listings": [Listing(unit="12-A", facts="Second floor\n- Dishwasher")],
                 "booking_url": "https://book.example/tours",
             }
         )
 
-        before, after = case_for(first, UNIT_DATA), case_for(first, richer)
+        before, after = case_for(first, LISTING_DATA), case_for(first, richer)
 
         assert before.case_id == after.case_id == first.scenario_id
         assert before.now == after.now and before.thread == after.thread
@@ -406,7 +406,7 @@ class TestSlotsFromElsewhere:
         thursday = datetime(2026, 5, 7, 15, 0, tzinfo=ET)
         case = build_case(
             thread(message(0)),
-            UNIT_DATA,
+            LISTING_DATA,
             upto=0,
             slots=[TourSlot(start=thursday, agent="Casey Agent")],
         )
@@ -435,7 +435,7 @@ class TestReviewPage:
                 "checks": {"has_signature": True, "no_em_dash": False},
             }
         ]
-        page = review_page("round-x", scenarios, UNIT_DATA, rows, "Reply when </script> owed.")
+        page = review_page("round-x", scenarios, LISTING_DATA, rows, "Reply when </script> owed.")
         embedded = re.search(
             r'<script type="application/json" id="data">(.*?)</script>', page, re.S
         )
@@ -478,7 +478,7 @@ class TestReviewPage:
         page = review_page(
             "round-new",
             scenarios,
-            UNIT_DATA,
+            LISTING_DATA,
             [new_row],
             labels=[label],
             previous={"round-old": [old_row]},

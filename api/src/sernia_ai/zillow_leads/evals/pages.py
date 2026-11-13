@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from api.src.sernia_ai.zillow_leads.case import UnitData, render_case
+from api.src.sernia_ai.zillow_leads.case import ListingData, render_case
 from api.src.sernia_ai.zillow_leads.evals.labels import Label, output_hash
 from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     SPLITS,
@@ -36,7 +36,7 @@ def _recorded(decision: dict) -> str:
 def review_page(
     run_name: str,
     scenarios: list[Scenario],
-    unit_data: UnitData,
+    listing_data: ListingData,
     rows: list[dict],
     policy: str = "",
     *,
@@ -51,7 +51,7 @@ def review_page(
     on the card, so the reviewer knows the case differs from the weekly pattern.
     """
     by_id = {scenario.scenario_id: scenario for scenario in scenarios}
-    zone = ZoneInfo(unit_data.timezone)
+    zone = ZoneInfo(listing_data.timezone)
     cases = []
     for row in rows:
         scenario = by_id[row["case_id"]]
@@ -76,7 +76,7 @@ def review_page(
                 "recorded": _recorded(decision),
                 "failed_checks": [name for name, ok in row.get("checks", {}).items() if not ok],
                 "lead_message": "\n\n".join(burst),
-                "case_text": render_case(case_for(scenario, unit_data, edit)),
+                "case_text": render_case(case_for(scenario, listing_data, edit)),
                 "case_edit": _edit_summary(edit, zone) if edit else None,
                 "actual_reply": scenario.actual_reply,
                 "actual_delay": scenario.actual_reply_delay_minutes,

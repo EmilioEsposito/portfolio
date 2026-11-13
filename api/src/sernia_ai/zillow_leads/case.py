@@ -25,7 +25,7 @@ from api.src.sernia_ai.zillow_leads.thread import LeadThread
 # Current residents get a day's notice before a showing.
 MIN_NOTICE = timedelta(hours=24)
 # Showings start no earlier than 9:00 and, at 30 minutes long, no later than 18:00.
-# These are the defaults; unit data can set another window.
+# These are the defaults; listing data can set another window.
 EARLIEST_START = time(9, 0)
 LATEST_START = time(18, 0)
 DEFAULT_DAYS_AHEAD = 7
@@ -46,7 +46,7 @@ class Listing(BaseModel):
     # "rented, do not offer" list. Dated so a past case sees the past state.
     rented_on: date | None = None
     # Where a lead can book a showing for this unit themselves. Empty means
-    # use ``UnitData.booking_url``, and if that is empty too, offer times.
+    # use ``ListingData.booking_url``, and if that is empty too, offer times.
     booking_url: str = ""
     # Whatever else is true of the unit, one fact per line: bedrooms, floor,
     # utilities, laundry, parking, appliances, pets. The model answers unit
@@ -85,7 +85,7 @@ class ShowingWindow(BaseModel):
     latest_start: time = LATEST_START
 
 
-class UnitData(BaseModel):
+class ListingData(BaseModel):
     """What changes week to week in season: listings, schedules, days off."""
 
     timezone: str = "America/New_York"
@@ -132,7 +132,7 @@ class LeadCase(BaseModel):
     preferred_times: list[PreferredTime] = Field(default_factory=list)
 
 
-def within_showing_rules(start: datetime, unit_data: UnitData, now: datetime) -> bool:
+def within_showing_rules(start: datetime, listing_data: ListingData, now: datetime) -> bool:
     """Whether a showing may start at ``start``, as far as the fixed rules go.
 
     The rules with exact answers, whatever supplied the time: not in the past
@@ -141,17 +141,17 @@ def within_showing_rules(start: datetime, unit_data: UnitData, now: datetime) ->
     """
     if start.tzinfo is None:
         return False
-    local = start.astimezone(ZoneInfo(unit_data.timezone))
-    window = unit_data.showing_window
+    local = start.astimezone(ZoneInfo(listing_data.timezone))
+    window = listing_data.showing_window
     return (
         start >= now + MIN_NOTICE
         and window.earliest_start <= local.time() <= window.latest_start
-        and local.date() not in unit_data.blackout_dates
+        and local.date() not in listing_data.blackout_dates
     )
 
 
 def offerable_slots(
-    unit_data: UnitData, now: datetime, *, days_ahead: int = DEFAULT_DAYS_AHEAD
+    listing_data: ListingData, now: datetime, *, days_ahead: int = DEFAULT_DAYS_AHEAD
 ) -> list[TourSlot]:
     """Every tour time that may be offered at ``now``, earliest first.
 
@@ -159,11 +159,11 @@ def offerable_slots(
     the notice period, nothing outside showing hours, nothing on a blackout
     date. Whether and how to offer them is the decision step's job.
     """
-    zone = ZoneInfo(unit_data.timezone)
+    zone = ZoneInfo(listing_data.timezone)
     local_now = now.astimezone(zone)
     earliest = local_now + MIN_NOTICE
-    blackout = set(unit_data.blackout_dates)
-    window = unit_data.showing_window
+    blackout = set(listing_data.blackout_dates)
+    window = listing_data.showing_window
 
     slots: list[TourSlot] = []
     for offset in range(days_ahead + 2):  # +2: notice pushes the window out a day
@@ -171,7 +171,7 @@ def offerable_slots(
         if day in blackout:
             continue
         weekend = day.weekday() >= 5
-        for person in unit_data.availability:
+        for person in listing_data.availability:
             for start_time in person.weekend_times if weekend else person.weekday_times:
                 if not window.earliest_start <= start_time <= window.latest_start:
                     continue
@@ -198,7 +198,7 @@ def decision_points(thread: LeadThread) -> list[int]:
 
 def build_case(
     thread: LeadThread,
-    unit_data: UnitData,
+    listing_data: ListingData,
     *,
     upto: int | None = None,
     now: datetime | None = None,
@@ -213,29 +213,29 @@ def build_case(
     knowable then.
 
     ``slots`` are the tour times that may be offered, when something other than
-    the weekly pattern in ``unit_data`` knows them (a calendar, a booking
+    the weekly pattern in ``listing_data`` knows them (a calendar, a booking
     service). The case stores the times either way, never where they came from.
     """
     last = len(thread.messages) - 1 if upto is None else upto
     visible = thread.model_copy(update={"messages": thread.messages[: last + 1]})
     if now is None:
         now = thread.messages[last].sent_at + DECISION_DELAY if upto is not None else _utc_now()
-    zone = ZoneInfo(unit_data.timezone)
+    zone = ZoneInfo(listing_data.timezone)
     today = now.astimezone(zone).date()
-    rented = [item for item in unit_data.listings if item.rented_on and item.rented_on <= today]
+    rented = [item for item in listing_data.listings if item.rented_on and item.rented_on <= today]
     listed = [
-        item.model_copy(update={"booking_url": item.booking_url or unit_data.booking_url})
-        for item in unit_data.listings
+        item.model_copy(update={"booking_url": item.booking_url or listing_data.booking_url})
+        for item in listing_data.listings
         if item not in rented
     ]
-    offerable = offerable_slots(unit_data, now) if slots is None else slots
+    offerable = offerable_slots(listing_data, now) if slots is None else slots
     return LeadCase(
         case_id=f"{thread.thread_id}-{last}",
         now=now,
-        timezone=unit_data.timezone,
+        timezone=listing_data.timezone,
         thread=visible,
         listings=listed,
-        rented_units=unit_data.rented_units + [item.unit for item in rented],
+        rented_units=listing_data.rented_units + [item.unit for item in rented],
         offerable_slots=offerable,
         booked_tours=[tour for tour in (booked_tours or []) if tour.start > now],
         preferred_times=_preferred_times(listed, offerable, zone),

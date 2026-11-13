@@ -22,7 +22,7 @@ from api.src.agent_conversations.models import (
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.zillow_leads import handle, listing_data
 from api.src.sernia_ai.zillow_leads.agent import LeadOutcome
-from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, TourSlot, UnitData
+from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, ListingData, TourSlot
 from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
 from api.src.sernia_ai.zillow_leads.tours import Tours
 
@@ -201,7 +201,7 @@ class TestListingData:
 
     @pytest.mark.asyncio
     async def test_the_case_is_built_from_the_data_on_file(self, conversation_id, monkeypatch):
-        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=ListingData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -226,7 +226,7 @@ class TestListingData:
             )
         )
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=ListingData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -241,7 +241,7 @@ class TestListingData:
     ):
         source = SimpleNamespace(tours=AsyncMock(side_effect=RuntimeError("calendar not found")))
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=ListingData(listings=[self.listing]))
 
         handled = await self.run(conversation_id, monkeypatch, loaded)
 
