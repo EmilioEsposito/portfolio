@@ -3,6 +3,7 @@ Service functionality for Google Pub/Sub operations.
 """
 
 import json
+import os
 import time
 from typing import Any
 
@@ -60,6 +61,10 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
     Raises:
         HTTPException: If verification fails
     """
+    expected_email = os.environ.get("PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL", "")
+    if not expected_audience.strip() or not expected_email.strip():
+        raise HTTPException(status_code=503, detail="Pub/Sub authentication is not configured")
+
     if not auth_header or not auth_header.startswith("Bearer "):
         logfire.error("Invalid or missing Pub/Sub authorization header")
         raise HTTPException(status_code=401, detail="Invalid or missing authorization token")
@@ -75,7 +80,7 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
         claims = jwt.decode(token, certs=certs)
 
         # Verify audience
-        token_audience = claims.get("aud").split("?")[0]  # ignore query params
+        token_audience = claims.get("aud")
         if token_audience != expected_audience:
             logfire.error("Invalid Pub/Sub token audience")
             raise HTTPException(status_code=401, detail="Invalid token audience")
@@ -87,12 +92,14 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
 
         # Verify service account email
         email = claims.get("email", "")
-        if not email.endswith("gserviceaccount.com"):
+        if email != expected_email or claims.get("email_verified") is not True:
             logfire.error("Invalid Pub/Sub service account email")
             raise HTTPException(status_code=401, detail="Invalid token issuer")
 
         return True
 
+    except HTTPException:
+        raise
     except ValueError:
         # JWT parser errors can contain the original token. Suppress their context
         # too, because callers may log the resulting HTTPException traceback.

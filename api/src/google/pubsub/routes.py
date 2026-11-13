@@ -7,10 +7,11 @@ import os
 from datetime import datetime
 
 import logfire
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from api.src.database.database import session_context
 from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.google.gmail.config import GMAIL_WATCH_MAILBOX
 from api.src.google.gmail.db_ops import save_email_message
 from api.src.google.gmail.service import (
     get_email_changes,
@@ -40,10 +41,7 @@ async def handle_gmail_notifications(
 
         # Verify the request is from Google Pub/Sub
         logfire.info("Verifying Pub/Sub token...")
-        expected_audience = os.environ.get(
-            "PUBSUB_AUDIENCE_URL",
-            "https://eesposito-fastapi.up.railway.app/api/google/pubsub/gmail/notifications",
-        )
+        expected_audience = os.environ.get("PUBSUB_AUDIENCE_URL", "")
         await verify_pubsub_token(request.headers.get("authorization", ""), expected_audience)
         logfire.info("✓ Token verified")
 
@@ -97,6 +95,8 @@ async def handle_gmail_notifications(
                     headers={"Retry-After": "5", "X-Retry-Reason": "waiting_for_gmail_history"},
                 )
 
+        except HTTPException:
+            raise
         except Exception as e:
             logfire.exception("Failed to process notification")
             return Response(
@@ -104,6 +104,8 @@ async def handle_gmail_notifications(
                 content=f"Failed to process notification (unhandled error1): {str(e)}",
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logfire.exception("Unhandled error in Gmail notification handler")
         return Response(
@@ -134,9 +136,16 @@ async def process_gmail_notification(pubsub_notification_data: dict):
         - messages: List of processed messages (if any)
         - reason: Explanation string for logger/debugging
     """
+    # Enforce the mailbox boundary even for callers outside the HTTP handler.
+    if (
+        not isinstance(pubsub_notification_data, dict)
+        or pubsub_notification_data.get("emailAddress") != GMAIL_WATCH_MAILBOX
+    ):
+        raise HTTPException(status_code=403, detail="Unauthorized Gmail notification mailbox")
+
     try:
-        # Extract relevant information
-        email_address = pubsub_notification_data.get("emailAddress")
+        # Delegate only to the trusted mailbox, never a payload-selected subject.
+        email_address = GMAIL_WATCH_MAILBOX
         history_id = pubsub_notification_data.get("historyId")
 
         if not email_address or not history_id:
