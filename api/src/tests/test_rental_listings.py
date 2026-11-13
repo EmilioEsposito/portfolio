@@ -65,6 +65,13 @@ class TestChecks:
             ("Lockbox on the back door", "access code"),
             ("Door code is 4821", "access code"),
             ("Wifi password on the fridge", "access code"),
+            # Written as one word, or joined to the word before it.
+            ("electricDoor code is 4821", "access code"),
+            ("Frontdoor code 4821", "access code"),
+            ("Keycode 4821", "access code"),
+            ("Gatecode 12", "access code"),
+            ("Lockbox4821 by the stairs", "access code"),
+            ("Passcode on file", "access code"),
         ],
     )
     def test_text_that_would_matter_if_it_leaked_is_refused_in_facts_and_notes(self, text, reason):
@@ -73,6 +80,12 @@ class TestChecks:
 
         assert len(as_fact) == 1 and reason in as_fact[0] and "public fact" in as_fact[0]
         assert len(as_note) == 1 and reason in as_note[0] and "internal note" in as_note[0]
+
+    @pytest.mark.parametrize(
+        "text", ["Dishwasher", "Barcode scanner in the lobby", "Zip code 15213", "Encoded keys"]
+    )
+    def test_ordinary_text_with_similar_words_passes(self, text):
+        assert listing_problems(RentalListing(unit="12-A", public_facts=[text])) == []
 
     def test_a_low_stakes_internal_note_passes(self):
         unit = RentalListing(
