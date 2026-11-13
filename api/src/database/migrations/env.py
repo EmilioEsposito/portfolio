@@ -21,6 +21,7 @@ from api.src.contact.models import *  # noqa
 from api.src.agent_conversations.models import *  # noqa
 from api.src.sernia_ai.push.models import *  # noqa
 from api.src.sernia_ai.models import *  # noqa
+from api.src.rental_listings.models import *  # noqa
 from api.src.database.database import DATABASE_URL, engine, Base
 
 

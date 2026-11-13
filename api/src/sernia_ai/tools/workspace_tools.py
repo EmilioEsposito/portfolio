@@ -236,9 +236,22 @@ class _SerniaWorkspaceBackend(LocalWorkspaceBackend):
 _tools_disabled: ContextVar[bool] = ContextVar("workspace_tools_disabled", default=False)
 
 
+def capability_tools_disabled() -> bool:
+    """Whether the current run must get no tools from capabilities.
+
+    For other capabilities that contribute tools with side effects (the rental
+    unit tools), so one switch covers them all.
+    """
+    return _tools_disabled.get()
+
+
 @contextmanager
 def workspace_tools_disabled() -> Iterator[None]:
-    """Offer no workspace file tools to runs started inside this block."""
+    """Offer no workspace file tools to runs started inside this block.
+
+    Capabilities whose tools change something check the same switch through
+    ``capability_tools_disabled``, so they are withheld as well.
+    """
     token = _tools_disabled.set(True)
     try:
         yield
