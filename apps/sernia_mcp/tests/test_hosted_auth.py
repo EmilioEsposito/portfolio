@@ -21,7 +21,11 @@ BEARER = {"SERNIA_MCP_INTERNAL_BEARER_TOKEN": "synthetic-test-token-" * 3}
 def run_app(tmp_path: Path, settings: dict[str, str], code: str):
     """Allowlist the process environment, disable dotenv, and use disposable storage."""
     (tmp_path / "MEMORY.md").write_text("SYNTHETIC_AUTH_REGRESSION_MARKER")
-    env = {key: os.environ[key] for key in ("PATH", "SYSTEMROOT") if key in os.environ}
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "SYSTEMROOT", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH")
+        if key in os.environ
+    }
     env.update(
         PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"),
         PYTHON_DOTENV_DISABLED="1",

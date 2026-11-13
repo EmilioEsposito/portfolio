@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -19,15 +20,8 @@ _CLERK_VARS = (
 )
 
 
-@pytest.fixture(autouse=True)
-def _isolate_environment(tmp_path: Path, monkeypatch):
-    """Per-test isolation: temp workspace + cleared Clerk OAuth vars.
-
-    We set the Clerk vars to empty strings rather than deleting them so that
-    ``load_dotenv(..., override=False)`` (which runs again on the config
-    reload below) cannot reload values from a developer's local ``.env``.
-    ``clerk_oauth_configured()`` treats empty strings as not-configured.
-    """
+def _set_test_environment(monkeypatch, workspace: Path) -> None:
+    """Set explicit local mode before imports, without loading service secrets."""
     monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
     for key in tuple(os.environ):
         if key.startswith("RAILWAY_"):
@@ -39,7 +33,23 @@ def _isolate_environment(tmp_path: Path, monkeypatch):
     for var in _CLERK_VARS:
         monkeypatch.setenv(var, "")
     monkeypatch.setenv("SERNIA_MCP_INTERNAL_BEARER_TOKEN", "")
-    monkeypatch.setenv("SERNIA_MCP_WORKSPACE_PATH", str(tmp_path))
+    monkeypatch.setenv("SERNIA_MCP_WORKSPACE_PATH", str(workspace))
+
+
+def pytest_configure(config):
+    # Approval tests import the server during collection, before fixtures run.
+    # Establish the same isolated mode there so a clean CI runner needs no .env.
+    workspace = TemporaryDirectory(prefix="sernia-mcp-tests-")
+    patch = pytest.MonkeyPatch()
+    config.add_cleanup(workspace.cleanup)
+    config.add_cleanup(patch.undo)
+    _set_test_environment(patch, Path(workspace.name))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_environment(tmp_path: Path, monkeypatch):
+    """Reset config and workspace for each test; fresh-process tests opt out explicitly."""
+    _set_test_environment(monkeypatch, tmp_path)
 
     import importlib
 
