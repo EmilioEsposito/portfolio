@@ -202,7 +202,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 ### Memory System
 
-Git-backed persistent workspace at `/workspace/`:
+Git-backed persistent workspace at `/workspace/`, read and written with the `workspace_*` file tools (the harness `FileSystem` tools behind an adapter; see [`tools/README.md`](tools/README.md)). Changes are committed and pushed once at the end of each run (`runs.py`):
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)

@@ -232,7 +232,11 @@ class TestInstructionsStableWithinRun:
                 (deps.workspace_path / "MEMORY.md").write_text("EDITED MEMORY")
                 (deps.workspace_path / "new_file.md").write_text("x")
                 return ModelResponse(
-                    parts=[_ToolCallPart(tool_name="search_files", args={"query": "nothing"})]
+                    parts=[
+                        _ToolCallPart(
+                            tool_name="workspace_search_files", args={"pattern": "nothing"}
+                        )
+                    ]
                 )
             return ModelResponse(parts=[TextPart("done")])
 
@@ -303,7 +307,7 @@ class TestInstructionsStableWithinRun:
             (no_action,) = info.output_tools  # `NoAction` is the only output tool
             return ModelResponse(
                 parts=[
-                    ToolCallPart("search_files", {"query": "Sernia"}),
+                    ToolCallPart("workspace_search_files", {"pattern": "Sernia"}),
                     ToolCallPart(no_action.name, {"reason": "Nothing to do."}),
                 ]
             )
@@ -318,7 +322,7 @@ class TestInstructionsStableWithinRun:
             for message in result.all_messages()
             if isinstance(message, ModelRequest)
             for part in message.parts
-            if isinstance(part, ToolReturnPart) and part.tool_name == "search_files"
+            if isinstance(part, ToolReturnPart) and part.tool_name == "workspace_search_files"
         ]
         # Had the search run, it would have found the fixture's MEMORY.md.
         assert "MEMORY.md" not in str(search_return.content)

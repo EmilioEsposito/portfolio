@@ -3,8 +3,8 @@ revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
-    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform != 'win32'",
@@ -1819,8 +1819,8 @@ version = "9.12.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
-    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version >= '3.15' and sys_platform != 'win32'",
+    "python_full_version == '3.14.*' and sys_platform == 'win32'",
     "python_full_version == '3.14.*' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform != 'win32'",
@@ -3241,7 +3241,6 @@ dependencies = [
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
     { name = "pydantic", version = "2.14.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
     { name = "pydantic-ai", extra = ["dbos", "openrouter", "ui"] },
-    { name = "pydantic-ai-filesystem-sandbox" },
     { name = "pydantic-ai-harness", extra = ["skills"] },
     { name = "pydantic-monty" },
     { name = "pypdf" },
@@ -3298,7 +3297,6 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pydantic", specifier = ">=2.11.2" },
     { name = "pydantic-ai", extras = ["dbos", "openrouter", "ui"], specifier = ">=2.68.0,<3" },
-    { name = "pydantic-ai-filesystem-sandbox", specifier = ">=0.9.0" },
     { name = "pydantic-ai-harness", extras = ["skills"], specifier = ">=0.68.0,<1" },
     { name = "pydantic-monty", specifier = ">=1.6.0,<2" },
     { name = "pypdf", specifier = ">=6.19.0" },
@@ -3876,35 +3874,6 @@ openrouter = [
 ]
 ui = [
     { name = "pydantic-ai-slim", extra = ["ui"] },
-]
-
-[[package]]
-name = "pydantic-ai-blocking-approval"
-version = "0.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
-    { name = "pydantic", version = "2.14.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "pydantic-ai" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/93/d60e856b377f3a350ca281dcb6b24a56a119e2af9ce73a27f935df92172d/pydantic_ai_blocking_approval-0.9.0.tar.gz", hash = "sha256:86224d1e9ff6a482d43b3379eff326019ca7f6e69837e18dd1b9abc76582ae81", size = 201748, upload-time = "2025-12-31T12:17:18.561Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/c2/120460e4c7b9084370f31651da2fb70970363b3d74e198bf583330bf0572/pydantic_ai_blocking_approval-0.9.0-py3-none-any.whl", hash = "sha256:3112febbdd143d871d38a41652016bed8b359e88b2527c25eabd94d630729608", size = 13581, upload-time = "2025-12-31T12:17:16.743Z" },
-]
-
-[[package]]
-name = "pydantic-ai-filesystem-sandbox"
-version = "0.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
-    { name = "pydantic", version = "2.14.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "pydantic-ai" },
-    { name = "pydantic-ai-blocking-approval" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/cf/6d044f1baed81f36a0e42580163432841351b96b4cd8309246ea66236ad8/pydantic_ai_filesystem_sandbox-0.9.0.tar.gz", hash = "sha256:d8d81f01d5c9330e4df24302055c989427e349634d553912dd16e9b45258b69e", size = 205597, upload-time = "2025-12-15T20:15:42.827Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/42/cddd0538e526aa209a3cda5342683f1114de11f458276ab92ea9a0f0feb7/pydantic_ai_filesystem_sandbox-0.9.0-py3-none-any.whl", hash = "sha256:285a86d06b07258b4e44f746759cb279c976643c17995047067182404fa41748", size = 20583, upload-time = "2025-12-15T20:15:41.351Z" },
 ]
 
 [[package]]
