@@ -10,12 +10,13 @@ import logfire
 from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError
 from pydantic_ai.toolsets import WrapperToolset
-from pydantic_ai_filesystem_sandbox import EditError, SandboxError
+
+from api.src.sernia_ai.tools.workspace_tools import WorkspaceEditMiss, WorkspaceToolError
 
 # PydanticAI control-flow exceptions that must propagate — never catch these.
 _PASSTHROUGH_EXCEPTIONS = (ApprovalRequired, CallDeferred, ModelRetry, ToolRetryError)
 
-# Appended to every EditError returned to the model. A bare EditError only says
+# Appended to every missed edit returned to the model. A bare miss only says
 # the search text wasn't found, which the model tends to answer by retrying the
 # same edit with slightly different indentation — a loop that has burned entire
 # runs' request budgets (a scheduled run on 2026-08-08 spent 11 workspace_edit_file
@@ -25,7 +26,8 @@ _PASSTHROUGH_EXCEPTIONS = (ApprovalRequired, CallDeferred, ModelRetry, ToolRetry
 # prompt once per run and goes out of date the moment the model edits it.
 _EDIT_RECOVERY_HINT = (
     " → Do not retry with a re-indented or reworded guess. Call "
-    "workspace_read_file on this path first and copy the exact current text "
+    "workspace_read_file on this path first and copy the exact current text, "
+    "without the line numbers it shows at the start of each line "
     "(if this is MEMORY.md, the copy injected into your prompt is a snapshot "
     "from the start of this run and is stale once you have edited it), then "
     "make a single corrected edit."
@@ -37,9 +39,10 @@ _EDIT_RECOVERY_HINT = (
 # returned error string and retries — exactly like a validation error. We log
 # them at warning level so they stay visible in traces without tripping the
 # error-level "Error-level records (non-local)" alert, which pages on genuine
-# failures. SandboxError is the base of all pydantic_ai_filesystem_sandbox
-# input/content errors (EditError, PathNotInSandboxError, FileTooLargeError, …).
-_RECOVERABLE_EXCEPTIONS = (SandboxError,)
+# failures. WorkspaceToolError covers every workspace file-tool error the
+# model can fix: a missed edit, a path outside the workspace, a wrong file type
+# (see tools/workspace_tools.py).
+_RECOVERABLE_EXCEPTIONS = (WorkspaceToolError,)
 
 # How many identical failing calls (same tool, byte-identical arguments) it
 # takes before the returned error string carries extra guidance telling the
@@ -111,7 +114,7 @@ def log_tool_error(
 
     ``level`` is ``"error"`` for unexpected failures (trips the error-level
     Logfire alert) or ``"warn"`` for expected, model-recoverable tool-input
-    errors (e.g. a sandbox ``EditError``) that should stay visible without
+    errors (e.g. a missed workspace edit) that should stay visible without
     paging.
     """
     fields = dict(
@@ -139,10 +142,10 @@ class ErrorLoggingToolset(WrapperToolset):
     PydanticAI control-flow exceptions (ApprovalRequired, ModelRetry, etc.)
     are always re-raised so the framework can handle them.
 
-    Expected, model-recoverable errors (``_RECOVERABLE_EXCEPTIONS`` — sandbox
-    file-tool errors like ``EditError``) are logged at warning level instead
-    of error: the model fixes its arguments and retries, so they shouldn't
-    page like a genuine failure. ``EditError`` additionally gets
+    Expected, model-recoverable errors (``_RECOVERABLE_EXCEPTIONS`` — workspace
+    file-tool errors like ``WorkspaceEditMiss``) are logged at warning level
+    instead of error: the model fixes its arguments and retries, so they
+    shouldn't page like a genuine failure. ``WorkspaceEditMiss`` additionally gets
     ``_EDIT_RECOVERY_HINT`` appended to the string the model sees, telling it
     to re-read the file instead of retrying a re-indented guess.
 
@@ -176,7 +179,7 @@ class ErrorLoggingToolset(WrapperToolset):
             conversation_id = getattr(ctx.deps, "conversation_id", "")
             log_tool_error(name, e, conversation_id=conversation_id, level="warn")
             attempts = _count_identical_failure(ctx, name, tool_args)
-            hint = _EDIT_RECOVERY_HINT if isinstance(e, EditError) else ""
+            hint = _EDIT_RECOVERY_HINT if isinstance(e, WorkspaceEditMiss) else ""
             if attempts >= REPEAT_ERROR_THRESHOLD:
                 return f"Error in {name}: {e}{hint}{_repeat_guidance(name, attempts)}"
             return f"Error in {name}: {e}{hint}"

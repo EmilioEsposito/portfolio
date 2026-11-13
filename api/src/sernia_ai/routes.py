@@ -700,7 +700,20 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
     toolsets_out: list[dict] = []
     toolset_instructions: list[dict] = []
     total = 0
-    for ts in sernia_agent.toolsets:
+    from pydantic_ai.toolsets import CombinedToolset
+
+    from api.src.sernia_ai.agent import workspace_capability
+
+    # The workspace file tools come from a capability. `sernia_agent.toolsets`
+    # also holds the capabilities' tools in one unnamed CombinedToolset, which
+    # only lists its tools inside a run, so it is skipped and the workspace
+    # tools are listed from the capability instead.
+    named_toolsets = [
+        ts
+        for ts in sernia_agent.toolsets
+        if not (isinstance(ts, CombinedToolset) and not getattr(ts, "name", None))
+    ]
+    for ts in [*named_toolsets, workspace_capability.get_toolset()]:
         try:
             tools = await ts.get_tools(ctx)
         except Exception as e:

@@ -3,7 +3,7 @@ Unit tests for ErrorLoggingToolset log-level routing and repeat-loop guidance.
 
 The wrapper catches unhandled tool exceptions and returns a friendly error
 string so the conversation continues. Expected, model-recoverable errors
-(sandbox file-tool errors) must log at WARNING level so they don't trip the
+(workspace file-tool errors) must log at WARNING level so they don't trip the
 error-level Logfire alert, while genuinely unexpected failures stay at ERROR.
 
 It also counts identical recoverable failures per run and appends a "STOP,
@@ -15,9 +15,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic_ai.exceptions import ModelRetry
-from pydantic_ai_filesystem_sandbox import EditError, PathNotInSandboxError
 
 from api.src.sernia_ai.tools._logging import _EDIT_RECOVERY_HINT, ErrorLoggingToolset
+from api.src.sernia_ai.tools.workspace_tools import WorkspaceEditMiss, WorkspaceToolError
 
 
 class _FakeToolset:
@@ -48,12 +48,12 @@ def _make_ctx(conversation_id: str = "conv-1", *, track_repeats: bool = False):
 @pytest.mark.parametrize(
     "exc",
     [
-        EditError("/workspace/MEMORY.md", "text not found", "| Jeri Frizza | 320-02 |"),
-        PathNotInSandboxError("/etc/passwd", ["/workspace"]),
+        WorkspaceEditMiss("text not found in /workspace/MEMORY.md"),
+        WorkspaceToolError("/etc/passwd is outside the workspace."),
     ],
 )
 async def test_recoverable_sandbox_error_logged_as_warning(exc):
-    """Sandbox file-tool errors log at warn (not error) and return a string."""
+    """Workspace file-tool errors log at warn (not error) and return a string."""
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     with patch("api.src.sernia_ai.tools._logging.logfire") as lf:
         result = await ts.call_tool("workspace_edit_file", {}, _make_ctx(), MagicMock())
@@ -65,13 +65,13 @@ async def test_recoverable_sandbox_error_logged_as_warning(exc):
 
 @pytest.mark.asyncio
 async def test_edit_error_tells_model_to_reread_the_file():
-    """An EditError carries the re-read hint that breaks the blind-retry loop.
+    """A WorkspaceEditMiss carries the re-read hint that breaks the blind-retry loop.
 
     Without it the model answers "text not found" by retrying the same edit
     with different indentation, which has exhausted a run's request budget
     (pydantic-ai's UsageLimitExceeded) instead of failing one tool call.
     """
-    exc = EditError("/workspace/MEMORY.md", "text not found", "  - 2026-07-31 | SMS to …")
+    exc = WorkspaceEditMiss("text not found in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     with patch("api.src.sernia_ai.tools._logging.logfire"):
         result = await ts.call_tool("workspace_edit_file", {}, _make_ctx(), MagicMock())
@@ -84,8 +84,10 @@ async def test_edit_error_tells_model_to_reread_the_file():
 
 @pytest.mark.asyncio
 async def test_non_edit_sandbox_error_has_no_edit_hint():
-    """The re-read hint is EditError-specific — a bad path doesn't get it."""
-    ts = ErrorLoggingToolset(_FakeToolset(PathNotInSandboxError("/etc/passwd", ["/workspace"])))
+    """The re-read hint is WorkspaceEditMiss-specific — a bad path doesn't get it."""
+    ts = ErrorLoggingToolset(
+        _FakeToolset(WorkspaceToolError("/etc/passwd is outside the workspace."))
+    )
     with patch("api.src.sernia_ai.tools._logging.logfire"):
         result = await ts.call_tool("workspace_read_file", {}, _make_ctx(), MagicMock())
 
@@ -112,7 +114,7 @@ async def test_identical_recoverable_failure_escalates_to_stop_guidance():
     can legitimately change between calls), the repeat tells the model to stop
     re-sending the same arguments.
     """
-    exc = EditError("/workspace/MEMORY.md", "text not found in file", "  - 2026-07-31 | SMS")
+    exc = WorkspaceEditMiss("text not found in file in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     ctx = _make_ctx(track_repeats=True)
     args = {"path": "/workspace/MEMORY.md", "old_text": "  - 2026-07-31 | SMS", "new_text": ""}
@@ -131,7 +133,7 @@ async def test_identical_recoverable_failure_escalates_to_stop_guidance():
 @pytest.mark.asyncio
 async def test_different_arguments_do_not_escalate():
     """Retrying with *changed* arguments is legitimate — no STOP guidance."""
-    exc = EditError("/workspace/MEMORY.md", "text not found in file", "x")
+    exc = WorkspaceEditMiss("text not found in file in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     ctx = _make_ctx(track_repeats=True)
 
@@ -146,7 +148,7 @@ async def test_different_arguments_do_not_escalate():
 @pytest.mark.asyncio
 async def test_repeat_counts_are_scoped_to_one_run():
     """Counts live on deps, so a fresh run starts clean."""
-    exc = EditError("/workspace/MEMORY.md", "text not found in file", "x")
+    exc = WorkspaceEditMiss("text not found in file in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     args = {"old_text": "  - a"}
 
@@ -164,7 +166,7 @@ async def test_repeat_counts_are_scoped_to_one_run():
 @pytest.mark.asyncio
 async def test_deps_without_counter_never_escalates():
     """Deps lacking the attribute degrade to the old behavior, not a crash."""
-    exc = EditError("/workspace/MEMORY.md", "text not found in file", "x")
+    exc = WorkspaceEditMiss("text not found in file in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     ctx = _make_ctx()  # deps.recoverable_tool_error_counts is a MagicMock, not a dict
 
@@ -178,7 +180,7 @@ async def test_deps_without_counter_never_escalates():
 @pytest.mark.asyncio
 async def test_non_json_arguments_still_fingerprint_consistently():
     """Arguments JSON can't encode natively still compare equal across calls."""
-    exc = EditError("/workspace/MEMORY.md", "text not found in file", "x")
+    exc = WorkspaceEditMiss("text not found in file in /workspace/MEMORY.md")
     ts = ErrorLoggingToolset(_FakeToolset(exc), name="workspace")
     ctx = _make_ctx(track_repeats=True)
     args = {"old_text": {1, 2, 3}}  # a set is not JSON-serializable

@@ -42,6 +42,7 @@ from api.src.sernia_ai.model_config import (
     build_run_kwargs,
     resolve_model,
 )
+from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
 
 # Default variants — shared across experiments unless an experiment overrides.
 # GPT goes through OpenRouter (same gateway as production; see model_config.py).
@@ -111,7 +112,13 @@ async def _agent_run_context(
         overrides["native_tools"] = []
 
     with sernia_agent.override(**overrides):
-        yield
+        if with_tools:
+            yield
+        else:
+            # The workspace file tools come from a capability, which
+            # `toolsets=[]` does not reach.
+            with workspace_tools_disabled():
+                yield
 
 
 async def _build_deps(session: AsyncSession) -> SerniaDeps:

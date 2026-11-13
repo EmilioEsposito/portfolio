@@ -25,7 +25,6 @@ from pydantic_ai.capabilities import (
 )
 from pydantic_ai.native_tools import WebFetchTool, WebSearchTool
 from pydantic_ai.workspaces import LocalWorkspaceBackend
-from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
 from pydantic_ai_harness import Skills
 
 
@@ -59,28 +58,21 @@ from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
+from api.src.sernia_ai.tools.workspace_tools import CAPABILITY_ID as WORKSPACE_CAPABILITY_ID
+from api.src.sernia_ai.tools.workspace_tools import SerniaWorkspace, build_workspace_toolset
 from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME as LEAD_POLICY_SKILL_NAME
 from api.src.sernia_ai.zillow_leads.skill import lead_policy_skill
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
 
-# Sandboxed filesystem toolset for agent memory (.workspace/)
-_sandbox = Sandbox(
-    SandboxConfig(
-        mounts=[
-            Mount(
-                host_path=WORKSPACE_PATH,
-                mount_point="/workspace",
-                mode="rw",
-                suffixes=[".md", ".txt", ".json"],
-                write_approval=False,
-                read_approval=False,
-            ),
-        ]
-    )
+# File tools for the agent's memory (.workspace/): the harness FileSystem tools
+# behind an adapter that keeps `/workspace/...` paths, the .md/.txt/.json limit
+# and text error replies. See tools/workspace_tools.py. The harness only runs
+# these tools when a capability contributes them, so they are a capability.
+workspace_capability = SerniaWorkspace(
+    ErrorLoggingToolset(build_workspace_toolset().prefixed("workspace"), name="workspace")
 )
-filesystem_toolset = FileSystemToolset(_sandbox)
 
 # Workspace skills — the harness `Skills` capability reads each SKILL.md under
 # .workspace/.claude/skills/ and offers it as a deferred capability: the skill
@@ -106,9 +98,12 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # with the agent's other capabilities, and a clash fails the run.
 # - The Zillow lead policy is built in code (below), and a workspace skill of
 #   the same name must not replace the deployed policy.
-# - `instrumentation` is the id of the Instrumentation capability.
+# - `instrumentation` and `sernia-workspace` are the ids of the Instrumentation
+#   capability and the workspace file tools.
 # test_zillow_lead_skill.py checks this covers every capability on the agent.
-RESERVED_SKILL_NAMES = frozenset({LEAD_POLICY_SKILL_NAME, "instrumentation"})
+RESERVED_SKILL_NAMES = frozenset(
+    {LEAD_POLICY_SKILL_NAME, "instrumentation", WORKSPACE_CAPABILITY_ID}
+)
 
 
 class WorkspaceSkills(Skills[SerniaDeps]):
@@ -174,7 +169,6 @@ sernia_agent = Agent(
     # adds model requests, never side effects. Output validation keeps 1.
     retries={"tools": 3, "output": 1},
     toolsets=[
-        ErrorLoggingToolset(filesystem_toolset.prefixed("workspace"), name="workspace"),
         ErrorLoggingToolset(quo_toolset.prefixed("quo"), name="quo"),
         ErrorLoggingToolset(google_toolset.prefixed("google"), name="google"),
         ErrorLoggingToolset(clickup_toolset.prefixed("clickup"), name="clickup"),
@@ -186,6 +180,8 @@ sernia_agent = Agent(
         ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
     ],
     capabilities=[
+        # The workspace file tools; each run's workspace is its deps.workspace_path.
+        workspace_capability,
         workspace_skills,
         lead_policy_capability,
         # Provider-adaptive web tools (pydantic-ai core capabilities). Native
@@ -218,42 +214,3 @@ sernia_agent = Agent(
     ],
     name=AGENT_NAME,
 )
-
-
-@sernia_agent.tool
-async def search_files(
-    ctx: RunContext[SerniaDeps],
-    query: str,
-    glob_pattern: str = "**/*.md",
-) -> str:
-    """Search workspace files for a text query. Returns matching lines with file paths.
-
-    Args:
-        query: Text to search for (case-insensitive substring match).
-        glob_pattern: Glob pattern to filter files (default: all .md files).
-                      Use relative patterns like "**/*.md", not absolute paths.
-    """
-    # Strip /workspace/ prefix and leading slashes - glob() only supports relative patterns
-    pattern = glob_pattern
-    if pattern.startswith("/workspace/"):
-        pattern = pattern[len("/workspace/") :]
-    pattern = pattern.lstrip("/")
-
-    results: list[str] = []
-    for path in sorted(ctx.deps.workspace_path.glob(pattern)):
-        if not path.is_file():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        rel = path.relative_to(ctx.deps.workspace_path)
-        for i, line in enumerate(text.splitlines(), 1):
-            if query.lower() in line.lower():
-                results.append(f"/workspace/{rel}:{i}: {line.rstrip()}")
-        if len(results) > 100:
-            results.append("...(truncated at 100 matches)")
-            break
-    if not results:
-        return f"No matches for '{query}' in {glob_pattern}"
-    return "\n".join(results)
