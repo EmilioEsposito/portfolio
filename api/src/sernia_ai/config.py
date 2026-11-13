@@ -11,8 +11,8 @@ from pathlib import Path
 # Used by the WebSearch (native on Anthropic, OpenAI Responses, Groq, Google,
 # xAI, OpenRouter) and WebFetch (native on Anthropic, Google) capabilities —
 # see pydantic_ai.capabilities and agent.py.
-# On OpenRouter the allowlist is carried by `SerniaOpenRouterModel` in
-# model_config.py, which maps it onto the `web` plugin's `include_domains`.
+# On OpenRouter pydantic-ai sends the allowlist as `allowed_domains` on the
+# `openrouter:web_search` server tool.
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
     "zillow.com",
     "redfin.com",
@@ -45,7 +45,7 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 # as a fallback if the DB lookup fails or is bypassed.
 # GPT models are reached through OpenRouter rather than the OpenAI API
 # directly; `openrouter:` model strings take OpenRouter's `<vendor>/<model>`
-# ids. OpenRouter serves WebSearchTool through its `web` plugin, so the tool
+# ids. OpenRouter serves WebSearchTool as a server tool, so the tool
 # baked in at Agent construction still resolves natively.
 MAIN_AGENT_MODEL = "openrouter:openai/gpt-6-luna"
 

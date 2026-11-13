@@ -11,11 +11,22 @@ The ``model``/``model_settings`` passed at run-time override what's configured
 here. Web search/fetch are provider-adaptive capabilities on the agent itself.
 """
 
+from pathlib import Path
+
+import logfire
 from pydantic import BaseModel
 from pydantic_ai import Agent, DeferredToolRequests, RunContext
-from pydantic_ai.capabilities import Instrumentation, ProcessHistory, WebFetch, WebSearch
+from pydantic_ai.capabilities import (
+    AbstractCapability,
+    Instrumentation,
+    ProcessHistory,
+    WebFetch,
+    WebSearch,
+)
 from pydantic_ai.native_tools import WebFetchTool, WebSearchTool
+from pydantic_ai.workspaces import LocalWorkspaceBackend
 from pydantic_ai_filesystem_sandbox import FileSystemToolset, Mount, Sandbox, SandboxConfig
+from pydantic_ai_harness import Skills
 
 
 class NoAction(BaseModel):
@@ -23,8 +34,6 @@ class NoAction(BaseModel):
 
     reason: str
 
-
-from pydantic_ai_skills import SkillsCapability
 
 from api.src.sernia_ai.config import (
     AGENT_NAME,
@@ -46,6 +55,7 @@ from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
+from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME as LEAD_POLICY_SKILL_NAME
 from api.src.sernia_ai.zillow_leads.skill import lead_policy_skill
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
@@ -68,38 +78,82 @@ _sandbox = Sandbox(
 )
 filesystem_toolset = FileSystemToolset(_sandbox)
 
-# Skills capability — discovers SKILL.md files at .workspace/.claude/skills/,
-# injects the skill registry (name + description) into the system prompt, and
-# exposes the list_skills / load_skill / read_skill_resource / run_skill_script
-# tools. The path mirrors Claude Code's `.claude/skills/` convention so the
-# same knowledge repo is interoperable with `cd workspace && claude` runs.
+# Workspace skills — the harness `Skills` capability reads each SKILL.md under
+# .workspace/.claude/skills/ and offers it as a deferred capability: the skill
+# catalog (name + description) is injected into the instructions, and the model
+# loads a skill's body with the `load_capability` tool. The path mirrors Claude
+# Code's `.claude/skills/` convention so the same knowledge repo is
+# interoperable with `cd workspace && claude` runs.
 #
-# auto_reload=True re-scans the directory before every run, so edits made by
-# the agent itself (or by `apps/sernia_mcp` against the shared sernia-knowledge
-# repo) show up without a server restart. Replaces the old SkillsToolset +
-# manual ``reload_skills()`` decorator pattern, which never injected the
-# skill registry into the prompt — meaning the agent had skill *tools* but
-# couldn't see what skills existed without calling list_skills first.
+# The libraries are read at the start of every run, so edits made by the agent
+# itself (or by `apps/sernia_mcp` against the shared sernia-knowledge repo) show
+# up without a server restart.
 #
+# `workspace=` reads them from the host path. The agent has no pydantic-ai
+# workspace of its own; its file tools work in the sandbox mounted at
+# /workspace, so a loaded skill does not name a host directory.
+#
+# The knowledge repo must never fail a run: a missing skills directory is
+# skipped, a SKILL.md that does not parse is skipped with a warning, and
+# `WorkspaceSkills` covers the rest.
+
+# Workspace skill names that are never offered. A skill shares one id space
+# with the agent's other capabilities, and a clash fails the run.
+# - The Zillow lead policy is built in code (below), and a workspace skill of
+#   the same name must not replace the deployed policy.
+# - `instrumentation` is the id of the Instrumentation capability.
+# test_zillow_lead_skill.py checks this covers every capability on the agent.
+RESERVED_SKILL_NAMES = frozenset({LEAD_POLICY_SKILL_NAME, "instrumentation"})
+
+
+class WorkspaceSkills(Skills[SerniaDeps]):
+    """Harness `Skills` that never fails a run over what is in the knowledge repo."""
+
+    async def for_run(self, ctx: RunContext[SerniaDeps]) -> AbstractCapability[SerniaDeps]:
+        try:
+            # The harness reports a skill it skips as a Python warning only.
+            # Read the catalog once more to put each one in Logfire, where
+            # someone asking why a skill is missing will look.
+            for skipped in (await self.load()).skipped:
+                logfire.warn("Workspace skill skipped: {reason}", reason=skipped.message)
+            return await super().for_run(ctx)
+        except Exception:
+            # e.g. a SKILL.md the process cannot read. Returning this capability
+            # as it is adds no skills, which is better than no run at all.
+            logfire.exception("Workspace skills could not be read; running without them")
+            return self
+
+
+def build_workspace_skills(workspace_path: Path) -> WorkspaceSkills:
+    return WorkspaceSkills(
+        ".claude/skills",
+        workspace=LocalWorkspaceBackend(workspace_path),
+        exclude=RESERVED_SKILL_NAMES,
+        unknown_names="skip",
+        missing_directories="skip",
+    )
+
+
+workspace_skills = build_workspace_skills(WORKSPACE_PATH)
+
 # One skill is built in code instead: the Zillow lead policy, which the lead
-# agent also runs on. A skill passed in ``skills`` takes priority over a
-# workspace skill of the same name and survives every reload, so the workspace
-# cannot replace it. See zillow_leads/skill.py.
-skills_capability = SkillsCapability(
-    skills=[lead_policy_skill()],
-    directories=[WORKSPACE_PATH / ".claude" / "skills"],
-    auto_reload=True,
-)
+# agent also runs on. It sits in the same catalog as the workspace skills and
+# loads the same way. See zillow_leads/skill.py.
+lead_policy_capability = lead_policy_skill()
 
 sernia_agent = Agent(
     # `resolve_model` turns the `openrouter:` string into the SerniaOpenRouterModel
-    # subclass that carries WEB_SEARCH_ALLOWED_DOMAINS onto OpenRouter's `web`
-    # plugin — so even the fallback default (when the DB lookup is bypassed)
-    # keeps the domain allowlist enforced.
+    # subclass that records the billed cost, so the fallback default (when the DB
+    # lookup is bypassed) is costed like any other run.
     resolve_model(MAIN_AGENT_MODEL),
     deps_type=SerniaDeps,
     instructions=[STATIC_INSTRUCTIONS, *DYNAMIC_INSTRUCTIONS],
     output_type=[str, NoAction, DeferredToolRequests],  # HITL foundation + silent triggers
+    # When the model returns `NoAction` and calls tools in the same response,
+    # end the run without running those tools: a silent trigger run must not
+    # send an SMS or an email on its way out. This was pydantic-ai 1.x's
+    # default; 2.x defaults to "graceful", which runs them.
+    end_strategy="early",
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace"), name="workspace"),
         ErrorLoggingToolset(quo_toolset.prefixed("quo"), name="quo"),
@@ -113,9 +167,10 @@ sernia_agent = Agent(
         ErrorLoggingToolset(duckdb_toolset, name="duckdb"),
     ],
     capabilities=[
-        skills_capability,
+        workspace_skills,
+        lead_policy_capability,
         # Provider-adaptive web tools (pydantic-ai core capabilities). Native
-        # web search works on OpenRouter (via its `web` plugin) and Anthropic.
+        # web search works on OpenRouter (as a server tool) and Anthropic.
         # Native web fetch is Anthropic-only — `optional=True` silently drops a
         # tool on models that don't support it, which replaces the old per-run
         # WebFetchTool attachment in model_config.build_run_kwargs().
@@ -125,8 +180,8 @@ sernia_agent = Agent(
         # allowlist). The domains are set on the native tool instances, not
         # the capability, because capability-level domain constraints force
         # native-required mode, which raises instead of dropping. On OpenRouter
-        # runs SerniaOpenRouterModel reads `allowed_domains` back off the tool
-        # and maps it to the `web` plugin's `include_domains`.
+        # runs pydantic-ai sends `allowed_domains` in the parameters of the
+        # `openrouter:web_search` server tool.
         WebSearch(
             native=WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True),
             local=False,

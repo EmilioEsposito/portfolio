@@ -232,7 +232,9 @@ class TestOutcomes:
         # The whole design rests on this: nothing to call, three ways to finish.
         assert params.function_tools == []
         assert [tool.name for tool in params.output_tools] == ["reply", "no_reply", "escalate"]
-        assert agent_module.lead_agent()._instructions == [agent_module.load_instructions()]
+        assert [part.content for part in params.instruction_parts] == [
+            agent_module.load_instructions().strip()
+        ]
 
 
 def check(case: LeadCase, output: Reply | NoReply | Escalate) -> dict[str, bool]:

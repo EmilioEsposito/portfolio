@@ -59,8 +59,8 @@ def test_filetree_hides_mcp_json(tmp_path: Path):
 
 
 def test_filetree_collapses_only_claude_skills_subtree(tmp_path: Path):
-    """`.claude/skills` collapses (skills are reached via list_skills /
-    load_skill); `.claude` itself stays navigable for other tooling files."""
+    """`.claude/skills` collapses (skills are reached via the skill catalog and
+    load_capability); `.claude` itself stays navigable for other tooling files."""
     skills = tmp_path / ".claude" / "skills" / "communications"
     skills.mkdir(parents=True)
     (skills / "SKILL.md").write_text("---\ndescription: x\n---\n")

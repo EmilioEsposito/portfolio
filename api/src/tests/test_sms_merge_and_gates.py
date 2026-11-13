@@ -11,9 +11,10 @@ real SMS to external contacts from tests. See AGENTS.md.
 """
 
 from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
+    RetryFeedbackPart,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -39,6 +40,34 @@ def _user(text: str) -> ModelRequest:
 
 def _assistant(text: str) -> ModelResponse:
     return ModelResponse(parts=[TextPart(content=text)])
+
+
+def _stored_v1_retry(content: str, tool_name: str | None, tool_call_id: str) -> ModelRequest:
+    """A request holding one retry, loaded from the JSON pydantic-ai 1.x stored.
+
+    1.x wrote every retry as a ``retry-prompt`` part. 2.x loads one that names
+    a tool as that call's ``ToolReturnPart`` and one that names none as a
+    ``RetryFeedbackPart``; conversations saved before the upgrade arrive here
+    in that shape.
+    """
+    (request,) = ModelMessagesTypeAdapter.validate_python(
+        [
+            {
+                "kind": "request",
+                "parts": [
+                    {
+                        "part_kind": "retry-prompt",
+                        "content": content,
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "timestamp": "2026-08-01T00:00:00Z",
+                    }
+                ],
+            }
+        ]
+    )
+    assert isinstance(request, ModelRequest)
+    return request
 
 
 def _make_contact(company: str | None = None) -> dict:
@@ -399,21 +428,16 @@ class TestSanitizeToolCalls:
         assert result[1].parts == [TextPart(content="on it")]
 
     def test_retry_prompt_counts_as_tool_output(self):
-        """A RetryPromptPart answers its tool call — the call must be kept."""
+        """A retry sent back for a tool call answers it, so the call must be kept."""
         msgs = [
             _user("search"),
             _tool_call("search_contacts", "call_retry"),
-            ModelRequest(
-                parts=[
-                    RetryPromptPart(
-                        content="bad args, try again",
-                        tool_name="search_contacts",
-                        tool_call_id="call_retry",
-                    )
-                ]
-            ),
+            _stored_v1_retry("bad args, try again", "search_contacts", "call_retry"),
             _assistant("got it"),
         ]
+        assert isinstance(msgs[2].parts[0], ToolReturnPart)
+        assert msgs[2].parts[0].outcome == "retried"
+
         result = _sanitize_tool_calls(msgs)
         assert len(result) == 4
         call_ids = {
@@ -426,17 +450,9 @@ class TestSanitizeToolCalls:
         assert call_ids == {"call_retry"}
 
     def test_orphaned_retry_prompt_removed(self):
-        """A RetryPromptPart whose tool call is gone is an orphaned output."""
+        """A tool-call retry whose tool call is gone is an orphaned output."""
         msgs = [
-            ModelRequest(
-                parts=[
-                    RetryPromptPart(
-                        content="bad args",
-                        tool_name="old_tool",
-                        tool_call_id="call_gone",
-                    )
-                ]
-            ),
+            _stored_v1_retry("bad args", "old_tool", "call_gone"),
             _user("hello"),
             _assistant("hi"),
         ]
@@ -445,9 +461,16 @@ class TestSanitizeToolCalls:
         assert isinstance(result[0].parts[0], UserPromptPart)
 
     def test_output_validation_retry_prompt_preserved(self):
-        """A RetryPromptPart with no tool_call_id is output validation, not a tool output."""
-        retry = RetryPromptPart(content="output did not validate")
-        msgs = [_user("hello"), ModelRequest(parts=[retry]), _assistant("hi")]
+        """A retry with no tool name is output validation, not a tool output.
+
+        pydantic-ai 1.x gave these a generated ``tool_call_id`` too, so the id
+        alone does not make one a tool output.
+        """
+        retry_request = _stored_v1_retry("output did not validate", None, "pyd_ai_generated")
+        (retry,) = retry_request.parts
+        assert isinstance(retry, RetryFeedbackPart)
+
+        msgs = [_user("hello"), retry_request, _assistant("hi")]
         result = _sanitize_tool_calls(msgs)
         assert len(result) == 3
         assert result[1].parts == [retry]

@@ -20,8 +20,8 @@ def test_build_run_kwargs_openrouter_shape():
     from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_run_kwargs
 
     kw = build_run_kwargs("gpt-5.6-luna")
-    # OpenRouter runs get a model *instance* (the subclass carrying the
-    # web-search domain allowlist), not a bare model string.
+    # OpenRouter runs get a model *instance* (the subclass that records the
+    # billed cost), not a bare model string.
     model = kw["model"]
     assert isinstance(model, SerniaOpenRouterModel)
     assert model.model_name == "openai/gpt-5.6-luna"
@@ -225,32 +225,73 @@ def test_no_direct_openai_models_remain():
     assert not offenders, f"direct OpenAI model strings left behind: {offenders}"
 
 
-def test_web_search_domain_allowlist_reaches_openrouter_plugin():
-    """OpenRouter's `web` plugin must carry WEB_SEARCH_ALLOWED_DOMAINS.
+@pytest.mark.asyncio
+async def test_web_search_domain_allowlist_reaches_openrouter():
+    """The request to OpenRouter must carry WEB_SEARCH_ALLOWED_DOMAINS.
 
-    pydantic-ai maps WebSearchTool -> `plugins: [{"id": "web"}]` but drops
-    `allowed_domains`; SerniaOpenRouterModel re-attaches them as the plugin's
-    `include_domains`. Without this the agent could search the whole web.
+    pydantic-ai sends web search as the `openrouter:web_search` server tool and
+    forwards the tool's `allowed_domains` in its parameters. Without them the
+    agent could search the whole web, so this reads the request body itself.
     """
-    from pydantic_ai.models import ModelRequestParameters
+    import json
+
+    import httpx2
+    from pydantic_ai import Agent
+    from pydantic_ai.capabilities import WebSearch
     from pydantic_ai.native_tools import WebSearchTool
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
 
     from api.src.sernia_ai.config import WEB_SEARCH_ALLOWED_DOMAINS
-    from api.src.sernia_ai.model_config import build_run_kwargs
+    from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_openrouter_settings
 
-    kw = build_run_kwargs("gpt-5.6-luna")
-    model = kw["model"]
-    params = model.customize_request_parameters(
-        ModelRequestParameters(
-            native_tools=[WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True)]
+    bodies: list[dict] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        bodies.append(json.loads(request.content))
+        return httpx2.Response(
+            200,
+            json={
+                "id": "gen-test",
+                "object": "chat.completion",
+                "created": 1780000000,
+                "model": "openai/gpt-6-luna",
+                "provider": "OpenAI",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "native_finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
         )
-    )
-    settings, _ = model.prepare_request(kw["model_settings"], params)
 
-    plugins = settings["extra_body"]["plugins"]
-    web = [p for p in plugins if p.get("id") == "web"]
-    assert len(web) == 1, f"expected exactly one web plugin, got {plugins}"
-    assert web[0]["include_domains"] == WEB_SEARCH_ALLOWED_DOMAINS
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+    model = SerniaOpenRouterModel(
+        "openai/gpt-6-luna", provider=OpenRouterProvider(api_key="test-key", http_client=client)
+    )
+    # The same capability, with the same arguments, as `sernia_agent`.
+    agent = Agent(
+        model,
+        model_settings=build_openrouter_settings("low"),
+        capabilities=[
+            WebSearch(
+                native=WebSearchTool(allowed_domains=WEB_SEARCH_ALLOWED_DOMAINS, optional=True),
+                local=False,
+            )
+        ],
+    )
+
+    await agent.run("hello")
+
+    (body,) = bodies
+    web = [tool for tool in body["tools"] if tool.get("type") == "openrouter:web_search"]
+    assert len(web) == 1, f"expected exactly one web search tool, got {body['tools']}"
+    assert web[0]["parameters"]["allowed_domains"] == WEB_SEARCH_ALLOWED_DOMAINS
+    # The 1.x mapping, which dropped the domains, must not come back beside it.
+    assert "plugins" not in body
 
 
 def test_openrouter_cost_stamped_on_span():
@@ -308,12 +349,14 @@ def test_stamp_openrouter_cost_is_a_noop_without_cost():
 # ---------------------------------------------------------------------------
 #
 # Root cause of the production `invalid_encrypted_content` 400 (2026-08-05,
-# trace 019fcff60d3999d40125ebed3a7929be): pydantic-ai's OpenRouter streaming
-# keys reasoning_details deltas by type + position-within-chunk, so two
-# encrypted reasoning items with different `rs_...` ids in one streamed
-# response merge into a single ThinkingPart — first item's id, last item's
-# encrypted payload. OpenAI then rejects the replay because the encrypted blob
-# decrypts to a different item id than the part claims.
+# trace 019fcff60d3999d40125ebed3a7929be): pydantic-ai 1.x keyed streamed
+# reasoning_details deltas by type + position-within-chunk, so two encrypted
+# reasoning items with different `rs_...` ids in one streamed response merged
+# into a single ThinkingPart — first item's id, last item's encrypted payload.
+# OpenAI then rejected the replay because the encrypted blob decrypts to a
+# different item id than the part claims. pydantic-ai 2.x keys them by
+# OpenRouter's `index`. `SerniaOpenRouterStreamedResponse` worked around the
+# bug on 1.x and is gone, so this is the only guard against a regression.
 
 
 def _encrypted_chunk_choice(item_id: str, data: str, index: int):
@@ -366,10 +409,11 @@ def test_streamed_encrypted_reasoning_items_stay_distinct():
     Each keeps its own id↔payload pairing, so the replayed reasoning_details
     are exactly what OpenAI produced and verification passes.
     """
-    from api.src.sernia_ai.model_config import SerniaOpenRouterStreamedResponse
+    from api.src.sernia_ai.model_config import resolve_model
 
+    model = resolve_model("openrouter:openai/gpt-6-luna")
     parts = _drain_thinking_deltas(
-        SerniaOpenRouterStreamedResponse,
+        model._streamed_response_cls,
         [
             _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=0),
             _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=1),
@@ -380,35 +424,3 @@ def test_streamed_encrypted_reasoning_items_stay_distinct():
         ("rs_AAA", "ENCRYPTED_BLOB_OF_AAA"),
         ("rs_BBB", "ENCRYPTED_BLOB_OF_BBB"),
     ]
-
-
-def test_streamed_response_class_is_wired():
-    """SerniaOpenRouterModel must actually stream through the fixed class."""
-    from api.src.sernia_ai.model_config import (
-        SerniaOpenRouterStreamedResponse,
-        resolve_model,
-    )
-
-    model = resolve_model("openrouter:openai/gpt-5.6-luna")
-    assert model._streamed_response_cls is SerniaOpenRouterStreamedResponse
-
-
-def test_upstream_still_merges_encrypted_reasoning_items():
-    """CANARY: upstream OpenRouterStreamedResponse still has the merge bug.
-
-    When this test FAILS, pydantic-ai has fixed the vendor-key collision
-    upstream — delete SerniaOpenRouterStreamedResponse (and these tests) and
-    rely on the library. Until then, this documents exactly what the subclass
-    protects against: one part, first id, last payload.
-    """
-    from pydantic_ai.models.openrouter import OpenRouterStreamedResponse
-
-    parts = _drain_thinking_deltas(
-        OpenRouterStreamedResponse,
-        [
-            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=0),
-            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=1),
-        ],
-    )
-
-    assert [(p.id, p.signature) for p in parts] == [("rs_AAA", "ENCRYPTED_BLOB_OF_BBB")]

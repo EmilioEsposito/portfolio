@@ -22,8 +22,9 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
+    RetryFeedbackPart,
     ToolCallPart,
+    ToolReturnPart,
 )
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
@@ -198,23 +199,31 @@ async def resume_with_approvals(
 def _log_tool_retries(result: AgentRunResult, *, conversation_id: str) -> None:
     """Surface silent tool validation failures from an agent run.
 
-    PydanticAI wraps tool-arg ValidationError into a RetryPromptPart sent back
-    to the model, so a failed approval (e.g. override_args missing a required
-    field) looks like success at the HTTP layer. Log them so they show up in
-    logfire.
+    PydanticAI sends a tool-arg ValidationError back to the model as a retry,
+    so a failed approval (e.g. override_args missing a required field) looks
+    like success at the HTTP layer. Log them so they show up in logfire.
+
+    A retry that answers a tool call is that call's ``ToolReturnPart`` with
+    ``outcome='retried'``; one that answers no call (output validation) is a
+    ``RetryFeedbackPart``. pydantic-ai 1.x used one ``RetryPromptPart`` for both.
     """
     for msg in result.new_messages():
         if not isinstance(msg, ModelRequest):
             continue
         for part in msg.parts:
-            if isinstance(part, RetryPromptPart):
-                logfire.warn(
-                    "tool call retry triggered after approval",
-                    conversation_id=conversation_id,
-                    tool_name=part.tool_name,
-                    tool_call_id=part.tool_call_id,
-                    content=part.content,
-                )
+            if isinstance(part, ToolReturnPart) and part.outcome == "retried":
+                tool_name, tool_call_id = part.tool_name, part.tool_call_id
+            elif isinstance(part, RetryFeedbackPart):
+                tool_name, tool_call_id = None, None
+            else:
+                continue
+            logfire.warn(
+                "tool call retry triggered after approval",
+                conversation_id=conversation_id,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                content=part.content,
+            )
 
 
 def _apply_arg_overrides(

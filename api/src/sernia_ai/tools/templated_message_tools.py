@@ -21,7 +21,7 @@ from api.src.sernia_ai.tools.quo_tools import _build_quo_client
 templated_message_toolset = FunctionToolset()
 
 
-@templated_message_toolset.tool
+@templated_message_toolset.tool_plain
 async def list_message_templates() -> tuple[MessageTemplate, ...]:
     """List deployed, fixed external message templates and when to use them.
 
@@ -31,7 +31,7 @@ async def list_message_templates() -> tuple[MessageTemplate, ...]:
     return list_templates()
 
 
-@templated_message_toolset.tool
+@templated_message_toolset.tool_plain
 async def send_templated_message(
     template_id: TemplateId,
     contact_id: str,

@@ -32,7 +32,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -465,15 +464,13 @@ def _trim_sms_history(
 def _tool_output_call_id(part: object) -> str | None:
     """Return the tool_call_id this part answers, or None if it answers no call.
 
-    ``ToolReturnPart`` always answers a call. ``RetryPromptPart`` answers one
-    only when it carries a ``tool_name`` — pydantic-ai auto-generates a
-    ``tool_call_id`` for *every* retry prompt, including output-validation
-    retries that belong to no tool call at all, so the id alone cannot tell
-    the two apart.
+    ``ToolReturnPart`` always answers a call, and that includes a retry sent
+    back for a tool call (``outcome='retried'``). A retry that belongs to no
+    tool call, such as output validation, is a ``RetryFeedbackPart`` and
+    answers nothing. History stored by pydantic-ai 1.x held both as
+    ``retry-prompt`` parts; it loads as whichever of the two each one meant.
     """
     if isinstance(part, ToolReturnPart):
-        return part.tool_call_id
-    if isinstance(part, RetryPromptPart) and part.tool_name is not None:
         return part.tool_call_id
     return None
 
@@ -485,7 +482,7 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
     matching output, or an output with no matching call. Both halves can go
     missing on us:
 
-    1. Orphaned tool outputs — a ``ToolReturnPart``/``RetryPromptPart`` whose
+    1. Orphaned tool outputs — a ``ToolReturnPart`` (a result or a retry) whose
        ``tool_call_id`` has no ``ToolCallPart``. Happens when history trimming
        cuts off the older messages holding the call, or when the main agent
        model changes (e.g. Anthropic to OpenAI) and old tool_call_ids have

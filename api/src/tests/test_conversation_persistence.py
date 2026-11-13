@@ -82,7 +82,7 @@ async def test_failure_flags_do_not_outlive_the_failed_save(conv_id):
 def _result(new_messages: list, *, input_tokens: int = 1000, output_tokens: int = 100):
     usage = RunUsage(input_tokens=input_tokens, output_tokens=output_tokens)
     return SimpleNamespace(
-        usage=lambda: usage,
+        usage=usage,  # a property on AgentRunResult
         new_messages=lambda: new_messages,
         all_messages=lambda: new_messages,
     )

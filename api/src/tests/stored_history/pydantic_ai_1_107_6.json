@@ -1,0 +1,349 @@
+{
+  "pydantic_ai_version": "1.107.6",
+  "lead_pending_reply": [
+    {
+      "parts": [
+        {
+          "content": "Case: is 12 Example St available?",
+          "timestamp": "2026-08-01T12:00:00Z",
+          "part_kind": "user-prompt"
+        }
+      ],
+      "timestamp": null,
+      "instructions": null,
+      "kind": "request",
+      "run_id": null,
+      "conversation_id": null,
+      "metadata": null
+    },
+    {
+      "parts": [
+        {
+          "tool_name": "send_lead_reply",
+          "args": "{\"to\": \"abc123@convo.zillow.com\", \"subject\": \"Re: 12 Example St inquiry\", \"body\": \"Hello,\\n\\nSernia Capital Team\", \"why\": \"Because.\", \"team_notes\": null}",
+          "tool_call_id": "lead-0123456789abcdef",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "tool-call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "output_tokens": 0,
+        "input_audio_tokens": 0,
+        "cache_audio_read_tokens": 0,
+        "output_audio_tokens": 0,
+        "details": {}
+      },
+      "model_name": "openrouter:test/lead",
+      "timestamp": "2026-08-01T12:00:00Z",
+      "kind": "response",
+      "provider_name": null,
+      "provider_url": null,
+      "provider_details": null,
+      "provider_response_id": null,
+      "finish_reason": null,
+      "run_id": null,
+      "conversation_id": null,
+      "metadata": null,
+      "state": "complete"
+    }
+  ],
+  "general_pending_approval": [
+    {
+      "parts": [
+        {
+          "content": "Text the tenant.",
+          "timestamp": "2026-11-13T02:23:20.671512Z",
+          "part_kind": "user-prompt"
+        }
+      ],
+      "timestamp": "2026-11-13T02:23:20.671983Z",
+      "instructions": "Be brief.",
+      "kind": "request",
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null
+    },
+    {
+      "parts": [
+        {
+          "content": "",
+          "id": "rs_AAA",
+          "signature": "ENC_AAA",
+          "provider_name": "openrouter",
+          "provider_details": null,
+          "part_kind": "thinking"
+        },
+        {
+          "tool_name": "lookup",
+          "args": {
+            "q": "tenant"
+          },
+          "tool_call_id": "call_lookup",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "tool-call"
+        },
+        {
+          "tool_name": "flaky",
+          "args": {
+            "n": "not-an-int"
+          },
+          "tool_call_id": "call_flaky",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "tool-call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 54,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "output_tokens": 10,
+        "input_audio_tokens": 0,
+        "cache_audio_read_tokens": 0,
+        "output_audio_tokens": 0,
+        "details": {}
+      },
+      "model_name": "function:model:",
+      "timestamp": "2026-11-13T02:23:20.672631Z",
+      "kind": "response",
+      "provider_name": null,
+      "provider_url": null,
+      "provider_details": null,
+      "provider_response_id": null,
+      "finish_reason": null,
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null,
+      "state": "complete"
+    },
+    {
+      "parts": [
+        {
+          "tool_name": "lookup",
+          "content": "found tenant",
+          "tool_call_id": "call_lookup",
+          "tool_kind": null,
+          "metadata": null,
+          "timestamp": "2026-11-13T02:23:20.673346Z",
+          "outcome": "success",
+          "part_kind": "tool-return"
+        },
+        {
+          "content": [
+            {
+              "type": "int_parsing",
+              "loc": [
+                "n"
+              ],
+              "msg": "Input should be a valid integer, unable to parse string as an integer",
+              "input": "not-an-int"
+            }
+          ],
+          "tool_name": "flaky",
+          "tool_call_id": "call_flaky",
+          "timestamp": "2026-11-13T02:23:20.673067Z",
+          "part_kind": "retry-prompt"
+        }
+      ],
+      "timestamp": "2026-11-13T02:23:20.673566Z",
+      "instructions": "Be brief.",
+      "kind": "request",
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null
+    },
+    {
+      "parts": [
+        {
+          "tool_name": "flaky",
+          "args": {
+            "n": 1
+          },
+          "tool_call_id": "call_flaky2",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "tool-call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 94,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "output_tokens": 14,
+        "input_audio_tokens": 0,
+        "cache_audio_read_tokens": 0,
+        "output_audio_tokens": 0,
+        "details": {}
+      },
+      "model_name": "function:model:",
+      "timestamp": "2026-11-13T02:23:20.674009Z",
+      "kind": "response",
+      "provider_name": null,
+      "provider_url": null,
+      "provider_details": null,
+      "provider_response_id": null,
+      "finish_reason": null,
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null,
+      "state": "complete"
+    },
+    {
+      "parts": [
+        {
+          "tool_name": "flaky",
+          "content": "ok",
+          "tool_call_id": "call_flaky2",
+          "tool_kind": null,
+          "metadata": null,
+          "timestamp": "2026-11-13T02:23:20.674886Z",
+          "outcome": "success",
+          "part_kind": "tool-return"
+        }
+      ],
+      "timestamp": "2026-11-13T02:23:20.675113Z",
+      "instructions": "Be brief.",
+      "kind": "request",
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null
+    },
+    {
+      "parts": [
+        {
+          "content": "Please return text or call a tool.",
+          "tool_name": null,
+          "tool_call_id": "pyd_ai_202c27391c48445eae4d5f479ff66aaa",
+          "timestamp": "2026-08-01T12:00:00Z",
+          "part_kind": "retry-prompt"
+        }
+      ],
+      "timestamp": null,
+      "instructions": null,
+      "kind": "request",
+      "run_id": null,
+      "conversation_id": null,
+      "metadata": null
+    },
+    {
+      "parts": [
+        {
+          "tool_name": "web_search",
+          "args": {
+            "query": "rent"
+          },
+          "tool_call_id": "srv_1",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": "anthropic",
+          "provider_details": null,
+          "part_kind": "builtin-tool-call"
+        },
+        {
+          "tool_name": "web_search",
+          "content": [
+            {
+              "url": "https://zillow.com"
+            }
+          ],
+          "tool_call_id": "srv_1",
+          "tool_kind": null,
+          "metadata": null,
+          "timestamp": "2026-08-01T12:00:00Z",
+          "outcome": "success",
+          "provider_name": "anthropic",
+          "provider_details": null,
+          "part_kind": "builtin-tool-return"
+        },
+        {
+          "content": "Rents are up.",
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "text"
+        }
+      ],
+      "usage": {
+        "input_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "output_tokens": 0,
+        "input_audio_tokens": 0,
+        "cache_audio_read_tokens": 0,
+        "output_audio_tokens": 0,
+        "details": {}
+      },
+      "model_name": "claude-sonnet-4-6",
+      "timestamp": "2026-08-01T12:00:00Z",
+      "kind": "response",
+      "provider_name": null,
+      "provider_url": null,
+      "provider_details": null,
+      "provider_response_id": null,
+      "finish_reason": null,
+      "run_id": null,
+      "conversation_id": null,
+      "metadata": null,
+      "state": "complete"
+    },
+    {
+      "parts": [
+        {
+          "content": "Sending now.",
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "text"
+        },
+        {
+          "tool_name": "send_sms",
+          "args": {
+            "to": "+15550001111",
+            "message": "Hi"
+          },
+          "tool_call_id": "call_sms",
+          "tool_kind": null,
+          "id": null,
+          "provider_name": null,
+          "provider_details": null,
+          "part_kind": "tool-call"
+        }
+      ],
+      "usage": {
+        "input_tokens": 95,
+        "cache_write_tokens": 0,
+        "cache_read_tokens": 0,
+        "output_tokens": 24,
+        "input_audio_tokens": 0,
+        "cache_audio_read_tokens": 0,
+        "output_audio_tokens": 0,
+        "details": {}
+      },
+      "model_name": "function:model:",
+      "timestamp": "2026-11-13T02:23:20.675549Z",
+      "kind": "response",
+      "provider_name": null,
+      "provider_url": null,
+      "provider_details": null,
+      "provider_response_id": null,
+      "finish_reason": null,
+      "run_id": "01a1d2b7-744a-71a9-8355-e399788a9c25",
+      "conversation_id": "01a1d2b7-744a-71a9-8355-e398868d5f83",
+      "metadata": null,
+      "state": "complete"
+    }
+  ]
+}
