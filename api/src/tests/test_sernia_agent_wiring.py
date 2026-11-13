@@ -78,7 +78,7 @@ class TestProviderAdaptiveNativeTools:
     """
 
     def test_openrouter_supports_search_but_not_fetch(self):
-        """OpenRouter serves web search via its `web` plugin; it has no web fetch.
+        """OpenRouter serves web search as a server tool; it has no web fetch.
 
         This is what makes `optional=True` on the WebFetchTool load-bearing on
         the default (GPT) model — the tool is dropped rather than raising.
@@ -86,8 +86,8 @@ class TestProviderAdaptiveNativeTools:
         from api.src.sernia_ai.model_config import build_run_kwargs
 
         model = build_run_kwargs("gpt-6-luna")["model"]
-        assert WebSearchTool in model.profile.supported_native_tools
-        assert WebFetchTool not in model.profile.supported_native_tools
+        assert WebSearchTool in model.profile["supported_native_tools"]
+        assert WebFetchTool not in model.profile["supported_native_tools"]
 
     @pytest.mark.parametrize("model_name", ["claude-sonnet-4-6", "claude-opus-4-7"])
     def test_anthropic_supports_search_and_fetch(self, model_name: str):
@@ -95,8 +95,8 @@ class TestProviderAdaptiveNativeTools:
         from pydantic_ai.providers.anthropic import AnthropicProvider
 
         model = AnthropicModel(model_name, provider=AnthropicProvider(api_key="test-key"))
-        assert WebSearchTool in model.profile.supported_native_tools
-        assert WebFetchTool in model.profile.supported_native_tools
+        assert WebSearchTool in model.profile["supported_native_tools"]
+        assert WebFetchTool in model.profile["supported_native_tools"]
 
 
 class TestSyntheticRun:
@@ -278,3 +278,189 @@ class TestInstructionsStableWithinRun:
         assert names.index("inject_memory") < names.index("inject_context")
         assert names.index("inject_filetree") < names.index("inject_context")
         assert names[-1] == "inject_context"
+
+    @pytest.mark.asyncio
+    async def test_no_action_ends_the_run_without_running_tools_called_beside_it(self, deps):
+        """A silent run must not act on its way out.
+
+        The model returns `NoAction` and calls a tool in the same response.
+        pydantic-ai 2.x would run that tool by default; the agent pins
+        `end_strategy="early"`, the 1.x behaviour, so it is skipped. A harmless
+        tool stands in here for `quo_send_sms` and the other tools that act.
+        """
+        from pydantic_ai.messages import (
+            ModelMessage,
+            ModelRequest,
+            ModelResponse,
+            ToolCallPart,
+            ToolReturnPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai.agent import NoAction
+
+        def model(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            (no_action,) = info.output_tools  # `NoAction` is the only output tool
+            return ModelResponse(
+                parts=[
+                    ToolCallPart("search_files", {"query": "Sernia"}),
+                    ToolCallPart(no_action.name, {"reason": "Nothing to do."}),
+                ]
+            )
+
+        assert sernia_agent.end_strategy == "early"
+        with sernia_agent.override(native_tools=[]):
+            result = await sernia_agent.run("Check in.", deps=deps, model=FunctionModel(model))
+
+        assert result.output == NoAction(reason="Nothing to do.")
+        (search_return,) = [
+            part
+            for message in result.all_messages()
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart) and part.tool_name == "search_files"
+        ]
+        # Had the search run, it would have found the fixture's MEMORY.md.
+        assert "MEMORY.md" not in str(search_return.content)
+
+    @pytest.mark.asyncio
+    async def test_agent_offers_skills_and_loads_one_with_load_capability(self, deps):
+        """The path a scheduled run takes: read the catalog, load a skill, act on it."""
+        from pydantic_ai.messages import (
+            InstructionDeltaPart,
+            ModelMessage,
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME, lead_policy_text
+
+        first: list[AgentInfo] = []
+
+        def model(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            if not first:
+                first.append(info)
+                return ModelResponse(parts=[ToolCallPart("load_capability", {"id": SKILL_NAME})])
+            return ModelResponse(parts=[TextPart("Loaded.")])
+
+        with sernia_agent.override(native_tools=[]):
+            result = await sernia_agent.run(
+                "How are Zillow leads handled?", deps=deps, model=FunctionModel(model)
+            )
+
+        assert result.output == "Loaded."
+        tools = {tool.name for tool in first[0].function_tools}
+        assert "load_capability" in tools
+        # The 1.x skill tools are gone; the instructions name `load_capability`.
+        assert not tools & {"list_skills", "load_skill", "read_skill_resource", "run_skill_script"}
+        instructions = first[0].instructions or ""
+        assert f"- {SKILL_NAME}: " in instructions
+        assert "`load_capability`" in instructions
+        loaded = [
+            part.content
+            for message in result.all_messages()
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, InstructionDeltaPart)
+        ]
+        assert loaded == [lead_policy_text().strip()]
+
+    @pytest.mark.asyncio
+    async def test_loading_a_skill_that_is_already_loaded_does_not_end_the_run(self, deps):
+        """Two bounced `load_capability` calls in a run used to end it with no reply.
+
+        pydantic-ai answers a load of a skill that is already loaded with a
+        retry, and a run fails once a tool runs out of retries. On an SMS
+        trigger that means nothing is sent or saved.
+        """
+        from pydantic_ai.messages import (
+            ModelMessage,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME
+
+        steps = iter(
+            [
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": "no-such-skill"}),
+            ]
+        )
+
+        def model(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            part = next(steps, None)
+            return ModelResponse(parts=[part or TextPart("Done.")])
+
+        with sernia_agent.override(native_tools=[]):
+            result = await sernia_agent.run("Hi.", deps=deps, model=FunctionModel(model))
+
+        assert result.output == "Done."
+
+    @pytest.mark.asyncio
+    async def test_skills_are_read_after_the_workspace_pull(self, deps, monkeypatch):
+        """A skill changed on GitHub reaches the first run after the change."""
+        from pydantic_ai import Agent
+        from pydantic_ai.messages import (
+            InstructionDeltaPart,
+            ModelMessage,
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai import agent as agent_module
+        from api.src.sernia_ai import instructions
+        from api.src.sernia_ai.deps import SerniaDeps
+        from api.src.sernia_ai.memory import git_sync
+
+        skill_dir = deps.workspace_path / ".claude" / "skills" / "scheduled-checks"
+
+        async def pull(workspace_path):
+            # What a pull of an edit made on GitHub does to the checkout.
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\ndescription: Inbox checks.\n---\n\nPulled steps.\n"
+            )
+
+        monkeypatch.setattr(git_sync, "pull_workspace", pull)
+        monkeypatch.setattr(instructions, "_pulled_conversation_ids", set())
+        skills = agent_module.build_workspace_skills(deps.workspace_path)
+
+        seen: list[str] = []
+
+        def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            if not seen:
+                seen.append(info.instructions or "")
+                return ModelResponse(
+                    parts=[ToolCallPart("load_capability", {"id": "scheduled-checks"})]
+                )
+            return ModelResponse(parts=[TextPart("Done.")])
+
+        # The agent's own skills read the deployed workspace path, so this
+        # builds the same pair of capabilities over the test workspace.
+        agent = Agent(
+            FunctionModel(model),
+            deps_type=SerniaDeps,
+            capabilities=[skills, agent_module.lead_policy_capability],
+        )
+        result = await agent.run("Scheduled inbox check.", deps=deps)
+
+        assert "- scheduled-checks: Inbox checks." in seen[0]
+        loaded = [
+            part.content
+            for message in result.all_messages()
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, InstructionDeltaPart)
+        ]
+        assert loaded == ["# Skill: scheduled-checks\n\nPulled steps."]

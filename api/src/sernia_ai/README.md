@@ -57,25 +57,25 @@ Things worth knowing about the OpenRouter path (all handled in
   validates the enum server-side (`max|xhigh|high|medium|low|minimal|none`).
   Routing it through pydantic-ai's unified `thinking` setting instead would
   silently collapse both `xhigh` and `max` to `high`.
-- **Web search** maps to OpenRouter's `web` plugin. pydantic-ai drops the
-  tool's `allowed_domains`, so `SerniaOpenRouterModel` re-attaches
-  `WEB_SEARCH_ALLOWED_DOMAINS` as the plugin's `include_domains` — without it
-  the agent could search the whole web.
-- **Streamed encrypted reasoning items are kept distinct.** pydantic-ai's
-  OpenRouter streaming keys `reasoning_details` deltas by type + position, not
-  by reasoning item id — so a streamed response containing two encrypted
-  reasoning items (which OpenAI emits when reasoning interleaves with several
-  tool calls in one turn) merges them into a single ThinkingPart carrying the
-  first item's id and the last item's encrypted payload. Replaying that part
-  fails the whole run with a 400 `invalid_encrypted_content` ("Encrypted
-  content item_id did not match the target item id"). Bug confirmed present
-  upstream through pydantic-ai 2.24.0; `SerniaOpenRouterStreamedResponse`
-  fixes the keying, and a canary test
-  (`test_upstream_still_merges_encrypted_reasoning_items`) fails when upstream
-  fixes it so the subclass can be deleted.
+- **Web search** is OpenRouter's `openrouter:web_search` server tool.
+  pydantic-ai sends `WEB_SEARCH_ALLOWED_DOMAINS` as the tool's
+  `allowed_domains`; without it the agent could search the whole web. On
+  pydantic-ai 1.x this was the `web` plugin, and `SerniaOpenRouterModel`
+  re-attached the domains itself. `test_model_config.py` pins the request.
+- **Streamed encrypted reasoning items are kept distinct.** A streamed
+  response can hold two encrypted reasoning items (OpenAI emits them when
+  reasoning interleaves with several tool calls in one turn). If both land on
+  one key they merge into one ThinkingPart with the first item's id and the
+  last item's payload, and replaying it fails the whole run with a 400
+  `invalid_encrypted_content`. pydantic-ai 1.x merged them on every stream;
+  2.x keys them by OpenRouter's `index` and still merges them when `index` is
+  absent or repeated. `SerniaOpenRouterStreamedResponse` keys each encrypted
+  item by its own id, and a canary
+  (`test_upstream_still_merges_encrypted_reasoning_items_without_an_index`)
+  fails when upstream stops merging so the subclass can be deleted.
 - **Cost tracking** comes from OpenRouter, not genai-prices. We enable
   OpenRouter usage accounting (`usage.include`) and stamp the exact billed
-  amount, which includes web-plugin charges. genai-prices (>= 0.1.5) also
+  amount, which includes web-search charges. genai-prices (>= 0.1.5) also
   prices these routes, and pydantic-ai writes that list estimate to
   `operation.cost` after the model returns, so the billed amount also goes on
   `operation.billed_cost` and `BilledCostSpanProcessor`
@@ -206,7 +206,7 @@ Git-backed persistent workspace at `/workspace/`:
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
-- `.claude/skills/` — Playbooks and procedures. The agent discovers and reads skills via the `SkillsToolset` tools (`list_skills`, `load_skill`, `read_skill_resource`, `run_skill_script`); the registry is auto-injected into the system prompt. Workspace file tools (`workspace_write_file` / `workspace_edit_file`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs. One skill is not in the workspace: `zillow-auto-reply` is built in code from `zillow_leads/prompts/policy.md` (see `zillow_leads/skill.py`), ships with the deploy, and takes priority over a workspace skill of the same name.
+- `.claude/skills/` — Playbooks and procedures. The harness `Skills` capability (`pydantic_ai_harness.Skills`) reads them at the start of every run: the catalog (name + description) is injected into the instructions, and the agent loads a skill's body with the `load_capability` tool. It reads `SKILL.md` only; a skill's other files are ordinary workspace files, and nothing runs scripts. Workspace file tools (`workspace_write_file` / `workspace_edit_file`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs. One skill is not in the workspace: `zillow-auto-reply` is built in code from `zillow_leads/prompts/policy.md` (see `zillow_leads/skill.py`) as a deferred capability in the same catalog. It ships with the deploy, and a workspace skill of the same name is left out of the catalog.
 
 ### Server-Side vs Knowledge-Repo Content
 
@@ -219,9 +219,10 @@ The agent's behavior comes from two sources with different error boundaries:
 
 This distinction matters most for **skills** (`/workspace/.claude/skills/<name>/SKILL.md`). Skills are runtime-editable YAML+markdown files that the agent itself can create and modify via `workspace_edit_file`. A malformed SKILL.md (bad YAML frontmatter, broken encoding, etc.) must degrade gracefully:
 
-- **Reload** (`reload_skills()` in `agent.py`): Per-directory try/except — a broken skill directory is skipped and logged, other skills still load.
-- **Injection** (`SkillsToolset.get_instructions()`): Operates on already-loaded `_skills` dict, so it only sees successfully parsed skills.
-- **Decorator** (`refresh_skills_before_run`): Wraps the reload in try/except — if the entire reload fails, the agent runs with stale skills rather than crashing.
+- **One bad skill**: the harness skips a `SKILL.md` it cannot parse (bad frontmatter, no description, invalid UTF-8, a name that does not match its directory) and the other skills still load. `WorkspaceSkills` in `agent.py` logs each skipped skill to Logfire as a warning.
+- **A missing skills directory**: skipped (`missing_directories="skip"`); the agent runs with the deployed skill only.
+- **Anything else** (for example a file the process cannot read): `WorkspaceSkills.for_run` catches it, logs an error, and the agent runs without workspace skills rather than not at all.
+- **Names that clash**: a skill shares one id space with the agent's other capabilities, and a clash fails the run. `RESERVED_SKILL_NAMES` in `agent.py` keeps those names out of the catalog; a test fails when a new capability needs adding to it.
 
 The same principle applies to all knowledge-repo content: `MEMORY.md` reads are capped and wrapped, filetree generation catches `OSError`, and workspace file tools return error strings rather than raising.
 

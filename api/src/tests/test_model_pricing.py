@@ -157,21 +157,22 @@ def _openrouter_stream_body(byok: bool) -> bytes:
 
 
 def _mock_openrouter_model(stream: bool, byok: bool):
-    import httpx
+    import httpx2
     from pydantic_ai.providers.openrouter import OpenRouterProvider
 
     from api.src.sernia_ai.model_config import SerniaOpenRouterModel
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         if stream:
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 content=_openrouter_stream_body(byok),
                 headers={"content-type": "text/event-stream"},
             )
-        return httpx.Response(200, json=_openrouter_completion_body(byok))
+        return httpx2.Response(200, json=_openrouter_completion_body(byok))
 
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    # pydantic-ai 2.x builds OpenAI-compatible providers on httpx2.
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
     provider = OpenRouterProvider(api_key="test-key", http_client=client)
     return SerniaOpenRouterModel("openai/gpt-6-luna", provider=provider)
 

@@ -630,6 +630,45 @@ async def delete_conversation_endpoint(
 # =============================================================================
 
 
+async def _skills_preview() -> tuple[str, list[dict]]:
+    """What the skills capabilities add to a run: the catalog and the load tool.
+
+    pydantic-ai builds both when a run starts, so this runs a throwaway agent
+    that has only those two capabilities against a local model that records
+    what it was sent. No provider is called and no tool runs.
+    """
+    from pydantic_ai import Agent
+    from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+    from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+    from api.src.sernia_ai.agent import lead_policy_capability, workspace_skills
+
+    seen: dict = {}
+
+    def record(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen["instructions"] = info.instructions or ""
+        seen["tools"] = [
+            {
+                "name": td.name,
+                "description": td.description or "",
+                "parameters_json_schema": td.parameters_json_schema,
+                "kind": getattr(td, "kind", None),
+                "metadata": getattr(td, "metadata", None) or {},
+            }
+            for td in info.function_tools
+        ]
+        return ModelResponse(parts=[TextPart("ok")])
+
+    probe = Agent(
+        FunctionModel(record),
+        deps_type=SerniaDeps,
+        capabilities=[workspace_skills, lead_policy_capability],
+        name="sernia_skills_preview",
+    )
+    await probe.run("preview", deps=None)  # type: ignore[arg-type]
+    return seen.get("instructions", ""), seen.get("tools", [])
+
+
 async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
     """Walk the agent's toolsets and return tool definitions as the model sees them.
 
@@ -644,25 +683,18 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
         deps=deps, model=None, usage=RunUsage()
     )
 
-    # Resolve tools first so we can use tool-name shape to label capability-
-    # contributed toolsets (the agent wraps them in CombinedToolset with no
-    # ``name`` attribute). Each toolset's own ``get_instructions(ctx)`` is also
-    # called — that's how SkillsCapability injects the skill registry into the
-    # system prompt at run time, and the Context tab needs to surface it for
-    # the preview to match what the model actually sees.
+    # Each toolset's own ``get_instructions(ctx)`` is also called, so anything a
+    # toolset adds to the system prompt shows in the Context tab. The skill
+    # catalog is not one of those: capabilities add it, see `_skills_preview`.
     import inspect
 
-    _SKILLS_TOOLS = {"list_skills", "load_skill"}
-
-    def _label_for(ts, tool_names: set[str]) -> str:
+    def _label_for(ts) -> str:
         explicit = getattr(ts, "name", None)
         if explicit:
             return explicit
         cls_name = type(ts).__name__
         if cls_name == "_AgentFunctionToolset":
             return "agent.tool registrations"
-        if _SKILLS_TOOLS.issubset(tool_names):
-            return "skills"
         return cls_name
 
     toolsets_out: list[dict] = []
@@ -680,7 +712,7 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
                 }
             )
             continue
-        label = _label_for(ts, set(tools.keys()))
+        label = _label_for(ts)
         entries = []
         for t in tools.values():
             td = t.tool_def
@@ -708,6 +740,19 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
             content = None
         if content:
             toolset_instructions.append({"label": label, "content": str(content)})
+
+    # Skills: the catalog the capabilities put in the instructions, and the
+    # `load_capability` tool the model loads one with.
+    try:
+        skills_catalog, skills_tools = await _skills_preview()
+    except Exception as e:
+        toolsets_out.append({"name": "skills", "error": f"{type(e).__name__}: {e}", "tools": []})
+    else:
+        if skills_tools:
+            total += len(skills_tools)
+            toolsets_out.append({"name": "skills", "tools": skills_tools})
+        if skills_catalog:
+            toolset_instructions.append({"label": "skills", "content": skills_catalog})
 
     # Native tools (web search/fetch) contributed by the WebSearch/WebFetch
     # capabilities. The agent collects them on ``_cap_native_tools`` at
@@ -788,8 +833,8 @@ async def get_admin_context(
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 
     tool_overview = await _resolve_tool_overview(deps)
-    # Toolsets can also contribute system-prompt content (e.g. SkillsCapability
-    # injects the skill registry). Surface those alongside the explicit
+    # Toolsets and capabilities can also contribute system-prompt content
+    # (e.g. the skill catalog). Surface those alongside the explicit
     # instructions so the preview matches what the model actually sees.
     for ts_section in tool_overview.pop("toolset_instructions", []):
         sections.append(
@@ -870,8 +915,8 @@ async def get_conversation_context(
         sections.append({"label": fn.__name__, "content": content or "(empty)"})
 
     tool_overview = await _resolve_tool_overview(deps)
-    # Toolsets can also contribute system-prompt content (e.g. SkillsCapability
-    # injects the skill registry). Surface those alongside the explicit
+    # Toolsets and capabilities can also contribute system-prompt content
+    # (e.g. the skill catalog). Surface those alongside the explicit
     # instructions so the preview matches what the model actually sees.
     for ts_section in tool_overview.pop("toolset_instructions", []):
         sections.append(

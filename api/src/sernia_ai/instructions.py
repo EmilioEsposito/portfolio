@@ -54,9 +54,10 @@ topic per day for ad-hoc notes.
 - **`/workspace/areas/<topic>.md`** — deep topic knowledge (properties, \
 tenants, vendors, etc.).
 - **Skills** — domain playbooks. The skill registry (name + description) is \
-auto-injected. Use `list_skills` to browse, `load_skill <name>` to load full \
-instructions, `read_skill_resource` for supplementary files. **Never** use \
-`workspace_read_file` to read a skill — use `load_skill`. To CREATE or EDIT a \
+auto-injected. Use `load_capability` with a skill's name to load its full \
+instructions. A skill loaded earlier in this conversation stays loaded; do not \
+load it again. **Never** use `workspace_read_file` to read a skill — use \
+`load_capability`. To CREATE or EDIT a \
 skill, write to `/workspace/.claude/skills/<name>/SKILL.md` via \
 `workspace_write_file` / `workspace_edit_file`. The workspace tools are for \
 editing skills, not reading them.
@@ -117,8 +118,8 @@ _HIDDEN_NAMES = {".git", ".gitkeep", ".mcp.json"}
 # relative path from the workspace root, so we can collapse only the noisy
 # subtree (.claude/skills) while keeping the parent (.claude) navigable.
 # - daily_notes: high-volume dated content; agent should search/list, not skim.
-# - .claude/skills: skills are discoverable + readable via the ``list_skills``
-#   / ``load_skill`` tools — no need to enumerate them as paths.
+# - .claude/skills: skills are listed in the injected skill catalog and read
+#   with the ``load_capability`` tool — no need to enumerate them as paths.
 _COLLAPSED_PATHS = {"daily_notes", ".claude/skills"}
 
 
