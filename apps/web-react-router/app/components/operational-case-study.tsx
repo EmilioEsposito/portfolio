@@ -15,6 +15,7 @@ interface CaseStudy {
   outcome: string;
   boundary: string;
   source: string;
+  related?: { to: string; label: string };
 }
 export function caseStudyMeta(study: CaseStudy) {
   return generatePageMeta({ title: study.title, description: study.description, path: study.path });
@@ -39,7 +40,7 @@ export default function OperationalCaseStudy({ study }: { study: CaseStudy }) {
     </section>
     <div className="my-9 grid gap-8 md:grid-cols-2"><section><h2 className="text-lg font-semibold">Where AI decides</h2><p className="mt-3 leading-7 text-muted-foreground">{study.judgment}</p></section><section><h2 className="text-lg font-semibold">What the code controls</h2><p className="mt-3 leading-7 text-muted-foreground">{study.controls}</p></section></div>
     <section className="max-w-3xl border-t pt-7"><h2 className="text-lg font-semibold">The practical outcome</h2><p className="mt-3 leading-7 text-muted-foreground">{study.outcome}</p><p className="mt-4 text-sm leading-6 text-muted-foreground">{study.boundary}</p></section>
-    <footer className="mt-8 flex flex-wrap items-center gap-6"><a href={study.source} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm underline underline-offset-4">Read the implementation <ExternalLink className="size-4" /></a><Link to="/multi-agent-chat" className="text-sm underline underline-offset-4">Explore the public agent demo</Link></footer>
+    <footer className="mt-8 flex flex-wrap items-center gap-6"><a href={study.source} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm underline underline-offset-4">Read the implementation <ExternalLink className="size-4" /></a>{study.related && <Link to={study.related.to} className="text-sm underline underline-offset-4">{study.related.label}</Link>}<Link to="/multi-agent-chat" className="text-sm underline underline-offset-4">Explore the public agent demo</Link></footer>
   </main>;
 }
 
@@ -92,4 +93,5 @@ export const leasingStudy: CaseStudy = {
   outcome: "Confirmed tour information can become a contact in the phone platform and an event in the team calendar. Unanswered inquiries and processing issues surface to the team for follow-up.",
   boundary: "This workflow assists the leasing team; it does not approve applicants or autonomously negotiate lease terms. The public email studio is a separate drafting exercise with fictional scenarios.",
   source: "https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_email",
+  related: { to: "/systems/leasing-evals", label: "How its replies are evaluated" },
 };

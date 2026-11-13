@@ -89,9 +89,10 @@ DEFAULT_SCHEDULE_HOURS = [8, 11, 14, 17]  # 8am, 11am, 2pm, 5pm ET
 # Debounce: first email starts a window; additional Zillow emails accumulate
 # and the agent fires once at the end with the full batch.
 DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300  # 5 minutes
-# When True (default), Zillow auto-replies route through the standard external
-# email HITL approval card. Flip to False once the agent has earned trust to
-# auto-send Zillow replies without per-email approval.
+# No longer read by the Zillow queue. It dates from when Zillow email ran the
+# general agent and this switch let it send without approval. Zillow email now
+# goes to the dedicated lead agent (zillow_leads), whose replies always wait
+# for approval. Kept because the settings page and its API still carry it.
 DEFAULT_ZILLOW_REQUIRE_APPROVAL = True
 
 # Shared team contact ID in OpenPhone (Quo).

@@ -28,3 +28,6 @@ __pycache__/
 .idea/
 *.swp
 .DS_Store 
+
+# Zillow eval data: real applicant emails. Never in an image.
+api/src/sernia_ai/zillow_leads/evals/data
