@@ -34,6 +34,7 @@ import {
   Settings,
   LayoutList,
   Building,
+  KeyRound,
   X,
   Menu,
   ChevronDown,
@@ -581,6 +582,18 @@ export function ConversationSidebar({
       {/* Footer with nav links */}
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              tooltip="Rental Listings"
+              onClick={() => {
+                navigate("/sernia-rental-listings");
+                if (isMobile) toggleSidebar();
+              }}
+            >
+              <KeyRound className="w-4 h-4" />
+              {!isCollapsed && <span>Rental Listings</span>}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           {isAdmin && (
             <>
               <SidebarMenuItem>
