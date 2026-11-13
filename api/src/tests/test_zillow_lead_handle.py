@@ -20,7 +20,7 @@ from api.src.agent_conversations.models import (
     get_conversation_messages,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.zillow_leads import handle, unit_data
+from api.src.sernia_ai.zillow_leads import handle, listing_data
 from api.src.sernia_ai.zillow_leads.agent import LeadOutcome
 from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, TourSlot, UnitData
 from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
@@ -124,7 +124,7 @@ class TestConversationFor:
 async def conversation_id(monkeypatch):
     """A fresh conversation ID, with Gmail, the model and push stubbed out."""
     cid = f"test-lead-{uuid.uuid4().hex}"
-    monkeypatch.setattr(unit_data, "load", AsyncMock(return_value=unit_data.Loaded()))
+    monkeypatch.setattr(listing_data, "load", AsyncMock(return_value=listing_data.Loaded()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
     monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
     yield cid
@@ -188,20 +188,20 @@ class TestHandleThread:
         assert await handle.handle_thread("T", conversation_id=conversation_id, metadata={}) is None
 
 
-class TestUnitData:
+class TestListingData:
     """What the case is built from, and what unusable data does. Unit data is invented."""
 
     listing = Listing(unit="12-A", address="12 Example St #A", rent=1500, facts="Dishwasher")
 
     async def run(self, conversation_id, monkeypatch, loaded, result=None):
         monkeypatch.setattr(handle, "load_lead_thread", AsyncMock(return_value=thread(message(0))))
-        monkeypatch.setattr(unit_data, "load", AsyncMock(return_value=loaded))
+        monkeypatch.setattr(listing_data, "load", AsyncMock(return_value=loaded))
         monkeypatch.setattr(handle, "respond", AsyncMock(return_value=result or outcome()))
         return await handle.handle_thread("T", conversation_id=conversation_id, metadata={})
 
     @pytest.mark.asyncio
     async def test_the_case_is_built_from_the_data_on_file(self, conversation_id, monkeypatch):
-        loaded = unit_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -226,7 +226,7 @@ class TestUnitData:
             )
         )
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = unit_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -241,7 +241,7 @@ class TestUnitData:
     ):
         source = SimpleNamespace(tours=AsyncMock(side_effect=RuntimeError("calendar not found")))
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = unit_data.Loaded(data=UnitData(listings=[self.listing]))
+        loaded = listing_data.Loaded(data=UnitData(listings=[self.listing]))
 
         handled = await self.run(conversation_id, monkeypatch, loaded)
 
@@ -253,7 +253,7 @@ class TestUnitData:
     async def test_data_that_fails_its_checks_escalates_without_asking_the_agent(
         self, conversation_id, monkeypatch
     ):
-        loaded = unit_data.Loaded(problem="unit 12-A: rent must be more than 0")
+        loaded = listing_data.Loaded(problem="unit 12-A: rent must be more than 0")
 
         handled = await self.run(conversation_id, monkeypatch, loaded)
 
@@ -264,14 +264,14 @@ class TestUnitData:
         (card,) = extract_pending_approval_from_messages(messages)
         assert card["tool_name"] == handle.ASK_TEAM
         assert "unit 12-A: rent must be more than 0" in card["args"]["question"]
-        assert "rental_units" in card["args"]["question"]
+        assert "rental_listings" in card["args"]["question"]
 
     @pytest.mark.asyncio
     async def test_with_no_units_the_agent_still_decides_and_sees_no_listings(
         self, conversation_id, monkeypatch
     ):
         handled = await self.run(
-            conversation_id, monkeypatch, unit_data.Loaded(), outcome("escalate")
+            conversation_id, monkeypatch, listing_data.Loaded(), outcome("escalate")
         )
 
         assert handled.action == "escalate"

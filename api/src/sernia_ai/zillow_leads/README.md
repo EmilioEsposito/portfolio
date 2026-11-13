@@ -15,7 +15,7 @@ zillow_leads/
 ├── agent.py         the lead agent and its three outcome types
 ├── case.py          builds the case the agent reads
 ├── thread.py        loads a lead's email thread
-├── unit_data.py     where a live case gets listings: the rental units tables
+├── listing_data.py     where a live case gets listings: the rental listings tables
 ├── tours.py         where a live case gets tour times and booked tours
 ├── handle.py        saves an outcome for approval, sends on approval
 ├── skill.py         the policy as a skill for the general agent
@@ -67,7 +67,7 @@ flowchart LR
 | Word | Meaning | Changes when |
 |---|---|---|
 | **Scenario** | A real conversation up to a moment where we owed a response, containing only the emails. | Never; it is a record of what happened. |
-| **Unit data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. In the evals it is a season file (which may still sit in `evals/data/operating/`, the folder name from before the rename); in production it is built from the rental units tables. | Weekly in season, and its format can change too. |
+| **Unit data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. In the evals it is a season file (which may still sit in `evals/data/operating/`, the folder name from before the rename); in production it is built from the rental listings tables. | Weekly in season, and its format can change too. |
 | **Case** | Scenario + unit data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
 | **Policy** | The instructions: when to reply, what is allowed, how to write, and the answers that are the same for every lead (how to apply, the fee). | By commit, after an eval run says the change helps. |
 | **Outcome** | What the lead agent returns: a `Reply` with the full email, a `NoReply`, or an `Escalate` with a question. Three types, so a reply cannot exist without its text. | Every run. |
@@ -232,7 +232,7 @@ Tour times follow the same approach: the case stores the times, never their
 source. In the evals a weekly pattern per person in the season's unit data
 file (`availability`) is turned into slots by `offerable_slots()`. In
 production the times come from a `TourSource` (`tours.py`), which today knows
-none; see [Unit data in production](#unit-data-in-production).
+none; see [Listing data in production](#listing-data-in-production).
 Reading calendars was tested once and is not built: the existing service
 account can read free/busy for a domain user's calendar and for an outside
 calendar shared with that user. A calendar that is not shared comes back as an
@@ -370,25 +370,28 @@ tour under the general agent, a source of tour times and booked tours (the
 case gets none; issue #368), and turning approvals into labelled scenarios
 automatically.
 
-### Unit data in production
+### Listing data in production
 
-In production the case is built from the rental units tables
-([`api/src/rental_units`](../../rental_units/README.md)), not from a file:
+In production the case is built from the rental listings tables
+([`api/src/rental_listings`](../../rental_listings/README.md)), not from a file:
 
 | Table | One row is | Read by |
 |---|---|---|
-| `rental_units` | One unit as it stands now: rent, lease dates, rented date, booking link, preferred times, public facts, internal notes | `unit_data.load()`, on every lead |
-| `rental_unit_changes` | One saved change: who, when, from which conversation, and the whole unit after it | The general agent's history tool; later, evals that need "as of this date" |
+| `rental_listings` | One unit's listing as it stands now, meaning the next lease on offer: `asking_rent`, `next_lease_start_earliest` / `_latest`, `off_market_on`, `showing_booking_url`, `preferred_showing_times`, `public_facts`, `internal_notes` | `listing_data.load()`, on every lead |
+| `rental_listing_changes` | One saved change: who, when, from which conversation, and the whole listing after it | The general agent's history tool; later, evals that need "as of this date" |
 
 The showing window, blackout dates and the shared booking link are one
 settings row (`rental_showing_rules`), and their changes are in the same
-history. Nothing is saved yet: until a unit is added the agent sees no
+history. Nothing is saved yet: until a listing is added the agent sees no
 listings and escalates every lead.
 
-`unit_data.py` turns the rows into the `UnitData` the case builder
-takes, the same shape the evals read from a season file.
+`listing_data.py` turns the rows into the `UnitData` the case builder
+takes, the same shape the evals read from a season file. The table's names
+say "asking" and "next lease" because a unit also has a current lease at a
+different rent; inside a case, under "Listings", the shorter names (`rent`,
+`lease_start_earliest`, `rented_on`) are unambiguous and are kept.
 
-**Two kinds of free text per unit.**
+**Two kinds of free text per listing.**
 
 | Kind | Example | The lead agent |
 |---|---|---|
@@ -400,22 +403,22 @@ Internal notes appear in the case under their own label, and one line in
 the agent reads email from strangers, so assume a note could be coaxed out of
 it. That line has not been through an eval run yet.
 
-**Who changes the data.** The general agent, with the `rental-unit-data`
-tools ([`tools/rental_unit_tools.py`](../tools/rental_unit_tools.py)), which
+**Who changes the data.** The general agent, with the `rental-listing-data`
+tools ([`tools/rental_listing_tools.py`](../tools/rental_listing_tools.py)), which
 it loads like a skill. An edit screen and the same tools in the standalone
-MCP service are planned; both would go through `rental_units/service.py`.
+MCP service are planned; both would go through `rental_listings/service.py`.
 
-**Checks** (`rental_units/checks.py`), on every save and every read: values
+**Checks** (`rental_listings/checks.py`), on every save and every read: values
 that make sense, no unknown fields, and no free text holding a phone number,
 an email address, a link or access-code wording, in facts or notes. A booking
 link must be a plain `https` address.
 
-**Approval of the general agent's changes.** A new unit, an address, a
+**Approval of the general agent's changes.** A new listing, an address, a
 public fact or internal note added or removed, and a booking link wait for a
 person, on the same approval screen as everything else; the card shows the
-change. Rent, lease dates, the rented date, virtual tours, preferred times,
-the showing window and blackout dates are saved at once, because their types
-limit what they can say. The checks run before approval is asked, so approval
+change. Asking rent, next lease dates, the off-market date, virtual tours,
+preferred showing times, the showing window and blackout dates are saved at
+once, because their types limit what they can say. The checks run before approval is asked, so approval
 cannot let a failing change through.
 
 **Data that cannot be used fails safe.** If the database cannot be read, or a
@@ -423,7 +426,7 @@ row fails its checks (someone edited it by hand), none of it is used: code
 escalates the lead without asking the agent, the approval card gives the
 reason, and Logfire records an error.
 
-**Tour times are not unit data.** `handle.py` asks a `TourSource`
+**Tour times are not listing data.** `handle.py` asks a `TourSource`
 (`tours.py`) for the open tour times and the booked tours, and passes what it
 returns through the fixed rules (24 hours' notice, the showing window,
 blackout dates) before it reaches the case. The source today is `NoTours`:
@@ -478,7 +481,7 @@ it was checked against this package; this is where each one went.
 |---|---|---|
 | Lead agent | `prompts/role.md`, then `prompts/policy.md`, then `prompts/record.md`, as its instructions | `load_instructions()` in `agent.py` |
 | General agent | A short preface, then `policy.md`, as the `zillow-auto-reply` skill | `skill.py`, registered in `sernia_ai/agent.py` |
-| General agent | A guide and four tools for rental unit data, as the `rental-unit-data` capability | `tools/rental_unit_tools.py`, registered in `sernia_ai/agent.py` |
+| General agent | A guide and four tools for rental listing data, as the `rental-listing-data` capability | `tools/rental_listing_tools.py`, registered in `sernia_ai/agent.py` |
 
 `role.md` (who the lead agent is, that it has no tools) and `record.md` (how to
 fill in its output fields) are true only for the lead agent, so they stay out
@@ -517,10 +520,10 @@ workspace skill of the same name cannot replace it.
 | Durable queue of incoming email | [triggers](../triggers/README.md) | Built |
 | Thread loader | `thread.py` | Built |
 | Case builder, slot arithmetic | `case.py` | Built |
-| Unit data: rental units tables with history, read on every lead | [`rental_units`](../../rental_units/README.md), `unit_data.py` | Built. No unit saved yet, so every lead escalates until one is added |
+| Listing data: rental listings tables with history, read on every lead | [`rental_listings`](../../rental_listings/README.md), `listing_data.py` | Built. No listing saved yet, so every lead escalates until one is added |
 | Internal notes: read by the lead agent, never repeated | `case.py`, `prompts/policy.md` | Built. The policy line is not yet through an eval run |
-| The general agent can change unit data, with approval for free text | `tools/rental_unit_tools.py` | Built. Not yet used on a real change |
-| Edit screen for unit data; the same tools in the standalone MCP service | | Planned |
+| The general agent can change listing data, with approval for free text | `tools/rental_listing_tools.py` | Built. Not yet used on a real change |
+| Edit screen for listing data; the same tools in the standalone MCP service | | Planned |
 | Tour times and booked tours for a live case | `tours.py` | The interface is built; the source returns nothing until the booking system (#368) |
 | Policy and the lead agent | `prompts/`, `agent.py` | Built, under review |
 | The same policy as a skill for the general agent | `skill.py` | Built |
