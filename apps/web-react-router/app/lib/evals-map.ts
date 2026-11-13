@@ -147,7 +147,7 @@ export const splits: Split[] = [
       "A test score far below the dev score means the changes fitted the dev cases without improving the system in general.",
       "A test split can be used this way only once. After one of its results informs a change, those cases count as dev, and new production cases refill the unseen pool.",
     ],
-    here: "119 test cases, never run. They are not entirely unseen: before the split existed, every thread was read in aggregate to count what leads ask about and to copy unit facts out of our own replies. No output has been generated for any of them.",
+    here: "119 test cases. Thirty were run once, on the final policy before it shipped: no errors, no failed code checks, and the judge passed 25 of 30, against 48 of 60 on dev. Those 30 now count as dev and the other 89 are still sealed. They are not entirely unseen: before the split existed, every thread was read in aggregate to count what leads ask about and to copy unit facts out of our own replies.",
     example: {
       caption: "Reading the gap (an illustration, not a result)",
       blocks: [
@@ -773,7 +773,7 @@ export const experimentLog = [
     reply: 21,
     quiet: 3,
     escalate: 6,
-    annotated: "No. Same action as experiment 16 in all 30",
+    annotated: "By the judge: 28 of 30 pass",
   },
 ];
 

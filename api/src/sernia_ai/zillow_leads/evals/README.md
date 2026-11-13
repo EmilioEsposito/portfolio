@@ -16,7 +16,7 @@ flowchart TD
     end
     SP --> TR["<b>Train split</b> · 43<br/>input + wanted output pairs<br/>that may go inside a prompt"]
     SP --> DV["<b>Dev split</b> · 191<br/>run, read, annotate, change"]
-    SP --> TE["<b>Test split</b> · 119<br/>sealed"]
+    SP --> TE["<b>Test split</b> · 119<br/>30 run once, 89 sealed"]
 
     subgraph OFF["2 · Offline evaluation"]
         E["Experiment"] --> A["Human annotation<br/>pass / fail + why"]
@@ -123,8 +123,43 @@ without agreeing on a name.
   reasoning.
 - **The test threads are not entirely unseen.** Before the split existed,
   every thread was read in aggregate twice: to count what leads ask about, and
-  to copy unit facts out of our own past replies. No decision has been run on
-  a test thread.
+  to copy unit facts out of our own past replies.
+
+### First use of the test split
+
+Before the pull request that introduced the lead agent was merged, the final
+policy was run once on 30 of the 119 test scenarios (`--split test --sample 30
+--seed 17`, saved as `runs/test-chunk-1.jsonl`). No person graded it. The
+measures are the code checks and the judge:
+
+| | Dev (experiment 17, 60 decisions) | Test chunk (30 decisions) |
+|---|---|---|
+| Errors | 0 | 0 |
+| Failed code checks | 0 | 0 |
+| Judge passes | 48 of 60 (80%) | 25 of 30 (83%) |
+| Reply / quiet / escalate | 40 / 6 / 14 | 16 / 2 / 12 |
+
+How to read it:
+
+- The judge's pass rate on cases no rule was fitted to is about the same as on
+  dev. So there is no sign that 17 experiments tuned the policy to its 60 dev
+  cases. Thirty cases is a small sample: one verdict moves the rate by three
+  points.
+- The judge is the measure, and it has not been validated beyond agreeing with
+  the reviewer's 10 fails. Both columns share that weakness, so the comparison
+  holds better than either number alone.
+- The test chunk escalates more (12 of 30). Eight of those ask whether a tour
+  time from the thread can be honoured, a time the replay does not contain.
+  This is the same gap the second sample showed before its tour state was set
+  by hand (experiment 11 escalated 12 of 30); no test case has a hand-set tour
+  state. The other four are things the policy sends to a person: a voucher
+  question, a discount we offered, a credit score range that straddles 600,
+  and a virtual showing we offered for a unit listed as in-person only.
+
+The judge's fails on the chunk have been read, so those 30 scenarios now count
+as dev. The other 89 are still sealed, for the version that will face real
+leads. A later test run passes `--exclude-run runs/test-chunk-1.jsonl` so it
+draws only from them.
 
 ## 2. Offline evaluation
 
@@ -201,7 +236,7 @@ result is used to tune the system, the test split has become part of dev.
 | 14 | A lead who names a time we do not have gets the booking link, not a list of the closest times. Nearby booked or preferred times come first when the case has them | same 30 as 11 | 20 / 3 / 7 | Not by a person. By action, 20 of 24 passes kept; the first sample kept 24 of 26 |
 | 15 | A time less than 24 hours away is not available, even when it is listed or we offered it: say so and give the booking link | same 30 as 11 | 21 / 2 / 7 | By the judge: 20 of 30 pass; 18 of 30 on the first sample |
 | 16 | Five policy questions answered by the owner: acknowledge a cancelled tour once; answer an earlier unanswered question while the lead still qualifies; the lead-in to the booking link may vary. Three exact rules moved into code checks | same 30 as 11 | 21 / 3 / 6 | By the judge: 25 of 30 pass; 19 of 30 on the first sample |
-| 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | No. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
+| 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | By the judge: 28 of 30 pass; 20 of 30 on the first sample. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -433,7 +468,8 @@ On experiment 15 the judge passes 38 of 60 decisions across both samples. The
 22 fails are spread over about twenty rules, with no single cause, and it
 raised two policy gaps. That list, not a person's read of 60 replies, is the
 input to the next change. After the owner's five answers, experiment 16 passes
-44 of 60.
+44 of 60, and experiment 17 passes 48 of 60: 28 of 30 on the second sample and
+20 of 30 on the first.
 
 ### What a person still does
 
