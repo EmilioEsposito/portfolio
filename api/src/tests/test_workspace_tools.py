@@ -252,3 +252,97 @@ async def test_nothing_outside_the_workspace_or_in_git_is_reachable(
     assert "config" not in result or "bare" not in result
     assert outside.read_text() == "keep"
     assert not (workspace / ".git" / "hooks.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_search_and_find_only_show_workspace_file_types(workspace: Path):
+    (workspace / "conf.yaml").write_text("api_key: not-for-the-model\nUnit 05 yaml\n")
+    (workspace / ".env").write_text("TOKEN=not-for-the-model\n")
+    searched, searched_hidden, found = await _call(
+        workspace,
+        ("workspace_search_files", {"pattern": "Unit 05"}),
+        ("workspace_search_files", {"pattern": "TOKEN", "include_glob": ".env"}),
+        ("workspace_find_files", {"pattern": "*"}),
+    )
+
+    assert "MEMORY.md" in searched and "areas/units.md" in searched
+    assert "conf.yaml" not in searched and "not-for-the-model" not in searched
+    assert "not-for-the-model" not in searched_hidden
+    assert "conf.yaml" not in found and "export.csv" not in found
+
+
+@pytest.mark.asyncio
+async def test_a_link_cannot_reach_another_file_type(workspace: Path):
+    (workspace / "conf.yaml").write_text("api_key: not-for-the-model\n")
+    (workspace / "link.md").symlink_to(workspace / "conf.yaml")
+
+    read, deleted = await _call(
+        workspace,
+        ("workspace_read_file", {"path": "link.md"}),
+        ("workspace_delete_file", {"path": "link.md"}),
+    )
+
+    assert read.startswith("Error in workspace_read_file:")
+    assert "not-for-the-model" not in read
+    assert deleted.startswith("Error in workspace_delete_file:")
+    assert (workspace / "conf.yaml").exists() and (workspace / "link.md").is_symlink()
+
+
+@pytest.mark.asyncio
+async def test_model_path_mistakes_come_back_as_warnings_without_host_paths(
+    workspace: Path, monkeypatch
+):
+    """A bad path is the model's mistake: text it can act on, logged at warn, never paging."""
+    from api.src.sernia_ai.tools import _logging
+
+    levels: list[str] = []
+    original = _logging.log_tool_error
+
+    def record(tool_name, error, *, conversation_id="", level="error"):
+        levels.append(level)
+        return original(tool_name, error, conversation_id=conversation_id, level=level)
+
+    monkeypatch.setattr(_logging, "log_tool_error", record)
+    results = await _call(
+        workspace,
+        ("workspace_write_file", {"path": "MEMORY.md/inside.md", "content": "x"}),
+        ("workspace_read_file", {"path": "/etc/hosts.md"}),
+        ("workspace_edit_file", {"path": "missing.md", "old_text": "a", "new_text": "b"}),
+        ("workspace_delete_file", {"path": "/workspace/.GIT/x.md"}),
+    )
+
+    assert levels == ["warn"] * len(results)
+    assert all(str(workspace) not in result for result in results)
+    # A missing file is not an edit miss: no "re-read the file" hint.
+    assert "without the line numbers" not in results[2]
+
+
+@pytest.mark.asyncio
+async def test_a_conversation_continues_when_the_workspace_path_changes(tmp_path: Path):
+    """Responses record the run's workspace; a resumed run checks it matches.
+
+    Production's path is not development's, and a worktree's is not the main
+    checkout's, so the recorded ref must not be the path.
+    """
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    for root in (first_root, second_root):
+        root.mkdir()
+        (root / "MEMORY.md").write_text("# Memory\n")
+
+    def model(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("done")])
+
+    with sernia_agent.override(native_tools=[]):
+        first = await sernia_agent.run(
+            "Hi.", deps=_deps(first_root), model=FunctionModel(model), output_type=str
+        )
+        second = await sernia_agent.run(
+            "Again.",
+            deps=_deps(second_root),
+            model=FunctionModel(model),
+            output_type=str,
+            message_history=first.all_messages(),
+        )
+
+    assert second.output == "done"

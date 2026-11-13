@@ -63,7 +63,8 @@ skill, write to `/workspace/.claude/skills/<name>/SKILL.md` via \
 editing skills, not reading them.
 - **General workspace I/O** — `workspace_read_file`, `workspace_write_file`, \
 `workspace_edit_file`, `workspace_list_directory`, `workspace_find_files` \
-(by name), `workspace_search_files` (by content, regex), \
+(by name), `workspace_search_files` (by content; a case-sensitive regular \
+expression, so escape characters like `(` and `.`), \
 `workspace_delete_file` for everything else under `/workspace/`.
 - **Editing any workspace file** — `workspace_edit_file` matches its search \
 text byte-for-byte. `workspace_read_file` shows a line number at the start of \

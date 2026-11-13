@@ -38,7 +38,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.toolsets import AbstractToolset, CombinedToolset, FunctionToolset, WrapperToolset
-from pydantic_ai.workspaces import LocalWorkspaceBackend, WorkspaceBackend
+from pydantic_ai.workspaces import LocalWorkspaceBackend, WorkspaceBackend, WorkspaceRef
 from pydantic_ai_harness.filesystem import FileSystem
 
 from api.src.sernia_ai.deps import SerniaDeps
@@ -51,6 +51,13 @@ WORKSPACE_FILE_SUFFIXES: tuple[str, ...] = (".md", ".txt", ".json")
 
 _VIRTUAL_ROOT = "/workspace"
 """How the agent's prompts and skills name the workspace root."""
+
+_WORKSPACE_REF = WorkspaceRef(provider="local", id="sernia-workspace")
+"""The ref recorded on responses: the same in every environment. See ``_SerniaWorkspaceBackend``."""
+
+# Files the tools never read, list or search, whatever their type: git's own
+# data, and anything that looks like a secret. Matched without regard to case.
+_DENIED_PATTERNS = [".git", "**/.git", ".env", "**/.env", ".env.*", "**/.env.*", "*.pem", "*.key"]
 
 # Tools that act on one file, so its type is checked first.
 _FILE_TOOLS = frozenset({"read_file", "write_file", "edit_file", "delete_file"})
@@ -88,21 +95,57 @@ def to_workspace_relative(path: str) -> str:
     return path
 
 
-def _check_file_type(path: str) -> None:
-    if PurePosixPath(path).suffix.lower() not in WORKSPACE_FILE_SUFFIXES:
+def _is_workspace_file(name: str) -> bool:
+    return PurePosixPath(name).suffix.lower() in WORKSPACE_FILE_SUFFIXES
+
+
+def _check_file_type(path: str, target: Path) -> None:
+    """Refuse a path, or a symlink's target, that is not a workspace file type."""
+    if not (_is_workspace_file(path) and _is_workspace_file(target.name)):
         allowed = ", ".join(WORKSPACE_FILE_SUFFIXES)
         raise WorkspaceToolError(f"Path {path!r} is not a workspace file; only {allowed} files.")
 
 
 def _inside(root: Path, relative: str) -> Path:
-    """The host path for ``relative``, refusing anything outside ``root`` or in ``.git``."""
+    """The host path for ``relative``, symlinks resolved.
+
+    Refuses anything outside ``root`` or in ``.git``. The error names the path
+    as the model wrote it, never the host path.
+    """
     target = (root / relative).resolve()
     resolved_root = root.resolve()
     if target != resolved_root and resolved_root not in target.parents:
         raise WorkspaceToolError(f"Path {relative!r} is outside the workspace.")
-    if ".git" in target.relative_to(resolved_root).parts:
+    if any(part.lower() == ".git" for part in target.relative_to(resolved_root).parts):
         raise WorkspaceToolError(f"Path {relative!r} is inside .git, which the tools cannot touch.")
     return target
+
+
+def _keep_workspace_files(output: str) -> str:
+    """Drop result lines for files of other types from a search or find.
+
+    The harness searches every file it may read; the tools only read
+    ``.md``, ``.txt`` and ``.json``, so results from other files are removed.
+    Lines that are not file results (notes, "No matches found.") are kept.
+    """
+    kept: list[str] = []
+    dropped = False
+    for line in output.splitlines():
+        if line.startswith("[") or line.startswith("No matches"):
+            kept.append(line)
+            continue
+        name = line.split(":", 1)[0] if ":" in line else line
+        if name.endswith("/") or _is_workspace_file(name):
+            kept.append(line)
+        else:
+            dropped = True
+    if dropped and not any(_looks_like_result(line) for line in kept):
+        return "No matches found."
+    return "\n".join(kept)
+
+
+def _looks_like_result(line: str) -> bool:
+    return bool(line) and not line.startswith("[") and not line.startswith("No matches")
 
 
 _delete_toolset = FunctionToolset[SerniaDeps]()
@@ -115,12 +158,19 @@ async def delete_file(ctx: RunContext[SerniaDeps], path: str) -> str:
     Args:
         path: The file to delete, relative to the workspace root (`/workspace/...` also works).
     """
-    target = _inside(ctx.deps.workspace_path, path)
+    root = ctx.deps.workspace_path
+    target = _inside(root, path)
+    if (root / path).is_symlink():
+        raise WorkspaceToolError(f"Path {path!r} is a link; the tools do not delete links.")
+    _check_file_type(path, target)
     if not target.exists():
         return f"Path not found: {path}"
     if not target.is_file():
         raise WorkspaceToolError(f"Path {path!r} is not a file.")
-    target.unlink()
+    try:
+        target.unlink()
+    except OSError as e:
+        raise WorkspaceToolError(f"Could not delete {path!r}: {e.strerror or e}.") from e
     return f"Deleted {path}."
 
 
@@ -142,17 +192,44 @@ class WorkspaceFileToolset(WrapperToolset[SerniaDeps]):
         if isinstance(tool_args.get("path"), str):
             tool_args = {**tool_args, "path": to_workspace_relative(tool_args["path"])}
         path = tool_args.get("path")
-        if name in _FILE_TOOLS and isinstance(path, str):
-            _check_file_type(path)
-        if name == "write_file" and isinstance(path, str):
-            _inside(ctx.deps.workspace_path, path).parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(path, str) and name != "delete_file":
+            # Checked here as well as by the harness, so a bad path is the
+            # model's error, worded with its own path, never the host's.
+            target = _inside(ctx.deps.workspace_path, path)
+            if name in _FILE_TOOLS:
+                _check_file_type(path, target)
+            if name == "write_file":
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    raise WorkspaceToolError(
+                        f"Could not create the folder for {path!r}: {e.strerror or e}."
+                    ) from e
         try:
-            return await super().call_tool(name, tool_args, ctx, tool)
+            result = await super().call_tool(name, tool_args, ctx, tool)
         except ModelRetry as e:
             message = str(e)
-            if name == "edit_file" and "not found" in message:
+            if name == "edit_file" and message.startswith("old_text not found"):
                 raise WorkspaceEditMiss(message) from e
             raise WorkspaceToolError(message) from e
+        if name in ("search_files", "find_files") and isinstance(result, str):
+            return _keep_workspace_files(result)
+        return result
+
+
+class _SerniaWorkspaceBackend(LocalWorkspaceBackend):
+    """A local workspace whose ref does not name its path.
+
+    pydantic-ai records the run workspace's ref on every response, and a run
+    that continues a conversation refuses a workspace whose ref differs. The
+    local backend's ref is its absolute path, which is not the same in every
+    environment or checkout (a conversation from production replayed in
+    development, a volume mounted elsewhere), so the ref here is a fixed name.
+    """
+
+    @property
+    def ref(self) -> WorkspaceRef:
+        return _WORKSPACE_REF
 
 
 # Set by the A/B harness for runs that must not touch the workspace.
@@ -185,7 +262,7 @@ class SerniaWorkspace(AbstractCapability[SerniaDeps]):
     ) -> WorkspaceBackend | None:
         if ctx.deps is None:
             return None
-        return LocalWorkspaceBackend(ctx.deps.workspace_path)
+        return _SerniaWorkspaceBackend(ctx.deps.workspace_path)
 
     def get_toolset(self) -> AbstractToolset[SerniaDeps]:
         return self._toolset
@@ -194,7 +271,7 @@ class SerniaWorkspace(AbstractCapability[SerniaDeps]):
 def build_workspace_toolset() -> WorkspaceFileToolset:
     file_system = FileSystem[SerniaDeps](
         # `.git` holds the repo's config, including its remote.
-        denied_patterns=[".git", "**/.git"],
+        denied_patterns=_DENIED_PATTERNS,
         # Hashes protect against a stale write, but cost tokens on every read
         # and write and need the model to pass them back; edits here are short
         # and re-read on failure instead.

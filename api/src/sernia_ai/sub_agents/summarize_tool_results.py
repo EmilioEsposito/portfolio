@@ -42,6 +42,8 @@ _MAX_SUMMARIZER_INPUT_CHARS = 50_000
 # the agent needs verbatim to avoid re-reading the same file on subsequent turns
 # (Haiku-stubbed reads were the dominant cause of repeated workspace_read calls).
 _NEVER_SUMMARIZE_PREFIXES: tuple[str, ...] = ("workspace_",)
+# `search_files` was the unprefixed workspace search before the harness file
+# tools; kept so results in stored conversations stay verbatim.
 _NEVER_SUMMARIZE_NAMES: frozenset[str] = frozenset({"search_files"})
 
 
