@@ -296,7 +296,7 @@ def extract_run_usage(result: AgentRunResult) -> tuple[int | None, float | None]
     back to a genai-prices estimate for providers that don't report one.
     """
     try:
-        usage = result.usage()
+        usage = result.usage
         raw_total = usage.total_tokens
         total_tokens = raw_total if isinstance(raw_total, int) and raw_total else None
 

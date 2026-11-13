@@ -18,8 +18,8 @@ our *request*, not about what OpenRouter actually accepts:
 3. Usage accounting comes back with a real cost: the billed amount that wins
    over genai-prices' list estimate on `operation.cost` — see
    `test_model_pricing.py`.
-4. The web-search domain allowlist reaches OpenRouter's `web` plugin: search
-   results are confined to `WEB_SEARCH_ALLOWED_DOMAINS`.
+4. The web-search domain allowlist reaches OpenRouter's web search tool:
+   search results are confined to `WEB_SEARCH_ALLOWED_DOMAINS`.
 """
 
 import os
@@ -113,11 +113,10 @@ async def test_upstream_provider_is_pinned():
 
 @pytest.mark.asyncio
 async def test_web_search_is_confined_to_allowed_domains():
-    """The `web` plugin must honour `include_domains`.
+    """The `openrouter:web_search` server tool must honour `allowed_domains`.
 
-    pydantic-ai drops `WebSearchTool.allowed_domains` on OpenRouter;
-    `SerniaOpenRouterModel` re-attaches it. If that regressed, the agent would
-    happily cite the whole web.
+    pydantic-ai forwards `WebSearchTool.allowed_domains` to it. If that
+    regressed, the agent would happily cite the whole web.
     """
     from pydantic_ai import Agent
     from pydantic_ai.capabilities import WebSearch

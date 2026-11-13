@@ -93,9 +93,9 @@ async def _agent_run_context(
     """
     if isinstance(model, str):
         overrides: dict = {
-            # `resolve_model` keeps the web-search domain allowlist on OpenRouter
-            # variants (see model_config.SerniaOpenRouterModel); non-OpenRouter
-            # strings pass through untouched.
+            # `resolve_model` records the billed cost on OpenRouter variants
+            # (see model_config.SerniaOpenRouterModel); non-OpenRouter strings
+            # pass through untouched.
             "model": resolve_model(model),
             "model_settings": _model_settings_for(model, thinking),
         }

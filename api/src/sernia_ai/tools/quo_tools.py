@@ -38,6 +38,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 from pydantic import BaseModel, Field
 from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
+from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -46,7 +47,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.toolsets import CombinedToolset
-from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
 from api.src.open_phone.service import (
     find_contact_by_phone,
@@ -1925,7 +1925,7 @@ def _build_quo_toolset():
         name="quo",
         route_maps=[RouteMap(pattern=r"^/v1/webhooks", mcp_type=MCPType.EXCLUDE)],
     )
-    mcp_base = FastMCPToolset(mcp_server)
+    mcp_base = MCPToolset[SerniaDeps](mcp_server)
 
     # Keep only curated tools (drops sendMessage, listContacts + low-value lookups).
     mcp_filtered = mcp_base.filtered(

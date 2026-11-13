@@ -186,7 +186,7 @@ class BilledCostSpanProcessor(_EndingSpanProcessor):
     genai-prices knows (genai-prices >= 0.1.5), that estimate would overwrite
     the billed amount ``SerniaOpenRouterModel`` stamps, which is strictly
     better data: it reflects the endpoint actually routed to and includes
-    web-plugin charges. Register this before ``CostBreakdownSpanProcessor``,
+    web-search charges. Register this before ``CostBreakdownSpanProcessor``,
     which reads ``operation.cost``.
     """
 

@@ -25,9 +25,13 @@ dependencies = [
     # >=2.45.0: ReasoningEffort includes GPT-5.6's "max" tier (above "xhigh").
     "openai>=2.45.0",
     "pydantic>=2.11.2",
-    # >=1.106: core capabilities API (WebSearch/WebFetch/Thinking) + harness-ready (>=1.95.1)
-    # <2: stay on the v1 line (API-stable) until a deliberate v2 migration.
-    "pydantic-ai[dbos]>=1.107.6,<2",
+    # v2 line. A bare `pydantic-ai` no longer bundles every integration, so the
+    # extras name what this repo imports: `dbos` (durable HITL demo), `openrouter`
+    # (Sernia AI's provider) and `ui` (the Vercel AI adapter).
+    "pydantic-ai[dbos,openrouter,ui]>=2.68.0,<3",
+    # First-party `Skills` capability for the Sernia AI workspace skills. Each
+    # harness release pins one exact pydantic-ai-slim, so the two upgrade together.
+    "pydantic-ai-harness[skills]>=0.68.0,<1",
     "pydantic-ai-filesystem-sandbox>=0.9.0",
     "pydantic-monty>=1.6.0,<2",
     "fastmcp[apps]>=3.2.4",
@@ -69,9 +73,7 @@ dependencies = [
     "pytz>=2025.2",
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.2",
-    "griffe>=1.0.0,<2.0.0", # pydantic-ai uses old griffe import path; 2.0 split the package
     "markdownify>=1.2.2",
-    "pydantic-ai-skills>=0.5.1",
     # >=0.0.71: adds GPT-5.6 family pricing (sol/terra/luna). Powers operation.cost
     # + the v2 cost-breakdown dashboard; without it gpt-5.6-luna has no priced cost.
     # >=0.1.1: 0.0.71 priced gpt-5.6-luna at $1/$6 per MTok when OpenAI
