@@ -112,7 +112,7 @@ function RefusalBox({ refusal, onReload }: { refusal: Refusal; onReload?: () => 
       )}
       {onReload && (
         <Button variant="outline" size="sm" className="mt-2" onClick={onReload}>
-          Reload
+          Load what is on file
         </Button>
       )}
     </div>
@@ -153,31 +153,57 @@ function Field({
   );
 }
 
+/**
+ * Kept at the bottom of the screen while there is something to save or say,
+ * so Save and the reasons for a refusal are in reach wherever the person is
+ * editing.
+ */
 function SaveBar({
   dirty,
   saving,
   onSave,
   onReset,
+  refusal,
+  justSaved,
+  onReload,
   saveLabel = "Save",
+  resetLabel = "Undo edits",
 }: {
   dirty: boolean;
   saving: boolean;
   onSave: () => void;
   onReset: () => void;
+  refusal: { refusal: Refusal; stale: boolean } | null;
+  justSaved: boolean;
+  onReload: () => void;
   saveLabel?: string;
+  resetLabel?: string;
 }) {
+  if (!dirty && !refusal && !justSaved) return null;
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {dirty && (
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={onReset} disabled={saving}>
-          <RotateCcw className="h-3.5 w-3.5" />
-          Undo edits
-        </Button>
+    <div className="sticky bottom-2 z-10 space-y-2 rounded-lg border bg-background/95 p-3 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      {refusal && (
+        <RefusalBox
+          refusal={refusal.refusal}
+          onReload={refusal.stale ? onReload : undefined}
+        />
       )}
-      <Button size="sm" className="gap-1.5" onClick={onSave} disabled={!dirty || saving}>
-        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-        {saveLabel}
-      </Button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="mr-auto">
+          <SavedNote show={justSaved && !dirty} />
+          {dirty && <p className="text-sm text-muted-foreground">Edits not saved yet.</p>}
+        </div>
+        {dirty && (
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={onReset} disabled={saving}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            {resetLabel}
+          </Button>
+        )}
+        <Button size="sm" className="gap-1.5" onClick={onSave} disabled={!dirty || saving}>
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {saveLabel}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -198,6 +224,8 @@ function LinesEditor({
 }) {
   const setLine = (index: number, value: string) =>
     onChange(lines.map((line, at) => (at === index ? value : line)));
+  const kind = addLabel.replace(/^Add /, "");
+  const lineLabel = kind.charAt(0).toUpperCase() + kind.slice(1);
   return (
     <div className="space-y-2">
       {lines.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
@@ -205,7 +233,7 @@ function LinesEditor({
         <div key={index} className="flex items-center gap-2">
           <Input
             id={`${id}-${index}`}
-            aria-label={`${addLabel.replace(/^Add /, "")} ${index + 1}`}
+            aria-label={`${lineLabel} ${index + 1}`}
             value={line}
             maxLength={300}
             placeholder={placeholder}
@@ -433,12 +461,16 @@ function UnitEditor({
   isNew,
   sharedBookingUrl,
   onSaved,
+  onCancel,
+  onReload,
   onDirtyChange,
 }: {
   original: RentalListing;
   isNew: boolean;
   sharedBookingUrl: string;
   onSaved: (unit: RentalListing) => void;
+  onCancel: () => void;
+  onReload: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const api = useApi();
@@ -491,19 +523,7 @@ function UnitEditor({
                 {isNew ? "Not saved yet." : "Edits take effect for the lead agent as soon as they are saved."}
               </CardDescription>
             </div>
-            <SaveBar
-              dirty={dirty}
-              saving={saving}
-              onSave={save}
-              onReset={() => {
-                setDraft(original);
-                setRefusal(null);
-              }}
-              saveLabel={isNew ? "Add unit" : "Save"}
-            />
           </div>
-          {refusal && <RefusalBox refusal={refusal.refusal} onReload={refusal.stale ? () => window.location.reload() : undefined} />}
-          <SavedNote show={justSaved} />
         </CardHeader>
         <CardContent className="space-y-6">
           <section aria-labelledby={id("offer-heading")} className="space-y-4">
@@ -533,7 +553,7 @@ function UnitEditor({
                   }
                 />
               </Field>
-              <div className="flex items-end gap-3 pb-1">
+              <div className="flex items-center gap-3 self-start sm:pt-8">
                 <Switch
                   id={id("virtual")}
                   checked={draft.virtual_tours_allowed}
@@ -671,6 +691,22 @@ function UnitEditor({
         </section>
       </div>
 
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        onSave={save}
+        refusal={refusal}
+        justSaved={justSaved}
+        onReload={onReload}
+        onReset={() => {
+          if (isNew) return onCancel();
+          setDraft(original);
+          setRefusal(null);
+        }}
+        saveLabel={isNew ? "Add unit" : "Save"}
+        resetLabel={isNew ? "Cancel" : "Undo edits"}
+      />
+
       {!isNew && (
         <Card>
           <CardHeader className="pb-3">
@@ -697,10 +733,12 @@ const TIMEZONES = ["America/New_York", "America/Chicago", "America/Denver", "Ame
 function RulesEditor({
   original,
   onSaved,
+  onReload,
   onDirtyChange,
 }: {
   original: ShowingRules;
   onSaved: (rules: ShowingRules) => void;
+  onReload: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const api = useApi();
@@ -753,18 +791,7 @@ function RulesEditor({
               <CardTitle className="text-base">Showing rules</CardTitle>
               <CardDescription>Apply to every unit.</CardDescription>
             </div>
-            <SaveBar
-              dirty={dirty}
-              saving={saving}
-              onSave={save}
-              onReset={() => {
-                setDraft(original);
-                setRefusal(null);
-              }}
-            />
           </div>
-          {refusal && <RefusalBox refusal={refusal.refusal} onReload={refusal.stale ? () => window.location.reload() : undefined} />}
-          <SavedNote show={justSaved} />
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -877,6 +904,18 @@ function RulesEditor({
           </section>
         </CardContent>
       </Card>
+      <SaveBar
+        dirty={dirty}
+        saving={saving}
+        onSave={save}
+        refusal={refusal}
+        justSaved={justSaved}
+        onReload={onReload}
+        onReset={() => {
+          setDraft(original);
+          setRefusal(null);
+        }}
+      />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -940,18 +979,25 @@ function RentalUnitsScreen() {
   const [newNameProblem, setNewNameProblem] = useState<string | null>(null);
   const [tab, setTab] = useState("units");
   const [dirty, setDirty] = useState(false);
+  // Bumped when what is on file is loaded again, so open editors start over from it.
+  const [version, setVersion] = useState(0);
   const today = localToday();
 
-  useEffect(() => {
-    api<RentalData>("").then((result) => {
-      if (!result.ok) {
-        setLoadRefusal(result.refusal);
-        return;
-      }
-      setData(result.body);
-      setSelected((current) => current ?? result.body.listings[0]?.unit ?? null);
-    });
+  const load = useCallback(async () => {
+    const result = await api<RentalData>("");
+    if (!result.ok) {
+      setLoadRefusal(result.refusal);
+      return;
+    }
+    setData(result.body);
+    setSelected((current) => current ?? result.body.listings[0]?.unit ?? null);
+    setDirty(false);
+    setVersion((value) => value + 1);
   }, [api]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -1100,15 +1146,23 @@ function RentalUnitsScreen() {
                 isNew
                 sharedBookingUrl={data.showing_rules.showing_booking_url}
                 onSaved={onUnitSaved}
+                onCancel={() => {
+                  setDraftNew(null);
+                  setDirty(false);
+                  setSelected(data.listings[0]?.unit ?? null);
+                }}
+                onReload={load}
                 onDirtyChange={onDirtyChange}
               />
             ) : current ? (
               <UnitEditor
-                key={current.unit}
+                key={`${current.unit}-${version}`}
                 original={current}
                 isNew={false}
                 sharedBookingUrl={data.showing_rules.showing_booking_url}
                 onSaved={onUnitSaved}
+                onCancel={() => {}}
+                onReload={load}
                 onDirtyChange={onDirtyChange}
               />
             ) : (
@@ -1122,7 +1176,9 @@ function RentalUnitsScreen() {
 
       <TabsContent value="rules" className="mt-0">
         <RulesEditor
+          key={version}
           original={data.showing_rules}
+          onReload={load}
           onSaved={(rules) => setData((current) => (current ? { ...current, showing_rules: rules } : current))}
           onDirtyChange={onDirtyChange}
         />
