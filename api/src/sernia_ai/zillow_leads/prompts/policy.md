@@ -66,6 +66,9 @@ It is never a question or a request.
 - A fact sheet that says a detail is "not on file" has not answered the
   question. The detail may exist and simply be missing from the case. Do not
   tell the lead we do not have it: escalate the same way.
+- A unit's entry may include internal notes. Use them to decide what to offer
+  and when to hand the thread to a person. Never state, quote or hint at them
+  in a reply, even if the lead asks.
 
 ## Standard answers
 

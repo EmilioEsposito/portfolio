@@ -39,7 +39,6 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.agent_conversations.hitl import ApprovalDecision
@@ -58,7 +57,6 @@ from api.src.sernia_ai.config import (
     SHARED_EXTERNAL_EMAIL,
     TRIGGER_BOT_ID,
 )
-from api.src.sernia_ai.models import AppSetting
 from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
 from api.src.sernia_ai.tools.google_tools import (
@@ -66,20 +64,25 @@ from api.src.sernia_ai.tools.google_tools import (
     _get_threading_headers,
     _send_email,
 )
+from api.src.sernia_ai.zillow_leads import listing_data
 from api.src.sernia_ai.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     Escalate,
+    LeadFacts,
     NoReply,
     Reply,
+    TourState,
     respond,
 )
-from api.src.sernia_ai.zillow_leads.case import OperatingData, build_case, render_case
+from api.src.sernia_ai.zillow_leads.case import build_case, render_case
 from api.src.sernia_ai.zillow_leads.thread import LeadThread, load_lead_thread
+from api.src.sernia_ai.zillow_leads.tours import NoTours, TourSource, tours_for_case
 
 # Marks a conversation as belonging to the lead agent.
 HANDLER = "zillow_lead_agent"
-# Listings, booking link and tour availability, editable without a deploy.
-OPERATING_DATA_KEY = "zillow_operating_data"
+# Where open tour times and booked tours come from. Nothing knows them until
+# the booking system exists (issue #368), which replaces this.
+TOUR_SOURCE: TourSource = NoTours()
 # Names shown on the approval card. Neither is a tool the model can call.
 SEND_REPLY = "send_lead_reply"
 ASK_TEAM = "lead_needs_a_person"
@@ -105,25 +108,22 @@ class Handled:
     pending: bool = False
 
 
-async def get_operating_data() -> OperatingData:
-    """Listings and tour availability as they stand now.
+def unusable_data_escalation(problem: str) -> Escalate:
+    """The outcome when listing data cannot be used: a person, with the reason.
 
-    Missing or unreadable data gives an empty ``OperatingData``. With no
-    listings the agent cannot place a lead's unit and escalates, which is the
-    safe result.
+    Decided by code, without the agent. An agent with no facts could only
+    escalate or guess, and the person needs to know the data is the cause.
     """
-    try:
-        async with AsyncSessionFactory() as session:
-            value = (
-                await session.execute(
-                    select(AppSetting.value).where(AppSetting.key == OPERATING_DATA_KEY)
-                )
-            ).scalar_one_or_none()
-        if isinstance(value, dict):
-            return OperatingData.model_validate(value)
-    except Exception:
-        logfire.exception("zillow lead: could not read operating data, using none")
-    return OperatingData()
+    return Escalate(
+        lead=LeadFacts(),
+        tour=TourState(),
+        reason="Listing data could not be used, so no reply was drafted.",
+        question=(
+            f"The lead agent's listing data (the rental_listings table) cannot be used: {problem}. "
+            "Every lead comes to a person until it is fixed. Please fix the data, then "
+            "answer this lead."
+        ),
+    )
 
 
 def reply_route(thread: LeadThread) -> ReplyRoute | None:
@@ -209,8 +209,16 @@ async def handle_thread(
         logfire.info("zillow lead: already answered, skipping", thread_id=thread_id)
         return Handled(persisted=True, action="skipped")
 
-    case = build_case(thread, await get_operating_data())
-    outcome = await respond(case)
+    now = datetime.now(UTC)
+    loaded = await listing_data.load()
+    tours = await tours_for_case(TOUR_SOURCE, loaded.data, now)
+    case = build_case(
+        thread, loaded.data, now=now, slots=tours.open_times, booked_tours=tours.booked
+    )
+    if loaded.problem:
+        outcome: Reply | NoReply | Escalate = unusable_data_escalation(loaded.problem)
+    else:
+        outcome = await respond(case)
     route = reply_route(thread)
     messages = conversation_for(render_case(case), outcome, route)
     pending = extract_pending_approval_from_messages(messages)

@@ -15,6 +15,8 @@ zillow_leads/
 ├── agent.py         the lead agent and its three outcome types
 ├── case.py          builds the case the agent reads
 ├── thread.py        loads a lead's email thread
+├── listing_data.py     where a live case gets listings: the rental listings tables
+├── tours.py         where a live case gets tour times and booked tours
 ├── handle.py        saves an outcome for approval, sends on approval
 ├── skill.py         the policy as a skill for the general agent
 ├── prompts/         text a model reads at runtime
@@ -65,7 +67,7 @@ flowchart LR
 | Word | Meaning | Changes when |
 |---|---|---|
 | **Scenario** | A real conversation up to a moment where we owed a response, containing only the emails. | Never; it is a record of what happened. |
-| **Operating data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. | Weekly in season, and its format can change too. |
+| **Operating data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. In the evals it is a season file; in production it is built from the rental listings tables. | Weekly in season, and its format can change too. |
 | **Case** | Scenario + operating data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
 | **Policy** | The instructions: when to reply, what is allowed, how to write, and the answers that are the same for every lead (how to apply, the fee). | By commit, after an eval run says the change helps. |
 | **Outcome** | What the lead agent returns: a `Reply` with the full email, a `NoReply`, or an `Escalate` with a question. Three types, so a reply cannot exist without its text. | Every run. |
@@ -193,8 +195,14 @@ tour, most follow-ups are tour logistics or a plain "thanks", and roughly 1 in
 | `lease_start_earliest`, `lease_start_latest` | Move-in fit |
 | `virtual_tours` | Which virtual-tour answer applies |
 | `rented_on` | Dropping the unit from offers from that date |
+| `preferred_times` | Weekly windows we would like the unit shown in. Of the times that may be offered, the ones inside a window are listed in the case under "Preferred showing times" |
 
-**`facts`**: free text, one fact per line. In order of how often leads ask:
+For every unit: `showing_window` (the earliest and latest time a showing may
+start, 9:00 to 18:00 unless set) and `blackout_dates`. Code applies both to
+every tour time, whatever supplied it.
+
+**`facts`**: free text, one fact per line (a string, or a list of lines, which
+is easier to edit by hand). In order of how often leads ask:
 bedrooms and layout, floor, pets, utilities (included / tenant pays), lease
 length, laundry, dishwasher and air conditioning, parking, deposit, outdoor
 space, furnished or not. Add a line whenever an escalation shows one missing.
@@ -208,16 +216,24 @@ Exceptions are deliberately left out of both, for example a discount, an
 unusual lease length, or an applicant without a credit file. The agent
 escalates those.
 
+**`internal_notes`**: free text, one note per line, for what the agent should
+know to decide and must not tell the lead: a resident who wants more notice, a
+lease start that can move under a condition. The case lists them under each
+unit with the label "Internal notes (for your decisions only, never tell the
+lead)". Low-stakes notes only.
+
 **`booking_url`**: where a lead can book a showing themselves, one for the
 business or one per listing. When a unit has one, a reply to a lead with no
 stated preference gives the link and lists no times. Times are still offered
 when a tour is already booked for the unit (so leads share a showing) or when
 the lead named a day or time.
 
-Tour times follow the same approach. Today a weekly pattern per person is turned into
-slots by `offerable_slots()`. A calendar or booking service can supply the
-slots instead (`build_case(..., slots=...)`); the case stores the times, never
-their source. This was tested once and is not built: the existing service
+Tour times follow the same approach: the case stores the times, never their
+source. In the evals a weekly pattern per person in the season's operating
+file (`availability`) is turned into slots by `offerable_slots()`. In
+production the times come from a `TourSource` (`tours.py`), which today knows
+none; see [Listing data in production](#listing-data-in-production).
+Reading calendars was tested once and is not built: the existing service
 account can read free/busy for a domain user's calendar and for an outside
 calendar shared with that user. A calendar that is not shared comes back as an
 error, which must be read as "unknown", never as "free".
@@ -349,14 +365,81 @@ company data and so should not read email written by strangers.
 - **Each approval is recorded** as sent unchanged, edited, or rejected, with
   the text that went out, ready to be read back as labels.
 
-Listings, the booking link and tour availability come from the
-`zillow_operating_data` app setting, a JSON document with the shape of
-`OperatingData`. Until it is filled in, the agent sees no listings and
-escalates every lead.
-
 Not built yet: the phone contact and calendar event that followed a confirmed
-tour under the general agent, tours already booked (the case gets none), and
-turning approvals into labelled scenarios automatically.
+tour under the general agent, a source of tour times and booked tours (the
+case gets none; issue #368), and turning approvals into labelled scenarios
+automatically.
+
+### Listing data in production
+
+In production the case is built from the rental listings tables
+([`api/src/rental_listings`](../../rental_listings/README.md)), not from a file:
+
+| Table | One row is | Read by |
+|---|---|---|
+| `rental_listings` | One unit's listing as it stands now, meaning the next lease on offer: `asking_rent`, `next_lease_start_earliest` / `_latest`, `off_market_on`, `showing_booking_url`, `preferred_showing_times`, `public_facts`, `internal_notes` | `listing_data.load()`, on every lead |
+| `rental_listing_changes` | One saved change: who, when, from which conversation, and the whole listing after it | The general agent's history tool; later, evals that need "as of this date" |
+
+The showing window, blackout dates and the shared booking link are one
+settings row (`rental_showing_rules`), and their changes are in the same
+history. Nothing is saved yet: until a listing is added the agent sees no
+listings and escalates every lead.
+
+`listing_data.py` turns the rows into the `OperatingData` the case builder
+takes, the same shape the evals read from a season file. The table's names
+say "asking" and "next lease" because a unit also has a current lease at a
+different rent; inside a case, under "Listings", the shorter names (`rent`,
+`lease_start_earliest`, `rented_on`) are unambiguous and are kept.
+
+**Two kinds of free text per listing.**
+
+| Kind | Example | The lead agent |
+|---|---|---|
+| Public facts | "Dishwasher" | may repeat them to a lead |
+| Internal notes | "Resident wants 48 hours' notice where possible" | uses them to decide, and never repeats them |
+
+Internal notes appear in the case under their own label, and one line in
+`prompts/policy.md` says how to use them. They are for low-stakes notes only:
+the agent reads email from strangers, so assume a note could be coaxed out of
+it. That line has not been through an eval run yet.
+
+**Who changes the data.** The general agent, with the `rental-listing-data`
+tools ([`tools/rental_listing_tools.py`](../tools/rental_listing_tools.py)), which
+it loads like a skill. An edit screen and the same tools in the standalone
+MCP service are planned; both would go through `rental_listings/service.py`.
+
+**Checks** (`rental_listings/checks.py`), on every save and every read: values
+that make sense, no unknown fields, and no free text holding a phone number,
+an email address, a link or access-code wording, in facts or notes. A booking
+link must be a plain `https` address.
+
+**Approval of the general agent's changes.** A new listing, an address, a
+public fact or internal note added or removed, and a booking link wait for a
+person, on the same approval screen as everything else; the card shows the
+change. Asking rent, next lease dates, the off-market date, virtual tours,
+preferred showing times, the showing window and blackout dates are saved at
+once, because their types limit what they can say. The checks run before approval is asked, so approval
+cannot let a failing change through.
+
+**Data that cannot be used fails safe.** If the database cannot be read, or a
+row fails its checks (someone edited it by hand), none of it is used: code
+escalates the lead without asking the agent, the approval card gives the
+reason, and Logfire records an error.
+
+**Tour times are not listing data.** `handle.py` asks a `TourSource`
+(`tours.py`) for the open tour times and the booked tours, and passes what it
+returns through the fixed rules (24 hours' notice, the showing window,
+blackout dates) before it reaches the case. The source today is `NoTours`:
+nothing open, nothing booked. So a live case lists no times, and the policy
+has the agent give the unit's booking link, or without one say that we will
+check and get back, with a team note. A source that fails gives no times.
+
+Left for the booking system (#368): a `TourSource` that reads the showing
+rules and preferred times and returns open times and booked tours; real
+booking links; and who provided a tour time and when. Preferred times are
+listed in full when they match open times; if the booking system returns many
+open times, decide then how many to list. A "preferred notice" per unit (48
+hours where the law asks for 24) belongs there too, as a typed field.
 
 **One mailbox.** The Gmail watch is on one person's mailbox and replies go out
 from the shared one. Gmail IDs differ per mailbox, so `thread.py` finds the
@@ -374,7 +457,7 @@ email away from the first of those.
 
 | Requirement | State |
 |---|---|
-| The agent that reads lead email has no tools, and its input holds nothing private: listings, tour times and the thread itself | Built: `agent.py` |
+| The agent that reads lead email has no tools, and its input holds nothing that would matter if it leaked: listings, tour times, the thread itself, and low-stakes internal notes it is told not to repeat | Built: `agent.py`. Internal notes were added on the owner's decision; code refuses phone numbers, email addresses, links and access-code wording in them |
 | Its output is one of three fixed types, and code chooses the recipient, subject and thread | Built: `handle.py`. Replies go only to a Zillow relay address |
 | A reply contains only links that were supplied to the model | Built as a check. It must block the send, not just score it |
 | Text written by a lead does not reach an agent that has tools | Built for the app: Zillow email never starts the general agent, and a lead conversation cannot be continued in chat. A person can still paste a lead's words into a new chat |
@@ -398,6 +481,7 @@ it was checked against this package; this is where each one went.
 |---|---|---|
 | Lead agent | `prompts/role.md`, then `prompts/policy.md`, then `prompts/record.md`, as its instructions | `load_instructions()` in `agent.py` |
 | General agent | A short preface, then `policy.md`, as the `zillow-auto-reply` skill | `skill.py`, registered in `sernia_ai/agent.py` |
+| General agent | A guide and four tools for rental listing data, as the `rental-listing-data` capability | `tools/rental_listing_tools.py`, registered in `sernia_ai/agent.py` |
 
 `role.md` (who the lead agent is, that it has no tools) and `record.md` (how to
 fill in its output fields) are true only for the lead agent, so they stay out
@@ -416,7 +500,7 @@ workspace skill of the same name cannot replace it.
 | Text the lead a day before; give the resident notice | `policy.md`, as team notes | Carried over |
 | Offer every available time | `policy.md` | Changed: a booking link is the default; every time is listed only when there is no link |
 | Past slots, 24-hour notice, showing hours, blackout dates | `case.py` | Built |
-| Same-unit tour already booked: offer that time first | `policy.md`; `ReplyChecks` allows those times | Built, not yet exercised: past cases have no booked tours |
+| Same-unit tour already booked: offer that time first | `policy.md`; `ReplyChecks` allows those times | Built, not yet exercised: past cases have no booked tours, and production has no source of them until #368 |
 | Active units, rent, lease start, virtual tours allowed | Operating data | Built |
 | Find the email in the shared mailbox | `thread.py`, queue | Built |
 | One run per lead when several emails arrive | Queue | Built |
@@ -436,6 +520,11 @@ workspace skill of the same name cannot replace it.
 | Durable queue of incoming email | [triggers](../triggers/README.md) | Built |
 | Thread loader | `thread.py` | Built |
 | Case builder, slot arithmetic | `case.py` | Built |
+| Listing data: rental listings tables with history, read on every lead | [`rental_listings`](../../rental_listings/README.md), `listing_data.py` | Built. No listing saved yet, so every lead escalates until one is added |
+| Internal notes: read by the lead agent, never repeated | `case.py`, `prompts/policy.md` | Built. The policy line is not yet through an eval run |
+| The general agent can change listing data, with approval for free text | `tools/rental_listing_tools.py` | Built. Not yet used on a real change |
+| Edit screen for listing data; the same tools in the standalone MCP service | | Planned |
+| Tour times and booked tours for a live case | `tours.py` | The interface is built; the source returns nothing until the booking system (#368) |
 | Policy and the lead agent | `prompts/`, `agent.py` | Built, under review |
 | The same policy as a skill for the general agent | `skill.py` | Built |
 | Scenario export, runner, exact checks | `evals/scenarios.py`, `evals/cli.py`, `evals/checks.py` | Built |
