@@ -5,7 +5,8 @@ scripted model for the wiring: the deferred capability and the approval pause.
 All unit data here is invented.
 """
 
-from datetime import date, time
+import asyncio
+from datetime import UTC, date, time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -301,6 +302,32 @@ class TestRefusals:
             ctx(), unit="12-B", off_market_on=date(2027, 6, 1), clear=["off_market_on"]
         )
         assert said.startswith("Not saved.")
+
+    @pytest.mark.asyncio
+    async def test_a_time_with_a_utc_offset_is_refused(self):
+        aware = time(9, 0, tzinfo=UTC)
+
+        rules_said = await tools.showing_rules_update(ctx(), earliest_start=aware)
+        listing_said = await tools.rental_listing_update(
+            ctx(),
+            unit="12-A",
+            preferred_showing_times=[PreferredWindow(days=["mon"], start=aware, end=time(18))],
+        )
+
+        assert rules_said.startswith("Not saved.") and "no UTC offset" in rules_said
+        assert listing_said.startswith("Not saved.") and "no UTC offset" in listing_said
+        assert await rules() == RULES and await units() == ON_FILE
+
+    @pytest.mark.asyncio
+    async def test_two_rule_changes_at_once_both_land(self):
+        await asyncio.gather(
+            tools.showing_rules_update(ctx(), add_blackout_dates=[date(2027, 5, 31)]),
+            tools.showing_rules_update(ctx(), earliest_start=time(10)),
+        )
+
+        saved = await rules()
+        assert saved.blackout_dates == [date(2027, 5, 31), date(2027, 7, 4)]
+        assert saved.earliest_start == time(10)
 
     @pytest.mark.asyncio
     async def test_a_window_that_ends_before_it_starts_is_refused(self):
