@@ -164,7 +164,7 @@ draws only from them.
 ## 2. Offline evaluation
 
 **Experiment.** One fixed version run over dev cases, stored with the policy
-commit, the model and a hash of the operating data.
+commit, the model and a hash of the listing data.
 
 **Human annotation.** One person who knows the business marks each decision:
 
@@ -179,7 +179,7 @@ reading real outputs.
 
 **Error analysis.** Name each failure (open coding), merge the names into a few
 failure modes (axial coding), count them. Fix the largest in the layer that
-owns it: operating data for a missing fact, code for an exact rule, the policy
+owns it: listing data for a missing fact, code for an exact rule, the policy
 for judgement. Start with about 30 annotations, go toward 100, stop when new
 ones reveal no new failure modes.
 
@@ -379,7 +379,7 @@ more, every action in the second sample is the same as in experiment 13, and
 the first sample again kept 24 of 26.
 
 Preferred times are not in the case yet. The rule is written so that it
-starts working when operating data supplies them.
+starts working when listing data supplies them.
 
 ## The LLM judge
 
@@ -402,7 +402,7 @@ what the case contained, which is the reviewer's own rule.
 ```bash
 # Grade a run
 uv run python -m api.src.sernia_ai.zillow_leads.evals judge \
-    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --case-edits $DATA/scenarios/case-edits.json \
     --run $DATA/runs/experiment-15.jsonl --out $DATA/judgements/experiment-15.jsonl
 
@@ -500,7 +500,7 @@ are written by a person, never by the model being evaluated.
 ```bash
 # Run again only the cases of an earlier run that have a new edit; keep its other rows
 uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --case-edits $DATA/scenarios/case-edits.json --carry $DATA/runs/experiment-11.jsonl \
     --name experiment-12 --out $DATA/runs/experiment-12.jsonl
 ```
@@ -531,7 +531,7 @@ committed, pushed or used in CI, because scenarios are applicants' emails.
 evals/data/
 ├── review.html, dataset.html   the two pages, at the top so their links stay put
 ├── scenarios/                  the season's scenarios, the split, hand-set tour state
-├── operating/                  the season's listings, tour times, booking links
+├── operating/                  the season's listing data: listings, tour times, booking links
 ├── runs/                       each experiment's outputs and the instructions it ran on
 ├── judgements/                 the LLM judge's verdicts on runs
 └── annotations/
@@ -548,6 +548,11 @@ evals/data/
 | `runs/*.jsonl`, `runs/*.policy.md` | Each experiment's outputs and the instructions it ran on | Only by paying for the run again, and the wording will differ |
 | `annotations/annotations.jsonl` | The store of verdicts | No |
 | `review.html`, `dataset.html` | The pages, generated from the files above | Yes |
+
+The season's listing data file may still live in a folder called `operating/`,
+its name from before "operating data" was renamed "listing data". Pass it with
+`--listings`; the old flag `--operating` still works. Run records keep the key
+`operating` for the file's hash, so old and new runs compare.
 
 ### Annotations
 

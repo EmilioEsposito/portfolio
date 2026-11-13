@@ -2,7 +2,7 @@
 
 ``api/src/rental_listings`` holds each unit's listing as it stands now, and
 the showing rules. This module reads them once per lead and turns them into
-the ``OperatingData`` the case builder takes (``case.py``):
+the ``ListingData`` the case builder takes (``case.py``):
 
 - a listing's public facts become the unit's fact sheet, which the agent may
   repeat;
@@ -23,7 +23,7 @@ not used at all: ``load`` returns nothing with the reason, and ``handle.py``
 hands the lead to a person. With no listing saved yet there is no problem to
 report: the agent runs with no listings and escalates on its own.
 
-The evals do not come through here. They read a season's operating file.
+The evals do not come through here. They read a season's listing data file.
 """
 
 from dataclasses import dataclass, field
@@ -33,20 +33,20 @@ import logfire
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.sernia_ai.zillow_leads.case import Listing, OperatingData, ShowingWindow
+from api.src.sernia_ai.zillow_leads.case import Listing, ListingData, ShowingWindow
 
 
 @dataclass(frozen=True)
 class Loaded:
     """Listing data as read, or the reason there is none."""
 
-    data: OperatingData = field(default_factory=OperatingData)
+    data: ListingData = field(default_factory=ListingData)
     problem: str | None = None
 
 
-def as_operating_data(listings: list[RentalListing], rules: ShowingRules) -> OperatingData:
+def as_listing_data(listings: list[RentalListing], rules: ShowingRules) -> ListingData:
     """Listings and rules in the shape the case builder takes."""
-    return OperatingData(
+    return ListingData(
         timezone=rules.timezone,
         listings=[
             Listing(
@@ -86,4 +86,4 @@ async def load() -> Loaded:
         return Loaded(problem=str(error) or type(error).__name__)
     if not listings:
         logfire.warn("zillow lead: no rental listings saved, the agent has no listings")
-    return Loaded(data=as_operating_data(listings, rules))
+    return Loaded(data=as_listing_data(listings, rules))

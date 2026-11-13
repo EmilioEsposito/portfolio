@@ -11,7 +11,7 @@ from pydantic import AwareDatetime, BaseModel, Field
 from api.src.sernia_ai.zillow_leads.case import (
     BookedTour,
     LeadCase,
-    OperatingData,
+    ListingData,
     TourSlot,
     build_case,
     decision_points,
@@ -23,7 +23,7 @@ class Scenario(BaseModel):
     """A moment in a real thread where a decision was owed, and what happened next.
 
     It holds only the conversation. Listings, schedules and booking links
-    come from operating data when the scenario is run.
+    come from listing data when the scenario is run.
 
     ``actual_reply`` is context for the person reviewing. It is never shown to
     the model and is not treated as the right answer.
@@ -99,7 +99,7 @@ class CaseEdit(BaseModel):
 
     A replay takes tour times from one weekly pattern, so it cannot know a time
     the team offered that week or a tour that was booked. Where the thread shows
-    one plainly, an edit puts it in the case, as live operating data would have
+    one plainly, an edit puts it in the case, as live listing data would have
     held it. Edits are made by hand, never by the model being evaluated.
     """
 
@@ -155,13 +155,13 @@ def edit_run_with(row: dict, edits: dict[str, CaseEdit]) -> CaseEdit | None:
 
 
 def case_for(
-    scenario: Scenario, operating: OperatingData, edit: CaseEdit | None = None
+    scenario: Scenario, listing_data: ListingData, edit: CaseEdit | None = None
 ) -> LeadCase:
     """The scenario as a case: the conversation plus what was true at that moment."""
     upto = len(scenario.thread.messages) - 1
     if edit is None:
-        return build_case(scenario.thread, operating, upto=upto)
-    case = build_case(scenario.thread, operating, upto=upto, booked_tours=edit.booked)
+        return build_case(scenario.thread, listing_data, upto=upto)
+    case = build_case(scenario.thread, listing_data, upto=upto, booked_tours=edit.booked)
     known = {slot.start for slot in case.offerable_slots}
     added = [TourSlot(start=start, agent="") for start in edit.offered if start not in known]
     slots = sorted(case.offerable_slots + added, key=_slot_order)
