@@ -62,6 +62,7 @@ from api.src.cron import router as cron_router
 from api.src.google.common.routes import router as google_router
 from api.src.open_phone.routes import router as open_phone_router
 from api.src.push.routes import router as push_router
+from api.src.rental_listings.routes import router as rental_listings_router
 from api.src.schedulers.routes import router as schedulers_router
 from api.src.sernia_ai.config import WORKSPACE_PATH
 
@@ -328,6 +329,7 @@ app.include_router(google_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
+app.include_router(rental_listings_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")

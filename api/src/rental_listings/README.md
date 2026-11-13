@@ -15,7 +15,8 @@ rental_listings/
 ├── schema.py    the shapes code depends on: RentalListing, ShowingRules, PreferredWindow
 ├── checks.py    what must hold before anything is saved or used
 ├── models.py    the tables
-└── service.py   the only code that reads and writes them
+├── service.py   the only code that reads and writes them
+└── routes.py    HTTP endpoints under /api/rental-listings, for the edit screen and other services
 ```
 
 ## Tables
@@ -71,7 +72,34 @@ in either kind of text.
 - Keep imports from the rest of the app few, so this can move out with the
   booking system later. Today it uses the shared `Base` and `app_settings`.
 
+## Edit screen and endpoints
+
+The Rental Listings page (`/sernia-rental-listings`, linked from the Sernia
+sidebar) edits each listing's fields and the showing rules, and shows the
+history. It calls these endpoints. They are open to signed-in Sernia users,
+the same as the admin settings:
+
+| Method and path | Does |
+|---|---|
+| `GET /api/rental-listings` | Every listing and the showing rules |
+| `POST /api/rental-listings/listings` | Add a listing. 409 if one exists for that unit |
+| `PUT /api/rental-listings/listings/{unit}` | Replace a listing. A unit is not renamed |
+| `PUT /api/rental-listings/showing-rules` | Replace the showing rules |
+| `GET /api/rental-listings/history?subject=&limit=` | Changes, newest first: one unit, `showing_rules`, or everything |
+
+- A write records the signed-in person as `changed_by` and
+  `rental listings screen` as `source`.
+- A failed check answers 422 with `detail.problems`, the reasons.
+- A write may send `based_on`, the listing or rules as last read. If what is
+  on file has changed since, nothing is saved and the answer is 409, so a
+  stale screen cannot undo someone else's change.
+- A person's own edit needs no approval step. The general agent's tools ask
+  for one because the agent may be acting on what a stranger wrote. Here the
+  person is the one typing. The checks still apply.
+- A row broken by a hand edit in the database makes the list answer 409 with
+  the reasons. Fix it in the database.
+
 ## Not built
 
-An edit screen, HTTP endpoints, and the same tools in the standalone MCP
-service (which has no database access, so it would call those endpoints).
+The same operations in the standalone MCP service, which has no database
+access. It can call the endpoints above.
