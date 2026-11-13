@@ -1,7 +1,7 @@
 """Environment-driven config for the Sernia MCP server.
 
 Loads ``.env`` once on import. All constants are read from env with sensible
-defaults so the server boots in dev with minimal config. See ``.env.example``
+defaults; unauthenticated local development requires an explicit opt-in. See ``.env.example``
 for the full set of variables.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -34,7 +35,7 @@ _CLERK_ENV_VARS: tuple[str, ...] = (
 
 def clerk_oauth_configured() -> bool:
     """True iff all four Clerk OAuth env vars are present and non-empty."""
-    return all(os.environ.get(k) for k in _CLERK_ENV_VARS)
+    return all(os.environ.get(k, "").strip() for k in _CLERK_ENV_VARS)
 
 
 # ---- Local-dev auth bypass --------------------------------------------------
@@ -48,6 +49,43 @@ SERNIA_MCP_DISABLE_AUTH: bool = os.environ.get("SERNIA_MCP_DISABLE_AUTH", "").st
     "true",
     "yes",
 )
+
+
+# Presence (even an empty value) is deployment evidence; do not rely on a
+# single, potentially missing environment name to protect the local bypass.
+RAILWAY_HOSTED_VARS = (
+    "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_ENVIRONMENT_ID",
+    "RAILWAY_PROJECT_ID",
+    "RAILWAY_SERVICE_ID",
+    "RAILWAY_DEPLOYMENT_ID",
+    "RAILWAY_REPLICA_ID",
+    "RAILWAY_PUBLIC_DOMAIN",
+    "RAILWAY_PRIVATE_DOMAIN",
+)
+
+
+def is_hosted() -> bool:
+    return any(key in os.environ for key in RAILWAY_HOSTED_VARS)
+
+
+def local_auth_bypass_enabled() -> bool:
+    """Explicit unauthenticated development, with no deployment indicators."""
+    return (
+        SERNIA_MCP_DISABLE_AUTH
+        and not is_hosted()
+        and urlsplit(SERNIA_MCP_BASE_URL).hostname in {"localhost", "127.0.0.1", "::1"}
+    )
+
+
+def validate_clerk_configuration() -> None:
+    """A partial OAuth configuration must never downgrade to another mode."""
+    if any(os.environ.get(k, "").strip() for k in _CLERK_ENV_VARS[:3]):
+        missing = [k for k in _CLERK_ENV_VARS if not os.environ.get(k, "").strip()]
+        if missing:
+            raise RuntimeError(
+                "Incomplete Clerk OAuth configuration; missing: " + ", ".join(missing)
+            )
 
 
 # ---- Identity --------------------------------------------------------------
