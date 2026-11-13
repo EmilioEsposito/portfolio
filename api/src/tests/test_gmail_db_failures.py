@@ -89,7 +89,7 @@ async def test_disconnect_requests_redelivery_then_recovers(
     monkeypatch.setattr(
         routes,
         "decode_pubsub_message",
-        Mock(return_value={"emailAddress": "recipient@example.com", "historyId": 123}),
+        Mock(return_value={"emailAddress": routes.GMAIL_WATCH_MAILBOX, "historyId": 123}),
     )
     monkeypatch.setattr(routes, "get_delegated_credentials", Mock())
     monkeypatch.setattr(routes, "get_gmail_service", Mock())

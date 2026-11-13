@@ -49,9 +49,9 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 ```bash
 cd apps/sernia_mcp
 uv sync                                                          # creates .venv and installs deps
-cp .env.example .env                                             # fill in API keys; leave Clerk vars blank for unauth dev
+cp .env.example .env                                             # fill in API keys as needed
 uv run pytest -v                                                 # full test suite (no network)
-uv run uvicorn sernia_mcp.app:app --host 0.0.0.0 --port 8080     # boots HTTP at http://localhost:8080/mcp/
+SERNIA_MCP_DISABLE_AUTH=true uv run uvicorn sernia_mcp.app:app --host 127.0.0.1 --port 8080  # http://localhost:8080/mcp
 ```
 
 `sernia_mcp.app:app` is the ASGI application — uvicorn loads it directly. The module wires a request-logging middleware so every inbound request surfaces in Logfire.
@@ -62,7 +62,7 @@ environment. See the [credential migration and recovery steps](../../api/src/ope
 ### Browser-based approval testing
 
 ```bash
-uv run fastmcp dev apps src/sernia_mcp/dev_server.py
+SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 ```
 
 Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. The picker lists `quo_send_sms` and `google_send_email`; fill in the form and click Launch to see the approval card. **All upstream sends are mocked** — safe to use any phone/email.
@@ -107,7 +107,11 @@ FASTMCP_SERVER_AUTH_CLERK_CLIENT_SECRET=<from Clerk OAuth app>
 SERNIA_MCP_BASE_URL=https://sernia-fastmcp-production.up.railway.app
 ```
 
-If any of the four are missing the server runs **unauthenticated** — useful for local dev, never expose this state publicly.
+Authentication is required by default. Missing authentication or partial Clerk
+configuration fails startup before the HTTP app is constructed. A partially
+configured Clerk integration cannot fall back to the development bearer path.
+Whitespace-only values count as missing; configured bearer tokens shorter than
+32 characters also fail startup. Production accepts Clerk OAuth only.
 
 ### Local-dev auth bypass
 
@@ -117,7 +121,16 @@ For local exploration with the MCP Inspector or curl, set:
 SERNIA_MCP_DISABLE_AUTH=true
 ```
 
-This forces unauthenticated mode even when the four Clerk vars are configured. The server **raises at boot** if this flag is set in any Railway environment (any value of `RAILWAY_ENVIRONMENT_NAME`), so it can't escape to production. The VS Code "Sernia MCP Server" launcher sets this automatically.
+This explicitly enables unauthenticated mode even when Clerk is configured.
+It requires a loopback `SERNIA_MCP_BASE_URL` (the default is `http://localhost:8080`)
+and no Railway deployment metadata. Any Railway environment, project, service,
+deployment, replica, or domain marker prevents bypass, including empty markers.
+Bind local unauthenticated servers to `127.0.0.1` and do not expose them through a tunnel.
+The VS Code "Sernia MCP Server" launcher sets the flag automatically.
+
+`/health` reports the active authentication mode. If the actual auth provider is
+missing outside explicit local mode, it returns HTTP 503 with `status: error`.
+This is a local readiness check, not a live probe of Clerk availability.
 
 ### Callback URIs — there are two; only one of them is yours to register
 

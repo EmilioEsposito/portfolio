@@ -1,6 +1,7 @@
 """Tests for DuckDB data workbench tools and CSV export utility."""
 
 import csv
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,7 +13,6 @@ from api.src.sernia_ai.tools.data_export import (
     write_dataset,
 )
 from api.src.sernia_ai.tools.duckdb_tools import (
-    _format_result,
     _get_connection,
     cleanup_stale_data,
     describe_table,
@@ -21,6 +21,7 @@ from api.src.sernia_ai.tools.duckdb_tools import (
     load_dataset,
     run_sql,
 )
+from api.src.sernia_ai.tools.duckdb_worker import format_result as _format_result
 
 # =============================================================================
 # Smoke Tests
@@ -377,3 +378,218 @@ class TestCleanup:
         cleanup_stale_data(max_age_hours=24)
         assert not stale_file.exists()
         assert fresh_file.exists()
+
+
+@pytest.fixture
+def analytics(tmp_path, monkeypatch):
+    import api.src.sernia_ai.tools.duckdb_tools as tools
+
+    monkeypatch.setattr(tools, "DATA_BASE", tmp_path / "data")
+    monkeypatch.setattr(tools, "DUCKDB_BASE", tmp_path / "db")
+    return _make_ctx("security-test", tmp_path), tools
+
+
+class TestAnalyticsBoundary:
+    @pytest.mark.parametrize(
+        "reader",
+        ["read_text", "read_blob", "read_csv", "read_csv_auto", "read_json_auto", "read_parquet"],
+    )
+    def test_host_file_reads_denied(self, analytics, tmp_path, reader):
+        ctx, _ = analytics
+        secret = tmp_path / "host-only.csv"
+        secret.write_text("value\nSYNTHETIC_HOST_CANARY\n")
+        result = run_sql(ctx, f"SELECT * FROM {reader}('{secret}')")
+        assert result.startswith("SQL error:"), result
+        assert "SYNTHETIC_HOST_CANARY" not in result
+
+    def test_nested_query_and_persisted_view_cannot_read_host(self, analytics, tmp_path):
+        ctx, _ = analytics
+        secret = tmp_path / "host-only.txt"
+        secret.write_text("SYNTHETIC_HOST_CANARY")
+        query = f"SELECT * FROM read_text('{secret}')"
+        nested = query.replace("'", "''")
+        assert run_sql(ctx, f"SELECT * FROM query('{nested}')").startswith("SQL error:")
+        assert run_sql(ctx, f"CREATE VIEW probe AS {query}").startswith("SQL error:")
+        # A view persisted by the old unrestricted implementation stays denied.
+        import duckdb
+
+        conn = duckdb.connect(str(analytics[1].DUCKDB_BASE / "security-test.duckdb"))
+        conn.execute(f"CREATE VIEW legacy_probe AS {query}")
+        conn.close()
+        result = run_sql(ctx, "SELECT * FROM legacy_probe")
+        assert result.startswith("SQL error:")
+        assert "SYNTHETIC_HOST_CANARY" not in result
+        assert describe_table(ctx, "legacy_probe").startswith("SQL error:")
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "SET enable_external_access=true",
+            "RESET enable_external_access",
+            "SET lock_configuration=false",
+            "SET memory_limit='10GB'",
+            "SET allowed_paths=['/tmp']",
+            "PRAGMA enable_profiling='json'",
+            "INSTALL httpfs",
+            "LOAD httpfs",
+            "SELECT 1; SELECT 2",
+            "CREATE PERSISTENT SECRET probe (TYPE HTTP, BEARER_TOKEN 'synthetic')",
+        ],
+    )
+    def test_configuration_extensions_and_persistent_secrets_denied(self, analytics, query):
+        ctx, _ = analytics
+        assert run_sql(ctx, query).startswith("SQL error:")
+        assert "42" in run_sql(ctx, "SELECT 42")
+
+    def test_engine_settings_cannot_be_unlocked_directly(self, analytics):
+        import duckdb
+
+        ctx, _ = analytics
+        conn = _get_connection(ctx.deps.conversation_id)
+        try:
+            for query in [
+                "SET lock_configuration=false",
+                "RESET ALL",
+                "SET memory_limit='10GB'",
+                "SET enable_external_access=true",
+            ]:
+                with pytest.raises(duckdb.Error):
+                    conn.execute(query)
+        finally:
+            conn.close()
+
+    def test_network_denied_without_request(self, analytics):
+        import socket
+
+        ctx, _ = analytics
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(0.1)
+            url = f"http://127.0.0.1:{listener.getsockname()[1]}/data.csv"
+            assert run_sql(ctx, f"SELECT * FROM read_csv('{url}')").startswith("SQL error:")
+            with pytest.raises(TimeoutError):
+                listener.accept()
+
+    def test_file_writes_and_attach_denied(self, analytics, tmp_path):
+        ctx, tools = analytics
+        destination = tmp_path / "forbidden.csv"
+        for query in [
+            f"COPY (SELECT 42) TO '{destination}'",
+            f"EXPORT DATABASE '{tmp_path / 'export'}'",
+            f"ATTACH '{tmp_path / 'outside.duckdb'}' AS outside",
+            f"COPY (SELECT 42) TO '{tools.DUCKDB_BASE / 'security-test.duckdb.wal'}'",
+            f"EXPLAIN ANALYZE COPY (SELECT 42) TO '{tools.DUCKDB_BASE / 'security-test.duckdb.wal'}'",
+        ]:
+            assert run_sql(ctx, query).startswith("SQL error:")
+        assert not destination.exists()
+        assert not (tmp_path / "outside.duckdb").exists()
+        assert not (tmp_path / "export").exists()
+        assert "42" in run_sql(ctx, "SELECT 42")
+
+    def test_controlled_csv_and_quoted_identifiers(self, analytics):
+        ctx, tools = analytics
+        # Quotes in a validated path remain data; table names cannot execute SQL.
+        ctx.deps.conversation_id = "conversation'quote"
+        path = tools.DATA_BASE / ctx.deps.conversation_id / "rents.csv"
+        _write_csv(path, ["Unit", "Rent"], [["A", "1200"], ["B", "1500"]])
+        table = 'rent"; DROP TABLE protected; --'
+        assert "SQL error:" not in run_sql(ctx, "CREATE TABLE protected AS SELECT 7 AS value")
+        assert "2 rows" in load_dataset(ctx, "rents", table)
+        assert "2 rows" in describe_table(ctx, table)
+        assert table in describe_table(ctx)
+        assert "7" in run_sql(ctx, "SELECT * FROM protected")
+        quoted = '"' + table.replace('"', '""') + '"'
+        assert "2700" in run_sql(ctx, f"SELECT SUM(Rent) FROM {quoted}")
+        # The import exception does not leak into subsequent SQL connections.
+        assert run_sql(
+            ctx, f"SELECT * FROM read_csv('{str(path).replace(chr(39), chr(39) * 2)}')"
+        ).startswith("SQL error:")
+
+    def test_cross_turn_analytics_join_window_and_reload(self, analytics):
+        ctx, tools = analytics
+        path = tools.DATA_BASE / ctx.deps.conversation_id / "rents.csv"
+        _write_csv(path, ["Unit", "Rent"], [["A", "1200"], ["B", "1500"]])
+        assert "2 rows" in load_dataset(ctx, "rents")
+        assert "SQL error:" not in run_sql(
+            ctx, "CREATE TABLE units AS SELECT 'A' AS unit, 'Maryland' AS property"
+        )
+        result = run_sql(
+            ctx,
+            "WITH matched AS (SELECT r.Unit, r.Rent, u.property FROM rents r JOIN units u ON r.Unit = u.unit) SELECT property, SUM(Rent) OVER () AS total FROM matched",
+        )
+        assert "Maryland | 1200" in result
+        _write_csv(path, ["Unit", "Rent"], [["A", "1300"]])
+        assert "1 rows" in load_dataset(ctx, "rents")
+        assert "1300" in run_sql(ctx, "SELECT SUM(Rent) FROM rents")
+        other = _make_ctx("another-conversation", ctx.deps.workspace_path)
+        assert run_sql(other, "SELECT * FROM rents").startswith("SQL error:")
+
+    def test_large_result_is_bounded_without_exact_count(self, analytics):
+        ctx, _ = analytics
+        result = run_sql(ctx, "SELECT i FROM range(10000000) t(i)")
+        assert "more than 100 rows" in result
+        assert "\n99\n" in result
+        assert "\n100\n" not in result
+        assert len(result) < 8200
+
+    def test_fetch_does_not_materialize_full_result(self):
+        from api.src.sernia_ai.tools.duckdb_worker import execute_sql
+
+        conn = MagicMock()
+        statement = MagicMock()
+        statement.type.name = "SELECT"
+        conn.extract_statements.return_value = [statement]
+        result = conn.execute.return_value
+        result.description = [("value",)]
+        result.fetchmany.return_value = [(i,) for i in range(101)]
+        assert "more than 100 rows" in execute_sql(conn, "SELECT * FROM large_table")
+        result.fetchmany.assert_called_once_with(101)
+        result.fetchall.assert_not_called()
+
+    def test_timeout_kills_query_and_next_turn_works(self, analytics, monkeypatch):
+        import time
+
+        ctx, tools = analytics
+        monkeypatch.setattr(tools, "QUERY_TIMEOUT_SECONDS", 0.5)
+        start = time.monotonic()
+        result = run_sql(
+            ctx, "SELECT SUM(a.i * b.i) FROM range(10000000) a(i), range(10000000) b(i)"
+        )
+        assert "time limit" in result
+        assert time.monotonic() - start < 5
+        monkeypatch.setattr(tools, "QUERY_TIMEOUT_SECONDS", 30)
+        assert "42" in run_sql(ctx, "SELECT 42")
+
+    def test_import_size_and_query_size_limits(self, analytics):
+        ctx, tools = analytics
+        path = tools.DATA_BASE / ctx.deps.conversation_id / "large.csv"
+        path.parent.mkdir(parents=True)
+        with path.open("wb") as file:
+            file.truncate(tools.MAX_CSV_BYTES + 1)
+        assert "10 MiB" in load_dataset(ctx, "large")
+        assert "character limit" in run_sql(ctx, " " * (tools.MAX_QUERY_CHARS + 1))
+
+    def test_busy_workers_fail_fast(self, analytics, monkeypatch):
+        import threading
+
+        ctx, tools = analytics
+        monkeypatch.setattr(tools, "_WORKER_SLOTS", threading.BoundedSemaphore(0))
+        assert "busy" in run_sql(ctx, "SELECT 42")
+
+    def test_list_does_not_follow_host_symlink(self, analytics, tmp_path):
+        ctx, tools = analytics
+        secret = tmp_path / "host.csv"
+        secret.write_text("SYNTHETIC_HOST_CANARY\nvalue\n")
+        directory = tools.DATA_BASE / ctx.deps.conversation_id
+        directory.mkdir(parents=True)
+        (directory / "link.csv").symlink_to(secret)
+        assert "SYNTHETIC_HOST_CANARY" not in list_datasets(ctx)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Production OS address-space limit")
+def test_oversized_value_cannot_exhaust_api_process(analytics):
+    ctx, _ = analytics
+    result = run_sql(ctx, "SELECT repeat('x', 1500000000)")
+    assert result.startswith("SQL error:")
+    assert "42" in run_sql(ctx, "SELECT 42")

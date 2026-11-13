@@ -33,15 +33,15 @@ from fastmcp.tools.base import ToolResult
 from fastmcp.utilities.authorization import AuthContext, run_auth_checks
 from fastmcp.utilities.components import FastMCPComponent
 
-from sernia_mcp.config import ALLOWED_EMAIL_DOMAINS
+from sernia_mcp.config import ALLOWED_EMAIL_DOMAINS, local_auth_bypass_enabled
 
 
 def require_allowed_email_domain(ctx: AuthContext) -> bool:
     """Allow only authenticated users whose email is in an allowed domain.
 
-    If ``ctx.token`` is None, no auth is configured (local dev / tests). We
-    let the request through here — gating that case is the responsibility of
-    the auth provider, not this authorization layer.
+    Missing tokens are allowed only in explicit local development mode.
+    Hosted requests must carry an authenticated identity even if the HTTP
+    provider is accidentally omitted by a future caller.
 
     Raises:
         AuthorizationError: when the token has no email claim, or when the
@@ -49,7 +49,9 @@ def require_allowed_email_domain(ctx: AuthContext) -> bool:
     """
     token = ctx.token
     if token is None:
-        return True
+        if local_auth_bypass_enabled():
+            return True
+        raise AuthorizationError("authentication required")
 
     email = (token.claims or {}).get("email", "")
     if not isinstance(email, str) or not email:

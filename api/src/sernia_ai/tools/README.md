@@ -243,3 +243,36 @@ Emergency escalation delivery uses the durable outbox documented in
 `trigger_escalation` reports per-recipient acceptance, pending, blocked, or unknown
 status; provider acceptance does not establish human receipt. Queued/uncertain
 outcomes must not prompt another tool call or duplicate SMS/email fallback.
+
+## Conversation analytics (`duckdb_tools.py`)
+
+DuckDB tables persist per conversation under `/tmp/sernia_duckdb`. The agent can
+run one analytics statement at a time (SELECT, CREATE, INSERT, UPDATE, DELETE,
+ALTER or DROP), including joins, CTEs and window functions. Use
+`load_dataset` for CSVs produced by data-fetching tools; SQL cannot import files
+or access the network. Custom table names are quoted as identifiers and CSV
+paths are bound parameters. Imports atomically replace the named table.
+
+Each SQL/import/describe operation runs in a fresh `python -I` subprocess with
+no inherited API credentials or dotenv loading. Every connection disables external
+access, extension installation/autoloading, persistent secrets and spill files,
+then locks its configuration. Only an import worker may access its one validated
+conversation CSV; it never runs model SQL. DuckDB implicitly permits its own
+DB/WAL paths, so the SQL parser also rejects COPY and other non-analytics statement
+types, including EXPLAIN ANALYZE wrappers. Persisted views/macros execute under the same restrictions on later turns.
+
+Limits: two concurrent workers per API process, a 30-second wall deadline,
+20 CPU seconds, 128 MiB DuckDB memory, 128 MiB per database/WAL file, and a
+1 GiB address-space ceiling on Linux production workers. macOS development has
+the other limits but no OS address-space ceiling. CSV imports are limited to
+10 MiB and SQL to 64,000 characters. Query results fetch at most 101 rows to show
+100; truncated results say “more than 100” rather than reporting an exact total.
+A failed or timed-out worker is reaped and returns a tool error. Concurrent access
+to the same conversation database may return a lock error and can be retried.
+
+These controls close the supported SQL file/network APIs and isolate resource
+failures from the API. The worker still runs as the API's OS user: DuckDB engine
+vulnerabilities are outside this boundary; this is not an OS filesystem/network
+sandbox. See [DuckDB's security model](https://duckdb.org/docs/1.5/operations_manual/securing_duckdb/overview).
+The startup cleanup removes old conversation files; there is no aggregate quota
+across all conversations.
