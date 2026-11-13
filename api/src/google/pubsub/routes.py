@@ -32,9 +32,11 @@ async def handle_gmail_notifications(
     Receives Gmail push notifications from Google Pub/Sub.
     """
     try:
-        # Log request details
-        logfire.info("=== New Gmail Notification ===")
-        logfire.info(f"Headers: {dict(request.headers)}")
+        # Record presence only: request headers can contain bearer tokens and cookies.
+        logfire.info(
+            "=== New Gmail Notification ===",
+            authorization_present=bool(request.headers.get("authorization")),
+        )
 
         # Verify the request is from Google Pub/Sub
         logfire.info("Verifying Pub/Sub token...")
