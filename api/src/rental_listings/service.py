@@ -6,7 +6,7 @@ transaction, so the current tables and the history cannot disagree. Callers
 decide who may change what. Nothing here asks for approval.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,8 +62,18 @@ async def read_listing(
     return _as_listing(record) if record else None
 
 
-async def read_showing_rules(session: AsyncSession) -> ShowingRules:
-    """The showing rules, or the defaults when none have been saved."""
+async def read_showing_rules(session: AsyncSession, *, lock: bool = False) -> ShowingRules:
+    """The showing rules, or the defaults when none have been saved.
+
+    ``lock`` holds the showing rules until the session commits, so a caller
+    that reads, changes and saves them cannot overwrite a change made in
+    between. It is a transaction-level advisory lock, not a row lock, because
+    before the first save there is no row to lock.
+    """
+    if lock:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": SHOWING_RULES_KEY}
+        )
     value = (
         await session.execute(select(AppSetting.value).where(AppSetting.key == SHOWING_RULES_KEY))
     ).scalar_one_or_none()
