@@ -24,9 +24,11 @@ MAX_NAME_LENGTH = 120
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)")
 _LINK = re.compile(r"https?://|www\.", re.I)
+# No word boundaries: "frontdoor code", "keycode" and "lockbox4821" must match
+# too. A rare false positive ("monkey code") is refused and can be reworded.
 _ACCESS = re.compile(
-    r"\b(lock\s?box|pass\s?code|password"
-    r"|(?:door|gate|access|alarm|entry|garage|key|keypad)\s+code)\b",
+    r"lock\s*box|pass\s*(?:code|word)"
+    r"|(?:door|gate|access|alarm|entry|garage|key|keypad)\s*code",
     re.I,
 )
 
