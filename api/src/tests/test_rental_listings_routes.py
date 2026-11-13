@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import routes, service
@@ -349,3 +350,16 @@ async def test_two_adds_of_one_unit_in_different_case_do_not_both_win(api):
     assert [
         listing["unit"] for listing in (await api.get("/api/rental-listings")).json()["listings"]
     ] in (["12-C"], ["12-c"])
+
+
+@pytest.mark.asyncio
+async def test_an_add_that_hits_the_unique_index_is_a_409_not_a_500(api, monkeypatch):
+    async def races_another_writer(session, listing, *, changed_by, source=None):
+        raise IntegrityError("INSERT INTO rental_listings", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(service, "save_listing", races_another_writer)
+
+    response = await api.post("/api/rental-listings/listings", json={"listing": _json(LISTING)})
+
+    assert response.status_code == 409
+    assert "already has a listing" in response.json()["detail"]["problems"][0]

@@ -17,7 +17,7 @@ from typing import Annotated
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import DBSession
 from api.src.rental_listings import service
@@ -57,16 +57,6 @@ class RulesSave(BaseModel):
     based_on: ShowingRules | None = None
 
 
-async def _hold(session: DBSession, what: str) -> None:
-    """Hold a lock named ``what`` until the transaction ends (the service commits).
-
-    A row lock cannot cover a listing that does not exist yet. Two adds wait
-    for each other here, so "no listing for this unit" still holds when the
-    add is saved, whatever the case of the name.
-    """
-    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:what))"), {"what": what})
-
-
 def _person(user: User) -> str:
     """The name recorded as ``changed_by``, with the email so two people cannot blur."""
     name = f"{user.first_name or ''} {user.last_name or ''}".strip()
@@ -100,6 +90,13 @@ def _changed_since() -> HTTPException:
     )
 
 
+def _already_listed(name: str) -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={"message": "Not saved.", "problems": [f"Unit {name!r} already has a listing."]},
+    )
+
+
 def _broken_on_file(error: RentalDataInvalid) -> HTTPException:
     """Only a hand edit in the database can store data that fails its checks."""
     return HTTPException(
@@ -130,20 +127,21 @@ async def read_rental_data(session: DBSession) -> RentalData:
 async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession) -> RentalListing:
     """Add a unit's listing. Refused with 409 if that unit (in any case) has one."""
     name = body.listing.unit
-    await _hold(session, "rental_listings:add")
     try:
+        # Locks the unit name, listed or not, until the save commits.
         existing = await service.read_listing(session, name, lock=True)
     except RentalDataInvalid as error:
         raise _broken_on_file(error) from error
     if existing is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={"message": "Not saved.", "problems": [f"Unit {name!r} already has a listing."]},
-        )
+        raise _already_listed(name)
     try:
         await service.save_listing(session, body.listing, changed_by=_person(user), source=SOURCE)
     except RentalDataInvalid as error:
         raise _refused(error) from error
+    except IntegrityError as error:
+        # The unique index on lower(unit), for a writer that did not take the lock.
+        await session.rollback()
+        raise _already_listed(name) from error
     return await _saved_listing(session, name)
 
 
