@@ -81,7 +81,8 @@ def test_short_token_refused_at_boot(monkeypatch):
     monkeypatch.setenv("SERNIA_MCP_INTERNAL_BEARER_TOKEN", "short")
     bearer = _reload_bearer()
 
-    assert bearer.internal_bearer_configured() is False
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        bearer.internal_bearer_configured()
     with pytest.raises(RuntimeError, match="at least 32 characters"):
         bearer.verify_internal_bearer("short")
 

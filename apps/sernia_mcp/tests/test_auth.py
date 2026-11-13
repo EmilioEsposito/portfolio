@@ -72,13 +72,24 @@ def test_rejects_malformed_email():
 
 
 def test_passes_through_when_no_token():
-    """Unauth dev mode: provider didn't validate a token, so this layer
-    has nothing to authorize. The auth provider gates that case.
-    """
+    """The isolated fixture explicitly opts into local unauthenticated mode."""
     from sernia_mcp.auth import require_allowed_email_domain
 
     ctx = _FakeCtx(token=None)
     assert require_allowed_email_domain(ctx) is True
+
+
+@pytest.mark.parametrize("hosted", [False, True])
+def test_missing_token_rejected_outside_explicit_local_mode(monkeypatch, hosted):
+    from sernia_mcp import config
+    from sernia_mcp.auth import require_allowed_email_domain
+
+    if hosted:
+        monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "synthetic")
+    else:
+        monkeypatch.setattr(config, "SERNIA_MCP_DISABLE_AUTH", False)
+    with pytest.raises(AuthorizationError, match="authentication required"):
+        require_allowed_email_domain(_FakeCtx(token=None))
 
 
 @pytest.mark.asyncio

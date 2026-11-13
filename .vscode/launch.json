@@ -80,7 +80,8 @@
                 // (and curl, and any other MCP client) can connect without an
                 // OAuth dance. The server-side guard refuses to boot if this
                 // flag is ever set on Railway, so it can't escape to prod.
-                "SERNIA_MCP_DISABLE_AUTH": "true"
+                "SERNIA_MCP_DISABLE_AUTH": "true",
+                "SERNIA_MCP_BASE_URL": "http://localhost:8090"
             }
         },
         {

@@ -28,6 +28,14 @@ def _isolate_environment(tmp_path: Path, monkeypatch):
     reload below) cannot reload values from a developer's local ``.env``.
     ``clerk_oauth_configured()`` treats empty strings as not-configured.
     """
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+    for key in tuple(os.environ):
+        if key.startswith("RAILWAY_"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("SERNIA_MCP_DISABLE_AUTH", "true")
+    monkeypatch.setenv("SERNIA_MCP_BASE_URL", "http://localhost:8080")
+    monkeypatch.setenv("GITHUB_EMILIO_PERSONAL_WRITE_PAT", "")
+    monkeypatch.setenv("LOGFIRE_TOKEN", "")
     for var in _CLERK_VARS:
         monkeypatch.setenv(var, "")
     monkeypatch.setenv("SERNIA_MCP_INTERNAL_BEARER_TOKEN", "")
