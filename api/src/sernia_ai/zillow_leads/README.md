@@ -49,7 +49,7 @@ zillow_leads/
 ```mermaid
 flowchart LR
     S["<b>Scenario</b><br/>a past thread, cut where<br/>the lead spoke last"]
-    O["<b>Operating data</b><br/>listings + fact sheets,<br/>booking link, tour times"]
+    O["<b>Listing data</b><br/>listings + fact sheets,<br/>booking link, tour times"]
     C["<b>Case</b><br/>what the model reads"]
     P["<b>Policy</b><br/>policy.md: rules and<br/>standard answers"]
     D["<b>Outcome</b><br/>Reply (with the email),<br/>NoReply or Escalate"]
@@ -67,8 +67,8 @@ flowchart LR
 | Word | Meaning | Changes when |
 |---|---|---|
 | **Scenario** | A real conversation up to a moment where we owed a response, containing only the emails. | Never; it is a record of what happened. |
-| **Operating data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. In the evals it is a season file; in production it is built from the rental listings tables. | Weekly in season, and its format can change too. |
-| **Case** | Scenario + operating data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
+| **Listing data** | What was true of the business then: units, facts about each, the booking link, when tours can happen. In the evals it is a season file (which may still sit in `evals/data/operating/`, the folder name from before the rename); in production it is built from the rental listings tables. | Weekly in season, and its format can change too. |
+| **Case** | Scenario + listing data, rendered as text; this is the model's whole input. | Rebuilt on every run. |
 | **Policy** | The instructions: when to reply, what is allowed, how to write, and the answers that are the same for every lead (how to apply, the fee). | By commit, after an eval run says the change helps. |
 | **Outcome** | What the lead agent returns: a `Reply` with the full email, a `NoReply`, or an `Escalate` with a question. Three types, so a reply cannot exist without its text. | Every run. |
 | **Check** | A rule with an exact answer, written as code. | Rarely. |
@@ -86,7 +86,7 @@ whether replies got better or worse.
 > Monday 9:00 AM, lead: "Hi, I'd like to see 12 Example St #A this week. Does
 > it have a dishwasher?"
 
-**Operating data** (one file for the season)
+**Listing data** (one file for the season)
 
 ```json
 {
@@ -153,7 +153,7 @@ The method in full, with the data splits and the sources it follows, is in
 
 ```mermaid
 flowchart LR
-    R["Run<br/>scenarios × operating data × policy"] --> V["Review<br/>pass / fail + one line"]
+    R["Run<br/>scenarios × listing data × policy"] --> V["Review<br/>pass / fail + one line"]
     V --> G["Group the fails<br/>into named failure types"]
     G --> F["Fix the biggest<br/>in the layer that owns it"]
     F --> R
@@ -161,14 +161,14 @@ flowchart LR
 
 | A failure like | Is fixed in | Not in |
 |---|---|---|
-| "Didn't know the unit has parking" | Operating data: the unit's fact sheet | the prompt |
+| "Didn't know the unit has parking" | Listing data: the unit's fact sheet | the prompt |
 | "Offered a time inside the notice period" | Code: slot arithmetic | the prompt |
 | "Tone too stiff", "replied when it should have waited" | Policy: `prompts/policy.md` | code |
 | "Asked for a discount" | Nowhere; escalating is the correct outcome | |
 
 Seventeen experiments so far: ten on one sample of 30 real scenarios and seven on a second sample. The first five:
 
-| Experiment | Operating data | Reply | No reply | Escalate |
+| Experiment | Listing data | Reply | No reply | Escalate |
 |---|---|---|---|---|
 | 1 | rent and lease dates only | 12 | 6 | 12 |
 | 2 | + fact sheets and standard answers | 20 | 5 | 5 |
@@ -229,7 +229,7 @@ when a tour is already booked for the unit (so leads share a showing) or when
 the lead named a day or time.
 
 Tour times follow the same approach: the case stores the times, never their
-source. In the evals a weekly pattern per person in the season's operating
+source. In the evals a weekly pattern per person in the season's listing data
 file (`availability`) is turned into slots by `offerable_slots()`. In
 production the times come from a `TourSource` (`tours.py`), which today knows
 none; see [Listing data in production](#listing-data-in-production).
@@ -260,7 +260,7 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals browse \
 
 # Each experiment: run a dev sample and send it to Logfire
 uv run python -m api.src.sernia_ai.zillow_leads.evals run \
-    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --splits $DATA/scenarios/splits.json --split dev \
     --name round-3 --sample 30 --seed 7 --out $DATA/runs/round-3.jsonl
 # Add --exclude-run <earlier run> (repeatable) to sample only scenarios no
@@ -272,7 +272,7 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals run \
 # Then: write the page you label that run on, and open it in a browser.
 # Keep --out the same every time, so there is one review page to bookmark.
 uv run python -m api.src.sernia_ai.zillow_leads.evals review \
-    --scenarios $DATA/scenarios/scenarios.jsonl --operating $DATA/operating/operating.json \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --run $DATA/runs/round-3.jsonl --labels $DATA/annotations/annotations.jsonl \
     --out $DATA/review.html
 
@@ -321,12 +321,12 @@ The lead agent has its own model setting, `LEAD_AGENT_MODEL` in `agent.py`,
 separate from the general agent's. `run --model <name>` tries another model on
 the same cases without editing code.
 
-A run records the policy commit, the model, and a hash of the operating file,
+A run records the policy commit, the model, and a hash of the listing data file,
 prints counts only, and appears in Logfire under AI Evaluations. The same
 `--seed` picks the same scenarios, so experiments can be compared on the same
 cases.
 
-Real scenarios, review pages, labels and the season's operating file hold
+Real scenarios, review pages, labels and the season's listing data file hold
 applicant emails and business details. They stay out of Git and out of CI. A
 small synthetic set will live in the repo for CI.
 
@@ -335,7 +335,7 @@ small synthetic set will live in the repo for CI.
 ```mermaid
 flowchart LR
     Q["Queue<br/>new Zillow email"] --> T["Load thread<br/>shared mailbox"]
-    T --> B["Build case<br/>live operating data"]
+    T --> B["Build case<br/>live listing data"]
     B --> X["Lead agent<br/>no tools"]
     X -->|Reply| A["Approval card<br/>then code sends"]
     X -->|NoReply| N["Saved, nothing sent"]
@@ -385,7 +385,7 @@ settings row (`rental_showing_rules`), and their changes are in the same
 history. Nothing is saved yet: until a listing is added the agent sees no
 listings and escalates every lead.
 
-`listing_data.py` turns the rows into the `OperatingData` the case builder
+`listing_data.py` turns the rows into the `ListingData` the case builder
 takes, the same shape the evals read from a season file. The table's names
 say "asking" and "next lease" because a unit also has a current lease at a
 different rent; inside a case, under "Listings", the shorter names (`rent`,
@@ -501,7 +501,7 @@ workspace skill of the same name cannot replace it.
 | Offer every available time | `policy.md` | Changed: a booking link is the default; every time is listed only when there is no link |
 | Past slots, 24-hour notice, showing hours, blackout dates | `case.py` | Built |
 | Same-unit tour already booked: offer that time first | `policy.md`; `ReplyChecks` allows those times | Built, not yet exercised: past cases have no booked tours, and production has no source of them until #368 |
-| Active units, rent, lease start, virtual tours allowed | Operating data | Built |
+| Active units, rent, lease start, virtual tours allowed | Listing data | Built |
 | Find the email in the shared mailbox | `thread.py`, queue | Built |
 | One run per lead when several emails arrive | Queue | Built |
 | Reply only to the lead's external address, never an internal one; no valid address means no send | `handle.py` | Built, and stricter: only a Zillow relay address |

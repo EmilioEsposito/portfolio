@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 class Label(BaseModel):
     """A person's verdict on one decision. Tied to the scenario, not to the
-    case or the run, so it stays meaningful when operating data or the policy
+    case or the run, so it stays meaningful when listing data or the policy
     changes: the note says what a good response to this conversation needs."""
 
     scenario_id: str
