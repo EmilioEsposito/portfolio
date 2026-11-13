@@ -20,7 +20,7 @@ from api.src.agent_conversations.models import (
     get_conversation_messages,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.zillow_leads import handle, operating_store
+from api.src.sernia_ai.zillow_leads import handle, unit_data
 from api.src.sernia_ai.zillow_leads.agent import LeadOutcome
 from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, OperatingData, TourSlot
 from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
@@ -124,9 +124,7 @@ class TestConversationFor:
 async def conversation_id(monkeypatch):
     """A fresh conversation ID, with Gmail, the model and push stubbed out."""
     cid = f"test-lead-{uuid.uuid4().hex}"
-    monkeypatch.setattr(
-        handle, "get_operating_data", AsyncMock(return_value=operating_store.Loaded())
-    )
+    monkeypatch.setattr(unit_data, "load", AsyncMock(return_value=unit_data.Loaded()))
     monkeypatch.setattr(handle, "notify_pending_approval", AsyncMock())
     monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
     yield cid
@@ -190,20 +188,20 @@ class TestHandleThread:
         assert await handle.handle_thread("T", conversation_id=conversation_id, metadata={}) is None
 
 
-class TestOperatingData:
-    """What the case is built from, and what a bad file does. Unit data is invented."""
+class TestUnitData:
+    """What the case is built from, and what unusable data does. Unit data is invented."""
 
     listing = Listing(unit="12-A", address="12 Example St #A", rent=1500, facts="Dishwasher")
 
     async def run(self, conversation_id, monkeypatch, loaded, result=None):
         monkeypatch.setattr(handle, "load_lead_thread", AsyncMock(return_value=thread(message(0))))
-        monkeypatch.setattr(handle, "get_operating_data", AsyncMock(return_value=loaded))
+        monkeypatch.setattr(unit_data, "load", AsyncMock(return_value=loaded))
         monkeypatch.setattr(handle, "respond", AsyncMock(return_value=result or outcome()))
         return await handle.handle_thread("T", conversation_id=conversation_id, metadata={})
 
     @pytest.mark.asyncio
     async def test_the_case_is_built_from_the_data_on_file(self, conversation_id, monkeypatch):
-        loaded = operating_store.Loaded(data=OperatingData(listings=[self.listing]), found=True)
+        loaded = unit_data.Loaded(data=OperatingData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -228,7 +226,7 @@ class TestOperatingData:
             )
         )
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = operating_store.Loaded(data=OperatingData(listings=[self.listing]), found=True)
+        loaded = unit_data.Loaded(data=OperatingData(listings=[self.listing]))
 
         await self.run(conversation_id, monkeypatch, loaded)
 
@@ -243,7 +241,7 @@ class TestOperatingData:
     ):
         source = SimpleNamespace(tours=AsyncMock(side_effect=RuntimeError("calendar not found")))
         monkeypatch.setattr(handle, "TOUR_SOURCE", source)
-        loaded = operating_store.Loaded(data=OperatingData(listings=[self.listing]), found=True)
+        loaded = unit_data.Loaded(data=OperatingData(listings=[self.listing]))
 
         handled = await self.run(conversation_id, monkeypatch, loaded)
 
@@ -252,10 +250,10 @@ class TestOperatingData:
         assert case.offerable_slots == []
 
     @pytest.mark.asyncio
-    async def test_a_file_that_fails_its_checks_escalates_without_asking_the_agent(
+    async def test_data_that_fails_its_checks_escalates_without_asking_the_agent(
         self, conversation_id, monkeypatch
     ):
-        loaded = operating_store.Loaded(found=True, problem="listings.0.rent: not a number")
+        loaded = unit_data.Loaded(problem="unit 12-A: rent must be more than 0")
 
         handled = await self.run(conversation_id, monkeypatch, loaded)
 
@@ -265,43 +263,20 @@ class TestOperatingData:
         _, messages = await stored(conversation_id)
         (card,) = extract_pending_approval_from_messages(messages)
         assert card["tool_name"] == handle.ASK_TEAM
-        assert "listings.0.rent: not a number" in card["args"]["question"]
-        assert operating_store.OPERATING_FILE in card["args"]["question"]
+        assert "unit 12-A: rent must be more than 0" in card["args"]["question"]
+        assert "rental_units" in card["args"]["question"]
 
     @pytest.mark.asyncio
-    async def test_with_no_file_the_agent_still_decides_and_sees_no_listings(
+    async def test_with_no_units_the_agent_still_decides_and_sees_no_listings(
         self, conversation_id, monkeypatch
     ):
         handled = await self.run(
-            conversation_id, monkeypatch, operating_store.Loaded(), outcome("escalate")
+            conversation_id, monkeypatch, unit_data.Loaded(), outcome("escalate")
         )
 
         assert handled.action == "escalate"
         (case,) = handle.respond.call_args.args
         assert case.listings == []
-
-    @pytest.mark.asyncio
-    async def test_reading_the_file_never_raises_into_the_queue(self, monkeypatch):
-        monkeypatch.setattr(
-            handle.operating_store, "load", AsyncMock(side_effect=RuntimeError("disk"))
-        )
-
-        loaded = await handle.get_operating_data()
-
-        assert loaded.data == OperatingData() and "disk" in loaded.problem
-
-    @pytest.mark.asyncio
-    async def test_production_reads_the_workspace_file(self, monkeypatch, tmp_path):
-        async def pull(_workspace):
-            return None
-
-        monkeypatch.setattr(operating_store, "pull_workspace", pull)
-        monkeypatch.setattr(handle, "WORKSPACE_PATH", tmp_path)
-        operating_store.write(tmp_path, OperatingData(listings=[self.listing]))
-
-        loaded = await handle.get_operating_data()
-
-        assert loaded.data.listings == [self.listing] and loaded.problem is None
 
 
 class TestApplyApproval:

@@ -56,12 +56,12 @@ from api.src.sernia_ai.tools.duckdb_tools import duckdb_toolset
 from api.src.sernia_ai.tools.escalation_tools import escalation_toolset
 from api.src.sernia_ai.tools.google_tools import google_toolset
 from api.src.sernia_ai.tools.quo_tools import quo_toolset
+from api.src.sernia_ai.tools.rental_unit_tools import CAPABILITY_ID as RENTAL_UNIT_CAPABILITY_ID
+from api.src.sernia_ai.tools.rental_unit_tools import rental_unit_tools
 from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
 from api.src.sernia_ai.tools.workspace_tools import CAPABILITY_ID as WORKSPACE_CAPABILITY_ID
 from api.src.sernia_ai.tools.workspace_tools import SerniaWorkspace, build_workspace_toolset
-from api.src.sernia_ai.zillow_leads.data_tools import CAPABILITY_ID as LEAD_DATA_CAPABILITY_ID
-from api.src.sernia_ai.zillow_leads.data_tools import lead_data_tools
 from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME as LEAD_POLICY_SKILL_NAME
 from api.src.sernia_ai.zillow_leads.skill import lead_policy_skill
 
@@ -100,15 +100,15 @@ workspace_capability = SerniaWorkspace(
 # with the agent's other capabilities, and a clash fails the run.
 # - The Zillow lead policy is built in code (below), and a workspace skill of
 #   the same name must not replace the deployed policy.
-# - `zillow-lead-data` is the tools that change what the lead agent is told
-#   about units (below).
+# - `rental-unit-data` is the tools that read and change rental unit data
+#   (below).
 # - `instrumentation` and `sernia-workspace` are the ids of the Instrumentation
 #   capability and the workspace file tools.
 # test_zillow_lead_skill.py checks this covers every capability on the agent.
 RESERVED_SKILL_NAMES = frozenset(
     {
         LEAD_POLICY_SKILL_NAME,
-        LEAD_DATA_CAPABILITY_ID,
+        RENTAL_UNIT_CAPABILITY_ID,
         "instrumentation",
         WORKSPACE_CAPABILITY_ID,
     }
@@ -157,10 +157,11 @@ workspace_skills = build_workspace_skills(WORKSPACE_PATH)
 # loads the same way. See zillow_leads/skill.py.
 lead_policy_capability = lead_policy_skill()
 
-# The tools that read and change the lead agent's operating data (listings,
-# rented status, booking links, showing rules). Deferred like a skill, so they
-# cost one catalog line until a run needs them. See zillow_leads/data_tools.py.
-lead_data_capability = lead_data_tools()
+# The tools that read and change rental unit data (rent, rented status, facts,
+# internal notes, booking links, showing rules), which the lead agent's case is
+# built from. Deferred like a skill, so they cost one catalog line until a run
+# needs them. See tools/rental_unit_tools.py.
+rental_unit_capability = rental_unit_tools()
 
 sernia_agent = Agent(
     # `resolve_model` turns the `openrouter:` string into the SerniaOpenRouterModel
@@ -198,7 +199,7 @@ sernia_agent = Agent(
         workspace_capability,
         workspace_skills,
         lead_policy_capability,
-        lead_data_capability,
+        rental_unit_capability,
         # Provider-adaptive web tools (pydantic-ai core capabilities). Native
         # web search works on OpenRouter (as a server tool) and Anthropic.
         # Native web fetch is Anthropic-only — `optional=True` silently drops a

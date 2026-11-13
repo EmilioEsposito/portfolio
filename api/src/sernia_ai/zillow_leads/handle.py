@@ -56,7 +56,6 @@ from api.src.sernia_ai.config import (
     INTERNAL_EMAIL_DOMAIN,
     SHARED_EXTERNAL_EMAIL,
     TRIGGER_BOT_ID,
-    WORKSPACE_PATH,
 )
 from api.src.sernia_ai.push.service import notify_pending_approval
 from api.src.sernia_ai.tools._logging import create_logged_task
@@ -65,7 +64,7 @@ from api.src.sernia_ai.tools.google_tools import (
     _get_threading_headers,
     _send_email,
 )
-from api.src.sernia_ai.zillow_leads import operating_store
+from api.src.sernia_ai.zillow_leads import unit_data
 from api.src.sernia_ai.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     Escalate,
@@ -109,36 +108,20 @@ class Handled:
     pending: bool = False
 
 
-async def get_operating_data() -> operating_store.Loaded:
-    """Listings, booking links and showing rules as they stand now.
-
-    Read from the workspace file on every case (``operating_store.py``). A
-    missing file gives empty data: with no listings the agent cannot place a
-    lead's unit and escalates. A file that fails its checks also gives empty
-    data, with the problem, and ``handle_thread`` escalates without asking
-    the agent.
-    """
-    try:
-        return await operating_store.load(WORKSPACE_PATH)
-    except Exception as error:  # load is written not to raise; this is the backstop
-        logfire.exception("zillow lead: could not read operating data")
-        return operating_store.Loaded(found=True, problem=f"could not be read: {error}")
-
-
 def unusable_data_escalation(problem: str) -> Escalate:
-    """The outcome when operating data fails its checks: a person, with the reason.
+    """The outcome when unit data cannot be used: a person, with the reason.
 
     Decided by code, without the agent. An agent with no facts could only
-    escalate or guess, and the person needs to know the file is the cause.
+    escalate or guess, and the person needs to know the data is the cause.
     """
     return Escalate(
         lead=LeadFacts(),
         tour=TourState(),
-        reason="Operating data failed its checks, so no reply was drafted.",
+        reason="Unit data could not be used, so no reply was drafted.",
         question=(
-            f"The lead agent's operating data ({operating_store.OPERATING_FILE} in the "
-            f"workspace) cannot be used: {problem}. Every lead comes to a person until "
-            "it is fixed. Please fix the file, then answer this lead."
+            f"The lead agent's unit data (the rental_units tables) cannot be used: {problem}. "
+            "Every lead comes to a person until it is fixed. Please fix the data, then "
+            "answer this lead."
         ),
     )
 
@@ -227,7 +210,7 @@ async def handle_thread(
         return Handled(persisted=True, action="skipped")
 
     now = datetime.now(UTC)
-    loaded = await get_operating_data()
+    loaded = await unit_data.load()
     tours = await tours_for_case(TOUR_SOURCE, loaded.data, now)
     case = build_case(
         thread, loaded.data, now=now, slots=tours.open_times, booked_tours=tours.booked

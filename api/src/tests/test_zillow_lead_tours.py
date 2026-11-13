@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from api.src.sernia_ai.zillow_leads.agent import load_policy
 from api.src.sernia_ai.zillow_leads.case import (
+    INTERNAL_NOTES_LABEL,
     AgentAvailability,
     BookedTour,
     Listing,
@@ -236,6 +238,35 @@ class TestPreferredTimes:
         text = render_case(build_case(THREAD, operating, now=MONDAY_9AM, slots=[slot(TUESDAY, 15)]))
 
         assert "## Tours already booked\n- (none)\n\n## Thread (oldest first)" in text
+
+
+class TestInternalNotes:
+    def case_text(self, **fields) -> str:
+        operating = OperatingData(listings=[Listing(unit="12-A", facts="Dishwasher", **fields)])
+        return render_case(build_case(THREAD, operating, now=MONDAY_9AM, slots=[]))
+
+    def test_notes_are_in_the_case_under_a_label_that_says_not_to_share_them(self):
+        text = self.case_text(
+            internal_notes="Resident wants 48 hours' notice where possible\n- Lease start can move"
+        )
+
+        assert (
+            "  - Dishwasher\n"
+            f"  - {INTERNAL_NOTES_LABEL}\n"
+            "    - Resident wants 48 hours' notice where possible\n"
+            "    - Lease start can move\n"
+        ) in text
+        assert "never tell the lead" in INTERNAL_NOTES_LABEL
+
+    def test_a_unit_without_notes_reads_as_it_did_before_they_existed(self):
+        assert "Internal notes" not in self.case_text()
+        assert "Internal notes" not in self.case_text(internal_notes=" \n")
+
+    def test_the_policy_says_how_to_use_them(self):
+        policy = load_policy()
+
+        assert "internal notes" in policy
+        assert "Never state, quote or hint at them" in policy
 
 
 class TestFactSheet:

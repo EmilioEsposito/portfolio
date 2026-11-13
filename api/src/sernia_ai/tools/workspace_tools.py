@@ -15,10 +15,6 @@ prompts, skills and stored conversations were written against:
   ``.git`` is denied outright, so git config is never readable.
 - **Parent directories** are created on write, as the previous tools did.
 - **Delete.** The harness has no delete tool; ``delete_file`` is added here.
-- **Files with their own tools.** The Zillow lead agent's operating data is a
-  workspace file that strangers are answered from, so it changes only through
-  tools that check what is written (``zillow_leads/data_tools.py``). Reading
-  it here is fine; writing, editing or deleting it is refused.
 - **Errors.** The harness reports a bad path or an edit whose ``old_text`` is
   missing as a tool retry. Retries count against the run's budget, and a model
   stuck re-sending the same edit would end the run. They are re-raised as
@@ -45,7 +41,6 @@ from pydantic_ai.toolsets import AbstractToolset, CombinedToolset, FunctionTools
 from pydantic_ai.workspaces import LocalWorkspaceBackend, WorkspaceBackend, WorkspaceRef
 from pydantic_ai_harness.filesystem import FileSystem
 
-from api.src.sernia_ai.config import ZILLOW_OPERATING_FILE
 from api.src.sernia_ai.deps import SerniaDeps
 
 CAPABILITY_ID = "sernia-workspace"
@@ -66,16 +61,6 @@ _DENIED_PATTERNS = [".git", "**/.git", ".env", "**/.env", ".env.*", "**/.env.*",
 
 # Tools that act on one file, so its type is checked first.
 _FILE_TOOLS = frozenset({"read_file", "write_file", "edit_file", "delete_file"})
-# The ones that change it.
-_CHANGING_TOOLS = frozenset({"write_file", "edit_file", "delete_file"})
-
-# Files these tools may read but not change, and what to use instead.
-_TOOL_OWNED_FILES = {
-    ZILLOW_OPERATING_FILE: (
-        "it is what Zillow leads are answered from, so it changes only through the "
-        "`zillow-lead-data` tools (load that capability) or by a person on GitHub"
-    ),
-}
 
 # The harness tools offered. `create_directory` is left out because writes
 # create parents, and `file_info` because nothing the agent does needs it.
@@ -136,13 +121,6 @@ def _inside(root: Path, relative: str) -> Path:
     return target
 
 
-def _check_not_tool_owned(root: Path, path: str, target: Path) -> None:
-    """Refuse to change a file that has its own tools, however the path is spelt."""
-    for owned, instead in _TOOL_OWNED_FILES.items():
-        if target == (root / owned).resolve():
-            raise WorkspaceToolError(f"Path {path!r} cannot be changed with this tool: {instead}.")
-
-
 def _keep_workspace_files(output: str) -> str:
     """Drop result lines for files of other types from a search or find.
 
@@ -185,7 +163,6 @@ async def delete_file(ctx: RunContext[SerniaDeps], path: str) -> str:
     if (root / path).is_symlink():
         raise WorkspaceToolError(f"Path {path!r} is a link; the tools do not delete links.")
     _check_file_type(path, target)
-    _check_not_tool_owned(root, path, target)
     if not target.exists():
         return f"Path not found: {path}"
     if not target.is_file():
@@ -221,8 +198,6 @@ class WorkspaceFileToolset(WrapperToolset[SerniaDeps]):
             target = _inside(ctx.deps.workspace_path, path)
             if name in _FILE_TOOLS:
                 _check_file_type(path, target)
-            if name in _CHANGING_TOOLS:
-                _check_not_tool_owned(ctx.deps.workspace_path, path, target)
             if name == "write_file":
                 try:
                     target.parent.mkdir(parents=True, exist_ok=True)
@@ -261,9 +236,22 @@ class _SerniaWorkspaceBackend(LocalWorkspaceBackend):
 _tools_disabled: ContextVar[bool] = ContextVar("workspace_tools_disabled", default=False)
 
 
+def capability_tools_disabled() -> bool:
+    """Whether the current run must get no tools from capabilities.
+
+    For other capabilities that contribute tools with side effects (the rental
+    unit tools), so one switch covers them all.
+    """
+    return _tools_disabled.get()
+
+
 @contextmanager
 def workspace_tools_disabled() -> Iterator[None]:
-    """Offer no workspace file tools to runs started inside this block."""
+    """Offer no workspace file tools to runs started inside this block.
+
+    Capabilities whose tools change something check the same switch through
+    ``capability_tools_disabled``, so they are withheld as well.
+    """
     token = _tools_disabled.set(True)
     try:
         yield

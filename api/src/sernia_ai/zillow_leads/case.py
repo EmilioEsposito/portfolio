@@ -15,11 +15,11 @@ is the same for every lead, such as how to apply, belongs in
 """
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
 
+from api.src.rental_units.schema import PreferredWindow
 from api.src.sernia_ai.zillow_leads.thread import LeadThread
 
 # Current residents get a day's notice before a showing.
@@ -31,21 +31,6 @@ LATEST_START = time(18, 0)
 DEFAULT_DAYS_AHEAD = 7
 # A lead's burst of messages is answered once, shortly after the last one.
 DECISION_DELAY = timedelta(minutes=5)
-
-
-Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-_WEEKDAYS: tuple[Weekday, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-
-
-class PreferredWindow(BaseModel):
-    """Start times we would like a showing to land on: a nudge, never a limit."""
-
-    days: list[Weekday]
-    start: time
-    end: time  # the last preferred start time, included
-
-    def covers(self, local: datetime) -> bool:
-        return _WEEKDAYS[local.weekday()] in self.days and self.start <= local.time() <= self.end
 
 
 class Listing(BaseModel):
@@ -67,14 +52,18 @@ class Listing(BaseModel):
     # utilities, laundry, parking, appliances, pets. The model answers unit
     # questions from this and nothing else.
     facts: str = ""
+    # What the model should know to decide but must not tell the lead, one note
+    # per line: a resident who wants two days' notice, a lease start that can
+    # move under a condition. Low-stakes only; the policy says how to use them.
+    internal_notes: str = ""
     # When we would like this unit shown, if there is a choice (the resident
     # asked for afternoons, say). Of the times that may be offered, the ones
     # inside these windows are listed in the case as preferred.
     preferred_times: list[PreferredWindow] = Field(default_factory=list)
 
-    @field_validator("facts", mode="before")
+    @field_validator("facts", "internal_notes", mode="before")
     @classmethod
-    def _facts_from_lines(cls, value: object) -> object:
+    def _text_from_lines(cls, value: object) -> object:
         """Accept a list of lines, which is easier to edit by hand in JSON."""
         if isinstance(value, list) and all(isinstance(line, str) for line in value):
             return "\n".join(value)
@@ -106,8 +95,8 @@ class OperatingData(BaseModel):
     booking_url: str = ""
     showing_window: ShowingWindow = Field(default_factory=ShowingWindow)
     # A weekly pattern of tour times kept by hand. The evals' season file has
-    # one. Production does not read it: there, tour times come from a
-    # ``TourSource`` (see ``tours.py``).
+    # one. Production has none: there, tour times come from a ``TourSource``
+    # (see ``tours.py``).
     availability: list[AgentAvailability] = Field(default_factory=list)
     blackout_dates: list[date] = Field(default_factory=list)
 
@@ -283,6 +272,11 @@ def _fact_lines(text: str) -> list[str]:
     return [line.strip().lstrip("-*• ").strip() for line in text.splitlines() if line.strip(" -*•")]
 
 
+# How a unit's internal notes are introduced in the case. The policy says what
+# the model may do with them; this label repeats the one rule that matters.
+INTERNAL_NOTES_LABEL = "Internal notes (for your decisions only, never tell the lead):"
+
+
 def render_case(case: LeadCase) -> str:
     """The case as the decision step reads it. Staff names are left out."""
     zone = ZoneInfo(case.timezone)
@@ -303,6 +297,9 @@ def render_case(case: LeadCase) -> str:
         facts.append("virtual tours allowed" if listing.virtual_tours else "in-person tours only")
         lines.append(f"- {listing.unit}: " + "; ".join(fact for fact in facts if fact))
         lines += [f"  - {fact}" for fact in _fact_lines(listing.facts)]
+        if notes := _fact_lines(listing.internal_notes):
+            lines.append(f"  - {INTERNAL_NOTES_LABEL}")
+            lines += [f"    - {note}" for note in notes]
     if not case.listings:
         lines.append("- (none on file)")
     if case.rented_units:
