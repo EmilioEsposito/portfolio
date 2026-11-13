@@ -60,10 +60,9 @@ class RulesSave(BaseModel):
 async def _hold(session: DBSession, what: str) -> None:
     """Hold a lock named ``what`` until the transaction ends (the service commits).
 
-    A row lock cannot cover a row that does not exist yet: a listing being
-    added, or showing rules never saved. Two screen saves of the same kind
-    wait for each other here, so a check made before a save still holds
-    when the save happens.
+    A row lock cannot cover a listing that does not exist yet. Two adds wait
+    for each other here, so "no listing for this unit" still holds when the
+    add is saved, whatever the case of the name.
     """
     await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:what))"), {"what": what})
 
@@ -182,14 +181,15 @@ async def update_showing_rules(
     body: RulesSave, user: SerniaUser, session: DBSession
 ) -> ShowingRules:
     """Replace the showing rules that apply to every unit."""
-    await _hold(session, service.SHOWING_RULES_KEY)
-    if body.based_on is not None:
-        try:
-            current = await service.read_showing_rules(session)
-        except RentalDataInvalid as error:
+    try:
+        # Locked until the save commits, so the comparison still holds when it happens.
+        current = await service.read_showing_rules(session, lock=True)
+    except RentalDataInvalid as error:
+        if body.based_on is not None:
             raise _broken_on_file(error) from error
-        if current != body.based_on:
-            raise _changed_since()
+        current = None  # rules broken on file may be replaced without based_on
+    if body.based_on is not None and current != body.based_on:
+        raise _changed_since()
     try:
         await service.save_showing_rules(
             session, body.showing_rules, changed_by=_person(user), source=SOURCE
