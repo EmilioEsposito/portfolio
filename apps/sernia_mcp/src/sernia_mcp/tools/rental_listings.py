@@ -155,12 +155,18 @@ def _approval_card(title: str, lines: list[str], pending_id: str) -> PrefabApp:
                     "Approve & Save",
                     variant="success",
                     on_click=[
+                        # Decided either way: the pending change is used up.
+                        SetState("decided", True),
+                        # The confirm tool fails whenever nothing was saved, so
+                        # "Saved" shows only when it was.
                         CallTool(
                             "_confirm_rental_change",
                             arguments={"pending_id": pending_id, "decision": "approve"},
+                            on_success=ShowToast("Saved", variant="success"),
+                            on_error=ShowToast(
+                                "Not saved. Ask the assistant why.", variant="error"
+                            ),
                         ),
-                        SetState("decided", True),
-                        ShowToast("Saved", variant="success"),
                     ],
                     disabled=Rx("decided"),
                 )
@@ -319,18 +325,25 @@ async def showing_rules_update(
 
 @approvals_app.tool()
 async def _confirm_rental_change(pending_id: str, decision: str) -> str:
-    """Hidden backend tool, called only by a rental listing approval card's buttons."""
+    """Hidden backend tool, called only by a rental listing approval card's buttons.
+
+    Returns a message only when the decision was carried out: saved on
+    Approve, or cancelled on Reject. Anything else raises, so the card shows
+    an error, never "Saved", when nothing was saved.
+    """
     record = _PENDING.pop(pending_id, None)
     if not record or record.get("type") not in ("rental_listing", "showing_rules"):
-        return f"Unknown pending change id={pending_id} (may have expired)."
+        raise ToolError(f"Not saved: unknown pending change id={pending_id} (may have expired).")
     age = time.time() - record.get("created_at", 0)
     if age > _PENDING_TTL_SECONDS:
-        return f"Pending change expired ({int(age)}s old, TTL {_PENDING_TTL_SECONDS}s)."
+        raise ToolError(
+            f"Not saved: the change expired ({int(age)}s old, TTL {_PENDING_TTL_SECONDS}s)."
+        )
     if decision != "approve":
         return f"Cancelled; nothing was saved (decision={decision!r})."
     token, email = _caller()
     if email != record["email"]:
-        return "Not saved: this change was proposed in another user's session."
+        raise ToolError("Not saved: this change was proposed in another user's session.")
     plan = record["plan"]
     try:
         if record["type"] == "rental_listing":
@@ -339,4 +352,4 @@ async def _confirm_rental_change(pending_id: str, decision: str) -> str:
         await core.save_rules(token, plan)
         return "Saved the showing rules. " + "; ".join(plan.changes)
     except CoreError as error:
-        return f"Not saved. {error}"
+        raise ToolError(f"Not saved. {error}") from error

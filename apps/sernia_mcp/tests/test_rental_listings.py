@@ -143,6 +143,16 @@ def _actions(value):
             yield from _actions(child)
 
 
+def _nodes(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _nodes(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _nodes(child)
+
+
 def _texts(value) -> str:
     """Every piece of text on a card, joined."""
     found: list[str] = []
@@ -325,9 +335,9 @@ class TestTools:
             if a["arguments"]["decision"] == "approve"
         )
 
-        said = await client.call_tool(approve["tool"], approve["arguments"])
+        with pytest.raises(ToolError, match=r"Not saved.*changed this"):
+            await client.call_tool(approve["tool"], approve["arguments"])
 
-        assert said.data.startswith("Not saved.") and "changed this" in said.data
         assert api.listings["12-a"]["asking_rent"] == 1700
         assert "Cats allowed" not in api.listings["12-a"]["public_facts"]
 
@@ -346,9 +356,10 @@ class TestTools:
         )
         monkeypatch.setattr(tools, "_caller", lambda: ("oat_other", "sam@serniacapital.com"))
 
-        said = await client.call_tool(approve["tool"], approve["arguments"])
+        with pytest.raises(ToolError, match="another user"):
+            await client.call_tool(approve["tool"], approve["arguments"])
 
-        assert "another user" in said.data and api.saves == []
+        assert api.saves == []
 
     @pytest.mark.asyncio
     async def test_an_expired_card_saves_nothing(self, api, client):
@@ -362,9 +373,10 @@ class TestTools:
         )
         approvals._PENDING[approve["arguments"]["pending_id"]]["created_at"] = time.time() - 3600
 
-        said = await client.call_tool(approve["tool"], approve["arguments"])
+        with pytest.raises(ToolError, match="expired"):
+            await client.call_tool(approve["tool"], approve["arguments"])
 
-        assert "expired" in said.data and api.saves == []
+        assert api.saves == []
 
     @pytest.mark.asyncio
     async def test_showing_rules_window_saves_at_once_and_a_link_waits(self, api, client):
@@ -377,6 +389,23 @@ class TestTools:
         assert "Saved: showing rules" in _texts(saved.structured_content)
         assert api.rules["showing_booking_url"] == ""
         assert len(list(_actions(waiting.structured_content))) == 2
+
+    @pytest.mark.asyncio
+    async def test_approve_shows_saved_only_when_the_save_succeeds(self, api, client):
+        result = await client.call_tool(
+            "rental_listing_update", {"unit": "12-A", "add_public_facts": ["Cats allowed"]}
+        )
+        (button,) = [
+            node
+            for node in _nodes(result.structured_content)
+            if node.get("label") == "Approve & Save"
+        ]
+        first, call = button["onClick"]
+
+        assert first["action"] == "setState"  # disabled whatever happens
+        assert call["action"] == "toolCall"
+        assert call["onSuccess"]["message"] == "Saved"
+        assert call["onError"]["variant"] == "error"
 
     @pytest.mark.asyncio
     async def test_the_confirm_tool_is_not_listed(self, client):

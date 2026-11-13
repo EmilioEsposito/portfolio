@@ -6,6 +6,7 @@ here is invented.
 """
 
 import asyncio
+import time
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -464,6 +465,17 @@ class TestCaller:
 
         assert caller.source == "Sernia MCP" and caller.user.id == "user_test"
         assert clerk.seen["accepts"] == ["oauth_token"]
+
+    @pytest.mark.asyncio
+    async def test_a_cached_profile_still_expires_however_often_the_caller_comes_back(self, clerk):
+        """A cache hit must not reset the cache's clock, or the profile never refreshes."""
+        cached_at = time.time() - 200
+        clerk_module._user_cache["user_test"] = {"user": self.user(), "ts": cached_at}
+
+        await routes.rental_listing_caller(self.request("oat_abc"))
+
+        clerk.users.get_async.assert_not_called()
+        assert clerk_module._user_cache["user_test"]["ts"] == cached_at
 
     @pytest.mark.asyncio
     async def test_a_token_issued_to_another_oauth_client_is_refused(self, clerk):

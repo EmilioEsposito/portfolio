@@ -169,9 +169,13 @@ async def verify_serniacapital_oauth_user(request: Request, *, client_id: str) -
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="This OAuth access token does not belong to a user.",
         )
-    user = _get_cached_user(user_id) or await clerk_client.users.get_async(user_id=user_id)
-    if user:
-        _set_cached_user(user_id, user)
+    user = _get_cached_user(user_id)
+    if user is None:
+        # Only a fresh lookup is cached, so a cached profile still expires
+        # however often the caller comes back, as in ``get_auth_user``.
+        user = await clerk_client.users.get_async(user_id=user_id)
+        if user:
+            _set_cached_user(user_id, user)
     return _require_verified_domain(user, "@serniacapital.com")
 
 
