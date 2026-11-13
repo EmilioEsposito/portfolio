@@ -15,7 +15,7 @@ from api.src.rental_units import service
 from api.src.rental_units.models import RentalUnitRecord
 from api.src.rental_units.schema import PreferredWindow, RentalUnit, ShowingRules
 from api.src.sernia_ai.zillow_leads import unit_data
-from api.src.sernia_ai.zillow_leads.case import Listing, OperatingData, ShowingWindow
+from api.src.sernia_ai.zillow_leads.case import Listing, ShowingWindow, UnitData
 from api.src.tests.test_rental_units import clear_rental_data
 
 AFTERNOONS = PreferredWindow(days=["mon", "tue"], start=time(15), end=time(18))
@@ -52,9 +52,9 @@ async def saved():
 
 class TestShape:
     def test_every_field_reaches_the_case_builder(self):
-        operating = unit_data.as_operating_data([UNIT], RULES)
+        data = unit_data.as_unit_data([UNIT], RULES)
 
-        assert operating == OperatingData(
+        assert data == UnitData(
             listings=[
                 Listing(
                     unit="12-A",
@@ -75,7 +75,7 @@ class TestShape:
             blackout_dates=[date(2027, 7, 4)],
         )
         # Production keeps no tour times by hand; they come from the tour source.
-        assert operating.availability == []
+        assert data.availability == []
 
     def test_every_unit_field_is_carried_over_or_deliberately_not(self):
         """A field added to a unit must be mapped here, or the lead agent never sees it."""
@@ -95,7 +95,7 @@ class TestShape:
         assert set(RentalUnit.model_fields) == mapped
 
     def test_the_defaults_match_what_the_evals_have_always_used(self):
-        assert unit_data.as_operating_data([], ShowingRules()) == OperatingData()
+        assert unit_data.as_unit_data([], ShowingRules()) == UnitData()
 
 
 class TestLoad:
@@ -105,7 +105,7 @@ class TestLoad:
         loaded = await unit_data.load()
 
         assert loaded.problem is None
-        assert loaded.data == unit_data.as_operating_data([UNIT], RULES)
+        assert loaded.data == unit_data.as_unit_data([UNIT], RULES)
 
     @pytest.mark.asyncio
     async def test_with_nothing_saved_there_is_no_data_and_no_problem(self):
@@ -122,7 +122,7 @@ class TestLoad:
 
         loaded = await unit_data.load()
 
-        assert loaded.data == OperatingData()
+        assert loaded.data == UnitData()
         assert "rent must be more than 0" in loaded.problem
 
     @pytest.mark.asyncio
@@ -131,4 +131,4 @@ class TestLoad:
 
         loaded = await unit_data.load()
 
-        assert loaded.data == OperatingData() and loaded.problem == "no db"
+        assert loaded.data == UnitData() and loaded.problem == "no db"
