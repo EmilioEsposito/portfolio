@@ -367,3 +367,100 @@ class TestInstructionsStableWithinRun:
             if isinstance(part, InstructionDeltaPart)
         ]
         assert loaded == [lead_policy_text().strip()]
+
+    @pytest.mark.asyncio
+    async def test_loading_a_skill_that_is_already_loaded_does_not_end_the_run(self, deps):
+        """Two bounced `load_capability` calls in a run used to end it with no reply.
+
+        pydantic-ai answers a load of a skill that is already loaded with a
+        retry, and a run fails once a tool runs out of retries. On an SMS
+        trigger that means nothing is sent or saved.
+        """
+        from pydantic_ai.messages import (
+            ModelMessage,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME
+
+        steps = iter(
+            [
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": SKILL_NAME}),
+                ToolCallPart("load_capability", {"id": "no-such-skill"}),
+            ]
+        )
+
+        def model(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+            part = next(steps, None)
+            return ModelResponse(parts=[part or TextPart("Done.")])
+
+        with sernia_agent.override(native_tools=[]):
+            result = await sernia_agent.run("Hi.", deps=deps, model=FunctionModel(model))
+
+        assert result.output == "Done."
+
+    @pytest.mark.asyncio
+    async def test_skills_are_read_after_the_workspace_pull(self, deps, monkeypatch):
+        """A skill changed on GitHub reaches the first run after the change."""
+        from pydantic_ai import Agent
+        from pydantic_ai.messages import (
+            InstructionDeltaPart,
+            ModelMessage,
+            ModelRequest,
+            ModelResponse,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from api.src.sernia_ai import agent as agent_module
+        from api.src.sernia_ai import instructions
+        from api.src.sernia_ai.deps import SerniaDeps
+        from api.src.sernia_ai.memory import git_sync
+
+        skill_dir = deps.workspace_path / ".claude" / "skills" / "scheduled-checks"
+
+        async def pull(workspace_path):
+            # What a pull of an edit made on GitHub does to the checkout.
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\ndescription: Inbox checks.\n---\n\nPulled steps.\n"
+            )
+
+        monkeypatch.setattr(git_sync, "pull_workspace", pull)
+        monkeypatch.setattr(instructions, "_pulled_conversation_ids", set())
+        skills = agent_module.build_workspace_skills(deps.workspace_path)
+
+        seen: list[str] = []
+
+        def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            if not seen:
+                seen.append(info.instructions or "")
+                return ModelResponse(
+                    parts=[ToolCallPart("load_capability", {"id": "scheduled-checks"})]
+                )
+            return ModelResponse(parts=[TextPart("Done.")])
+
+        # The agent's own skills read the deployed workspace path, so this
+        # builds the same pair of capabilities over the test workspace.
+        agent = Agent(
+            FunctionModel(model),
+            deps_type=SerniaDeps,
+            capabilities=[skills, agent_module.lead_policy_capability],
+        )
+        result = await agent.run("Scheduled inbox check.", deps=deps)
+
+        assert "- scheduled-checks: Inbox checks." in seen[0]
+        loaded = [
+            part.content
+            for message in result.all_messages()
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, InstructionDeltaPart)
+        ]
+        assert loaded == ["# Skill: scheduled-checks\n\nPulled steps."]

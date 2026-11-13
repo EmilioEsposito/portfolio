@@ -55,7 +55,8 @@ topic per day for ad-hoc notes.
 tenants, vendors, etc.).
 - **Skills** — domain playbooks. The skill registry (name + description) is \
 auto-injected. Use `load_capability` with a skill's name to load its full \
-instructions. **Never** use `workspace_read_file` to read a skill — use \
+instructions. A skill loaded earlier in this conversation stays loaded; do not \
+load it again. **Never** use `workspace_read_file` to read a skill — use \
 `load_capability`. To CREATE or EDIT a \
 skill, write to `/workspace/.claude/skills/<name>/SKILL.md` via \
 `workspace_write_file` / `workspace_edit_file`. The workspace tools are for \

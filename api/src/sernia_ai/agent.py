@@ -42,7 +42,11 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
+from api.src.sernia_ai.instructions import (
+    DYNAMIC_INSTRUCTIONS,
+    STATIC_INSTRUCTIONS,
+    refresh_from_remote,
+)
 from api.src.sernia_ai.model_config import resolve_model
 from api.src.sernia_ai.sub_agents import compact_history, summarize_tool_results
 from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
@@ -85,9 +89,10 @@ filesystem_toolset = FileSystemToolset(_sandbox)
 # Code's `.claude/skills/` convention so the same knowledge repo is
 # interoperable with `cd workspace && claude` runs.
 #
-# The libraries are read at the start of every run, so edits made by the agent
-# itself (or by `apps/sernia_mcp` against the shared sernia-knowledge repo) show
-# up without a server restart.
+# The libraries are read at the start of every run, after the workspace's git
+# pull, so edits made on GitHub or by `apps/sernia_mcp` against the shared
+# sernia-knowledge repo show up without a server restart. A skill the agent
+# edits during a run is read again from the next run on.
 #
 # `workspace=` reads them from the host path. The agent has no pydantic-ai
 # workspace of its own; its file tools work in the sandbox mounted at
@@ -110,6 +115,13 @@ class WorkspaceSkills(Skills[SerniaDeps]):
     """Harness `Skills` that never fails a run over what is in the knowledge repo."""
 
     async def for_run(self, ctx: RunContext[SerniaDeps]) -> AbstractCapability[SerniaDeps]:
+        # Pull the workspace before the skills are read. The pull also runs as
+        # the first dynamic instruction, but capabilities are set up before
+        # instructions, so without this a run would read the skills as they
+        # were before the pull. It pulls once per conversation, so the later
+        # call does nothing.
+        if ctx.deps is not None:
+            await refresh_from_remote(ctx)
         try:
             # The harness reports a skill it skips as a Python warning only.
             # Read the catalog once more to put each one in Logfire, where
@@ -154,6 +166,13 @@ sernia_agent = Agent(
     # send an SMS or an email on its way out. This was pydantic-ai 1.x's
     # default; 2.x defaults to "graceful", which runs them.
     end_strategy="early",
+    # A tool may be retried three times in a run before the run fails; 1.x and
+    # 2.x default to one. `load_capability` answers a skill that is already
+    # loaded, or a name the catalog does not have, with a retry, and a model
+    # that tries twice would otherwise end the run with no reply (on an SMS
+    # trigger, nothing is sent or saved). Retries are failed calls, so this
+    # adds model requests, never side effects. Output validation keeps 1.
+    retries={"tools": 3, "output": 1},
     toolsets=[
         ErrorLoggingToolset(filesystem_toolset.prefixed("workspace"), name="workspace"),
         ErrorLoggingToolset(quo_toolset.prefixed("quo"), name="quo"),

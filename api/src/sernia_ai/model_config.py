@@ -17,7 +17,7 @@ unsupported xhigh maps to high.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
@@ -25,9 +25,16 @@ from typing import Any, Literal, cast, get_args
 
 import logfire
 from opentelemetry import trace
-from pydantic_ai.messages import ModelResponse
+from pydantic_ai.messages import ModelResponse, ModelResponseStreamEvent
 from pydantic_ai.models import StreamedResponse
-from pydantic_ai.models.openrouter import OpenRouterModel, OpenRouterModelSettings
+from pydantic_ai.models._reasoning_details import (  # pyright: ignore[reportPrivateUsage]
+    from_reasoning_detail,
+)
+from pydantic_ai.models.openrouter import (
+    OpenRouterModel,
+    OpenRouterModelSettings,
+    OpenRouterStreamedResponse,
+)
 from sqlalchemy import select
 
 from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
@@ -129,6 +136,47 @@ def get_openrouter_effort(value: str | None) -> str:
 _COST_SPAN_ATTR = "operation.cost"
 
 
+class SerniaOpenRouterStreamedResponse(OpenRouterStreamedResponse):
+    """Streamed response that keys each encrypted reasoning item by its own id.
+
+    A streamed response can carry two encrypted reasoning items (OpenAI emits
+    one per reasoning segment when reasoning interleaves with several tool
+    calls). If both land on one vendor key, the parts manager merges them into
+    one ThinkingPart with the first item's id and the last item's payload, and
+    replaying it fails the run with ``invalid_encrypted_content``
+    (production, 2026-08-05).
+
+    pydantic-ai 1.x keyed details by position within the chunk, which merged
+    them every time. 2.x keys them by OpenRouter's ``index`` and falls back to
+    the position when ``index`` is absent, so items without an index, or with
+    a repeated one, still merge. Encrypted payloads arrive whole and carry the
+    item id, so keying by that id cannot split one item. Every other detail
+    keeps upstream's keying. ``test_model_config.py`` has a canary that fails
+    once upstream stops merging, so this class can then be deleted.
+    """
+
+    def _map_thinking_delta(self, choice: Any) -> Iterable[ModelResponseStreamEvent]:
+        details = getattr(choice.delta, "reasoning_details", None) or []
+        if not any(d.type == "reasoning.encrypted" and d.id for d in details):
+            yield from super()._map_thinking_delta(choice)
+            return
+        for i, detail in enumerate(details):
+            thinking_part = from_reasoning_detail(detail, self._provider_name)
+            if detail.type == "reasoning.encrypted" and detail.id:
+                vendor_id = f"reasoning_detail_{detail.type}_{detail.id}"
+            else:
+                position = detail.index if detail.index is not None else i
+                vendor_id = f"reasoning_detail_{detail.type}_{position}"
+            yield from self._parts_manager.handle_thinking_delta(
+                vendor_part_id=vendor_id,
+                id=thinking_part.id,
+                content=thinking_part.content,
+                signature=thinking_part.signature,
+                provider_name=self._provider_name,
+                provider_details=thinking_part.provider_details,
+            )
+
+
 class SerniaOpenRouterModel(OpenRouterModel):
     """OpenRouter model that puts the billed ``operation.cost`` on the LLM span.
 
@@ -143,19 +191,18 @@ class SerniaOpenRouterModel(OpenRouterModel):
     ``BilledCostSpanProcessor`` copies it back onto ``operation.cost`` when the
     span ends. Routes genai-prices doesn't know keep our stamp directly.
 
-    Two things this class did on pydantic-ai 1.x are now done upstream, and
-    ``test_model_config.py`` pins both so a regression there fails a test here:
+    It also streams through :class:`SerniaOpenRouterStreamedResponse`, which
+    keeps two encrypted reasoning items in one response apart.
 
-    - **The web-search domain allowlist.** pydantic-ai 2.x sends web search as
-      OpenRouter's ``openrouter:web_search`` server tool and forwards the
-      tool's ``allowed_domains`` in its parameters. 1.x used the ``web`` plugin
-      and dropped the domains, so this class re-attached them.
-    - **Distinct encrypted reasoning items in streamed responses.** 1.x keyed
-      streamed ``reasoning_details`` by type and position within the chunk, so
-      two encrypted items merged into one ThinkingPart (first item's id, last
-      item's payload) whose replay 400s with ``invalid_encrypted_content``.
-      2.x keys them by OpenRouter's own ``index``, which keeps them apart.
+    On pydantic-ai 1.x this class also re-attached the web-search domain
+    allowlist, which the ``web`` plugin dropped. 2.x sends web search as
+    OpenRouter's ``openrouter:web_search`` server tool with the tool's
+    ``allowed_domains`` in its parameters; ``test_model_config.py`` pins that.
     """
+
+    @property
+    def _streamed_response_cls(self) -> type[OpenRouterStreamedResponse]:
+        return SerniaOpenRouterStreamedResponse
 
     async def request(self, *args: Any, **kwargs: Any) -> ModelResponse:
         response = await super().request(*args, **kwargs)

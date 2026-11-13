@@ -6,6 +6,7 @@ Only touches ToolReturnParts that exceed SUMMARIZATION_CHAR_THRESHOLD and
 are NOT in the current turn (the agent is actively using those results).
 """
 
+import dataclasses
 from collections import OrderedDict
 
 import logfire
@@ -173,20 +174,17 @@ async def summarize_tool_results(
                 summary_text = f"[Summarized {part.tool_name} result]: {result.output}"
                 _store_summary(part.tool_call_id, summary_text)
 
-            # Build replacement part preserving metadata
-            new_part = ToolReturnPart(
-                tool_name=part.tool_name,
-                content=summary_text,
-                tool_call_id=part.tool_call_id,
-                timestamp=part.timestamp,
-            )
+            # Replace only the content: the part keeps its class, outcome
+            # (a retry stays a retry) and the rest of its metadata.
+            new_part = dataclasses.replace(part, content=summary_text)
 
-            # Replace in the request's parts list
+            # Replace in the request's parts list, keeping the request's own
+            # fields (instructions, run id, state).
             original_request = new_older[msg_idx]
             assert isinstance(original_request, ModelRequest)
             new_parts = list(original_request.parts)
             new_parts[part_idx] = new_part
-            new_older[msg_idx] = ModelRequest(parts=new_parts)
+            new_older[msg_idx] = dataclasses.replace(original_request, parts=new_parts)
         except Exception:
             logfire.exception(f"Failed to summarize tool result {part.tool_name}, keeping original")
             # Fail-safe: keep original

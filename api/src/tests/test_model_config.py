@@ -349,38 +349,30 @@ def test_stamp_openrouter_cost_is_a_noop_without_cost():
 # ---------------------------------------------------------------------------
 #
 # Root cause of the production `invalid_encrypted_content` 400 (2026-08-05,
-# trace 019fcff60d3999d40125ebed3a7929be): pydantic-ai 1.x keyed streamed
-# reasoning_details deltas by type + position-within-chunk, so two encrypted
-# reasoning items with different `rs_...` ids in one streamed response merged
-# into a single ThinkingPart — first item's id, last item's encrypted payload.
-# OpenAI then rejected the replay because the encrypted blob decrypts to a
-# different item id than the part claims. pydantic-ai 2.x keys them by
-# OpenRouter's `index`. `SerniaOpenRouterStreamedResponse` worked around the
-# bug on 1.x and is gone, so this is the only guard against a regression.
+# trace 019fcff60d3999d40125ebed3a7929be): two encrypted reasoning items with
+# different `rs_...` ids in one streamed response merged into a single
+# ThinkingPart — first item's id, last item's encrypted payload. OpenAI then
+# rejected the replay because the encrypted blob decrypts to a different item
+# id than the part claims. pydantic-ai 1.x merged them on every stream; 2.x
+# keys them by OpenRouter's `index` and still merges them when it is absent.
 
 
-def _encrypted_chunk_choice(item_id: str, data: str, index: int):
+def _encrypted_chunk_choice(item_id: str, data: str, index: int | None):
     """A real _OpenRouterChunkChoice carrying one encrypted reasoning detail."""
     from pydantic_ai.models.openrouter import (
         _OpenRouterChunkChoice,  # pyright: ignore[reportPrivateUsage]
     )
 
+    detail = {
+        "type": "reasoning.encrypted",
+        "id": item_id,
+        "format": "openai-responses-v1",
+        "data": data,
+    }
+    if index is not None:
+        detail["index"] = index
     return _OpenRouterChunkChoice.model_validate(
-        {
-            "index": 0,
-            "delta": {
-                "reasoning_details": [
-                    {
-                        "type": "reasoning.encrypted",
-                        "id": item_id,
-                        "format": "openai-responses-v1",
-                        "index": index,
-                        "data": data,
-                    }
-                ]
-            },
-            "finish_reason": None,
-        }
+        {"index": 0, "delta": {"reasoning_details": [detail]}, "finish_reason": None}
     )
 
 
@@ -403,11 +395,17 @@ def _drain_thinking_deltas(response_cls, choices):
     return [p for p in resp._parts_manager.get_parts() if isinstance(p, ThinkingPart)]
 
 
-def test_streamed_encrypted_reasoning_items_stay_distinct():
+@pytest.mark.parametrize(
+    "indexes",
+    [(0, 1), (None, None), (0, 0)],
+    ids=["distinct-index", "no-index", "same-index"],
+)
+def test_streamed_encrypted_reasoning_items_stay_distinct(indexes):
     """Two encrypted reasoning items must survive streaming as two parts.
 
     Each keeps its own id↔payload pairing, so the replayed reasoning_details
-    are exactly what OpenAI produced and verification passes.
+    are exactly what OpenAI produced and verification passes, whatever
+    OpenRouter sends as `index`.
     """
     from api.src.sernia_ai.model_config import resolve_model
 
@@ -415,8 +413,8 @@ def test_streamed_encrypted_reasoning_items_stay_distinct():
     parts = _drain_thinking_deltas(
         model._streamed_response_cls,
         [
-            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=0),
-            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=1),
+            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=indexes[0]),
+            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=indexes[1]),
         ],
     )
 
@@ -424,3 +422,34 @@ def test_streamed_encrypted_reasoning_items_stay_distinct():
         ("rs_AAA", "ENCRYPTED_BLOB_OF_AAA"),
         ("rs_BBB", "ENCRYPTED_BLOB_OF_BBB"),
     ]
+
+
+def test_streamed_response_class_is_wired():
+    """SerniaOpenRouterModel must actually stream through the fixed class."""
+    from api.src.sernia_ai.model_config import (
+        SerniaOpenRouterStreamedResponse,
+        resolve_model,
+    )
+
+    model = resolve_model("openrouter:openai/gpt-5.6-luna")
+    assert model._streamed_response_cls is SerniaOpenRouterStreamedResponse
+
+
+def test_upstream_still_merges_encrypted_reasoning_items_without_an_index():
+    """CANARY: upstream OpenRouterStreamedResponse still merges items with no index.
+
+    When this test FAILS, pydantic-ai keys encrypted items by more than
+    `index` — delete SerniaOpenRouterStreamedResponse and this canary, and
+    keep the test above against the library's class.
+    """
+    from pydantic_ai.models.openrouter import OpenRouterStreamedResponse
+
+    parts = _drain_thinking_deltas(
+        OpenRouterStreamedResponse,
+        [
+            _encrypted_chunk_choice("rs_AAA", "ENCRYPTED_BLOB_OF_AAA", index=None),
+            _encrypted_chunk_choice("rs_BBB", "ENCRYPTED_BLOB_OF_BBB", index=None),
+        ],
+    )
+
+    assert [(p.id, p.signature) for p in parts] == [("rs_AAA", "ENCRYPTED_BLOB_OF_BBB")]

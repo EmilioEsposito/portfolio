@@ -64,13 +64,15 @@ Things worth knowing about the OpenRouter path (all handled in
   re-attached the domains itself. `test_model_config.py` pins the request.
 - **Streamed encrypted reasoning items are kept distinct.** A streamed
   response can hold two encrypted reasoning items (OpenAI emits them when
-  reasoning interleaves with several tool calls in one turn). pydantic-ai 1.x
-  keyed streamed `reasoning_details` by type + position and merged them into
-  one ThinkingPart with the first item's id and the last item's payload, and
-  replaying that part failed the whole run with a 400
-  `invalid_encrypted_content`. pydantic-ai 2.x keys them by OpenRouter's
-  `index`, so the subclass that worked around it is gone;
-  `test_streamed_encrypted_reasoning_items_stay_distinct` pins the fix.
+  reasoning interleaves with several tool calls in one turn). If both land on
+  one key they merge into one ThinkingPart with the first item's id and the
+  last item's payload, and replaying it fails the whole run with a 400
+  `invalid_encrypted_content`. pydantic-ai 1.x merged them on every stream;
+  2.x keys them by OpenRouter's `index` and still merges them when `index` is
+  absent or repeated. `SerniaOpenRouterStreamedResponse` keys each encrypted
+  item by its own id, and a canary
+  (`test_upstream_still_merges_encrypted_reasoning_items_without_an_index`)
+  fails when upstream stops merging so the subclass can be deleted.
 - **Cost tracking** comes from OpenRouter, not genai-prices. We enable
   OpenRouter usage accounting (`usage.include`) and stamp the exact billed
   amount, which includes web-search charges. genai-prices (>= 0.1.5) also
