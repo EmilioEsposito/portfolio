@@ -5,6 +5,7 @@ itself is ``verify_serniacapital_user``, tested where it lives. All unit data
 here is invented.
 """
 
+import asyncio
 from datetime import date
 from types import SimpleNamespace
 
@@ -293,3 +294,58 @@ async def test_a_row_broken_by_a_hand_edit_is_reported_not_passed_on(api):
 
     assert response.status_code == 409
     assert "access code" in response.json()["detail"]["problems"][0]
+
+
+@pytest.mark.asyncio
+async def test_a_unit_named_with_a_slash_can_be_edited(api):
+    slashed = RentalListing(unit="12/14", asking_rent=1500)
+    assert (
+        await api.post("/api/rental-listings/listings", json={"listing": _json(slashed)})
+    ).status_code == 201
+    edited = slashed.model_copy(update={"asking_rent": 1550})
+
+    response = await api.put(
+        "/api/rental-listings/listings/12%2F14",
+        json={"listing": _json(edited), "based_on": _json(slashed)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["asking_rent"] == 1550
+
+
+@pytest.mark.asyncio
+async def test_two_rule_saves_from_the_same_screen_state_do_not_both_win(api):
+    loaded = _json_rules()
+    first = ShowingRules(blackout_dates=[date(2027, 7, 4)])
+    second = ShowingRules(blackout_dates=[date(2027, 12, 25)])
+
+    responses = await asyncio.gather(
+        *(
+            api.put(
+                "/api/rental-listings/showing-rules",
+                json={"showing_rules": _json_rules(rules), "based_on": loaded},
+            )
+            for rules in (first, second)
+        )
+    )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert len(await _history(service.SHOWING_RULES_SUBJECT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_adds_of_one_unit_in_different_case_do_not_both_win(api):
+    responses = await asyncio.gather(
+        *(
+            api.post(
+                "/api/rental-listings/listings",
+                json={"listing": _json(RentalListing(unit=name))},
+            )
+            for name in ("12-C", "12-c")
+        )
+    )
+
+    assert sorted(response.status_code for response in responses) == [201, 409]
+    assert [
+        listing["unit"] for listing in (await api.get("/api/rental-listings")).json()["listings"]
+    ] in (["12-C"], ["12-c"])

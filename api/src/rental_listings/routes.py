@@ -17,6 +17,7 @@ from typing import Annotated
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
 
 from api.src.database.database import DBSession
 from api.src.rental_listings import service
@@ -54,6 +55,17 @@ class RulesSave(BaseModel):
 
     showing_rules: ShowingRules
     based_on: ShowingRules | None = None
+
+
+async def _hold(session: DBSession, what: str) -> None:
+    """Hold a lock named ``what`` until the transaction ends (the service commits).
+
+    A row lock cannot cover a row that does not exist yet: a listing being
+    added, or showing rules never saved. Two screen saves of the same kind
+    wait for each other here, so a check made before a save still holds
+    when the save happens.
+    """
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:what))"), {"what": what})
 
 
 def _person(user: User) -> str:
@@ -119,6 +131,7 @@ async def read_rental_data(session: DBSession) -> RentalData:
 async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession) -> RentalListing:
     """Add a unit's listing. Refused with 409 if that unit (in any case) has one."""
     name = body.listing.unit
+    await _hold(session, "rental_listings:add")
     try:
         existing = await service.read_listing(session, name, lock=True)
     except RentalDataInvalid as error:
@@ -135,7 +148,8 @@ async def create_listing(body: ListingSave, user: SerniaUser, session: DBSession
     return await _saved_listing(session, name)
 
 
-@router.put("/listings/{name}", response_model=RentalListing)
+# ``path`` so a unit named like "12/14" can be edited: its slash arrives decoded.
+@router.put("/listings/{name:path}", response_model=RentalListing)
 async def update_listing(
     name: str, body: ListingSave, user: SerniaUser, session: DBSession
 ) -> RentalListing:
@@ -168,6 +182,7 @@ async def update_showing_rules(
     body: RulesSave, user: SerniaUser, session: DBSession
 ) -> ShowingRules:
     """Replace the showing rules that apply to every unit."""
+    await _hold(session, service.SHOWING_RULES_KEY)
     if body.based_on is not None:
         try:
             current = await service.read_showing_rules(session)

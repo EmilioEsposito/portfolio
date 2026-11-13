@@ -1,6 +1,6 @@
 import type { Route } from "./+types/sernia-rental-listings";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useBlocker, useNavigate } from "react-router";
 import { useAuth } from "@clerk/react-router";
 import {
   ArrowLeft,
@@ -998,6 +998,17 @@ function RentalUnitsScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Leaving for another page inside the app (Back to chat, the sidebar, the
+  // browser's back button) does not unload the document, so ask here too.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (window.confirm(LEAVE_WARNING)) blocker.proceed();
+    else blocker.reset();
+  }, [blocker]);
 
   useEffect(() => {
     if (!dirty) return;
