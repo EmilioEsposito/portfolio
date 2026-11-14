@@ -44,7 +44,7 @@ from pydantic_ai_harness.filesystem import FileSystem
 from api.src.sernia_ai.deps import SerniaDeps
 
 CAPABILITY_ID = "sernia-workspace"
-"""The capability's id. Shares the skill id space, so ``agent.py`` reserves it."""
+"""The capability's id. Shares the skill id space, so ``general_agent.py`` reserves it."""
 
 WORKSPACE_FILE_SUFFIXES: tuple[str, ...] = (".md", ".txt", ".json")
 """The only file types the tools read or write."""

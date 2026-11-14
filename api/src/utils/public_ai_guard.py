@@ -19,7 +19,6 @@ PUBLIC_PATHS = frozenset(
         "/api/ai-demos/chat-emilio",
         "/api/ai-demos/chat-weather",
         "/api/ai-demos/multi-agent-chat",
-        "/api/google/gmail/generate_email_response",
     }
 )
 MAX_BODY = 24000
@@ -29,7 +28,7 @@ def validate_public_body(data: object) -> None:
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object.")
     if "messages" not in data:
-        return  # Email schema supplies its own strict limits.
+        return  # Route schemas validate missing messages.
     messages = data["messages"]
     if not isinstance(messages, list) or not 1 <= len(messages) <= 16:
         raise ValueError("Use 1–16 messages; start a new conversation when it gets longer.")

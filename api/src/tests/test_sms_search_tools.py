@@ -551,6 +551,6 @@ class TestSmoke:
 
     def test_agent_imports_with_sms_tools(self):
         """The agent should still import cleanly with the new tools."""
-        from api.src.sernia_ai.agent import sernia_agent
+        from api.src.sernia_ai.general_agent import sernia_agent
 
         assert sernia_agent is not None

@@ -5,6 +5,98 @@ we are in it. [The package README](../README.md) describes the system; this desc
 method. An interactive version, with an example for every stage, is at
 [eesposito.com/systems/leasing-evals](https://eesposito.com/systems/leasing-evals).
 
+## Running experiments
+
+```bash
+# Private data lives in evals/data, which Git ignores. See the private-data section below.
+DATA=api/src/sernia_ai/zillow_leads/evals/data
+
+# Once per season: cut past threads into scenarios
+uv run python -m api.src.sernia_ai.zillow_leads.evals export \
+    --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios/scenarios.jsonl
+
+# Once per season: assign each thread to train, dev or test
+uv run python -m api.src.sernia_ai.zillow_leads.evals split \
+    --scenarios $DATA/scenarios/scenarios.jsonl --out $DATA/scenarios/splits.json
+
+# Any time: write a page for reading the train and dev splits (test stays sealed)
+uv run python -m api.src.sernia_ai.zillow_leads.evals browse \
+    --scenarios $DATA/scenarios/scenarios.jsonl --splits $DATA/scenarios/splits.json \
+    --run $DATA/runs/round-3.jsonl --review $DATA/review.html \
+    --out $DATA/dataset.html
+
+# Each experiment: run a dev sample and send it to Logfire
+uv run python -m api.src.sernia_ai.zillow_leads.evals run \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
+    --splits $DATA/scenarios/splits.json --split dev \
+    --name round-3 --sample 30 --seed 7 --out $DATA/runs/round-3.jsonl
+# Add --exclude-run <earlier run> (repeatable) to sample only scenarios no
+# earlier run covered, and --concurrency 10 to run more at once.
+# --cases-from <earlier run> runs exactly that run's cases again.
+# --case-edits and --carry set a case's tour state by hand and run again only
+# the edited cases: see "Setting the tour state by hand" below.
+
+# Then: write the page you label that run on, and open it in a browser.
+# Keep --out the same every time, so there is one review page to bookmark.
+uv run python -m api.src.sernia_ai.zillow_leads.evals review \
+    --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
+    --run $DATA/runs/round-3.jsonl --labels $DATA/annotations/annotations.jsonl \
+    --out $DATA/review.html
+
+# After labelling: click Download labels on the page, then add that file to
+# the store of every verdict ever given. Adding the same file twice is safe.
+uv run python -m api.src.sernia_ai.zillow_leads.evals collect \
+    --labels ~/Downloads/round-3-labels.json
+```
+
+To open the pages over localhost instead of as files:
+
+```bash
+uv run python -m api.src.sernia_ai.zillow_leads.evals serve
+```
+
+It serves `evals/data` to this machine only, at `http://localhost:8377/review.html`
+and `/dataset.html`. The review page keeps labels in the browser per address,
+so pick one way of opening it and stay with it. In Claude Code, `/eval-links`
+lists these pages and the flow diagram with this checkout's ports (the mod is
+in `.claude/skills/eval-links`).
+
+`run` saves the policy as it was beside its output (`round-3.policy.md`), and
+the review page shows it behind a **Policy** button.
+
+The review page shows, per decision: what the lead wrote, what the model
+decided and drafted, and (folded away) everything the model was given and what
+we really sent at the time. Mark pass or fail and write one line on why. Labels
+are kept in the browser as you go; **Download labels** saves them as
+`<run>-labels.json`, one row per scenario:
+
+```json
+{"scenario_id": "…", "verdict": "fail", "note": "buried the answer under the tour times",
+ "corrected_reply": "", "action": "reply", "output_hash": "…", "run": "round-3"}
+```
+
+`corrected_reply` is optional: the reply you would have sent.
+
+A label belongs to the output it judged. The model words the same decision
+differently on every run, so after a re-run the page does not reuse a verdict
+silently. It shows "On an earlier draft you marked this fail: …" with a **Still
+applies** button, and counts the case as unlabelled until you confirm or decide
+again. To start a page from labels made elsewhere, pass `--labels <file>`; to
+let it recognise labels made on earlier runs, pass `--previous <run.jsonl>`.
+
+The lead agent has its own model setting, `LEAD_AGENT_MODEL` in [`../agent.py`](../agent.py),
+separate from the general agent's. `run --model <name>` tries another model on
+the same cases without editing code.
+
+A run records the policy commit, the model, and a hash of the listing data file,
+prints counts only, and appears in Logfire under AI Evaluations. The same
+`--seed` picks the same scenarios, so experiments can be compared on the same
+cases.
+
+Real scenarios, review pages, labels and the season's listing data file hold
+applicant emails and business details. They stay out of Git and out of CI. A
+small synthetic set will live in the repo for CI.
+
 ## Process overview
 
 ```mermaid
@@ -76,9 +168,9 @@ most often; the second lists others for the same thing.
 | Error analysis | failure analysis; open coding then axial coding | Grouping fail notes into failure modes |
 | Failure mode | failure type; the full list is a failure taxonomy | Not known yet |
 | Evaluator | grader, scorer, metric | `ReplyChecks` and, later, judges |
-| Code evaluator | assertion, code-based grader | Four today |
-| LLM judge | LLM-as-judge, model-based grader | None yet |
-| Judge alignment | calibration, validating the judge | Not started |
+| Code evaluator | assertion, code-based grader | `ReplyChecks` |
+| LLM judge | LLM-as-judge, model-based grader | `judge.py`; see the judge section and experiment log below |
+| Judge alignment | calibration, validating the judge | Initial comparison against human verdicts recorded below |
 | Offline evaluation | pre-deployment evaluation | Everything so far |
 | Online evaluation | post-deployment evaluation, production monitoring | Planned |
 | Guardrail | inline check | An evaluator that blocks a send, not just scores it |

@@ -157,7 +157,7 @@ class TestSmoke:
         """sernia_agent should import with both ProcessHistory capabilities attached."""
         from pydantic_ai.capabilities import ProcessHistory
 
-        from api.src.sernia_ai.agent import sernia_agent
+        from api.src.sernia_ai.general_agent import sernia_agent
 
         processors = [
             cap.processor

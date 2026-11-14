@@ -5,16 +5,7 @@ Pydantic schemas for Gmail-related operations.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class GenerateResponseRequest(BaseModel):
-    """Request model for generating AI responses."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    scenario_id: str = Field(min_length=1, max_length=40)
-    system_instruction: str = Field(min_length=1, max_length=2000)
+from pydantic import BaseModel, ConfigDict
 
 
 class EmailMessageBase(BaseModel):

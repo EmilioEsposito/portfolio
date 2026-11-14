@@ -1,7 +1,6 @@
-| `zillow_email_event_trigger.py` | Zillow email queue: idempotent enqueue from Pub/Sub, leased per-thread claims, retry/expiry, and the scheduled worker that runs the agent |
 # Triggers
 
-Event-driven background processing for the Sernia AI agent. Triggers run the agent outside of an HTTP request context — no Clerk user, no streaming — and create web chat conversations when human attention is needed.
+Event-driven background processing for the Sernia AI general agent and the dedicated Zillow Leads Agent. Triggers run the agent outside of an HTTP request context — no Clerk user, no streaming — and create web chat conversations when human attention is needed.
 
 ## SMS Handling
 
@@ -118,7 +117,7 @@ Zillow lead processing through a **durable queue**. When an email from `zillow.c
 
 Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Every reply it drafts waits for the standard approval card, and on approval code sends it to the lead's Zillow relay address. See the package README for the design and for what must be true before approval is relaxed.
 
-The debounce length is runtime-configurable via the **Zillow Email Auto-Reply** section of the Settings page (`/sernia-settings`), backed by the `zillow_email_config` AppSetting (`{"debounce_seconds": 300}`). That setting and page also carry a `require_approval` switch from when this queue ran the general agent. Nothing reads it now: approval is always required.
+The debounce length is runtime-configurable via the **Zillow Leads Agent** section of the Settings page (`/sernia-settings#zillow-leads`), backed by the `zillow_email_config` AppSetting (`{"debounce_seconds": 300}`). The setting retains a legacy `require_approval` field for compatibility, but the UI no longer exposes it. The dedicated agent does not consult it: approval is always required.
 
 ```mermaid
 flowchart TD
@@ -194,7 +193,7 @@ A single scheduled job via APScheduler in `scheduled_triggers.py`:
 |-----|----------|-------|
 | `run_scheduled_checks()` | Configurable (default: Mon–Fri at 8am, 11am, 2pm, 5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
 
-The schedule is configurable via the Settings page (`/sernia-settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save. Setting either list to empty unregisters the job entirely (no scheduled checks).
+The schedule is configurable via the Settings page (`/sernia-settings#zillow-leads`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save. Setting either list to empty unregisters the job entirely (no scheduled checks).
 
 The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `.claude/skills/scheduled-checks/SKILL.md`, not in trigger code.
 
@@ -245,8 +244,8 @@ Separate sliding-window rate limiter in `ai_sms_event_trigger.py`:
 | File | Purpose |
 |------|---------|
 | `background_agent_runner.py` | Trigger gate: triggers-enabled check, rate limiting, deps; then hands the run to the shared pipeline (`../runs.py`) |
-| `../runs.py` | Shared run pipeline used by every entry point: agent run, workspace sync, save, `NoAction` handling, HITL approval push (`notify_pending_approval` only for triggers — generic completion alerts removed), SMS reply |
-| `zillow_email_event_trigger.py` | Zillow email event trigger: real-time draft generation when Zillow emails arrive via Pub/Sub, Emilio-only push notification |
+| `../runs.py` | General-agent run pipeline used by its entry points: agent run, workspace sync, save, `NoAction` handling, HITL approval push (`notify_pending_approval` only for triggers — generic completion alerts removed), SMS reply |
+| `zillow_email_event_trigger.py` | Durable Zillow queue: idempotent enqueue, leased per-thread claims, retry/expiry, and dispatch to `zillow_leads/handle.py` |
 | `ai_sms_event_trigger.py` | AI SMS event trigger: contact gate, history loading/bootstrap, then `run_and_finalize` with `modality="sms"` (the pipeline sends the SMS reply). Group messages (`to` beyond the AI line) run `_handle_group_sms`: all-internal gate, `ai_sms_group_{CN}` conversation, verified API history with webhook fallback, reply to all participants |
 | `scheduled_triggers.py` | Single scheduled trigger + APScheduler registration: `run_scheduled_checks()` |
 

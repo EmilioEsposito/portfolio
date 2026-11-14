@@ -21,7 +21,7 @@ export default function LeasingEvalsPage() {
         to="/systems/leasing-leads"
         className="text-sm text-muted-foreground underline underline-offset-4"
       >
-        Back to the leasing agent
+        Back to the Zillow Leads Agent
       </Link>
       <header className="mt-8 max-w-3xl">
         <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">{page.title}</h1>
@@ -187,7 +187,7 @@ export default function LeasingEvalsPage() {
           Read the implementation <ExternalLink aria-hidden="true" className="size-4" />
         </a>
         <Link to="/systems/leasing-leads" className="text-sm underline underline-offset-4">
-          How the leasing agent works
+          How the Zillow Leads Agent works
         </Link>
       </footer>
     </main>

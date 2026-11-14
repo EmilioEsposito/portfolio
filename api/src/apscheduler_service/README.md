@@ -2,9 +2,11 @@
 
 This service manages background tasks using APScheduler (v3).
 
-All static jobs have been migrated to DBOS scheduled workflows instead, but this service is kept around for **dynamic jobs** that need to be scheduled at runtime (like by an AI agent). There are no dynamic jobs yet.
-
-See also: [`api/src/schedulers/README.md`](../schedulers/README.md) for the overall “dual schedulers” approach (DBOS + APScheduler + unified API).
+APScheduler runs both registered recurring work and dynamically scheduled jobs.
+DBOS is disabled. Startup registration is coordinated by `api/index.py`; the
+[unified scheduler guide](../schedulers/README.md) lists the current jobs and
+API. The Zillow queue worker runs the dedicated lead agent, independently of
+the general agent's scheduled checks.
 
 ## Overview
 

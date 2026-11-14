@@ -68,9 +68,7 @@ async def test_rate_limit_ignores_spoofed_forwarded_header_and_rejects_large_bod
             headers={"X-Forwarded-For": "new"},
         )
         assert response.status_code == 429
-        response = await client.post(
-            "/api/google/gmail/generate_email_response", content="x" * 24001
-        )
+        response = await client.post("/api/ai-demos/multi-agent-chat", content="x" * 24001)
         assert response.status_code == 413
     assert len(calls) == 6
     assert guard.active == 0
