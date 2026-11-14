@@ -40,7 +40,7 @@ export function conversationStarted(
   refreshConversations();
 }
 
-export function conversationRejected(id: string, requestId?: string) {
+export function conversationSettled(id: string, requestId?: string) {
   if (pendingConversations.get(id)?.run?.id === requestId)
     pendingConversations.delete(id);
   refreshConversations();

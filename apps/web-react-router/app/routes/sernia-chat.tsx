@@ -63,7 +63,7 @@ import { ConversationSidebar } from "~/components/sernia/conversation-sidebar";
 
 import {
   conversationStarted,
-  conversationRejected,
+  conversationSettled,
   refreshConversations,
 } from "~/lib/sernia-conversations";
 import {
@@ -349,7 +349,7 @@ function ChatView({
         const response = await fetch(input, init);
         lastChatHttpStatusRef.current = response.status;
         if (!response.ok)
-          conversationRejected(
+          conversationSettled(
             conversationId,
             pendingRequestRef.current?.requestId,
           );
@@ -541,7 +541,7 @@ function ChatView({
           pendingRequestRef.current ?? pendingRequestAtStart;
         const run: ChatRunStatus | null = data.run ?? null;
         // A previous turn's snapshot must never replace a just-submitted turn.
-        if (pendingRequest?.requestId && run?.id !== pendingRequest.requestId)
+        if (pendingRequest?.requestId && run && run.id !== pendingRequest.requestId)
           return false;
         if (run?.status === "running") {
           setServerRun(run);
@@ -600,7 +600,7 @@ function ChatView({
           clearError();
         }
         setRecoveryState("idle");
-        refreshConversations();
+        conversationSettled(conversationId, pendingRequest?.requestId);
         return true;
       } catch {
         // Network failure — keep whatever we have.
