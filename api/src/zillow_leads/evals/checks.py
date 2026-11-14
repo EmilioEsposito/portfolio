@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
-from api.src.sernia_ai.zillow_leads.agent import Escalate, NoReply, Reply, load_instructions
-from api.src.sernia_ai.zillow_leads.case import LeadCase, ListingData
-from api.src.sernia_ai.zillow_leads.evals.scenarios import CaseEdit, Scenario, case_for
+from api.src.zillow_leads.agent import Escalate, NoReply, Reply, load_instructions
+from api.src.zillow_leads.case import LeadCase, ListingData
+from api.src.zillow_leads.evals.scenarios import CaseEdit, Scenario, case_for
 
 SIGNATURE = "Sernia Capital Team"
 GREETING = re.compile(r"\s*(hi|hello)\b", re.I)

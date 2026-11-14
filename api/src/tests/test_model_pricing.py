@@ -160,7 +160,7 @@ def _mock_openrouter_model(stream: bool, byok: bool):
     import httpx2
     from pydantic_ai.providers.openrouter import OpenRouterProvider
 
-    from api.src.sernia_ai.model_config import SerniaOpenRouterModel
+    from api.src.utils.openrouter_models import SerniaOpenRouterModel
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         if stream:
@@ -213,8 +213,8 @@ async def test_billed_cost_wins_on_the_exported_span(stream: bool, byok: bool):
     from pydantic_ai.capabilities import Instrumentation
     from pydantic_ai.models.instrumented import InstrumentationSettings
 
-    from api.src.sernia_ai.model_config import build_openrouter_settings
     from api.src.utils.llm_cost_breakdown import BilledCostSpanProcessor
+    from api.src.utils.openrouter_models import build_openrouter_settings
 
     exporter = InMemorySpanExporter()
     tracer_provider = TracerProvider()

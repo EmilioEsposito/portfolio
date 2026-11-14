@@ -18,7 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 from pydantic_ai import Agent
 
-from api.src.sernia_ai.model_config import resolve_model
+from api.src.utils.openrouter_models import resolve_model
 
 # Stronger than the model that writes the replies: reading for mistakes is
 # harder than making them, and the judge runs offline, where cost matters less.

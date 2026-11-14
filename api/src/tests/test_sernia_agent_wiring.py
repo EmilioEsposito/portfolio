@@ -340,7 +340,7 @@ class TestInstructionsStableWithinRun:
         )
         from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-        from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME, lead_policy_text
+        from api.src.sernia_ai.lead_policy import SKILL_NAME, lead_policy_text
 
         first: list[AgentInfo] = []
 
@@ -388,7 +388,7 @@ class TestInstructionsStableWithinRun:
         )
         from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-        from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME
+        from api.src.sernia_ai.lead_policy import SKILL_NAME
 
         steps = iter(
             [

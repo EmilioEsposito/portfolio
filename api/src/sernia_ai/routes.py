@@ -28,6 +28,7 @@ from api.src.agent_conversations.hitl import (
     extract_tool_results,
     resume_with_approvals,
 )
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import (
     extract_pending_approval_from_messages,
     get_agent_conversation,
@@ -37,6 +38,8 @@ from api.src.agent_conversations.models import (
     list_user_conversations,
     save_agent_conversation,
 )
+from api.src.agent_conversations.push.routes import router as push_router
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.sernia_ai.chat_runs import (
     ChatRun,
@@ -46,32 +49,30 @@ from api.src.sernia_ai.chat_runs import (
     public_run,
     require_idle,
 )
-from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
-    DEFAULT_THINKING_EFFORT,
     ModelKey,
-    ThinkingEffort,
     get_active_model_key,
     get_active_thinking_effort,
     get_model_choice,
     resolve_active_run_kwargs,
 )
-from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
-from api.src.sernia_ai.push.routes import router as push_router
 from api.src.sernia_ai.runs import finalize_run, save_failed_run
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _fetch_sms_thread,
     _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.zillow_leads.handle import apply_approval as apply_lead_approval
-from api.src.sernia_ai.zillow_leads.handle import is_lead_conversation
-from api.src.sernia_ai.zillow_leads.settings import router as zillow_leads_router
+from api.src.utils.automation import _IS_PRODUCTION
 from api.src.utils.chat_attachments import read_chat_request
 from api.src.utils.clerk import verify_serniacapital_user
+from api.src.utils.openrouter_models import DEFAULT_THINKING_EFFORT, ThinkingEffort
+from api.src.zillow_leads.handle import apply_approval as apply_lead_approval
+from api.src.zillow_leads.handle import is_lead_conversation
+from api.src.zillow_leads.settings import router as zillow_leads_router
 
 # =============================================================================
 # SMS history merge helper
@@ -864,7 +865,8 @@ async def get_conversation_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.config import GOOGLE_DELEGATION_EMAIL, TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.agent_conversations.identity import TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
     from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
@@ -947,7 +949,7 @@ async def get_admin_settings(
     the raw row would otherwise surface the production config here.
     """
     from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
-    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+    from api.src.zillow_leads.queue import (
         get_zillow_email_config,
     )
 
@@ -1030,7 +1032,7 @@ async def update_admin_settings(
     if body.zillow_email_config is not None:
         raise HTTPException(
             status_code=410,
-            detail="Zillow settings moved to /api/sernia-ai/zillow-leads/settings.",
+            detail="Zillow settings moved to /api/zillow-leads/settings.",
         )
     updated = {}
     if body.triggers_enabled is not None:

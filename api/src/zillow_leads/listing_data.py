@@ -33,7 +33,7 @@ import logfire
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.sernia_ai.zillow_leads.case import Listing, ListingData, ShowingWindow
+from api.src.zillow_leads.case import Listing, ListingData, ShowingWindow
 
 
 @dataclass(frozen=True)

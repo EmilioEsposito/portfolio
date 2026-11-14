@@ -11,13 +11,13 @@ was an older scheduled thread assessor with contact/calendar side effects. It
 was disabled before this package replaced the general agent's Zillow email
 runs, and has been removed; Git history holds it if needed. The remaining
 `zillow_email_jobs` table, legacy `zillow_email_config` batching setting, and
-`triggers/zillow_email_event_trigger.py` belong to the **active queue**, not the
-retired module. Their names and stored identifiers are intentionally stable.
+`queue.py` belong to the **active queue**, not the retired module. Stored
+identifiers remain stable across the package move.
 
 - [Public architecture](https://eesposito.com/systems/leasing-leads)
 - [Rental listings editor](https://eesposito.com/systems/leasing-leads/listings) (verified Sernia account)
 - [Lead trigger settings](https://eesposito.com/systems/leasing-leads/settings) (verified Sernia account)
-- [General agent and shared services](../README.md)
+- [General agent](../sernia_ai/README.md)
 - [Evaluation method, commands, and experiment log](evals/README.md)
 
 ## Business flow and ownership
@@ -61,20 +61,37 @@ booking, phone contact, or calendar event.
 
 | Component | Owner | Responsibility |
 | --- | --- | --- |
-| Gmail ingestion | [`google/pubsub`](../../google/pubsub/README.md) | Authenticate notifications, persist mail, enqueue Zillow messages |
-| Durable queue | [`triggers/zillow_email_event_trigger.py`](../triggers/zillow_email_event_trigger.py) | Debounce, one leased run per thread, retries, expiry, deduplication |
+| Gmail ingestion | [`google/pubsub`](../google/pubsub/README.md) | Authenticate notifications, persist mail, enqueue Zillow messages |
+| Durable queue | [`queue.py`](queue.py) | Debounce, one leased run per thread, retries, expiry, deduplication |
 | Thread loader | `thread.py` | Map the watched mailbox's RFC Message-ID to the shared mailbox and load ordered messages |
-| Listing store | [`rental_listings`](../../rental_listings/README.md) | Validated data, history, editor API, on-request Zillow-ad comparison |
+| Listing store | [`rental_listings`](../rental_listings/README.md) | Validated data, history, editor API, on-request Zillow-ad comparison |
 | Case preparation | `listing_data.py`, `case.py`, `tours.py` | Convert saved rows and known tour state into the model's input |
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
 | Review and delivery | `handle.py`, `auto_reply.py` | Persist the outcome; use manual approval or an idempotent automatic send |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 
-The general agent lives in [`../general_agent.py`](../general_agent.py). It
+The general agent lives in [`sernia_ai/general_agent.py`](../sernia_ai/general_agent.py). It
 can maintain listings and read the leasing policy as a skill, but the Zillow
 queue does not call it. The two agents share conversation storage and the
 approval UI, not their execution pipeline or tool access.
+
+## Package boundaries
+
+`zillow_leads/` is a sibling of `sernia_ai/` and imports no general-agent code.
+The queue, case preparation, policy, delivery, settings, and evals live here.
+The general agent's policy adapter lives with its consumer in
+[`sernia_ai/lead_policy.py`](../sernia_ai/lead_policy.py).
+
+Shared services have independent owners:
+
+- [`rental_listings/`](../rental_listings/README.md): listing data and showing rules.
+- [`google/gmail/`](../google/gmail/README.md): email cleanup, reply threading, transport.
+- [`agent_conversations/`](../agent_conversations/README.md): conversation storage,
+  approval helpers, send reservations, persistence identities, and Web Push.
+- `database/app_settings.py`: settings rows; `utils/automation.py`: shared automation gates.
+- `utils/openrouter_models.py`: provider adapter, reasoning settings, and cost telemetry.
+  Each agent still selects its own model.
 
 ## Runtime boundaries
 
@@ -109,10 +126,11 @@ approval UI, not their execution pipeline or tool access.
   contributes no times; unknown availability is never treated as free.
 
 Queue lifecycle, gates, and recovery queries are in the
-[trigger guide](../triggers/README.md#zillow-email-event-trigger).
+[queue guide](QUEUE.md).
 `zillow_lead_config` owns `debounce_seconds` (60–3,600) and
 `require_approval`. The authenticated GET/PATCH endpoint is
-`/api/sernia-ai/zillow-leads/settings`; PATCH includes `settings` and `based_on`
+`/api/zillow-leads/settings`; the former `/api/sernia-ai/zillow-leads/settings`
+URL remains an authenticated alias. PATCH includes `settings` and `based_on`
 to reject stale saves. Missing or invalid runtime settings require approval.
 Before the new key exists, the legacy batching window is preserved, but its
 old ignored approval value is never inherited. The general settings API rejects
@@ -125,11 +143,11 @@ page rather than depending on scrolling an asynchronously rendered form.
 
 ## Rental listing data
 
-The owning [rental-listings guide](../../rental_listings/README.md) defines the
+The owning [rental-listings guide](../rental_listings/README.md) defines the
 schema, API, approval rules, and history. All three maintenance paths are built:
 
 1. A person edits `/systems/leasing-leads/listings`, including showing rules and history.
-2. The general agent uses `tools/rental_listing_tools.py`.
+2. The general agent uses `sernia_ai/tools/rental_listing_tools.py`.
 3. The standalone Sernia MCP service calls the same authenticated API.
 
 Every save passes the same validation and writes a history row. Agent/MCP
@@ -171,7 +189,7 @@ in its owning module; listing data describes the offer and rules.
 ## Prompts and evaluations
 
 `prompts/role.md`, `prompts/policy.md`, and `prompts/record.md` are runtime code
-in effect: editing them changes the agent. `skill.py` exposes the same
+in effect: editing them changes the agent. `sernia_ai/lead_policy.py` exposes the same
 `policy.md` to the general agent as the built-in `zillow-auto-reply` skill;
 a workspace skill cannot replace it. The general agent's listing-maintenance
 capability is separate from that policy.

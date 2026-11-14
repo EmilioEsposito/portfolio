@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.zillow_leads.case import (
     BookedTour,
     LeadCase,
     ListingData,
@@ -16,7 +16,7 @@ from api.src.sernia_ai.zillow_leads.case import (
     build_case,
     decision_points,
 )
-from api.src.sernia_ai.zillow_leads.thread import LeadThread
+from api.src.zillow_leads.thread import LeadThread
 
 
 class Scenario(BaseModel):

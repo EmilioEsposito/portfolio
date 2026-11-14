@@ -221,7 +221,7 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                     # ignores emails that are no longer fresh, so it is safe
                     # on every notification: new email, redelivery, or a
                     # label change.
-                    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+                    from api.src.zillow_leads.queue import (
                         enqueue_zillow_email,
                         is_zillow_email,
                     )

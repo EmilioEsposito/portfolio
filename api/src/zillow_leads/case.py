@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, field_validator
 
 from api.src.rental_listings.schema import PreferredWindow
-from api.src.sernia_ai.zillow_leads.thread import LeadThread
+from api.src.zillow_leads.thread import LeadThread
 
 # Current residents get a day's notice before a showing.
 MIN_NOTICE = timedelta(hours=24)

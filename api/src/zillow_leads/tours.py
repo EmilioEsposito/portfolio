@@ -30,7 +30,7 @@ from typing import Protocol
 import logfire
 from pydantic import BaseModel, Field
 
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.zillow_leads.case import (
     BookedTour,
     ListingData,
     TourSlot,

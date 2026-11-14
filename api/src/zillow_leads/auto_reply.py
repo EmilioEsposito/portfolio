@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 import logfire
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolReturnPart
 
+from api.src.agent_conversations.delivery import claim_auto_approved_send
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import (
     AgentConversation,
     extract_pending_approval_from_messages,
@@ -20,12 +22,12 @@ from api.src.agent_conversations.models import (
     save_agent_conversation,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import AGENT_NAME, SHARED_EXTERNAL_EMAIL
-from api.src.sernia_ai.models import claim_auto_approved_send, is_sernia_ai_enabled
-from api.src.sernia_ai.zillow_leads import handle
-from api.src.sernia_ai.zillow_leads.agent import Reply, load_instructions
-from api.src.sernia_ai.zillow_leads.case import LeadCase
-from api.src.sernia_ai.zillow_leads.settings import effective_settings
+from api.src.google.common.config import SHARED_EXTERNAL_EMAIL
+from api.src.utils.automation import is_sernia_ai_enabled
+from api.src.zillow_leads import handle
+from api.src.zillow_leads.agent import Reply, load_instructions
+from api.src.zillow_leads.case import LeadCase
+from api.src.zillow_leads.settings import effective_settings
 
 LINK = re.compile(r"(?:https?://|www\.)[^\s<>\"')\]]+", re.I)
 

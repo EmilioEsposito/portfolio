@@ -14,10 +14,10 @@ import pytest_asyncio
 from sqlalchemy import delete, select
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import ZillowEmailJob
-from api.src.sernia_ai.triggers import zillow_email_event_trigger as queue
-from api.src.sernia_ai.zillow_leads.handle import Handled
-from api.src.sernia_ai.zillow_leads.thread import SharedCopy
+from api.src.zillow_leads import queue as queue
+from api.src.zillow_leads.handle import Handled
+from api.src.zillow_leads.models import ZillowEmailJob
+from api.src.zillow_leads.thread import SharedCopy
 
 LEAD = "abc123@convo.zillow.com"
 OK = Handled(persisted=True, action="reply", pending=True)

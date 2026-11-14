@@ -11,7 +11,7 @@ code is outside it.
 | --- | --- | --- |
 | [SerniaAI](https://eesposito.com/systems/sernia-ai) | Operations agent with persistent context, business tools, and human approval flows. | [Agent guide](api/src/sernia_ai/README.md) |
 | [Emergency routing](https://eesposito.com/systems/emergency-routing) | Assesses incoming property messages and routes qualifying alerts through Twilio. | [Assessment and dispatch](api/src/open_phone/README.md) |
-| [Zillow Leads Agent](https://eesposito.com/systems/leasing-leads) | Answers from reviewed rental listings, with configurable approval for replies. Showing bookings are planned. | [Lead agent guide](api/src/sernia_ai/zillow_leads/README.md) |
+| [Zillow Leads Agent](https://eesposito.com/systems/leasing-leads) | Answers from reviewed rental listings, with configurable approval for replies. Showing bookings are planned. | [Lead agent guide](api/src/zillow_leads/README.md) |
 | [Public agent demo](https://eesposito.com/multi-agent-chat) | Routed chat with a visible execution trace. | [Demo agents](api/src/ai_demos/README.md) |
 
 Operational records and tools require authentication. Public demos use separate,

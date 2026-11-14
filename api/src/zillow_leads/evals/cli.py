@@ -14,16 +14,16 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from api.src.sernia_ai.model_config import resolve_model
-from api.src.sernia_ai.zillow_leads.agent import (
+from api.src.utils.openrouter_models import resolve_model
+from api.src.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     lead_agent,
     load_instructions,
     respond,
 )
-from api.src.sernia_ai.zillow_leads.case import ListingData, render_case
-from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
-from api.src.sernia_ai.zillow_leads.evals.judge import (
+from api.src.zillow_leads.case import ListingData, render_case
+from api.src.zillow_leads.evals.checks import build_dataset
+from api.src.zillow_leads.evals.judge import (
     JUDGE_MODEL,
     agreement,
     fingerprint,
@@ -32,15 +32,15 @@ from api.src.sernia_ai.zillow_leads.evals.judge import (
     judge_agent,
     load_judge_prompt,
 )
-from api.src.sernia_ai.zillow_leads.evals.labels import (
+from api.src.zillow_leads.evals.labels import (
     add_annotations,
     latest_per_output,
     latest_per_scenario,
     output_hash,
     read_labels,
 )
-from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
-from api.src.sernia_ai.zillow_leads.evals.scenarios import (
+from api.src.zillow_leads.evals.pages import dataset_page, review_page
+from api.src.zillow_leads.evals.scenarios import (
     SPLITS,
     CaseEdit,
     Scenario,
@@ -53,7 +53,7 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     read_scenarios,
     scenarios_from_thread,
 )
-from api.src.sernia_ai.zillow_leads.thread import find_lead_thread_ids, load_lead_thread
+from api.src.zillow_leads.thread import find_lead_thread_ids, load_lead_thread
 
 # Leads reach us through Zillow's relay addresses.
 LEAD_QUERY = "from:convo.zillow.com"

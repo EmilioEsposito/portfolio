@@ -11,9 +11,9 @@ from pydantic_ai.models.test import TestModel
 from pydantic_evals.evaluators import EvaluatorContext
 from pydantic_evals.otel.span_tree import SpanTree
 
-from api.src.sernia_ai.zillow_leads import agent as agent_module
-from api.src.sernia_ai.zillow_leads.agent import Escalate, LeadOutcome, NoReply, Reply
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.zillow_leads import agent as agent_module
+from api.src.zillow_leads.agent import Escalate, LeadOutcome, NoReply, Reply
+from api.src.zillow_leads.case import (
     AgentAvailability,
     BookedTour,
     LeadCase,
@@ -25,16 +25,16 @@ from api.src.sernia_ai.zillow_leads.case import (
     offerable_slots,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.evals.checks import ReplyChecks, build_dataset
-from api.src.sernia_ai.zillow_leads.evals.labels import Label, output_hash
-from api.src.sernia_ai.zillow_leads.evals.pages import dataset_page, review_page
-from api.src.sernia_ai.zillow_leads.evals.scenarios import (
+from api.src.zillow_leads.evals.checks import ReplyChecks, build_dataset
+from api.src.zillow_leads.evals.labels import Label, output_hash
+from api.src.zillow_leads.evals.pages import dataset_page, review_page
+from api.src.zillow_leads.evals.scenarios import (
     assign_splits,
     case_for,
     in_split,
     scenarios_from_thread,
 )
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
 
 ET = ZoneInfo("America/New_York")
 MONDAY_9AM = datetime(2026, 5, 4, 9, 0, tzinfo=ET)

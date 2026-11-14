@@ -49,20 +49,10 @@ SUMMARIZATION_CHAR_THRESHOLD = 10_000
 # baked in at Agent construction still resolves natively.
 MAIN_AGENT_MODEL = "openrouter:openai/gpt-6-luna"
 
-# OpenRouter provider routing for the main agent. OpenRouter load-balances a
-# model across every upstream that serves it (for gpt-6-luna: OpenAI, Azure,
-# Amazon Bedrock), and those upstreams differ in price by up to ~10x and in
-# supported parameters (Bedrock drops `response_format`/`structured_outputs`).
-# Pinning to OpenAI keeps the served compute identical to the pre-OpenRouter
-# setup — same model, same upstream, just a different gateway. Widen this list
-# (or drop it for full load balancing / failover) once that's the goal.
-OPENROUTER_ALLOWED_PROVIDERS: list[str] = ["openai"]
 
 # Sub-agent model (cheaper, no builtin tool dependency)
 SUB_AGENT_MODEL = "openrouter:anthropic/claude-haiku-4.5"
 
-# Agent name used for conversation persistence
-AGENT_NAME = "sernia"
 
 # Workspace path: Railway volume mount or module-relative fallback.
 WORKSPACE_PATH = Path(
@@ -73,25 +63,11 @@ WORKSPACE_PATH = Path(
 CLICKUP_TEAM_ID = "90131316997"
 DEFAULT_CLICKUP_VIEW_ID = "2ky3xg85-573"  # Peppino View
 
-# Trigger bot identity — used when the agent runs autonomously via APScheduler
-# jobs (email checks, Zillow checks) or webhooks (inbound SMS).
-# Not a real Clerk user; conversations use shared team access (clerk_user_id=None queries).
-TRIGGER_BOT_ID = "system:sernia-ai"
-TRIGGER_BOT_NAME = "Sernia AI (Trigger)"
-# Google API delegation requires impersonating a real Google Workspace user.
-GOOGLE_DELEGATION_EMAIL = "emilio@serniacapital.com"
 
 # Scheduled check defaults — overridable via DB-backed schedule_config setting.
 DEFAULT_SCHEDULE_DAYS_OF_WEEK = [0, 1, 2, 3, 4]  # Mon–Fri (APScheduler convention)
 DEFAULT_SCHEDULE_HOURS = [8, 11, 14, 17]  # 8am, 11am, 2pm, 5pm ET
 
-# Zillow email trigger defaults — overridable via DB-backed zillow_email_config setting.
-# Debounce: first email starts a window; additional Zillow emails accumulate
-# and the agent fires once at the end with the full batch.
-DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300  # 5 minutes
-# Approval stays on by default. The dedicated agent uses zillow_lead_config;
-# the legacy zillow_email_config approval value is never inherited.
-DEFAULT_ZILLOW_REQUIRE_APPROVAL = True
 
 # Shared team contact ID in OpenPhone (Quo).
 # Phone number is looked up at runtime via the API — not hardcoded.
@@ -114,8 +90,6 @@ QUO_SERNIA_AI_PHONE_ID = "PNWvNqsFFy"
 QUO_SHARED_EXTERNAL_PHONE_ID = "PNpTZEJ7la"
 # Company name used to distinguish internal vs external contacts.
 QUO_INTERNAL_COMPANY = "Sernia Capital LLC"
-# Internal email domain — emails to this domain bypass HITL approval.
-INTERNAL_EMAIL_DOMAIN = "serniacapital.com"
 
 # SMS length limits — AT&T rejects messages around 670 chars.
 # Auto-split long messages into chunks at this threshold.
@@ -138,10 +112,6 @@ SMS_HISTORY_MIN_MESSAGES = 3
 # ClickUp — Maintenance list for task creation from SMS triggers
 CLICKUP_MAINTENANCE_LIST_ID = "901312027371"
 
-# Shared external mailbox for outbound email and calendar invites.
-# Using the shared mailbox ensures attendees receive email invites
-# (self-organized events via delegation don't trigger notifications).
-SHARED_EXTERNAL_EMAIL = "all@serniacapital.com"
 
 # Contact slug for Emilio — used to look up clerk_user_id for targeted push notifications.
 EMILIO_CONTACT_SLUG = "emilio"

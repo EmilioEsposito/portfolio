@@ -20,10 +20,12 @@ from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv(".env"), override=False)
 
-from api.src.sernia_ai.tools.google_tools import (
+from api.src.google.gmail.content import (
     _clean_zillow_email,
     _is_zillow_content,
     _strip_quoted_replies,
+)
+from api.src.sernia_ai.tools.google_tools import (
     _summarize_if_long,
     read_email_thread,
     search_emails,

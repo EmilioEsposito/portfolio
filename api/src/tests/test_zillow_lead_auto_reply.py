@@ -6,13 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select
 
+from api.src.agent_conversations.delivery import AutoApprovedSend
 from api.src.agent_conversations.hitl import ApprovalDecision
 from api.src.agent_conversations.models import extract_pending_approval_from_messages
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import AutoApprovedSend
-from api.src.sernia_ai.zillow_leads import auto_reply, handle
-from api.src.sernia_ai.zillow_leads.case import ListingData, build_case
-from api.src.sernia_ai.zillow_leads.settings import LeadSettings
 from api.src.tests import test_zillow_lead_handle as lead_tests
 from api.src.tests.test_zillow_lead_handle import (
     START,
@@ -21,6 +18,9 @@ from api.src.tests.test_zillow_lead_handle import (
     stored,
     thread,
 )
+from api.src.zillow_leads import auto_reply, handle
+from api.src.zillow_leads.case import ListingData, build_case
+from api.src.zillow_leads.settings import LeadSettings
 
 conversation_id = lead_tests.conversation_id
 
@@ -199,7 +199,7 @@ async def test_turning_auto_mode_on_does_not_send_an_existing_pending_draft(read
         "effective_settings",
         AsyncMock(return_value=LeadSettings(require_approval=False)),
     )
-    from api.src.sernia_ai.triggers.zillow_email_event_trigger import _already_completed
+    from api.src.zillow_leads.queue import _already_completed
 
     assert await _already_completed(ready)
     handle.send_reply.assert_not_called()

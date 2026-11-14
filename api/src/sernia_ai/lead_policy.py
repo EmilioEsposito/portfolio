@@ -1,7 +1,7 @@
 """The lead policy as a skill for the general agent.
 
-``prompts/policy.md`` is the one place that says how Zillow leads are
-answered. The lead agent gets it in its instructions (see ``agent.py``). The
+``../zillow_leads/prompts/policy.md`` is the one place that says how Zillow leads are
+answered. The lead agent gets it in its instructions (see ``../zillow_leads/agent.py``). The
 general agent gets the same text here, so a person asking it about a lead hears the rules
 the lead agent applies.
 
@@ -10,7 +10,7 @@ The skill is built in code, not kept in the workspace, for two reasons:
 - It ships with the deploy. A change to the policy goes through a pull
   request, where the evals can run on it, and both agents get it together.
 - Nothing written to the workspace can replace it: the general agent leaves
-  a workspace skill of this name out of its catalog (see ``../general_agent.py``). The
+  a workspace skill of this name out of its catalog (see ``general_agent.py``). The
   name below is the one the old workspace skill used, so this version takes
   its place as soon as it deploys.
 
@@ -23,7 +23,7 @@ workspace skills and loads it the same way, with ``load_capability``.
 from pydantic_ai.capabilities import AbstractCapability
 
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.zillow_leads.agent import load_policy
+from api.src.zillow_leads.agent import load_policy
 
 SKILL_NAME = "zillow-auto-reply"
 

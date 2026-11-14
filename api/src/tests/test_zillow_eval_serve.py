@@ -4,7 +4,7 @@ import threading
 import urllib.request
 from pathlib import Path
 
-from api.src.sernia_ai.zillow_leads.evals.cli import page_server
+from api.src.zillow_leads.evals.cli import page_server
 
 
 def test_pages_are_served_on_loopback_and_never_cached(tmp_path: Path):

@@ -21,19 +21,19 @@ from typing import Any
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel
 
-from api.src.google.common.service_account_auth import get_delegated_credentials
-from api.src.google.gmail.service import extract_email_body, get_gmail_service
-from api.src.sernia_ai.config import (
+from api.src.google.common.config import (
     GOOGLE_DELEGATION_EMAIL,
     INTERNAL_EMAIL_DOMAIN,
     SHARED_EXTERNAL_EMAIL,
 )
-from api.src.sernia_ai.tools.google_tools import (
+from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.google.gmail.content import (
     _clean_zillow_email,
     _html_to_markdown,
     _is_zillow_content,
     _strip_quoted_replies,
 )
+from api.src.google.gmail.service import extract_email_body, get_gmail_service
 
 _READONLY = ["https://www.googleapis.com/auth/gmail.readonly"]
 

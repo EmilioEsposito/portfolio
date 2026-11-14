@@ -4,7 +4,7 @@ For each rental unit, the listing: the next lease on offer, what a prospect
 may be told about the unit, and our internal notes for deciding. Plus the
 showing rules that apply to every unit, and the history of changes to all of
 it. The Zillow lead agent's case is built from this
-([`sernia_ai/zillow_leads`](../sernia_ai/zillow_leads/README.md)), and the
+([`zillow_leads`](../zillow_leads/README.md)), and the
 showing booking system (issue #368) will read it too.
 
 This is not a record of the units themselves or of who lives in them. The

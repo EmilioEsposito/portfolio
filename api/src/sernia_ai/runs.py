@@ -37,16 +37,17 @@ from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import ModelMessage
 
 from api.src.agent_conversations.hitl import extract_pending_approvals
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import persist_agent_run_result, save_agent_conversation
+from api.src.agent_conversations.push.service import notify_chat_response, notify_pending_approval
 from api.src.database.database import AsyncSessionFactory
 from api.src.open_phone.service import send_message
-from api.src.sernia_ai.config import AGENT_NAME, QUO_SERNIA_AI_PHONE_ID, WORKSPACE_PATH
+from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import NoAction, sernia_agent
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
-from api.src.sernia_ai.push.service import notify_chat_response, notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
+from api.src.utils.background_tasks import create_logged_task
 
 
 @dataclass(frozen=True)

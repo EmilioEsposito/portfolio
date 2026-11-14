@@ -9,24 +9,24 @@ method. An interactive version, with an example for every stage, is at
 
 ```bash
 # Private data lives in evals/data, which Git ignores. See the private-data section below.
-DATA=api/src/sernia_ai/zillow_leads/evals/data
+DATA=api/src/zillow_leads/evals/data
 
 # Once per season: cut past threads into scenarios
-uv run python -m api.src.sernia_ai.zillow_leads.evals export \
+uv run python -m api.src.zillow_leads.evals export \
     --after 2026-04-01 --before 2026-08-01 --out $DATA/scenarios/scenarios.jsonl
 
 # Once per season: assign each thread to train, dev or test
-uv run python -m api.src.sernia_ai.zillow_leads.evals split \
+uv run python -m api.src.zillow_leads.evals split \
     --scenarios $DATA/scenarios/scenarios.jsonl --out $DATA/scenarios/splits.json
 
 # Any time: write a page for reading the train and dev splits (test stays sealed)
-uv run python -m api.src.sernia_ai.zillow_leads.evals browse \
+uv run python -m api.src.zillow_leads.evals browse \
     --scenarios $DATA/scenarios/scenarios.jsonl --splits $DATA/scenarios/splits.json \
     --run $DATA/runs/round-3.jsonl --review $DATA/review.html \
     --out $DATA/dataset.html
 
 # Each experiment: run a dev sample and send it to Logfire
-uv run python -m api.src.sernia_ai.zillow_leads.evals run \
+uv run python -m api.src.zillow_leads.evals run \
     --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --splits $DATA/scenarios/splits.json --split dev \
     --name round-3 --sample 30 --seed 7 --out $DATA/runs/round-3.jsonl
@@ -38,21 +38,21 @@ uv run python -m api.src.sernia_ai.zillow_leads.evals run \
 
 # Then: write the page you label that run on, and open it in a browser.
 # Keep --out the same every time, so there is one review page to bookmark.
-uv run python -m api.src.sernia_ai.zillow_leads.evals review \
+uv run python -m api.src.zillow_leads.evals review \
     --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --run $DATA/runs/round-3.jsonl --labels $DATA/annotations/annotations.jsonl \
     --out $DATA/review.html
 
 # After labelling: click Download labels on the page, then add that file to
 # the store of every verdict ever given. Adding the same file twice is safe.
-uv run python -m api.src.sernia_ai.zillow_leads.evals collect \
+uv run python -m api.src.zillow_leads.evals collect \
     --labels ~/Downloads/round-3-labels.json
 ```
 
 To open the pages over localhost instead of as files:
 
 ```bash
-uv run python -m api.src.sernia_ai.zillow_leads.evals serve
+uv run python -m api.src.zillow_leads.evals serve
 ```
 
 It serves `evals/data` to this machine only, at `http://localhost:8377/review.html`
@@ -493,13 +493,13 @@ what the case contained, which is the reviewer's own rule.
 
 ```bash
 # Grade a run
-uv run python -m api.src.sernia_ai.zillow_leads.evals judge \
+uv run python -m api.src.zillow_leads.evals judge \
     --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --case-edits $DATA/scenarios/case-edits.json \
     --run $DATA/runs/experiment-15.jsonl --out $DATA/judgements/experiment-15.jsonl
 
 # Measure the judge against every output a person has graded
-uv run python -m api.src.sernia_ai.zillow_leads.evals judge ... \
+uv run python -m api.src.zillow_leads.evals judge ... \
     --run <each run with graded outputs> --labels $DATA/annotations/annotations.jsonl \
     --only-labelled --out $DATA/judgements/labelled.jsonl
 ```
@@ -591,7 +591,7 @@ are written by a person, never by the model being evaluated.
 
 ```bash
 # Run again only the cases of an earlier run that have a new edit; keep its other rows
-uv run python -m api.src.sernia_ai.zillow_leads.evals run \
+uv run python -m api.src.zillow_leads.evals run \
     --scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json \
     --case-edits $DATA/scenarios/case-edits.json --carry $DATA/runs/experiment-11.jsonl \
     --name experiment-12 --out $DATA/runs/experiment-12.jsonl
@@ -683,7 +683,7 @@ outlives the worktree, because removing a worktree deletes its ignored files:
 
 ```bash
 ln -s "$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)/.local/zillow-evals" \
-    api/src/sernia_ai/zillow_leads/evals/data
+    api/src/zillow_leads/evals/data
 ```
 
 ## Sources

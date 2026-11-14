@@ -10,12 +10,12 @@ from clerk_backend_api import User
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
-from api.src.database.database import DBSession
-from api.src.sernia_ai.push.service import (
+from api.src.agent_conversations.push.service import (
     notify_all_sernia_users,
     remove_subscription,
     save_subscription,
 )
+from api.src.database.database import DBSession
 
 router = APIRouter(prefix="/push", tags=["sernia-ai-push"])
 

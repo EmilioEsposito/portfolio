@@ -179,7 +179,7 @@ export default function LeasingEvalsPage() {
 
       <footer className="mt-12 flex flex-wrap items-center gap-6 border-t pt-7">
         <a
-          href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/sernia_ai/zillow_leads"
+          href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_leads"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 text-sm underline underline-offset-4"

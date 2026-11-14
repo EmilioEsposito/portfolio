@@ -97,4 +97,6 @@ api/seed_fixtures/
 
 # Zillow eval data: real applicant emails, labels and run outputs. Never
 # force-add. No trailing slash, so a symlink of this name is ignored too.
+/api/src/zillow_leads/evals/data
+# Keep the former location ignored for older local eval exports.
 /api/src/sernia_ai/zillow_leads/evals/data

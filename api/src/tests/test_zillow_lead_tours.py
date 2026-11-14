@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from api.src.sernia_ai.zillow_leads.agent import load_policy
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.zillow_leads.agent import load_policy
+from api.src.zillow_leads.case import (
     INTERNAL_NOTES_LABEL,
     AgentAvailability,
     BookedTour,
@@ -23,8 +23,8 @@ from api.src.sernia_ai.zillow_leads.case import (
     render_case,
     within_showing_rules,
 )
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
-from api.src.sernia_ai.zillow_leads.tours import NoTours, Tours, tours_for_case
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
+from api.src.zillow_leads.tours import NoTours, Tours, tours_for_case
 
 ET = ZoneInfo("America/New_York")
 MONDAY_9AM = datetime(2027, 5, 3, 9, 0, tzinfo=ET)

@@ -19,9 +19,9 @@ load_dotenv(find_dotenv(), override=False)
 from pywebpush import WebPushException, webpush
 from sqlalchemy import select
 
+from api.src.agent_conversations.push.models import WebPushSubscription
+from api.src.agent_conversations.push.service import VAPID_CLAIMS_EMAIL, _vapid
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.push.models import WebPushSubscription
-from api.src.sernia_ai.push.service import VAPID_CLAIMS_EMAIL, _vapid
 
 
 async def main():

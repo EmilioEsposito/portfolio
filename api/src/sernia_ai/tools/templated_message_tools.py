@@ -3,9 +3,10 @@
 import logfire
 from pydantic_ai import FunctionToolset
 
+from api.src.google.common.config import SHARED_EXTERNAL_EMAIL
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import send_email
-from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID, SHARED_EXTERNAL_EMAIL
+from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
 from api.src.sernia_ai.messaging.templates import (
     Delivery,
     MessageTemplate,

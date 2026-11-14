@@ -28,21 +28,15 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_evals import Case, Dataset
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.src.agent_conversations.identity import TRIGGER_BOT_ID, TRIGGER_BOT_NAME
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import (
-    GOOGLE_DELEGATION_EMAIL,
-    TRIGGER_BOT_ID,
-    TRIGGER_BOT_NAME,
-    WORKSPACE_PATH,
-)
+from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
-from api.src.sernia_ai.model_config import (
-    build_openrouter_settings,
-    build_run_kwargs,
-    resolve_model,
-)
+from api.src.sernia_ai.model_config import build_run_kwargs
 from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
+from api.src.utils.openrouter_models import build_openrouter_settings, resolve_model
 
 # Default variants — shared across experiments unless an experiment overrides.
 # GPT goes through OpenRouter (same gateway as production; see model_config.py).

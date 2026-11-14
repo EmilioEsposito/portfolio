@@ -67,3 +67,11 @@ pixels per image, and a 16 MB/15-second streamed request ceiling (including hist
 Encrypted PDFs are rejected. Validation is not antivirus or a guarantee that a
 document is trustworthy; document text remains untrusted model input. Existing
 authentication and public-demo attachment exclusion remain unchanged.
+
+## Shared operational helpers
+
+`openrouter_models.py` constructs models with reasoning settings, encrypted-reasoning
+stream handling, and billed-cost telemetry. Each agent owns its model choice.
+`automation.py` owns the environment opt-in and production automation gate;
+`background_tasks.py` records failures from tasks launched outside a request.
+These helpers have no dependency on either agent package.

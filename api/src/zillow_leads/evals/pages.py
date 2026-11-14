@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from api.src.sernia_ai.zillow_leads.case import ListingData, render_case
-from api.src.sernia_ai.zillow_leads.evals.labels import Label, output_hash
-from api.src.sernia_ai.zillow_leads.evals.scenarios import (
+from api.src.zillow_leads.case import ListingData, render_case
+from api.src.zillow_leads.evals.labels import Label, output_hash
+from api.src.zillow_leads.evals.scenarios import (
     SPLITS,
     CaseEdit,
     Scenario,

@@ -37,7 +37,7 @@ export default function ZillowLeadsPage() {
         <p className="text-xs leading-6 text-muted-foreground">FastAPI orchestrates the flow, PydanticAI runs the agent, and Postgres stores listings and conversations. Gmail carries replies; Google Calendar supplies showing availability in the booking design.</p>
         <div className="flex flex-wrap gap-x-6 gap-y-3">
           <Link to="/systems/leasing-evals" className="underline underline-offset-4">How replies are evaluated</Link>
-          <a href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/sernia_ai/zillow_leads" className="underline underline-offset-4">Lead agent source</a>
+          <a href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_leads" className="underline underline-offset-4">Lead agent source</a>
           <a href="https://github.com/EmilioEsposito/portfolio/tree/main/api/src/rental_listings" className="underline underline-offset-4">Listing data &amp; tools</a>
         </div>
       </footer>

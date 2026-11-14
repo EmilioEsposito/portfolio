@@ -13,13 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
-from api.src.sernia_ai.config import (
+from api.src.utils.automation import is_sernia_ai_enabled
+from api.src.utils.clerk import verify_serniacapital_user
+from api.src.zillow_leads.config import (
     DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
     DEFAULT_ZILLOW_REQUIRE_APPROVAL,
 )
-from api.src.sernia_ai.models import AppSetting, is_sernia_ai_enabled
-from api.src.utils.clerk import verify_serniacapital_user
 
 SETTINGS_KEY = "zillow_lead_config"
 

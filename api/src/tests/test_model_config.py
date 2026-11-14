@@ -17,7 +17,8 @@ import pytest
 
 
 def test_build_run_kwargs_openrouter_shape():
-    from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_run_kwargs
+    from api.src.sernia_ai.model_config import build_run_kwargs
+    from api.src.utils.openrouter_models import SerniaOpenRouterModel
 
     kw = build_run_kwargs("gpt-5.6-luna")
     # OpenRouter runs get a model *instance* (the subclass that records the
@@ -43,8 +44,8 @@ def test_build_run_kwargs_pins_openrouter_upstream():
     OpenRouter would otherwise load-balance gpt-5.6-luna across OpenAI, Azure
     and Bedrock, which differ in price by ~10x and in supported parameters.
     """
-    from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
     from api.src.sernia_ai.model_config import build_run_kwargs
+    from api.src.utils.openrouter_models import OPENROUTER_ALLOWED_PROVIDERS
 
     settings = build_run_kwargs("gpt-5.6-luna")["model_settings"]
     assert settings.get("openrouter_provider") == {"only": OPENROUTER_ALLOWED_PROVIDERS}
@@ -58,7 +59,7 @@ def test_openrouter_model_is_cached():
 
 
 def test_resolve_model_passes_through_non_openrouter_strings():
-    from api.src.sernia_ai.model_config import resolve_model
+    from api.src.utils.openrouter_models import resolve_model
 
     assert resolve_model("anthropic:claude-sonnet-4-6") == "anthropic:claude-sonnet-4-6"
 
@@ -90,7 +91,7 @@ def test_build_run_kwargs_unknown_key_falls_back_to_default():
 
 
 def test_default_thinking_effort_is_medium():
-    from api.src.sernia_ai.model_config import DEFAULT_THINKING_EFFORT
+    from api.src.utils.openrouter_models import DEFAULT_THINKING_EFFORT
 
     assert DEFAULT_THINKING_EFFORT == "medium"
 
@@ -126,7 +127,7 @@ def test_openrouter_preserves_minimal_effort_for_ab_tests():
     variant deeper than its Anthropic counterpart and corrupt the comparison.
     OpenRouter's own enum accepts `minimal`, so it passes through.
     """
-    from api.src.sernia_ai.model_config import build_openrouter_settings
+    from api.src.utils.openrouter_models import build_openrouter_settings
 
     settings = build_openrouter_settings("minimal")
     assert settings["openrouter_reasoning"] == {"effort": "minimal", "enabled": True}
@@ -139,7 +140,7 @@ def test_ab_cli_thinking_choices_all_reach_openrouter_intact():
     teaching OpenRouter about it fails here rather than skewing an experiment.
     """
     from api.src.sernia_ai.ab_tests._cli import build_parser
-    from api.src.sernia_ai.model_config import build_openrouter_settings
+    from api.src.utils.openrouter_models import build_openrouter_settings
 
     parser = build_parser("test", default_experiment_prefix="test")
     action = next(a for a in parser._actions if "--thinking" in a.option_strings)  # noqa: SLF001
@@ -156,7 +157,7 @@ def test_ab_cli_thinking_choices_all_reach_openrouter_intact():
 
 def test_unknown_effort_still_falls_back_on_openrouter():
     """Widening the accepted set must not turn it into a passthrough."""
-    from api.src.sernia_ai.model_config import build_openrouter_settings
+    from api.src.utils.openrouter_models import build_openrouter_settings
 
     assert build_openrouter_settings("ludicrous")["openrouter_reasoning"]["effort"] == "medium"
     assert build_openrouter_settings(None)["openrouter_reasoning"]["effort"] == "medium"
@@ -242,7 +243,7 @@ async def test_web_search_domain_allowlist_reaches_openrouter():
     from pydantic_ai.providers.openrouter import OpenRouterProvider
 
     from api.src.sernia_ai.config import WEB_SEARCH_ALLOWED_DOMAINS
-    from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_openrouter_settings
+    from api.src.utils.openrouter_models import SerniaOpenRouterModel, build_openrouter_settings
 
     bodies: list[dict] = []
 
@@ -307,7 +308,7 @@ def test_openrouter_cost_stamped_on_span():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
     from pydantic_ai.messages import ModelResponse, TextPart
 
-    from api.src.sernia_ai.model_config import stamp_openrouter_cost
+    from api.src.utils.openrouter_models import stamp_openrouter_cost
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -330,7 +331,7 @@ def test_stamp_openrouter_cost_is_a_noop_without_cost():
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
     from pydantic_ai.messages import ModelResponse, TextPart
 
-    from api.src.sernia_ai.model_config import stamp_openrouter_cost
+    from api.src.utils.openrouter_models import stamp_openrouter_cost
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -407,7 +408,7 @@ def test_streamed_encrypted_reasoning_items_stay_distinct(indexes):
     are exactly what OpenAI produced and verification passes, whatever
     OpenRouter sends as `index`.
     """
-    from api.src.sernia_ai.model_config import resolve_model
+    from api.src.utils.openrouter_models import resolve_model
 
     model = resolve_model("openrouter:openai/gpt-6-luna")
     parts = _drain_thinking_deltas(
@@ -426,10 +427,7 @@ def test_streamed_encrypted_reasoning_items_stay_distinct(indexes):
 
 def test_streamed_response_class_is_wired():
     """SerniaOpenRouterModel must actually stream through the fixed class."""
-    from api.src.sernia_ai.model_config import (
-        SerniaOpenRouterStreamedResponse,
-        resolve_model,
-    )
+    from api.src.utils.openrouter_models import SerniaOpenRouterStreamedResponse, resolve_model
 
     model = resolve_model("openrouter:openai/gpt-5.6-luna")
     assert model._streamed_response_cls is SerniaOpenRouterStreamedResponse

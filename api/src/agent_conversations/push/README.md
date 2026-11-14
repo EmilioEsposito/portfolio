@@ -1,11 +1,13 @@
-# Notifications (Push + SMS)
+# Conversation Web Push
 
-Notifications for Sernia AI chat responses, HITL approvals, and trigger alerts. Two delivery channels are available:
+Browser notifications for Sernia's general and Zillow agents. Response-ready
+notifications target the requesting user; approval requests and trigger alerts
+notify the team. The API remains at `/api/sernia-ai/push/`.
 
-1. **Web Push** — PWA push notifications to phones and desktops (no native app required). Normal web-chat completions are sent only to the Clerk user who submitted the request. HITL approvals and trigger alerts remain team-wide.
-2. **SMS to shared team number** — persistent record in the team's OpenPhone thread with a deeplink to web chat for trigger alerts
-
-Normal response notifications include a whitespace-normalized preview of up to 180 characters and fall back to `Your response is ready.` when no text is available. The preview may be visible on a device lock screen depending on the user's operating-system notification settings. If the requesting user has no active subscription, delivery is skipped; targeted notifications never fall back to broadcasting to all Sernia users.
+Normal response notifications show up to 180 characters of whitespace-normalized
+text, or “Your response is ready.” A user without an active subscription receives
+no push; a targeted response never falls back to a team broadcast. Previews may
+appear on a device's lock screen.
 
 ## Protocol
 
@@ -25,79 +27,17 @@ Web Push is an open W3C standard built into browsers. **No Firebase, Google Clou
 
 When a browser subscribes, it returns an endpoint URL on its vendor's push service. The backend just POSTs encrypted payloads to those URLs, signed with VAPID keys. The only infrastructure is your own Postgres (for storing subscriptions) and the `pywebpush` library.
 
-## Architecture
+## Delivery
 
-```mermaid
-sequenceDiagram
-    participant Browser
-    participant SW as Service Worker
-    participant Backend as FastAPI
-    participant Push as Browser Push Service
-    participant OP as OpenPhone API
+The browser subscribes through the W3C Push API and saves its endpoint and keys
+through the authenticated API. `service.py` encrypts notifications with VAPID and
+sends them to the browser vendor's push service. The service worker displays the
+notification and opens `/sernia-chat?id=…` when it is clicked.
 
-    Note over Browser,Backend: Subscription Setup
-    Browser->>SW: Register sw.js
-    Browser->>Push: PushManager.subscribe()
-    Push-->>Browser: {endpoint, p256dh, auth}
-    Browser->>Backend: POST /push/subscribe
-    Backend->>Backend: Save to web_push_subscriptions
-
-    Note over Backend,OP: Trigger Notification Delivery (parallel)
-    Backend->>Backend: Trigger creates conversation
-
-    par Web Push
-        Backend->>Push: pywebpush + VAPID signed payload
-        Push->>SW: Push event
-        SW->>Browser: showNotification()
-    and SMS
-        Backend->>OP: send_message() via AI phone
-        OP-->>OP: SMS delivered to shared team thread
-    end
-
-    Browser->>Browser: Click notification → /sernia-chat?id={conv_id}
-```
-
-For a normal web-chat completion (including the follow-up after an approval decision), the route persists the completed run and sends Web Push only to the requesting user's subscriptions. The payload has `data.type = "response"`; the service worker uses that type to suppress the OS notification when the matching conversation is already focused.
-
-## SMS Team Notifications
-
-Alongside push, the system sends an SMS from the AI's phone line to the shared team number. This ensures team members without push enabled still get notified, and creates a persistent record in the shared OpenPhone thread.
-
-### How it works
-
-```mermaid
-flowchart TD
-    TRIGGER["Trigger creates conversation"] --> LOOKUP{"Cached shared<br/>team phone?"}
-    LOOKUP -->|No| API["GET /v1/contacts/{ID}<br/>Cache at module level"]
-    LOOKUP -->|Yes| SEND
-    API --> SEND["Build message:<br/>title + body + deeplink"]
-    SEND --> SMS["send_message()<br/>from: AI phone<br/>to: shared team #"]
-    SMS -->|Success| LOG["Log: team SMS sent"]
-    SMS -->|Error| SAFE["Log error, never re-raise<br/>(failure isolation)"]
-```
-
-1. **Phone lookup**: `_get_shared_team_phone()` calls `GET /v1/contacts/{QUO_SHARED_TEAM_CONTACT_ID}` once, caches the phone number at module level
-2. **Message**: `{title}\n{body}\n\n{deeplink_url}` — the deeplink is `{FRONTEND_BASE_URL}/sernia-chat?id={conversation_id}`
-3. **Sending**: Uses `send_message()` from `open_phone/service.py` — from `QUO_SERNIA_AI_PHONE_ID` to the shared team phone
-4. **Failure isolation**: Errors logged via `logfire.exception()`, never re-raised. SMS failure never blocks trigger flow.
-
-### Environment awareness
-
-- **Production**: deeplink → `https://eesposito.com/sernia-chat?id=...`
-- **Development**: deeplink → `https://dev.eesposito.com/sernia-chat?id=...`, title prefixed with `[DEVELOPMENT]`
-- **Local**: deeplink → `http://localhost:5173/sernia-chat?id=...`, title prefixed with `[LOCAL]`
-
-### Circular messaging safety
-
-When `notify_team_sms()` sends FROM the AI phone TO the shared team number, OpenPhone fires a `message.received` webhook on the shared team phone. The webhook handler guards against this by looking up the AI phone's actual number via `GET /v1/phone-numbers/{QUO_SERNIA_AI_PHONE_ID}` (cached at module level). If `from_number` matches the AI phone, the message is skipped before reaching the team SMS event trigger. See `open_phone/routes.py`.
-
-### Config (`config.py`)
-
-| Constant | Purpose |
-|----------|---------|
-| `QUO_SHARED_TEAM_CONTACT_ID` | OpenPhone contact ID for the shared team number |
-| `FRONTEND_BASE_URL` | Environment-aware base URL for deeplinks |
-| `QUO_SERNIA_AI_PHONE_ID` | Phone ID used as the SMS sender |
+For web-chat completions, the service worker suppresses the OS notification
+when the matching conversation is already focused. Both agents use the same
+approval notifications. General-agent SMS notification helpers live separately
+in [`sernia_ai/notifications.py`](../../sernia_ai/notifications.py).
 
 ## Environment Variables
 
@@ -140,7 +80,7 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 | File | Purpose |
 |------|---------|
 | `models.py` | `WebPushSubscription` SQLAlchemy model — stores browser push endpoints |
-| `service.py` | Subscription CRUD + targeted response push, team-wide alert push, and SMS notifications |
+| `service.py` | Subscription CRUD + targeted response push, and team-wide approval/alert push |
 | `routes.py` | 3 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe` |
 | `apps/web-react-router/public/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
 | `apps/web-react-router/public/manifest.json` | PWA manifest — enables "Add to Home Screen" on mobile |

@@ -42,7 +42,7 @@ async function status($: EngineInterface, href: string): Promise<EvalLink['statu
 
 async function refresh($: EngineInterface): Promise<EvalLink[]> {
   const { web, pages } = await ports($)
-  const startPages = 'uv run python -m api.src.sernia_ai.zillow_leads.evals serve'
+  const startPages = 'uv run python -m api.src.zillow_leads.evals serve'
   const wanted: Omit<EvalLink, 'status'>[] = [
     {
       label: 'Review page',

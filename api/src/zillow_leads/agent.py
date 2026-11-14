@@ -28,7 +28,7 @@ commit the code was at:
 
 - ``role.md``: who this agent is and what it is given. Lead agent only.
 - ``policy.md``: the rules for answering a lead. The general agent reads the
-  same file as a skill (see ``skill.py``), so keep it free of anything that is
+  same file as a skill (see ``../sernia_ai/lead_policy.py``), so keep it free of anything that is
   true only for this agent.
 - ``record.md``: how to fill in the output fields. Lead agent only.
 """
@@ -42,12 +42,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent, ToolOutput
 from pydantic_ai.settings import ModelSettings
 
-from api.src.sernia_ai.model_config import (
+from api.src.utils.openrouter_models import (
     DEFAULT_THINKING_EFFORT,
     build_openrouter_settings,
     resolve_model,
 )
-from api.src.sernia_ai.zillow_leads.case import LeadCase, render_case
+from api.src.zillow_leads.case import LeadCase, render_case
 
 # Everything in prompts/ is read by a model at runtime. Editing a file there
 # changes behaviour, the same as editing code.

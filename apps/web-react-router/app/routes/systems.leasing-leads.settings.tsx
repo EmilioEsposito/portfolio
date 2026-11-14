@@ -8,7 +8,7 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 
-const endpoint = "/api/sernia-ai/zillow-leads/settings";
+const endpoint = "/api/zillow-leads/settings";
 type Settings = { debounce_seconds: number; require_approval: boolean };
 
 export const meta = () => [

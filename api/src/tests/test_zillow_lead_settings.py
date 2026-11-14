@@ -9,9 +9,9 @@ import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import delete
 
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.models import AppSetting
-from api.src.sernia_ai.zillow_leads import settings
+from api.src.zillow_leads import settings
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -154,3 +154,50 @@ async def test_settings_require_a_verified_sernia_user():
     assert [dep.dependency for dep in settings.router.dependencies] == [
         settings.verify_serniacapital_user
     ]
+
+
+@pytest.mark.asyncio
+async def test_canonical_and_compatibility_urls_share_settings(monkeypatch):
+    from api.index import app as api_app
+    from api.src.sernia_ai import routes as general_routes
+
+    async def caller(*_):
+        return SimpleNamespace(id="test-user")
+
+    monkeypatch.setattr(general_routes, "verify_serniacapital_user", caller)
+
+    # The feature router uses Depends; the legacy parent invokes the same
+    # verifier directly. Exercise both real mounts without a provider call.
+    async def dependency():
+        return await caller()
+
+    monkeypatch.setitem(
+        api_app.dependency_overrides, settings.verify_serniacapital_user, dependency
+    )
+    old = {"debounce_seconds": 300, "require_approval": True}
+    new = {"debounce_seconds": 180, "require_approval": False}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=api_app), base_url="http://test"
+    ) as client:
+        saved = await client.patch(
+            "/api/zillow-leads/settings", json={"settings": new, "based_on": old}
+        )
+        assert saved.status_code == 200
+        for url in ("/api/zillow-leads/settings", "/api/sernia-ai/zillow-leads/settings"):
+            response = await client.get(url)
+            assert response.status_code == 200
+            assert response.json() == {**new, "automation_enabled": False}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url", ["/api/zillow-leads/settings", "/api/sernia-ai/zillow-leads/settings"]
+)
+async def test_both_real_url_mounts_reject_unauthenticated_requests(url):
+    from api.index import app as api_app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=api_app), base_url="http://test"
+    ) as client:
+        assert (await client.get(url)).status_code == 401
+        assert (await client.patch(url, json={})).status_code == 401

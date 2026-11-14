@@ -20,11 +20,11 @@ from api.src.agent_conversations.models import (
     get_conversation_messages,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.zillow_leads import handle, listing_data
-from api.src.sernia_ai.zillow_leads.agent import LeadOutcome
-from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, ListingData, TourSlot
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
-from api.src.sernia_ai.zillow_leads.tours import Tours
+from api.src.zillow_leads import handle, listing_data
+from api.src.zillow_leads.agent import LeadOutcome
+from api.src.zillow_leads.case import BookedTour, Listing, ListingData, TourSlot
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
+from api.src.zillow_leads.tours import Tours
 
 RELAY = "abc123@convo.zillow.com"
 _OUTCOME = TypeAdapter(LeadOutcome)

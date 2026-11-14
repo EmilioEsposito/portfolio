@@ -43,30 +43,26 @@ from pydantic_ai.messages import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.agent_conversations.hitl import ApprovalDecision
+from api.src.agent_conversations.identity import AGENT_NAME, TRIGGER_BOT_ID
 from api.src.agent_conversations.models import (
     AgentConversation,
     extract_pending_approval_from_messages,
     get_conversation_messages,
     save_agent_conversation,
 )
+from api.src.agent_conversations.push.service import notify_pending_approval
 from api.src.database.database import AsyncSessionFactory
-from api.src.google.common.service_account_auth import get_delegated_credentials
-from api.src.sernia_ai.config import (
-    AGENT_NAME,
+from api.src.google.common.config import (
     GOOGLE_DELEGATION_EMAIL,
     INTERNAL_EMAIL_DOMAIN,
     SHARED_EXTERNAL_EMAIL,
-    TRIGGER_BOT_ID,
 )
-from api.src.sernia_ai.push.service import notify_pending_approval
-from api.src.sernia_ai.tools._logging import create_logged_task
-from api.src.sernia_ai.tools.google_tools import (
-    GMAIL_SCOPES,
-    _get_threading_headers,
-    _send_email,
-)
-from api.src.sernia_ai.zillow_leads import listing_data
-from api.src.sernia_ai.zillow_leads.agent import (
+from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.google.gmail.service import send_email as _send_email
+from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
+from api.src.utils.background_tasks import create_logged_task
+from api.src.zillow_leads import listing_data
+from api.src.zillow_leads.agent import (
     LEAD_AGENT_MODEL,
     Escalate,
     LeadFacts,
@@ -75,9 +71,9 @@ from api.src.sernia_ai.zillow_leads.agent import (
     TourState,
     respond,
 )
-from api.src.sernia_ai.zillow_leads.case import build_case, render_case
-from api.src.sernia_ai.zillow_leads.thread import LeadThread, load_lead_thread
-from api.src.sernia_ai.zillow_leads.tours import NoTours, TourSource, tours_for_case
+from api.src.zillow_leads.case import build_case, render_case
+from api.src.zillow_leads.thread import LeadThread, load_lead_thread
+from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
 
 # Marks a conversation as belonging to the lead agent.
 HANDLER = "zillow_lead_agent"
@@ -257,7 +253,7 @@ async def handle_thread(
         persisted = False
 
     if persisted and isinstance(outcome, Reply) and route is not None:
-        from api.src.sernia_ai.zillow_leads.auto_reply import maybe_send_reply
+        from api.src.zillow_leads.auto_reply import maybe_send_reply
 
         try:
             await maybe_send_reply(conversation_id, case, outcome)
