@@ -26,9 +26,9 @@ from pydantic_ai.ui.vercel_ai.response_types import BaseChunk, ErrorChunk
 from pydantic_ai.usage import UsageLimits
 from sqlalchemy import select, text, update
 
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import AgentConversation
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import AGENT_NAME
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.runs import finalize_run, save_failed_run

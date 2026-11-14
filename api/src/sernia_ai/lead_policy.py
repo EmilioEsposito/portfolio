@@ -41,7 +41,8 @@ This is the policy the dedicated Zillow lead agent follows. That agent handles
 incoming Zillow emails, not you: code gives it one case (the listings with a
 fact sheet for each unit, booking links, the tour times that may be offered,
 tours already booked, and the email thread), it returns `reply`, `no_reply` or
-`escalate`, and a person approves each reply before code sends it.
+`escalate`. Code sends replies according to the Zillow Leads Agent's approval
+setting; exceptions go to the team.
 
 Use this policy when a person asks how leads are handled, or asks you to draft
 a reply to a lead. Where it says "the case", it means the data listed above;
