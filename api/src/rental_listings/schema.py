@@ -60,6 +60,12 @@ class RentalListing(BaseModel):
     off_market_on: date | None = None
     # Where a prospect books a showing of this unit themselves.
     showing_booking_url: str = ""
+    # The unit's Zillow ad, which keeps its address from one season to the
+    # next: the page a lead sees, and the Zillow Rental Manager page where the
+    # team edits it. For the team and the general agent's ad check. The lead
+    # agent is not given either.
+    zillow_listing_url_public_view: str = ""
+    zillow_listing_url_internal_editor_view: str = ""
     preferred_showing_times: list[PreferredWindow] = Field(default_factory=list)
     public_facts: list[str] = Field(default_factory=list)
     internal_notes: list[str] = Field(default_factory=list)

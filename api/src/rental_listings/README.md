@@ -16,6 +16,7 @@ rental_listings/
 ├── checks.py    what must hold before anything is saved or used
 ├── models.py    the tables
 ├── service.py   the only code that reads and writes them
+├── zillow_ad.py fetches a unit's Zillow ad and reads what it says, to compare with the listing
 └── routes.py    HTTP endpoints under /api/rental-listings, for the edit screen and other services
 ```
 
@@ -45,6 +46,7 @@ is its latest row in `rental_listing_changes` on or before that day.
 | `virtual_tours_allowed` | Whether a virtual tour may be offered |
 | `off_market_on` | From this date the unit is no longer on offer, usually because the next lease is signed. Cleared when it goes back on offer |
 | `showing_booking_url` | Where a prospect books a showing themselves |
+| `zillow_listing_url_public_view`, `zillow_listing_url_internal_editor_view` | The unit's Zillow ad: the page a lead sees, and the Zillow Rental Manager page where the team edits it. Given by a person; an ad keeps its link from season to season. For the team and the ad check below. The lead agent is not given them |
 | `preferred_showing_times` | Weekly windows we would like it shown in: a nudge, never a limit |
 | `public_facts` | Lines that may be repeated to anyone, as on a listing |
 | `internal_notes` | Lines for making decisions that are not repeated outside the team |
@@ -63,7 +65,9 @@ in either kind of text.
 - Go through `service.py`. It checks every save and writes the history row in
   the same transaction.
 - `checks.py` refuses values that make no sense and any free text holding a
-  phone number, an email address, a link or access-code wording. Rows are
+  phone number, an email address, a link or access-code wording. The booking
+  link must be plain https; the Zillow links must also be on `zillow.com` or
+  a subdomain, since the public one is fetched. Rows are
   checked again on read, so a hand edit in the database that breaks a rule is
   refused, not passed on.
 - The service does not ask for approval; the caller decides. The general
@@ -93,6 +97,7 @@ routes (`rental_listing_caller` in `routes.py`):
 | `PUT /api/rental-listings/listings/{unit}` | Replace a listing. A unit is not renamed |
 | `PUT /api/rental-listings/showing-rules` | Replace the showing rules |
 | `GET /api/rental-listings/history?subject=&limit=` | Changes, newest first: one unit, `showing_rules`, or everything |
+| `GET /api/rental-listings/zillow-ad/{unit}` | What the unit's live Zillow ad says, fetched now from its public link. Saves nothing. 502 with the reason when Zillow cannot be read |
 
 - A write records the signed-in person as `changed_by`, and
   `rental listings screen` or `Sernia MCP` as `source`.
@@ -111,9 +116,43 @@ routes (`rental_listing_caller` in `routes.py`):
 - A row broken by a hand edit in the database makes the list answer 409 with
   the reasons. Fix it in the database.
 
+## Checking a listing against its Zillow ad
+
+When someone tells the general agent a unit's ad changed, it calls
+`rental_listing_zillow_ad_read`. That fetches the unit's
+`zillow_listing_url_public_view`, reads the ad (`zillow_ad.py`), and returns it
+beside the listing on file. The agent proposes what differs through
+`rental_listing_update`, under the usual rule: typed fields such as asking rent
+save at once, facts and links wait for approval, and everything passes
+`checks.py`. The MCP service has the same tool, through the endpoint above.
+It runs on request only. A daily check, if wanted, goes through the general
+agent's existing scheduling tools; there is no job for it here.
+
+How the fetch works, and what to expect:
+
+- One plain HTTPS GET with the user agent
+  `SerniaListingSync/0.1 (+https://serniacapital.com)`. Zillow serves a named
+  crawler a page it marks as served to a bot (`isBot: true`), which still holds
+  the listing as JSON: `__NEXT_DATA__` → `props.pageProps.componentProps.gdpClientCache`
+  (a JSON string) → the entry with a `property`. A generic client user agent
+  (`python-httpx/…`) gets Zillow's "Press & Hold" bot check instead. Checked
+  from a home connection on 2026-11-13; whether Zillow answers Railway's
+  addresses the same way is not known until it runs there.
+- Nothing tries to get past a bot check, and a refusal is not retried. Every
+  failure (bot check, no page, a changed page, a page for another listing, a
+  redirect off zillow.com) comes back as a reason, and the agent asks the
+  person to paste the ad text instead.
+- While the ad is live, `homeStatus` is `FOR_RENT` and `price` is the monthly
+  rent. Otherwise `price` is Zillow's estimate of the sale value, so `rent` is
+  left empty. Zillow holds one availability date
+  (`resoFacts.availabilityDate`, milliseconds at midnight UTC); the earliest
+  and latest lease start may only be in the description.
+- The lead agent does not use this. Its answers should not depend on Zillow
+  answering or keeping its page the same; it reads the reviewed listing.
+
 ## Sernia MCP
 
-The standalone MCP service has the same four tools as the general agent
+The standalone MCP service has the same five tools as the general agent
 (`apps/sernia_mcp/src/sernia_mcp/tools/rental_listings.py`). It has no
 database access, so it calls the endpoints above with the signed-in user's
 Clerk token. Its approval cards and their rule are described in its

@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/react-router";
 import {
   ArrowLeft,
   Building,
+  ExternalLink,
   Globe,
   History,
   Loader2,
@@ -44,6 +45,7 @@ import {
   sameRules,
   sameListing,
   shortTime,
+  zillowHref,
 } from "~/lib/rental-listings";
 import { cn } from "~/lib/utils";
 
@@ -145,11 +147,50 @@ function Field({
       <Label htmlFor={id}>{label}</Label>
       {children}
       {hint && (
-        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        <p id={`${id}-hint`} className="break-words text-xs text-muted-foreground">
           {hint}
         </p>
       )}
     </div>
+  );
+}
+
+function ZillowLinkField({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const href = zillowHref(value);
+  return (
+    <Field id={id} label={label} hint={hint}>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          type="url"
+          inputMode="url"
+          placeholder="https://www.zillow.com/…"
+          aria-describedby={`${id}-hint`}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {href && (
+          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 gap-1.5">
+            <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${label.toLowerCase()} on Zillow`}>
+              <ExternalLink className="h-4 w-4" aria-hidden />
+              Open
+            </a>
+          </Button>
+        )}
+      </div>
+    </Field>
   );
 }
 
@@ -624,6 +665,34 @@ function UnitEditor({
                   onChange={(event) => set("showing_booking_url", event.target.value)}
                 />
               </Field>
+            </div>
+          </section>
+
+          <section aria-labelledby={id("zillow-heading")} className="space-y-4">
+            <div className="space-y-1">
+              <h3 id={id("zillow-heading")} className="text-sm font-semibold">
+                Zillow ad
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                The unit&rsquo;s ad keeps these links from season to season. They are for the team and for Sernia AI
+                to check this listing against the ad; leads are not given them.
+              </p>
+            </div>
+            <div className="grid gap-4">
+              <ZillowLinkField
+                id={id("zillow-public")}
+                label="Public ad"
+                hint="The ad as a lead sees it, e.g. a zillow.com/homedetails/… page."
+                value={draft.zillow_listing_url_public_view}
+                onChange={(value) => set("zillow_listing_url_public_view", value)}
+              />
+              <ZillowLinkField
+                id={id("zillow-editor")}
+                label="Editor (Rental Manager)"
+                hint="Where the team edits the ad on Zillow."
+                value={draft.zillow_listing_url_internal_editor_view}
+                onChange={(value) => set("zillow_listing_url_internal_editor_view", value)}
+              />
             </div>
           </section>
 

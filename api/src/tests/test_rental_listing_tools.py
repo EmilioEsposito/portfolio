@@ -6,6 +6,7 @@ All unit data here is invented.
 """
 
 import asyncio
+import json
 from datetime import UTC, date, time
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,7 +26,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.rental_listings import service
+from api.src.rental_listings import service, zillow_ad
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
 from api.src.sernia_ai.agent import sernia_agent
@@ -33,6 +34,7 @@ from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.tools import rental_listing_tools as tools
 from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
 from api.src.tests.test_rental_listings import clear_rental_data
+from api.src.tests.test_zillow_ad import FETCHED_AT, LINK, ad_page
 
 ON_FILE = [
     RentalListing(
@@ -186,6 +188,14 @@ class TestFreeTextWaitsForAPerson:
             },
             {"unit": "12-A", "showing_booking_url": "https://book.example.com/12-a"},
             {"unit": "12-B", "showing_booking_url": ""},  # taking a link off
+            {
+                "unit": "12-A",
+                "zillow_listing_url_public_view": "https://www.zillow.com/homedetails/x/1_zpid/",
+            },
+            {
+                "unit": "12-A",
+                "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
+            },
             # One text change makes the whole call wait, typed fields included.
             {"unit": "12-A", "asking_rent": 1600, "add_public_facts": ["Cats allowed"]},
         ],
@@ -268,6 +278,7 @@ class TestRefusals:
             ({"add_internal_notes": ["Lockbox code on the rail"]}, "access code"),
             ({"add_internal_notes": ["Resident: sam@example.com"]}, "email address"),
             ({"showing_booking_url": "http://book.example.com"}, "https"),
+            ({"zillow_listing_url_public_view": "https://example.com/ad"}, "zillow.com"),
             ({"asking_rent": -5}, "asking_rent"),
         ],
     )
@@ -399,6 +410,59 @@ class TestRead:
 
 
 @pytest.mark.usefixtures("on_file")
+class TestZillowAdRead:
+    @pytest.mark.usefixtures("on_file")
+    @pytest.mark.asyncio
+    async def test_it_returns_the_ad_beside_what_is_on_file(self, monkeypatch):
+        link = LINK
+        async with AsyncSessionFactory() as session:
+            await service.save_listing(
+                session,
+                ON_FILE[0].model_copy(update={"zillow_listing_url_public_view": link}),
+                changed_by="setup",
+            )
+        asked: list[str] = []
+
+        async def read_ad(listing):
+            asked.append(listing.zillow_listing_url_public_view)
+            return zillow_ad.parse_ad(ad_page(), url=link, fetched_at=FETCHED_AT)
+
+        monkeypatch.setattr(tools.zillow_ad, "read_ad", read_ad)
+        said = json.loads(await tools.rental_listing_zillow_ad_read(ctx(), unit="12-a"))
+
+        assert asked == [link]
+        assert said["ad"]["rent"] == 1650 and said["ad"]["for_rent"] is True
+        assert said["on_file"]["asking_rent"] == 1500
+        assert len(await history("12-A")) == 2  # it saved nothing
+
+    @pytest.mark.usefixtures("on_file")
+    @pytest.mark.asyncio
+    async def test_with_no_link_on_file_it_says_to_ask_for_one(self):
+        said = await tools.rental_listing_zillow_ad_read(ctx(), unit="12-A")
+
+        assert said.startswith("Could not read the Zillow ad for 12-A")
+        assert "ad text" in said
+
+    @pytest.mark.usefixtures("on_file")
+    @pytest.mark.asyncio
+    async def test_a_refusal_from_zillow_is_reported(self, monkeypatch):
+        async def refused(listing):
+            raise zillow_ad.ZillowAdUnavailable("Zillow refused the request with its bot check.")
+
+        monkeypatch.setattr(tools.zillow_ad, "read_ad", refused)
+        said = await tools.rental_listing_zillow_ad_read(ctx(), unit="12-A")
+
+        assert "bot check" in said
+
+    @pytest.mark.usefixtures("on_file")
+    @pytest.mark.asyncio
+    async def test_an_unknown_unit_is_named(self):
+        said = await tools.rental_listing_zillow_ad_read(ctx(), unit="99")
+
+        assert said.startswith("No listing for a unit named '99'")
+
+
+@pytest.mark.usefixtures("on_file")
 class TestHistory:
     @pytest.mark.asyncio
     async def test_it_lists_changes_newest_first_with_who_made_them(self):
@@ -490,6 +554,7 @@ class TestOnTheGeneralAgent:
             "rental_listing_update",
             "showing_rules_update",
             "rental_listing_history",
+            "rental_listing_zillow_ad_read",
         } <= set(script.tools[1])
         assert _returns(result.all_messages())["rental_listing_update"].startswith("Saved.")
         assert (await unit("12-A")).off_market_on == date(2027, 6, 1)
