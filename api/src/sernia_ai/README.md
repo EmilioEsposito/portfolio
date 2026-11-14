@@ -39,7 +39,7 @@ unless explicitly stated otherwise.
 - **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (memory, filetree, modality, then per-run context: datetime, user, deeplink). See [Prompt stability](#prompt-stability).
 - **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
 - **Model config** (`model_config.py`) — Supported general-agent models, reasoning effort, and per-run resolution of the `model_config` app setting. See [Model Gateways](#model-gateways). The lead agent selects its own model in `../zillow_leads/agent.py`.
-- **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
+- **Routes** (`routes.py`) — General chat, cancellation, context inspection, and settings. Shared history and approval endpoints live in [`agent_conversations/routes.py`](../agent_conversations/README.md).
 - **Run pipeline** (`runs.py`) — What happens after the general agent stops, for every general-agent run. See [Run pipeline](#run-pipeline).
 
 ## Documentation
@@ -169,7 +169,7 @@ the run's tokens and cost.
 | Entry point | Uses |
 |-------------|------|
 | `routes.chat_sernia` (streaming) | `chat_runs.ChatRun` owns execution; `finalize_run` from its `on_complete` |
-| `routes.approve_conversation` | `finalize_run` after `resume_with_approvals`; `save_failed_run` on error |
+| `conversation_handler.approve_general_conversation` | Selected by the shared router; `finalize_run` after `resume_with_approvals`, `save_failed_run` on error |
 | SMS triggers, `run_agent_for_trigger` | `run_and_finalize` |
 
 For the general agent, add a new entry point by building its deps and calling one of these — not by
@@ -177,7 +177,9 @@ copying the steps. `test_run_pipeline.py::TestOnePipeline` fails if an entry
 point starts calling the pipeline's steps directly.
 
 Zillow lead outcomes follow `../zillow_leads/handle.py` instead. The shared approval
-endpoint dispatches lead cards there before the general-agent resume path.
+endpoint in `agent_conversations/routes.py` selects that handler from saved metadata
+before importing the general-agent continuation code. Existing `/api/sernia-ai`
+URLs remain supported; see the [HTTP compatibility guide](../agent_conversations/README.md#http-compatibility).
 
 ### Web conversation lifecycle
 
@@ -204,7 +206,9 @@ one additional minute for finalization; expired workers show as interrupted.
 Shutdown cancels and saves active runs. A hard process kill retains the last
 checkpoint, with no automatic replay of potentially completed actions.
 
-Admission is serialized in Postgres, active conversations cannot be overwritten
+Shared status and locking helpers live in `agent_conversations/run_state.py`;
+`chat_runs.py` continues to own the general agent’s running tasks and cancellation
+tokens. Admission is serialized in Postgres, active conversations cannot be overwritten
 or deleted, repeated request IDs are rejected, and final writes check the run ID
 so a superseded worker cannot overwrite a newer run. Terminal status, rather
 than the existence of an assistant message, determines when recovery is complete.

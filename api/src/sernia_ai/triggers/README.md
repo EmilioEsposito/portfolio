@@ -43,7 +43,7 @@ A `message.received` on the AI line whose webhook `to` field contains recipients
 1. **Gate** — *every* human participant (sender + other recipients) must be an internal contact. One external/unknown member and the whole event is silently ignored.
 2. **Conversation key** — `ai_sms_group_{CN...}` (the Quo conversation ID), so all group members share **one** AI conversation, instead of the sender's personal `ai_sms_from_{digits}`.
 3. **History** — reconstructed from the local `open_phone_events` webhook table (the only source of full group history — OpenPhone's API can't list group messages by participant filter), merged with DB history. Inbound turns are prefixed `[Sender Name]:` so the agent can tell members apart; the same prefix format is used for the live prompt so text-dedup in the merge works. The current message is excluded from reconstruction (the webhook saves it to the events table *before* the background task runs) since it becomes the run's prompt.
-4. **Reply** — sent to **all** human participants in one API call (`to` array), landing in the same group thread. Post-approval replies do the same: `routes.approve_conversation()` reads the conversation's `trigger_group_participants` metadata into `deps.sms_reply_recipients`, and the shared pipeline replies to the group instead of 1:1.
+4. **Reply** — sent to **all** human participants in one API call (`to` array), landing in the same group thread. Post-approval replies do the same: `conversation_handler.approve_general_conversation()` reads the conversation's `trigger_group_participants` metadata into `deps.sms_reply_recipients`, and the shared pipeline replies to the group instead of 1:1.
 
 `send_sms`'s hidden-context seeding for group sends targets the same `ai_sms_group_{CN...}` conversation (looked up via `_find_group_conversation` after the send), so the agent has the context when any member replies.
 
@@ -99,7 +99,7 @@ When a team member approves an action in web chat for an AI SMS conversation, th
 sequenceDiagram
     participant User as Team Member
     participant Web as Web Chat
-    participant API as routes.approve_conversation()
+    participant API as agent_conversations.routes.approve_conversation()
     participant SMS as OpenPhone SMS
 
     User->>Web: Approve tool call

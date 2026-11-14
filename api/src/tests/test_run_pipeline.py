@@ -14,7 +14,7 @@ import pytest
 from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ModelRequest, ToolCallPart, UserPromptPart
 
-from api.src.sernia_ai import routes, runs
+from api.src.sernia_ai import conversation_handler, routes, runs
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import NoAction
 from api.src.sernia_ai.triggers import ai_sms_event_trigger, background_agent_runner
@@ -315,7 +315,9 @@ class TestOnePipeline:
         "send_message",
     )
 
-    @pytest.mark.parametrize("module", [routes, ai_sms_event_trigger, background_agent_runner])
+    @pytest.mark.parametrize(
+        "module", [routes, conversation_handler, ai_sms_event_trigger, background_agent_runner]
+    )
     def test_entry_points_do_not_reimplement_it(self, module):
         source = inspect.getsource(module)
         leaked = [name for name in self.PIPELINE_ONLY if f"{name}(" in source]

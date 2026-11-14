@@ -15,11 +15,14 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from sqlalchemy import delete
 from starlette.requests import Request
 
+from api.src.agent_conversations import routes as conversation_routes
+from api.src.agent_conversations import run_state
 from api.src.agent_conversations.models import (
     AgentConversation,
     list_user_conversations,
     save_agent_conversation,
 )
+from api.src.agent_conversations.schemas import ApprovalRequest
 from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai import chat_runs, routes, runs
 
@@ -59,7 +62,9 @@ async def saved(cid):
 
 async def messages(cid):
     async with AsyncSessionFactory() as session:
-        return await routes.get_conversation_messages_endpoint(cid, user=USER, session=session)
+        return await conversation_routes.get_conversation_messages_endpoint(
+            cid, user=USER, session=session
+        )
 
 
 async def finished():
@@ -179,12 +184,14 @@ async def test_active_run_rejects_overlap_delete_and_approval(scenario):
     assert overlap.value.status_code == 409
     async with AsyncSessionFactory() as session:
         with pytest.raises(HTTPException) as deletion:
-            await routes.delete_conversation_endpoint(scenario.cid, user=USER, session=session)
+            await conversation_routes.delete_conversation_endpoint(
+                scenario.cid, user=USER, session=session
+            )
         assert deletion.value.status_code == 409
     async with AsyncSessionFactory() as session:
         with pytest.raises(HTTPException) as approval:
-            await routes.approve_conversation(
-                scenario.cid, routes.ApprovalRequest(decisions=[]), user=USER, session=session
+            await conversation_routes.approve_conversation(
+                scenario.cid, ApprovalRequest(decisions=[]), user=USER, session=session
             )
         assert approval.value.status_code == 409
     assert "must not overwrite" not in json.dumps((await saved(scenario.cid)).messages)
@@ -243,7 +250,7 @@ def test_expired_worker_is_reported_interrupted():
     run = chat_runs.new_run("test")
     run["expires_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     assert chat_runs.public_run({chat_runs.RUN_KEY: run})["status"] == "interrupted"
-    chat_runs.require_idle({chat_runs.RUN_KEY: run})
+    run_state.require_idle({chat_runs.RUN_KEY: run})
 
 
 @pytest.mark.asyncio

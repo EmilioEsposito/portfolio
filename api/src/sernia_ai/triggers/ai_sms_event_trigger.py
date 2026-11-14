@@ -914,7 +914,7 @@ async def _handle_group_sms(
                 "trigger_contact_name": "Group: " + ", ".join(name_by_phone[p] for p in all_humans),
                 "openphone_conversation_id": quo_conv_id,
                 # Post-approval replies use this to respond into the group
-                # thread instead of 1:1 (see routes.approve_conversation).
+                # thread instead of 1:1 (see conversation_handler.approve_general_conversation).
                 "trigger_group_participants": all_humans,
             },
             modality="sms",

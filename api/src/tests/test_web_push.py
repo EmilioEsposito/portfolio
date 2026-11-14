@@ -351,11 +351,12 @@ async def test_chat_run_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
-    from api.src.sernia_ai import routes, runs
+    from api.src.agent_conversations import routes, schemas
+    from api.src.sernia_ai import conversation_handler, runs
 
-    body = routes.ApprovalRequest(
+    body = schemas.ApprovalRequest(
         decisions=[
-            routes.ApprovalDecisionRequest(
+            schemas.ApprovalDecisionRequest(
                 tool_call_id="tool-123",
                 approved=True,
             )
@@ -383,17 +384,21 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
         coro.close()
         return MagicMock()
 
-    monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
-    monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
+    monkeypatch.setattr(conversation_handler, "capture_run_messages", FakeCaptureContext)
+    monkeypatch.setattr(
+        conversation_handler, "resume_with_approvals", AsyncMock(return_value=result)
+    )
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(
         runs,
         "extract_pending_approvals",
         MagicMock(return_value=[{"tool_name": "send_email", "args": {}}]),
     )
-    monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
+    monkeypatch.setattr(conversation_handler, "extract_tool_results", MagicMock(return_value={}))
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
 
     response = await routes.approve_conversation(
@@ -409,11 +414,12 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_schedules_response_preview_after_persistence(monkeypatch):
-    from api.src.sernia_ai import routes, runs
+    from api.src.agent_conversations import routes, schemas
+    from api.src.sernia_ai import conversation_handler, runs
 
-    body = routes.ApprovalRequest(
+    body = schemas.ApprovalRequest(
         decisions=[
-            routes.ApprovalDecisionRequest(
+            schemas.ApprovalDecisionRequest(
                 tool_call_id="tool-123",
                 approved=True,
             )
@@ -450,13 +456,17 @@ async def test_approval_route_schedules_response_preview_after_persistence(monke
 
         return completed()
 
-    monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
-    monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
+    monkeypatch.setattr(conversation_handler, "capture_run_messages", FakeCaptureContext)
+    monkeypatch.setattr(
+        conversation_handler, "resume_with_approvals", AsyncMock(return_value=result)
+    )
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=True))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
-    monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
+    monkeypatch.setattr(conversation_handler, "extract_tool_results", MagicMock(return_value={}))
     monkeypatch.setattr(runs, "notify_chat_response", capture_response_notification)
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
 

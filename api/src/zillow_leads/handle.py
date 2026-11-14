@@ -72,11 +72,10 @@ from api.src.zillow_leads.agent import (
     respond,
 )
 from api.src.zillow_leads.case import build_case, render_case
+from api.src.zillow_leads.identity import HANDLER
 from api.src.zillow_leads.thread import LeadThread, load_lead_thread
 from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
 
-# Marks a conversation as belonging to the lead agent.
-HANDLER = "zillow_lead_agent"
 # Where open tour times and booked tours come from. Nothing knows them until
 # the booking system exists (issue #368), which replaces this.
 TOUR_SOURCE: TourSource = NoTours()
@@ -307,10 +306,6 @@ async def send_reply(
         **threading,
     )
     return f"Email sent to {route['to']} (message ID: {result.get('id', 'unknown')})."
-
-
-def is_lead_conversation(metadata: dict[str, Any] | None) -> bool:
-    return bool(metadata) and metadata.get("handler") == HANDLER
 
 
 async def apply_approval(

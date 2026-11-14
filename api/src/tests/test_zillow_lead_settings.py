@@ -159,12 +159,12 @@ async def test_settings_require_a_verified_sernia_user():
 @pytest.mark.asyncio
 async def test_canonical_and_compatibility_urls_share_settings(monkeypatch):
     from api.index import app as api_app
-    from api.src.sernia_ai import routes as general_routes
+    from api.src.agent_conversations import auth
 
     async def caller(*_):
         return SimpleNamespace(id="test-user")
 
-    monkeypatch.setattr(general_routes, "verify_serniacapital_user", caller)
+    monkeypatch.setattr(auth, "verify_serniacapital_user", caller)
 
     # The feature router uses Depends; the legacy parent invokes the same
     # verifier directly. Exercise both real mounts without a provider call.

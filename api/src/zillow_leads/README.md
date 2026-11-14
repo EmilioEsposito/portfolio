@@ -74,7 +74,10 @@ booking, phone contact, or calendar event.
 The general agent lives in [`sernia_ai/general_agent.py`](../sernia_ai/general_agent.py). It
 can maintain listings and read the leasing policy as a skill, but the Zillow
 queue does not call it. The two agents share conversation storage and the
-approval UI, not their execution pipeline or tool access.
+approval UI, not their execution pipeline or tool access. The shared
+[conversation router](../agent_conversations/README.md) selects the Zillow handler
+from stored metadata and preserves the existing conversation URLs; approving a
+lead never imports or resumes the general agent.
 
 ## Package boundaries
 
