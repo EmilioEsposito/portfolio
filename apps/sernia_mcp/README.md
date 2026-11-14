@@ -52,7 +52,7 @@ the API records each change under that person's name with the source
 |------|------|-------|
 | `rental_listings_read` | read | Every listing and the showing rules |
 | `rental_listing_history` | read | Changes, newest first, with who and from where |
-| `rental_listing_zillow_ad_read` | read | A unit's live Zillow ad beside its listing on file, to propose changes from. The API fetches the ad (`GET /api/rental-listings/zillow-ad/{unit}`); this service never calls Zillow |
+| `rental_listing_zillow_ad_read` | read | A unit's live Zillow ad beside its listing on file, to propose changes from. The API reads the ad (`GET /api/rental-listings/zillow-ad/{unit}`, through Jina Reader); this service never calls Zillow |
 | `rental_listing_update` | write / **UI-gated** | Typed fields (asking rent, dates, off-market date, virtual tours, preferred showing times) save at once and return a "Saved" card. A new listing, an address, a public fact, an internal note, a booking link or a Zillow ad link returns an Approve/Reject card |
 | `showing_rules_update` | write / **UI-gated** | The showing window and blackout dates save at once; a booking link returns an Approve/Reject card |
 

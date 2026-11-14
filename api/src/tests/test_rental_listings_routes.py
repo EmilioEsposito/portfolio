@@ -545,19 +545,19 @@ async def test_the_zillow_ad_is_read_from_the_unit_s_public_link(api, monkeypatc
 
     async def read_ad(listing):
         asked.append(listing.unit)
-        return zillow_ad.parse_ad(ad_page(), url=LINK, fetched_at=FETCHED_AT)
+        return zillow_ad.parse_page(ad_page(), url=LINK, fetched_at=FETCHED_AT)
 
     monkeypatch.setattr(routes.zillow_ad, "read_ad", read_ad)
     response = await api.get("/api/rental-listings/zillow-ad/12%2F14")
 
     assert response.status_code == 200
-    assert response.json()["rent"] == 1650
+    assert "$1,650/mo" in response.json()["page_text"]
     assert asked == ["12/14"]
     assert len(await _history()) == 1  # reading the ad saved nothing
 
 
 @pytest.mark.asyncio
-async def test_a_zillow_ad_that_cannot_be_read_is_a_502_with_the_reason(api, monkeypatch):
+async def test_a_zillow_ad_that_cannot_be_read_is_a_424_with_the_reason(api, monkeypatch):
     from api.src.rental_listings import zillow_ad
 
     await api.post("/api/rental-listings/listings", json={"listing": _json(LISTING)})
@@ -568,7 +568,7 @@ async def test_a_zillow_ad_that_cannot_be_read_is_a_502_with_the_reason(api, mon
     monkeypatch.setattr(routes.zillow_ad, "read_ad", refused)
     response = await api.get(f"/api/rental-listings/zillow-ad/{LISTING.unit}")
 
-    assert response.status_code == 502
+    assert response.status_code == 424  # not 502, which Cloudflare replaces
     assert response.json()["detail"]["problems"] == [
         "Zillow refused the request with its bot check."
     ]

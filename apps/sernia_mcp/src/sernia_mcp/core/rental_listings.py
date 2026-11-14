@@ -33,6 +33,9 @@ from sernia_mcp.config import SERNIA_MCP_API_BASE_URL
 from sernia_mcp.core.errors import ExternalServiceError, ValidationError
 
 _TIMEOUT = 20
+# The API reads a Zillow ad through a page reader that may take up to 60 s
+# (api/src/rental_listings/zillow_ad.py); allow that plus the API's own time.
+_ZILLOW_AD_TIMEOUT = 75
 _PREFIX = "/api/rental-listings"
 
 Weekday = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -88,6 +91,7 @@ async def _request(
     *,
     json: dict | None = None,
     params: dict | None = None,
+    timeout: float = _TIMEOUT,
 ) -> Any:
     """Call the API as the signed-in user. Raises on anything but success."""
     if not SERNIA_MCP_API_BASE_URL:
@@ -102,7 +106,7 @@ async def _request(
                 headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
                 json=json,
                 params=params,
-                timeout=_TIMEOUT,
+                timeout=timeout,
             )
         except httpx.HTTPError as error:
             raise ExternalServiceError(f"The API could not be reached: {error}") from error
@@ -137,7 +141,9 @@ async def read_zillow_ad(token: str, unit: str) -> dict[str, Any]:
 
     Raises ``ExternalServiceError`` with the reason when Zillow cannot be read.
     """
-    return await _request("GET", f"/zillow-ad/{quote(unit.strip(), safe='')}", token)
+    return await _request(
+        "GET", f"/zillow-ad/{quote(unit.strip(), safe='')}", token, timeout=_ZILLOW_AD_TIMEOUT
+    )
 
 
 async def read_history(token: str, subject: str | None, limit: int) -> list[dict[str, Any]]:
