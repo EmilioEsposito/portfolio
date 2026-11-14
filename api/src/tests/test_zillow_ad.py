@@ -1,11 +1,11 @@
 """Reading a unit's Zillow ad (``rental_listings/zillow_ad.py``). No network, no database.
 
-The pages here are invented and much smaller than Zillow's, but hold the
-listing where Zillow's do: a JSON string inside the ``__NEXT_DATA__`` script.
+The pages here are invented and much shorter than the reader's Markdown of a
+Zillow listing, but laid out the same way: navigation, the price above the
+address heading, the listing's sections, then nearby listings and the rest.
 """
 
-import json
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -15,50 +15,35 @@ from api.src.rental_listings.schema import RentalListing
 
 LINK = "https://www.zillow.com/homedetails/12-Example-St-APT-A/123_zpid/?view=public"
 FETCHED_AT = datetime(2027, 5, 3, 12, tzinfo=UTC)
-AVAILABLE_MS = 1814745600000  # 2027-07-05 00:00 UTC, as Zillow gives dates
 
 
-def ad_page(**changes) -> str:
-    """A listing page as Zillow serves a named crawler, with ``changes`` to the listing."""
-    home = {
-        "zpid": 123,
-        "homeStatus": "FOR_RENT",
-        "price": 1650,
-        "daysOnZillow": 3,
-        "bedrooms": 1,
-        "bathrooms": 1.5,
-        "livingArea": 620,
-        "address": {
-            "streetAddress": "12 Example St APT A",
-            "city": "Pittsburgh",
-            "state": "PA",
-            "zipcode": "15224",
-        },
-        "resoFacts": {
-            "availabilityDate": AVAILABLE_MS,
-            "leaseTerm": "1 Year",
-            "hasPetsAllowed": False,
-            "furnished": False,
-            "laundryFeatures": ["None"],
-            "parkingFeatures": ["Off Street"],
-            "appliances": ["Dishwasher", "Refrigerator"],
-        },
-        "priceHistory": [
-            {"date": "2027-05-01", "event": "Listed for rent", "price": 1650, "source": "x"},
-        ],
-        "description": "  Sunny one bedroom. Tenant pays gas and electric.  ",
-        **changes,
-    }
-    cache = json.dumps({"ForRentShopperPlatformFullRenderQuery{}": {"property": home}})
-    data = {"props": {"isBot": True, "pageProps": {"componentProps": {"gdpClientCache": cache}}}}
-    return (
-        "<html><head></head><body>"
-        f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script>'
-        "</body></html>"
+def ad_page(*, source: str = LINK, top: str = "", listing: str = "") -> str:
+    """A live ad as the reader returns it, with optional replacements."""
+    top = top or "Apartment for rent\n\n$1,650/mo Fees may apply\n"
+    listing = listing or (
+        "1 beds\n\n1 baths\n\nAvailable Jul 5, 2027\n\nCats OK\n\n"
+        "## What's special\n\n"
+        "Sunny one bedroom. [Learn more](https://www.zillow.com/learn/x/) "
+        "Tenant pays gas and electric. Available July 5 or later.\n\n"
+        "## Facts & features\n\n### Financial & listing details\n\n*   Lease term: 1 Year\n\n"
+        "## Price history\n\n| Date | Event | Price |\n| --- | --- | --- |\n"
+        "| 5/1/2027 | Listed for rent | $1,650 |\n"
     )
-
-
-BOT_CHECK = "<html><body><div id='px-captcha'></div>Press &amp; Hold</body></html>"
+    return (
+        "Title: 12 Example St APT A, Pittsburgh, PA 15224 | Zillow\n\n"
+        f"URL Source: {source}\n\n"
+        "Markdown Content:\n"  # about 30 lines of site navigation come first, as on Zillow
+        "[Skip main navigation](https://www.zillow.com/#skip)\n\n"
+        "[![Image 1: Zillow logo](https://www.zillowstatic.com/logo.svg)](https://www.zillow.com/)\n\n"
+        + "".join(f"*   [Menu {n}](https://www.zillow.com/m{n}/)\n" for n in range(25))
+        + "\n"
+        f"{top}\n"
+        "# 12 Example St, APT A,Pittsburgh, PA 15224\n\n"
+        f"{listing}\n"
+        "## Neighborhood: Bloomfield\n\n"
+        "## Nearby apartments for rent\n\n"
+        "[$1,999 Fees may apply 2 bd Elsewhere Apartments For Rent](https://www.zillow.com/apartments/x/)\n"
+    )
 
 
 def client(handler) -> httpx.AsyncClient:
@@ -66,92 +51,66 @@ def client(handler) -> httpx.AsyncClient:
 
 
 class TestParse:
-    def test_a_live_ad_gives_rent_date_and_facts(self):
-        ad = zillow_ad.parse_ad(ad_page(), url=LINK, fetched_at=FETCHED_AT)
+    def parse(self, page: str) -> zillow_ad.ZillowAd:
+        return zillow_ad.parse_page(page, url=LINK, fetched_at=FETCHED_AT)
 
-        assert ad.for_rent and ad.status == "FOR_RENT"
-        assert ad.rent == 1650
-        assert ad.available_on == date(2027, 7, 5)
-        assert ad.lease_term == "1 Year"
-        assert (ad.bedrooms, ad.bathrooms, ad.living_area_sqft) == (1, 1.5, 620)
-        assert ad.address == "12 Example St APT A, Pittsburgh, PA 15224"
-        assert ad.features == {
-            "parking": ["Off Street"],
-            "appliances": ["Dishwasher", "Refrigerator"],
-        }
-        assert ad.price_history[0].event == "Listed for rent"
-        assert ad.description == "Sunny one bedroom. Tenant pays gas and electric."
+    def test_a_live_ad_keeps_rent_availability_description_facts_and_history(self):
+        ad = self.parse(ad_page())
 
-    def test_a_page_with_no_live_ad_gives_no_rent(self):
-        """Off the market, Zillow's price is its estimate of the sale value."""
-        ad = zillow_ad.parse_ad(
-            ad_page(homeStatus="OTHER", price=289500), url=LINK, fetched_at=FETCHED_AT
+        assert ad.title == "12 Example St APT A, Pittsburgh, PA 15224 | Zillow"
+        text = ad.page_text
+        assert text.index("$1,650/mo") < text.index("# 12 Example St")
+        for kept in ("Available Jul 5, 2027", "Sunny one bedroom.", "Lease term: 1 Year"):
+            assert kept in text
+        assert "| 5/1/2027 | Listed for rent | $1,650 |" in text
+
+    def test_nearby_listings_navigation_links_and_images_are_dropped(self):
+        text = self.parse(ad_page()).page_text
+
+        assert "$1,999" not in text and "Elsewhere" not in text
+        assert "Neighborhood" not in text
+        assert "Skip main navigation" not in text
+        assert "http" not in text and "![" not in text and "](" not in text
+        assert "Learn more" in text  # a link's words stay; its address goes
+
+    def test_a_page_with_no_live_ad_says_so_in_its_text(self):
+        page = ad_page(
+            top="Off market\n\n**Zestimate®**\n\n$289,500\n",
+            listing="1 beds\n\n$1,116 Estimated rent\n\n## Home value\n\n$289,500\n",
         )
+        text = self.parse(page).page_text
 
-        assert not ad.for_rent and ad.rent is None
+        assert "Off market" in text and "Estimated rent" in text
+        assert "Home value" not in text
+
+    def test_the_text_is_capped(self):
+        page = ad_page(listing="## What's special\n\n" + "word " * 10_000)
+
+        assert len(self.parse(page).page_text) == 12_000
 
     def test_a_page_for_another_listing_is_refused(self):
-        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="different listing"):
-            zillow_ad.parse_ad(ad_page(zpid=999), url=LINK, fetched_at=FETCHED_AT)
+        other = "https://www.zillow.com/homedetails/Elsewhere/999_zpid/"
+        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="different page"):
+            self.parse(ad_page(source=other))
 
     @pytest.mark.parametrize(
-        "page",
+        ("page", "reason"),
         [
-            "<html>nothing here</html>",
-            '<script id="__NEXT_DATA__">not json</script>',
-            '<script id="__NEXT_DATA__">{"props": {}}</script>',
-            '<script id="__NEXT_DATA__">[]</script>',
-            *(
-                '<script id="__NEXT_DATA__">'
-                + json.dumps(
-                    {"props": {"pageProps": {"componentProps": {"gdpClientCache": cache}}}}
-                )
-                + "</script>"
-                for cache in (None, [], "null", "[]", "{}")
-            ),
+            ("Title: Access to this page has been denied\n\nPress & Hold", "bot check"),
+            ('{"code": 451, "message": "blocked"}', "unexpected"),
+            (f"URL Source: {LINK}\n\nMarkdown Content:\nNo heading at all", "changed its page"),
         ],
     )
-    def test_a_page_that_has_changed_says_so(self, page):
-        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="changed its page"):
-            zillow_ad.parse_ad(page, url=LINK, fetched_at=FETCHED_AT)
-
-    def test_a_value_of_the_wrong_type_is_reported_not_raised_raw(self):
-        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="unexpected type"):
-            zillow_ad.parse_ad(ad_page(bedrooms="one"), url=LINK, fetched_at=FETCHED_AT)
-
-    @pytest.mark.parametrize(
-        "changes",
-        [
-            {"priceHistory": {"0": {"event": "Listed for rent"}}},
-            {"priceHistory": "Listed for rent"},
-        ],
-    )
-    def test_a_value_of_an_unexpected_shape_is_a_changed_page(self, changes):
-        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="changed its page"):
-            zillow_ad.parse_ad(ad_page(**changes), url=LINK, fetched_at=FETCHED_AT)
-
-    def test_an_optional_detail_of_an_unexpected_shape_is_left_empty(self):
-        ad = zillow_ad.parse_ad(
-            ad_page(
-                resoFacts={"availabilityDate": "soon", "parkingFeatures": {"a": 1}},
-                address=["12 Example St"],
-            ),
-            url=LINK,
-            fetched_at=FETCHED_AT,
-        )
-
-        assert (ad.available_on, ad.address, ad.features) == (None, "", {})
-        assert ad.rent == 1650
-
-    def test_a_long_description_is_cut(self):
-        ad = zillow_ad.parse_ad(ad_page(description="x" * 20_000), url=LINK, fetched_at=FETCHED_AT)
-
-        assert len(ad.description) == 6_000
+    def test_anything_else_is_a_reason_to_paste_the_ad(self, page, reason):
+        with pytest.raises(zillow_ad.ZillowAdUnavailable, match=reason) as caught:
+            self.parse(page)
+        assert "paste the ad" in str(caught.value)
 
 
 class TestFetch:
     @pytest.mark.asyncio
-    async def test_it_asks_once_with_a_user_agent_that_names_us(self):
+    async def test_it_asks_the_reader_once_for_fresh_markdown(self, monkeypatch):
+        monkeypatch.delenv(zillow_ad.READER_KEY_ENV, raising=False)
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -161,68 +120,55 @@ class TestFetch:
         async with client(handler) as http:
             ad = await zillow_ad.fetch_ad(LINK, http)
 
-        assert ad.rent == 1650
-        assert len(seen) == 1
-        assert seen[0].headers["user-agent"] == zillow_ad.USER_AGENT
-        assert str(seen[0].url) == LINK
+        assert "$1,650/mo" in ad.page_text
+        (request,) = seen
+        assert str(request.url) == "https://r.jina.ai/" + LINK
+        assert request.headers["x-return-format"] == "markdown"
+        assert request.headers["x-no-cache"] == "true"
+        assert request.headers["user-agent"] == zillow_ad.USER_AGENT
+        assert "authorization" not in request.headers
 
     @pytest.mark.asyncio
-    async def test_a_bot_check_is_reported_and_not_retried(self):
+    async def test_a_reader_key_is_sent_when_set(self, monkeypatch):
+        monkeypatch.setenv(zillow_ad.READER_KEY_ENV, "jina_test")
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(request)
-            return httpx.Response(403, text=BOT_CHECK)
+            return httpx.Response(200, text=ad_page())
 
         async with client(handler) as http:
-            with pytest.raises(zillow_ad.ZillowAdUnavailable, match="bot check.*paste the ad"):
+            await zillow_ad.fetch_ad(LINK, http)
+        assert seen[0].headers["authorization"] == "Bearer jina_test"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("status", "reason"), [(429, "busy"), (401, "HTTP 401"), (500, "HTTP 500")]
+    )
+    async def test_a_reader_failure_is_reported_and_not_retried(self, status, reason):
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(status, json={"message": "no"})
+
+        async with client(handler) as http:
+            with pytest.raises(zillow_ad.ZillowAdUnavailable, match=reason):
                 await zillow_ad.fetch_ad(LINK, http)
         assert len(seen) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(("status", "reason"), [(404, "no page"), (500, "HTTP 500")])
-    async def test_other_failures_say_what_zillow_answered(self, status, reason):
-        async with client(lambda request: httpx.Response(status, text="")) as http:
-            with pytest.raises(zillow_ad.ZillowAdUnavailable, match=reason):
-                await zillow_ad.fetch_ad(LINK, http)
-
-    @pytest.mark.asyncio
-    async def test_a_redirect_within_zillow_is_followed(self):
-        moved = "https://www.zillow.com/homedetails/12-Example-St/123_zpid/"
-
+    async def test_a_redirect_is_not_followed(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            if str(request.url) == LINK:
-                return httpx.Response(
-                    301, headers={"location": "/homedetails/12-Example-St/123_zpid/"}
-                )
-            assert str(request.url) == moved
-            return httpx.Response(200, text=ad_page())
+            return httpx.Response(302, headers={"location": "https://example.com/"})
 
         async with client(handler) as http:
-            assert (await zillow_ad.fetch_ad(LINK, http)).rent == 1650
-
-    @pytest.mark.asyncio
-    async def test_a_redirect_off_zillow_is_not_followed(self):
-        seen: list[str] = []
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            seen.append(str(request.url))
-            return httpx.Response(302, headers={"location": "https://example.com/elsewhere"})
-
-        async with client(handler) as http:
-            with pytest.raises(zillow_ad.ZillowAdUnavailable, match="elsewhere"):
-                await zillow_ad.fetch_ad(LINK, http)
-        assert seen == [LINK]
-
-    @pytest.mark.asyncio
-    async def test_endless_redirects_stop(self):
-        async with client(lambda request: httpx.Response(302, headers={"location": LINK})) as http:
-            with pytest.raises(zillow_ad.ZillowAdUnavailable, match="too many"):
+            with pytest.raises(zillow_ad.ZillowAdUnavailable, match="HTTP 302"):
                 await zillow_ad.fetch_ad(LINK, http)
 
     @pytest.mark.asyncio
-    async def test_an_oversized_page_is_not_read_to_the_end(self):
-        async with client(lambda request: httpx.Response(200, content=b"x" * 8_000_001)) as http:
+    async def test_an_oversized_answer_is_not_read_to_the_end(self):
+        async with client(lambda request: httpx.Response(200, content=b"x" * 4_000_001)) as http:
             with pytest.raises(zillow_ad.ZillowAdUnavailable, match="larger"):
                 await zillow_ad.fetch_ad(LINK, http)
 
@@ -236,7 +182,7 @@ class TestFetch:
                 await zillow_ad.fetch_ad("https://example.com/homedetails/123_zpid/", http)
 
     @pytest.mark.asyncio
-    async def test_an_unreachable_zillow_is_reported(self):
+    async def test_an_unreachable_reader_is_reported(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("down", request=request)
 
@@ -266,4 +212,4 @@ class TestReadAd:
         )
         async with client(handler) as http:
             await zillow_ad.read_ad(listing, http)
-        assert seen == [LINK]
+        assert seen == ["https://r.jina.ai/" + LINK]

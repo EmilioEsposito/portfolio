@@ -271,8 +271,9 @@ async def update_showing_rules(
 async def read_zillow_ad(name: str, session: DBSession) -> ZillowAd:
     """What the unit's live Zillow ad says, fetched from its public link now. Saves nothing.
 
-    502 with the reason when Zillow refuses, has no such page, or its page has
-    changed: the caller asks the person for the ad text instead.
+    424 with the reason when the page cannot be read (refused, no such page,
+    changed): the caller asks the person for the ad text instead. Not 502,
+    which Cloudflare replaces with its own page, losing the reason.
     """
     try:
         listing = await service.read_listing(session, name)
@@ -285,7 +286,7 @@ async def read_zillow_ad(name: str, session: DBSession) -> ZillowAd:
         return await zillow_ad.read_ad(listing)
     except zillow_ad.ZillowAdUnavailable as error:
         raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
+            status.HTTP_424_FAILED_DEPENDENCY,
             detail={"message": "Could not read the Zillow ad.", "problems": [str(error)]},
         ) from error
 

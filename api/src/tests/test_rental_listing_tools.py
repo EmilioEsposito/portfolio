@@ -425,13 +425,13 @@ class TestZillowAdRead:
 
         async def read_ad(listing):
             asked.append(listing.zillow_listing_url_public_view)
-            return zillow_ad.parse_ad(ad_page(), url=link, fetched_at=FETCHED_AT)
+            return zillow_ad.parse_page(ad_page(), url=link, fetched_at=FETCHED_AT)
 
         monkeypatch.setattr(tools.zillow_ad, "read_ad", read_ad)
         said = json.loads(await tools.rental_listing_zillow_ad_read(ctx(), unit="12-a"))
 
         assert asked == [link]
-        assert said["ad"]["rent"] == 1650 and said["ad"]["for_rent"] is True
+        assert "$1,650/mo" in said["ad"]["page_text"]
         assert said["on_file"]["asking_rent"] == 1500
         assert len(await history("12-A")) == 2  # it saved nothing
 

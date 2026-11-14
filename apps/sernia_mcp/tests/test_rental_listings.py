@@ -49,7 +49,7 @@ RULES = {
 }
 
 
-AD = {"status": "FOR_RENT", "for_rent": True, "rent": 1650, "description": "Sunny one bedroom."}
+AD = {"title": "12 Example St | Zillow", "page_text": "$1,650/mo\n# 12 Example St"}
 
 
 class FakeApi:
@@ -68,7 +68,7 @@ class FakeApi:
             if "door code" in line.lower():
                 raise core.RefusedError("Not saved.", [f"{line!r} mentions an access code"])
 
-    async def __call__(self, method, path, token, *, json=None, params=None):
+    async def __call__(self, method, path, token, *, json=None, params=None, timeout=None):
         self.tokens.add(token)
         dry = bool(params and params.get("dry_run"))
         if method == "GET" and path == "":
@@ -287,7 +287,7 @@ class TestTools:
         result = await client.call_tool("rental_listing_zillow_ad_read", {"unit": "12-a"})
 
         said = json.loads(result.data)
-        assert said["ad"]["rent"] == 1650
+        assert "$1,650/mo" in said["ad"]["page_text"]
         assert said["on_file"]["asking_rent"] == 1500
         assert api.ad_requests == ["12-A"]  # the name on file
         assert api.saves == []
@@ -479,7 +479,7 @@ class TestRequest:
     async def test_a_zillow_ad_the_api_could_not_read_says_why(self, answer):
         answer.append(
             httpx.Response(
-                502,
+                424,
                 json={
                     "detail": {
                         "message": "Could not read the Zillow ad.",
@@ -493,6 +493,20 @@ class TestRequest:
             ExternalServiceError, match=r"Could not read the Zillow ad\. Zillow refused"
         ):
             await core.read_zillow_ad("oat_test", "12/14")
+
+    @pytest.mark.asyncio
+    async def test_a_zillow_ad_read_waits_longer_than_the_api_s_page_reader(self, monkeypatch):
+        seen: dict[str, Any] = {}
+
+        async def request(method, path, token, *, json=None, params=None, timeout=core._TIMEOUT):
+            seen.update(path=path, timeout=timeout)
+            return {}
+
+        monkeypatch.setattr(core, "_request", request)
+        await core.read_zillow_ad("oat_test", "12/14")
+
+        assert seen == {"path": "/zillow-ad/12%2F14", "timeout": 75}
+        assert core._ZILLOW_AD_TIMEOUT > 60  # zillow_ad.py's reader timeout
 
     @pytest.mark.asyncio
     async def test_an_unaccepted_user_is_said_plainly(self, answer):
