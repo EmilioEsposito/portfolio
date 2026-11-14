@@ -16,7 +16,7 @@ from pydantic_ai import Agent
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 
 from api.index import app
 from api.src.agent_conversations import routes
@@ -157,13 +157,26 @@ async def conversations():
 
 
 @pytest.mark.asyncio
-async def test_old_and_new_urls_read_the_same_shared_history(client, authorized, conversations):
+async def test_old_and_new_urls_read_the_same_shared_history(
+    client, authorized, conversations, monkeypatch
+):
     for cid in conversations:
         for suffix in (f"/conversation/{cid}", f"/conversation/{cid}/messages"):
             responses = [await client.get(prefix + suffix) for prefix in PREFIXES]
             assert all(response.status_code == 200 for response in responses)
             assert responses[0].json() == responses[1].json()
             assert responses[0].json()["pending"][0]["tool_call_id"] == "pending-test"
+    # Exercise the real list queries against this test's rows. CI's optional
+    # historical seed is independent data, including malformed legacy tool args.
+    owner = f"shared-history-test-{uuid4()}"
+    async with AsyncSessionFactory() as session:
+        await session.execute(
+            update(AgentConversation)
+            .where(AgentConversation.id.in_(conversations))
+            .values(agent_name=owner)
+        )
+        await session.commit()
+    monkeypatch.setattr(routes, "AGENT_NAME", owner)
     for suffix in ("/workflow/pending", "/conversations/history?limit=200"):
         responses = [await client.get(prefix + suffix) for prefix in PREFIXES]
         assert all(response.status_code == 200 for response in responses)
