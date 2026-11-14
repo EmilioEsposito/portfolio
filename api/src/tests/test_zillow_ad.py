@@ -119,6 +119,30 @@ class TestParse:
         with pytest.raises(zillow_ad.ZillowAdUnavailable, match="unexpected type"):
             zillow_ad.parse_ad(ad_page(bedrooms="one"), url=LINK, fetched_at=FETCHED_AT)
 
+    @pytest.mark.parametrize(
+        "changes",
+        [
+            {"priceHistory": {"0": {"event": "Listed for rent"}}},
+            {"priceHistory": "Listed for rent"},
+        ],
+    )
+    def test_a_value_of_an_unexpected_shape_is_a_changed_page(self, changes):
+        with pytest.raises(zillow_ad.ZillowAdUnavailable, match="changed its page"):
+            zillow_ad.parse_ad(ad_page(**changes), url=LINK, fetched_at=FETCHED_AT)
+
+    def test_an_optional_detail_of_an_unexpected_shape_is_left_empty(self):
+        ad = zillow_ad.parse_ad(
+            ad_page(
+                resoFacts={"availabilityDate": "soon", "parkingFeatures": {"a": 1}},
+                address=["12 Example St"],
+            ),
+            url=LINK,
+            fetched_at=FETCHED_AT,
+        )
+
+        assert (ad.available_on, ad.address, ad.features) == (None, "", {})
+        assert ad.rent == 1650
+
     def test_a_long_description_is_cut(self):
         ad = zillow_ad.parse_ad(ad_page(description="x" * 20_000), url=LINK, fetched_at=FETCHED_AT)
 

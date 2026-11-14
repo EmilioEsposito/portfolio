@@ -174,7 +174,21 @@ def _strings(value: Any) -> list[str]:
 
 
 def parse_ad(page: str, *, url: str, fetched_at: datetime) -> ZillowAd:
-    """What the ad on this Zillow listing page says. Raises ``ZillowAdUnavailable``."""
+    """What the ad on this Zillow listing page says. Raises ``ZillowAdUnavailable``.
+
+    A value of a shape not handled below is reported as a changed page, never
+    raised as it is: callers catch only ``ZillowAdUnavailable``.
+    """
+    try:
+        return _parse(page, url=url, fetched_at=fetched_at)
+    except (TypeError, AttributeError, KeyError, ValueError) as error:
+        raise ZillowAdUnavailable(
+            f"Zillow's page held a value of an unexpected shape; Zillow may have changed its "
+            f"page. {_PASTE_INSTEAD}"
+        ) from error
+
+
+def _parse(page: str, *, url: str, fetched_at: datetime) -> ZillowAd:
     home = _property(page)
     wanted = _ZPID.search(url)
     if wanted and str(home.get("zpid")) != wanted.group(1):
@@ -193,9 +207,12 @@ def parse_ad(page: str, *, url: str, fetched_at: datetime) -> ZillowAd:
     )
     if where.get("zipcode"):
         address = f"{address} {where['zipcode']}".strip()
+    events = home.get("priceHistory") or []
+    if not isinstance(events, list):
+        raise TypeError(f"priceHistory is a {type(events).__name__}, not a list")
     history = [
         {"date": event.get("date"), "event": event.get("event") or "", "price": event.get("price")}
-        for event in (home.get("priceHistory") or [])[:_MAX_HISTORY]
+        for event in events[:_MAX_HISTORY]
         if isinstance(event, dict)
     ]
     try:
