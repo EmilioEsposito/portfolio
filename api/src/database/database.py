@@ -12,6 +12,7 @@ from sqlalchemy import create_engine as create_sync_engine  # Explicit import fo
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import QueuePool
+from starlette.exceptions import HTTPException
 
 from api.src.utils.logfire_config import ensure_logfire_configured
 
@@ -194,6 +195,13 @@ async def session_context() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
+        except HTTPException:
+            # An HTTPException is the handler's intended response (validation
+            # 4xx, upstream 502, ...), not a database failure. Roll back any
+            # pending writes, but leave reporting to the request span so
+            # expected responses don't show up as error-level records.
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")
@@ -218,6 +226,13 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
                     "Session commit failed (connection likely stale)",
                     error=str(commit_err),
                 )
+        except HTTPException:
+            # An HTTPException is the handler's intended response (validation
+            # 4xx, upstream 502, ...), not a database failure. Roll back any
+            # pending writes, but leave reporting to the request span so
+            # expected responses don't show up as error-level records.
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logfire.exception(f"Database session error: {str(e)}")
