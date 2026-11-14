@@ -31,6 +31,10 @@ export interface RentalListing {
   virtual_tours_allowed: boolean;
   off_market_on: string | null;
   showing_booking_url: string;
+  // The unit's Zillow ad: the page a lead sees, and the Rental Manager editor page.
+  // For the team and Sernia AI's ad check; not shown to leads.
+  zillow_listing_url_public_view: string;
+  zillow_listing_url_internal_editor_view: string;
   preferred_showing_times: PreferredWindow[];
   public_facts: string[];
   internal_notes: string[];
@@ -69,6 +73,8 @@ export function newListing(name: string): RentalListing {
     virtual_tours_allowed: false,
     off_market_on: null,
     showing_booking_url: "",
+    zillow_listing_url_public_view: "",
+    zillow_listing_url_internal_editor_view: "",
     preferred_showing_times: [],
     public_facts: [],
     internal_notes: [],
@@ -95,6 +101,8 @@ export function cleanListing(unit: RentalListing): RentalListing {
     unit: unit.unit.trim(),
     address: unit.address.trim(),
     showing_booking_url: unit.showing_booking_url.trim(),
+    zillow_listing_url_public_view: unit.zillow_listing_url_public_view.trim(),
+    zillow_listing_url_internal_editor_view: unit.zillow_listing_url_internal_editor_view.trim(),
     next_lease_start_earliest: unit.next_lease_start_earliest || null,
     next_lease_start_latest: unit.next_lease_start_latest || null,
     off_market_on: unit.off_market_on || null,
@@ -125,6 +133,22 @@ export function sameListing(a: RentalListing, b: RentalListing): boolean {
 
 export function sameRules(a: ShowingRules, b: ShowingRules): boolean {
   return JSON.stringify(cleanRules(a)) === JSON.stringify(cleanRules(b));
+}
+
+/**
+ * The link to open, when the text is an https zillow.com address; otherwise
+ * null, so the screen never links somewhere the server would refuse to save.
+ */
+export function zillowHref(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const onZillow = host === "zillow.com" || host.endsWith(".zillow.com");
+  return url.protocol === "https:" && onZillow && !url.username && !url.port ? url.href : null;
 }
 
 /** A unit is no longer on offer from its off-market date on. */
@@ -178,6 +202,8 @@ const UNIT_FIELD_LABELS: Record<string, string> = {
   virtual_tours_allowed: "Virtual tours allowed",
   off_market_on: "Off market from",
   showing_booking_url: "Showing booking link",
+  zillow_listing_url_public_view: "Zillow ad (public)",
+  zillow_listing_url_internal_editor_view: "Zillow ad (editor)",
   preferred_showing_times: "Preferred showing times",
   public_facts: "Public facts",
   internal_notes: "Internal notes",

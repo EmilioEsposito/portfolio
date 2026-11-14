@@ -3,7 +3,7 @@
 Uses the test database. All unit data here is invented.
 """
 
-from datetime import date, time
+from datetime import UTC, date, datetime, time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,7 +15,14 @@ from api.src.rental_listings import service
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
 from api.src.sernia_ai.zillow_leads import listing_data
-from api.src.sernia_ai.zillow_leads.case import Listing, ListingData, ShowingWindow
+from api.src.sernia_ai.zillow_leads.case import (
+    Listing,
+    ListingData,
+    ShowingWindow,
+    build_case,
+    render_case,
+)
+from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
 from api.src.tests.test_rental_listings import clear_rental_data
 
 AFTERNOONS = PreferredWindow(days=["mon", "tue"], start=time(15), end=time(18))
@@ -92,7 +99,44 @@ class TestShape:
             "public_facts",
             "internal_notes",
         }
-        assert set(RentalListing.model_fields) == mapped
+        # For the team and the general agent's ad check; leads are not given them.
+        not_given_to_the_lead_agent = {
+            "zillow_listing_url_public_view",
+            "zillow_listing_url_internal_editor_view",
+        }
+        assert set(RentalListing.model_fields) == mapped | not_given_to_the_lead_agent
+
+    def test_the_zillow_ad_links_leave_the_case_unchanged(self):
+        """The lead agent's case reads byte for byte the same with or without them."""
+        with_links = LISTING.model_copy(
+            update={
+                "zillow_listing_url_public_view": "https://www.zillow.com/homedetails/x/1_zpid/",
+                "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
+            }
+        )
+        lead = LeadThread(
+            mailbox="all@serniacapital.com",
+            thread_id="T",
+            messages=[
+                LeadMessage(
+                    message_id="m0",
+                    rfc_message_id="<m0@x>",
+                    sent_at=datetime(2027, 5, 3, 13, tzinfo=UTC),
+                    from_address="lead@convo.zillow.com",
+                    reply_to=None,
+                    from_sernia=False,
+                    subject="12 Example St inquiry",
+                    body="Is it still available?",
+                )
+            ],
+        )
+
+        def rendered(listing: RentalListing) -> bytes:
+            data = listing_data.as_listing_data([listing], RULES)
+            return render_case(build_case(lead, data, upto=0)).encode()
+
+        assert rendered(with_links) == rendered(LISTING)
+        assert "zillow.com" not in rendered(with_links).decode()
 
     def test_the_defaults_match_what_the_evals_have_always_used(self):
         assert listing_data.as_listing_data([], ShowingRules()) == ListingData()

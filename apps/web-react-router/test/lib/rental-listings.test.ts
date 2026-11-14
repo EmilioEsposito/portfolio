@@ -13,6 +13,7 @@ import {
   problemsFrom,
   sameRules,
   sameListing,
+  zillowHref,
 } from "../../app/lib/rental-listings.ts";
 
 const unit = (patch: Partial<RentalListing> = {}): RentalListing => ({ ...newListing("12-A"), ...patch });
@@ -124,4 +125,36 @@ test("history compares each change with the previous one to the same subject", (
 
   const cut = describeHistory(history, false).map(({ lines }) => lines);
   assert.deepEqual(cut[2], ["Earlier changes not shown"]);
+});
+
+test("a Zillow ad link is offered to open only when it is plain https on zillow.com", () => {
+  assert.equal(
+    zillowHref(" https://www.zillow.com/homedetails/x/1_zpid/ "),
+    "https://www.zillow.com/homedetails/x/1_zpid/",
+  );
+  assert.equal(zillowHref("https://zillow.com/rental-manager/x"), "https://zillow.com/rental-manager/x");
+  for (const value of [
+    "",
+    "zillow.com/homedetails/x",
+    "http://www.zillow.com/x",
+    "https://zillow.com.example.com/x",
+    "https://notzillow.com/x",
+    "https://user@www.zillow.com/x",
+    "https://www.zillow.com:8443/x",
+    "javascript:alert(1)",
+  ]) {
+    assert.equal(zillowHref(value), null, value);
+  }
+});
+
+test("the Zillow ad links are trimmed and named in history", () => {
+  const edited = unit({ zillow_listing_url_public_view: "  https://www.zillow.com/x  " });
+  assert.equal(cleanListing(edited).zillow_listing_url_public_view, "https://www.zillow.com/x");
+  assert.deepEqual(
+    describeChange(
+      { ...newListing("12-A"), zillow_listing_url_public_view: "https://www.zillow.com/x" },
+      { ...newListing("12-A") },
+    ),
+    ["Zillow ad (public): none → https://www.zillow.com/x"],
+  );
 });

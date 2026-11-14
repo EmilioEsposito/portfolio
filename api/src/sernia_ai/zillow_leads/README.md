@@ -377,7 +377,7 @@ In production the case is built from the rental listings tables
 
 | Table | One row is | Read by |
 |---|---|---|
-| `rental_listings` | One unit's listing as it stands now, meaning the next lease on offer: `asking_rent`, `next_lease_start_earliest` / `_latest`, `off_market_on`, `showing_booking_url`, `preferred_showing_times`, `public_facts`, `internal_notes` | `listing_data.load()`, on every lead |
+| `rental_listings` | One unit's listing as it stands now, meaning the next lease on offer: `asking_rent`, `next_lease_start_earliest` / `_latest`, `off_market_on`, `showing_booking_url`, `preferred_showing_times`, `public_facts`, `internal_notes` (not the `zillow_listing_url_*` links, which are for the team) | `listing_data.load()`, on every lead |
 | `rental_listing_changes` | One saved change: who, when, from which conversation, and the whole listing after it | The general agent's history tool; later, evals that need "as of this date" |
 
 The showing window, blackout dates and the shared booking link are one
@@ -481,7 +481,7 @@ it was checked against this package; this is where each one went.
 |---|---|---|
 | Lead agent | `prompts/role.md`, then `prompts/policy.md`, then `prompts/record.md`, as its instructions | `load_instructions()` in `agent.py` |
 | General agent | A short preface, then `policy.md`, as the `zillow-auto-reply` skill | `skill.py`, registered in `sernia_ai/agent.py` |
-| General agent | A guide and four tools for rental listing data, as the `rental-listing-data` capability | `tools/rental_listing_tools.py`, registered in `sernia_ai/agent.py` |
+| General agent | A guide and five tools for rental listing data, as the `rental-listing-data` capability | `tools/rental_listing_tools.py`, registered in `sernia_ai/agent.py` |
 
 `role.md` (who the lead agent is, that it has no tools) and `record.md` (how to
 fill in its output fields) are true only for the lead agent, so they stay out
