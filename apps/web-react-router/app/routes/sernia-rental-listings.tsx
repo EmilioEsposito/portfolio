@@ -147,7 +147,7 @@ function Field({
       <Label htmlFor={id}>{label}</Label>
       {children}
       {hint && (
-        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        <p id={`${id}-hint`} className="break-words text-xs text-muted-foreground">
           {hint}
         </p>
       )}
@@ -182,7 +182,7 @@ function ZillowLinkField({
           onChange={(event) => onChange(event.target.value)}
         />
         {href && (
-          <Button asChild variant="outline" size="sm" className="h-9 shrink-0">
+          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 gap-1.5">
             <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${label.toLowerCase()} on Zillow`}>
               <ExternalLink className="h-4 w-4" aria-hidden />
               Open
@@ -678,7 +678,7 @@ function UnitEditor({
                 to check this listing against the ad; leads are not given them.
               </p>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4">
               <ZillowLinkField
                 id={id("zillow-public")}
                 label="Public ad"
