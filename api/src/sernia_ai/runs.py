@@ -119,6 +119,7 @@ async def finalize_run(
     modality: str | None = None,
     contact_identifier: str | None = None,
     notify_user_id: str | None = None,
+    expected_run_id: str | None = None,
 ) -> RunOutcome:
     """Sync the workspace, save the conversation, and deliver the outcome.
 
@@ -146,6 +147,7 @@ async def finalize_run(
         metadata=metadata,
         modality=modality,
         contact_identifier=contact_identifier,
+        expected_run_id=expected_run_id,
     )
     if not persisted:
         logfire.warn(
@@ -198,6 +200,7 @@ async def save_failed_run(
     clerk_user_id: str | None,
     metadata: dict[str, Any] | None = None,
     llm_error: bool = False,
+    expected_run_id: str | None = None,
 ) -> None:
     """Keep what a crashed run got through, flagged as partial. Never raises.
 
@@ -219,6 +222,7 @@ async def save_failed_run(
                 messages=messages,
                 clerk_user_id=clerk_user_id,
                 metadata={**(metadata or {}), **flags},
+                expected_run_id=expected_run_id,
             )
         logfire.info("sernia run: partial conversation saved", conversation_id=conversation_id)
     except Exception:
