@@ -49,7 +49,7 @@ RULES = {
 }
 
 
-AD = {"status": "FOR_RENT", "for_rent": True, "rent": 1650, "description": "Sunny one bedroom."}
+AD = {"title": "12 Example St | Zillow", "page_text": "$1,650/mo\n# 12 Example St"}
 
 
 class FakeApi:
@@ -287,7 +287,7 @@ class TestTools:
         result = await client.call_tool("rental_listing_zillow_ad_read", {"unit": "12-a"})
 
         said = json.loads(result.data)
-        assert said["ad"]["rent"] == 1650
+        assert "$1,650/mo" in said["ad"]["page_text"]
         assert said["on_file"]["asking_rent"] == 1500
         assert api.ad_requests == ["12-A"]  # the name on file
         assert api.saves == []
@@ -479,7 +479,7 @@ class TestRequest:
     async def test_a_zillow_ad_the_api_could_not_read_says_why(self, answer):
         answer.append(
             httpx.Response(
-                502,
+                424,
                 json={
                     "detail": {
                         "message": "Could not read the Zillow ad.",

@@ -16,7 +16,7 @@ rental_listings/
 ├── checks.py    what must hold before anything is saved or used
 ├── models.py    the tables
 ├── service.py   the only code that reads and writes them
-├── zillow_ad.py fetches a unit's Zillow ad and reads what it says, to compare with the listing
+├── zillow_ad.py reads a unit's Zillow ad as text (through Jina Reader), to compare with the listing
 └── routes.py    HTTP endpoints under /api/rental-listings, for the edit screen and other services
 ```
 
@@ -97,7 +97,7 @@ routes (`rental_listing_caller` in `routes.py`):
 | `PUT /api/rental-listings/listings/{unit}` | Replace a listing. A unit is not renamed |
 | `PUT /api/rental-listings/showing-rules` | Replace the showing rules |
 | `GET /api/rental-listings/history?subject=&limit=` | Changes, newest first: one unit, `showing_rules`, or everything |
-| `GET /api/rental-listings/zillow-ad/{unit}` | What the unit's live Zillow ad says, fetched now from its public link. Saves nothing. 502 with the reason when Zillow cannot be read |
+| `GET /api/rental-listings/zillow-ad/{unit}` | The unit's live Zillow ad as text, read now from its public link. Saves nothing. 424 with the reason when the page cannot be read |
 
 - A write records the signed-in person as `changed_by`, and
   `rental listings screen` or `Sernia MCP` as `source`.
@@ -119,34 +119,39 @@ routes (`rental_listing_caller` in `routes.py`):
 ## Checking a listing against its Zillow ad
 
 When someone tells the general agent a unit's ad changed, it calls
-`rental_listing_zillow_ad_read`. That fetches the unit's
-`zillow_listing_url_public_view`, reads the ad (`zillow_ad.py`), and returns it
-beside the listing on file. The agent proposes what differs through
-`rental_listing_update`, under the usual rule: typed fields such as asking rent
-save at once, facts and links wait for approval, and everything passes
-`checks.py`. The MCP service has the same tool, through the endpoint above.
+`rental_listing_zillow_ad_read`. That reads the page at the unit's
+`zillow_listing_url_public_view` as text (`zillow_ad.py`) and returns it beside
+the listing on file. The agent proposes every difference in one
+`rental_listing_update` call, so a person reviews the whole change on one
+approval card, and everything passes `checks.py`. The MCP service has the same tool, through the endpoint above.
 It runs on request only. A daily check, if wanted, goes through the general
 agent's existing scheduling tools; there is no job for it here.
 
-How the fetch works, and what to expect:
+How the page is read, and what to expect:
 
-- One plain HTTPS GET with the user agent
-  `SerniaListingSync/0.1 (+https://serniacapital.com)`. Zillow serves a named
-  crawler a page it marks as served to a bot (`isBot: true`), which still holds
-  the listing as JSON: `__NEXT_DATA__` → `props.pageProps.componentProps.gdpClientCache`
-  (a JSON string) → the entry with a `property`. A generic client user agent
-  (`python-httpx/…`) gets Zillow's "Press & Hold" bot check instead. Checked
-  from a home connection on 2026-11-13; whether Zillow answers Railway's
-  addresses the same way is not known until it runs there.
-- Nothing tries to get past a bot check, and a refusal is not retried. Every
-  failure (bot check, no page, a changed page, a page for another listing, a
-  redirect off zillow.com) comes back as a reason, and the agent asks the
-  person to paste the ad text instead.
-- While the ad is live, `homeStatus` is `FOR_RENT` and `price` is the monthly
-  rent. Otherwise `price` is Zillow's estimate of the sale value, so `rent` is
-  left empty. Zillow holds one availability date
-  (`resoFacts.availabilityDate`, milliseconds at midnight UTC); the earliest
-  and latest lease start may only be in the description.
+- Zillow refuses requests from Railway's addresses: a direct GET from the
+  development environment got its "Press & Hold" bot check (HTTP 403) on
+  2026-11-14, with the same named user agent that got the full page from a
+  home connection. So the page is read through
+  [Jina Reader](https://jina.ai/reader/): `GET https://r.jina.ai/<zillow url>`
+  with `X-Return-Format: markdown`, `X-No-Cache: true` and
+  `X-Retain-Images: none`. Jina renders the page in a browser on its servers
+  (7 to 13 seconds in testing) and returns Markdown. No key is needed (20
+  requests a minute); `JINA_API_KEY`, when set, is sent as a bearer token for
+  higher limits. Jina's browser-rendered HTML, which would carry Zillow's
+  listing JSON, needs a key, so the Markdown is used.
+- `zillow_ad.py` keeps only the listing: the lines above the address heading
+  (rent per month, availability) and the "What's special", "Facts &
+  features" and "Price history" sections, without links or images. About
+  2,000 characters for a live ad. A page with no live ad says "Off market"
+  and shows a Zestimate and "Estimated rent" instead of a monthly rent.
+- Nothing handles a CAPTCHA and a refusal is not retried. Every failure (no
+  link on file, the reader busy or refused, a page for another listing, a
+  changed page) comes back as a reason, and the agent asks the person to
+  paste the ad text instead. The endpoint answers 424 with the reason; not
+  502, which Cloudflare would replace with its own page.
+- The reader sees only the public listing URL. Zillow's terms do not allow
+  automated access; this reads our own ads, a few times a season, on request.
 - The lead agent does not use this. Its answers should not depend on Zillow
   answering or keeping its page the same; it reads the reviewed listing.
 
