@@ -37,9 +37,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import DBSession
-from api.src.rental_listings import service
+from api.src.rental_listings import service, zillow_ad
 from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.schema import Change, RentalListing, ShowingRules
+from api.src.rental_listings.zillow_ad import ZillowAd
 from api.src.utils.clerk import verify_serniacapital_oauth_user, verify_serniacapital_user
 
 # Recorded as the source of every change, by who made the call.
@@ -263,6 +264,30 @@ async def update_showing_rules(
     except RentalDataInvalid as error:
         raise _refused(error) from error
     return await service.read_showing_rules(session)
+
+
+# A unit's name may hold a slash, so it comes last in the path.
+@router.get("/zillow-ad/{name:path}", response_model=ZillowAd)
+async def read_zillow_ad(name: str, session: DBSession) -> ZillowAd:
+    """What the unit's live Zillow ad says, fetched from its public link now. Saves nothing.
+
+    502 with the reason when Zillow refuses, has no such page, or its page has
+    changed: the caller asks the person for the ad text instead.
+    """
+    try:
+        listing = await service.read_listing(session, name)
+    except RentalDataInvalid as error:
+        raise _broken_on_file(error) from error
+    if listing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"No listing for unit {name!r}.")
+    await session.rollback()  # no transaction held open while Zillow answers
+    try:
+        return await zillow_ad.read_ad(listing)
+    except zillow_ad.ZillowAdUnavailable as error:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "Could not read the Zillow ad.", "problems": [str(error)]},
+        ) from error
 
 
 @router.get("/history", response_model=list[Change])

@@ -114,6 +114,39 @@ class TestChecks:
         assert rules_problems(ShowingRules(showing_booking_url=url))
 
     @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.zillow.com/homedetails/12-Example-St/1_zpid/?view=public",
+            "https://zillow.com/rental-manager/properties/1",
+            "",
+        ],
+    )
+    @pytest.mark.parametrize(
+        "field", ["zillow_listing_url_public_view", "zillow_listing_url_internal_editor_view"]
+    )
+    def test_a_zillow_ad_link_on_zillow_passes(self, field, url):
+        assert listing_problems(RentalListing(unit="12-A", **{field: url})) == []
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://www.zillow.com/homedetails/1_zpid/",  # not https
+            "https://zillow.com.example.com/homedetails/1_zpid/",
+            "https://notzillow.com/homedetails/1_zpid/",
+            "https://example.com/?u=https://www.zillow.com/",
+            "https://user:secret@www.zillow.com/",
+            "https://www.zillow.com:8443/homedetails/1_zpid/",
+            "https://www.zillow.com:abc/",
+            "https://www.zillow.com/a b",
+        ],
+    )
+    @pytest.mark.parametrize(
+        "field", ["zillow_listing_url_public_view", "zillow_listing_url_internal_editor_view"]
+    )
+    def test_a_zillow_ad_link_must_be_plain_https_on_zillow(self, field, url):
+        assert listing_problems(RentalListing(unit="12-A", **{field: url}))
+
+    @pytest.mark.parametrize(
         "unit",
         [
             RentalListing(unit=" "),

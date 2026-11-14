@@ -8,6 +8,7 @@ data is invented.
 from __future__ import annotations
 
 import copy
+import json
 import time
 from datetime import date
 from typing import Any
@@ -33,6 +34,8 @@ LISTING = {
     "virtual_tours_allowed": False,
     "off_market_on": None,
     "showing_booking_url": "",
+    "zillow_listing_url_public_view": "https://www.zillow.com/homedetails/x/123_zpid/",
+    "zillow_listing_url_internal_editor_view": "",
     "preferred_showing_times": [],
     "public_facts": ["1 bedroom, second floor", "Dishwasher"],
     "internal_notes": ["Resident wants 48 hours' notice where possible"],
@@ -46,6 +49,9 @@ RULES = {
 }
 
 
+AD = {"status": "FOR_RENT", "for_rent": True, "rent": 1650, "description": "Sunny one bedroom."}
+
+
 class FakeApi:
     """The API's rental listing endpoints, in memory."""
 
@@ -55,6 +61,7 @@ class FakeApi:
         self.saves: list[tuple[str, str]] = []  # (method, path) of real saves
         self.dry_runs = 0
         self.tokens: set[str] = set()
+        self.ad_requests: list[str] = []
 
     def _refuse(self, listing: dict) -> None:
         for line in listing.get("public_facts", []) + listing.get("internal_notes", []):
@@ -79,6 +86,9 @@ class FakeApi:
                     "snapshot": LISTING,
                 }
             ]
+        if method == "GET" and path.startswith("/zillow-ad/"):
+            self.ad_requests.append(unquote(path.removeprefix("/zillow-ad/")))
+            return copy.deepcopy(AD)
         if method == "POST" and path == "/listings":
             listing = json["listing"]
             if listing["unit"].lower() in self.listings:
@@ -127,6 +137,7 @@ async def client():
     server = FastMCP("test_rental_listings")
     server.add_tool(tools.rental_listings_read)
     server.add_tool(tools.rental_listing_history)
+    server.add_tool(tools.rental_listing_zillow_ad_read)
     server.add_provider(approvals.approvals_app)
     async with Client(server) as connected:
         yield connected
@@ -188,6 +199,11 @@ class TestPlans:
             {"unit": "12-C", "create": True},
             {"unit": "12-A", "address": "12 Example Street"},
             {"unit": "12-A", "showing_booking_url": "https://book.example.com"},
+            {"unit": "12-A", "zillow_listing_url_public_view": ""},
+            {
+                "unit": "12-A",
+                "zillow_listing_url_internal_editor_view": "https://www.zillow.com/rental-manager/x",
+            },
             {"unit": "12-A", "add_public_facts": ["Cats allowed"]},
             {"unit": "12-A", "remove_public_facts": ["Dishwasher"]},
             {"unit": "12-A", "add_internal_notes": ["Lease start can move"]},
@@ -265,6 +281,22 @@ class TestTools:
         result = await client.call_tool("rental_listing_history", {"unit": "12-A"})
 
         assert "by Pat <pat@serniacapital.com> via Sernia MCP" in result.data
+
+    @pytest.mark.asyncio
+    async def test_the_zillow_ad_comes_back_beside_what_is_on_file(self, api, client):
+        result = await client.call_tool("rental_listing_zillow_ad_read", {"unit": "12-a"})
+
+        said = json.loads(result.data)
+        assert said["ad"]["rent"] == 1650
+        assert said["on_file"]["asking_rent"] == 1500
+        assert api.ad_requests == ["12-A"]  # the name on file
+        assert api.saves == []
+
+    @pytest.mark.asyncio
+    async def test_the_zillow_ad_of_an_unknown_unit_names_those_on_file(self, api, client):
+        with pytest.raises(ToolError, match="on file: 12-A"):
+            await client.call_tool("rental_listing_zillow_ad_read", {"unit": "99"})
+        assert api.ad_requests == []
 
     @pytest.mark.asyncio
     async def test_a_typed_change_is_checked_then_saved_at_once(self, api, client):
@@ -442,6 +474,25 @@ class TestRequest:
             await core.read_rental_data("oat_test")
 
         assert caught.value.problems == ["rent"]
+
+    @pytest.mark.asyncio
+    async def test_a_zillow_ad_the_api_could_not_read_says_why(self, answer):
+        answer.append(
+            httpx.Response(
+                502,
+                json={
+                    "detail": {
+                        "message": "Could not read the Zillow ad.",
+                        "problems": ["Zillow refused the request with its bot check."],
+                    }
+                },
+            )
+        )
+
+        with pytest.raises(
+            ExternalServiceError, match=r"Could not read the Zillow ad\. Zillow refused"
+        ):
+            await core.read_zillow_ad("oat_test", "12/14")
 
     @pytest.mark.asyncio
     async def test_an_unaccepted_user_is_said_plainly(self, answer):

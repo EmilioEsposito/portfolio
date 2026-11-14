@@ -50,7 +50,7 @@ def _text_problems(where: str, text: str) -> list[str]:
     if _PHONE.search(text):
         found.append(f"{where}: holds a phone number")
     if _LINK.search(text):
-        found.append(f"{where}: holds a link (links go in showing_booking_url only)")
+        found.append(f"{where}: holds a link (links go in the link fields only)")
     if _ACCESS.search(text):
         found.append(f"{where}: mentions an access code, lockbox or password")
     return found
@@ -63,6 +63,28 @@ def _booking_url_problems(where: str, url: str) -> list[str]:
     plain = parts.scheme == "https" and parts.hostname and not parts.username
     if not plain or any(character.isspace() for character in url):
         return [f"{where}: must be a plain https address"]
+    return []
+
+
+def zillow_url_problems(where: str, url: str) -> list[str]:
+    """A Zillow ad link must be a plain https address on zillow.com or one of its subdomains.
+
+    The general agent's ad check fetches the public one, so it must not point anywhere else.
+    """
+    if not url:
+        return []
+    if problems := _booking_url_problems(where, url):
+        return problems
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if host != "zillow.com" and not host.endswith(".zillow.com"):
+        return [f"{where}: must be a zillow.com address"]
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if port is not None:
+        return [f"{where}: must not name a port"]
     return []
 
 
@@ -106,6 +128,13 @@ def listing_problems(listing: RentalListing) -> list[str]:
     if first and final and first > final:
         problems.append(f"{where}: next_lease_start_earliest is after next_lease_start_latest")
     problems += _booking_url_problems(f"{where} showing_booking_url", listing.showing_booking_url)
+    problems += zillow_url_problems(
+        f"{where} zillow_listing_url_public_view", listing.zillow_listing_url_public_view
+    )
+    problems += zillow_url_problems(
+        f"{where} zillow_listing_url_internal_editor_view",
+        listing.zillow_listing_url_internal_editor_view,
+    )
     problems += _text_problems(f"{where} name", listing.unit)
     problems += _text_problems(f"{where} address", listing.address)
     problems += _lines_problems(where, "public fact", listing.public_facts)

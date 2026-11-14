@@ -32,6 +32,8 @@ class RentalListingRecord(Base):
     virtual_tours_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     off_market_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     showing_booking_url: Mapped[str] = mapped_column(String, default="")
+    zillow_listing_url_public_view: Mapped[str] = mapped_column(String, default="")
+    zillow_listing_url_internal_editor_view: Mapped[str] = mapped_column(String, default="")
     # Lists, validated by ``schema.RentalListing`` on the way in and out.
     preferred_showing_times: Mapped[list] = mapped_column(JSONB, default=list)
     public_facts: Mapped[list] = mapped_column(JSONB, default=list)

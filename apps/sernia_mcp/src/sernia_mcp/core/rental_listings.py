@@ -121,12 +121,23 @@ async def _request(
         )
     if response.status_code == 404:
         raise RefusedError("Not found.", [str(detail or "No such listing.")])
+    if isinstance(detail, dict) and detail.get("message"):
+        reasons = "; ".join(str(problem) for problem in detail.get("problems", []))
+        raise ExternalServiceError(f"{detail['message']} {reasons}".strip())
     raise ExternalServiceError(f"The API answered HTTP {response.status_code}: {detail}")
 
 
 async def read_rental_data(token: str) -> dict[str, Any]:
     """Every listing, and the showing rules: ``{"listings": [...], "showing_rules": {...}}``."""
     return await _request("GET", "", token)
+
+
+async def read_zillow_ad(token: str, unit: str) -> dict[str, Any]:
+    """What the unit's live Zillow ad says, fetched by the API from the listing's public link.
+
+    Raises ``ExternalServiceError`` with the reason when Zillow cannot be read.
+    """
+    return await _request("GET", f"/zillow-ad/{quote(unit.strip(), safe='')}", token)
 
 
 async def read_history(token: str, subject: str | None, limit: int) -> list[dict[str, Any]]:
@@ -190,6 +201,10 @@ def _changed_lines(
     return lines, described
 
 
+def _stripped(value: str | None) -> str | None:
+    return value.strip() if value is not None else None
+
+
 def _iso(value: date | time | None) -> str | None:
     return value.isoformat() if value is not None else None
 
@@ -206,6 +221,8 @@ def plan_listing_change(
     virtual_tours_allowed: bool | None = None,
     off_market_on: date | None = None,
     showing_booking_url: str | None = None,
+    zillow_listing_url_public_view: str | None = None,
+    zillow_listing_url_internal_editor_view: str | None = None,
     add_public_facts: list[str] | None = None,
     remove_public_facts: list[str] | None = None,
     add_internal_notes: list[str] | None = None,
@@ -244,6 +261,8 @@ def plan_listing_change(
         "virtual_tours_allowed": False,
         "off_market_on": None,
         "showing_booking_url": "",
+        "zillow_listing_url_public_view": "",
+        "zillow_listing_url_internal_editor_view": "",
         "preferred_showing_times": [],
         "public_facts": [],
         "internal_notes": [],
@@ -257,8 +276,10 @@ def plan_listing_change(
             "next_lease_start_latest": _iso(next_lease_start_latest),
             "virtual_tours_allowed": virtual_tours_allowed,
             "off_market_on": _iso(off_market_on),
-            "showing_booking_url": (
-                showing_booking_url.strip() if showing_booking_url is not None else None
+            "showing_booking_url": _stripped(showing_booking_url),
+            "zillow_listing_url_public_view": _stripped(zillow_listing_url_public_view),
+            "zillow_listing_url_internal_editor_view": _stripped(
+                zillow_listing_url_internal_editor_view
             ),
             "preferred_showing_times": (
                 [window.model_dump(mode="json") for window in preferred_showing_times]
@@ -304,6 +325,8 @@ def plan_listing_change(
         for value in (
             address,
             showing_booking_url,
+            zillow_listing_url_public_view,
+            zillow_listing_url_internal_editor_view,
             add_public_facts,
             remove_public_facts,
             add_internal_notes,
