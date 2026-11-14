@@ -6,10 +6,10 @@ import pytest
 from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 
-from api.src.sernia_ai.zillow_leads.evals import judge as judge_module
-from api.src.sernia_ai.zillow_leads.evals.cli import outputs_to_judge
-from api.src.sernia_ai.zillow_leads.evals.judge import Judgement, agreement, half, judge_input
-from api.src.sernia_ai.zillow_leads.evals.labels import Label, latest_per_output, output_hash
+from api.src.zillow_leads.evals import judge as judge_module
+from api.src.zillow_leads.evals.cli import outputs_to_judge
+from api.src.zillow_leads.evals.judge import Judgement, agreement, half, judge_input
+from api.src.zillow_leads.evals.labels import Label, latest_per_output, output_hash
 
 REPLY = {"action": "reply", "reply_body": "Hi Sam,\n\nSee you then.", "question": None}
 ESCALATE = {"action": "escalate", "reply_body": None, "question": "Which unit?"}

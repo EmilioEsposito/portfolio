@@ -10,10 +10,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.src.database.app_settings import AppSetting
 from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.models import RentalListingChange, RentalListingRecord
 from api.src.rental_listings.schema import Change, RentalListing, ShowingRules
-from api.src.sernia_ai.models import AppSetting
 
 # The showing rules are one row of settings, not a table of their own.
 SHOWING_RULES_KEY = "rental_showing_rules"

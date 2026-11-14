@@ -15,16 +15,13 @@ import uuid
 
 import logfire
 
+from api.src.agent_conversations.identity import TRIGGER_BOT_ID, TRIGGER_BOT_NAME
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import (
-    GOOGLE_DELEGATION_EMAIL,
-    TRIGGER_BOT_ID,
-    TRIGGER_BOT_NAME,
-    WORKSPACE_PATH,
-)
+from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.runs import RunOutcome, run_and_finalize
+from api.src.utils.automation import is_sernia_ai_enabled
 
 # ---------------------------------------------------------------------------
 # Rate limiter — prevents the same trigger key from firing more than once

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-DATA = "api/src/sernia_ai/zillow_leads/evals/data"
+DATA = "api/src/zillow_leads/evals/data"
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:

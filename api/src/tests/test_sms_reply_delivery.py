@@ -169,7 +169,9 @@ async def test_group_trigger_loads_api_history_and_sets_reply_owner(monkeypatch)
 async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_to):
     from unittest.mock import MagicMock
 
-    from api.src.sernia_ai import routes
+    from api.src.agent_conversations import routes
+    from api.src.agent_conversations.schemas import ApprovalRequest
+    from api.src.sernia_ai import conversation_handler
 
     user = MagicMock(id="user-test", first_name="Test", last_name="User", email_addresses=[])
     metadata = {"trigger_phone": PHONE}
@@ -179,17 +181,17 @@ async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_t
     result = MagicMock(output="Resumed answer")
     resume = AsyncMock(return_value=result)
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=conv))
-    monkeypatch.setattr(routes, "resume_with_approvals", resume)
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(conversation_handler, "resume_with_approvals", resume)
+    monkeypatch.setattr(
+        conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=True))
     monkeypatch.setattr(runs, "extract_pending_approvals", lambda _: [])
-    monkeypatch.setattr(routes, "extract_tool_results", lambda _: {})
+    monkeypatch.setattr(conversation_handler, "extract_tool_results", lambda _: {})
     monkeypatch.setattr(runs, "create_logged_task", lambda coro, **kwargs: coro.close())
     reply = AsyncMock()
     monkeypatch.setattr(runs, "send_sms_reply", reply)
-    await routes.approve_conversation(
-        "sms-test", routes.ApprovalRequest(decisions=[]), user, AsyncMock()
-    )
+    await routes.approve_conversation("sms-test", ApprovalRequest(decisions=[]), user, AsyncMock())
     # The resumed answer goes back into the SMS thread it came from: 1:1 to
     # the sender, or to the whole group.
     reply.assert_awaited_once_with(reply_to, "Resumed answer")

@@ -8,17 +8,17 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.zillow_leads.case import (
     AgentAvailability,
     BookedTour,
     Listing,
     ListingData,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.evals.checks import build_dataset
-from api.src.sernia_ai.zillow_leads.evals.cli import carry_over, in_run
-from api.src.sernia_ai.zillow_leads.evals.pages import review_page
-from api.src.sernia_ai.zillow_leads.evals.scenarios import (
+from api.src.zillow_leads.evals.checks import build_dataset
+from api.src.zillow_leads.evals.cli import carry_over, in_run
+from api.src.zillow_leads.evals.pages import review_page
+from api.src.zillow_leads.evals.scenarios import (
     CaseEdit,
     Scenario,
     case_for,
@@ -26,7 +26,7 @@ from api.src.sernia_ai.zillow_leads.evals.scenarios import (
     edit_run_with,
     read_case_edits,
 )
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
 
 ET = ZoneInfo("America/New_York")
 MONDAY_9AM = datetime(2026, 5, 4, 9, 0, tzinfo=ET)

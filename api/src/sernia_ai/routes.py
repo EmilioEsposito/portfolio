@@ -10,188 +10,61 @@ import json
 from typing import Literal
 from uuid import uuid4
 
-import anthropic
 import logfire
-import openai
-from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from pydantic_ai import capture_run_messages
-from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from starlette.responses import Response
 
-from api.src.agent_conversations.hitl import (
-    ApprovalDecision,
-    extract_tool_results,
-    resume_with_approvals,
+from api.src.agent_conversations.auth import (
+    SerniaUser,
+    _display_name,
+    _get_sernia_user,
+    _sernia_email,
+    _sernia_gate,
 )
+from api.src.agent_conversations.history import _merge_sms_if_needed
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import (
-    extract_pending_approval_from_messages,
     get_agent_conversation,
     get_conversation_messages,
-    get_conversation_with_pending,
-    list_pending_conversations,
-    list_user_conversations,
     save_agent_conversation,
 )
+from api.src.agent_conversations.push.routes import router as push_router
+from api.src.agent_conversations.run_state import lock_conversation, require_idle
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.sernia_ai.chat_runs import (
     ChatRun,
     cancel_run,
-    lock_conversation,
     new_run,
-    public_run,
-    require_idle,
 )
-from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
+from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
-    DEFAULT_THINKING_EFFORT,
     ModelKey,
-    ThinkingEffort,
     get_active_model_key,
     get_active_thinking_effort,
     get_model_choice,
-    resolve_active_run_kwargs,
 )
-from api.src.sernia_ai.models import _IS_PRODUCTION, AppSetting
-from api.src.sernia_ai.push.routes import router as push_router
-from api.src.sernia_ai.runs import finalize_run, save_failed_run
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
-    _fetch_sms_thread,
-    _merge_sms_into_history,
     _sanitize_tool_calls,
 )
-from api.src.sernia_ai.zillow_leads.handle import apply_approval as apply_lead_approval
-from api.src.sernia_ai.zillow_leads.handle import is_lead_conversation
+from api.src.utils.automation import _IS_PRODUCTION
 from api.src.utils.chat_attachments import read_chat_request
-from api.src.utils.clerk import verify_serniacapital_user
-
-# =============================================================================
-# SMS history merge helper
-# =============================================================================
-
-_SMS_CONV_PREFIX = "ai_sms_from_"
-
-
-# =============================================================================
-# Error handling helpers
-# =============================================================================
-
-
-# Union of provider exception bases we know about. Catching these lets the
-# route handlers stay provider-agnostic as we swap MAIN_AGENT_MODEL between
-# Anthropic and OpenRouter.
-#
-# OpenRouter rides the OpenAI SDK (pydantic-ai's OpenRouterModel extends
-# OpenAIChatModel), so transport/status failures still raise `openai.APIError`.
-# Gateway-level failures are different: OpenRouter can answer HTTP 200 with an
-# error envelope in the body (no upstream capacity, upstream 5xx, moderation),
-# which pydantic-ai re-raises as `ModelHTTPError` carrying the upstream status.
-LLMAPIError = (anthropic.APIError, openai.APIError, ModelHTTPError)
-
-
-def _llm_error_response(
-    e: Exception,
-    context: str = "request",
-) -> tuple[int, str]:
-    """Map an LLM provider API error to an HTTP status + user-facing message.
-
-    Returns (status_code, user_message) tuple.
-    """
-    status_error_types = (anthropic.APIStatusError, openai.APIStatusError, ModelHTTPError)
-    connection_error_types = (
-        anthropic.APIConnectionError,
-        anthropic.APITimeoutError,
-        openai.APIConnectionError,
-        openai.APITimeoutError,
-    )
-    if isinstance(e, status_error_types):
-        status = getattr(e, "status_code", 500)
-        # 529 = Overloaded (Anthropic), 429 = Rate limited → both retriable.
-        if status in (529, 429):
-            return 503, "The AI service is temporarily overloaded. Please try again in a moment."
-        # Any other provider-side 5xx → surface as 502 (bad gateway).
-        if 500 <= status < 600:
-            return 502, "The AI service is temporarily unavailable. Please try again."
-        # 4xx → our misconfiguration (auth, bad request, etc.).
-        return 500, "An internal error occurred. Please try again."
-    if isinstance(e, connection_error_types):
-        return 503, "Unable to reach the AI service. Please try again."
-    return 500, "An internal error occurred. Please try again."
-
-
-async def _merge_sms_if_needed(
-    conversation_id: str,
-    db_messages: list,
-) -> list:
-    """For SMS conversations, merge live Quo messages into DB history.
-
-    Quo is the source of truth for SMS — messages sent manually or from
-    other processes won't be in our DB.  This fetches the live thread
-    and interleaves any missing messages.
-    """
-    if not conversation_id.startswith(_SMS_CONV_PREFIX):
-        return db_messages
-
-    digits = conversation_id[len(_SMS_CONV_PREFIX) :]
-    phone = f"+{digits}"
-    try:
-        sms_thread = await _fetch_sms_thread(phone)
-        if sms_thread:
-            return _merge_sms_into_history(db_messages, sms_thread)
-    except Exception:
-        logfire.exception(
-            "Failed to merge SMS thread for web view",
-            conversation_id=conversation_id,
-        )
-    return db_messages
-
-
-# =============================================================================
-# Router-level auth gate
-# =============================================================================
-
-
-async def _sernia_gate(request: Request) -> None:
-    """Router-level dependency: verify @serniacapital.com and stash user."""
-    user = await verify_serniacapital_user(request)
-    request.state.sernia_user = user
-
-
-async def _get_sernia_user(request: Request) -> User:
-    """Per-endpoint dependency: retrieve user set by the router gate."""
-    return request.state.sernia_user
-
-
-SerniaUser = User  # plain type alias — resolved by _get_sernia_user dependency
+from api.src.utils.openrouter_models import DEFAULT_THINKING_EFFORT, ThinkingEffort
+from api.src.zillow_leads.identity import is_lead_conversation
+from api.src.zillow_leads.settings import router as zillow_leads_router
 
 router = APIRouter(
     prefix="/sernia-ai",
     tags=["sernia-ai"],
     dependencies=[Depends(_sernia_gate)],
 )
-
-
-# Helper to resolve display name from Clerk User
-def _display_name(user: User) -> str:
-    return f"{user.first_name or ''} {user.last_name or ''}".strip() or "User"
-
-
-def _sernia_email(user: User) -> str:
-    """Extract the @serniacapital.com email from a Clerk User."""
-    for ea in user.email_addresses or []:
-        addr = ea.email_address if hasattr(ea, "email_address") else str(ea)
-        if addr.endswith("@serniacapital.com"):
-            return addr
-    # Fallback: construct from first name (all Sernia users have one)
-    name = (user.first_name or "unknown").lower()
-    return f"{name}@serniacapital.com"
 
 
 # =============================================================================
@@ -315,292 +188,6 @@ async def cancel_conversation_run(
     user: SerniaUser = Depends(_get_sernia_user),
 ):
     return {"run": await cancel_run(conversation_id, body.request_id)}
-
-
-# =============================================================================
-# Conversation / Approval API
-# =============================================================================
-
-
-class ApprovalDecisionRequest(BaseModel):
-    """A single approval decision for one tool call."""
-
-    tool_call_id: str
-    approved: bool
-    reason: str | None = None
-    override_args: dict | None = None
-
-
-class ApprovalRequest(BaseModel):
-    """Batch approval request for one or more tool calls."""
-
-    decisions: list[ApprovalDecisionRequest]
-    # Optional user-typed message attached to this approval round. PydanticAI
-    # bundles this alongside the ToolReturnParts into a single ModelRequest
-    # (see CallToolsNode), so it persists as a real UserPromptPart — used by
-    # the "deny with feedback" flow where the user's reply should live in
-    # message history as a normal chat turn, not just as a tool-denial reason.
-    user_message: str | None = None
-
-
-@router.post("/conversation/{conversation_id}/approve")
-async def approve_conversation(
-    conversation_id: str,
-    body: ApprovalRequest,
-    user: SerniaUser = Depends(_get_sernia_user),
-    session: DBSession = None,
-):
-    """
-    Approve or deny pending tool calls for a Sernia agent conversation.
-    Resumes the agent with decisions and returns the result.
-    """
-    # Log each decision verbatim (using repr on override_args values so any
-    # hidden \r\n / control chars in edited bodies are visible in logfire).
-    decisions_log = [
-        {
-            "tool_call_id": d.tool_call_id,
-            "approved": d.approved,
-            "override_args_repr": {k: repr(v) for k, v in (d.override_args or {}).items()} or None,
-        }
-        for d in body.decisions
-    ]
-    logfire.info(
-        "sernia approve",
-        conversation_id=conversation_id,
-        decisions=decisions_log,
-    )
-    clerk_user_id = user.id
-    user_name = _display_name(user)
-
-    captured_messages = None
-    try:
-        decisions = [
-            ApprovalDecision(
-                tool_call_id=d.tool_call_id,
-                approved=d.approved,
-                override_args=d.override_args,
-                denial_reason=d.reason,
-            )
-            for d in body.decisions
-        ]
-
-        conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
-        if conv:
-            require_idle(conv.metadata_)
-        if conv and is_lead_conversation(conv.metadata_):
-            # A Zillow lead conversation is decided in code: an approved reply
-            # is sent as approved, to the address stored with it. No agent is
-            # resumed, so nothing a lead wrote is read by a model with tools.
-            return await apply_lead_approval(
-                session,
-                conversation_id=conversation_id,
-                metadata=conv.metadata_ or {},
-                decisions=decisions,
-                approver=user_name,
-            )
-        reply_to = None
-        if conv and conv.modality == "sms" and conv.metadata_:
-            reply_to = conv.metadata_.get("trigger_group_participants") or conv.metadata_.get(
-                "trigger_phone"
-            )
-
-        deps = SerniaDeps(
-            db_session=session,
-            conversation_id=conversation_id,
-            user_identifier=clerk_user_id,
-            user_name=user_name,
-            user_email=_sernia_email(user),
-            modality="sms" if reply_to else "web_chat",
-            workspace_path=WORKSPACE_PATH,
-            sms_reply_recipients=([reply_to] if isinstance(reply_to, str) else reply_to or []),
-        )
-
-        run_kwargs = await resolve_active_run_kwargs()
-
-        with capture_run_messages() as captured_messages:
-            result = await resume_with_approvals(
-                agent=sernia_agent,
-                conversation_id=conversation_id,
-                decisions=decisions,
-                deps=deps,
-                clerk_user_id=None,  # Shared team access
-                session=session,
-                metadata={"trigger_source": "api/sernia-ai/approve"},
-                user_message=body.user_message,
-                **run_kwargs,
-            )
-
-        # Save the approval result (tool outputs + agent follow-up) and deliver
-        # it through the shared pipeline. For a conversation that lives in an
-        # SMS thread, `deps.sms_reply_recipients` (set above from the
-        # conversation's trigger metadata) sends the agent's answer back into
-        # that thread — the group, not just the original sender.
-        outcome = await finalize_run(
-            result,
-            deps=deps,
-            clerk_user_id=clerk_user_id,
-            notify_user_id=clerk_user_id,
-        )
-        pending = outcome.pending
-        tool_results = extract_tool_results(result)
-
-        return {
-            "conversation_id": conversation_id,
-            "output": result.output if isinstance(result.output, str) else None,
-            "pending": pending,
-            "tool_results": tool_results,
-            "status": "pending_approval" if pending else "completed",
-            "decisions": [
-                {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in body.decisions
-            ],
-        }
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except LLMAPIError as e:
-        # LLM provider API errors (overloaded, rate limited, etc.) — log as warning,
-        # surface with appropriate status code, don't leak raw error body
-        status_code, user_message = _llm_error_response(e, "approve")
-        logfire.warn(
-            "sernia approve LLM API error",
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__,
-            provider_status=getattr(e, "status_code", None),
-        )
-        await save_failed_run(
-            captured_messages,
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-            llm_error=True,
-        )
-        raise HTTPException(status_code=status_code, detail=user_message)
-    except Exception as e:
-        logfire.exception(
-            "sernia approve error",
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__,
-        )
-        await save_failed_run(
-            captured_messages,
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-        )
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again.")
-
-
-@router.get("/conversation/{conversation_id}")
-async def get_conversation(
-    conversation_id: str,
-    user: SerniaUser = Depends(_get_sernia_user),
-    session: DBSession = None,
-):
-    """Get conversation details including pending approval info."""
-    conv = await get_conversation_with_pending(conversation_id, clerk_user_id=None, session=session)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    return {
-        "conversation_id": conversation_id,
-        "pending": conv["pending"],
-        "agent_name": conv["agent_name"],
-        "clerk_user_id": conv["clerk_user_id"],
-        "created_at": conv["created_at"].isoformat() if conv["created_at"] else None,
-        "updated_at": conv["updated_at"].isoformat() if conv["updated_at"] else None,
-        "status": "pending_approval" if conv["pending"] else "completed",
-    }
-
-
-@router.get("/conversation/{conversation_id}/messages")
-async def get_conversation_messages_endpoint(
-    conversation_id: str,
-    user: SerniaUser = Depends(_get_sernia_user),
-    session: DBSession = None,
-):
-    """Get saved progress and authoritative run status in Vercel AI SDK format."""
-    conversation = await get_agent_conversation(session, conversation_id, retries=1)
-    run = public_run(conversation.metadata_ if conversation else None)
-    pydantic_messages = await get_conversation_messages(
-        conversation_id,
-        clerk_user_id=None,
-        session=session,
-        retries=1,
-        include_terminal=bool(run and run["status"] in {"failed", "cancelled", "interrupted"}),
-    )
-
-    # For SMS conversations, merge live Quo messages (source of truth)
-    pydantic_messages = await _merge_sms_if_needed(conversation_id, pydantic_messages)
-
-    if not pydantic_messages:
-        return {"messages": [], "conversation_id": conversation_id, "run": run}
-
-    vercel_messages = VercelAIAdapter.dump_messages(pydantic_messages)
-    pending = extract_pending_approval_from_messages(pydantic_messages)
-    if run and run["status"] != "completed":
-        pending = []
-
-    return {
-        "messages": [msg.model_dump(by_alias=True) for msg in vercel_messages],
-        "conversation_id": conversation_id,
-        "pending": pending,
-        "run": run,
-    }
-
-
-@router.get("/workflow/pending")
-async def list_pending_workflows(
-    user: SerniaUser = Depends(_get_sernia_user),
-    session: DBSession = None,
-):
-    """List Sernia conversations with pending approvals (team-wide)."""
-    pending = await list_pending_conversations(
-        agent_name=AGENT_NAME,
-        clerk_user_id=None,
-        session=session,
-    )
-    return {"conversations": pending, "count": len(pending)}
-
-
-@router.get("/conversations/history")
-async def get_conversation_history(
-    user: SerniaUser = Depends(_get_sernia_user),
-    limit: int = 20,
-    offset: int = 0,
-    modality: str | None = None,
-):
-    """List recent conversations for all Sernia users (shared team context)."""
-    conversations = await list_user_conversations(
-        clerk_user_id=None,
-        agent_name=AGENT_NAME,
-        limit=limit,
-        offset=offset,
-        modality=modality,
-    )
-    for conversation in conversations:
-        conversation["run"] = public_run({"web_chat_run": conversation.get("run")})
-    return {
-        "conversations": conversations,
-        "count": len(conversations),
-    }
-
-
-@router.delete("/conversation/{conversation_id}")
-async def delete_conversation_endpoint(
-    conversation_id: str,
-    user: SerniaUser = Depends(_get_sernia_user),
-    session: DBSession = None,
-):
-    """Delete a conversation (any Sernia user can delete any Sernia conversation)."""
-    await lock_conversation(session, conversation_id)
-    conversation = await get_agent_conversation(session, conversation_id, retries=1)
-    if not conversation or conversation.agent_name != AGENT_NAME:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    require_idle(conversation.metadata_)
-    await session.delete(conversation)
-    await session.commit()
-    return {"success": True, "conversation_id": conversation_id}
 
 
 # =============================================================================
@@ -863,7 +450,8 @@ async def get_conversation_context(
     """
     from types import SimpleNamespace
 
-    from api.src.sernia_ai.config import GOOGLE_DELEGATION_EMAIL, TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.agent_conversations.identity import TRIGGER_BOT_ID, TRIGGER_BOT_NAME
+    from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
     from api.src.sernia_ai.instructions import DYNAMIC_INSTRUCTIONS, STATIC_INSTRUCTIONS
 
     conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
@@ -946,7 +534,7 @@ async def get_admin_settings(
     the raw row would otherwise surface the production config here.
     """
     from api.src.sernia_ai.triggers.scheduled_triggers import get_schedule_config
-    from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+    from api.src.zillow_leads.queue import (
         get_zillow_email_config,
     )
 
@@ -960,11 +548,8 @@ async def get_admin_settings(
         for m in AVAILABLE_MODELS
     ]
 
-    # Zillow config is reported as-is on every env. Unlike the trigger kill
-    # switch / schedule, `require_approval` is only consulted by the Zillow
-    # trigger when it sets `auto_approved_reply_domains`, and that trigger is
-    # itself gated by `is_sernia_ai_enabled` (hard-off on non-prod). Showing
-    # the real value lets PR envs see what production has configured.
+    # Compatibility response for older clients. Dedicated lead settings live
+    # at /zillow-leads/settings; the old approval flag does not enable sends.
     zillow_email_config = await get_zillow_email_config()
 
     if not _IS_PRODUCTION:
@@ -1029,6 +614,11 @@ async def update_admin_settings(
     session: DBSession = None,
 ):
     """Update app settings (upsert). Re-registers the scheduled job when schedule changes."""
+    if body.zillow_email_config is not None:
+        raise HTTPException(
+            status_code=410,
+            detail="Zillow settings moved to /api/zillow-leads/settings.",
+        )
     updated = {}
     if body.triggers_enabled is not None:
         stmt = (
@@ -1096,38 +686,6 @@ async def update_admin_settings(
         await session.commit()
         updated["model_config"] = config_dict
 
-    if body.zillow_email_config is not None:
-        # Clamp debounce to a sane range. The lower bound prevents accidental
-        # zero-second debounces (a trigger would fire on every email and lose
-        # batching). The upper bound is the recently-fired TTL window — going
-        # beyond it would let redeliveries slip past dedup.
-        if body.zillow_email_config.debounce_seconds < 60:
-            raise HTTPException(
-                status_code=422,
-                detail="debounce_seconds must be at least 60",
-            )
-        if body.zillow_email_config.debounce_seconds > 3600:
-            raise HTTPException(
-                status_code=422,
-                detail="debounce_seconds must not exceed 3600 (1 hour)",
-            )
-
-        config_dict = body.zillow_email_config.model_dump()
-        stmt = (
-            pg_insert(AppSetting)
-            .values(
-                key="zillow_email_config",
-                value=config_dict,
-            )
-            .on_conflict_do_update(
-                index_elements=["key"],
-                set_={"value": config_dict},
-            )
-        )
-        await session.execute(stmt)
-        await session.commit()
-        updated["zillow_email_config"] = config_dict
-
     return {"updated": updated}
 
 
@@ -1136,3 +694,4 @@ async def update_admin_settings(
 # =============================================================================
 
 router.include_router(push_router)
+router.include_router(zillow_leads_router)

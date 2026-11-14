@@ -4,7 +4,7 @@ For each rental unit, the listing: the next lease on offer, what a prospect
 may be told about the unit, and our internal notes for deciding. Plus the
 showing rules that apply to every unit, and the history of changes to all of
 it. The Zillow lead agent's case is built from this
-([`sernia_ai/zillow_leads`](../sernia_ai/zillow_leads/README.md)), and the
+([`zillow_leads`](../zillow_leads/README.md)), and the
 showing booking system (issue #368) will read it too.
 
 This is not a record of the units themselves or of who lives in them. The
@@ -78,7 +78,7 @@ in either kind of text.
 
 ## Edit screen and endpoints
 
-The Rental Listings page (`/sernia-rental-listings`, linked from the Zillow
+The Rental Listings page (`/systems/leasing-leads/listings`, linked from the Zillow
 Leads Agent architecture page and the Sernia conversation sidebar) edits each listing's fields and the showing rules, and shows the
 history. It calls these endpoints, and so does the Sernia MCP service. They
 are open to signed-in Sernia users, the same as the admin settings, by two

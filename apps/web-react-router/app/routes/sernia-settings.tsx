@@ -1,11 +1,10 @@
 import type { Route } from "./+types/sernia-settings";
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "@clerk/react-router";
 import { AuthGuard } from "~/components/auth-guard";
 import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
-import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
@@ -90,16 +89,10 @@ const EFFORT_OPTIONS: { value: ThinkingEffort; label: string; hint: string }[] =
 
 const DEFAULT_EFFORT: ThinkingEffort = "medium";
 
-interface ZillowEmailConfig {
-  debounce_seconds: number;
-  require_approval: boolean;
-}
-
 interface Settings {
   triggers_enabled: boolean;
   schedule_config: ScheduleConfig;
   model_config: ModelConfig;
-  zillow_email_config: ZillowEmailConfig;
   available_models: ModelChoice[];
 }
 
@@ -110,13 +103,6 @@ const FALLBACK_MODELS: ModelChoice[] = [
   { key: "sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", cost_note: null },
   { key: "opus-4-7", label: "Claude Opus 4.7", provider: "anthropic", cost_note: "~5x Sonnet pricing — use sparingly." },
 ];
-
-// Zillow defaults — mirror api/src/sernia_ai/config.py constants. These are
-// only used as the initial form values before the GET /admin/settings response
-// arrives; the server response (which reflects the DB row or its own defaults)
-// always wins.
-const DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300;
-const DEFAULT_ZILLOW_REQUIRE_APPROVAL = true;
 
 function SettingsMobileSidebarToggle() {
   const { toggleSidebar } = useSidebar();
@@ -135,6 +121,11 @@ function SettingsMobileSidebarToggle() {
 export default function SerniaSettingsPage() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const legacyZillowLink = location.hash === "#zillow-leads";
+  useEffect(() => {
+    if (legacyZillowLink) navigate("/systems/leasing-leads/settings", { replace: true });
+  }, [legacyZillowLink, navigate]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,9 +138,6 @@ export default function SerniaSettingsPage() {
   const [modelKey, setModelKey] = useState<string>(DEFAULT_MODEL_KEY);
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(DEFAULT_EFFORT);
   const [availableModels, setAvailableModels] = useState<ModelChoice[]>(FALLBACK_MODELS);
-  const [zillowDebounceSeconds, setZillowDebounceSeconds] = useState<number>(
-    DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
-  );
 
   // Snapshot of last-saved values to detect dirty state
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -160,8 +148,7 @@ export default function SerniaSettingsPage() {
       JSON.stringify([...days].sort()) !== JSON.stringify([...saved.schedule_config.days_of_week].sort()) ||
       JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()) ||
       modelKey !== saved.model_config.model_key ||
-      thinkingEffort !== saved.model_config.thinking_effort ||
-      zillowDebounceSeconds !== saved.zillow_email_config.debounce_seconds);
+      thinkingEffort !== saved.model_config.thinking_effort);
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
@@ -178,9 +165,6 @@ export default function SerniaSettingsPage() {
       setHours(data.schedule_config.hours);
       setModelKey(data.model_config?.model_key ?? DEFAULT_MODEL_KEY);
       setThinkingEffort(data.model_config?.thinking_effort ?? DEFAULT_EFFORT);
-      setZillowDebounceSeconds(
-        data.zillow_email_config?.debounce_seconds ?? DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
-      );
       if (data.available_models?.length) setAvailableModels(data.available_models);
       setSaved(data);
     } catch (err) {
@@ -189,8 +173,8 @@ export default function SerniaSettingsPage() {
   }, [getToken]);
 
   useEffect(() => {
-    fetchSettings();
-  }, [fetchSettings]);
+    if (!legacyZillowLink) fetchSettings();
+  }, [fetchSettings, legacyZillowLink]);
 
   // Save
   const handleSave = async () => {
@@ -212,11 +196,6 @@ export default function SerniaSettingsPage() {
             hours: [...hours].sort(),
           },
           model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
-          zillow_email_config: {
-            debounce_seconds: zillowDebounceSeconds,
-            // Preserve the legacy API field; the lead agent always requires approval.
-          require_approval: saved?.zillow_email_config.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-          },
         }),
       });
       if (!res.ok) {
@@ -230,11 +209,6 @@ export default function SerniaSettingsPage() {
           hours: [...hours].sort(),
         },
         model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
-        zillow_email_config: {
-          debounce_seconds: zillowDebounceSeconds,
-          // Preserve the legacy API field; the lead agent always requires approval.
-          require_approval: saved?.zillow_email_config.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-        },
         available_models: availableModels,
       };
       setSaved(snapshot);
@@ -255,7 +229,6 @@ export default function SerniaSettingsPage() {
     setHours(saved.schedule_config.hours);
     setModelKey(saved.model_config.model_key);
     setThinkingEffort(saved.model_config.thinking_effort);
-    setZillowDebounceSeconds(saved.zillow_email_config.debounce_seconds);
   };
 
   // Toggle helpers
@@ -545,56 +518,10 @@ export default function SerniaSettingsPage() {
                 </CardContent>
               </Card>
 
-              {/* Zillow lead trigger config */}
-              <Card id="zillow-leads" className="scroll-mt-6">
-                <CardHeader>
-                  <CardTitle className="text-base">Zillow Leads Agent</CardTitle>
-                  <CardDescription>
-                    Controls how long incoming Zillow messages wait before the dedicated
-                    lead agent reviews their thread. Every reply requires human approval.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Debounce */}
-                  <div className="space-y-2">
-                    <Label htmlFor="zillow-debounce" className="text-sm font-medium">
-                      Debounce Window (seconds)
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      The first email in a lead&apos;s thread starts a timer; further emails in that
-                      thread within this window are handled in the same agent run. Each lead gets
-                      its own run. 60–3600 seconds.
-                    </p>
-                    <Input
-                      id="zillow-debounce"
-                      type="number"
-                      min={60}
-                      max={3600}
-                      step={30}
-                      value={zillowDebounceSeconds}
-                      onChange={(e) =>
-                        setZillowDebounceSeconds(Number(e.target.value) || 0)
-                      }
-                      className="max-w-40"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      ≈ {(zillowDebounceSeconds / 60).toFixed(zillowDebounceSeconds % 60 === 0 ? 0 : 1)} minute
-                      {zillowDebounceSeconds === 60 ? "" : "s"}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Human approval is always required</p>
-                    <p className="text-xs text-muted-foreground">
-                      The team reviews every proposed reply before code sends it. The former
-                      auto-send switch is no longer used by this agent.
-                    </p>
-                    <a href="/systems/leasing-leads" className="inline-block text-sm underline underline-offset-4">
-                      Architecture, listing data, and booking plans
-                    </a>
-                  </div>
-                </CardContent>
-              </Card>
+              <p className="text-sm text-muted-foreground">
+                Zillow lead batching and email approval are configured in{" "}
+                <Link to="/systems/leasing-leads/settings" className="text-foreground underline underline-offset-4">Zillow Leads Agent settings</Link>.
+              </p>
             </div>
           )}
         </div>

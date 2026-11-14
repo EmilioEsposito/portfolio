@@ -1607,12 +1607,12 @@ async def _seed_sms_conversation(
     the context lands in the conversation the AI SMS trigger loads when a
     group member replies.
     """
+    from api.src.agent_conversations.identity import AGENT_NAME, TRIGGER_BOT_ID
     from api.src.agent_conversations.models import (
         get_conversation_messages,
         save_agent_conversation,
     )
     from api.src.database.database import AsyncSessionFactory
-    from api.src.sernia_ai.config import AGENT_NAME, TRIGGER_BOT_ID
 
     if conv_id is None:
         digits = re.sub(r"\D", "", phone)

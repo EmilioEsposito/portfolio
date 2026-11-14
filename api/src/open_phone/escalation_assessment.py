@@ -31,7 +31,7 @@ from api.src.open_phone.typesafe_openrouter import (
     OpenRouterDecisionResponse,
     create_jev_client,
 )
-from api.src.sernia_ai.model_config import SerniaOpenRouterModel, build_openrouter_settings
+from api.src.utils.openrouter_models import SerniaOpenRouterModel, build_openrouter_settings
 
 LUNA_MODEL = "openai/gpt-5.6-luna"
 ModelName = Literal["luna", "jev"]

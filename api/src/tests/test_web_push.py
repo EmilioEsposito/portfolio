@@ -15,12 +15,12 @@ class TestSmoke:
     """Verify web push components import and are wired correctly."""
 
     def test_model_imports_and_table_name(self):
-        from api.src.sernia_ai.push.models import WebPushSubscription
+        from api.src.agent_conversations.push.models import WebPushSubscription
 
         assert WebPushSubscription.__tablename__ == "web_push_subscriptions"
 
     def test_service_functions_import(self):
-        from api.src.sernia_ai.push.service import (
+        from api.src.agent_conversations.push.service import (
             notify_all_sernia_users,
             notify_chat_response,
             notify_pending_approval,
@@ -35,7 +35,7 @@ class TestSmoke:
         assert callable(notify_pending_approval)
 
     def test_routes_have_expected_paths(self):
-        from api.src.sernia_ai.push.routes import router
+        from api.src.agent_conversations.push.routes import router
 
         paths = {route.path for route in router.routes}
         assert "/push/vapid-public-key" in paths
@@ -55,7 +55,7 @@ class TestSmoke:
         assert "/sernia-ai/push/unsubscribe" in paths
 
     def test_test_endpoint_exists(self):
-        from api.src.sernia_ai.push.routes import router
+        from api.src.agent_conversations.push.routes import router
 
         paths = {route.path for route in router.routes}
         assert "/push/test" in paths
@@ -63,7 +63,7 @@ class TestSmoke:
 
 @pytest.mark.asyncio
 async def test_chat_response_notification_has_preview_and_is_user_targeted(monkeypatch):
-    from api.src.sernia_ai.push import service
+    from api.src.agent_conversations.push import service
 
     notify_user = AsyncMock()
     monkeypatch.setattr(service, "notify_user_push", notify_user)
@@ -88,7 +88,7 @@ async def test_chat_response_notification_has_preview_and_is_user_targeted(monke
 
 @pytest.mark.asyncio
 async def test_chat_response_preview_falls_back_and_is_bounded(monkeypatch):
-    from api.src.sernia_ai.push import service
+    from api.src.agent_conversations.push import service
 
     notify_user = AsyncMock()
     monkeypatch.setattr(service, "notify_user_push", notify_user)
@@ -113,7 +113,7 @@ async def test_chat_response_preview_falls_back_and_is_bounded(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_targeted_push_does_not_broadcast_without_user_subscription(monkeypatch):
-    from api.src.sernia_ai.push import service
+    from api.src.agent_conversations.push import service
 
     query_result = MagicMock()
     query_result.scalars.return_value.all.return_value = []
@@ -172,14 +172,14 @@ def _push_exc(status: int, body: str):
     ],
 )
 def test_stale_subscription_reason(status, body, stale):
-    from api.src.sernia_ai.push.service import _stale_subscription_reason
+    from api.src.agent_conversations.push.service import _stale_subscription_reason
 
     assert bool(_stale_subscription_reason(_push_exc(status, body))) is stale
 
 
 @pytest.mark.asyncio
 async def test_vapid_mismatch_subscriptions_are_pruned(monkeypatch):
-    from api.src.sernia_ai.push import service
+    from api.src.agent_conversations.push import service
 
     stale = MagicMock(endpoint="https://web.push.apple.com/stale", p256dh="k", auth="a")
     live = MagicMock(endpoint="https://web.push.apple.com/live", p256dh="k", auth="a")
@@ -351,11 +351,12 @@ async def test_chat_run_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
-    from api.src.sernia_ai import routes, runs
+    from api.src.agent_conversations import routes, schemas
+    from api.src.sernia_ai import conversation_handler, runs
 
-    body = routes.ApprovalRequest(
+    body = schemas.ApprovalRequest(
         decisions=[
-            routes.ApprovalDecisionRequest(
+            schemas.ApprovalDecisionRequest(
                 tool_call_id="tool-123",
                 approved=True,
             )
@@ -383,17 +384,21 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
         coro.close()
         return MagicMock()
 
-    monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
-    monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
+    monkeypatch.setattr(conversation_handler, "capture_run_messages", FakeCaptureContext)
+    monkeypatch.setattr(
+        conversation_handler, "resume_with_approvals", AsyncMock(return_value=result)
+    )
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(
         runs,
         "extract_pending_approvals",
         MagicMock(return_value=[{"tool_name": "send_email", "args": {}}]),
     )
-    monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
+    monkeypatch.setattr(conversation_handler, "extract_tool_results", MagicMock(return_value={}))
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
 
     response = await routes.approve_conversation(
@@ -409,11 +414,12 @@ async def test_approval_route_skips_push_when_persistence_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_approval_route_schedules_response_preview_after_persistence(monkeypatch):
-    from api.src.sernia_ai import routes, runs
+    from api.src.agent_conversations import routes, schemas
+    from api.src.sernia_ai import conversation_handler, runs
 
-    body = routes.ApprovalRequest(
+    body = schemas.ApprovalRequest(
         decisions=[
-            routes.ApprovalDecisionRequest(
+            schemas.ApprovalDecisionRequest(
                 tool_call_id="tool-123",
                 approved=True,
             )
@@ -450,13 +456,17 @@ async def test_approval_route_schedules_response_preview_after_persistence(monke
 
         return completed()
 
-    monkeypatch.setattr(routes, "capture_run_messages", FakeCaptureContext)
-    monkeypatch.setattr(routes, "resume_with_approvals", AsyncMock(return_value=result))
+    monkeypatch.setattr(conversation_handler, "capture_run_messages", FakeCaptureContext)
+    monkeypatch.setattr(
+        conversation_handler, "resume_with_approvals", AsyncMock(return_value=result)
+    )
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=True))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
     monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
-    monkeypatch.setattr(routes, "extract_tool_results", MagicMock(return_value={}))
+    monkeypatch.setattr(conversation_handler, "extract_tool_results", MagicMock(return_value={}))
     monkeypatch.setattr(runs, "notify_chat_response", capture_response_notification)
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
 
@@ -486,9 +496,9 @@ async def test_send_push_notification():
     """
     from sqlalchemy import func, select
 
+    from api.src.agent_conversations.push.models import WebPushSubscription
+    from api.src.agent_conversations.push.service import _get_vapid, notify_all_sernia_users
     from api.src.database.database import AsyncSessionFactory
-    from api.src.sernia_ai.push.models import WebPushSubscription
-    from api.src.sernia_ai.push.service import _get_vapid, notify_all_sernia_users
 
     assert _get_vapid(), "VAPID_PRIVATE_KEY not set or failed to load — add to .env"
 
