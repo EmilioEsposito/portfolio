@@ -20,7 +20,7 @@ export default function ZillowLeadsLayout() {
       <header className="mb-6 mt-6">
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Zillow Leads Agent</h1>
       </header>
-      <nav aria-label="Zillow Leads Agent pages" className="mb-7 flex gap-5 overflow-x-auto border-b">
+      <nav aria-label="Zillow Leads Agent pages" className="mb-7 flex flex-wrap gap-x-5 gap-y-1 border-b">
         {tabs.filter((tab) => tab.public || isSernia).map((tab) => (
           <NavLink
             key={tab.to}
