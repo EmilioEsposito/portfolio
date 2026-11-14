@@ -68,7 +68,7 @@ class FakeApi:
             if "door code" in line.lower():
                 raise core.RefusedError("Not saved.", [f"{line!r} mentions an access code"])
 
-    async def __call__(self, method, path, token, *, json=None, params=None):
+    async def __call__(self, method, path, token, *, json=None, params=None, timeout=None):
         self.tokens.add(token)
         dry = bool(params and params.get("dry_run"))
         if method == "GET" and path == "":
@@ -493,6 +493,20 @@ class TestRequest:
             ExternalServiceError, match=r"Could not read the Zillow ad\. Zillow refused"
         ):
             await core.read_zillow_ad("oat_test", "12/14")
+
+    @pytest.mark.asyncio
+    async def test_a_zillow_ad_read_waits_longer_than_the_api_s_page_reader(self, monkeypatch):
+        seen: dict[str, Any] = {}
+
+        async def request(method, path, token, *, json=None, params=None, timeout=core._TIMEOUT):
+            seen.update(path=path, timeout=timeout)
+            return {}
+
+        monkeypatch.setattr(core, "_request", request)
+        await core.read_zillow_ad("oat_test", "12/14")
+
+        assert seen == {"path": "/zillow-ad/12%2F14", "timeout": 75}
+        assert core._ZILLOW_AD_TIMEOUT > 60  # zillow_ad.py's reader timeout
 
     @pytest.mark.asyncio
     async def test_an_unaccepted_user_is_said_plainly(self, answer):
