@@ -25,8 +25,8 @@ from api.src.sernia_ai.config import (
     DEFAULT_SCHEDULE_DAYS_OF_WEEK,
     DEFAULT_SCHEDULE_HOURS,
 )
-from api.src.sernia_ai.models import _IS_PRODUCTION
 from api.src.sernia_ai.triggers.background_agent_runner import run_agent_for_trigger
+from api.src.utils.automation import _IS_PRODUCTION
 
 JOB_ID = "sernia_scheduled_checks"
 ET = ZoneInfo("America/New_York")
@@ -89,8 +89,8 @@ def _apply_schedule(days_of_week: list[int], hours: list[int]) -> None:
 
 async def get_schedule_config() -> dict:
     """Read schedule_config from DB, returning defaults if not set."""
+    from api.src.database.app_settings import AppSetting
     from api.src.database.database import AsyncSessionFactory
-    from api.src.sernia_ai.models import AppSetting
 
     defaults = {
         "days_of_week": DEFAULT_SCHEDULE_DAYS_OF_WEEK,

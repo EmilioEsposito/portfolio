@@ -4,8 +4,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from api.src.sernia_ai.zillow_leads.evals.cli import not_in_runs
-from api.src.sernia_ai.zillow_leads.evals.labels import (
+from api.src.zillow_leads.evals.cli import not_in_runs
+from api.src.zillow_leads.evals.labels import (
     Label,
     add_annotations,
     latest_per_output,

@@ -101,7 +101,7 @@ async def test_usage_accounting_returns_a_real_cost():
 @pytest.mark.asyncio
 async def test_upstream_provider_is_pinned():
     """Provider pinning keeps the served compute identical to pre-OpenRouter."""
-    from api.src.sernia_ai.config import OPENROUTER_ALLOWED_PROVIDERS
+    from api.src.utils.openrouter_models import OPENROUTER_ALLOWED_PROVIDERS
 
     result = await _bare_agent("low").run("Reply with exactly: OK")
 

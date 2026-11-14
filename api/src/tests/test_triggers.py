@@ -36,7 +36,7 @@ class TestSmoke:
     """Verify trigger components import and are wired correctly."""
 
     def test_background_agent_runner_imports(self):
-        from api.src.sernia_ai.config import TRIGGER_BOT_ID
+        from api.src.agent_conversations.identity import TRIGGER_BOT_ID
         from api.src.sernia_ai.general_agent import NoAction
         from api.src.sernia_ai.triggers.background_agent_runner import (
             RATE_LIMIT_SECONDS,
@@ -67,18 +67,18 @@ class TestSmoke:
 
     def test_notify_trigger_alert_imports(self):
         """Push service should have the new trigger alert function."""
-        from api.src.sernia_ai.push.service import notify_trigger_alert
+        from api.src.agent_conversations.push.service import notify_trigger_alert
 
         assert callable(notify_trigger_alert)
 
     def test_notify_team_sms_imports(self):
         """Push service should have the new SMS notification function."""
-        from api.src.sernia_ai.push.service import notify_team_sms
+        from api.src.sernia_ai.notifications import notify_team_sms
 
         assert callable(notify_team_sms)
 
     def test_zillow_email_event_trigger_imports(self):
-        from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+        from api.src.zillow_leads.queue import (
             enqueue_zillow_email,
             is_zillow_email,
             process_zillow_email_queue,
@@ -89,7 +89,7 @@ class TestSmoke:
         assert callable(process_zillow_email_queue)
 
     def test_notify_user_push_imports(self):
-        from api.src.sernia_ai.push.service import notify_user_push
+        from api.src.agent_conversations.push.service import notify_user_push
 
         assert callable(notify_user_push)
 
@@ -132,7 +132,7 @@ class TestSmoke:
 
     def test_app_setting_model_imports(self):
         """AppSetting model should import and have expected fields."""
-        from api.src.sernia_ai.models import AppSetting
+        from api.src.database.app_settings import AppSetting
 
         assert AppSetting.__tablename__ == "app_settings"
         assert hasattr(AppSetting, "key")
@@ -469,7 +469,7 @@ class TestNotifyTeamSms:
     @pytest.fixture(autouse=True)
     def _clear_phone_cache(self):
         """Reset the cached phone number between tests."""
-        import api.src.sernia_ai.push.service as svc
+        import api.src.sernia_ai.notifications as svc
 
         svc._shared_team_phone = None
         yield
@@ -491,7 +491,7 @@ class TestNotifyTeamSms:
         )
 
         with (
-            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+            patch("api.src.sernia_ai.notifications.httpx.AsyncClient") as mock_client_cls,
             patch("api.src.open_phone.service.send_message") as mock_send,
             patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
         ):
@@ -501,7 +501,7 @@ class TestNotifyTeamSms:
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             mock_send.return_value = AsyncMock()
 
-            from api.src.sernia_ai.push.service import notify_team_sms
+            from api.src.sernia_ai.notifications import notify_team_sms
 
             await notify_team_sms(
                 title="Approval Needed: Send Email",
@@ -521,7 +521,7 @@ class TestNotifyTeamSms:
     async def test_skips_when_phone_lookup_fails(self):
         """When phone lookup fails, SMS should be silently skipped."""
         with (
-            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+            patch("api.src.sernia_ai.notifications.httpx.AsyncClient") as mock_client_cls,
             patch("api.src.open_phone.service.send_message") as mock_send,
             patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
         ):
@@ -530,7 +530,7 @@ class TestNotifyTeamSms:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            from api.src.sernia_ai.push.service import notify_team_sms
+            from api.src.sernia_ai.notifications import notify_team_sms
 
             await notify_team_sms(
                 title="Test",
@@ -543,17 +543,17 @@ class TestNotifyTeamSms:
     @pytest.mark.asyncio
     async def test_caches_phone_number(self):
         """Phone number should be cached after first lookup."""
-        import api.src.sernia_ai.push.service as svc
+        import api.src.sernia_ai.notifications as svc
 
         svc._shared_team_phone = "+14125559999"
 
         with (
             patch("api.src.open_phone.service.send_message") as mock_send,
-            patch("api.src.sernia_ai.push.service.httpx.AsyncClient") as mock_client_cls,
+            patch("api.src.sernia_ai.notifications.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_send.return_value = AsyncMock()
 
-            from api.src.sernia_ai.push.service import notify_team_sms
+            from api.src.sernia_ai.notifications import notify_team_sms
 
             await notify_team_sms(
                 title="Test",
@@ -569,14 +569,14 @@ class TestNotifyTeamSms:
     @pytest.mark.asyncio
     async def test_failure_does_not_raise(self):
         """Even if send_message raises, notify_team_sms should not propagate."""
-        import api.src.sernia_ai.push.service as svc
+        import api.src.sernia_ai.notifications as svc
 
         svc._shared_team_phone = "+14125559999"
 
         with patch("api.src.open_phone.service.send_message") as mock_send:
             mock_send.side_effect = RuntimeError("OpenPhone API error")
 
-            from api.src.sernia_ai.push.service import notify_team_sms
+            from api.src.sernia_ai.notifications import notify_team_sms
 
             # Should not raise
             await notify_team_sms(
@@ -1248,21 +1248,21 @@ class TestIsZillowEmail:
     """Test the is_zillow_email helper."""
 
     def test_zillow_from_address(self):
-        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        from api.src.zillow_leads.queue import is_zillow_email
 
         assert is_zillow_email("noreply@zillow.com") is True
         assert is_zillow_email("leads@messaging.zillow.com") is True
         assert is_zillow_email("NOREPLY@ZILLOW.COM") is True
 
     def test_non_zillow_from_address(self):
-        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        from api.src.zillow_leads.queue import is_zillow_email
 
         assert is_zillow_email("tenant@gmail.com") is False
         assert is_zillow_email("zillow-impersonator@evil.com") is False
         assert is_zillow_email("user@notzillow.com") is False
 
     def test_empty_and_none(self):
-        from api.src.sernia_ai.triggers.zillow_email_event_trigger import is_zillow_email
+        from api.src.zillow_leads.queue import is_zillow_email
 
         assert is_zillow_email("") is False
         # is_zillow_email requires str, but guard handles falsy
@@ -1325,7 +1325,7 @@ class TestUniversalKillSwitch:
 
     def test_is_sernia_ai_enabled_importable(self):
         """The shared kill switch function should be importable from models."""
-        from api.src.sernia_ai.models import is_sernia_ai_enabled
+        from api.src.utils.automation import is_sernia_ai_enabled
 
         assert callable(is_sernia_ai_enabled)
 

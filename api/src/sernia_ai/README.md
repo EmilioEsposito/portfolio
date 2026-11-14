@@ -1,16 +1,16 @@
 # Sernia AI
 
-Two distinct agents support Sernia Capital's rental operations. They share
+Two sibling packages support Sernia Capital's rental operations. They share
 FastAPI, PydanticAI, conversation storage, and approval screens.
 
 | Agent | Entry point | Input and authority | Guide |
 | --- | --- | --- | --- |
 | **Sernia AI general agent** | `general_agent.py` (`sernia_agent`) | Team chat, internal SMS, scheduled checks; business tools, workspace context, action-specific approvals | This guide; [public architecture](https://eesposito.com/systems/sernia-ai) |
-| **Zillow Leads Agent** | `zillow_leads/agent.py` (`respond`) | Prepared lead case; no tools; Reply / NoReply / Escalate; every reply requires human approval | [Runtime guide](zillow_leads/README.md); [public architecture](https://eesposito.com/systems/leasing-leads) |
+| **Zillow Leads Agent** | `../zillow_leads/agent.py` (`respond`) | Prepared lead case; no tools; Reply / NoReply / Escalate; approval defaults on; automatic replies can be enabled in its own settings | [Runtime guide](../zillow_leads/README.md); [public architecture](https://eesposito.com/systems/leasing-leads) |
 
 Incoming Zillow emails run only the specialist. The general agent can maintain
 listing data and consult the same leasing policy, but it does not receive those
-queued threads. Lead approvals are handled by `zillow_leads/handle.py`, without
+queued threads. Lead approvals are handled by `../zillow_leads/handle.py`, without
 resuming the general agent.
 
 ## Where to work
@@ -18,13 +18,14 @@ resuming the general agent.
 | Concern | Owner |
 | --- | --- |
 | General agent, tools, memory, model selection | `general_agent.py`, `instructions.py`, `tools/`, `model_config.py` |
-| Lead case, reply decision, fixed recipient, approval | [`zillow_leads/`](zillow_leads/README.md) |
+| Lead case, reply decision, fixed recipient, approval | [`../zillow_leads/`](../zillow_leads/README.md) |
 | Listing schema, validation, history, HTTP API | [`../rental_listings/`](../rental_listings/README.md) |
-| Listing editor | `/sernia-rental-listings`; standalone page with Sernia authentication |
-| Lead debounce and general automation settings | `/sernia-settings#zillow-leads`; lead replies always require approval |
-| Email queue, SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
-| Offline lead evaluations and private review data | [`zillow_leads/evals/`](zillow_leads/evals/README.md) |
-| Showing bookings, shared calendars, resident notice | [Issue #368](https://github.com/EmilioEsposito/portfolio/issues/368), planned; `zillow_leads/tours.py` is the integration boundary |
+| Listing editor | `/systems/leasing-leads/listings`; standalone page with Sernia authentication |
+| Lead batching and email approval | `/systems/leasing-leads/settings`; dedicated agent settings; separate from general automation |
+| Zillow email queue | [`../zillow_leads/queue.py`](../zillow_leads/QUEUE.md) |
+| General-agent SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
+| Offline lead evaluations and private review data | [`../zillow_leads/evals/`](../zillow_leads/evals/README.md) |
+| Showing bookings, shared calendars, resident notice | [Issue #368](https://github.com/EmilioEsposito/portfolio/issues/368), planned; `../zillow_leads/tours.py` is the integration boundary |
 
 The retired `api/src/zillow_email/` implementation has been removed. Active queue
 names such as `zillow_email_jobs` are retained; they are not legacy runtime code.
@@ -37,8 +38,8 @@ unless explicitly stated otherwise.
 - **Agent** (`general_agent.py`) — Main PydanticAI agent with tool use, sub-agents, and persistent memory
 - **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (memory, filetree, modality, then per-run context: datetime, user, deeplink). See [Prompt stability](#prompt-stability).
 - **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
-- **Model config** (`model_config.py`) — Supported general-agent models, reasoning effort, and per-run resolution of the `model_config` app setting. See [Model Gateways](#model-gateways). The lead agent selects its own model in `zillow_leads/agent.py`.
-- **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
+- **Model config** (`model_config.py`) — Supported general-agent models, reasoning effort, and per-run resolution of the `model_config` app setting. See [Model Gateways](#model-gateways). The lead agent selects its own model in `../zillow_leads/agent.py`.
+- **Routes** (`routes.py`) — General chat, cancellation, context inspection, and settings. Shared history and approval endpoints live in [`agent_conversations/routes.py`](../agent_conversations/README.md).
 - **Run pipeline** (`runs.py`) — What happens after the general agent stops, for every general-agent run. See [Run pipeline](#run-pipeline).
 
 ## Documentation
@@ -47,7 +48,7 @@ unless explicitly stated otherwise.
 |----------|-------------|
 | [`tools/README.md`](tools/README.md) | SMS gates, mass-texting pattern, tool inventory |
 | [`triggers/README.md`](triggers/README.md) | Trigger flows (team SMS, AI SMS, email) with diagrams |
-| [`push/README.md`](push/README.md) | W3C Web Push + VAPID implementation |
+| [Shared Web Push](../agent_conversations/push/README.md) | W3C Web Push + VAPID implementation |
 | [Open work](../../../docs/ROADMAP.md) | Exploratory follow-ups and service backlog |
 
 ## Key Concepts
@@ -74,9 +75,9 @@ The optional Jev classifier uses the TypeSafe SDK and a small endpoint adapter; 
 and assessment-only tests. The following chat-model settings do not apply to Jev.
 
 Things worth knowing about the OpenRouter path (all handled in
-`model_config.py` — see `SerniaOpenRouterModel`):
+`../utils/openrouter_models.py` — see `SerniaOpenRouterModel`):
 
-- **Upstream is pinned to OpenAI** (`config.OPENROUTER_ALLOWED_PROVIDERS`).
+- **Upstream is pinned to OpenAI** (`utils.openrouter_models.OPENROUTER_ALLOWED_PROVIDERS`).
   OpenRouter otherwise load-balances GPT-5.6 Luna across OpenAI, Azure and
   Amazon Bedrock, which differ by up to ~10x in price and in supported
   parameters (Bedrock drops `response_format`/`structured_outputs`). Widen the
@@ -168,15 +169,17 @@ the run's tokens and cost.
 | Entry point | Uses |
 |-------------|------|
 | `routes.chat_sernia` (streaming) | `chat_runs.ChatRun` owns execution; `finalize_run` from its `on_complete` |
-| `routes.approve_conversation` | `finalize_run` after `resume_with_approvals`; `save_failed_run` on error |
+| `conversation_handler.approve_general_conversation` | Selected by the shared router; `finalize_run` after `resume_with_approvals`, `save_failed_run` on error |
 | SMS triggers, `run_agent_for_trigger` | `run_and_finalize` |
 
 For the general agent, add a new entry point by building its deps and calling one of these — not by
 copying the steps. `test_run_pipeline.py::TestOnePipeline` fails if an entry
 point starts calling the pipeline's steps directly.
 
-Zillow lead outcomes follow `zillow_leads/handle.py` instead. The shared approval
-endpoint dispatches lead cards there before the general-agent resume path.
+Zillow lead outcomes follow `../zillow_leads/handle.py` instead. The shared approval
+endpoint in `agent_conversations/routes.py` selects that handler from saved metadata
+before importing the general-agent continuation code. Existing `/api/sernia-ai`
+URLs remain supported; see the [HTTP compatibility guide](../agent_conversations/README.md#http-compatibility).
 
 ### Web conversation lifecycle
 
@@ -203,7 +206,9 @@ one additional minute for finalization; expired workers show as interrupted.
 Shutdown cancels and saves active runs. A hard process kill retains the last
 checkpoint, with no automatic replay of potentially completed actions.
 
-Admission is serialized in Postgres, active conversations cannot be overwritten
+Shared status and locking helpers live in `agent_conversations/run_state.py`;
+`chat_runs.py` continues to own the general agent’s running tasks and cancellation
+tokens. Admission is serialized in Postgres, active conversations cannot be overwritten
 or deleted, repeated request IDs are rejected, and final writes check the run ID
 so a superseded worker cannot overwrite a newer run. Terminal status, rather
 than the existence of an assistant message, determines when recovery is complete.
@@ -256,7 +261,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 - **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; mixed internal+external **group texts** are hard-blocked deterministically — a group is always all-internal or all-external (see [`tools/README.md`](tools/README.md))
 - **Unit isolation** — Cross-unit tenant group texts blocked; roommates within a unit share one group thread (see [`tools/README.md`](tools/README.md))
-- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The dedicated Zillow Leads Agent always requires approval; the former auto-reply toggle is no longer used. Its delivery path is described in the [lead-agent guide](zillow_leads/README.md#runtime-boundaries).
+- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The dedicated Zillow Leads Agent has its own approval setting, enabled by default. Its explicit automatic mode never grants tool permissions to the general agent. Its delivery path is described in the [lead-agent guide](../zillow_leads/README.md#runtime-boundaries).
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
 - **Repeat-call loop breaker** — A tool call that fails identically twice in one run gets a "STOP, change approach" instruction appended to the error, so the agent can't spend its whole request budget re-sending arguments that already failed. See [`tools/README.md`](tools/README.md#repeat-call-loop-breaker-_loggingpy)
@@ -267,7 +272,7 @@ Git-backed persistent workspace at `/workspace/`, read and written with the `wor
 - `MEMORY.md` — Long-term memory (injected into every conversation)
 - `daily_notes/` — Date-stamped notes per topic
 - `areas/` — Deep knowledge by domain (properties, tenants, etc.)
-- `.claude/skills/` — Playbooks and procedures. The harness `Skills` capability (`pydantic_ai_harness.Skills`) reads them at the start of every run: the catalog (name + description) is injected into the instructions, and the agent loads a skill's body with the `load_capability` tool. It reads `SKILL.md` only; a skill's other files are ordinary workspace files, and nothing runs scripts. Workspace file tools (`workspace_write_file` / `workspace_edit_file`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs. One skill is not in the workspace: `zillow-auto-reply` is built in code from `zillow_leads/prompts/policy.md` (see `zillow_leads/skill.py`) as a deferred capability in the same catalog. It ships with the deploy, and a workspace skill of the same name is left out of the catalog.
+- `.claude/skills/` — Playbooks and procedures. The harness `Skills` capability (`pydantic_ai_harness.Skills`) reads them at the start of every run: the catalog (name + description) is injected into the instructions, and the agent loads a skill's body with the `load_capability` tool. It reads `SKILL.md` only; a skill's other files are ordinary workspace files, and nothing runs scripts. Workspace file tools (`workspace_write_file` / `workspace_edit_file`) are reserved for **editing** skills. Path mirrors Claude Code's convention so the workspace is interoperable with `cd workspace && claude` runs. One skill is not in the workspace: `zillow-auto-reply` is built in code from `../zillow_leads/prompts/policy.md` (see `lead_policy.py`) as a deferred capability in the same catalog. It ships with the deploy, and a workspace skill of the same name is left out of the catalog.
 
 ### Server-Side vs Knowledge-Repo Content
 

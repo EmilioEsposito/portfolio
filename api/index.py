@@ -53,7 +53,7 @@ logfire.info("STARTUP1")
 with logfire.span("Creating AI Agent Routes"):
     from api.src.ai_demos.routes import router as ai_demos_router
     from api.src.sernia_ai.routes import router as sernia_ai_router
-
+from api.src.agent_conversations.routes import router as agent_conversations_router
 from api.src.apscheduler_service.routes import router as apscheduler_router
 from api.src.apscheduler_service.service import get_scheduler, register_hello_apscheduler_jobs
 from api.src.clickup.service import register_clickup_apscheduler_jobs
@@ -76,6 +76,7 @@ from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
 from api.src.user.routes import router as user_router
+from api.src.zillow_leads.settings import router as zillow_leads_router
 
 # from api.src.future_features.schema import Query as FutureQuery, Mutation as FutureMutation
 # from api.src.another_feature.schema import Query as AnotherQuery, Mutation as AnotherMutation
@@ -142,7 +143,7 @@ async def _apscheduler_startup_async() -> None:
             # Register production scheduled jobs (moved from DBOS)
             register_clickup_apscheduler_jobs()
             await register_scheduled_triggers()
-            from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+            from api.src.zillow_leads.queue import (
                 register_zillow_email_queue,
             )
 
@@ -321,6 +322,10 @@ app.add_middleware(
 # Include all routers
 app.include_router(ai_demos_router, prefix="/api")
 app.include_router(sernia_ai_router, prefix="/api")
+app.include_router(agent_conversations_router, prefix="/api/agent-conversations")
+# Existing clients retain their conversation URLs; both mounts share auth and handlers.
+app.include_router(agent_conversations_router, prefix="/api/sernia-ai")
+app.include_router(zillow_leads_router, prefix="/api")
 app.include_router(open_phone_router, prefix="/api")
 app.include_router(cron_router, prefix="/api")
 app.include_router(google_router, prefix="/api")

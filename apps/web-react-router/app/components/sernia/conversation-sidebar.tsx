@@ -605,7 +605,7 @@ export function ConversationSidebar({
             <SidebarMenuButton
               tooltip="Rental Listings"
               onClick={() => {
-                navigate("/sernia-rental-listings");
+                navigate("/systems/leasing-leads/listings");
                 if (isMobile) toggleSidebar();
               }}
             >

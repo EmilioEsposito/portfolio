@@ -14,16 +14,16 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
-from api.src.sernia_ai.zillow_leads import listing_data
-from api.src.sernia_ai.zillow_leads.case import (
+from api.src.tests.test_rental_listings import clear_rental_data
+from api.src.zillow_leads import listing_data
+from api.src.zillow_leads.case import (
     Listing,
     ListingData,
     ShowingWindow,
     build_case,
     render_case,
 )
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
-from api.src.tests.test_rental_listings import clear_rental_data
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
 
 AFTERNOONS = PreferredWindow(days=["mon", "tue"], start=time(15), end=time(18))
 LISTING = RentalListing(

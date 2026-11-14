@@ -36,7 +36,7 @@ _ATTR_CACHE_READ = "gen_ai.usage.details.cache_read_tokens"
 _ATTR_CACHE_WRITE = "gen_ai.usage.details.cache_write_tokens"
 
 # Exact amount the gateway billed for the request (OpenRouter's `usage.cost`).
-# Stamped by `sernia_ai.model_config.stamp_openrouter_cost`; pydantic-ai never
+# Stamped by `utils.openrouter_models.stamp_openrouter_cost`; pydantic-ai never
 # writes it, so it survives the instrumentation overwriting `operation.cost`.
 ATTR_BILLED_COST = "operation.billed_cost"
 

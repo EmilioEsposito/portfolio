@@ -22,15 +22,15 @@ job implementation. Registration and execution follow the
 |--------|----------|-------------|
 | `clickup_peppino_tasks_scheduled` | 8am, 5pm ET | ClickUp task reminders |
 | `sernia_scheduled_checks` | Runtime-configured days/hours, ET | General-agent scheduled checks (`sernia_ai/triggers/scheduled_triggers.py`) |
-| `zillow-email-queue` | Every 30 seconds | Durable queue worker for the dedicated Zillow Leads Agent (`sernia_ai/triggers/zillow_email_event_trigger.py`) |
+| `zillow-email-queue` | Every 30 seconds | Durable queue worker for the dedicated Zillow Leads Agent (`zillow_leads/queue.py`) |
 | `escalation-outbox` | Every 15 seconds | Recover pending emergency assessments/deliveries (`open_phone/escalation_delivery.py`) |
 | `hello_world_apscheduler_job` | Once at startup | Demo/test job |
 
 ---
 
 The retired Zillow scheduled assessor and its SQL were removed. The active
-Zillow queue calls `sernia_ai/zillow_leads/handle.py`; it does not create phone
-contacts or calendar events. See the [lead-agent guide](../sernia_ai/zillow_leads/README.md).
+Zillow queue calls `zillow_leads/handle.py`; it does not create phone
+contacts or calendar events. See the [lead-agent guide](../zillow_leads/README.md).
 
 ### API Endpoints
 

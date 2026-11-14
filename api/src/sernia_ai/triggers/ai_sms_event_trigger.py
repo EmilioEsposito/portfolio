@@ -39,22 +39,22 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from api.src.agent_conversations.identity import TRIGGER_BOT_ID
 from api.src.agent_conversations.models import get_conversation_messages
 from api.src.database.database import AsyncSessionFactory
+from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
 from api.src.open_phone.service import find_contacts_by_phone
 from api.src.sernia_ai.config import (
-    GOOGLE_DELEGATION_EMAIL,
     QUO_INTERNAL_COMPANY,
     QUO_SERNIA_AI_PHONE_ID,
     SMS_CONVERSATION_MAX_MESSAGES,
     SMS_HISTORY_MIN_DAYS,
     SMS_HISTORY_MIN_MESSAGES,
-    TRIGGER_BOT_ID,
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.models import is_sernia_ai_enabled
 from api.src.sernia_ai.runs import RunOutcome, run_and_finalize
+from api.src.utils.automation import is_sernia_ai_enabled
 
 # ---------------------------------------------------------------------------
 # Sliding-window rate limiter — allows up to AI_SMS_RATE_LIMIT_MAX_CALLS
@@ -914,7 +914,7 @@ async def _handle_group_sms(
                 "trigger_contact_name": "Group: " + ", ".join(name_by_phone[p] for p in all_humans),
                 "openphone_conversation_id": quo_conv_id,
                 # Post-approval replies use this to respond into the group
-                # thread instead of 1:1 (see routes.approve_conversation).
+                # thread instead of 1:1 (see conversation_handler.approve_general_conversation).
                 "trigger_group_participants": all_humans,
             },
             modality="sms",

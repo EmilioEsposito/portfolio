@@ -16,12 +16,9 @@ from pydantic import EmailStr
 from pydantic_ai import ApprovalRequired, FunctionToolset, RunContext
 
 from api.src.apscheduler_service.service import get_scheduler
+from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
 from api.src.sernia_ai.deps import SerniaDeps
-from api.src.sernia_ai.tools.google_tools import (
-    GMAIL_SCOPES,
-    _get_threading_headers,
-    resolve_email_routing,
-)
+from api.src.sernia_ai.tools.google_tools import resolve_email_routing
 from api.src.sernia_ai.tools.quo_tools import (
     _build_quo_client,
     _seed_sms_conversation,

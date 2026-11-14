@@ -24,16 +24,16 @@ from pydantic_ai.tools import RunContext
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from pydantic_ai.ui.vercel_ai.response_types import BaseChunk, ErrorChunk
 from pydantic_ai.usage import UsageLimits
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 
+from api.src.agent_conversations.identity import AGENT_NAME
 from api.src.agent_conversations.models import AgentConversation
+from api.src.agent_conversations.run_state import RUN_KEY, public_run
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import AGENT_NAME
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.runs import finalize_run, save_failed_run
 
-RUN_KEY = "web_chat_run"
 MAX_RUN_SECONDS = 15 * 60
 _tasks: set[asyncio.Task] = set()
 _tokens: dict[tuple[str, str], CancellationToken] = {}
@@ -47,34 +47,6 @@ def new_run(request_id: str) -> dict[str, Any]:
         "started_at": now.isoformat(),
         "expires_at": (now + timedelta(seconds=MAX_RUN_SECONDS + 60)).isoformat(),
     }
-
-
-def public_run(metadata: dict | None) -> dict | None:
-    run = (metadata or {}).get(RUN_KEY)
-    if not isinstance(run, dict):
-        return None
-    run = dict(run)
-    if run.get("status") == "running":
-        try:
-            if datetime.fromisoformat(run["expires_at"]) < datetime.now(UTC):
-                run["status"] = "interrupted"
-        except (KeyError, TypeError, ValueError):
-            run["status"] = "interrupted"
-    return run
-
-
-async def lock_conversation(session, conversation_id: str) -> None:
-    # A transaction lock also serializes admission for a not-yet-created row.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:id, 0))"),
-        {"id": f"sernia-chat:{conversation_id}"},
-    )
-
-
-def require_idle(metadata: dict | None) -> None:
-    run = public_run(metadata)
-    if run and run["status"] == "running":
-        raise HTTPException(409, "This conversation is still running. Wait or cancel it first.")
 
 
 async def cancel_run(conversation_id: str, request_id: str) -> dict | None:

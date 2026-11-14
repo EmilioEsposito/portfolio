@@ -23,7 +23,13 @@ The provisioner prints the assigned preview URL and configures the API proxy.
 - `/`: portfolio and selected work.
 - `/multi-agent-chat`: agent showcase with streamed execution activity.
 - `/systems/leasing-leads`: Zillow Leads Agent architecture, listing-data flow, planned booking integration, and evaluation links. Public and server-rendered; verified Sernia users also see management links.
-- `/sernia-rental-listings`: authenticated standalone listing editor, using the main site navigation (no conversation pane).
+- `/systems/leasing-leads/listings`: authenticated rental listing data tab; no conversation pane.
+- `/systems/leasing-leads/settings`: dedicated lead batching and email-approval settings.
+- `/systems/leasing-leads/bookings`: authenticated booking settings placeholder.
+
+The public architecture and these operator pages share route-backed navigation
+tabs. `/sernia-rental-listings` redirects to the listing tab; the legacy
+`/sernia-settings#zillow-leads` link redirects to Agent settings.
 - `/calendly`: meeting scheduling.
 
 The retired `/ai-email-responder` and `/ai-email-responder/architecture` URLs

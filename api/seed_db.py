@@ -137,8 +137,8 @@ async def seed_app_settings(dry_run: bool = False) -> None:
     """
     from sqlalchemy import select
 
+    from api.src.database.app_settings import AppSetting
     from api.src.database.database import AsyncSessionFactory
-    from api.src.sernia_ai.models import AppSetting
 
     async with AsyncSessionFactory() as session:
         existing = (
@@ -325,9 +325,9 @@ async def seed_sample_conversations(dry_run: bool = False) -> None:
 
     from sqlalchemy import select
 
+    from api.src.agent_conversations.identity import AGENT_NAME
     from api.src.agent_conversations.models import AgentConversation, save_agent_conversation
     from api.src.database.database import AsyncSessionFactory
-    from api.src.sernia_ai.config import AGENT_NAME
 
     samples = _build_sample_conversations()
 

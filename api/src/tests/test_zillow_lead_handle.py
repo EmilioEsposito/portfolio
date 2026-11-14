@@ -20,11 +20,12 @@ from api.src.agent_conversations.models import (
     get_conversation_messages,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.zillow_leads import handle, listing_data
-from api.src.sernia_ai.zillow_leads.agent import LeadOutcome
-from api.src.sernia_ai.zillow_leads.case import BookedTour, Listing, ListingData, TourSlot
-from api.src.sernia_ai.zillow_leads.thread import LeadMessage, LeadThread
-from api.src.sernia_ai.zillow_leads.tours import Tours
+from api.src.zillow_leads import handle, listing_data
+from api.src.zillow_leads.agent import LeadOutcome
+from api.src.zillow_leads.case import BookedTour, Listing, ListingData, TourSlot
+from api.src.zillow_leads.identity import is_lead_conversation
+from api.src.zillow_leads.thread import LeadMessage, LeadThread
+from api.src.zillow_leads.tours import Tours
 
 RELAY = "abc123@convo.zillow.com"
 _OUTCOME = TypeAdapter(LeadOutcome)
@@ -155,7 +156,7 @@ class TestHandleThread:
         assert handled == handle.Handled(persisted=True, action="reply", pending=True)
         handle.send_reply.assert_not_called()
         row, messages = await stored(conversation_id)
-        assert handle.is_lead_conversation(row.metadata_)
+        assert is_lead_conversation(row.metadata_)
         assert row.metadata_["trigger_source"] == "zillow_email_event"
         assert row.metadata_["reply_route"] == {
             "to": RELAY,
@@ -431,9 +432,9 @@ class TestApplyApproval:
 
 
 def test_only_lead_conversations_are_marked():
-    assert handle.is_lead_conversation({"handler": handle.HANDLER})
-    assert not handle.is_lead_conversation({"trigger_source": "zillow_email_event"})
-    assert not handle.is_lead_conversation(None)
+    assert is_lead_conversation({"handler": handle.HANDLER})
+    assert not is_lead_conversation({"trigger_source": "zillow_email_event"})
+    assert not is_lead_conversation(None)
 
 
 class TestRoutes:
@@ -490,16 +491,18 @@ class TestRoutes:
 
     @pytest.mark.asyncio
     async def test_approving_a_lead_conversation_runs_code_not_an_agent(self, monkeypatch):
-        from api.src.sernia_ai import routes
+        from api.src.agent_conversations import routes
+        from api.src.agent_conversations.schemas import ApprovalRequest
+        from api.src.sernia_ai import conversation_handler
 
         monkeypatch.setattr(
             routes, "get_agent_conversation", AsyncMock(return_value=self.lead_conversation())
         )
         applied = AsyncMock(return_value={"status": "completed"})
         resumed = AsyncMock()
-        monkeypatch.setattr(routes, "apply_lead_approval", applied)
-        monkeypatch.setattr(routes, "resume_with_approvals", resumed)
-        body = routes.ApprovalRequest(decisions=[{"tool_call_id": "lead-1", "approved": True}])
+        monkeypatch.setattr(handle, "apply_approval", applied)
+        monkeypatch.setattr(conversation_handler, "resume_with_approvals", resumed)
+        body = ApprovalRequest(decisions=[{"tool_call_id": "lead-1", "approved": True}])
 
         result = await routes.approve_conversation(
             "c1", body, user=self.user(), session=MagicMock()

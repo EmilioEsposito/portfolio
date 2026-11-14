@@ -22,7 +22,7 @@ from api.src.open_phone.escalation_policy import (
     escalation_question,
 )
 from api.src.open_phone.typesafe_openrouter import OpenRouterDecisionResponse, create_jev_client
-from api.src.sernia_ai.model_config import build_openrouter_settings, resolve_model
+from api.src.utils.openrouter_models import build_openrouter_settings, resolve_model
 
 
 class ShouldEscalate(BaseModel):

@@ -30,6 +30,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from sqlalchemy import delete
 
 from api.src.agent_conversations.hitl import ApprovalDecision
+from api.src.agent_conversations.identity import AGENT_NAME, TRIGGER_BOT_ID
 from api.src.agent_conversations.models import (
     AgentConversation,
     extract_pending_approval_from_messages,
@@ -37,9 +38,9 @@ from api.src.agent_conversations.models import (
     get_conversation_messages,
 )
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import AGENT_NAME, TRIGGER_BOT_ID
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import _sanitize_tool_calls
-from api.src.sernia_ai.zillow_leads import handle
+from api.src.zillow_leads import handle
+from api.src.zillow_leads.identity import is_lead_conversation
 
 STORED = json.loads(
     (Path(__file__).parent / "stored_history" / "pydantic_ai_1_107_6.json").read_text()
@@ -171,7 +172,7 @@ class TestLeadConversation:
             messages = await get_conversation_messages(conversation_id, None, session=session)
         (card,) = extract_pending_approval_from_messages(messages)
         assert card["tool_name"] == handle.SEND_REPLY
-        assert handle.is_lead_conversation(row.metadata_)
+        assert is_lead_conversation(row.metadata_)
 
         async with AsyncSessionFactory() as session:
             result = await handle.apply_approval(

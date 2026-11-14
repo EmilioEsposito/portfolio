@@ -23,13 +23,13 @@ from api.src.sernia_ai.general_agent import (
     build_workspace_skills,
     sernia_agent,
 )
-from api.src.sernia_ai.zillow_leads import agent as agent_module
-from api.src.sernia_ai.zillow_leads.skill import (
+from api.src.sernia_ai.lead_policy import (
     PREFACE,
     SKILL_NAME,
     lead_policy_skill,
     lead_policy_text,
 )
+from api.src.zillow_leads import agent as agent_module
 
 
 def _write_skill(workspace: Path, name: str, description: str, body: str) -> None:

@@ -34,19 +34,16 @@ class NoAction(BaseModel):
     reason: str
 
 
-from api.src.sernia_ai.config import (
-    AGENT_NAME,
-    MAIN_AGENT_MODEL,
-    WEB_SEARCH_ALLOWED_DOMAINS,
-    WORKSPACE_PATH,
-)
+from api.src.agent_conversations.identity import AGENT_NAME
+from api.src.sernia_ai.config import MAIN_AGENT_MODEL, WEB_SEARCH_ALLOWED_DOMAINS, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.instructions import (
     DYNAMIC_INSTRUCTIONS,
     STATIC_INSTRUCTIONS,
     refresh_from_remote,
 )
-from api.src.sernia_ai.model_config import resolve_model
+from api.src.sernia_ai.lead_policy import SKILL_NAME as LEAD_POLICY_SKILL_NAME
+from api.src.sernia_ai.lead_policy import lead_policy_skill
 from api.src.sernia_ai.sub_agents import compact_history, summarize_tool_results
 from api.src.sernia_ai.tools._logging import ErrorLoggingToolset
 from api.src.sernia_ai.tools.clickup_tools import clickup_toolset
@@ -64,8 +61,7 @@ from api.src.sernia_ai.tools.scheduling_tools import scheduling_toolset
 from api.src.sernia_ai.tools.templated_message_tools import templated_message_toolset
 from api.src.sernia_ai.tools.workspace_tools import CAPABILITY_ID as WORKSPACE_CAPABILITY_ID
 from api.src.sernia_ai.tools.workspace_tools import SerniaWorkspace, build_workspace_toolset
-from api.src.sernia_ai.zillow_leads.skill import SKILL_NAME as LEAD_POLICY_SKILL_NAME
-from api.src.sernia_ai.zillow_leads.skill import lead_policy_skill
+from api.src.utils.openrouter_models import resolve_model
 
 # Ensure workspace directory exists (full init with git sync happens in lifespan)
 WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
@@ -156,7 +152,7 @@ workspace_skills = build_workspace_skills(WORKSPACE_PATH)
 
 # One skill is built in code instead: the Zillow lead policy, which the lead
 # agent also runs on. It sits in the same catalog as the workspace skills and
-# loads the same way. See zillow_leads/skill.py.
+# loads the same way. See lead_policy.py.
 lead_policy_capability = lead_policy_skill()
 
 # The tools that read and change rental listing data (rent, rented status, facts,

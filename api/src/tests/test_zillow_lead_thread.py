@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from googleapiclient.errors import HttpError
 
-from api.src.sernia_ai.config import GOOGLE_DELEGATION_EMAIL, SHARED_EXTERNAL_EMAIL
-from api.src.sernia_ai.zillow_leads import thread as lead_thread
+from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL, SHARED_EXTERNAL_EMAIL
+from api.src.zillow_leads import thread as lead_thread
 
 LEAD = "Jane Doe <abc123@convo.zillow.com>"
 SERNIA = f"Sernia Capital <{SHARED_EXTERNAL_EMAIL}>"
@@ -257,7 +257,7 @@ class TestLoadLeadThread:
 
 class TestTidyZillowForm:
     def test_a_relayed_message_keeps_the_lead_words_once(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         body = (
             "Could we do 11 tomorrow?  Regarding your listing at:  12 Example St #A, Town, PA 15224 "
@@ -274,7 +274,7 @@ class TestTidyZillowForm:
         )
 
     def test_a_first_inquiry_keeps_the_profile_and_drops_the_button(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         body = (
             "I would like to schedule a tour. Send application About Pat Doe  Move in  Aug 01, 2026 "
@@ -301,7 +301,7 @@ class TestTidyZillowForm:
         assert tidy_zillow_form(tidy) == tidy  # applying it again changes nothing
 
     def test_a_profile_with_fields_missing_is_still_recognised(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         # No move-in date and no button: the profile starts at another field.
         body = (
@@ -328,7 +328,7 @@ class TestTidyZillowForm:
         assert tidy_zillow_form("Hi  About Pat Doe  Pets  Yes").endswith("- Pets: Yes")
 
     def test_a_sentence_that_mentions_a_field_is_not_a_profile(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         for text in (
             "A question about pets: Pets are allowed, right?",
@@ -338,7 +338,7 @@ class TestTidyZillowForm:
             assert tidy_zillow_form(text) == text
 
     def test_a_bare_button_is_dropped_and_plain_text_is_left_alone(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         assert tidy_zillow_form("Texting is preferred. Send application") == "Texting is preferred."
         assert tidy_zillow_form("See you then!") == "See you then!"
@@ -347,7 +347,7 @@ class TestTidyZillowForm:
         assert tidy_zillow_form(about) == about
 
     def test_suggested_replies_after_the_button_go_with_it(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         body = (
             "Just confirming you don't allow any dogs? Send applicationYes that's fineSorry I "
@@ -363,7 +363,7 @@ class TestTidyZillowForm:
         assert tidy_zillow_form(tidy) == tidy
 
     def test_a_relayed_message_with_its_tail_cut_off(self):
-        from api.src.sernia_ai.zillow_leads.thread import tidy_zillow_form
+        from api.src.zillow_leads.thread import tidy_zillow_form
 
         warning = (
             "Some rental inquiries may be scams. If a message asks you to scan a QR code, select "

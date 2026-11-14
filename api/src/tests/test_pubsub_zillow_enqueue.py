@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from api.src.google.pubsub import routes
-from api.src.sernia_ai.triggers import zillow_email_event_trigger as queue
+from api.src.zillow_leads import queue as queue
 
 NOTIFICATION = {"emailAddress": "emilio@serniacapital.com", "historyId": "12345"}
 

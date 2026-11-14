@@ -15,7 +15,7 @@ from pydantic_ai import ApprovalRequired
 
 from api.src.sernia_ai.tools import google_tools
 from api.src.sernia_ai.tools.google_tools import is_auto_approved_reply
-from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
+from api.src.zillow_leads.queue import (
     ZILLOW_EMAIL_DOMAIN,
     is_zillow_email,
 )
@@ -233,8 +233,8 @@ class TestAutoApprovedSendLedger:
     async def test_a_key_can_be_claimed_exactly_once(self):
         from sqlalchemy import delete
 
+        from api.src.agent_conversations.delivery import AutoApprovedSend, claim_auto_approved_send
         from api.src.database.database import AsyncSessionFactory
-        from api.src.sernia_ai.models import AutoApprovedSend, claim_auto_approved_send
 
         key = f"<{uuid.uuid4().hex}@convo.zillow.com>"
         try:

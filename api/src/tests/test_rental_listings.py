@@ -12,12 +12,12 @@ from pydantic import ValidationError
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service
 from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.models import RentalListingChange, RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
-from api.src.sernia_ai.models import AppSetting
 
 LISTING = RentalListing(
     unit="12-A",
