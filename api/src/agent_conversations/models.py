@@ -334,6 +334,7 @@ async def save_agent_conversation(
     cost_last_run: float | None = None,
     modality: str | None = None,
     contact_identifier: str | None = None,
+    expected_run_id: str | None = None,
 ) -> AgentConversation:
     """
     Save or update an agent conversation.
@@ -381,8 +382,18 @@ async def save_agent_conversation(
     # This is idiomatic SQLAlchemy ORM.
     # populate_existing: the caller's session may have loaded this row before a
     # long agent run; re-read it so we merge onto what is in the DB now.
-    existing = await session.get(AgentConversation, conversation_id, populate_existing=True)
+    existing = await session.get(
+        AgentConversation,
+        conversation_id,
+        populate_existing=True,
+        with_for_update=bool(expected_run_id),
+    )
     prior_metadata = existing.metadata_ if existing is not None else None
+    if (
+        expected_run_id
+        and (prior_metadata or {}).get("web_chat_run", {}).get("id") != expected_run_id
+    ):
+        raise ValueError("Conversation run was superseded or deleted")
     carried = {
         k: v
         for k, v in (prior_metadata if isinstance(prior_metadata, dict) else {}).items()
@@ -430,6 +441,7 @@ async def persist_agent_run_result(
     metadata: dict[str, Any] | None = None,
     modality: str | None = None,
     contact_identifier: str | None = None,
+    expected_run_id: str | None = None,
 ) -> bool:
     """
     Convenience function to persist an agent run result to the database.
@@ -488,6 +500,7 @@ async def persist_agent_run_result(
                     cost_last_run=cost,
                     modality=modality,
                     contact_identifier=contact_identifier,
+                    expected_run_id=expected_run_id,
                 )
             logfire.info(
                 f"Conversation {conversation_id} saved to database for agent {agent_name} and clerk_user_id {clerk_user_id}"
@@ -643,6 +656,9 @@ async def list_user_conversations(
             pending: list[dict] = []
 
             if pending_only:
+                web_run = (row.metadata_ or {}).get("web_chat_run")
+                if web_run and web_run.get("status") != "completed":
+                    continue
                 # Load full conversation to check pending status
                 conv = await get_agent_conversation(s, row.id, clerk_user_id)
                 if conv and conv.messages:
@@ -668,6 +684,7 @@ async def list_user_conversations(
                     "cost_last_run": row.cost_last_run,
                     "cost_total": row.cost_total or 0,
                     "run_count": row.run_count or 0,
+                    "run": metadata.get("web_chat_run"),
                     "contact_identifier": row.contact_identifier,
                     "participant": _compute_participant(
                         modality=modality,

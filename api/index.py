@@ -228,6 +228,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown logic
     logfire.info("Application shutdown...")
+    from api.src.sernia_ai.chat_runs import shutdown_chat_runs
+
+    await shutdown_chat_runs()
 
     # Cancel background startup tasks if still running
     for task_name in ("apscheduler_startup_task",):  # DBOS disabled

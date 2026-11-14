@@ -6,7 +6,6 @@ Live:  Sends a real push notification to all subscribed devices (requires VAPID 
 """
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -264,53 +263,29 @@ async def test_persist_agent_run_result_reports_commit_status(monkeypatch):
 @pytest.mark.asyncio
 async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monkeypatch):
     from api.src.agent_conversations import models
-    from api.src.sernia_ai import routes, runs
+    from api.src.sernia_ai import runs
+    from api.src.sernia_ai.chat_runs import ChatRun
 
     save_started = asyncio.Event()
     allow_save_to_finish = asyncio.Event()
-    session = MagicMock()
 
     class FakeSessionContext:
         async def __aenter__(self):
-            return session
+            return MagicMock()
 
-        async def __aexit__(self, exc_type, exc, traceback):
+        async def __aexit__(self, *args):
             return False
 
     result = MagicMock()
     result.output = "Completed response"
     result.all_messages.return_value = []
-    result.usage.return_value = MagicMock(
-        total_tokens=0,
-        input_tokens=0,
-        output_tokens=0,
-    )
 
     async def delayed_successful_save(**kwargs):
         save_started.set()
         await allow_save_to_finish.wait()
 
-    monkeypatch.setattr(models, "provide_session", FakeSessionContext)
-    monkeypatch.setattr(models, "save_agent_conversation", delayed_successful_save)
-
-    request = MagicMock()
-
-    async def stream_request():
-        yield json.dumps(
-            {
-                "id": "conversation-123",
-                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
-            }
-        ).encode()
-
-    request.stream = stream_request
-    user = MagicMock()
-    user.id = "user-456"
-    user.first_name = "Test"
-    user.last_name = "User"
-    user.email_addresses = []
-    scheduled_tasks: list[str | None] = []
-    response_notification: dict[str, str] = {}
+    scheduled_tasks = []
+    response_notification = {}
 
     def capture_response_notification(**kwargs):
         response_notification.update(kwargs)
@@ -323,35 +298,24 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
     def capture_task(coro, *, name=None):
         scheduled_tasks.append(name)
         coro.close()
-        return MagicMock()
 
-    async def dispatch_after_persistence(_request, **kwargs):
-        await kwargs["on_complete"](result)
-        return routes.Response(content="")
-
-    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
-    monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
+    monkeypatch.setattr(models, "provide_session", FakeSessionContext)
+    monkeypatch.setattr(models, "save_agent_conversation", delayed_successful_save)
     monkeypatch.setattr(runs, "extract_pending_approvals", MagicMock(return_value=[]))
     monkeypatch.setattr(runs, "notify_chat_response", capture_response_notification)
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
-    monkeypatch.setattr(routes.VercelAIAdapter, "dispatch_request", dispatch_after_persistence)
-
-    chat_request = asyncio.create_task(
-        routes.chat_sernia(
-            request=request,
-            user=user,
-            session=MagicMock(),
-        )
+    deps = MagicMock(
+        conversation_id="conversation-123", user_identifier="user-456", sms_reply_recipients=[]
     )
+    execution = ChatRun(MagicMock(), [], deps, {"id": "run-123"})
+    completion = asyncio.create_task(execution.complete(result))
     await asyncio.wait_for(save_started.wait(), timeout=5)
-
-    chat_request.cancel()
+    assert "notify_chat_response" not in scheduled_tasks
+    completion.cancel()
     allow_save_to_finish.set()
+    await completion
 
-    response = await chat_request
-
-    assert response.status_code == 200
+    assert execution.finished
     assert scheduled_tasks == ["git_sync", "notify_chat_response"]
     assert response_notification == {
         "conversation_id": "conversation-123",
@@ -361,51 +325,27 @@ async def test_cancelled_chat_waits_for_commit_then_schedules_response_push(monk
 
 
 @pytest.mark.asyncio
-async def test_chat_route_skips_push_when_persistence_fails(monkeypatch):
-    from api.src.sernia_ai import routes, runs
-
-    request = MagicMock()
-
-    async def stream_request():
-        yield json.dumps(
-            {
-                "id": "conversation-123",
-                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Hi"}]}],
-            }
-        ).encode()
-
-    request.stream = stream_request
-    user = MagicMock()
-    user.id = "user-456"
-    user.first_name = "Test"
-    user.last_name = "User"
-    user.email_addresses = []
+async def test_chat_run_skips_push_when_persistence_fails(monkeypatch):
+    from api.src.sernia_ai import runs
+    from api.src.sernia_ai.chat_runs import ChatRun
 
     result = MagicMock()
     result.output = "Completed response"
-    scheduled_tasks: list[str | None] = []
+    scheduled_tasks = []
 
     def capture_task(coro, *, name=None):
         scheduled_tasks.append(name)
         coro.close()
-        return MagicMock()
 
-    async def dispatch_with_failed_persistence(_request, **kwargs):
-        await kwargs["on_complete"](result)
-        return routes.Response(content="")
-
-    monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=None))
-    monkeypatch.setattr(routes, "get_conversation_messages", AsyncMock(return_value=[]))
     monkeypatch.setattr(runs, "persist_agent_run_result", AsyncMock(return_value=False))
-    monkeypatch.setattr(routes, "resolve_active_run_kwargs", AsyncMock(return_value={}))
     monkeypatch.setattr(runs, "create_logged_task", capture_task)
-    monkeypatch.setattr(
-        routes.VercelAIAdapter, "dispatch_request", dispatch_with_failed_persistence
+    deps = MagicMock(
+        conversation_id="conversation-123", user_identifier="user-456", sms_reply_recipients=[]
     )
-
-    response = await routes.chat_sernia(request=request, user=user, session=MagicMock())
-
-    assert response.status_code == 200
+    execution = ChatRun(MagicMock(), [], deps, {"id": "run-123"})
+    with pytest.raises(RuntimeError, match="could not be saved"):
+        await execution.complete(result)
+    assert not execution.finished
     assert scheduled_tasks == ["git_sync"]
 
 

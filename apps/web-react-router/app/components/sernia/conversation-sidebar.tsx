@@ -7,7 +7,6 @@ import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Badge } from "~/components/ui/badge";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import {
   Sidebar,
   SidebarContent,
@@ -43,23 +42,27 @@ import {
 
 const API_BASE = "/api/sernia-ai";
 
-export interface ConversationSummary {
-  conversation_id: string;
-  modality: string;
-  preview: string;
-  has_pending: boolean;
-  trigger_source: string | null;
-  trigger_contact_name: string | null;
-  participant?: string;
-  created_at: string | null;
-  updated_at: string | null;
-}
+export type { ConversationSummary } from "~/lib/sernia-conversations";
+import {
+  type ConversationSummary,
+  CONVERSATIONS_CHANGED,
+  mergeConversationSummaries,
+  acceptConversationSummaries,
+} from "~/lib/sernia-conversations";
 
 type SourceFilter = "all" | "web_chat" | "sms";
 
-const SOURCE_FILTERS: { value: SourceFilter; label: string; icon: React.ReactNode }[] = [
+const SOURCE_FILTERS: {
+  value: SourceFilter;
+  label: string;
+  icon: React.ReactNode;
+}[] = [
   { value: "all", label: "All", icon: null },
-  { value: "web_chat", label: "Chat", icon: <MessageSquare className="w-3 h-3" /> },
+  {
+    value: "web_chat",
+    label: "Chat",
+    icon: <MessageSquare className="w-3 h-3" />,
+  },
   { value: "sms", label: "SMS", icon: <Phone className="w-3 h-3" /> },
 ];
 
@@ -76,7 +79,7 @@ function modalityIcon(conv: ConversationSummary) {
       <Mail
         className={cn(
           "w-3.5 h-3.5 text-muted-foreground",
-          conv.trigger_source === "zillow_email" && "text-blue-500"
+          conv.trigger_source === "zillow_email" && "text-blue-500",
         )}
       />
     );
@@ -107,7 +110,7 @@ function formatGroupLabel(date: Date): string {
     return c;
   };
   const diffDays = Math.round(
-    (midnight(new Date()).getTime() - midnight(date).getTime()) / 86_400_000
+    (midnight(new Date()).getTime() - midnight(date).getTime()) / 86_400_000,
   );
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
@@ -127,7 +130,7 @@ interface ConversationGroup {
 }
 
 function groupConversationsByDate(
-  convos: ConversationSummary[]
+  convos: ConversationSummary[],
 ): ConversationGroup[] {
   const map = new Map<string, ConversationGroup>();
   for (const c of convos) {
@@ -162,34 +165,6 @@ function setCachedConversations(convos: ConversationSummary[]) {
   cacheTimestamp = Date.now();
 }
 
-// ---- Prefetch function (call early, outside component) ----
-let prefetchPromise: Promise<ConversationSummary[]> | null = null;
-
-export function prefetchConversations(getToken: () => Promise<string | null>) {
-  if (getCachedConversations()) return;
-  if (prefetchPromise) return;
-
-  prefetchPromise = (async () => {
-    try {
-      const token = await getToken();
-      const res = await fetch(`${API_BASE}/conversations/history?limit=30`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const convos = data.conversations || [];
-        setCachedConversations(convos);
-        return convos;
-      }
-    } catch {
-      // silent fail for prefetch
-    } finally {
-      prefetchPromise = null;
-    }
-    return [];
-  })();
-}
-
 // ---- Main component ----
 
 interface ConversationSidebarProps {
@@ -213,7 +188,7 @@ export function ConversationSidebar({
     user?.primaryEmailAddress?.emailAddress === "emilio@serniacapital.com";
 
   const [conversations, setConversations] = useState<ConversationSummary[]>(
-    () => getCachedConversations() || []
+    () => getCachedConversations() || [],
   );
   const [isLoading, setIsLoading] = useState(!getCachedConversations());
   const [searchQuery, setSearchQuery] = useState("");
@@ -236,7 +211,8 @@ export function ConversationSidebar({
         });
         if (res.ok && fetchId === fetchRef.current) {
           const data = await res.json();
-          const convos = data.conversations || [];
+          if (fetchId !== fetchRef.current) return;
+          const convos = acceptConversationSummaries(data.conversations || []);
           setConversations(convos);
           setCachedConversations(convos);
         }
@@ -246,7 +222,7 @@ export function ConversationSidebar({
         if (fetchId === fetchRef.current) setIsLoading(false);
       }
     },
-    [isSignedIn, getToken]
+    [isSignedIn, getToken],
   );
 
   // Initial load: use cache or wait for prefetch, then fetch fresh
@@ -259,20 +235,44 @@ export function ConversationSidebar({
       setIsLoading(false);
       // Still refresh in background
       fetchConversations({ silent: true });
-    } else if (prefetchPromise) {
-      // Wait for in-flight prefetch
-      prefetchPromise.then((convos) => {
-        if (convos && convos.length > 0) {
-          setConversations(convos);
-          setIsLoading(false);
-        } else {
-          fetchConversations();
-        }
-      });
     } else {
       fetchConversations();
     }
   }, [isSignedIn, fetchConversations]);
+
+  // Local submissions appear synchronously; receipt/completion refresh the DB copy.
+  useEffect(() => {
+    const refresh = () => {
+      setConversations((previous) => mergeConversationSummaries(previous));
+      void fetchConversations({ silent: true });
+    };
+    const push = (event: MessageEvent) => {
+      if (["response-ready", "notification-click"].includes(event.data?.type))
+        refresh();
+    };
+    window.addEventListener(CONVERSATIONS_CHANGED, refresh);
+    navigator.serviceWorker?.addEventListener("message", push);
+    return () => {
+      fetchRef.current += 1;
+      window.removeEventListener(CONVERSATIONS_CHANGED, refresh);
+      navigator.serviceWorker?.removeEventListener("message", push);
+    };
+  }, [fetchConversations]);
+
+  // Keep detached runs current while the user is reading another conversation.
+  useEffect(() => {
+    if (
+      !conversations.some(
+        (conversation) => conversation.run?.status === "running",
+      )
+    )
+      return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible")
+        void fetchConversations({ silent: true });
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [conversations, fetchConversations]);
 
   // Refresh when page becomes visible
   useEffect(() => {
@@ -318,10 +318,16 @@ export function ConversationSidebar({
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        setConversations((prev) =>
-          prev.filter((c) => c.conversation_id !== convId)
-        );
+        setConversations((prev) => {
+          const next = prev.filter((c) => c.conversation_id !== convId);
+          setCachedConversations(next);
+          return next;
+        });
         onDeleteConversation?.(convId);
+      } else {
+        alert(
+          "This conversation could not be deleted. Cancel any running response first.",
+        );
       }
     } catch {
       console.error("Failed to delete conversation");
@@ -394,7 +400,7 @@ export function ConversationSidebar({
             variant="outline"
             className={cn(
               "w-full gap-2 justify-start",
-              isCollapsed && "justify-center px-0"
+              isCollapsed && "justify-center px-0",
             )}
             onClick={handleNewConversation}
           >
@@ -432,9 +438,7 @@ export function ConversationSidebar({
                   size="sm"
                   className={cn(
                     "h-7 text-xs px-2 gap-1",
-                    sourceFilter === f.value
-                      ? ""
-                      : "text-muted-foreground"
+                    sourceFilter === f.value ? "" : "text-muted-foreground",
                   )}
                   onClick={() => setSourceFilter(f.value)}
                 >
@@ -447,7 +451,7 @@ export function ConversationSidebar({
         )}
 
         {/* Conversation list */}
-        <ScrollArea className="flex-1 px-2 pt-1">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pt-1">
           {isLoading && conversations.length === 0 ? (
             <div className="flex justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -461,8 +465,7 @@ export function ConversationSidebar({
           ) : isCollapsed ? (
             <div className="space-y-0.5 pb-2">
               {filtered.map((conv) => {
-                const isActive =
-                  conv.conversation_id === activeConversationId;
+                const isActive = conv.conversation_id === activeConversationId;
                 return (
                   <SidebarMenu key={conv.conversation_id}>
                     <SidebarMenuItem>
@@ -472,7 +475,14 @@ export function ConversationSidebar({
                         onClick={() => handleSelect(conv)}
                         className="h-8 w-8 p-0 justify-center"
                       >
-                        {modalityIcon(conv)}
+                        {conv.run?.status === "running" ? (
+                          <Loader2
+                            aria-label="Running"
+                            className="w-3.5 h-3.5 animate-spin"
+                          />
+                        ) : (
+                          modalityIcon(conv)
+                        )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   </SidebarMenu>
@@ -512,12 +522,19 @@ export function ConversationSidebar({
                                 "group flex items-start gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors",
                                 isActive
                                   ? "bg-accent text-accent-foreground"
-                                  : "hover:bg-muted"
+                                  : "hover:bg-muted",
                               )}
                               onClick={() => handleSelect(conv)}
                             >
                               <div className="shrink-0 mt-0.5">
-                                {modalityIcon(conv)}
+                                {conv.run?.status === "running" ? (
+                                  <Loader2
+                                    aria-label="Running"
+                                    className="w-3.5 h-3.5 animate-spin"
+                                  />
+                                ) : (
+                                  modalityIcon(conv)
+                                )}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1">
@@ -560,6 +577,8 @@ export function ConversationSidebar({
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 text-muted-foreground hover:text-destructive"
+                                disabled={conv.run?.status === "running"}
+                                aria-label="Delete conversation"
                                 onClick={(e) =>
                                   handleDelete(conv.conversation_id, e)
                                 }
@@ -576,7 +595,7 @@ export function ConversationSidebar({
               })}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </SidebarContent>
 
       {/* Footer with nav links */}

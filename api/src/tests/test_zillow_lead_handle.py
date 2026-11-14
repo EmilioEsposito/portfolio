@@ -441,7 +441,9 @@ class TestRoutes:
 
     def lead_conversation(self):
         return SimpleNamespace(
-            metadata_={"handler": handle.HANDLER, "reply_route": {"to": RELAY}}, modality="web_chat"
+            agent_name="sernia",
+            metadata_={"handler": handle.HANDLER, "reply_route": {"to": RELAY}},
+            modality="web_chat",
         )
 
     def user(self):
@@ -461,10 +463,23 @@ class TestRoutes:
         history = AsyncMock(return_value=[])
         monkeypatch.setattr(routes, "get_conversation_messages", history)
         request = MagicMock()
+        monkeypatch.setattr(routes, "lock_conversation", AsyncMock())
         monkeypatch.setattr(
             routes,
             "read_chat_request",
-            AsyncMock(return_value={"id": "c1", "messages": [{"role": "user"}]}),
+            AsyncMock(
+                return_value={
+                    "id": "c1",
+                    "trigger": "submit-message",
+                    "messages": [
+                        {
+                            "id": "msg",
+                            "role": "user",
+                            "parts": [{"type": "text", "text": "continue"}],
+                        }
+                    ],
+                }
+            ),
         )
 
         with pytest.raises(HTTPException) as refused:
