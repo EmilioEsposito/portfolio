@@ -23,8 +23,8 @@ class SerniaDeps:
     sms_reply_recipients: list[str] = field(default_factory=list)
     # Recipient domains this run may send threaded email replies to WITHOUT
     # the HITL approval card. Empty (the default) means every external email
-    # pauses for approval. Set only by a trigger with its own opt-out — the
-    # Zillow auto-reply passes its relay domain when `require_approval` is off.
+    # pauses for approval. Retained for explicitly scoped callers; the Zillow
+    # queue now uses its dedicated agent and never sets this field.
     # This is deliberately a recipient scope, not a run-wide on/off switch:
     # those runs are driven by inbound email written by strangers, so text in
     # a lead's message must not be able to turn "auto-reply to this lead" into

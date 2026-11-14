@@ -92,7 +92,7 @@ DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300  # 5 minutes
 # No longer read by the Zillow queue. It dates from when Zillow email ran the
 # general agent and this switch let it send without approval. Zillow email now
 # goes to the dedicated lead agent (zillow_leads), whose replies always wait
-# for approval. Kept because the settings page and its API still carry it.
+# for approval. Kept for settings API/storage compatibility; no UI toggle.
 DEFAULT_ZILLOW_REQUIRE_APPROVAL = True
 
 # Shared team contact ID in OpenPhone (Quo).
