@@ -473,7 +473,7 @@ async def send_email(
 
     # Conditional approval: external recipients require HITL, unless this is a
     # threaded reply inside an explicitly configured auto-approval scope.
-    # The dedicated Zillow Leads Agent uses handle.py and always requires approval.
+    # The dedicated Zillow Leads Agent has its own delivery path and settings.
     thread_kwargs: dict | None = None
     needs_approval = not routing.is_internal and not ctx.tool_call_approved
     if needs_approval and is_auto_approved_reply(

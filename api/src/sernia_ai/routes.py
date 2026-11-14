@@ -69,6 +69,7 @@ from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
 )
 from api.src.sernia_ai.zillow_leads.handle import apply_approval as apply_lead_approval
 from api.src.sernia_ai.zillow_leads.handle import is_lead_conversation
+from api.src.sernia_ai.zillow_leads.settings import router as zillow_leads_router
 from api.src.utils.chat_attachments import read_chat_request
 from api.src.utils.clerk import verify_serniacapital_user
 
@@ -960,11 +961,8 @@ async def get_admin_settings(
         for m in AVAILABLE_MODELS
     ]
 
-    # Zillow config is reported as-is on every env. Unlike the trigger kill
-    # switch / schedule, `require_approval` is only consulted by the Zillow
-    # trigger when it sets `auto_approved_reply_domains`, and that trigger is
-    # itself gated by `is_sernia_ai_enabled` (hard-off on non-prod). Showing
-    # the real value lets PR envs see what production has configured.
+    # Compatibility response for older clients. Dedicated lead settings live
+    # at /zillow-leads/settings; the old approval flag does not enable sends.
     zillow_email_config = await get_zillow_email_config()
 
     if not _IS_PRODUCTION:
@@ -1029,6 +1027,11 @@ async def update_admin_settings(
     session: DBSession = None,
 ):
     """Update app settings (upsert). Re-registers the scheduled job when schedule changes."""
+    if body.zillow_email_config is not None:
+        raise HTTPException(
+            status_code=410,
+            detail="Zillow settings moved to /api/sernia-ai/zillow-leads/settings.",
+        )
     updated = {}
     if body.triggers_enabled is not None:
         stmt = (
@@ -1096,38 +1099,6 @@ async def update_admin_settings(
         await session.commit()
         updated["model_config"] = config_dict
 
-    if body.zillow_email_config is not None:
-        # Clamp debounce to a sane range. The lower bound prevents accidental
-        # zero-second debounces (a trigger would fire on every email and lose
-        # batching). The upper bound is the recently-fired TTL window — going
-        # beyond it would let redeliveries slip past dedup.
-        if body.zillow_email_config.debounce_seconds < 60:
-            raise HTTPException(
-                status_code=422,
-                detail="debounce_seconds must be at least 60",
-            )
-        if body.zillow_email_config.debounce_seconds > 3600:
-            raise HTTPException(
-                status_code=422,
-                detail="debounce_seconds must not exceed 3600 (1 hour)",
-            )
-
-        config_dict = body.zillow_email_config.model_dump()
-        stmt = (
-            pg_insert(AppSetting)
-            .values(
-                key="zillow_email_config",
-                value=config_dict,
-            )
-            .on_conflict_do_update(
-                index_elements=["key"],
-                set_={"value": config_dict},
-            )
-        )
-        await session.execute(stmt)
-        await session.commit()
-        updated["zillow_email_config"] = config_dict
-
     return {"updated": updated}
 
 
@@ -1136,3 +1107,4 @@ async def update_admin_settings(
 # =============================================================================
 
 router.include_router(push_router)
+router.include_router(zillow_leads_router)

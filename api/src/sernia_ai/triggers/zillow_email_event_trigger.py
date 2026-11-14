@@ -42,19 +42,18 @@ The guarantees and what provides them:
   approval (``zillow_leads/handle.py``).
 
 Batching: the first email in a thread starts that thread's debounce window
-(``zillow_email_config.debounce_seconds``); further emails in the same thread
+(``zillow_lead_config.debounce_seconds``); further emails in the same thread
 before it fires ride along in the same run. Once claimed, a batch's
 membership is fixed — later emails form the next batch, which keeps retries
 looking at the same conversation and counting their own attempts.
 
 Configuration: the debounce length is overridable via the DB-backed
-``zillow_email_config`` AppSetting (JSONB), ``{"debounce_seconds": 300}``; the
+``zillow_lead_config`` AppSetting (JSONB), ``{"debounce_seconds": 300}``; the
 default is ``DEFAULT_ZILLOW_DEBOUNCE_SECONDS`` in ``config.py``.
 
-That setting also carries ``require_approval``, from when this queue ran the
-general agent. It is still stored and still shown on the settings page, but
-nothing reads it: every reply from the lead agent waits for approval. When
-approval is relaxed it will be per kind of reply, not one switch.
+The dedicated agent reads `zillow_lead_config` for both batching and approval.
+Before it is saved, only the old batching window is inherited; the old
+`require_approval` flag can never enable automatic delivery in the new agent.
 """
 
 from __future__ import annotations
@@ -72,11 +71,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from api.src.agent_conversations.models import get_agent_conversation
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.config import (
-    DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
-    DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-)
-from api.src.sernia_ai.models import AppSetting, ZillowEmailJob, is_sernia_ai_enabled
+from api.src.sernia_ai.models import ZillowEmailJob, is_sernia_ai_enabled
 from api.src.sernia_ai.zillow_leads.handle import handle_thread
 from api.src.sernia_ai.zillow_leads.thread import SharedCopy, find_shared_copy
 
@@ -118,33 +113,10 @@ def _utcnow() -> datetime:
 
 
 async def get_zillow_email_config() -> dict:
-    """Read ``zillow_email_config`` from the DB, returning defaults if not set.
+    """Compatibility name for the dedicated lead agent's effective settings."""
+    from api.src.sernia_ai.zillow_leads.settings import effective_settings
 
-    Defaults come from ``config.DEFAULT_ZILLOW_*`` so the constants stay the
-    single source of truth. Failures fall back to defaults — never raises.
-    """
-    defaults = {
-        "debounce_seconds": DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
-        "require_approval": DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-    }
-    try:
-        async with AsyncSessionFactory() as session:
-            result = await session.execute(
-                select(AppSetting.value).where(AppSetting.key == "zillow_email_config")
-            )
-            row = result.scalar_one_or_none()
-            if isinstance(row, dict):
-                return {
-                    "debounce_seconds": int(
-                        row.get("debounce_seconds", defaults["debounce_seconds"])
-                    ),
-                    "require_approval": bool(
-                        row.get("require_approval", defaults["require_approval"])
-                    ),
-                }
-    except Exception:
-        logfire.warn("Failed to read zillow_email_config from DB, using defaults")
-    return defaults
+    return (await effective_settings()).model_dump()
 
 
 def is_zillow_email(from_address: str) -> bool:
@@ -523,7 +495,7 @@ async def process_thread(claim: ClaimedThread) -> None:
     the only thing between an instruction hidden in an inquiry and an outbound
     message was a person approving every send. The lead agent has no tools and
     sees nothing private (see ``zillow_leads/agent.py``), which is what makes
-    it reasonable to drop approval for routine replies later. Do not route
+    possible to opt into automatic routine replies in its own settings. Do not route
     this queue back to the general agent.
     """
     conversation_id = claim.conversation_id

@@ -115,9 +115,12 @@ sequenceDiagram
 
 Zillow lead processing through a **durable queue**. When an email from `zillow.com` arrives via Gmail Pub/Sub, a row is written to the `zillow_email_jobs` table. A scheduled worker (every 30 seconds) picks up due jobs, groups them by lead thread, and hands each thread to the **dedicated lead agent** ([`zillow_leads`](../zillow_leads/README.md)), once per thread.
 
-Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Every reply it drafts waits for the standard approval card, and on approval code sends it to the lead's Zillow relay address. See the package README for the design and for what must be true before approval is relaxed.
+Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Replies either wait for approval or use the dedicated automatic-delivery path, according to the lead agent’s own settings. Code fixes the Zillow relay recipient. See the package README for delivery checks and recovery behavior.
 
-The debounce length is runtime-configurable via the **Zillow Leads Agent** section of the Settings page (`/sernia-settings#zillow-leads`), backed by the `zillow_email_config` AppSetting (`{"debounce_seconds": 300}`). The setting retains a legacy `require_approval` field for compatibility, but the UI no longer exposes it. The dedicated agent does not consult it: approval is always required.
+Batching and email approval are configured in the **Agent settings** tab
+(`/systems/leasing-leads/settings`), backed by `zillow_lead_config`. Approval
+defaults on. The legacy batching window is inherited until the new setting is
+saved, but the old ignored `require_approval` value is never inherited.
 
 ```mermaid
 flowchart TD
@@ -133,7 +136,7 @@ flowchart TD
     ROW -.-> CLAIM
     CLAIM --> SEEN{"Conversation already<br/>saved in full?"}
     SEEN -->|Yes| MARK["Mark done<br/>(no second run)"]
-    SEEN -->|No| RUN["zillow_leads.handle_thread()<br/>lead agent, no tools;<br/>reply saved for approval"]
+    SEEN -->|No| RUN["zillow_leads.handle_thread()<br/>lead agent, no tools;<br/>reply delivery follows agent settings"]
     RUN -->|saved| OK["state = done"]
     RUN -->|crashed / not saved| RETRY{"Attempts<br/>left?"}
     RETRY -->|Yes| BACK["state = pending<br/>retry in 2, then 4 min"]
@@ -155,7 +158,7 @@ flowchart TD
 - **Recorded before anything else** — the row is committed inside the Pub/Sub handler. A deploy or crash afterwards loses nothing; the worker resumes from the table. (The previous version kept arriving emails in process memory for the debounce window and lost them on restart.)
 - **Idempotent enqueue** — `message_id` is unique, so a Pub/Sub redelivery or a Gmail label-change notification for an email already seen inserts nothing. The webhook therefore enqueues on every notification without deciding whether the email is "new". The email is queued *before* it is counted as processed, so if the insert fails the webhook answers non-2xx and Pub/Sub delivers it again — a lead is never acknowledged without being in the queue.
 - **Freshness limit** — emails older than 24 hours are not queued, and queued jobs expire at that age. This bounds the backlog after an outage and makes label changes on old emails harmless.
-- **One run per lead thread, one at a time** — the first email in a thread starts that thread's debounce window (`zillow_email_config.debounce_seconds`); further emails in the same thread before it fires ride along. A thread with a run in progress (a live lease) is not claimable at all: an email that arrives mid-run stays `pending` and gets its own run afterwards. Two runs on one lead at once could send conflicting replies.
+- **One run per lead thread, one at a time** — the first email in a thread starts that thread's debounce window (`zillow_lead_config.debounce_seconds`); further emails in the same thread before it fires ride along. A thread with a run in progress (a live lease) is not claimable at all: an email that arrives mid-run stays `pending` and gets its own run afterwards. Two runs on one lead at once could send conflicting replies.
 - **Leases, not locks held open** — a claim marks rows `running` with a lease. If the worker dies, the lease runs out and the rows become claimable again. Results are written only where `lease_token` still matches, so a worker that outlived its lease cannot overwrite the next owner. Claims are serialized by a Postgres advisory lock so two workers cannot split one thread.
 - **Batches are fixed at first claim** — the jobs claimed together are a *batch*, and the batch is given its conversation ID (`zillow-{thread_id}-{last job id}`) then, stored on its rows. A later email in the thread never joins a batch that is being retried; it forms the next batch. This is what keeps a retry pointed at the same conversation, and it means each batch counts its own attempts.
 - **At-least-once, made safe** — the same emails can be handed to the agent twice (a run that crashed part-way, or a crash between "saved" and "marked done"). Three things keep a lead from getting two replies:
@@ -193,7 +196,7 @@ A single scheduled job via APScheduler in `scheduled_triggers.py`:
 |-----|----------|-------|
 | `run_scheduled_checks()` | Configurable (default: Mon–Fri at 8am, 11am, 2pm, 5pm ET) | All inbox checks — agent follows the `scheduled-checks` skill |
 
-The schedule is configurable via the Settings page (`/sernia-settings#zillow-leads`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save. Setting either list to empty unregisters the job entirely (no scheduled checks).
+The schedule is configurable via the Settings page (`/systems/leasing-leads/settings`) or the `schedule_config` key in `app_settings`. The DB-backed config stores `days_of_week` (0=Mon … 6=Sun) and `hours` (ET, 24-hour). Changes take effect immediately — the APScheduler job is re-registered on save. Setting either list to empty unregisters the job entirely (no scheduled checks).
 
 The trigger is a thin function that points the agent to the `scheduled-checks` workspace skill. All domain logic (what to check, how to assess, output rules) lives in `.claude/skills/scheduled-checks/SKILL.md`, not in trigger code.
 

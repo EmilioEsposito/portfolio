@@ -4,7 +4,7 @@ The agent reads a case and returns an outcome (``agent.py``). This module is
 the code on either side of it:
 
     load the thread -> build the case -> ask the agent -> put the outcome
-    in front of a person -> on approval, send the reply
+    into the conversation -> send automatically or wait for approval
 
 The split matters for safety. The agent reads text written by strangers, so it
 is given nothing private and no way to act. Every decision with consequences
@@ -14,9 +14,10 @@ is made here, in code, from facts the lead cannot influence:
   and only if that address is a Zillow relay. It is fixed before the agent
   runs and stored with the conversation. An approver can edit the words of a
   reply, never its recipient.
-- **Whether anything is sent** is a person's decision today. A reply or an
-  escalation is saved as a pending approval in the same screen the general
-  agent uses; nothing leaves until someone approves it there.
+- **Whether a reply needs approval** comes from this agent's own settings.
+  Approval defaults on. Explicitly opting out enables `auto_reply.py`, with
+  fixed recipient/thread checks and a durable send reservation. Escalations
+  and uncertain deliveries still go to the team.
 
 A conversation saved by this module is marked with ``HANDLER``. Approvals for
 it are applied here (``apply_approval``) and never resume a model: the reply
@@ -196,7 +197,7 @@ def conversation_for(
 async def handle_thread(
     thread_id: str, *, conversation_id: str, metadata: dict[str, Any]
 ) -> Handled | None:
-    """Run the lead agent on one thread and save the result for a person.
+    """Run the lead agent, save its outcome, and apply its delivery setting.
 
     Returns None when the thread cannot be loaded, so the queue retries. Errors
     from Gmail or the model propagate for the same reason.
@@ -255,6 +256,21 @@ async def handle_thread(
         logfire.exception("zillow lead: conversation not saved", conversation_id=conversation_id)
         persisted = False
 
+    if persisted and isinstance(outcome, Reply) and route is not None:
+        from api.src.sernia_ai.zillow_leads.auto_reply import maybe_send_reply
+
+        try:
+            await maybe_send_reply(conversation_id, case, outcome)
+        except Exception:
+            logfire.exception(
+                "zillow lead: automatic delivery held for review", conversation_id=conversation_id
+            )
+        # Delivery may have resolved the send card or replaced it with an
+        # inspect-only task. Notify about what is actually waiting now.
+        async with AsyncSessionFactory() as session:
+            messages = await get_conversation_messages(conversation_id, None, session=session)
+        pending = extract_pending_approval_from_messages(messages)
+
     if pending and persisted:
         first = pending[0]
         create_logged_task(
@@ -275,9 +291,14 @@ async def handle_thread(
     return Handled(persisted=persisted, action=outcome.action, pending=bool(pending))
 
 
-async def send_reply(route: dict[str, str], body: str) -> str:
+async def send_reply(
+    route: dict[str, str], body: str, *, threading: dict[str, str] | None = None
+) -> str:
     """Send an approved reply to the stored route, on the lead's thread."""
-    threading = await _get_threading_headers(route["reply_to_message_id"], SHARED_EXTERNAL_EMAIL)
+    if threading is None:
+        threading = await _get_threading_headers(
+            route["reply_to_message_id"], SHARED_EXTERNAL_EMAIL
+        )
     result = await _send_email(
         to=route["to"],
         subject=route["subject"],

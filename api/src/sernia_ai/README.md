@@ -6,7 +6,7 @@ FastAPI, PydanticAI, conversation storage, and approval screens.
 | Agent | Entry point | Input and authority | Guide |
 | --- | --- | --- | --- |
 | **Sernia AI general agent** | `general_agent.py` (`sernia_agent`) | Team chat, internal SMS, scheduled checks; business tools, workspace context, action-specific approvals | This guide; [public architecture](https://eesposito.com/systems/sernia-ai) |
-| **Zillow Leads Agent** | `zillow_leads/agent.py` (`respond`) | Prepared lead case; no tools; Reply / NoReply / Escalate; every reply requires human approval | [Runtime guide](zillow_leads/README.md); [public architecture](https://eesposito.com/systems/leasing-leads) |
+| **Zillow Leads Agent** | `zillow_leads/agent.py` (`respond`) | Prepared lead case; no tools; Reply / NoReply / Escalate; approval defaults on; automatic replies can be enabled in its own settings | [Runtime guide](zillow_leads/README.md); [public architecture](https://eesposito.com/systems/leasing-leads) |
 
 Incoming Zillow emails run only the specialist. The general agent can maintain
 listing data and consult the same leasing policy, but it does not receive those
@@ -20,8 +20,8 @@ resuming the general agent.
 | General agent, tools, memory, model selection | `general_agent.py`, `instructions.py`, `tools/`, `model_config.py` |
 | Lead case, reply decision, fixed recipient, approval | [`zillow_leads/`](zillow_leads/README.md) |
 | Listing schema, validation, history, HTTP API | [`../rental_listings/`](../rental_listings/README.md) |
-| Listing editor | `/sernia-rental-listings`; standalone page with Sernia authentication |
-| Lead debounce and general automation settings | `/sernia-settings#zillow-leads`; lead replies always require approval |
+| Listing editor | `/systems/leasing-leads/listings`; standalone page with Sernia authentication |
+| Lead batching and email approval | `/systems/leasing-leads/settings`; dedicated agent settings; separate from general automation |
 | Email queue, SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
 | Offline lead evaluations and private review data | [`zillow_leads/evals/`](zillow_leads/evals/README.md) |
 | Showing bookings, shared calendars, resident notice | [Issue #368](https://github.com/EmilioEsposito/portfolio/issues/368), planned; `zillow_leads/tours.py` is the integration boundary |
@@ -256,7 +256,7 @@ The agent operates in three modalities, each with distinct behavior:
 
 - **Internal/external SMS separation** — Routing keeps internal phone numbers out of external threads; mixed internal+external **group texts** are hard-blocked deterministically — a group is always all-internal or all-external (see [`tools/README.md`](tools/README.md))
 - **Unit isolation** — Cross-unit tenant group texts blocked; roommates within a unit share one group thread (see [`tools/README.md`](tools/README.md))
-- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The dedicated Zillow Leads Agent always requires approval; the former auto-reply toggle is no longer used. Its delivery path is described in the [lead-agent guide](zillow_leads/README.md#runtime-boundaries).
+- **HITL approval** — External SMS, emails, task deletion, contact updates/deletes, and calendar writes (create or delete) for events with external attendees require human approval. Internal-only calendar writes are not gated. The dedicated Zillow Leads Agent has its own approval setting, enabled by default. Its explicit automatic mode never grants tool permissions to the general agent. Its delivery path is described in the [lead-agent guide](zillow_leads/README.md#runtime-boundaries).
 - **Universal kill switch** — DB-backed toggle disables all automated triggers
 - **Rate limiting** — Per-source cooldowns prevent runaway trigger loops
 - **Repeat-call loop breaker** — A tool call that fails identically twice in one run gets a "STOP, change approach" instruction appended to the error, so the agent can't spend its whole request budget re-sending arguments that already failed. See [`tools/README.md`](tools/README.md#repeat-call-loop-breaker-_loggingpy)

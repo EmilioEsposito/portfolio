@@ -9,8 +9,8 @@ messages, so letting it read lead email puts three things in one place:
 private data, untrusted text, and a way to send something out. With those
 three together, the only safeguard is a person approving every send.
 
-This agent is built so that approval can one day be removed for routine
-replies. It has no tools. Its whole input is the case: listings, booking
+This agent is built so that approval can be disabled for routine
+replies through its dedicated settings. It has no tools. Its whole input is the case: listings, booking
 links, tour times and the thread, none of it private. Its whole output is one
 of three fixed outcomes. Code, not the model, decides who a reply goes to and
 does the sending (see ``handle.py``). Whatever a lead writes, the most it can
