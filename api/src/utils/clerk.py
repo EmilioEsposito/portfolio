@@ -46,11 +46,16 @@ async def get_auth_state(request: Request) -> RequestState:
     FastAPI dependency that returns the authenticated state from Clerk.
     authenticate_request has no async variant, so we run it in a thread
     to avoid blocking the event loop.
+
+    Only browser session tokens are accepted. Clerk's default also verifies
+    OAuth access tokens, API keys and machine tokens; those come back here as
+    signed out, so every caller answers them with a 401. The one OAuth path
+    is ``verify_serniacapital_oauth_user``.
     """
     auth_state = await asyncio.to_thread(
         clerk_client.authenticate_request,
         request,
-        AuthenticateRequestOptions(),
+        AuthenticateRequestOptions(accepts_token=["session_token"]),
     )
     return auth_state
 
