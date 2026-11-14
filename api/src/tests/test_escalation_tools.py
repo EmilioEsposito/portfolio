@@ -155,7 +155,7 @@ def test_toolset_exposes_trigger_escalation():
 def test_agent_registers_emergency_toolset():
     """The agent carries the escalation toolset under the `emergency` prefix,
     so the model sees the tool as `emergency_trigger_escalation`."""
-    from api.src.sernia_ai.agent import sernia_agent
+    from api.src.sernia_ai.general_agent import sernia_agent
 
     named = {getattr(ts, "name", None) for ts in sernia_agent.toolsets}
     assert "emergency" in named

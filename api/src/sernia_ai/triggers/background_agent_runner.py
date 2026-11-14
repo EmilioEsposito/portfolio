@@ -59,8 +59,8 @@ async def execute_trigger_run(
 
     No gates: the kill switch and any throttling are the caller's job.
     ``run_agent_for_trigger`` adds them for fire-and-forget triggers; the
-    Zillow queue worker calls this directly because it needs the outcome
-    (to retry a failed run) and does its own gating.
+    dedicated Zillow queue uses zillow_leads.handle_thread instead. This
+    helper is only for runs of the general agent.
 
     Returns the run's outcome, or None if the run crashed.
     """

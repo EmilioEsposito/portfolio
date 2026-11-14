@@ -70,7 +70,6 @@ export async function proxyToBackend(req, res, targetUrl, logTag) {
     "/api/ai-demos/chat-emilio",
     "/api/ai-demos/chat-weather",
     "/api/ai-demos/multi-agent-chat",
-    "/api/google/gmail/generate_email_response",
   ]);
   const pathname = req.originalUrl.split("?")[0].replace(/\/+$/, "");
   const controller = req.method === "POST" && publicInferencePaths.has(pathname)

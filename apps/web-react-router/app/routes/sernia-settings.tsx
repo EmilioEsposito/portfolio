@@ -150,9 +150,6 @@ export default function SerniaSettingsPage() {
   const [zillowDebounceSeconds, setZillowDebounceSeconds] = useState<number>(
     DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
   );
-  const [zillowRequireApproval, setZillowRequireApproval] = useState<boolean>(
-    DEFAULT_ZILLOW_REQUIRE_APPROVAL,
-  );
 
   // Snapshot of last-saved values to detect dirty state
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -164,8 +161,7 @@ export default function SerniaSettingsPage() {
       JSON.stringify([...hours].sort()) !== JSON.stringify([...saved.schedule_config.hours].sort()) ||
       modelKey !== saved.model_config.model_key ||
       thinkingEffort !== saved.model_config.thinking_effort ||
-      zillowDebounceSeconds !== saved.zillow_email_config.debounce_seconds ||
-      zillowRequireApproval !== saved.zillow_email_config.require_approval);
+      zillowDebounceSeconds !== saved.zillow_email_config.debounce_seconds);
 
   // Fetch settings
   const fetchSettings = useCallback(async () => {
@@ -184,9 +180,6 @@ export default function SerniaSettingsPage() {
       setThinkingEffort(data.model_config?.thinking_effort ?? DEFAULT_EFFORT);
       setZillowDebounceSeconds(
         data.zillow_email_config?.debounce_seconds ?? DEFAULT_ZILLOW_DEBOUNCE_SECONDS,
-      );
-      setZillowRequireApproval(
-        data.zillow_email_config?.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
       );
       if (data.available_models?.length) setAvailableModels(data.available_models);
       setSaved(data);
@@ -221,7 +214,8 @@ export default function SerniaSettingsPage() {
           model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
           zillow_email_config: {
             debounce_seconds: zillowDebounceSeconds,
-            require_approval: zillowRequireApproval,
+            // Preserve the legacy API field; the lead agent always requires approval.
+          require_approval: saved?.zillow_email_config.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
           },
         }),
       });
@@ -238,7 +232,8 @@ export default function SerniaSettingsPage() {
         model_config: { model_key: modelKey, thinking_effort: thinkingEffort },
         zillow_email_config: {
           debounce_seconds: zillowDebounceSeconds,
-          require_approval: zillowRequireApproval,
+          // Preserve the legacy API field; the lead agent always requires approval.
+          require_approval: saved?.zillow_email_config.require_approval ?? DEFAULT_ZILLOW_REQUIRE_APPROVAL,
         },
         available_models: availableModels,
       };
@@ -261,7 +256,6 @@ export default function SerniaSettingsPage() {
     setModelKey(saved.model_config.model_key);
     setThinkingEffort(saved.model_config.thinking_effort);
     setZillowDebounceSeconds(saved.zillow_email_config.debounce_seconds);
-    setZillowRequireApproval(saved.zillow_email_config.require_approval);
   };
 
   // Toggle helpers
@@ -361,8 +355,8 @@ export default function SerniaSettingsPage() {
                 <CardHeader>
                   <CardTitle className="text-base">Model</CardTitle>
                   <CardDescription>
-                    Which LLM the agent uses for every run (web chat, SMS, scheduled checks, approvals).
-                    Anthropic models also enable the builtin web_fetch tool; OpenAI does not.
+                    Which LLM the general agent uses for web chat, SMS, scheduled checks, and approvals.
+                    The Zillow Leads Agent has its own model configuration.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -551,13 +545,13 @@ export default function SerniaSettingsPage() {
                 </CardContent>
               </Card>
 
-              {/* Zillow email trigger config */}
-              <Card>
+              {/* Zillow lead trigger config */}
+              <Card id="zillow-leads" className="scroll-mt-6">
                 <CardHeader>
-                  <CardTitle className="text-base">Zillow Email Auto-Reply</CardTitle>
+                  <CardTitle className="text-base">Zillow Leads Agent</CardTitle>
                   <CardDescription>
-                    Controls the Zillow lead trigger that drafts and sends replies to inbound
-                    Zillow inquiry emails.
+                    Controls how long incoming Zillow messages wait before the dedicated
+                    lead agent reviews their thread. Every reply requires human approval.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -589,32 +583,15 @@ export default function SerniaSettingsPage() {
                     </p>
                   </div>
 
-                  {/* Require approval */}
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Require HITL Approval</Label>
+                    <p className="text-sm font-medium">Human approval is always required</p>
                     <p className="text-xs text-muted-foreground">
-                      When on, every outbound Zillow reply pauses for human approval (the standard
-                      external-email HITL card). When off, the agent may send threaded replies to
-                      Zillow leads on its own; email to anyone else still needs approval. Turn off
-                      only once the agent has earned that trust — flip back on if it goes off the
-                      rails.
+                      The team reviews every proposed reply before code sends it. The former
+                      auto-send switch is no longer used by this agent.
                     </p>
-                    <div className="flex items-center gap-3 pt-1">
-                      <Switch
-                        id="zillow-require-approval"
-                        checked={zillowRequireApproval}
-                        onCheckedChange={setZillowRequireApproval}
-                      />
-                      <Label htmlFor="zillow-require-approval" className="cursor-pointer">
-                        {zillowRequireApproval ? "Approval required" : "Auto-send (no approval)"}
-                      </Label>
-                    </div>
-                    {!zillowRequireApproval && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">
-                        Heads up: with approval off, the agent will send Zillow replies without
-                        the per-email approval card.
-                      </p>
-                    )}
+                    <a href="/systems/leasing-leads" className="inline-block text-sm underline underline-offset-4">
+                      Architecture, listing data, and booking plans
+                    </a>
                   </div>
                 </CardContent>
               </Card>

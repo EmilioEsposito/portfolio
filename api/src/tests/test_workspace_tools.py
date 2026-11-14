@@ -19,8 +19,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.tools.workspace_tools import to_workspace_relative
 
 

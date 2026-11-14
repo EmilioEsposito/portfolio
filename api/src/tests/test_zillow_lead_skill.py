@@ -17,8 +17,12 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from api.src.sernia_ai.agent import RESERVED_SKILL_NAMES, build_workspace_skills, sernia_agent
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.general_agent import (
+    RESERVED_SKILL_NAMES,
+    build_workspace_skills,
+    sernia_agent,
+)
 from api.src.sernia_ai.zillow_leads import agent as agent_module
 from api.src.sernia_ai.zillow_leads.skill import (
     PREFACE,

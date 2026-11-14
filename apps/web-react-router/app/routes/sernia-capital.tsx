@@ -120,7 +120,7 @@ export default function SerniaCapital() {
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold flex items-center gap-2 text-base">
                   <Calendar className="h-4 w-4 text-blue-500" />
-                  Leasing Lead Management Agent
+                  Zillow Leads Agent
                 </h2>
                 <Badge variant="secondary" className="text-xs">
                   Production
@@ -129,9 +129,9 @@ export default function SerniaCapital() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                An event-driven AI specialist interprets leasing email threads.
-                Scheduled jobs trigger review; structured AI decisions drive
-                contact updates, calendar events, and missing-reply alerts.
+                A dedicated agent reads Zillow inquiries and reviewed rental listings,
+                then drafts a reply, stays quiet, or asks a person for help.
+                Every reply waits for human approval.
               </p>
               <Link
                 to="/systems/leasing-leads"
@@ -173,7 +173,7 @@ export default function SerniaCapital() {
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold flex items-center gap-2 text-base">
                   <Mail className="h-4 w-4 text-purple-500" />
-                  AI Leasing Auto-Replies
+                  Showing booking
                 </h2>
                 <Badge variant="outline" className="text-xs">
                   In Development
@@ -182,15 +182,15 @@ export default function SerniaCapital() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Drafting and testing automated replies to leasing inquiries
-                using property details, listings, and agent availability, with
-                applicant screening before suggesting a showing.
+                Planned: prospects choose a showing using shared-calendar availability
+                and the listing’s showing rules. Bookings will coordinate
+                calendar events and resident notice.
               </p>
               <Link
-                to="/ai-email-responder"
+                to="/systems/leasing-leads#booking"
                 className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Preview <ExternalLink className="h-3 w-3" />
+                See the booking plan <ExternalLink className="h-3 w-3" />
               </Link>
             </CardContent>
           </Card>

@@ -4,13 +4,13 @@ All runtime LLM calls use **OpenRouter**. Set `PORTFOLIO_OPENROUTER_API_KEY`
 from [OpenRouter keys](https://openrouter.ai/keys) in the deployment secret
 manager. `api/__init__.py` bridges it to `OPENROUTER_API_KEY` for PydanticAI;
 `llm.py` provides lazy operational SDK clients with the same key and explicit
-OpenRouter base URL. Public chat and email use only
+OpenRouter base URL. Public chat demos use only
 `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY`, a separate capped key. Public model
 credentials are resolved at inference time; missing public configuration returns
 503 and cannot use the operations key or prevent application startup. There is no direct OpenAI/Anthropic fallback. Never place keys in
 frontend environment variables.
 
-The public agents and email studio use `openai/gpt-5.6-luna` with `low`
+The public agents use `openai/gpt-5.6-luna` with `low`
 reasoning (the provider spelling of light effort). Verified against the
 [model catalog](https://openrouter.ai/api/v1/models) on 2026-09-07; reasoning
 configuration follows [OpenRouter's reasoning documentation](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).

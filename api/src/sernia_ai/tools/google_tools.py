@@ -472,8 +472,8 @@ async def send_email(
     routing = resolve_email_routing(to, ctx.deps.user_email)
 
     # Conditional approval: external recipients require HITL, unless this is a
-    # threaded reply inside the run's auto-approval scope (e.g. Zillow
-    # auto-reply to the Zillow relay with `require_approval` flipped off).
+    # threaded reply inside an explicitly configured auto-approval scope.
+    # The dedicated Zillow Leads Agent uses handle.py and always requires approval.
     thread_kwargs: dict | None = None
     needs_approval = not routing.is_internal and not ctx.tool_call_approved
     if needs_approval and is_auto_approved_reply(

@@ -261,12 +261,12 @@ export default function Home() {
                   to="/systems/leasing-leads"
                   className="underline decoration-border underline-offset-4 hover:decoration-foreground"
                 >
-                  Leasing follow-ups
+                  Zillow Leads Agent
                 </Link>
               </h4>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Email review drives contact updates, calendar events, and
-                missing-reply alerts.
+                Rental inquiries become replies grounded in reviewed listing data,
+                with human approval before sending.
               </p>
             </div>
           </div>

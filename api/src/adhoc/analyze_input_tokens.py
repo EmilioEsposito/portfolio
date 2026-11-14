@@ -324,7 +324,7 @@ def analyze_tool_descriptions():
     # Try to import the sernia agent and inspect tools
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-        from api.src.sernia_ai.agent import sernia_agent
+        from api.src.sernia_ai.general_agent import sernia_agent
 
         tools = sernia_agent._function_tools
         print(f"Registered tools: {len(tools)}")

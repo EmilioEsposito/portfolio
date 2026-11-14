@@ -10,7 +10,7 @@ The skill is built in code, not kept in the workspace, for two reasons:
 - It ships with the deploy. A change to the policy goes through a pull
   request, where the evals can run on it, and both agents get it together.
 - Nothing written to the workspace can replace it: the general agent leaves
-  a workspace skill of this name out of its catalog (see ``agent.py``). The
+  a workspace skill of this name out of its catalog (see ``../general_agent.py``). The
   name below is the one the old workspace skill used, so this version takes
   its place as soon as it deploys.
 

@@ -41,7 +41,7 @@ class TestSmoke:
 
     def test_agent_imports_with_duckdb_toolset(self):
         """sernia_agent loads with the new toolset registered."""
-        from api.src.sernia_ai.agent import sernia_agent
+        from api.src.sernia_ai.general_agent import sernia_agent
 
         # Just verify it doesn't crash on import
         assert sernia_agent is not None

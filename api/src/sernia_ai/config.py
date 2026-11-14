@@ -10,7 +10,7 @@ from pathlib import Path
 # Web search / fetch: only these domains are allowed.
 # Used by the WebSearch (native on Anthropic, OpenAI Responses, Groq, Google,
 # xAI, OpenRouter) and WebFetch (native on Anthropic, Google) capabilities —
-# see pydantic_ai.capabilities and agent.py.
+# see pydantic_ai.capabilities and general_agent.py.
 # On OpenRouter pydantic-ai sends the allowlist as `allowed_domains` on the
 # `openrouter:web_search` server tool.
 WEB_SEARCH_ALLOWED_DOMAINS: list[str] = [
@@ -92,7 +92,7 @@ DEFAULT_ZILLOW_DEBOUNCE_SECONDS = 300  # 5 minutes
 # No longer read by the Zillow queue. It dates from when Zillow email ran the
 # general agent and this switch let it send without approval. Zillow email now
 # goes to the dedicated lead agent (zillow_leads), whose replies always wait
-# for approval. Kept because the settings page and its API still carry it.
+# for approval. Kept for settings API/storage compatibility; no UI toggle.
 DEFAULT_ZILLOW_REQUIRE_APPROVAL = True
 
 # Shared team contact ID in OpenPhone (Quo).
