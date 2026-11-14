@@ -8,13 +8,14 @@ gate and retrieved by individual handlers via the SerniaUser dependency.
 
 import json
 from typing import Literal
+from uuid import uuid4
 
 import anthropic
 import logfire
 import openai
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_ai import capture_run_messages
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
@@ -28,15 +29,23 @@ from api.src.agent_conversations.hitl import (
     resume_with_approvals,
 )
 from api.src.agent_conversations.models import (
-    delete_conversation,
     extract_pending_approval_from_messages,
     get_agent_conversation,
     get_conversation_messages,
     get_conversation_with_pending,
     list_pending_conversations,
     list_user_conversations,
+    save_agent_conversation,
 )
 from api.src.database.database import DBSession
+from api.src.sernia_ai.chat_runs import (
+    ChatRun,
+    cancel_run,
+    lock_conversation,
+    new_run,
+    public_run,
+    require_idle,
+)
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
@@ -190,172 +199,122 @@ def _sernia_email(user: User) -> str:
 # =============================================================================
 
 
-class _ModifiedJsonRequest:
-    """Wrapper to provide modified JSON body to VercelAIAdapter."""
-
-    def __init__(self, original_request: Request, modified_body: dict):
-        self._original = original_request
-        self._body = json.dumps(modified_body).encode()
-
-    async def body(self) -> bytes:
-        return self._body
-
-    @property
-    def headers(self):
-        return self._original.headers
-
-    def __getattr__(self, name):
-        return getattr(self._original, name)
-
-
-@router.post(
-    "/chat",
-    response_class=Response,
-    summary="Chat with Sernia AI assistant",
-)
+@router.post("/chat", response_class=Response, summary="Chat with Sernia AI assistant")
 async def chat_sernia(
     request: Request,
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ) -> Response:
-    """
-    Streaming chat endpoint for the Sernia AI agent.
-
-    Uses PydanticAI's VercelAIAdapter for Vercel AI SDK Data Stream Protocol (SSE).
-    Backend DB is the authoritative source for message history.
-    Only the latest frontend message is forwarded; history is loaded from DB.
-    """
-    clerk_user_id = user.id
-    user_name = _display_name(user)
-
-    request_json = await read_chat_request(request)
-    conversation_id = request_json.get("id")
-    frontend_messages = request_json.get("messages", [])
-
-    if conversation_id:
-        existing = await get_agent_conversation(
-            session, conversation_id, clerk_user_id=None, retries=1
+    """Accept and save a turn before starting a server-owned, disconnect-safe run."""
+    body = await read_chat_request(request)
+    conversation_id = body.get("id") or str(uuid4())
+    request_id = body.get("request_id") or str(uuid4())
+    if any(
+        not isinstance(value, str) or not 1 <= len(value) <= 200
+        for value in (conversation_id, request_id)
+    ):
+        raise HTTPException(400, "Invalid conversation or request ID")
+    messages = body.get("messages", [])
+    last_message = messages[-1] if messages else None
+    if not last_message or last_message.get("role") != "user":
+        raise HTTPException(400, "A new user message is required")
+    if not any(
+        part.get("type") == "file"
+        or (
+            part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and part["text"].strip()
         )
-        if existing and is_lead_conversation(existing.metadata_):
-            # This agent has tools and access to company data. A lead
-            # conversation holds email written by a stranger, so it is never
-            # loaded as this agent's history.
+        for part in last_message.get("parts", [])
+    ):
+        raise HTTPException(400, "Enter a message or attach a file")
+    try:
+        run_input = VercelAIAdapter.build_run_input(
+            json.dumps(
+                {
+                    **body,
+                    "id": conversation_id,
+                    "messages": [last_message],
+                }
+            ).encode()
+        )
+        adapter = VercelAIAdapter(agent=sernia_agent, run_input=run_input)
+        accepted_messages = adapter.sanitize_messages(adapter.messages)
+    except (ValidationError, ValueError):
+        raise HTTPException(422, "Invalid chat message") from None
+
+    await lock_conversation(session, conversation_id)
+    existing = await get_agent_conversation(session, conversation_id, retries=1)
+    if existing:
+        if existing.agent_name != AGENT_NAME:
+            raise HTTPException(404, "Conversation not found")
+        if is_lead_conversation(existing.metadata_):
             raise HTTPException(
-                status_code=409,
-                detail=(
-                    "This conversation belongs to the Zillow lead agent and cannot be "
-                    "continued in chat. Approve or reject its draft, or start a new chat."
-                ),
+                409,
+                "This conversation belongs to the Zillow lead agent. Approve or reject its draft, or start a new chat.",
+            )
+        require_idle(existing.metadata_)
+        if (existing.metadata_ or {}).get("web_chat_run", {}).get("id") == request_id:
+            raise HTTPException(
+                409, "This request was already accepted. Reopen the conversation to see its result."
             )
 
-    # Load message history from DB (authoritative source)
-    # clerk_user_id=None for shared team access — all Sernia users see all conversations
-    backend_message_history = await get_conversation_messages(
-        conversation_id, clerk_user_id=None, session=session, include_terminal=True
+    history = await get_conversation_messages(
+        conversation_id,
+        session=session,
+        include_terminal=True,
+        retries=1,
     )
-    # For SMS conversations, merge live Quo messages (source of truth)
-    backend_message_history = await _merge_sms_if_needed(conversation_id, backend_message_history)
-    # Remove trailing unprocessed tool calls (can happen if a previous run crashed)
-    backend_message_history = _sanitize_tool_calls(backend_message_history)
-
+    history = _sanitize_tool_calls(await _merge_sms_if_needed(conversation_id, history))
+    run = new_run(request_id)
+    await save_agent_conversation(
+        session,
+        conversation_id,
+        AGENT_NAME,
+        [*history, *accepted_messages],
+        clerk_user_id=user.id,
+        metadata={"web_chat_run": run},
+    )
     logfire.info(
-        "sernia chat",
+        "sernia chat accepted",
         conversation_id=conversation_id,
-        clerk_user_id=clerk_user_id,
-        user_name=user_name,
+        request_id=request_id,
+        clerk_user_id=user.id,
+        user_name=_display_name(user),
         user_email=_sernia_email(user),
-        frontend_msg_count=len(frontend_messages),
-        db_msg_count=len(backend_message_history),
+        db_msg_count=len(history),
         _tags=["trigger:user"],
     )
-
-    # Only use the LAST message from frontend (the new user input)
-    last_message = frontend_messages[-1] if frontend_messages else None
-    modified_body = {
-        **request_json,
-        "messages": [last_message] if last_message else [],
-    }
-    wrapped_request = _ModifiedJsonRequest(request, modified_body)
-
     deps = SerniaDeps(
         db_session=session,
-        conversation_id=conversation_id or "",
-        user_identifier=clerk_user_id,
-        user_name=user_name,
+        conversation_id=conversation_id,
+        user_identifier=user.id,
+        user_name=_display_name(user),
         user_email=_sernia_email(user),
         modality="web_chat",
         workspace_path=WORKSPACE_PATH,
     )
-
-    async def on_complete(result):
-        # Save, sync and notify through the shared pipeline. Pending approvals
-        # are team-wide alerts; a normal answer notifies only the Clerk user
-        # who asked (the service worker suppresses it while the chat is focused).
-        await finalize_run(
-            result,
-            deps=deps,
-            clerk_user_id=clerk_user_id,
-            notify_user_id=clerk_user_id,
-        )
-
-    run_kwargs = await resolve_active_run_kwargs()
-
-    try:
-        response = await VercelAIAdapter.dispatch_request(
-            wrapped_request,
-            agent=sernia_agent,
-            message_history=backend_message_history if backend_message_history else None,
-            deps=deps,
-            on_complete=on_complete,
-            metadata={"trigger_source": "api/sernia-ai/chat"},
-            **run_kwargs,
-        )
-    except LLMAPIError as e:
-        # LLM provider API errors (overloaded, rate limited, etc.) — log but don't
-        # treat as internal error, surface with appropriate status code
-        status_code, user_message = _llm_error_response(e, "chat")
-        logfire.warn(
-            "sernia chat LLM API error",
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__,
-            provider_status=getattr(e, "status_code", None),
-        )
-        return Response(
-            content=json.dumps(
-                {
-                    "error": user_message,
-                    "conversation_id": conversation_id or "",
-                    "retriable": status_code == 503,
-                }
-            ),
-            status_code=status_code,
-            media_type="application/json",
-        )
-    except Exception as e:
-        logfire.exception(
-            "sernia chat dispatch error",
-            conversation_id=conversation_id,
-            clerk_user_id=clerk_user_id,
-            error_type=type(e).__name__,
-        )
-        return Response(
-            content=json.dumps(
-                {
-                    "error": "An internal error occurred. Please try again.",
-                    "conversation_id": conversation_id or "",
-                }
-            ),
-            status_code=500,
-            media_type="application/json",
-        )
-
+    execution = ChatRun(adapter, history, deps, run)
+    execution.start()
+    response = adapter.streaming_response(execution.events())
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Conversation-Id"] = conversation_id or ""
-
+    response.headers["X-Conversation-Id"] = conversation_id
     return response
+
+
+class CancelChatRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/conversation/{conversation_id}/cancel")
+async def cancel_conversation_run(
+    conversation_id: str,
+    body: CancelChatRequest,
+    user: SerniaUser = Depends(_get_sernia_user),
+):
+    return {"run": await cancel_run(conversation_id, body.request_id)}
 
 
 # =============================================================================
@@ -426,6 +385,8 @@ async def approve_conversation(
         ]
 
         conv = await get_agent_conversation(session, conversation_id, clerk_user_id=None)
+        if conv:
+            require_idle(conv.metadata_)
         if conv and is_lead_conversation(conv.metadata_):
             # A Zillow lead conversation is decided in code: an approved reply
             # is sent as approved, to the address stored with it. No agent is
@@ -493,6 +454,8 @@ async def approve_conversation(
                 {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in body.decisions
             ],
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except LLMAPIError as e:
@@ -556,24 +519,33 @@ async def get_conversation_messages_endpoint(
     user: SerniaUser = Depends(_get_sernia_user),
     session: DBSession = None,
 ):
-    """Get conversation messages in Vercel AI SDK format."""
+    """Get saved progress and authoritative run status in Vercel AI SDK format."""
+    conversation = await get_agent_conversation(session, conversation_id, retries=1)
+    run = public_run(conversation.metadata_ if conversation else None)
     pydantic_messages = await get_conversation_messages(
-        conversation_id, clerk_user_id=None, session=session
+        conversation_id,
+        clerk_user_id=None,
+        session=session,
+        retries=1,
+        include_terminal=bool(run and run["status"] in {"failed", "cancelled", "interrupted"}),
     )
 
     # For SMS conversations, merge live Quo messages (source of truth)
     pydantic_messages = await _merge_sms_if_needed(conversation_id, pydantic_messages)
 
     if not pydantic_messages:
-        return {"messages": [], "conversation_id": conversation_id}
+        return {"messages": [], "conversation_id": conversation_id, "run": run}
 
     vercel_messages = VercelAIAdapter.dump_messages(pydantic_messages)
     pending = extract_pending_approval_from_messages(pydantic_messages)
+    if run and run["status"] != "completed":
+        pending = []
 
     return {
         "messages": [msg.model_dump(by_alias=True) for msg in vercel_messages],
         "conversation_id": conversation_id,
         "pending": pending,
+        "run": run,
     }
 
 
@@ -606,6 +578,8 @@ async def get_conversation_history(
         offset=offset,
         modality=modality,
     )
+    for conversation in conversations:
+        conversation["run"] = public_run({"web_chat_run": conversation.get("run")})
     return {
         "conversations": conversations,
         "count": len(conversations),
@@ -616,13 +590,17 @@ async def get_conversation_history(
 async def delete_conversation_endpoint(
     conversation_id: str,
     user: SerniaUser = Depends(_get_sernia_user),
+    session: DBSession = None,
 ):
     """Delete a conversation (any Sernia user can delete any Sernia conversation)."""
-    try:
-        await delete_conversation(conversation_id, clerk_user_id=None)
-        return {"success": True, "conversation_id": conversation_id}
-    except ValueError:
+    await lock_conversation(session, conversation_id)
+    conversation = await get_agent_conversation(session, conversation_id, retries=1)
+    if not conversation or conversation.agent_name != AGENT_NAME:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    require_idle(conversation.metadata_)
+    await session.delete(conversation)
+    await session.commit()
+    return {"success": True, "conversation_id": conversation_id}
 
 
 # =============================================================================

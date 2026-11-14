@@ -4,7 +4,37 @@ import test from "node:test";
 import {
   serverHasResponseForRequest,
   userMessageFingerprint,
+  requestHasSettled,
 } from "../../app/lib/sernia-chat-recovery.ts";
+
+test("a checkpoint is not completion, and terminal failures release only the matching request", () => {
+  const marker = { requestId: "current", fingerprint: "", occurrence: 1 };
+  assert.equal(
+    requestHasSettled(
+      { id: "current", status: "running", started_at: "" },
+      marker,
+    ),
+    false,
+  );
+  assert.equal(
+    requestHasSettled(
+      { id: "older", status: "completed", started_at: "" },
+      marker,
+    ),
+    false,
+  );
+  for (const status of [
+    "completed",
+    "cancelled",
+    "failed",
+    "interrupted",
+  ] as const) {
+    assert.equal(
+      requestHasSettled({ id: "current", status, started_at: "" }, marker),
+      true,
+    );
+  }
+});
 
 const userMessage = (text: string) => ({
   role: "user",

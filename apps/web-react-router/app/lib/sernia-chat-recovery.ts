@@ -1,7 +1,22 @@
 export interface PendingRequestMarker {
+  requestId?: string;
   fingerprint: string;
   occurrence: number;
   createdAt?: number;
+}
+
+export interface ChatRunStatus {
+  id: string;
+  status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+  started_at: string;
+  cancel_requested?: boolean;
+}
+
+export function requestHasSettled(
+  run: ChatRunStatus | null | undefined,
+  marker: PendingRequestMarker,
+): boolean {
+  return !!run && run.id === marker.requestId && run.status !== "running";
 }
 
 // IDs are regenerated when messages are dumped from the DB. Match submitted

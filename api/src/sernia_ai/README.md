@@ -167,7 +167,7 @@ the run's tokens and cost.
 
 | Entry point | Uses |
 |-------------|------|
-| `routes.chat_sernia` (streaming) | `finalize_run` from the stream's `on_complete` |
+| `routes.chat_sernia` (streaming) | `chat_runs.ChatRun` owns execution; `finalize_run` from its `on_complete` |
 | `routes.approve_conversation` | `finalize_run` after `resume_with_approvals`; `save_failed_run` on error |
 | SMS triggers, `run_agent_for_trigger` | `run_and_finalize` |
 
@@ -177,6 +177,36 @@ point starts calling the pipeline's steps directly.
 
 Zillow lead outcomes follow `zillow_leads/handle.py` instead. The shared approval
 endpoint dispatches lead cards there before the general-agent resume path.
+
+### Web conversation lifecycle
+
+The chat route commits the accepted user message and `web_chat_run` metadata
+before starting inference. The sidebar inserts the conversation immediately,
+then reconciles it with the server receipt. The SSE connection only subscribes
+to the server-owned task: navigating away, closing the tab, or losing the
+connection does not cancel execution. A bounded queue detaches slow subscribers
+without blocking the agent. Reopening a running conversation polls saved progress.
+
+`ConversationCheckpoint` uses the same PydanticAI capability hooks as Rentium's
+`TurnCheckpoint`: save after model responses and settled tool steps, using fresh
+sessions and the existing conversation row. These saves do not increment usage
+totals and do not expose in-flight tool calls as approval requests. This is a
+current transcript checkpoint, not the harness `StepPersistence` event/side-effect
+ledger or a durable workflow engine. No new persistence tables are required.
+
+Cancel is an authenticated server operation tied to a request ID. It signals a
+PydanticAI cancellation token; active workers also poll the saved cancellation
+request so another replica can receive the HTTP request. Cancellation retains
+partial output and completed tool results; it cannot undo completed actions.
+Each web run is bounded to 50 model requests and 15 minutes. The saved lease has
+one additional minute for finalization; expired workers show as interrupted.
+Shutdown cancels and saves active runs. A hard process kill retains the last
+checkpoint, with no automatic replay of potentially completed actions.
+
+Admission is serialized in Postgres, active conversations cannot be overwritten
+or deleted, repeated request IDs are rejected, and final writes check the run ID
+so a superseded worker cannot overwrite a newer run. Terminal status, rather
+than the existence of an assistant message, determines when recovery is complete.
 
 ### Prompt stability
 
