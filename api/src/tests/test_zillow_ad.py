@@ -100,6 +100,15 @@ class TestParse:
             "<html>nothing here</html>",
             '<script id="__NEXT_DATA__">not json</script>',
             '<script id="__NEXT_DATA__">{"props": {}}</script>',
+            '<script id="__NEXT_DATA__">[]</script>',
+            *(
+                '<script id="__NEXT_DATA__">'
+                + json.dumps(
+                    {"props": {"pageProps": {"componentProps": {"gdpClientCache": cache}}}}
+                )
+                + "</script>"
+                for cache in (None, [], "null", "[]", "{}")
+            ),
         ],
     )
     def test_a_page_that_has_changed_says_so(self, page):

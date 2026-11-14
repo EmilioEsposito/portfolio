@@ -146,6 +146,8 @@ def _property(page: str) -> dict[str, Any]:
         cache = data["props"]["pageProps"]["componentProps"]["gdpClientCache"]
         if isinstance(cache, str):
             cache = json.loads(cache)
+        if not isinstance(cache, dict):
+            raise TypeError(f"gdpClientCache is a {type(cache).__name__}, not an object")
         return next(
             value["property"]
             for value in cache.values()
