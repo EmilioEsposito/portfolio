@@ -11,15 +11,14 @@ code is outside it.
 | --- | --- | --- |
 | [SerniaAI](https://eesposito.com/systems/sernia-ai) | Operations agent with persistent context, business tools, and human approval flows. | [Agent guide](api/src/sernia_ai/README.md) |
 | [Emergency routing](https://eesposito.com/systems/emergency-routing) | Assesses incoming property messages and routes qualifying alerts through Twilio. | [Assessment and dispatch](api/src/open_phone/README.md) |
-| [Leasing follow-ups](https://eesposito.com/systems/leasing-leads) | Reviews email threads, identifies missing replies, and extracts tour details. | [Workflow](api/src/zillow_email/README.md) |
+| [Zillow Leads Agent](https://eesposito.com/systems/leasing-leads) | Prepares replies from reviewed rental listings; every send requires human approval. Showing bookings are planned. | [Lead agent guide](api/src/sernia_ai/zillow_leads/README.md) |
 | [Public agent demo](https://eesposito.com/multi-agent-chat) | Routed chat with a visible execution trace. | [Demo agents](api/src/ai_demos/README.md) |
-| [Email studio](https://eesposito.com/ai-email-responder) | Drafts replies to fictional scenarios; does not read a mailbox or send mail. | [Gmail module](api/src/google/gmail/README.md) |
 
 Operational records and tools require authentication. Public demos use separate,
 limited tools and a capped inference credential; request, concurrency, time, and
 model budgets bound public usage. See [public AI controls](api/src/utils/README.md).
 
-The operations agent connects Quo, Google Workspace, ClickUp, database search,
+The general operations agent connects Quo, Google Workspace, ClickUp, database search,
 and scheduling. Approval requirements are enforced in tool code and depend on
 the action and recipient. See [tool policies](api/src/sernia_ai/tools/README.md)
 and [fixed reminders](api/src/sernia_ai/messaging/README.md) for exceptions.

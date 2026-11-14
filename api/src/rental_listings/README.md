@@ -78,8 +78,8 @@ in either kind of text.
 
 ## Edit screen and endpoints
 
-The Rental Listings page (`/sernia-rental-listings`, linked from the Sernia
-sidebar) edits each listing's fields and the showing rules, and shows the
+The Rental Listings page (`/sernia-rental-listings`, linked from the Zillow
+Leads Agent architecture page and the Sernia conversation sidebar) edits each listing's fields and the showing rules, and shows the
 history. It calls these endpoints, and so does the Sernia MCP service. They
 are open to signed-in Sernia users, the same as the admin settings, by two
 routes (`rental_listing_caller` in `routes.py`):

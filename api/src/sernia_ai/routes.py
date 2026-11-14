@@ -37,9 +37,9 @@ from api.src.agent_conversations.models import (
     list_user_conversations,
 )
 from api.src.database.database import DBSession
-from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import AGENT_NAME, WORKSPACE_PATH
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.model_config import (
     AVAILABLE_MODELS,
     DEFAULT_THINKING_EFFORT,
@@ -641,7 +641,7 @@ async def _skills_preview() -> tuple[str, list[dict]]:
     from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
     from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    from api.src.sernia_ai.agent import lead_policy_capability, workspace_skills
+    from api.src.sernia_ai.general_agent import lead_policy_capability, workspace_skills
 
     seen: dict = {}
 
@@ -702,7 +702,7 @@ async def _resolve_tool_overview(deps: SerniaDeps) -> dict:
     total = 0
     from pydantic_ai.toolsets import CombinedToolset
 
-    from api.src.sernia_ai.agent import workspace_capability
+    from api.src.sernia_ai.general_agent import workspace_capability
 
     # The workspace file tools come from a capability. `sernia_agent.toolsets`
     # also holds the capabilities' tools in one unnamed CombinedToolset, which

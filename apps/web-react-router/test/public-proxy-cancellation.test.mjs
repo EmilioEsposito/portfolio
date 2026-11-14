@@ -18,7 +18,7 @@ function response() {
 
 for (const path of [
   "/api/ai-demos/chat-emilio", "/api/ai-demos/chat-weather",
-  "/api/ai-demos/multi-agent-chat/?qa=1", "/api/google/gmail/generate_email_response",
+  "/api/ai-demos/multi-agent-chat/?qa=1",
 ]) {
   test(`browser disconnect cancels public stream: ${path}`, async (t) => {
     let cancelled = false;

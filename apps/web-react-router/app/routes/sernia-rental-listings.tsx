@@ -1,29 +1,25 @@
 import type { Route } from "./+types/sernia-rental-listings";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useBlocker, useNavigate } from "react-router";
+import { Link, useBlocker } from "react-router";
 import { useAuth } from "@clerk/react-router";
 import {
-  ArrowLeft,
   Building,
   ExternalLink,
   Globe,
   History,
   Loader2,
   Lock,
-  Menu,
   Plus,
   RotateCcw,
   Save,
   X,
 } from "lucide-react";
 import { AuthGuard } from "~/components/auth-guard";
-import { ConversationSidebar } from "~/components/sernia/conversation-sidebar";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { SidebarInset, SidebarProvider, useSidebar } from "~/components/ui/sidebar";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import {
@@ -55,6 +51,7 @@ const HISTORY_LIMIT = 50;
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Rental Listings | Sernia" },
+    { name: "robots", content: "noindex, nofollow" },
     {
       name: "description",
       content: "Edit each unit's listing and the showing rules.",
@@ -1036,15 +1033,6 @@ function AllChanges() {
 // The page
 // ---------------------------------------------------------------------------
 
-function MobileSidebarToggle() {
-  const { toggleSidebar } = useSidebar();
-  return (
-    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 md:hidden" onClick={toggleSidebar} aria-label="Open menu">
-      <Menu className="h-4 w-4" />
-    </Button>
-  );
-}
-
 function unitStatus(unit: RentalListing, today: string): string {
   if (isOffMarket(unit, today)) return "Off market";
   if (unit.off_market_on) return `Off market from ${unit.off_market_on}`;
@@ -1084,7 +1072,7 @@ function RentalUnitsScreen() {
     load();
   }, [load]);
 
-  // Leaving for another page inside the app (Back to chat, the sidebar, the
+  // Leaving for another page inside the app (the architecture link, the sidebar, the
   // browser's back button) does not unload the document, so ask here too.
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
@@ -1294,42 +1282,24 @@ function RentalUnitsScreen() {
 }
 
 export default function SerniaRentalUnitsPage() {
-  const navigate = useNavigate();
   return (
     <AuthGuard
       requireDomain="serniacapital.com"
       message="Sernia sign-in required"
       icon={<Building className="h-16 w-16 text-muted-foreground" />}
     >
-      <SidebarProvider>
-        <ConversationSidebar
-          onSelectConversation={(id) => navigate(`/sernia-chat?id=${id}`)}
-          onNewConversation={() => navigate("/sernia-chat")}
-        />
-        <SidebarInset className="min-w-0 overflow-x-hidden">
-          <div className="flex h-chat-viewport flex-col bg-background">
-            <div className="flex items-center gap-3 border-b px-4 py-3">
-              <MobileSidebarToggle />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0"
-                aria-label="Back to chat"
-                onClick={() => navigate("/sernia-chat")}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg font-semibold">Rental listings</h1>
-                <p className="truncate text-xs text-muted-foreground">What the Zillow lead agent knows about each unit</p>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <RentalUnitsScreen />
-            </div>
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
+      <main className="mx-auto w-full max-w-6xl py-6">
+        <header className="px-4 pb-6 sm:px-6">
+          <Link to="/systems/leasing-leads" className="text-sm text-muted-foreground underline underline-offset-4">
+            Zillow Leads Agent
+          </Link>
+          <h1 className="mt-4 text-2xl font-semibold">Rental listings</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Maintain the listing facts and showing rules the Zillow Leads Agent reads.
+          </p>
+        </header>
+        <RentalUnitsScreen />
+      </main>
     </AuthGuard>
   );
 }

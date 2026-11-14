@@ -109,13 +109,6 @@ export function AppSidebar() {
           icon: MessageSquare,
           onClick: toggleSidebarIfMobile,
         },
-        {
-          type: "navigation",
-          title: "Email studio",
-          url: "/ai-email-responder",
-          icon: Inbox,
-          onClick: toggleSidebarIfMobile,
-        },
       ],
     },
     {
@@ -123,9 +116,16 @@ export function AppSidebar() {
       items: [
         {
           type: "navigation",
-          title: "Sernia AI",
+          title: "Sernia AI general agent",
           url: "/sernia-chat",
           icon: Building,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "Zillow Leads Agent",
+          url: "/systems/leasing-leads",
+          icon: Inbox,
           onClick: toggleSidebarIfMobile,
         },
         {

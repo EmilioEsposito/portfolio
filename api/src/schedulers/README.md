@@ -14,16 +14,23 @@ This backend uses **APScheduler** (`api/src/apscheduler_service/`) for all sched
 
 ### Current Scheduled Jobs (APScheduler)
 
-All production scheduled jobs are registered in `api/src/apscheduler_service/service.py`:
+Startup registration is coordinated by `api/index.py`; each feature owns its
+job implementation. Registration and execution follow the
+[background automation policy](../../../docs/BACKGROUND_AUTOMATION.md).
 
 | Job ID | Schedule | Description |
 |--------|----------|-------------|
 | `clickup_peppino_tasks_scheduled` | 8am, 5pm ET | ClickUp task reminders |
-| `zillow_email_new_unreplied_scheduled` | 8am, 12pm, 5pm ET | Check for new unreplied Zillow emails |
-| `zillow_email_threads_ai_scheduled` | 8am, 5pm ET | AI analysis of Zillow email threads |
+| `sernia_scheduled_checks` | Runtime-configured days/hours, ET | General-agent scheduled checks (`sernia_ai/triggers/scheduled_triggers.py`) |
+| `zillow-email-queue` | Every 30 seconds | Durable queue worker for the dedicated Zillow Leads Agent (`sernia_ai/triggers/zillow_email_event_trigger.py`) |
+| `escalation-outbox` | Every 15 seconds | Recover pending emergency assessments/deliveries (`open_phone/escalation_delivery.py`) |
 | `hello_world_apscheduler_job` | Once at startup | Demo/test job |
 
 ---
+
+The retired Zillow scheduled assessor and its SQL were removed. The active
+Zillow queue calls `sernia_ai/zillow_leads/handle.py`; it does not create phone
+contacts or calendar events. See the [lead-agent guide](../sernia_ai/zillow_leads/README.md).
 
 ### API Endpoints
 
@@ -56,7 +63,6 @@ DBOS was disabled to avoid $75/month DB keep-alive costs. The code is preserved 
 
 The DBOS scheduled workflows are still in the codebase (commented out with `# DBOS DISABLED`):
 - `api/src/clickup/service.py` - `clickup_peppino_tasks_scheduled`
-- `api/src/zillow_email/service.py` - `zillow_*_scheduled` workflows
 
 ### Re-enabling DBOS
 
@@ -67,7 +73,6 @@ If you're ready to pay for DBOS or want to use its durable workflow features:
    from api.src.dbos_service.routes import router as dbos_router
    from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
    from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
-   from api.src.zillow_email.service import register_zillow_dbos_jobs
    from api.src.clickup.service import register_clickup_dbos_jobs
    ```
 
@@ -97,7 +102,6 @@ If you're ready to pay for DBOS or want to use its durable workflow features:
 
 8. **Remove APScheduler versions of the jobs** from `api/src/apscheduler_service/service.py`:
    - Remove `register_clickup_apscheduler_jobs()`
-   - Remove `register_zillow_apscheduler_jobs()`
    - Remove their calls in `api/index.py`
 
 9. **Set up DBOS Conductor** (optional but recommended for cloud dashboard):

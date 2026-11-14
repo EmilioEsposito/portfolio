@@ -36,8 +36,8 @@ class TestSmoke:
     """Verify trigger components import and are wired correctly."""
 
     def test_background_agent_runner_imports(self):
-        from api.src.sernia_ai.agent import NoAction
         from api.src.sernia_ai.config import TRIGGER_BOT_ID
+        from api.src.sernia_ai.general_agent import NoAction
         from api.src.sernia_ai.triggers.background_agent_runner import (
             RATE_LIMIT_SECONDS,
             _is_rate_limited,
@@ -61,7 +61,7 @@ class TestSmoke:
 
     def test_noaction_model_in_agent_output_type(self):
         """NoAction is included in the agent's output_type union."""
-        from api.src.sernia_ai.agent import NoAction, sernia_agent
+        from api.src.sernia_ai.general_agent import NoAction, sernia_agent
 
         assert NoAction in sernia_agent.output_type
 
@@ -213,7 +213,7 @@ class TestBackgroundAgentRunner:
     @pytest.mark.asyncio
     async def test_silent_processing_returns_none(self):
         """When agent returns NoAction, conversation is saved but returns None."""
-        from api.src.sernia_ai.agent import NoAction
+        from api.src.sernia_ai.general_agent import NoAction
 
         mock_result = MagicMock()
         mock_result.output = NoAction(reason="routine ack")

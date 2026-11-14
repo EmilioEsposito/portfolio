@@ -24,8 +24,8 @@ from pydantic_ai.capabilities import Instrumentation, ProcessHistory, WebFetch, 
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.native_tools import WebFetchTool, WebSearchTool
 
-from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import WEB_SEARCH_ALLOWED_DOMAINS
+from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.sub_agents import compact_history, summarize_tool_results
 
 
@@ -301,7 +301,7 @@ class TestInstructionsStableWithinRun:
         )
         from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-        from api.src.sernia_ai.agent import NoAction
+        from api.src.sernia_ai.general_agent import NoAction
 
         def model(_messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
             (no_action,) = info.output_tools  # `NoAction` is the only output tool
@@ -422,7 +422,7 @@ class TestInstructionsStableWithinRun:
         )
         from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-        from api.src.sernia_ai import agent as agent_module
+        from api.src.sernia_ai import general_agent as agent_module
         from api.src.sernia_ai import instructions
         from api.src.sernia_ai.deps import SerniaDeps
         from api.src.sernia_ai.memory import git_sync

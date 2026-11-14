@@ -29,8 +29,8 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service, zillow_ad
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.rental_listings.schema import PreferredWindow, RentalListing, ShowingRules
-from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.tools import rental_listing_tools as tools
 from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
 from api.src.tests.test_rental_listings import clear_rental_data

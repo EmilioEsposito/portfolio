@@ -1,17 +1,45 @@
 # Sernia AI
 
-Production AI assistant for Sernia Capital LLC's rental real estate business.
+Two distinct agents support Sernia Capital's rental operations. They share
+FastAPI, PydanticAI, conversation storage, and approval screens.
 
-Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with OpenPhone, Gmail, Google Calendar/Drive, and ClickUp.
+| Agent | Entry point | Input and authority | Guide |
+| --- | --- | --- | --- |
+| **Sernia AI general agent** | `general_agent.py` (`sernia_agent`) | Team chat, internal SMS, scheduled checks; business tools, workspace context, action-specific approvals | This guide; [public architecture](https://eesposito.com/systems/sernia-ai) |
+| **Zillow Leads Agent** | `zillow_leads/agent.py` (`respond`) | Prepared lead case; no tools; Reply / NoReply / Escalate; every reply requires human approval | [Runtime guide](zillow_leads/README.md); [public architecture](https://eesposito.com/systems/leasing-leads) |
 
-## Architecture
+Incoming Zillow emails run only the specialist. The general agent can maintain
+listing data and consult the same leasing policy, but it does not receive those
+queued threads. Lead approvals are handled by `zillow_leads/handle.py`, without
+resuming the general agent.
 
-- **Agent** (`agent.py`) — Main PydanticAI agent with tool use, sub-agents, and persistent memory
+## Where to work
+
+| Concern | Owner |
+| --- | --- |
+| General agent, tools, memory, model selection | `general_agent.py`, `instructions.py`, `tools/`, `model_config.py` |
+| Lead case, reply decision, fixed recipient, approval | [`zillow_leads/`](zillow_leads/README.md) |
+| Listing schema, validation, history, HTTP API | [`../rental_listings/`](../rental_listings/README.md) |
+| Listing editor | `/sernia-rental-listings`; standalone page with Sernia authentication |
+| Lead debounce and general automation settings | `/sernia-settings#zillow-leads`; lead replies always require approval |
+| Email queue, SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
+| Offline lead evaluations and private review data | [`zillow_leads/evals/`](zillow_leads/evals/README.md) |
+| Showing bookings, shared calendars, resident notice | [Issue #368](https://github.com/EmilioEsposito/portfolio/issues/368), planned; `zillow_leads/tours.py` is the integration boundary |
+
+The retired `api/src/zillow_email/` implementation has been removed. Active queue
+names such as `zillow_email_jobs` are retained; they are not legacy runtime code.
+`sernia_ai/agent.py` was renamed to `general_agent.py`; the `sernia_agent` object
+name remains stable. The rest of this guide describes the **general agent**
+unless explicitly stated otherwise.
+
+## General agent architecture
+
+- **Agent** (`general_agent.py`) — Main PydanticAI agent with tool use, sub-agents, and persistent memory
 - **Instructions** (`instructions.py`) — Static system prompt + dynamic context injection (memory, filetree, modality, then per-run context: datetime, user, deeplink). See [Prompt stability](#prompt-stability).
 - **Config** (`config.py`) — Phone IDs, rate limits, and other tunables
-- **Model config** (`model_config.py`) — Runtime-switchable main-agent model (GPT-5.6 Luna / Sonnet 4.6 / Opus 4.7) and reasoning effort (Low / Medium / High / X-High / Max — Max is GPT-5.6's top tier, above X-High), resolved per run via the `model_config` app_setting. Web search/fetch live on the agent as provider-adaptive `WebSearch`/`WebFetch` capabilities (native web fetch is Anthropic-only and is dropped automatically on OpenRouter runs). See [Model Gateways](#model-gateways) below.
+- **Model config** (`model_config.py`) — Supported general-agent models, reasoning effort, and per-run resolution of the `model_config` app setting. See [Model Gateways](#model-gateways). The lead agent selects its own model in `zillow_leads/agent.py`.
 - **Routes** (`routes.py`) — FastAPI endpoints for chat, conversations, approvals, and admin
-- **Run pipeline** (`runs.py`) — What happens after the model stops, for every run. See [Run pipeline](#run-pipeline).
+- **Run pipeline** (`runs.py`) — What happens after the general agent stops, for every general-agent run. See [Run pipeline](#run-pipeline).
 
 ## Documentation
 
@@ -37,7 +65,7 @@ Built with **PydanticAI** (Graph Beta API), **FastAPI**, and integrated with Ope
 All runtime inference uses OpenRouter, including demo, email classification,
 and escalation calls. Claude selections keep their model identities; direct
 Claude instruction/tool/message caching is preserved using OpenRouter cache
-controls; native web fetch is unavailable. Public chat/email use the separate
+controls; native web fetch is unavailable. Public demos use the separate
 `PUBLIC_PORTFOLIO_OPENROUTER_API_KEY` exclusively.
 Sonnet xhigh maps to high because that route does not support xhigh.
 
@@ -116,8 +144,8 @@ retroactively.
 
 ### Run pipeline
 
-A run reaches the agent five ways: web chat (streaming), an approval resume, a
-1:1 SMS, a group SMS, and a background trigger (Zillow email, scheduled check).
+A run reaches the general agent five ways: web chat (streaming), an approval resume, a
+1:1 SMS, a group SMS, and a background trigger (scheduled check).
 They differ in how the run **starts** — gates, history loading, prompt, deps —
 and that stays with each entry point. What happens **after** the model stops is
 identical and lives in `runs.py`:
@@ -143,9 +171,12 @@ the run's tokens and cost.
 | `routes.approve_conversation` | `finalize_run` after `resume_with_approvals`; `save_failed_run` on error |
 | SMS triggers, `run_agent_for_trigger` | `run_and_finalize` |
 
-Add a new entry point by building its deps and calling one of these — not by
+For the general agent, add a new entry point by building its deps and calling one of these — not by
 copying the steps. `test_run_pipeline.py::TestOnePipeline` fails if an entry
 point starts calling the pipeline's steps directly.
+
+Zillow lead outcomes follow `zillow_leads/handle.py` instead. The shared approval
+endpoint dispatches lead cards there before the general-agent resume path.
 
 ### Prompt stability
 
@@ -219,10 +250,10 @@ The agent's behavior comes from two sources with different error boundaries:
 
 This distinction matters most for **skills** (`/workspace/.claude/skills/<name>/SKILL.md`). Skills are runtime-editable YAML+markdown files that the agent itself can create and modify via `workspace_edit_file`. A malformed SKILL.md (bad YAML frontmatter, broken encoding, etc.) must degrade gracefully:
 
-- **One bad skill**: the harness skips a `SKILL.md` it cannot parse (bad frontmatter, no description, invalid UTF-8, a name that does not match its directory) and the other skills still load. `WorkspaceSkills` in `agent.py` logs each skipped skill to Logfire as a warning.
+- **One bad skill**: the harness skips a `SKILL.md` it cannot parse (bad frontmatter, no description, invalid UTF-8, a name that does not match its directory) and the other skills still load. `WorkspaceSkills` in `general_agent.py` logs each skipped skill to Logfire as a warning.
 - **A missing skills directory**: skipped (`missing_directories="skip"`); the agent runs with the deployed skill only.
 - **Anything else** (for example a file the process cannot read): `WorkspaceSkills.for_run` catches it, logs an error, and the agent runs without workspace skills rather than not at all.
-- **Names that clash**: a skill shares one id space with the agent's other capabilities, and a clash fails the run. `RESERVED_SKILL_NAMES` in `agent.py` keeps those names out of the catalog; a test fails when a new capability needs adding to it.
+- **Names that clash**: a skill shares one id space with the agent's other capabilities, and a clash fails the run. `RESERVED_SKILL_NAMES` in `general_agent.py` keeps those names out of the catalog; a test fails when a new capability needs adding to it.
 
 The same principle applies to all knowledge-repo content: `MEMORY.md` reads are capped and wrapped, filetree generation catches `OSError`, and workspace file tools return error strings rather than raising.
 

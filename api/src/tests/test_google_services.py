@@ -122,18 +122,3 @@ def test_get_contacts_sheet_as_json():
 def test_get_service_credentials():
     creds = get_service_credentials()
     print(creds)
-
-
-# ---------------------------------------------------------------------------
-# Gmail routes (from api/src/google/gmail/tests.py)
-# ---------------------------------------------------------------------------
-
-
-def test_get_zillow_emails(client):
-    """Public scenarios are fictional and require no mailbox credentials."""
-    response = client.get("/api/google/gmail/get_zillow_emails")
-    assert response.status_code == 200
-    catalog = response.json()
-    assert len(catalog["scenarios"]) == 3
-    assert catalog["default_instructions"]
-    assert all("@example.com" in item["sender"] for item in catalog["scenarios"])

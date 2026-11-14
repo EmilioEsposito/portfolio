@@ -54,7 +54,7 @@ async def test_agent_tool_simulcast(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tool_schema_and_agent_discovery():
-    from api.src.sernia_ai.agent import sernia_agent
+    from api.src.sernia_ai.general_agent import sernia_agent
     from api.src.sernia_ai.instructions import STATIC_INSTRUCTIONS
 
     assert "list_message_templates" in STATIC_INSTRUCTIONS

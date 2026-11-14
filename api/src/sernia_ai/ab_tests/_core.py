@@ -29,7 +29,6 @@ from pydantic_evals import Case, Dataset
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.sernia_ai.agent import sernia_agent
 from api.src.sernia_ai.config import (
     GOOGLE_DELEGATION_EMAIL,
     TRIGGER_BOT_ID,
@@ -37,6 +36,7 @@ from api.src.sernia_ai.config import (
     WORKSPACE_PATH,
 )
 from api.src.sernia_ai.deps import SerniaDeps
+from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.model_config import (
     build_openrouter_settings,
     build_run_kwargs,
@@ -108,7 +108,7 @@ async def _agent_run_context(
         # Clears the native web search/fetch tools the WebSearch/WebFetch
         # capabilities contribute (rote experiments want zero tool noise).
         # Providers that can't serve a native tool drop it on their own
-        # (`optional=True` in agent.py), so no per-provider filtering is needed.
+        # (`optional=True` in general_agent.py), so no per-provider filtering is needed.
         overrides["native_tools"] = []
 
     with sernia_agent.override(**overrides):

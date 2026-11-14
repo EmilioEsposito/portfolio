@@ -22,8 +22,14 @@ The provisioner prints the assigned preview URL and configures the API proxy.
 
 - `/`: portfolio and selected work.
 - `/multi-agent-chat`: agent showcase with streamed execution activity.
-- `/ai-email-responder`: email studio using fictional scenarios; never reads or sends real email.
+- `/systems/leasing-leads`: Zillow Leads Agent architecture, listing-data flow, planned booking integration, and evaluation links. Public and server-rendered; verified Sernia users also see management links.
+- `/sernia-rental-listings`: authenticated standalone listing editor, using the main site navigation (no conversation pane).
 - `/calendly`: meeting scheduling.
+
+The retired `/ai-email-responder` and `/ai-email-responder/architecture` URLs
+permanently redirect to `/systems/leasing-leads`. Their fictional drafting API
+and fixtures have been removed. The public chat showcase retains its budget
+and credential controls.
 
 The former standalone career/weather chat URLs redirect to the agent showcase.
 The retired `/examples/*` and `/test` routes have been removed. The backend's example

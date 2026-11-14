@@ -45,7 +45,7 @@ export default function OperationalCaseStudy({ study }: { study: CaseStudy }) {
 }
 
 export const operationsStudy: CaseStudy = {
-  path: "/systems/sernia-ai", title: "SerniaAI operations agent", approach: "Flexible tool use",
+  path: "/systems/sernia-ai", title: "Sernia AI general agent", approach: "Flexible tool use",
   description: "How SerniaAI connects scheduled runs, SMS, and web chat to shared company memory, sandboxed computation, business tools, and human approval for external actions.",
   problem: "Property operations arrive as fragments: a text from a tenant, an email thread, a pending task, or a reminder. The team needs a way to connect those details and act without reconstructing the history every time.",
   steps: [
@@ -59,6 +59,7 @@ export const operationsStudy: CaseStudy = {
   outcome: "The same operational context can carry from a web conversation to an internal SMS thread or a later follow-up. The assistant can also stop without taking action when a trigger does not need a response.",
   boundary: "This is the private operational system. The public agent demo uses a separate, restricted workflow and does not expose tenant records or business tools.",
   source: "https://github.com/EmilioEsposito/portfolio/tree/main/api/src/sernia_ai",
+  related: { to: "/systems/leasing-leads", label: "Zillow Leads Agent architecture" },
 };
 
 export const emergencyStudy: CaseStudy = {
@@ -76,22 +77,4 @@ export const emergencyStudy: CaseStudy = {
   outcome: "Qualifying messages reach the escalation channel automatically, including the configured phone flow for off-hours attention. The human team handles the incident; the agent does not diagnose or resolve the underlying emergency.",
   boundary: "If AI assessment fails after its bounded retry, the current implementation does not escalate automatically and logs the failure. This routing aid is not an emergency service or a guarantee that every urgent message will be detected.",
   source: "https://github.com/EmilioEsposito/portfolio/blob/main/api/src/open_phone/escalate.py",
-};
-
-export const leasingStudy: CaseStudy = {
-  path: "/systems/leasing-leads", title: "Leasing lead management agent", approach: "Event-driven specialist",
-  description: "A specialized AI agent reviews leasing email threads on a schedule, identifies missing replies and confirmed tours, and feeds a deterministic contact and calendar workflow.",
-  problem: "A leasing thread can mix proposed times, confirmed appointments, contact details, and unanswered questions. Turning that conversation into reliable follow-up takes more than copying the latest email into a calendar.",
-  steps: [
-    { label: "Trigger", title: "Scheduled inbox review", description: "Registered scheduler jobs select leasing threads and check for inquiries needing attention." },
-    { label: "AI judgment", title: "Interpret the thread", description: "The model assesses whether a reply is needed and a tour is confirmed, then extracts structured details." },
-    { label: "Controlled actions", title: "Update operational tools", description: "Code alerts the team, upserts the lead contact, and creates a calendar event when required details are present." },
-    { label: "Outcome", title: "A usable follow-up", description: "The team gets missing-reply alerts and tour details, or a notification about information that could not be processed." },
-  ],
-  judgment: "The model distinguishes a proposed tour from a confirmed appointment and extracts the lead, property, and appointment information from the thread. Its structured output supplies data to the workflow; it does not freely select actions.",
-  controls: "Scheduler jobs and database queries determine which threads are reviewed. Branches in code gate alerts, contact updates, and calendar creation. Missing phone numbers or appointment details produce operational notes instead of fabricated records.",
-  outcome: "Confirmed tour information can become a contact in the phone platform and an event in the team calendar. Unanswered inquiries and processing issues surface to the team for follow-up.",
-  boundary: "This workflow assists the leasing team; it does not approve applicants or autonomously negotiate lease terms. The public email studio is a separate drafting exercise with fictional scenarios.",
-  source: "https://github.com/EmilioEsposito/portfolio/tree/main/api/src/zillow_email",
-  related: { to: "/systems/leasing-evals", label: "How its replies are evaluated" },
 };

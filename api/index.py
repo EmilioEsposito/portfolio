@@ -71,7 +71,6 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 # from api.src.dbos_service.routes import router as dbos_router
 # from api.src.dbos_service.dbos_config import launch_dbos, shutdown_dbos
 # from api.src.dbos_service.dbos_scheduler import capture_scheduled_workflows
-# from api.src.zillow_email.service import register_zillow_dbos_jobs
 # from api.src.clickup.service import register_clickup_dbos_jobs
 from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
@@ -119,8 +118,6 @@ if missing_vars:
 #         with logfire.span("dbos_startup"):
 #             with logfire.span("launch_dbos"):
 #                 launch_dbos()
-#             with logfire.span("register_zillow_dbos_jobs"):
-#                 register_zillow_dbos_jobs()  # just make sure the service module is imported
 #             with logfire.span("register_clickup_dbos_jobs"):
 #                 register_clickup_dbos_jobs()  # just make sure the service module is imported
 #
@@ -144,8 +141,6 @@ async def _apscheduler_startup_async() -> None:
             register_hello_apscheduler_jobs()
             # Register production scheduled jobs (moved from DBOS)
             register_clickup_apscheduler_jobs()
-            # Legacy Zillow jobs disabled — replaced by Sernia AI triggers below
-            # register_zillow_apscheduler_jobs()
             await register_scheduled_triggers()
             from api.src.sernia_ai.triggers.zillow_email_event_trigger import (
                 register_zillow_email_queue,
