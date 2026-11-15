@@ -287,7 +287,7 @@ The cleanup helpers from sernia_ai's `google_tools.py` were vendored into
 The only sernia_ai helper that did **not** port is `_summarize_if_long`
 (LLM-based) — MCP hard-truncates instead since there's no LLM dep on the
 server. Live parity tested at `tests/test_email_thread_live.py` against
-the real Samantha + Nelson Chang Zillow threads.
+two real Zillow lead threads.
 
 **Drift caveat**: until the sernia_ai → MCP migration completes, both
 copies need to be updated together if Zillow ever changes their email
