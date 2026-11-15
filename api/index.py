@@ -75,6 +75,7 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
+from api.src.showing_bookings.routes import router as showing_bookings_router
 from api.src.user.routes import router as user_router
 from api.src.zillow_leads.settings import router as zillow_leads_router
 
@@ -339,6 +340,7 @@ app.include_router(push_router, prefix="/api")
 app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(rental_listings_router, prefix="/api")
+app.include_router(showing_bookings_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")

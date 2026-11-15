@@ -434,6 +434,37 @@ async def seed_fixture_conversations(dry_run: bool = False) -> None:
             log_info(f"✓ Created fixture conversation '{row['id']}'")
 
 
+async def seed_showing_agents(dry_run: bool = False) -> None:
+    """Seed two made-up showing agents so the Booking settings tab has someone to show.
+
+    Non-production only. Idempotent by email; an agent already saved is left as it is.
+    """
+    if os.getenv("RAILWAY_ENVIRONMENT_NAME", "") == "production":
+        log_info("Skipping sample showing agents (production environment)")
+        return
+
+    from sqlalchemy import select
+
+    from api.src.database.database import AsyncSessionFactory
+    from api.src.showing_bookings.models import ShowingAgentRecord
+    from api.src.showing_bookings.seed import SAMPLE_AGENTS
+
+    async with AsyncSessionFactory() as session:
+        for agent in SAMPLE_AGENTS:
+            existing = await session.scalar(
+                select(ShowingAgentRecord.id).where(ShowingAgentRecord.email == agent.email)
+            )
+            if existing:
+                log_info(f"✓ Showing agent '{agent.name}' already exists")
+                continue
+            if dry_run:
+                log_info(f"[DRY RUN] Would create showing agent '{agent.name}'")
+                continue
+            session.add(ShowingAgentRecord(**agent.model_dump(mode="json")))
+            await session.commit()
+            log_info(f"✓ Created showing agent '{agent.name}'")
+
+
 async def main(dry_run: bool = False) -> None:
     """Main entry point for seeding the database."""
     log_info("=" * 50)
@@ -458,6 +489,10 @@ async def main(dry_run: bool = False) -> None:
     log_info("")
     log_info("Seeding fixture conversations (non-production only)...")
     await seed_fixture_conversations(dry_run=dry_run)
+
+    log_info("")
+    log_info("Seeding sample showing agents (non-production only)...")
+    await seed_showing_agents(dry_run=dry_run)
 
     log_info("")
     log_info("=" * 50)
