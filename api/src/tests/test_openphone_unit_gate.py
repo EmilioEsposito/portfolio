@@ -289,36 +289,36 @@ class TestActiveLeaseFiltering:
 
     def test_excludes_leads_by_default(self):
         contacts = [
-            _tenant("Aidan", "659", "02"),
-            _lead("Mary", "659", "02"),
+            _tenant("Ellis", "659", "02"),
+            _lead("Tess", "659", "02"),
         ]
         result = _filter_tenants_by_property_unit(contacts, ["659"], ["02"])
         names = {c["defaultFields"]["firstName"] for c in result[("659", "02")]}
-        assert names == {"Aidan"}
+        assert names == {"Ellis"}
 
     def test_excludes_future_tenants_by_default(self):
         contacts = [
-            _tenant("Aidan", "659", "02"),
+            _tenant("Ellis", "659", "02"),
             _future_tenant("Incoming", "659", "02"),
         ]
         result = _filter_tenants_by_property_unit(contacts, ["659"], ["02"])
         names = {c["defaultFields"]["firstName"] for c in result[("659", "02")]}
-        assert names == {"Aidan"}
+        assert names == {"Ellis"}
 
     def test_include_inactive_keeps_everyone(self):
         contacts = [
-            _tenant("Aidan", "659", "02"),
-            _lead("Mary", "659", "02"),
+            _tenant("Ellis", "659", "02"),
+            _lead("Tess", "659", "02"),
             _future_tenant("Incoming", "659", "02"),
         ]
         result = _filter_tenants_by_property_unit(contacts, ["659"], ["02"], active_only=False)
         names = {c["defaultFields"]["firstName"] for c in result[("659", "02")]}
-        assert names == {"Aidan", "Mary", "Incoming"}
+        assert names == {"Ellis", "Tess", "Incoming"}
 
     def test_unit_with_only_inactive_contacts_drops_out(self):
         contacts = [
-            _tenant("Aidan", "659", "02"),
-            _lead("Mary", "659", "04"),
+            _tenant("Ellis", "659", "02"),
+            _lead("Tess", "659", "04"),
             _future_tenant("Incoming", "659", "04"),
         ]
         result = _filter_tenants_by_property_unit(contacts, ["659"], None)
@@ -329,17 +329,17 @@ class TestActiveLeaseFiltering:
         # Only the current (active-lease) tenants should be messaged.
         contacts = [
             # 659-02 current tenants
-            _tenant("Aidan Kreiley", "659", "02", "+1659020001"),
-            _tenant("Adeline Farrington", "659", "02", "+1659020002"),
+            _tenant("Ellis Whitford", "659", "02", "+1659020001"),
+            _tenant("Maren Holbrook", "659", "02", "+1659020002"),
             # 659-02 noise
-            _lead("Mary Allerton", "659", "02", "+1659020003"),
-            _future_tenant("Elena Coupas", "659", "02", "+1659020004"),
+            _lead("Tess Calloway", "659", "02", "+1659020003"),
+            _future_tenant("Ines Varga", "659", "02", "+1659020004"),
             # 659-04 current tenants
-            _tenant("Alfie Ong", "659", "04", "+1659040001"),
-            _tenant("Angela Ledger", "659", "04", "+1659040002"),
+            _tenant("Milo Tran", "659", "04", "+1659040001"),
+            _tenant("Greta Lindahl", "659", "04", "+1659040002"),
             # 659-04 noise
-            _lead("Ava Reisman", "659", "04", "+1659040005"),
-            _future_tenant("Trevor Moreci", "659", "04", "+1659040006"),
+            _lead("Nora Pellham", "659", "04", "+1659040005"),
+            _future_tenant("Owen Castell", "659", "04", "+1659040006"),
         ]
         result = _filter_tenants_by_property_unit(contacts, ["659"], ["02", "04"])
         total = sum(len(v) for v in result.values())

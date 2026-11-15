@@ -12,6 +12,7 @@ Run live tests:
 """
 
 import os
+import re
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -483,7 +484,7 @@ class TestStripQuotedReplies:
         text = (
             "Sounds good.\n"
             "\n"
-            "On Mon, Mar 2, 2026 at 3:14 PM Samantha Jurczyk <\n"
+            "On Mon, Mar 2, 2026 at 3:14 PM Rosalind Whitlow <\n"
             "long-address@convo.zillow.com> wrote:\n"
             "\n"
             "> Can I tour Thursday?\n"
@@ -561,7 +562,7 @@ class TestCleanZillowEmail:
             "A renter sent you a message about your listing at "
             "659 Maryland Ave #4, Shadyside, PA 15232. "
             "You can reply on Zillow or directly to this email.\n"
-            "Nelson Chang says: What about when using AC?"
+            "Felix Morrow says: What about when using AC?"
         )
         result = _clean_zillow_email(content)
         assert "What about when using AC?" in result
@@ -577,7 +578,7 @@ class TestCleanZillowEmail:
             "Sorry I'm running a little late, almost there!\n"
             "Reply on Zillow\n"
             "For your safety, always double-check requests.\n"
-            "Nelson Chang says:\n"
+            "Felix Morrow says:\n"
             "We're here!"
         )
         result = _clean_zillow_email(content)
@@ -635,7 +636,7 @@ class TestCleanZillowEmail:
         assert "utm_" not in result
 
     def test_preserves_non_zillow_content(self):
-        content = "Hi Emilio,\n\nRent check will be late this month.\n\nThanks, Nelson"
+        content = "Hi Emilio,\n\nRent check will be late this month.\n\nThanks, Felix"
         result = _clean_zillow_email(content)
         assert result == content
 
@@ -794,16 +795,18 @@ class TestReadEmailThreadMessageIds:
 # Live Tests (real Gmail API)
 # ---------------------------------------------------------------------------
 
-# Real thread: "Samantha is requesting information about 659 Maryland Ave #3"
-# 9-message Zillow lead thread between Samantha Jurczyk and Sernia Capital
-# Thread IDs are mailbox-specific — same conversation has different IDs per inbox
-_SAMANTHA_THREAD_ID_EMILIO = "19caf1e244d20176"  # emilio@serniacapital.com
-_SAMANTHA_THREAD_ID_ALL = "19caf1e113d3f75d"  # all@serniacapital.com
+# Real threads, each a renter's Zillow inquiry about a 659 Maryland unit. The
+# assertions check the Zillow relay address, not the renter's name, because
+# this repository is public.
 
-# Real thread: "Nelson Chang is requesting information about 659 Maryland Ave #4"
-# Zillow lead thread — used to verify Zillow cleanup, message IDs, and
+# 659 Maryland Ave #3: a 9-message thread between the renter and Sernia Capital.
+# Thread IDs are mailbox-specific — same conversation has different IDs per inbox
+_UNIT3_THREAD_ID_EMILIO = "19caf1e244d20176"  # emilio@serniacapital.com
+_UNIT3_THREAD_ID_ALL = "19caf1e113d3f75d"  # all@serniacapital.com
+
+# 659 Maryland Ave #4: used to verify Zillow cleanup, message IDs, and
 # that the reply from all@serniacapital.com is visible.
-_NELSON_THREAD_ID_EMILIO = "19d749e8a5b36ccf"  # emilio@serniacapital.com
+_UNIT4_THREAD_ID_EMILIO = "19d749e8a5b36ccf"  # emilio@serniacapital.com
 
 _live = [
     pytest.mark.live,
@@ -825,9 +828,9 @@ class TestReadEmailThreadLive:
 
     @pytest.mark.asyncio
     async def test_reads_full_zillow_thread(self):
-        """Read the real Samantha/659 Maryland thread and verify structure."""
+        """Read the real 659 Maryland #3 thread and verify structure."""
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-        result = await read_email_thread(ctx, thread_id=_SAMANTHA_THREAD_ID_EMILIO)
+        result = await read_email_thread(ctx, thread_id=_UNIT3_THREAD_ID_EMILIO)
 
         # Should have multiple messages
         assert "Message 1/" in result
@@ -836,7 +839,7 @@ class TestReadEmailThreadLive:
         assert "serniacapital.com" in result.lower()
         # Known content from the thread
         assert "659 Maryland" in result
-        assert "Samantha" in result
+        assert "convo.zillow.com" in result.lower()  # the renter's relayed messages
 
         print(f"\n--- Thread output ({len(result)} chars) ---")
         print(result[:3000])
@@ -850,7 +853,7 @@ class TestReadEmailThreadLive:
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
         result = await read_email_thread(
             ctx,
-            thread_id=_SAMANTHA_THREAD_ID_ALL,
+            thread_id=_UNIT3_THREAD_ID_ALL,
             user_email_account="all@serniacapital.com",
         )
 
@@ -863,9 +866,9 @@ class TestReadEmailThreadLive:
 
     @pytest.mark.asyncio
     async def test_thread_message_count_matches_expected(self):
-        """The Samantha thread should have 9 messages."""
+        """The unit 3 thread should have 9 messages."""
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-        result = await read_email_thread(ctx, thread_id=_SAMANTHA_THREAD_ID_EMILIO)
+        result = await read_email_thread(ctx, thread_id=_UNIT3_THREAD_ID_EMILIO)
 
         # Thread has 9 messages
         assert "Message 9/9" in result or "Message 1/9" in result
@@ -873,29 +876,37 @@ class TestReadEmailThreadLive:
     @pytest.mark.asyncio
     async def test_search_then_read_thread_flow(self):
         """End-to-end: search for the email, extract thread ID, read thread."""
-        # Step 1: Search
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
+        # Search by the thread's own first subject (it names the renter), so the
+        # query needs no name written here.
+        pinned = await read_email_thread(ctx, thread_id=_UNIT3_THREAD_ID_EMILIO)
+        first_subject = re.search(
+            r"^Subject: (?:(?:Re|Fwd?): *)*(.+)$", pinned, re.MULTILINE | re.IGNORECASE
+        )
+        assert first_subject, "Expected a Subject line in the pinned thread"
+
+        # Step 1: Search
         search_result = await search_emails(
-            ctx, query="from:zillow.com Samantha 659 Maryland", max_results=3
+            ctx, query=f'from:zillow.com subject:"{first_subject.group(1)}"', max_results=3
         )
         assert "659 Maryland" in search_result
 
         # Extract thread ID from search results
-        assert _SAMANTHA_THREAD_ID_EMILIO in search_result, (
-            f"Expected thread ID {_SAMANTHA_THREAD_ID_EMILIO} in search results"
+        assert _UNIT3_THREAD_ID_EMILIO in search_result, (
+            f"Expected thread ID {_UNIT3_THREAD_ID_EMILIO} in search results"
         )
 
         # Step 2: Read full thread
-        thread_result = await read_email_thread(ctx, thread_id=_SAMANTHA_THREAD_ID_EMILIO)
+        thread_result = await read_email_thread(ctx, thread_id=_UNIT3_THREAD_ID_EMILIO)
         assert "Message 1/" in thread_result
-        assert "Samantha" in thread_result
+        assert "convo.zillow.com" in thread_result.lower()
 
         print("\n--- Search → Read Thread flow verified ---")
 
 
-# python -m pytest -m live api/src/tests/test_google_tools.py::TestNelsonChangThreadLive -v -s
-class TestNelsonChangThreadLive:
-    """Live tests for the Nelson Chang / 659 Maryland Ave #4 Zillow thread.
+# python -m pytest -m live api/src/tests/test_google_tools.py::TestUnit4ThreadLive -v -s
+class TestUnit4ThreadLive:
+    """Live tests for the 659 Maryland Ave #4 Zillow thread.
 
     This thread was the original bug report — the reply from all@serniacapital.com
     was missing because the thread was truncated. These tests verify that Zillow
@@ -906,29 +917,29 @@ class TestNelsonChangThreadLive:
     pytestmark = _live
 
     @pytest.mark.asyncio
-    async def test_reads_nelson_thread_with_all_replies(self):
-        """Read the Nelson Chang thread and verify the reply from all@ is visible."""
+    async def test_reads_unit4_thread_with_all_replies(self):
+        """Read the unit 4 thread and verify the reply from all@ is visible."""
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+        result = await read_email_thread(ctx, thread_id=_UNIT4_THREAD_ID_EMILIO)
 
         # Should have messages
         assert "Message 1/" in result
-        # Known participants
-        assert "Nelson Chang" in result or "nelson" in result.lower()
+        # Known participants: the renter's messages come through Zillow's relay
+        assert "convo.zillow.com" in result.lower()
         assert "659 Maryland" in result
 
         # The reply from all@serniacapital.com should be present
         # (this was the bug — it was truncated away before)
         assert "serniacapital.com" in result.lower()
 
-        print(f"\n--- Nelson Chang thread ({len(result)} chars) ---")
+        print(f"\n--- Unit 4 thread ({len(result)} chars) ---")
         print(result)
 
     @pytest.mark.asyncio
     async def test_zillow_boilerplate_stripped(self):
-        """Zillow boilerplate should be cleaned from Nelson Chang thread messages."""
+        """Zillow boilerplate should be cleaned from the unit 4 thread's messages."""
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+        result = await read_email_thread(ctx, thread_id=_UNIT4_THREAD_ID_EMILIO)
 
         # Zillow boilerplate should NOT appear
         assert "New message from a renter" not in result
@@ -941,11 +952,9 @@ class TestNelsonChangThreadLive:
     async def test_message_ids_present(self):
         """Each message should include its Gmail message ID for reply chaining."""
         ctx = _FakeRunContext(user_email="emilio@serniacapital.com")
-        result = await read_email_thread(ctx, thread_id=_NELSON_THREAD_ID_EMILIO)
+        result = await read_email_thread(ctx, thread_id=_UNIT4_THREAD_ID_EMILIO)
 
         # Message IDs should be in the format "(ID: <hex>)"
-        import re
-
         id_matches = re.findall(r"\(ID: ([a-f0-9]+)\)", result)
         assert len(id_matches) >= 2, (
             f"Expected at least 2 message IDs, found {len(id_matches)}: {id_matches}"

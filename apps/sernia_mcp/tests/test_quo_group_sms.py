@@ -71,9 +71,9 @@ _CONTACTS = {
     INTERNAL_A: _contact("Emilio", INTERNAL_A, company=QUO_INTERNAL_COMPANY),
     INTERNAL_B: _contact("Anna", INTERNAL_B, company=QUO_INTERNAL_COMPANY),
     EXTERNAL_A: _contact("Sana", EXTERNAL_A, company="Test2"),
-    TENANT_320_02_A: _contact("Aidan", TENANT_320_02_A, unit=("320", "02")),
-    TENANT_320_02_B: _contact("Adeline", TENANT_320_02_B, unit=("320", "02")),
-    TENANT_320_03: _contact("Hailey", TENANT_320_03, unit=("320", "03")),
+    TENANT_320_02_A: _contact("Ellis", TENANT_320_02_A, unit=("320", "02")),
+    TENANT_320_02_B: _contact("Maren", TENANT_320_02_B, unit=("320", "02")),
+    TENANT_320_03: _contact("Robin", TENANT_320_03, unit=("320", "03")),
 }
 
 
@@ -214,7 +214,7 @@ class TestGroupApprovalFlow:
     async def test_group_send_queues_pending_row(self):
         fake_routing = GroupSmsRouting(
             phones=[TENANT_320_02_A, TENANT_320_02_B],
-            recipient_names=["Aidan Test", "Adeline Test"],
+            recipient_names=["Ellis Test", "Maren Test"],
             all_internal=False,
             from_phone_id=QUO_SHARED_EXTERNAL_PHONE_ID,
             line_name="Sernia Capital Team",
@@ -237,12 +237,12 @@ class TestGroupApprovalFlow:
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
-            "contact_name": "Aidan Test, Adeline Test",
+            "contact_name": "Ellis Test, Maren Test",
             "created_at": time.time(),
         }
         fake = SmsResult(
             to_phone=f"{TENANT_320_02_A}, {TENANT_320_02_B}",
-            contact_name="Aidan Test, Adeline Test",
+            contact_name="Ellis Test, Maren Test",
             line_name="Sernia Capital Team",
             parts_sent=1,
             message_chars=11,
@@ -266,7 +266,7 @@ class TestGroupApprovalFlow:
             "group": True,
             "to_phones": [TENANT_320_02_A, TENANT_320_02_B],
             "message": "group hello",
-            "contact_name": "Aidan Test, Adeline Test",
+            "contact_name": "Ellis Test, Maren Test",
             "created_at": time.time(),
         }
         with patch("sernia_mcp.tools.approvals.send_group_sms_core", new=AsyncMock()) as group_send:

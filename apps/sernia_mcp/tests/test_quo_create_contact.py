@@ -36,9 +36,9 @@ def _make_async_client_cm(post_mock: AsyncMock):
 def test_payload_includes_only_provided_default_fields():
     from sernia_mcp.core.quo.contact_writes import _build_contact_payload
 
-    payload = _build_contact_payload(first_name="Anna", last_name="Bakich")
+    payload = _build_contact_payload(first_name="Dana", last_name="Kessler")
     df = payload["defaultFields"]
-    assert df == {"firstName": "Anna", "lastName": "Bakich"}
+    assert df == {"firstName": "Dana", "lastName": "Kessler"}
     assert payload["customFields"] == []
 
 
@@ -119,14 +119,14 @@ async def test_create_contact_success_invalidates_cache():
     ):
         from sernia_mcp.core.quo.contact_writes import create_contact_core
 
-        result = await create_contact_core("Anna", "Bakich", company="Sernia")
+        result = await create_contact_core("Dana", "Kessler", company="Sernia")
 
-    assert "Anna Bakich" in result and "C123" in result
+    assert "Dana Kessler" in result and "C123" in result
     invalidate.assert_called_once()
     post.assert_awaited_once()
     args, kwargs = post.await_args
     assert args[0] == "/v1/contacts"
-    assert kwargs["json"]["defaultFields"]["firstName"] == "Anna"
+    assert kwargs["json"]["defaultFields"]["firstName"] == "Dana"
     assert kwargs["json"]["defaultFields"]["company"] == "Sernia"
 
 

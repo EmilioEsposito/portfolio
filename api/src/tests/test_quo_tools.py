@@ -485,20 +485,20 @@ def test_render_group_thread_from_db_pins_format():
     ]
     phone_map = {
         "+19990001111": "Sernia Capital Team",
-        "+15551112222": "Aidan",
-        "+15553334444": "Adeline",
+        "+15551112222": "Ellis",
+        "+15553334444": "Maren",
     }
     out = _render_group_thread_from_db(
         activities,
         ["+15551112222", "+15553334444"],
         phone_map,
     )
-    assert "Group thread with Aidan (+15551112222), Adeline (+15553334444)" in out
+    assert "Group thread with Ellis (+15551112222), Maren (+15553334444)" in out
     assert "2 messages, 1 call" in out
     # Outgoing group msg renders sender + multiple recipients
-    assert "Sernia Capital Team → Aidan, Adeline" in out
+    assert "Sernia Capital Team → Ellis, Maren" in out
     # Incoming reply renders correctly
-    assert "Aidan → Sernia Capital Team, Adeline" in out
+    assert "Ellis → Sernia Capital Team, Maren" in out
     # Call line includes Call ID for downstream get_call_details chain
     assert "Call ID ACcall1" in out
     assert "(incoming, 42s)" in out
