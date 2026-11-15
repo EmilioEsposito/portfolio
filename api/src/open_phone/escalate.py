@@ -28,6 +28,7 @@ from api.src.open_phone.escalation_policy import (
 from api.src.open_phone.escalation_policy import (
     explicit_keywords,
 )
+from api.src.utils.phone_config import optional_phone_list, required_us_phone
 
 # --- Twilio Configuration ---
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -60,13 +61,15 @@ negation_phases = [
 ]
 
 
-never_escalate_from_numbers = [
-    "+16266125747",
-]
+# Phone numbers come from settings, not this public file (see
+# api/src/utils/phone_config.py). Senders whose messages never escalate:
+never_escalate_from_numbers = optional_phone_list("ESCALATION_IGNORED_SENDERS")
 
 # Caller ID for escalation calls — tenants/team recognize this Twilio number,
-# and Emilio's/Peppino's phones allow it through Do Not Disturb.
-ESCALATE_FROM_NUMBER = "+14129001989"
+# and Emilio's/Peppino's phones allow it through Do Not Disturb. Required at
+# import, like the Twilio credentials above, so a missing value stops startup
+# instead of failing an emergency call.
+ESCALATE_FROM_NUMBER = required_us_phone("TWILIO_ESCALATION_FROM_NUMBER")
 
 # Default escalation recipients, resolved from the contacts DB by slug.
 DEFAULT_ESCALATION_CONTACT_SLUGS = ["emilio", "peppino"]

@@ -31,6 +31,11 @@ commit the code was at:
   same file as a skill (see ``../sernia_ai/lead_policy.py``), so keep it free of anything that is
   true only for this agent.
 - ``record.md``: how to fill in the output fields. Lead agent only.
+
+``policy.md`` writes the team phone number as ``{{team_phone}}``. ``load_policy``
+fills it in from the ``SERNIA_TEAM_PHONE`` setting, because this repository is
+public and numbers written in it attract spam. Everything that reads the policy
+(both agents, the evals and their judge) goes through ``load_policy``.
 """
 
 from datetime import datetime
@@ -47,6 +52,7 @@ from api.src.utils.openrouter_models import (
     build_openrouter_settings,
     resolve_model,
 )
+from api.src.utils.phone_config import team_phone, us_phone_display
 from api.src.zillow_leads.case import LeadCase, render_case
 
 # Everything in prompts/ is read by a model at runtime. Editing a file there
@@ -55,6 +61,7 @@ PROMPTS = Path(__file__).with_name("prompts")
 ROLE_PATH = PROMPTS / "role.md"
 POLICY_PATH = PROMPTS / "policy.md"
 RECORD_PATH = PROMPTS / "record.md"
+TEAM_PHONE_PLACEHOLDER = "{{team_phone}}"
 # This agent has its own model setting, so it can change, and be evaluated,
 # without changing the model the general agent runs on.
 LEAD_AGENT_MODEL = "openrouter:openai/gpt-6-luna"
@@ -128,13 +135,20 @@ LeadOutcome = Annotated[Reply | NoReply | Escalate, Field(discriminator="action"
 
 
 def load_policy() -> str:
-    """The rules for answering a lead: the part both agents share."""
-    return POLICY_PATH.read_text()
+    """The rules for answering a lead: the part both agents share.
+
+    Raises ``PhoneConfigError`` when ``SERNIA_TEAM_PHONE`` is missing, rather
+    than giving the model a signature without a number.
+    """
+    policy = POLICY_PATH.read_text()
+    if TEAM_PHONE_PLACEHOLDER in policy:
+        policy = policy.replace(TEAM_PHONE_PLACEHOLDER, us_phone_display(team_phone()))
+    return policy
 
 
 def load_instructions() -> str:
     """Everything the lead agent is told: its role, the policy, what to record."""
-    return "\n".join(path.read_text() for path in (ROLE_PATH, POLICY_PATH, RECORD_PATH))
+    return "\n".join([ROLE_PATH.read_text(), load_policy(), RECORD_PATH.read_text()])
 
 
 @cache

@@ -126,8 +126,9 @@ async def test_excluded_sender_still_suppresses_call(monkeypatch):
     )
     dispatch = AsyncMock()
     monkeypatch.setattr(escalate, "trigger_twilio_escalation", dispatch)
+    monkeypatch.setattr(escalate, "never_escalate_from_numbers", ["+14125550160"])
     incoming = event()
-    incoming["from_number"] = escalate.never_escalate_from_numbers[0]
+    incoming["from_number"] = "+14125550160"
     assert await escalate.analyze_for_twilio_escalation(incoming) == 0
     dispatch.assert_not_awaited()
 
