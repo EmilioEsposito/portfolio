@@ -58,8 +58,11 @@ dependencies = [
     "requests>=2.32.3",
     # GraphQL
     "strawberry-graphql[fastapi]>=0.219.2",
-    # Starlette SessionMiddleware requires this
+    # Starlette SessionMiddleware requires this; also signs the calendar-connect state
     "itsdangerous>=2.2.0",
+    # Fernet encryption of showing-booking refresh tokens. Already locked
+    # through clerk-backend-api; declared because the app imports it directly.
+    "cryptography>=50.0.2",
     # Utilities
     "boto3>=1.34.0", # seed-fixture bucket (S3-compatible Railway storage)
     "python-dotenv>=1.0.1",

@@ -6,9 +6,10 @@ work is tracked in [issue #368](https://github.com/EmilioEsposito/portfolio/issu
 and lands one pull request at a time, each with sending switched off or in
 capture mode.
 
-This first step holds the tables, the notice outbox and the test harness.
-Nothing here books a showing yet, and nothing is sent: the setting starts in
-capture mode, and outside production only test recipients can ever be sent to.
+The first steps hold the tables, the notice outbox, the test harness and the
+calendar connections. Nothing here books a showing yet, and nothing is sent:
+the setting starts in capture mode, and outside production only test
+recipients can ever be sent to.
 
 ## Tables
 
@@ -77,9 +78,12 @@ Nothing sends email yet. An email notice is captured like any other, and one
 the guard would send is saved as `failed` with the reason `no_email_sender`.
 
 `outbox.py` is the only file in this module that hands a row to a provider.
-`test_showing_boundaries.py` fails if another file imports a sender or calls a
-sending method, or if anything here uses the repo's general `send_message` or
-`create_calendar_event`, which have no guard.
+`test_showing_boundaries.py` fails if another file uses a sending method (a
+text, or a calendar event write, which invites people), if the Quo sender is
+imported anywhere but `outbox.py` or the Google calendar adapter anywhere but
+`connections.py`, if a file other than `google_oauth.py` and
+`google_calendar.py` names Google's hosts, or if anything here uses the repo's
+general `send_message` or `create_calendar_event`, which have no guard.
 
 ## Send modes and the guard
 
@@ -121,6 +125,8 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
 - `CalendarSource`: busy blocks for a set of calendars over a window (raising
   `CalendarUnreadable`, with the calendars that were read, when one cannot be
   read), and creating, changing and cancelling events with invited guests.
+  `google_calendar.GoogleCalendar` is the Google one, described under Calendar
+  connections below.
 
 Stand-ins in `fakes.py` replace both in tests and later steps:
 `RecordingTextSender` keeps every text in order and can refuse a number, lose
@@ -130,7 +136,114 @@ and events and can lose a calendar. `seed.py` has two made-up agents, which
 which fills an `InMemoryCalendar` with a made-up week of their busy times.
 
 The outbox uses the live senders when none are passed. Under pytest that raises
-instead of reaching Quo.
+instead of reaching Quo or Google: `google_http.client`, the one HTTP client
+for Google, refuses to run under pytest, and tests install `FakeGoogle`
+(`api/src/tests/showing_google.py`) behind `httpx.MockTransport` instead.
+
+## Calendar connections
+
+A connection is one Google account that has granted calendar access, a row in
+`calendar_connections` keyed by Google's stable account id (`google_subject`).
+On day one the shared team account connects once and reads the calendars the
+agents share with it; an agent with a Sernia sign-in may connect their own.
+
+### Connecting
+
+1. A signed-in team member presses Connect on the Booking settings tab.
+   `POST /calendar/connect` answers with Google's consent URL for the OAuth
+   client in the Google Cloud project `sernia-showings`, which is Internal:
+   only serniacapital.com accounts can approve it, with no Google review. It
+   asks for offline access to two calendar permissions,
+   `calendar.events.freebusy` (free/busy of every calendar the account can
+   see) and `calendar.app.created` (calendars the app itself creates), plus
+   `openid` and `email` to learn which account approved.
+2. Google sends the browser to `/api/showing-bookings/calendar/callback`, the
+   module's one route without sign-in (`calendar_callback.py`). The request
+   carries no sign-in, so who started the connection travels in `state`:
+   the Clerk user id, their Sernia email, the site they started from and a
+   nonce, signed with `SESSION_SECRET_KEY` and good for ten minutes. A
+   missing, altered or expired state saves nothing.
+3. The callback trades Google's one-time code for tokens, checks that both
+   calendar permissions were granted, makes sure the account has a calendar
+   named "Sernia showings" (created once; a reconnect keeps it), and saves the
+   row with the refresh token encrypted. It answers with a small page that
+   sends the browser back to the tab with the result, such as
+   `?calendar=connected`. A page, not a redirect status, because the web
+   server's `/api` proxy follows redirects itself.
+
+The redirect URI is built from an allowed origin, never from a request header:
+`https://eesposito.com`, `https://dev.eesposito.com` or `http://localhost` on
+any port. Google accepts only redirect URIs registered on the client:
+
+- `https://eesposito.com/api/showing-bookings/calendar/callback`
+- `https://dev.eesposito.com/api/showing-bookings/calendar/callback`
+- `http://localhost:5173/api/showing-bookings/calendar/callback`, plus a
+  worktree's own web port to connect from that worktree
+
+### Using a connection
+
+`connections.calendar_for_connection(row)` is the `CalendarSource` for a
+connection; tests replace it with one returning an `InMemoryCalendar`. Reads go
+through Google's free/busy query, which leaves out events marked free; a
+calendar Google reports an error for, or leaves out, is unreadable and never
+counted as free. Event writes (the outbox's alone) go to the showings calendar
+with `sendUpdates=all`, so each guest gets the invitation, change or
+cancellation by email. The outbox sends a calendar notice through the
+connection whose showings calendar the notice names.
+
+Access tokens are refreshed from the stored refresh token as needed and held in
+memory until a minute before they expire, never saved. Each read through Google
+saves `last_read_at`, `last_read_ok` and `last_error` on the row. When Google
+rejects the refresh token (`invalid_grant`: access removed in the Google
+account, or expired) the row becomes `lost` and an error-level log goes out,
+which the Logfire error alert picks up; its calendars then count as busy until
+someone presses Reconnect.
+
+"Check now" reads the account's own free/busy for the next day once.
+"Disconnect" revokes the grant at Google, then marks the row `revoked` and
+drops its token; the showings calendar stays in the account, and connecting
+again reuses it.
+
+### Usable here
+
+A connection is usable here when it is `connected`, this environment has the
+Google client, and its token decrypts with this environment's key. Anything
+else is unusable here: its calendars read as unreadable (its agents count as
+busy), its calendar notices fail, and Check now and Disconnect say why
+instead of reaching Google. That is what keeps production's grants out of a
+preview: a preview's database is a copy of production's rows, and previews do
+not get production's key.
+
+### Settings
+
+Read at call time; values are never logged or returned:
+
+| Variable | What it is |
+| --- | --- |
+| `GOOGLE_SHOWINGS_OAUTH_CLIENT_ID` | The OAuth client in the `sernia-showings` project. Without it and the secret, the tab says calendar connections are not set up here, and nothing else changes. |
+| `GOOGLE_SHOWINGS_OAUTH_CLIENT_SECRET` | That client's secret. |
+| `SHOWING_TOKEN_KEY` | The Fernet key that encrypts refresh tokens. Each environment that connects calendars has its own; production's is never set anywhere else, and previews have none. |
+
+Make a key with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+A token saved under one key cannot be read under another, so changing the key
+means reconnecting each account.
+
+The request span for the callback is left out of tracing (`api/index.py`),
+since Logfire records a URL's whole query and this one holds Google's code
+and the state; the callback logs its own outcome without them.
+
+### The live check
+
+`scripts/showing_calendar_live_check.py` checks a connection against Google by
+hand: one free/busy read, then one event on the showings calendar created and
+cancelled. Its only guest must be an address in `SHOWING_TEST_EMAILS`; it
+refuses any other. Run it from the repository root against the database and
+environment where the account was connected:
+
+```bash
+uv run python -m scripts.showing_calendar_live_check --account ACCOUNT --guest GUEST
+```
 
 ## Team API
 
@@ -141,9 +254,15 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   409. A live unit must be a rental listing and is saved as the listing spells it.
 - `GET /notices`: notices newest first, with their wording, status and mode.
 - `POST /notices/send-pending`: run `drain` once and answer its counts.
+- `GET /calendar/connections`: each connection with its last read and whether
+  it is usable here, and whether this environment can connect calendars.
+- `POST /calendar/connect`: `{origin, account?}`, Google's consent URL;
+  `account` preselects the account for a reconnect.
+- `POST /calendar/connections/{id}/check` and `.../disconnect`.
 
-The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Messages
-and Send mode sections; its other sections are placeholders.
+The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
+mode, Messages and Calendar connections sections; its other sections are
+placeholders.
 
 ## Tests
 
@@ -152,12 +271,14 @@ and Send mode sections; its other sections are placeholders.
 ```
 
 They use the worktree's test database and the stand-ins; nothing reaches Quo
-or Google.
+or Google. `test_showing_google_oauth.py` and `test_showing_google_calendar.py`
+cover the Google code without a database; `test_showing_calendar_connections.py`
+covers connecting, using and disconnecting end to end, including that no
+token, code or secret reaches the logs or the browser.
 
 ## Later steps
 
-- Calendar connections over OAuth with a Google client of their own, the Google
-  `CalendarSource`, and an alert when a connection is lost.
+- A text to the team when a connection is lost; today it is an error-level log.
 - Open times from agents' hours, calendars and existing showings.
 - The public booking page, bookings and cancellations, which write the notices
   this outbox delivers, and the scheduled job that drains it every minute.
