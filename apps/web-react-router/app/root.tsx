@@ -6,6 +6,8 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useRouteLoaderData,
+  type ShouldRevalidateFunctionArgs,
 } from "react-router";
 import {
   ClerkProvider,
@@ -22,8 +24,33 @@ import { AppSidebar } from "~/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
 import { EnvBanner } from "~/components/env-banner";
+import { SerniaPublicError, SerniaPublicShell } from "~/components/sernia-public/shell";
+import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
+import { isSerniaPublicPath, SERNIA_NOT_FOUND } from "~/lib/sernia-public";
+import { SERNIA_NAME, serniaErrorMeta } from "~/lib/sernia-public-seo";
 
-export function meta(_args: Route.MetaArgs) {
+// Sernia Capital's public pages (serniacapital.com, and their paths on any
+// host while they are switched on) load no Clerk at all and use their own
+// layout. ~/lib/sernia-public decides which requests those are; the server
+// tells the browser through the root loader data or the 404 it throws.
+
+/**
+ * The Sernia layout applies when the root middleware threw the Sernia 404, or
+ * when the root loader served a Sernia public request.
+ */
+function isSerniaPublic(error: unknown, rootData: unknown) {
+  return (
+    (isRouteErrorResponse(error) && error.data === SERNIA_NOT_FOUND) ||
+    (typeof rootData === "object" && rootData !== null && "serniaPublic" in rootData)
+  );
+}
+
+export function meta({ error, loaderData }: Route.MetaArgs) {
+  if (isSerniaPublic(error, loaderData)) {
+    if (error) return serniaErrorMeta(isRouteErrorResponse(error) ? error.status : undefined);
+    // Sernia pages set their own meta; this keeps the personal site's out if one does not.
+    return [{ title: SERNIA_NAME }];
+  }
   return [
     { title: SITE_OWNER },
     { name: "description", content: DEFAULT_META.description },
@@ -35,15 +62,29 @@ export function meta(_args: Route.MetaArgs) {
   ];
 }
 
-export const middleware: Route.MiddlewareFunction[] = [clerkMiddleware()];
+export const middleware: Route.MiddlewareFunction[] = [createRootMiddleware(clerkMiddleware())];
 
 export const loader = (args: Route.LoaderArgs) =>
-  rootAuthLoader(args, () => ({
-    // Railway sets this for every deployed environment. Passing it through the
-    // root loader makes banner behavior independent of whichever custom domain
-    // happens to route to that deployment.
-    railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
-  }));
+  loadRoot(args, () =>
+    rootAuthLoader(args, () => ({
+      // Railway sets this for every deployed environment. Passing it through the
+      // root loader makes banner behavior independent of whichever custom domain
+      // happens to route to that deployment.
+      railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
+    })),
+  );
+
+export function shouldRevalidate({
+  currentUrl,
+  nextUrl,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  // Moving between a Sernia public path and the rest of the app can switch the
+  // root between its Clerk and no-Clerk shapes, and only the server knows
+  // whether the pages are switched on, so its loader has to run.
+  if (isSerniaPublicPath(currentUrl.pathname) !== isSerniaPublicPath(nextUrl.pathname)) return true;
+  return defaultShouldRevalidate;
+}
 
 export const links: Route.LinksFunction = () => [
   { rel: "manifest", href: "/manifest.json" },
@@ -90,6 +131,19 @@ function isSerniaRoute(pathname: string) {
 
 export default function App({ loaderData }: Route.ComponentProps) {
   const location = useLocation();
+
+  if ("serniaPublic" in loaderData) {
+    // No ClerkProvider, so no Clerk script or request. The Sernia layout
+    // route supplies the header and footer.
+    return (
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <Toaster />
+        <EnvBanner railwayEnvironmentName={loaderData.railwayEnvironmentName} />
+        <Outlet />
+      </ThemeProvider>
+    );
+  }
+
   const isSernia = isSerniaRoute(location.pathname);
 
   return (
@@ -118,6 +172,17 @@ export default function App({ loaderData }: Route.ComponentProps) {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  const rootData = useRouteLoaderData("root");
+  if (isSerniaPublic(error, rootData)) {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <SerniaPublicShell>
+          <SerniaPublicError error={error} />
+        </SerniaPublicShell>
+      </ThemeProvider>
+    );
+  }
+
   let message = "Oops!";
   let details = "An unexpected error occurred.";
   let stack: string | undefined;
