@@ -10,10 +10,22 @@ import {
   isSerniaPublicRequest,
   rootRequestMode,
   serniaPublicHosts,
+  serniaPublicPagesEnabled,
 } from "~/lib/sernia-public";
 
-// Each test that needs the override sets it and restores this state.
-delete process.env.SERNIA_PUBLIC_HOSTS;
+// Outside production, with no overrides: the pages are on. Each test that
+// needs another environment sets it and restores this state.
+const ENVIRONMENT = ["SERNIA_PUBLIC_HOSTS", "SERNIA_PUBLIC_PAGES_ENABLED", "RAILWAY_ENVIRONMENT_NAME"] as const;
+for (const name of ENVIRONMENT) delete process.env[name];
+
+function withEnvironment(values: Partial<Record<(typeof ENVIRONMENT)[number], string>>, run: () => void) {
+  Object.assign(process.env, values);
+  try {
+    run();
+  } finally {
+    for (const name of ENVIRONMENT) delete process.env[name];
+  }
+}
 
 test("recognizes the Sernia hosts, with www, a port, upper case or a trailing dot", () => {
   for (const host of [
@@ -46,8 +58,7 @@ test("recognizes the Sernia hosts, with www, a port, upper case or a trailing do
 });
 
 test("SERNIA_PUBLIC_HOSTS replaces the default hosts", () => {
-  process.env.SERNIA_PUBLIC_HOSTS = " Preview.Example.test:8080 , other.example.test,, ";
-  try {
+  withEnvironment({ SERNIA_PUBLIC_HOSTS: " Preview.Example.test:8080 , other.example.test,, " }, () => {
     assert.deepEqual(serniaPublicHosts(), ["preview.example.test", "other.example.test"]);
     assert.equal(isSerniaHost("preview.example.test:5173"), true);
     assert.equal(isSerniaHost("OTHER.example.test"), true);
@@ -55,10 +66,78 @@ test("SERNIA_PUBLIC_HOSTS replaces the default hosts", () => {
     assert.equal(rootRequestMode("https://preview.example.test/"), "sernia-not-found");
     assert.equal(rootRequestMode("https://serniacapital.com/"), "app");
     assert.equal(isApiProxyAllowed("preview.example.test", "/api/sernia-ai/chat"), false);
-  } finally {
-    delete process.env.SERNIA_PUBLIC_HOSTS;
-  }
+  });
   assert.equal(isSerniaHost("serniacapital.com"), true);
+});
+
+test("the pages are off in production unless SERNIA_PUBLIC_PAGES_ENABLED is true", () => {
+  for (const [setting, enabled] of [
+    [undefined, false],
+    ["", false],
+    ["true", true],
+    [" TRUE ", true],
+    ["1", false],
+    ["yes", false],
+    ["false", false],
+  ] as const) {
+    assert.equal(serniaPublicPagesEnabled(setting, "production"), enabled, `production, ${String(setting)}`);
+    assert.equal(serniaPublicPagesEnabled(setting, " Production "), enabled, `Production, ${String(setting)}`);
+  }
+});
+
+test("outside production the pages are on unless SERNIA_PUBLIC_PAGES_ENABLED is false", () => {
+  for (const environment of [undefined, "", "development", "portfolio-pr-397"]) {
+    for (const [setting, enabled] of [
+      [undefined, true],
+      ["", true],
+      ["true", true],
+      ["false", false],
+      [" FALSE ", false],
+      ["0", true],
+    ] as const) {
+      assert.equal(serniaPublicPagesEnabled(setting, environment), enabled, `${String(environment)}, ${String(setting)}`);
+    }
+  }
+});
+
+test("the switch is read from the environment on each call", () => {
+  assert.equal(serniaPublicPagesEnabled(), true);
+  withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, () => {
+    assert.equal(serniaPublicPagesEnabled(), false);
+    assert.equal(rootRequestMode("https://eesposito.com/privacy"), "app");
+    assert.equal(rootRequestMode("https://serniacapital.com/privacy"), "sernia-not-found");
+  });
+  withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production", SERNIA_PUBLIC_PAGES_ENABLED: "true" }, () => {
+    assert.equal(serniaPublicPagesEnabled(), true);
+    assert.equal(rootRequestMode("https://eesposito.com/privacy"), "sernia-public");
+    assert.equal(rootRequestMode("https://serniacapital.com/privacy"), "sernia-public");
+  });
+  withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "portfolio-pr-397", SERNIA_PUBLIC_PAGES_ENABLED: "false" }, () => {
+    assert.equal(serniaPublicPagesEnabled(), false);
+    assert.equal(rootRequestMode("https://react-router-portfolio-pr-397.up.railway.app/privacy"), "app");
+  });
+});
+
+test("while the pages are off, their paths take the app path and a Sernia host answers 404 everywhere", () => {
+  const off = { pagesEnabled: false };
+  for (const path of ["/privacy", "/sms-terms", "/showings", "/showings/320-03", "/", "/sernia-capital"]) {
+    assert.equal(rootRequestMode(`https://serniacapital.com${path}`, off), "sernia-not-found", path);
+    assert.equal(rootRequestMode(`https://www.serniacapital.com${path}`, off), "sernia-not-found", path);
+    assert.equal(rootRequestMode(`https://eesposito.com${path}`, off), "app", path);
+    assert.equal(rootRequestMode(`http://localhost:5293${path}`, off), "app", path);
+  }
+  assert.equal(isSerniaPublicRequest("https://eesposito.com/privacy", off), false);
+  assert.equal(isSerniaPublicRequest("https://serniacapital.com/privacy", off), true);
+  assert.equal(rootRequestMode("https://eesposito.com/privacy", { pagesEnabled: true }), "sernia-public");
+});
+
+test("the /api rule does not depend on the pages switch", () => {
+  withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, () => {
+    assert.equal(serniaPublicPagesEnabled(), false);
+    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/showing-bookings/public/units"), true);
+    assert.equal(isApiProxyAllowed("serniacapital.com", "/api/sernia-ai/chat"), false);
+    assert.equal(isApiProxyAllowed("eesposito.com", "/api/sernia-ai/chat"), true);
+  });
 });
 
 test("a blank SERNIA_PUBLIC_HOSTS keeps the default hosts", () => {
@@ -185,19 +264,32 @@ test("on any other host the /api proxy forwards every path, as before", () => {
   }
 });
 
+// The URL a flat route file serves, with a sample value for each param.
+function routeFilePath(name: string): string {
+  const segments = name
+    .replace(/\.(tsx|ts|jsx|js)$/, "")
+    .split(".")
+    .filter((segment) => !segment.startsWith("_"))
+    .map((segment) => (segment.startsWith("$") ? "sample" : segment.replace(/^\((.*)\)$/, "$1")));
+  return `/${segments.join("/")}`;
+}
+
+const routeFiles = readdirSync(new URL("../../app/routes/", import.meta.url));
+
 test("every page under the Sernia public layout is at a Sernia public path", () => {
-  const routeFiles = readdirSync(new URL("../../app/routes/", import.meta.url)).filter(
-    (name) => name.startsWith("_sernia-public.") && name !== "_sernia-public.tsx",
-  );
-  assert.ok(routeFiles.length >= 2, "expected the privacy and SMS terms pages");
-  for (const name of routeFiles) {
-    const segments = name
-      .replace(/\.(tsx|ts|jsx|js)$/, "")
-      .split(".")
-      .slice(1)
-      .filter((segment) => segment !== "_index")
-      .map((segment) => (segment.startsWith("$") ? "sample" : segment.replace(/^\((.*)\)$/, "$1")));
-    const path = `/${segments.join("/")}`;
+  const pages = routeFiles.filter((name) => name.startsWith("_sernia-public.") && name !== "_sernia-public.tsx");
+  assert.ok(pages.length >= 2, "expected the privacy and SMS terms pages");
+  for (const name of pages) {
+    const path = routeFilePath(name);
     assert.equal(isSerniaPublicPath(path), true, `${name} is served at ${path}`);
+  }
+});
+
+test("every page at a Sernia public path is under the Sernia public layout", () => {
+  // The layout's middleware is what keeps a page off while the switch is off.
+  for (const name of routeFiles) {
+    if (isSerniaPublicPath(routeFilePath(name))) {
+      assert.ok(name.startsWith("_sernia-public."), `${name} must be under the _sernia-public layout`);
+    }
   }
 });

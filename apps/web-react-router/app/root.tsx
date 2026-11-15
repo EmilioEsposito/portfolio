@@ -1,5 +1,4 @@
 import {
-  data,
   isRouteErrorResponse,
   Links,
   Meta,
@@ -7,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useRouteLoaderData,
   type ShouldRevalidateFunctionArgs,
 } from "react-router";
 import {
@@ -25,29 +25,28 @@ import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
 import { EnvBanner } from "~/components/env-banner";
 import { SerniaPublicError, SerniaPublicShell } from "~/components/sernia-public/shell";
-import {
-  isSerniaPublicPath,
-  isSerniaPublicRequest,
-  rootRequestMode,
-  SERNIA_NOT_FOUND,
-} from "~/lib/sernia-public";
+import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
+import { isSerniaPublicPath, SERNIA_NOT_FOUND } from "~/lib/sernia-public";
 import { SERNIA_NAME, serniaErrorMeta } from "~/lib/sernia-public-seo";
 
 // Sernia Capital's public pages (serniacapital.com, and their paths on any
-// host) load no Clerk at all and use their own layout. ~/lib/sernia-public
-// decides which requests those are.
+// host while they are switched on) load no Clerk at all and use their own
+// layout. ~/lib/sernia-public decides which requests those are; the server
+// tells the browser through the root loader data or the 404 it throws.
 
-function isSerniaNotFound(error: unknown) {
-  return isRouteErrorResponse(error) && error.data === SERNIA_NOT_FOUND;
+/**
+ * The Sernia layout applies when the root middleware threw the Sernia 404, or
+ * when the root loader served a Sernia public request.
+ */
+function isSerniaPublic(error: unknown, rootData: unknown) {
+  return (
+    (isRouteErrorResponse(error) && error.data === SERNIA_NOT_FOUND) ||
+    (typeof rootData === "object" && rootData !== null && "serniaPublic" in rootData)
+  );
 }
 
-/** Errors on a Sernia host or a Sernia public path render under the Sernia layout. */
-function isSerniaPublicError(error: unknown, pathname: string) {
-  return isSerniaNotFound(error) || isSerniaPublicPath(pathname);
-}
-
-export function meta({ error, location }: Route.MetaArgs) {
-  if (isSerniaPublicError(error, location.pathname)) {
+export function meta({ error, loaderData }: Route.MetaArgs) {
+  if (isSerniaPublic(error, loaderData)) {
     if (error) return serniaErrorMeta(isRouteErrorResponse(error) ? error.status : undefined);
     // Sernia pages set their own meta; this keeps the personal site's out if one does not.
     return [{ title: SERNIA_NAME }];
@@ -63,42 +62,26 @@ export function meta({ error, location }: Route.MetaArgs) {
   ];
 }
 
-const clerk = clerkMiddleware();
+export const middleware: Route.MiddlewareFunction[] = [createRootMiddleware(clerkMiddleware())];
 
-export const middleware: Route.MiddlewareFunction[] = [
-  (args, next) => {
-    switch (rootRequestMode(args.url)) {
-      case "sernia-not-found":
-        // A Sernia host answers only the Sernia public pages.
-        throw data(SERNIA_NOT_FOUND, { status: 404, statusText: "Not Found" });
-      case "sernia-public":
-        return next();
-      case "app":
-        return clerk(args, next);
-    }
-  },
-];
-
-export const loader = (args: Route.LoaderArgs) => {
-  if (isSerniaPublicRequest(args.url)) {
-    // The middleware skipped Clerk, so rootAuthLoader cannot run here.
-    return { serniaPublic: true as const, railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME };
-  }
-  return rootAuthLoader(args, () => ({
-    // Railway sets this for every deployed environment. Passing it through the
-    // root loader makes banner behavior independent of whichever custom domain
-    // happens to route to that deployment.
-    railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
-  }));
-};
+export const loader = (args: Route.LoaderArgs) =>
+  loadRoot(args, () =>
+    rootAuthLoader(args, () => ({
+      // Railway sets this for every deployed environment. Passing it through the
+      // root loader makes banner behavior independent of whichever custom domain
+      // happens to route to that deployment.
+      railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME,
+    })),
+  );
 
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
   defaultShouldRevalidate,
 }: ShouldRevalidateFunctionArgs) {
-  // Moving between a Sernia public page and the rest of the app switches the
-  // root between its Clerk and no-Clerk shapes, so its loader has to run.
+  // Moving between a Sernia public path and the rest of the app can switch the
+  // root between its Clerk and no-Clerk shapes, and only the server knows
+  // whether the pages are switched on, so its loader has to run.
   if (isSerniaPublicPath(currentUrl.pathname) !== isSerniaPublicPath(nextUrl.pathname)) return true;
   return defaultShouldRevalidate;
 }
@@ -189,8 +172,8 @@ export default function App({ loaderData }: Route.ComponentProps) {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  const location = useLocation();
-  if (isSerniaPublicError(error, location.pathname)) {
+  const rootData = useRouteLoaderData("root");
+  if (isSerniaPublic(error, rootData)) {
     return (
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
         <SerniaPublicShell>

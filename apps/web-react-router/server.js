@@ -12,6 +12,7 @@
  * Environment variables:
  *   BACKEND_PORT - FastAPI backend port for local dev (default: 8000)
  *   SERNIA_PUBLIC_HOSTS - comma-separated hosts that replace the default Sernia hosts
+ *   SERNIA_PUBLIC_PAGES_ENABLED - read by the app; see app/lib/sernia-public.ts
  *
  * See also: vite.config.ts (dev proxy), README.md, docker-compose.yml
  */

@@ -2,10 +2,14 @@
  * Which requests belong to Sernia Capital's public pages (serniacapital.com).
  *
  * Those pages need no sign-in and load no Clerk: Clerk's production keys
- * belong to eesposito.com. The root route, server.js and the Vite dev proxy
- * all decide from this module. server.js imports it directly, relying on
- * Node's built-in TypeScript type stripping, so it must keep no imports and
- * use only syntax that can be erased (no enums or namespaces).
+ * belong to eesposito.com. The root route, the Sernia layout route, server.js
+ * and the Vite dev proxy all decide from this module. server.js imports it
+ * directly, relying on Node's built-in TypeScript type stripping, so it must
+ * keep no imports and use only syntax that can be erased (no enums or
+ * namespaces).
+ *
+ * The pages are switched off in production until SERNIA_PUBLIC_PAGES_ENABLED
+ * is "true"; see serniaPublicPagesEnabled().
  */
 
 /** Hosts that serve only the Sernia public pages. SERNIA_PUBLIC_HOSTS replaces this list. */
@@ -30,9 +34,39 @@ const PUBLIC_PAGE_PREFIXES = ["/showings/"];
 /** How the root route serves a page request. */
 export type RootRequestMode = "app" | "sernia-public" | "sernia-not-found";
 
+export type SerniaRequestOptions = {
+  /** A SERNIA_PUBLIC_HOSTS value; the environment's when omitted. */
+  hostsSetting?: string;
+  /** Whether the pages are served; serniaPublicPagesEnabled() when omitted. */
+  pagesEnabled?: boolean;
+};
+
+type EnvironmentName = "SERNIA_PUBLIC_HOSTS" | "SERNIA_PUBLIC_PAGES_ENABLED" | "RAILWAY_ENVIRONMENT_NAME";
+
+function fromEnvironment(name: EnvironmentName): string | undefined {
+  // Read on every call, so a request sees the current value. Also bundled for
+  // the browser, where there is no process.
+  return typeof process === "undefined" ? undefined : process.env[name];
+}
+
 function hostsFromEnvironment(): string | undefined {
-  // Also bundled for the browser, where there is no process.
-  return typeof process === "undefined" ? undefined : process.env.SERNIA_PUBLIC_HOSTS;
+  return fromEnvironment("SERNIA_PUBLIC_HOSTS");
+}
+
+/**
+ * Whether the Sernia public pages are served. In production
+ * (RAILWAY_ENVIRONMENT_NAME is "production") they are off unless
+ * SERNIA_PUBLIC_PAGES_ENABLED is "true"; elsewhere they are on unless it is
+ * "false". Turning them on in production waits for the page wording to be
+ * approved.
+ */
+export function serniaPublicPagesEnabled(
+  setting: string | undefined = fromEnvironment("SERNIA_PUBLIC_PAGES_ENABLED"),
+  railwayEnvironmentName: string | undefined = fromEnvironment("RAILWAY_ENVIRONMENT_NAME"),
+): boolean {
+  const value = setting?.trim().toLowerCase();
+  if (railwayEnvironmentName?.trim().toLowerCase() === "production") return value === "true";
+  return value !== "false";
 }
 
 /** Lowercase host name without port or trailing dot, from a Host header or URL host. */
@@ -89,28 +123,28 @@ export function isSerniaPublicPath(pathname: string): boolean {
 }
 
 /**
- * - `sernia-not-found`: a Sernia host asked for anything else; it answers 404.
- * - `sernia-public`: a Sernia public path on any host; served without Clerk.
- * - `app`: everything else, served as before.
+ * - `sernia-public`: a Sernia public path, on any host, while the pages are
+ *   on. Served without Clerk.
+ * - `sernia-not-found`: anything else on a Sernia host, and every path there
+ *   while the pages are off. Answers the Sernia 404, also without Clerk.
+ * - `app`: everything else, served as before. While the pages are off this
+ *   includes their paths on other hosts, which then 404 like any unknown URL.
  */
-export function rootRequestMode(
-  url: URL | string,
-  setting: string | undefined = hostsFromEnvironment(),
-): RootRequestMode {
+export function rootRequestMode(url: URL | string, options: SerniaRequestOptions = {}): RootRequestMode {
   const parsed = typeof url === "string" ? new URL(url) : url;
-  const serniaHost = isSerniaHost(parsed.host, setting);
-  const publicPath = isSerniaPublicPath(parsed.pathname);
-  if (serniaHost && !publicPath) return "sernia-not-found";
-  if (serniaHost || publicPath) return "sernia-public";
-  return "app";
+  const serniaHost = isSerniaHost(parsed.host, options.hostsSetting);
+  const pagesEnabled = options.pagesEnabled ?? serniaPublicPagesEnabled();
+  const publicPage = pagesEnabled && isSerniaPublicPath(parsed.pathname);
+  if (serniaHost) return publicPage ? "sernia-public" : "sernia-not-found";
+  return publicPage ? "sernia-public" : "app";
 }
 
-/** True when the host is a Sernia host, or the path is a Sernia public path on any host. */
-export function isSerniaPublicRequest(
-  url: URL | string,
-  setting: string | undefined = hostsFromEnvironment(),
-): boolean {
-  return rootRequestMode(url, setting) !== "app";
+/**
+ * True when the host is a Sernia host, or the path is a Sernia public path on
+ * any host while the pages are on. Such a request loads no Clerk.
+ */
+export function isSerniaPublicRequest(url: URL | string, options: SerniaRequestOptions = {}): boolean {
+  return rootRequestMode(url, options) !== "app";
 }
 
 function isUnderPublicApi(pathname: string): boolean {
