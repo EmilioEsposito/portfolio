@@ -19,7 +19,7 @@ from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.showing_bookings import outbox, routes
-from api.src.showing_bookings.schema import CalendarPayload, TextPayload
+from api.src.showing_bookings.schema import CalendarPayload, EmailPayload, TextPayload
 from api.src.showing_bookings.settings import SETTINGS_KEY
 from api.src.tests.showing_helpers import (
     PROSPECT_PHONE,
@@ -219,6 +219,29 @@ async def test_notices_are_listed_newest_first_with_their_wording(api):
         "Cancel: https://example.com/c/token\nGuests: alex@example.com"
     )
     assert {(n["status"], n["mode"], n["unit"]) for n in body} == {("pending", None, "320-03")}
+
+
+@pytest.mark.asyncio
+async def test_an_email_notice_shows_its_subject_and_body(api):
+    showing = await add_showing(await add_agent(), starts_at=at(16))
+    async with AsyncSessionFactory() as session:
+        await outbox.enqueue(
+            session,
+            kind="lead_showing_agreed",
+            channel="email",
+            showing_id=showing,
+            recipient="alex@example.com",
+            recipient_key="thread:thread-a",
+            payload=EmailPayload(subject="Your showing", body="See you Wed at 4:00 PM."),
+            now=datetime.now(UTC),
+        )
+        await session.commit()
+
+    (notice,) = (await api.get("/api/showing-bookings/notices")).json()
+    assert (notice["channel"], notice["wording"]) == (
+        "email",
+        "Subject: Your showing\n\nSee you Wed at 4:00 PM.",
+    )
 
 
 @pytest.mark.asyncio

@@ -54,6 +54,7 @@ from api.src.showing_bookings.schema import (
     CalendarPayload,
     Channel,
     DrainReport,
+    EmailPayload,
     NoticeStatus,
     TextPayload,
     normalize_email,
@@ -89,7 +90,7 @@ async def enqueue(
     showing_id: int,
     recipient: str,
     recipient_key: str,
-    payload: TextPayload | CalendarPayload,
+    payload: TextPayload | CalendarPayload | EmailPayload,
     now: datetime,
     attendee_id: int | None = None,
     not_before: datetime | None = None,
@@ -112,6 +113,10 @@ async def enqueue(
         if not isinstance(payload, TextPayload):
             raise ValueError("A text notice carries a TextPayload.")
         address = normalize_us_mobile(recipient)
+    elif channel == "email":
+        if not isinstance(payload, EmailPayload):
+            raise ValueError("An email notice carries an EmailPayload.")
+        address = normalize_email(recipient)
     else:
         if not isinstance(payload, CalendarPayload):
             raise ValueError("A calendar notice carries a CalendarPayload.")
@@ -243,8 +248,9 @@ class _Outcome:
 
 
 def _addresses(notice: ShowingNotice) -> list[str]:
-    """Everyone the notice reaches: the number texted, or every guest of an event."""
-    if notice.channel == "sms":
+    """Everyone the notice reaches: the number texted, the address emailed, or every
+    guest of an event."""
+    if notice.channel in ("sms", "email"):
         return [notice.recipient]
     return [notice.recipient, *notice.payload.get("attendees", [])]
 
@@ -335,9 +341,10 @@ async def _claim(
                     attendee_id=notice.attendee_id,
                     attempts=notice.attempts,
                     started_at=now,
-                    stored_event_id=(
-                        host_event_id if notice.channel == "calendar_event" else invite_event_id
-                    ),
+                    stored_event_id={
+                        "calendar_event": host_event_id,
+                        "calendar_invite": invite_event_id,
+                    }.get(notice.channel),
                 )
             )
     return claimed, report
@@ -371,6 +378,9 @@ async def _send(
             return _Outcome(
                 "sent", provider_id=sent.provider_id, provider_status=sent.provider_status
             )
+        if item.channel == "email":
+            # Captured like any other notice; one the guard would send cannot go yet.
+            raise NotSent("no_email_sender", "There is no email sender yet.")
         source = calendar if calendar is not None else _live_calendar()
         event_id = await _change_calendar(source, item)
         return _Outcome("sent", provider_id=event_id)

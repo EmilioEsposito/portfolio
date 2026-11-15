@@ -17,11 +17,13 @@ ConnectionStatus = Literal["connected", "lost", "revoked"]
 ShowingStatus = Literal["scheduled", "cancelled", "completed"]
 AttendeeStatus = Literal["booked", "cancelled"]
 Attendance = Literal["unknown", "attended", "no_show"]
-AttendeeSource = Literal["page", "team"]
+# "lead_agent": a time the Zillow lead agent agreed in an email thread, which can
+# be booked before the lead has given a mobile number or an email address.
+AttendeeSource = Literal["page", "team", "lead_agent"]
 
-# A text, the host's own event on the showings calendar, or the event a
-# prospect is invited to (one per prospect, so guests never see each other).
-Channel = Literal["sms", "calendar_event", "calendar_invite"]
+# A text, the host's own event on the showings calendar, the event a prospect
+# is invited to (one per prospect, so guests never see each other), or an email.
+Channel = Literal["sms", "calendar_event", "calendar_invite", "email"]
 # pending: waiting to be delivered. Then exactly one of: captured (rendered and
 # kept, no provider called), sent, failed (the provider refused or never got
 # it), unknown (it may have gone out; never retried), skipped (send mode off).
@@ -116,6 +118,16 @@ class TextPayload(BaseModel):
     body: str = Field(min_length=1, max_length=1600)
 
 
+class EmailPayload(BaseModel):
+    """An email. Nothing sends email yet: the outbox captures these, and one the
+    guard would send is saved as failed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1)
+
+
 class CalendarPayload(BaseModel):
     """An event to create, change or cancel, with the people it invites.
 
@@ -149,7 +161,7 @@ class Notice(BaseModel):
     showing_starts_at: datetime
     recipient: str
     recipient_key: str
-    # The text's body, or the event's title, time and description.
+    # The text's body, the email's subject and body, or the event's details.
     wording: str
     payload: dict
     status: NoticeStatus

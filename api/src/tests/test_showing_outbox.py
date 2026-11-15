@@ -17,7 +17,7 @@ from api.src.showing_bookings import outbox
 from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.quo import QuoTextSender
-from api.src.showing_bookings.schema import CalendarPayload, TextPayload
+from api.src.showing_bookings.schema import CalendarPayload, EmailPayload, TextPayload
 from api.src.tests.showing_helpers import (
     PROSPECT_PHONE,
     TEAM_EMAIL,
@@ -154,6 +154,8 @@ async def test_a_notice_is_saved_only_with_the_callers_transaction(showing):
         ("calendar_invite", PROSPECT_PHONE, None, "prospect_invite"),
         ("calendar_invite", "alex@example.com", TextPayload(body="Hi"), "prospect_invite"),
         ("sms", PROSPECT_PHONE, TextPayload(body="Hi"), "Prospect Confirmation"),
+        ("email", PROSPECT_PHONE, EmailPayload(subject="Hi", body="Hi"), "prospect_email"),
+        ("email", "alex@example.com", TextPayload(body="Hi"), "prospect_email"),
     ],
 )
 async def test_a_malformed_notice_is_refused(showing, channel, recipient, payload, kind):
@@ -368,6 +370,48 @@ async def test_quos_answers_land_on_the_row(showing, monkeypatch):
     assert (report.failed, report.unknown) == (1, 1)
     assert (await row(refused)).provider_status == "opted_out"
     assert (await row(timed_out)).status == "unknown"
+
+
+# Email notices: nothing sends email yet
+
+
+async def queue_email(showing_id: int, *, to: str = "alex@example.com") -> int:
+    async with AsyncSessionFactory() as session:
+        notice = await outbox.enqueue(
+            session,
+            kind="lead_showing_agreed",
+            channel="email",
+            showing_id=showing_id,
+            recipient=to,
+            recipient_key="thread:thread-a",
+            payload=EmailPayload(subject="Your showing", body="See you Wed at 4:00 PM."),
+            now=NOW,
+        )
+        await session.commit()
+        return notice.id
+
+
+@pytest.mark.asyncio
+async def test_an_email_notice_is_captured_like_any_other(showing):
+    notice = await queue_email(showing)
+    texts = RecordingTextSender()
+
+    assert (await outbox.drain(now=NOW, texts=texts)).captured == 1
+    saved = await row(notice)
+    assert (saved.status, saved.channel) == ("captured", "email")
+    assert saved.payload == {"subject": "Your showing", "body": "See you Wed at 4:00 PM."}
+    assert texts.sent == []
+
+
+@pytest.mark.asyncio
+async def test_an_email_the_guard_would_send_fails_for_want_of_a_sender(showing, monkeypatch):
+    production(monkeypatch)
+    await live(live_units=[UNIT])
+    notice = await queue_email(showing)
+
+    assert (await outbox.drain(now=NOW, texts=RecordingTextSender())).failed == 1
+    saved = await row(notice)
+    assert (saved.status, saved.provider_status, saved.attempts) == ("failed", "no_email_sender", 1)
 
 
 # The clock

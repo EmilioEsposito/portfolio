@@ -116,6 +116,54 @@ async def test_one_mobile_is_booked_once_per_showing():
 
 
 @pytest.mark.asyncio
+async def test_a_lead_booked_in_an_email_thread_needs_no_mobile():
+    """The lead agent can agree a time before the lead has given a number or an address."""
+    showing = await add_showing(await add_agent())
+    attendee = await add_attendee(showing, mobile=None, thread="thread-a", source="lead_agent")
+
+    async with AsyncSessionFactory() as session:
+        saved = await session.get(ShowingAttendee, attendee)
+    assert (saved.mobile, saved.email, saved.source) == (None, None, "lead_agent")
+
+
+@pytest.mark.asyncio
+async def test_two_leads_without_a_mobile_from_different_threads_join_one_showing():
+    showing = await add_showing(await add_agent())
+    await add_attendee(showing, mobile=None, thread="thread-a", source="lead_agent")
+
+    assert await add_attendee(showing, mobile=None, thread="thread-b", source="lead_agent")
+
+
+@pytest.mark.asyncio
+async def test_one_zillow_thread_is_booked_once_per_showing():
+    showing = await add_showing(await add_agent())
+    first = await add_attendee(showing, mobile=None, thread="thread-a", source="lead_agent")
+
+    await refused_by(
+        "uq_showing_attendees_showing_id_zillow_thread_id_booked",
+        add_attendee(showing, mobile="+14125550118", thread="thread-a"),
+    )
+
+    # Once that booking is cancelled, the thread can book again; another showing always can.
+    async with AsyncSessionFactory() as session:
+        await session.execute(
+            update(ShowingAttendee).where(ShowingAttendee.id == first).values(status="cancelled")
+        )
+        await session.commit()
+    assert await add_attendee(showing, mobile=None, thread="thread-a", source="lead_agent")
+    other = await add_showing(
+        await add_agent("Sam Rivera", "sam.rivera@example.com"), unit="320-04"
+    )
+    assert await add_attendee(other, mobile=None, thread="thread-a", source="lead_agent")
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_attendee_source_is_refused():
+    showing = await add_showing(await add_agent())
+    await refused_by("ck_showing_attendees_source", add_attendee(showing, source="website"))
+
+
+@pytest.mark.asyncio
 async def test_every_attendee_gets_their_own_cancel_token():
     showing = await add_showing(await add_agent())
     ids = [await add_attendee(showing, mobile=f"+1412555011{n}") for n in range(3)]

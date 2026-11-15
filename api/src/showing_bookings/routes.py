@@ -69,6 +69,8 @@ def _wording(notice: ShowingNotice) -> str:
     payload = notice.payload
     if notice.channel == "sms":
         return payload.get("body", "")
+    if notice.channel == "email":
+        return f"Subject: {payload.get('subject', '')}\n\n{payload.get('body', '')}"
     action = {"create": "New event", "update": "Changed event", "cancel": "Cancelled event"}
     lines = [f"{action.get(payload.get('operation'), 'Event')}: {payload.get('summary', '')}"]
     if payload.get("location"):

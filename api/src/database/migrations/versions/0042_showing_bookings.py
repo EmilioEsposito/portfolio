@@ -137,7 +137,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("showing_id", sa.Integer(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("mobile", sa.String(), nullable=False),
+        sa.Column("mobile", sa.String(), nullable=True),
         sa.Column("email", sa.String(), nullable=True),
         sa.Column("status", sa.String(), server_default="booked", nullable=False),
         sa.Column("attendance", sa.String(), server_default="unknown", nullable=False),
@@ -172,19 +172,27 @@ def upgrade() -> None:
         _one_of(
             "ck_showing_attendees_attendance", "attendance", ("unknown", "attended", "no_show")
         ),
-        _one_of("ck_showing_attendees_source", "source", ("page", "team")),
+        _one_of("ck_showing_attendees_source", "source", ("page", "team", "lead_agent")),
     )
     op.create_index(op.f("ix_showing_attendees_showing_id"), "showing_attendees", ["showing_id"])
     op.create_index(
         op.f("ix_showing_attendees_zillow_thread_id"), "showing_attendees", ["zillow_thread_id"]
     )
-    # One booked row per mobile number in a showing.
+    # A booked person appears once per showing: once per mobile number, and once
+    # per Zillow thread for a lead the lead agent booked before giving a number.
     op.create_index(
         "uq_showing_attendees_showing_id_mobile_booked",
         "showing_attendees",
         ["showing_id", "mobile"],
         unique=True,
-        postgresql_where=sa.text("status = 'booked'"),
+        postgresql_where=sa.text("status = 'booked' AND mobile IS NOT NULL"),
+    )
+    op.create_index(
+        "uq_showing_attendees_showing_id_zillow_thread_id_booked",
+        "showing_attendees",
+        ["showing_id", "zillow_thread_id"],
+        unique=True,
+        postgresql_where=sa.text("status = 'booked' AND zillow_thread_id IS NOT NULL"),
     )
 
     op.create_table(
@@ -229,7 +237,7 @@ def upgrade() -> None:
             name=op.f("uq_showing_notices_kind_showing_id_recipient_key"),
         ),
         _one_of(
-            "ck_showing_notices_channel", "channel", ("sms", "calendar_event", "calendar_invite")
+            "ck_showing_notices_channel", "channel", ("sms", "calendar_event", "calendar_invite", "email")
         ),
         _one_of(
             "ck_showing_notices_status",

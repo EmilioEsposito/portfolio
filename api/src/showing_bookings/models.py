@@ -179,12 +179,21 @@ class ShowingAttendee(Base):
         _one_of("status", ATTENDEE_STATUSES),
         _one_of("attendance", ATTENDANCES),
         _one_of("source", ATTENDEE_SOURCES),
+        # A booked person appears once per showing: once per mobile number, and
+        # once per Zillow thread for a lead booked before giving a number.
         Index(
             "uq_showing_attendees_showing_id_mobile_booked",
             "showing_id",
             "mobile",
             unique=True,
-            postgresql_where=text("status = 'booked'"),
+            postgresql_where=text("status = 'booked' AND mobile IS NOT NULL"),
+        ),
+        Index(
+            "uq_showing_attendees_showing_id_zillow_thread_id_booked",
+            "showing_id",
+            "zillow_thread_id",
+            unique=True,
+            postgresql_where=text("status = 'booked' AND zillow_thread_id IS NOT NULL"),
         ),
     )
 
@@ -193,7 +202,9 @@ class ShowingAttendee(Base):
         ForeignKey("showings.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String)
-    mobile: Mapped[str] = mapped_column(String)  # E.164
+    # E.164. Required on the booking page; a lead the lead agent booked in an
+    # email thread may not have given one yet.
+    mobile: Mapped[str | None] = mapped_column(String, nullable=True)
     # Required on the booking page; a caller booked by the team may have none.
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="booked", server_default="booked")
@@ -269,7 +280,8 @@ class ShowingNotice(Base):
     attendee_id: Mapped[int | None] = mapped_column(
         ForeignKey("showing_attendees.id", ondelete="SET NULL"), nullable=True
     )
-    # A phone number in E.164 for a text, an email address for a calendar notice.
+    # A phone number in E.164 for a text, an email address for an email or a
+    # calendar notice.
     recipient: Mapped[str] = mapped_column(String)
     # Who it is for, independent of how they are reached: "attendee:12",
     # "agent:3", "resident:<Quo contact id>". Part of the no-duplicates key.

@@ -79,15 +79,23 @@ async def add_showing(
         return showing.id
 
 
-async def add_attendee(showing_id: int, mobile: str = PROSPECT_PHONE, name: str = "Alex Parker"):
+async def add_attendee(
+    showing_id: int,
+    mobile: str | None = PROSPECT_PHONE,
+    name: str = "Alex Parker",
+    *,
+    thread: str | None = None,
+    source: str = "page",
+):
     async with AsyncSessionFactory() as session:
         attendee = ShowingAttendee(
             showing_id=showing_id,
             name=name,
             mobile=mobile,
-            email="alex@example.com",
-            source="page",
-            texts_accepted=True,
+            email="alex@example.com" if mobile else None,
+            source=source,
+            texts_accepted=mobile is not None,
+            zillow_thread_id=thread,
         )
         session.add(attendee)
         await session.commit()

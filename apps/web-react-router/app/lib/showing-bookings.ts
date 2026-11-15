@@ -19,7 +19,7 @@ export interface SettingsView {
 }
 
 export type NoticeStatus = "pending" | "captured" | "sent" | "failed" | "unknown" | "skipped";
-export type Channel = "sms" | "calendar_event" | "calendar_invite";
+export type Channel = "sms" | "calendar_event" | "calendar_invite" | "email";
 
 export interface Notice {
   id: number;
@@ -73,6 +73,7 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   sms: "Text",
   calendar_event: "Host's calendar event",
   calendar_invite: "Calendar invite",
+  email: "Email",
 };
 
 // Why the guard chose to skip, capture or send (guard.py's reasons). The

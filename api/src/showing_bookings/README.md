@@ -34,13 +34,19 @@ The database enforces three rules, so no code path can break them:
 - One notice per kind, showing and recipient key (a unique key), so a retry or
   a later attendee cannot text the same person twice.
 
-An attendee's mobile number is booked once per showing, and every attendee
-gets a random cancel token.
+An attendee is booked on the page, by the team, or by the Zillow lead agent
+(`source` is `page`, `team` or `lead_agent`). A lead the lead agent books in an
+email thread may not have given a mobile number or an email yet, so both can
+be empty; such a row is tied to its Zillow thread. A booked mobile number, and
+a booked Zillow thread, each appear once per showing (partial unique indexes
+that ignore empty values and cancelled rows). Every attendee gets a random
+cancel token.
 
 ## Notices
 
-Every text, calendar event and invite is a row in `showing_notices` before it
-is anything else. Code that owes a notice calls `outbox.enqueue` inside its own
+Every text, email, calendar event and invite is a row in `showing_notices`
+before it is anything else (`channel` is `sms`, `email`, `calendar_event` or
+`calendar_invite`). Code that owes a notice calls `outbox.enqueue` inside its own
 transaction, so the notice is saved with the booking or not at all. Queuing the
 same kind, showing and recipient key again returns the row already saved.
 
@@ -62,6 +68,9 @@ take different rows, and a row still marked as sending ten minutes later was
 cut off midway and becomes `unknown`. When nothing went out and trying later
 may work (Quo out of reach or rate limited), the row stays `pending` with a
 later `not_before`, up to five attempts.
+
+Nothing sends email yet. An email notice is captured like any other, and one
+the guard would send is saved as `failed` with the reason `no_email_sender`.
 
 `outbox.py` is the only file in this module that hands a row to a provider.
 `test_showing_boundaries.py` fails if another file imports a sender or calls a
