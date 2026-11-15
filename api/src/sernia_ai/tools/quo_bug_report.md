@@ -17,11 +17,12 @@ When passing multiple `participants[]`, the API returns only the 1:1 conversatio
 
 Group conversation in our account:
 - Conversation ID: `CNcfa69340d4974b68b18c17144e31041a`
-- Participants: `+14583262115`, `+15037070359`
+- Participants: `<PARTICIPANT_A>`, `<PARTICIPANT_B>` (two outside numbers in E.164,
+  redacted here)
 
 ```bash
 # Direct fetch by ID works — confirms the group msg exists
-# (response shows to: ["+14583262115","+15037070359"]).
+# (response shows to: ["<PARTICIPANT_A>","<PARTICIPANT_B>"]).
 # <GROUP_MSG_ID> is the conversation's lastActivityId (an AC-prefixed
 # 32-hex message ID, redacted here because GitHub's secret scanner
 # false-positives it as a Twilio Account SID):
@@ -30,7 +31,7 @@ curl -H 'Authorization: <REDACTED>' \
 
 # Filter by both participants — count=0, that group msg is missing:
 curl -H 'Authorization: <REDACTED>' \
-  'https://api.openphone.com/v1/messages?phoneNumberId=PNpTZEJ7la&participants[]=%2B14583262115&participants[]=%2B15037070359&maxResults=50'
+  'https://api.openphone.com/v1/messages?phoneNumberId=PNpTZEJ7la&participants[]=<PARTICIPANT_A>&participants[]=<PARTICIPANT_B>&maxResults=50'
 ```
 
 ## Ask

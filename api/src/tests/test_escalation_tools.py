@@ -41,7 +41,7 @@ async def test_trigger_twilio_escalation_mock_counts_each_number():
     """With explicit numbers and mock=True, source_key="test", one execution per number, no network."""
     count = await trigger_twilio_escalation(
         "test emergency",
-        escalate_to_numbers=["+14123703550", "+14125551234"],
+        escalate_to_numbers=["+14125550110", "+14125551234"],
         mock=True,
         source_key="test",
     )
@@ -63,7 +63,7 @@ async def test_trigger_twilio_escalation_no_contacts_returns_zero():
 async def test_trigger_twilio_escalation_resolves_default_contacts():
     """With no explicit numbers, emilio + peppino are resolved from the DB."""
     contact = MagicMock()
-    contact.phone_number = "+14123703550"
+    contact.phone_number = "+14125550110"
     with patch(
         "api.src.open_phone.escalate.get_contact_by_slug",
         AsyncMock(return_value=contact),

@@ -53,7 +53,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
     Send an SMS message to the specified phone number.
 
     Args:
-        to: Phone number in E.164 format (e.g., +14123703550)
+        to: Phone number in E.164 format (e.g., +14125550123)
         body: The message content to send
     """
 

@@ -408,7 +408,7 @@ async def test_send_message_uses_generous_timeout():
         resp = await service.send_message(
             message="hello",
             to_phone_number="+14125550123",
-            from_phone_number="+14129101500",
+            from_phone_number="+14125550120",
         )
 
     assert resp.status_code == 202
@@ -472,7 +472,7 @@ async def test_fetch_one_to_one_thread_clamps_max_results():
         base_url="https://api.openphone.com",
     ) as client:
         # 200 exceeds the cap — both /v1/messages and /v1/calls must clamp.
-        await _fetch_one_to_one_thread(client, "+14129101500", max_results=200)
+        await _fetch_one_to_one_thread(client, "+14125550120", max_results=200)
 
     assert seen_max_results, "expected requests to /v1/messages and /v1/calls"
     assert all(v == str(OPENPHONE_MAX_RESULTS_PER_PAGE) for v in seen_max_results), (
@@ -495,7 +495,7 @@ async def test_fetch_one_to_one_thread_preserves_small_max_results():
         transport=httpx.MockTransport(handler),
         base_url="https://api.openphone.com",
     ) as client:
-        await _fetch_one_to_one_thread(client, "+14129101500", max_results=20)
+        await _fetch_one_to_one_thread(client, "+14125550120", max_results=20)
 
     assert seen_max_results
     assert all(v == "20" for v in seen_max_results), seen_max_results

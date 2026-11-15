@@ -77,6 +77,8 @@ uv run pytest -q
 
 These commands use the selected database, so keep it separate from operational data. The default suite excludes `live` tests; external SMS tests must mock sending. See [`pytest.ini`](../pytest.ini), [`conftest.py`](../conftest.py), and the [CI workflow](../.github/workflows/tests.yml) for the test environment.
 
+This repository is public, so tests and examples use fictional phone numbers (`+1 412 555 01xx`). Live tests that need a real Quo thread or an internal phone read it from the environment and skip when it is unset: `TEST_QUO_CALL_THREAD_PHONE`, `TEST_QUO_GROUP_THREAD_PHONES` (two numbers, comma-separated), `TEST_INTERNAL_SMS_PHONE` and `TEST_INTERNAL_SMS_PHONE_2`. Put them in your local `.env`, never in a tracked file.
+
 Frontend checks:
 
 ```bash
