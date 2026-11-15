@@ -92,6 +92,12 @@ required_env_vars = {
     "GOOGLE_OAUTH_REDIRECT_URI": (
         "Required for Google OAuth. Must match the URIs configured in Google Cloud Console.\n"
     ),
+    "SERNIA_TEAM_PHONE": (
+        "The Sernia Capital Team line in E.164, shown to Zillow leads. Kept out of the repo.\n"
+    ),
+    "TWILIO_ESCALATION_FROM_NUMBER": (
+        "Caller ID for emergency escalation calls, in E.164. Kept out of the repo.\n"
+    ),
 }
 # Environments without a Quo subscription can still run. The webhook handler
 # rejects requests with 403 when its signing key is absent.

@@ -5,6 +5,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.utils.phone_config import team_phone, us_phone_display
 
 
 def update_send_as(
@@ -107,6 +108,9 @@ def update_send_as(
 
 
 if __name__ == "__main__":
+    # The team line comes from SERNIA_TEAM_PHONE; this stops here when it is unset.
+    team_phone_display = us_phone_display(team_phone())
+
     # INPUTS
     first_names = [
         "Example",
@@ -122,7 +126,7 @@ if __name__ == "__main__":
         send_as_configuration = {
             "displayName": "Sernia Capital",
             "treatAsAlias": True,
-            "signature": f'<div dir="ltr"><div style="font-family:arial"><b><br></b></div><div style="font-family:arial"><b>{first_name.title()}</b></div><div style="font-family:arial"><a href="mailto:{target_alias_email}" target="_blank">{target_alias_email}</a></div><div style="font-family:arial">412-910-1989</div></div>',
+            "signature": f'<div dir="ltr"><div style="font-family:arial"><b><br></b></div><div style="font-family:arial"><b>{first_name.title()}</b></div><div style="font-family:arial"><a href="mailto:{target_alias_email}" target="_blank">{target_alias_email}</a></div><div style="font-family:arial">{team_phone_display}</div></div>',
         }
 
         update_send_as(

@@ -260,4 +260,4 @@ at ..."
 
   Sernia Capital Team
   all@serniacapital.com
-  412-910-1989 (extension 1)
+  {{team_phone}} (extension 1)

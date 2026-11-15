@@ -197,6 +197,11 @@ in effect: editing them changes the agent. `sernia_ai/lead_policy.py` exposes th
 a workspace skill cannot replace it. The general agent's listing-maintenance
 capability is separate from that policy.
 
+`policy.md` writes the team phone number as `{{team_phone}}`. `load_policy()`
+fills it in from the required `SERNIA_TEAM_PHONE` setting (E.164) for both
+agents, the evals and the judge, and raises an error naming the setting when it
+is missing. The number itself never goes in this public repository.
+
 The evals call the same `respond(case)` function as production. A **scenario**
 is a past thread cut where a response was owed; **listing data** describes
 what was known for that experiment; a **case** combines them. Exact checks,
