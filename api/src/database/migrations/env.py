@@ -23,6 +23,7 @@ from api.src.database.app_settings import *  # noqa
 from api.src.agent_conversations.delivery import *  # noqa
 from api.src.zillow_leads.models import *  # noqa
 from api.src.rental_listings.models import *  # noqa
+from api.src.showing_bookings.models import *  # noqa
 from api.src.database.database import DATABASE_URL, engine, Base
 
 

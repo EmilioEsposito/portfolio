@@ -1,5 +1,9 @@
-import { CalendarDays } from "lucide-react";
 import { AuthGuard } from "~/components/auth-guard";
+import { AgentsSection } from "~/components/showing-bookings/AgentsSection";
+import { ConnectionsSection } from "~/components/showing-bookings/ConnectionsSection";
+import { MessagesSection } from "~/components/showing-bookings/MessagesSection";
+import { SendModeSection } from "~/components/showing-bookings/SendModeSection";
+import { ShowingsSection } from "~/components/showing-bookings/ShowingsSection";
 
 export const meta = () => [
   { title: "Booking settings | Zillow Leads Agent" },
@@ -9,16 +13,24 @@ export const meta = () => [
 export default function BookingSettingsPage() {
   return (
     <AuthGuard requireDomain="serniacapital.com" message="Sernia sign-in required">
-      <section className="max-w-2xl rounded-xl border border-dashed p-6 sm:p-8">
-        <CalendarDays className="mb-4 size-7 text-muted-foreground" aria-hidden="true" />
-        <h2 className="text-xl font-semibold">Booking settings</h2>
-        <p className="mt-2 text-sm font-medium text-muted-foreground">Under construction</p>
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          Showing agents, shared calendars, and booking coordination will be configured here.
-          Showing windows, blackout dates, and booking links are already available under Rental listing data.
-        </p>
-        <a href="https://github.com/EmilioEsposito/portfolio/issues/368" className="mt-5 inline-block text-sm underline underline-offset-4">Follow the booking work</a>
-      </section>
+      <div className="max-w-3xl space-y-6">
+        <div>
+          <h2 className="text-2xl font-semibold">Booking settings</h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Showing bookings are being built step by step. Showing windows, blackout dates and booking links are under
+            Rental listing data.{" "}
+            <a href="https://github.com/EmilioEsposito/portfolio/issues/368" className="underline underline-offset-4">
+              Follow the booking work
+            </a>
+            .
+          </p>
+        </div>
+        <SendModeSection />
+        <MessagesSection />
+        <ConnectionsSection />
+        <AgentsSection />
+        <ShowingsSection />
+      </div>
     </AuthGuard>
   );
 }
