@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Import your models - using explicit imports for clarity
 from api.src.database.legacy_demo_models import *  # noqa
 from api.src.google.gmail.models import *  # noqa
-from api.src.oauth.models import *  # noqa
 from api.src.open_phone.models import *  # noqa
 from api.src.push.models import *  # noqa
 from api.src.user.models import *  # noqa
