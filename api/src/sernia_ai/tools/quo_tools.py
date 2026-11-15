@@ -550,7 +550,7 @@ async def execute_sms(
 def _build_phone_map(contacts: list[dict]) -> dict[str, str]:
     """Build phone→display_name map from a list of Quo contacts.
 
-    Includes property-unit prefix for tenants (e.g. "659-03 Hailey Trainor"),
+    Includes property-unit prefix for tenants (e.g. "659-03 Robin Castillo"),
     unless the name already contains the prefix.
     """
     phone_map: dict[str, str] = {}

@@ -755,9 +755,9 @@ def test_render_thread_annotates_year_old_message():
             }
         ],
         [],
-        "James Gammiere",
+        "Jamie Rowe",
         "+1",
-        {"+1": "James Gammiere"},
+        {"+1": "Jamie Rowe"},
         now=NOW,
     )
     assert "1 year ago" in out

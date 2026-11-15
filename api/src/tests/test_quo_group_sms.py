@@ -96,9 +96,9 @@ def _tenant_contact(name: str, phone: str, prop: str, unit: str) -> dict:
     }
 
 
-_CONTACTS[TENANT_320_02_A] = _tenant_contact("Aidan", TENANT_320_02_A, "320", "02")
-_CONTACTS[TENANT_320_02_B] = _tenant_contact("Adeline", TENANT_320_02_B, "320", "02")
-_CONTACTS[TENANT_320_03] = _tenant_contact("Hailey", TENANT_320_03, "320", "03")
+_CONTACTS[TENANT_320_02_A] = _tenant_contact("Ellis", TENANT_320_02_A, "320", "02")
+_CONTACTS[TENANT_320_02_B] = _tenant_contact("Maren", TENANT_320_02_B, "320", "02")
+_CONTACTS[TENANT_320_03] = _tenant_contact("Robin", TENANT_320_03, "320", "03")
 
 
 @pytest.fixture(autouse=True)
