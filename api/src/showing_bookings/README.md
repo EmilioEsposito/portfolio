@@ -50,7 +50,7 @@ A row starts `pending` and ends as one of:
 | --- | --- |
 | `captured` | Rendered and kept on the row. No provider was called. |
 | `sent` | The provider accepted it. `provider_id` and `provider_status` hold its answer. |
-| `failed` | The provider refused it, such as an opted-out or invalid number. Nothing went out. |
+| `failed` | The provider refused it, such as a number that has opted out. Nothing went out. |
 | `unknown` | It may have gone out: a timeout, a lost answer or a send cut off midway. Never retried. |
 | `skipped` | The send mode is off. |
 
@@ -101,7 +101,10 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
   the shared team line through the shared OpenPhone client. Quo's refusals
   (opted out `0201400`, invalid number `0202400`, unreachable `0203400`) and
   other 4xx answers become `NotSent`; a 408, a 5xx or a timeout propagates and
-  is saved as `unknown`.
+  is saved as `unknown`. A 202 means Quo accepted the text and nothing more: on
+  2026-11-15 Quo accepted a send to a well-formed number that does not exist.
+  A number like that is not caught when the text is sent; reading the text's
+  status afterwards (`outbox.refresh_text_status`) is what catches it.
 - `CalendarSource`: busy blocks for a set of calendars over a window (raising
   `CalendarUnreadable`, with the calendars that were read, when one cannot be
   read), and creating, changing and cancelling events with invited guests.

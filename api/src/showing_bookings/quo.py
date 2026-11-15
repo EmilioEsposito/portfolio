@@ -1,9 +1,11 @@
 """Texts through Quo (formerly OpenPhone), from the shared team line.
 
-Written from Quo's API reference and not yet checked against a live send:
+Written from Quo's API reference:
 
 - send: ``POST /v1/messages`` with ``content``, ``from`` and ``to``; 202 with
-  the message's ``id`` and ``status``.
+  the message's ``id`` and ``status``. A 202 means accepted and nothing more:
+  on 2026-11-15 Quo accepted a send to a well-formed number that does not
+  exist. The later status read, not the send, catches a number like that.
   https://www.quo.com/docs/mdx/api-reference/messages/send-a-text-message.md
 - status: ``GET /v1/messages/{id}``; ``status`` is one of queued, sent,
   delivered, undelivered or received.

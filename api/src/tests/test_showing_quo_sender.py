@@ -157,11 +157,26 @@ async def test_an_answer_that_leaves_doubt_is_not_a_refusal(quo):
     ("to", "body", "reason"),
     [("4125550117", "Hi", "invalid_number"), (TO, " ", "rejected"), (TO, "x" * 1601, "rejected")],
 )
-async def test_a_text_quo_would_refuse_is_never_sent(to, body, reason):
+async def test_a_malformed_text_is_never_sent(to, body, reason):
+    """Checked here, before Quo: not E.164, blank, or over Quo's length limit."""
     quo = Quo(202, accepted())
     with pytest.raises(NotSent) as refused:
         await sender(quo).send_text(to, body)
     assert refused.value.reason == reason and quo.requests == []
+
+
+@pytest.mark.asyncio
+async def test_an_accepted_text_is_only_accepted():
+    """A 202 is acceptance, not delivery. On 2026-11-15 Quo accepted a send to a
+    well-formed number that does not exist; the status read is what catches it."""
+    quo = Quo(202, accepted(status="queued"))
+    texts = sender(quo)
+
+    sent = await texts.send_text("+14125550100", "Booked.")
+    assert sent == SentText("AC123abc", "queued")
+
+    quo.status, quo.body = 200, accepted(status="undelivered")
+    assert await texts.text_status(sent.provider_id) == "undelivered"
 
 
 @pytest.mark.asyncio
