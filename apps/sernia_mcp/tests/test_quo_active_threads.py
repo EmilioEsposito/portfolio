@@ -427,7 +427,7 @@ async def test_get_thread_messages_group_uses_last_activity_id():
                 "createdAt": "2026-04-01T00:00:00Z",
                 "direction": "incoming",
                 "from": AIDAN,
-                "to": ["+14129101989"],
+                "to": ["+14125550100"],
                 "text": "Aidan 1:1 hi",
             },
         ]
@@ -437,7 +437,7 @@ async def test_get_thread_messages_group_uses_last_activity_id():
             {
                 "createdAt": "2026-04-02T00:00:00Z",
                 "direction": "outgoing",
-                "from_": "+14129101989",
+                "from_": "+14125550100",
                 "to": [ADELINE],
                 "text": "Adeline 1:1 reply",
             },
@@ -448,7 +448,7 @@ async def test_get_thread_messages_group_uses_last_activity_id():
             "id": "ACgroupmsg",
             "createdAt": "2026-05-05T21:39:47Z",
             "from": ADELINE,
-            "to": ["+14129101989", AIDAN],
+            "to": ["+14125550100", AIDAN],
             "text": "Confirmed!",
             "direction": "incoming",
         }
@@ -533,7 +533,7 @@ async def test_get_thread_messages_group_input_order_independent():
             "id": "ACgroupmsg",
             "createdAt": "2026-05-05T21:39:47Z",
             "from": ADELINE,
-            "to": ["+14129101989", AIDAN],
+            "to": ["+14125550100", AIDAN],
             "text": "Confirmed!",
             "direction": "incoming",
         }
@@ -610,7 +610,7 @@ async def test_list_active_threads_group_uses_last_activity_id():
             "id": "ACgroupmsg",
             "createdAt": "2026-05-05T21:39:47Z",
             "from": ADELINE,
-            "to": ["+14129101989", AIDAN],
+            "to": ["+14125550100", AIDAN],
             "text": "Confirmed!",
             "direction": "incoming",
         }
@@ -781,7 +781,7 @@ async def test_list_active_threads_flags_stale_thread():
             },
             {
                 "id": "conv-stale",
-                "participants": ["+14125379335"],
+                "participants": ["+14125550142"],
                 "lastActivityAt": YEAR_AGO,  # dormant, never marked done
                 "snoozedUntil": None,
             },

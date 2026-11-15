@@ -25,8 +25,8 @@ from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
 )
 
 AI_PHONE = "+14125559999"
-EMILIO = "+14123703550"
-SANA = "+14128770257"
+EMILIO = "+14125550110"
+SANA = "+14125550111"
 
 
 # ===========================================================================
@@ -255,9 +255,9 @@ class TestGetAiPhoneNumber:
     REAL_RESPONSE = {
         "data": {
             "id": "PNWvNqsFFy",
-            "formattedNumber": "(412) 910-1500",
+            "formattedNumber": "(412) 555-0120",
             "name": "Sernia AI Intern",
-            "number": "+14129101500",
+            "number": "+14125550120",
             "symbol": "🤖",
         }
     }
@@ -292,7 +292,7 @@ class TestGetAiPhoneNumber:
         calls: list = []
         self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
         monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test-key")
-        assert await get_ai_phone_number() == "+14129101500"
+        assert await get_ai_phone_number() == "+14125550120"
 
     @pytest.mark.asyncio
     async def test_caches_after_first_success(self, monkeypatch):
@@ -301,8 +301,8 @@ class TestGetAiPhoneNumber:
         calls: list = []
         self._patch_httpx(monkeypatch, self.REAL_RESPONSE, calls)
         monkeypatch.setenv("QUO_API_KEY_PORTFOLIO", "test-key")
-        assert await get_ai_phone_number() == "+14129101500"
-        assert await get_ai_phone_number() == "+14129101500"
+        assert await get_ai_phone_number() == "+14125550120"
+        assert await get_ai_phone_number() == "+14125550120"
         assert len(calls) == 1, "second call must hit the process cache, not the API"
 
     @pytest.mark.asyncio

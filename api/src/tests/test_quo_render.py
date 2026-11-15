@@ -23,7 +23,7 @@ from api.src.sernia_ai.tools.quo_tools import (
 )
 
 # A fixed "now" so age math is deterministic. This is exactly one year and a
-# few hours after James's real July 23, 2025 leak text from the bug report.
+# few hours after a tenant's real July 23, 2025 leak text from the bug report.
 NOW = datetime(2026, 7, 23, 13, 0, 0, tzinfo=UTC)
 YEAR_AGO = "2025-07-23T08:58:00Z"
 
@@ -77,15 +77,15 @@ def test_render_thread_annotates_year_old_message():
             "createdAt": YEAR_AGO,
             "direction": "incoming",
             "text": "Good morning, it appears there's a leak this morning",
-            "from": "+14125379335",
+            "from": "+14125550142",
         }
     ]
     out = _render_thread(
         messages,
         [],
-        "James Gammiere",
-        "+14125379335",
-        {"+14125379335": "James Gammiere"},
+        "Jamie Rowe",
+        "+14125550142",
+        {"+14125550142": "Jamie Rowe"},
         now=NOW,
     )
     # The "this morning" wording is a year old — the age must be right there.
@@ -119,7 +119,7 @@ def test_render_group_thread_from_db_annotates_age():
 FRESH_CONV_ID = "CONVfresh"
 STALE_CONV_ID = "CONVstale"
 FRESH_PHONE = "+14120000001"
-STALE_PHONE = "+14125379335"
+STALE_PHONE = "+14125550142"
 
 _CONTACTS = [
     {
@@ -131,8 +131,8 @@ _CONTACTS = [
     },
     {
         "defaultFields": {
-            "firstName": "James",
-            "lastName": "Gammiere",
+            "firstName": "Jamie",
+            "lastName": "Rowe",
             "phoneNumbers": [{"value": STALE_PHONE}],
         }
     },
@@ -211,7 +211,7 @@ async def test_list_active_threads_flags_stale_thread(monkeypatch):
     assert "⚠️ STALE" in out
     assert f"over {STALE_THREAD_DAYS} days" in out
     assert "do NOT treat it as a new report" in out
-    assert "1 year ago" in out  # James's last-activity age
+    assert "1 year ago" in out  # the stale tenant's last-activity age
     # The fresh thread carries an age but no STALE prefix.
     assert "2 days ago" in out
     assert "⚠️ STALE — Thread: Fresh" not in out

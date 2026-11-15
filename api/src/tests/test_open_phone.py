@@ -129,7 +129,7 @@ def test_get_contacts_success(mocked_client):
     """Test successful contact retrieval"""
 
     response = mocked_client.get(
-        "/api/open_phone/contacts", params={"external_ids": ["e8024958857"]}
+        "/api/open_phone/contacts", params={"external_ids": ["e4125550150"]}
     )
 
     response_data = response.json()

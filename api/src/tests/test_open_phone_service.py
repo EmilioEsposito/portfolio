@@ -11,6 +11,7 @@ Live tests hit real third-party APIs and only run when explicitly requested:
     pytest -m live api/src/tests/test_open_phone_service.py -v -s
 """
 
+import os
 from datetime import datetime
 
 import pytest
@@ -40,12 +41,12 @@ async def test_explicit_keyword_escalation():
         "event_id": "1234567890",
         "event_type": "message.incoming",
         "message_text": "fire in the building",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
+        "from_number": "+14125550130",
+        "to_number": "+14125550100",
         "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
     }
     successful_escalations = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
+        open_phone_event, escalate_to_numbers=["+14125550110"], mock=True
     )
     print(successful_escalations)
     assert successful_escalations == 1
@@ -58,12 +59,12 @@ async def test_ai_escalation_positive():
         "event_id": "1234567890",
         "event_type": "message.incoming",
         "message_text": "There is a crazy person screaming about hurting people in the building!",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
+        "from_number": "+14125550130",
+        "to_number": "+14125550100",
         "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
     }
     should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
+        open_phone_event, escalate_to_numbers=["+14125550110"], mock=True
     )
     print(should_escalate)
 
@@ -76,12 +77,12 @@ async def test_ai_escalation_negative():
         "event_id": "1234567890",
         "event_type": "message.incoming",
         "message_text": "I lost my keys and can't get in! Can someone bring me a spare ASAP??",
-        "from_number": "+14123703505",
-        "to_number": "+14129001989",
+        "from_number": "+14125550130",
+        "to_number": "+14125550100",
         "event_timestamp": datetime.now(pytz.timezone("US/Eastern")),
     }
     should_escalate = await analyze_for_twilio_escalation(
-        open_phone_event, escalate_to_numbers=["+14123703550"], mock=True
+        open_phone_event, escalate_to_numbers=["+14125550110"], mock=True
     )
     print(should_escalate)
 
@@ -114,11 +115,17 @@ async def test_upsert_openphone_contact():
 
 @pytest.mark.live
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not os.environ.get("TEST_INTERNAL_SMS_PHONE"),
+    reason="TEST_INTERNAL_SMS_PHONE not set (an internal team phone for live test texts)",
+)
 async def test_send_message():
+    from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
+
     response = await send_message(
         message="Hello, this is a test message",
-        to_phone_number="+14123703550",
-        from_phone_number="+14129101500",
+        to_phone_number=os.environ["TEST_INTERNAL_SMS_PHONE"],
+        from_phone_number=QUO_SERNIA_AI_PHONE_ID,
     )
     print(response.json())
     assert response.status_code == 202

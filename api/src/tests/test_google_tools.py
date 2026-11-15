@@ -987,7 +987,7 @@ class TestSendHtmlEmailLive:
             "Best,\n"
             "Sernia AI Intern\n"
             "Sernia Capital LLC\n"
-            "emilio@serniacapital.com | (412) 910-1989"
+            "emilio@serniacapital.com | (412) 555-0100"
         )
 
         html_body = """\
@@ -1051,7 +1051,7 @@ class TestSendHtmlEmailLive:
   <p style="margin: 0; color: #6b7280; font-size: 13px;">Sernia Capital LLC</p>
   <p style="margin: 0; color: #6b7280; font-size: 13px;">
     <a href="mailto:emilio@serniacapital.com" style="color: #2563eb;">emilio@serniacapital.com</a>
-    &nbsp;|&nbsp; (412) 910-1989
+    &nbsp;|&nbsp; (412) 555-0100
   </p>
 </body>
 </html>

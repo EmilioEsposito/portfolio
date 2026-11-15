@@ -85,7 +85,7 @@ def main():
         "Content-Type": "application/json",
     }
     # Build query parameters
-    params = {"externalIds": ["e3174477846"], "maxResults": 10}
+    params = {"externalIds": ["e4125550150"], "maxResults": 10}
 
     response = requests.get(url, headers=headers, params=params)
     pprint(response.json())

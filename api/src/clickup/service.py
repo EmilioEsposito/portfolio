@@ -11,6 +11,7 @@ import requests
 
 from api.src.contact.service import get_contact_by_slug
 from api.src.open_phone.service import send_message
+from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
 # DBOS DISABLED: $75/month DB keep-alive costs too high for hobby project.
 # See api/src/schedulers/README.md for re-enabling instructions.
@@ -101,7 +102,7 @@ async def get_peppino_view_tasks():
         await send_message(
             message=filtered_tasks_str,
             to_phone_number=to_phone_number,
-            from_phone_number="+14129101500",
+            from_phone_number=QUO_SERNIA_AI_PHONE_ID,
         )
         logfire.info(f"Sent Task Reminder message to {to_phone_number}")
     else:

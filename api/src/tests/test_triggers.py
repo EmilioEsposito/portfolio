@@ -673,12 +673,12 @@ class TestFetchSmsThreadRequest:
             patch.dict("os.environ", {"QUO_API_KEY_PORTFOLIO": "test-key"}),
             patch.object(trigger_mod.httpx, "AsyncClient", client_factory),
         ):
-            result = await trigger_mod._fetch_sms_thread("+14123703550")
+            result = await trigger_mod._fetch_sms_thread("+14125550110")
 
         assert result == []
         assert len(seen) == 1, f"expected one /v1/messages request, got {seen}"
         url = seen[0]
-        assert url.params.get("participants") == "+14123703550"
+        assert url.params.get("participants") == "+14125550110"
         assert url.params.get("phoneNumberId") == QUO_SERNIA_AI_PHONE_ID
         assert url.params.get("maxResults") == str(SMS_CONVERSATION_MAX_MESSAGES)
         # The encoded bracket form is what OpenPhone rejects — assert on the

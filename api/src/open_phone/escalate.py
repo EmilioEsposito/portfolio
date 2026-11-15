@@ -162,13 +162,6 @@ async def analyze_for_twilio_escalation(
     event_id = open_phone_event.get("event_id", "")
     logfire.info(f"AI Assessment: Analyzing for Twilio escalation. OpenPhone event_id: {event_id}")
 
-    # # 320-09 Escalation between 8pm and 7am
-    # unit32009_numbers = ["+14124786168", "+14122280772"]
-    # if event_from_number in unit32009_numbers and (now_et.hour >= 20 or now_et.hour <= 7):
-    #     should_escalate = True
-    #     escalate_to_numbers = ["+14126800593"] # Specific target for 320-09
-    #     escalate_from_number = "+14129001989" # Specific sender for 320-09
-
     # Assess with the configured model(s); notification dispatch happens once below
     try:
         should_escalate, reason = await ai_assess_for_escalation(open_phone_event)
