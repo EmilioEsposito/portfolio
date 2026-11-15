@@ -120,7 +120,7 @@ async def test_search_typo_tolerance(quo_client: httpx.AsyncClient):
     contacts = await get_all_contacts(quo_client)
     for c in contacts:
         first = (c.get("defaultFields", {}).get("firstName") or "").strip()
-        # Skip names with spaces/numbers (e.g. "Lead 659-03 Murong") — not real names
+        # Skip names with spaces/numbers (e.g. "Lead 659-03 Rivera") — not real names
         if len(first) >= 5 and " " not in first and first.isalpha():
             # Double a letter to create a typo: "Emilio" → "Emmilio"
             typo = first[:2] + first[1] + first[2:]
@@ -362,18 +362,50 @@ async def test_get_thread_messages_impl_no_messages(quo_client: httpx.AsyncClien
     assert "No messages or calls found" in result
 
 
-# ---- Call surfacing in conversations ----
+# ---- Real phone numbers for live tests ----
 #
-# The "Lead 659 Benjamin" thread is a stable example of a conversation that
-# contains both a call and an SMS. If that contact is renamed/deleted in the
-# future, replace BENJAMIN_PHONE with another known call-bearing thread.
-BENJAMIN_PHONE = "+14842802433"
+# This repository is public, so the real numbers these tests read or text come
+# from the environment (a local ``.env``), never from this file. A test whose
+# number is not configured skips.
+#
+# - TEST_QUO_CALL_THREAD_PHONE: a contact whose thread on the shared external
+#   line holds both a call and an SMS.
+# - TEST_QUO_GROUP_THREAD_PHONES: the two outside participants of one group
+#   thread, comma-separated.
+# - TEST_INTERNAL_SMS_PHONE and TEST_INTERNAL_SMS_PHONE_2: internal team devices
+#   that may receive live test texts (see SMS SAFETY above). Both must be
+#   internal contacts (company "Sernia Capital LLC").
 
-# 659-02 group thread — both tenants share one Quo conversation.
-AIDAN_PHONE = "+15857734751"
-ADELINE_PHONE = "+17708760966"
+
+def _env_phones(name: str) -> list[str]:
+    return [phone.strip() for phone in os.environ.get(name, "").split(",") if phone.strip()]
 
 
+CALL_THREAD_PHONE = "".join(_env_phones("TEST_QUO_CALL_THREAD_PHONE")[:1])
+GROUP_PHONE_A, GROUP_PHONE_B = [*_env_phones("TEST_QUO_GROUP_THREAD_PHONES"), "", ""][:2]
+INTERNAL_TEST_NUMBER = "".join(_env_phones("TEST_INTERNAL_SMS_PHONE")[:1])
+SECOND_INTERNAL_TEST_NUMBER = "".join(_env_phones("TEST_INTERNAL_SMS_PHONE_2")[:1])
+
+needs_call_thread = pytest.mark.skipif(
+    not CALL_THREAD_PHONE, reason="TEST_QUO_CALL_THREAD_PHONE not set"
+)
+needs_group_thread = pytest.mark.skipif(
+    not (GROUP_PHONE_A and GROUP_PHONE_B),
+    reason="TEST_QUO_GROUP_THREAD_PHONES not set (two numbers, comma-separated)",
+)
+needs_internal_phone = pytest.mark.skipif(
+    not INTERNAL_TEST_NUMBER, reason="TEST_INTERNAL_SMS_PHONE not set"
+)
+needs_both_internal_phones = pytest.mark.skipif(
+    not (INTERNAL_TEST_NUMBER and SECOND_INTERNAL_TEST_NUMBER),
+    reason="TEST_INTERNAL_SMS_PHONE and TEST_INTERNAL_SMS_PHONE_2 not both set",
+)
+
+
+# ---- Call surfacing in conversations ----
+
+
+@needs_group_thread
 @pytest.mark.asyncio
 async def test_get_thread_messages_impl_handles_group_thread(
     quo_client: httpx.AsyncClient,
@@ -391,12 +423,12 @@ async def test_get_thread_messages_impl_handles_group_thread(
     """
     result = await get_thread_messages_impl(
         quo_client,
-        [AIDAN_PHONE, ADELINE_PHONE],
+        [GROUP_PHONE_A, GROUP_PHONE_B],
         max_results=5,
     )
-    _save_fixture("quo_thread_group_659_02.md", result)
-    assert AIDAN_PHONE in result
-    assert ADELINE_PHONE in result
+    _save_fixture("quo_thread_group.md", result)
+    assert GROUP_PHONE_A in result
+    assert GROUP_PHONE_B in result
     db_path = result.startswith("Group thread with ")
     fallback_path = result.startswith("Group thread: ")
     assert db_path or fallback_path, result[:200]
@@ -472,6 +504,7 @@ def test_render_group_thread_from_db_pins_format():
     assert "(incoming, 42s)" in out
 
 
+@needs_group_thread
 @pytest.mark.asyncio
 async def test_get_thread_messages_impl_group_input_order_independent(
     quo_client: httpx.AsyncClient,
@@ -488,17 +521,17 @@ async def test_get_thread_messages_impl_group_input_order_independent(
     """
     forward = await get_thread_messages_impl(
         quo_client,
-        [AIDAN_PHONE, ADELINE_PHONE],
+        [GROUP_PHONE_A, GROUP_PHONE_B],
         max_results=3,
     )
     reverse = await get_thread_messages_impl(
         quo_client,
-        [ADELINE_PHONE, AIDAN_PHONE],
+        [GROUP_PHONE_B, GROUP_PHONE_A],
         max_results=3,
     )
     duped = await get_thread_messages_impl(
         quo_client,
-        [AIDAN_PHONE, ADELINE_PHONE, AIDAN_PHONE],
+        [GROUP_PHONE_A, GROUP_PHONE_B, GROUP_PHONE_A],
         max_results=3,
     )
 
@@ -523,6 +556,7 @@ async def test_get_thread_messages_impl_group_input_order_independent(
     )
 
 
+@needs_group_thread
 @pytest.mark.asyncio
 async def test_list_active_threads_impl_group_thread_snippet_via_last_activity(
     quo_client: httpx.AsyncClient,
@@ -535,14 +569,14 @@ async def test_list_active_threads_impl_group_thread_snippet_via_last_activity(
     if "No active" in result:
         pytest.skip("No active threads — cannot test group snippet routing")
 
-    # Find the 659-02 group thread block. The Quo inbox sometimes drops it
-    # from the active set; skip if so.
-    if AIDAN_PHONE not in result or ADELINE_PHONE not in result:
-        pytest.skip("659-02 group thread not currently in active inbox")
+    # Find the configured group thread's block. The Quo inbox sometimes drops
+    # it from the active set; skip if so.
+    if GROUP_PHONE_A not in result or GROUP_PHONE_B not in result:
+        pytest.skip("Configured group thread not currently in active inbox")
 
     # Walk the result text and extract the block that contains both phones.
     for block in result.split("\n\n"):
-        if AIDAN_PHONE in block and ADELINE_PHONE in block:
+        if GROUP_PHONE_A in block and GROUP_PHONE_B in block:
             # The snippet must reference one of the actual group participants
             # (or be a Call snippet) — never a stale 1:1 fallback.
             assert "Snippet:" in block, block
@@ -551,22 +585,23 @@ async def test_list_active_threads_impl_group_thread_snippet_via_last_activity(
         pytest.fail("group block not found in active threads output")
 
 
+@needs_call_thread
 @pytest.mark.asyncio
 async def test_get_thread_messages_impl_includes_calls_with_id(
     quo_client: httpx.AsyncClient,
 ):
     """Thread retrieval should interleave calls with messages and surface the Call ID
     so the agent can chain to ``getCallTranscript_v1``."""
-    result = await get_thread_messages_impl(quo_client, BENJAMIN_PHONE, max_results=20)
-    _save_fixture("quo_thread_with_call_benjamin.md", result)
-    print(f"\nBenjamin thread:\n{result}")
+    result = await get_thread_messages_impl(quo_client, CALL_THREAD_PHONE, max_results=20)
+    _save_fixture("quo_thread_with_call.md", result)
+    print(f"\nCall thread:\n{result}")
     assert "CALL" in result, "Expected a CALL line in the thread"
     assert "Call ID AC" in result, "Expected a Call ID surfaced in the output"
 
 
 @pytest_asyncio.fixture
-async def benjamin_call_id(quo_client: httpx.AsyncClient) -> str:
-    """Fetch Benjamin's most recent OpenPhone call ID at test time.
+async def call_thread_call_id(quo_client: httpx.AsyncClient) -> str:
+    """Fetch the call thread contact's most recent OpenPhone call ID at test time.
 
     The call ID is derived dynamically rather than hardcoded so:
     1. The test stays robust if the specific call is archived or replaced.
@@ -576,35 +611,41 @@ async def benjamin_call_id(quo_client: httpx.AsyncClient) -> str:
     """
     from api.src.sernia_ai.config import QUO_SHARED_EXTERNAL_PHONE_ID
 
+    if not CALL_THREAD_PHONE:
+        pytest.skip("TEST_QUO_CALL_THREAD_PHONE not set")
     resp = await quo_client.get(
         "/v1/calls",
         params={
             "phoneNumberId": QUO_SHARED_EXTERNAL_PHONE_ID,
-            "participants": BENJAMIN_PHONE,
+            "participants": CALL_THREAD_PHONE,
             "maxResults": "1",
         },
     )
     resp.raise_for_status()
     calls = resp.json().get("data", [])
     if not calls:
-        pytest.skip(f"No calls found for {BENJAMIN_PHONE} — cannot test call details")
+        pytest.skip("No calls found for the configured call thread — cannot test call details")
     return calls[0]["id"]
 
 
 @pytest.mark.asyncio
 async def test_get_call_details_impl_returns_summary_and_transcript(
     quo_client: httpx.AsyncClient,
-    benjamin_call_id: str,
+    call_thread_call_id: str,
 ):
     """The merged tool should produce markdown with both ## Summary and
     ## Transcript sections, and surface the call ID at the top."""
-    result = await get_call_details_impl(quo_client, benjamin_call_id)
-    _save_fixture("quo_call_details_benjamin.md", result)
-    assert f"# Call {benjamin_call_id}" in result
+    from api.src.sernia_ai.tools.quo_tools import _build_phone_map
+
+    result = await get_call_details_impl(quo_client, call_thread_call_id)
+    _save_fixture("quo_call_details.md", result)
+    assert f"# Call {call_thread_call_id}" in result
     assert "## Summary" in result
     assert "## Transcript" in result
     # Speaker attribution should pull in the contact name we have for the caller.
-    assert "Lead 659 Benjamin" in result
+    caller_name = _build_phone_map(await get_all_contacts(quo_client)).get(CALL_THREAD_PHONE)
+    assert caller_name, "The configured call thread phone has no named Quo contact"
+    assert caller_name in result
     # Team turns should be tagged.
     assert "(team)" in result
 
@@ -612,14 +653,14 @@ async def test_get_call_details_impl_returns_summary_and_transcript(
 @pytest.mark.asyncio
 async def test_get_call_details_impl_truncates_when_limit_set(
     quo_client: httpx.AsyncClient,
-    benjamin_call_id: str,
+    call_thread_call_id: str,
 ):
     """When transcript_max_chars is exceeded, the truncation marker must be
     appended and the output should reference the parameter so the caller
     knows how to extend."""
     result = await get_call_details_impl(
         quo_client,
-        benjamin_call_id,
+        call_thread_call_id,
         transcript_max_chars=300,
     )
     assert "transcript truncated at 300 chars" in result
@@ -679,16 +720,15 @@ async def test_get_thread_messages_impl_chronological_order(quo_client: httpx.As
 
 
 # ---- Live SMS length tests ----
-# These send real SMS to an internal number (+14123703550) to test delivery
-# at various message lengths. Run manually and check phone for receipt.
+# These send real SMS to the internal number in TEST_INTERNAL_SMS_PHONE to test
+# delivery at various message lengths. Run manually and check phone for receipt.
 
 
-INTERNAL_TEST_NUMBER = "+14123703550"
 SERNIA_AI_PHONE_ID = "PNWvNqsFFy"  # Sernia AI line (internal only)
 
-# Dedicated test contact "TestSana Test" (company "Test2") — one of Emilio's
-# own test devices, explicitly designated for live SMS testing. NOT a tenant.
-TESTSANA_NUMBER = "+14128770257"
+# TEST_INTERNAL_SMS_PHONE_2 is the dedicated test contact "TestSana Test", one
+# of Emilio's own test devices, explicitly designated for live SMS testing.
+# NOT a tenant.
 
 
 # ---- Live group SMS (new Quo API multi-recipient support) ----
@@ -700,6 +740,7 @@ TESTSANA_NUMBER = "+14128770257"
 # and sends from the AI line — a live internal send, allowed per SMS safety.
 
 
+@needs_both_internal_phones
 @pytest.mark.asyncio
 async def test_resolve_group_sms_routing_live_all_internal(quo_client: httpx.AsyncClient):
     """Live routing resolution for the Emilio + TestSana group: both are
@@ -711,7 +752,9 @@ async def test_resolve_group_sms_routing_live_all_internal(quo_client: httpx.Asy
         resolve_group_sms_routing,
     )
 
-    result = await resolve_group_sms_routing([INTERNAL_TEST_NUMBER, TESTSANA_NUMBER], quo_client)
+    result = await resolve_group_sms_routing(
+        [INTERNAL_TEST_NUMBER, SECOND_INTERNAL_TEST_NUMBER], quo_client
+    )
     assert isinstance(result, GroupSmsRouting), result
     assert result.all_internal is True, (
         "Expected Emilio + TestSana to both be internal — was the TestSana "
@@ -721,6 +764,7 @@ async def test_resolve_group_sms_routing_live_all_internal(quo_client: httpx.Asy
     print(f"\nGroup routing: names={result.recipient_names}, line={result.line_name}")
 
 
+@needs_both_internal_phones
 @pytest.mark.asyncio
 @pytest.mark.skipif(
     not os.environ.get("QUO_LIVE_GROUP_SMS_TEST"),
@@ -746,7 +790,9 @@ async def test_send_group_sms_live_emilio_and_sana(quo_client: httpx.AsyncClient
         resolve_group_sms_routing,
     )
 
-    routing = await resolve_group_sms_routing([INTERNAL_TEST_NUMBER, TESTSANA_NUMBER], quo_client)
+    routing = await resolve_group_sms_routing(
+        [INTERNAL_TEST_NUMBER, SECOND_INTERNAL_TEST_NUMBER], quo_client
+    )
     if not isinstance(routing, GroupSmsRouting) or not routing.all_internal:
         pytest.skip(f"Emilio + TestSana no longer resolve as all-internal: {routing}")
 
@@ -761,10 +807,11 @@ async def test_send_group_sms_live_emilio_and_sana(quo_client: httpx.AsyncClient
     print(f"\nGroup send result: {result}")
     assert result.startswith("Group message sent to")
     assert INTERNAL_TEST_NUMBER in result
-    assert TESTSANA_NUMBER in result
+    assert SECOND_INTERNAL_TEST_NUMBER in result
     assert "Sernia AI" in result
 
 
+@needs_internal_phone
 @pytest.mark.asyncio
 async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
     """Send a short SMS (<=160 chars, single segment). Should always deliver."""
@@ -779,6 +826,7 @@ async def test_send_sms_short_160_chars(quo_client: httpx.AsyncClient):
     assert resp.status_code in (200, 201, 202)
 
 
+@needs_internal_phone
 @pytest.mark.asyncio
 async def test_send_sms_medium_320_chars(quo_client: httpx.AsyncClient):
     """Send a medium SMS (~320 chars, 2-3 segments)."""
@@ -793,6 +841,7 @@ async def test_send_sms_medium_320_chars(quo_client: httpx.AsyncClient):
     assert resp.status_code in (200, 201, 202)
 
 
+@needs_internal_phone
 @pytest.mark.asyncio
 async def test_send_sms_long_700_chars(quo_client: httpx.AsyncClient):
     """Send a long SMS (~700 chars, similar to the failing scheduled check).
@@ -814,6 +863,7 @@ async def test_send_sms_long_700_chars(quo_client: httpx.AsyncClient):
     assert resp.status_code in (200, 201, 202)
 
 
+@needs_internal_phone
 @pytest.mark.asyncio
 async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient):
     """Send a long SMS with emojis (~700 chars) matching the exact pattern that failed.
@@ -827,11 +877,11 @@ async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient
         "\U0001f4e7 Email: One unread email from marketing — looks like spam. "
         "No action needed.\n\n"
         "\U0001f4ac SMS: 5 active threads. Key notes:\n"
-        "- 659-03 Hailey Trainor: Active showing coordination. Last message "
+        "- 659-03 Robin Castillo: Active showing coordination. Last message "
         "from team confirmed Sunday showing was canceled, Tuesday 6pm showing "
         "is still on. Nothing awaiting a reply.\n"
-        "- Lead 659-03 Johnson: Thread active but no messages visible.\n"
-        "- Other threads (Chris Cafardi, RQM Main Office) are older and appear "
+        "- Lead 659-03 Marlowe: Thread active but no messages visible.\n"
+        "- Other threads (Casey Dunmore, RQM Main Office) are older and appear "
         "dormant.\n\n"
         "All clear overall — nothing urgent needs attention right now!"
     )
@@ -845,6 +895,7 @@ async def test_send_sms_long_with_emojis_700_chars(quo_client: httpx.AsyncClient
     assert resp.status_code in (200, 201, 202)
 
 
+@needs_internal_phone
 @pytest.mark.asyncio
 async def test_send_sms_auto_split_725_chars(quo_client: httpx.AsyncClient):
     """Send a ~725 char message using split_sms, verifying auto-split delivery.

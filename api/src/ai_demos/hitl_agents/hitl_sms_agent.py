@@ -72,7 +72,7 @@ async def send_sms(body: str, to: str | None = None) -> str:
 
     Args:
         body: The message content to send
-        to: Phone number in E.164 format (e.g., +14123703550). Defaults to Emilio.
+        to: Phone number in E.164 format (e.g., +14125550123). Defaults to Emilio.
     """
     if to is None:
         contact = await get_contact_by_slug("emilio")

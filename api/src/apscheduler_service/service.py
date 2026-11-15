@@ -27,6 +27,7 @@ from api.src.database.database import sync_engine
 from api.src.google.gmail.service import send_email
 from api.src.open_phone.service import send_message
 from api.src.push.service import send_push_to_user
+from api.src.sernia_ai.config import QUO_SERNIA_AI_PHONE_ID
 
 # --- Monkey-patch APScheduler Job.__str__ to include job_id --- START
 # Store the original __str__ method in case it's ever needed for reversion or comparison
@@ -262,7 +263,7 @@ async def schedule_sms(
             kwargs={
                 "message": message,
                 "to_phone_number": to_phone_number,
-                "from_phone_number": "+14129101500",
+                "from_phone_number": QUO_SERNIA_AI_PHONE_ID,
             },
             trigger="date",
             run_date=run_date,
