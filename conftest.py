@@ -36,3 +36,8 @@ os.environ.setdefault("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
 os.environ.setdefault("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/oauth/callback")
 os.environ.setdefault("QUO_WEBHOOK_SECRET", "test-openphone-webhook")
+# Fictional numbers for the phone settings that runtime code requires (see
+# api/src/utils/phone_config.py). The real numbers live in Railway and local
+# .env files, never in this public repository.
+os.environ.setdefault("SERNIA_TEAM_PHONE", "+14125550100")
+os.environ.setdefault("TWILIO_ESCALATION_FROM_NUMBER", "+14125550199")

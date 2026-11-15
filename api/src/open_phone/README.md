@@ -34,6 +34,19 @@ To revert to the standard policy, clear the variable and redeploy. The retired
 Luna and Jev on every assessment with OR alerting. Jev also remains available for experiments. Both use the same awareness policy, best-effort
 Quo history, and precomputed elapsed times. Images are still eval-only.
 
+## Phone number settings
+
+Phone numbers stay out of this public repository. Set these on Railway's
+**fastapi** service:
+
+- `TWILIO_ESCALATION_FROM_NUMBER` (required): the Twilio caller ID for escalation
+  calls, in E.164 (`+1` and ten digits). The API does not start without it, so a
+  missing value cannot surface later as a failed emergency call.
+- `ESCALATION_IGNORED_SENDERS` (optional): comma-separated E.164 numbers whose
+  messages never trigger an escalation call. Unset ignores no one.
+
+Tests use the fictional defaults in the root `conftest.py`.
+
 ## Easy-to-follow decision flow
 
 1. `escalate.ai_assess_for_escalation` retrieves history once and builds one input.
@@ -387,7 +400,7 @@ repeating uncertain/queued notifications and never claim a call was heard.
 ### Operation and rollout
 
 The existing `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`, Studio flow, and caller ID
-are reused. Obtain credentials from the existing Twilio account Console; do not
+(`TWILIO_ESCALATION_FROM_NUMBER`) are reused. Obtain credentials from the existing Twilio account Console; do not
 create or rotate keys to enable this change. Extra JSON flow parameters require
 no published-flow edit. Read [Studio Execution](https://www.twilio.com/docs/studio/rest-api/v2/execution),
 [Execution Context](https://www.twilio.com/docs/studio/rest-api/v2/execution-context),
