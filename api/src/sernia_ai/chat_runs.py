@@ -35,6 +35,8 @@ from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.runs import finalize_run, save_failed_run
 
 MAX_RUN_SECONDS = 15 * 60
+# Lets an in-flight cancel poll finish before falling back to cancellation.
+WATCHER_STOP_SECONDS = 5
 _tasks: set[asyncio.Task] = set()
 _tokens: dict[tuple[str, str], CancellationToken] = {}
 
@@ -100,6 +102,7 @@ class ChatRun:
         self.queue: asyncio.Queue[BaseChunk | None] = asyncio.Queue(maxsize=256)
         self.connected = True
         self.finished = False
+        self.stop_watching = asyncio.Event()
 
     def start(self) -> None:
         _tokens[(self.deps.conversation_id, self.run["id"])] = self.token
@@ -146,7 +149,11 @@ class ChatRun:
 
     async def watch_cancel(self) -> None:
         while True:
-            await asyncio.sleep(1)
+            try:
+                await asyncio.wait_for(self.stop_watching.wait(), timeout=1)
+                return  # Run finished; exit between polls instead of being cancelled mid-query.
+            except TimeoutError:
+                pass
             try:
                 async with AsyncSessionFactory() as session:
                     metadata = await session.scalar(
@@ -229,8 +236,14 @@ class ChatRun:
                 ErrorChunk(error_text="The response stopped early. Your conversation was saved.")
             )
         finally:
-            watcher.cancel()
-            await asyncio.gather(watcher, return_exceptions=True)
+            # Cancelling mid-SELECT marks the DB span as an error-level record.
+            self.stop_watching.set()
+            try:
+                await asyncio.wait({watcher}, timeout=WATCHER_STOP_SECONDS)
+            finally:
+                if not watcher.done():
+                    watcher.cancel()
+                    await asyncio.gather(watcher, return_exceptions=True)
             _tokens.pop((self.deps.conversation_id, self.run["id"]), None)
             self.emit(None)
 
