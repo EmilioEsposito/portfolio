@@ -21,7 +21,6 @@ from api.src.google.common.service_account_auth import (
     get_service_credentials,
 )
 from api.src.google.gmail.config import GMAIL_WATCH_MAILBOX
-from api.src.oauth.service import get_oauth_credentials
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
@@ -117,7 +116,6 @@ async def send_email(
     message_text: str,
     sender: str | None = None,
     credentials: Credentials | service_account.Credentials | None = None,
-    credentials_json: dict | None = None,
     thread_id: str | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
@@ -133,7 +131,6 @@ async def send_email(
             ``text/plain`` alternative for clients that don't render HTML.
         sender: Optional email address of the sender. If None, uses the authenticated user's email
         credentials: Optional credentials object (service account or OAuth)
-        credentials_json: Optional OAuth credentials as dictionary (for backward compatibility)
         thread_id: Optional Gmail thread ID to place the message in the same thread
         in_reply_to: Optional RFC 2822 Message-ID of the email being replied to
         references: Optional RFC 2822 References header chain
@@ -143,12 +140,7 @@ async def send_email(
     try:
         # Determine which credentials to use
         if credentials is None:
-            if credentials_json:
-                # Legacy support for OAuth credentials
-                credentials = get_oauth_credentials(credentials_json)
-            else:
-                # Default to service account
-                credentials = get_service_credentials()
+            credentials = get_service_credentials()
 
         service = get_gmail_service(credentials)
 
