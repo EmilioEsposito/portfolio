@@ -61,11 +61,15 @@ A row starts `pending` and ends as one of:
 | `skipped` | The send mode is off. |
 
 `outbox.deliver` delivers one row at once, and `outbox.drain` delivers every
-row due by its `now` argument. A send is claimed first: the row is locked with
-`FOR UPDATE SKIP LOCKED`, `attempts` goes up and `sending_started_at` is set,
-and that is committed before the provider is called. Two runs at once therefore
-take different rows, and a row still marked as sending ten minutes later was
-cut off midway and becomes `unknown`. When nothing went out and trying later
+row due by its `now` argument. A drain settles the rows the guard skips or
+captures together, then takes the rows it would send one at a time. Each is
+claimed just before its own provider call: the row is locked with
+`FOR UPDATE SKIP LOCKED`, the guard is asked again, `attempts` goes up and
+`sending_started_at` is set, and that is committed before the provider is
+called. Two runs at once therefore never take the same row, a run that stops
+partway leaves the rows it had not reached `pending` for the next run, and a
+row still marked as sending ten minutes later was cut off midway and becomes
+`unknown`. When nothing went out and trying later
 may work (Quo out of reach or rate limited), the row stays `pending` with a
 later `not_before`, up to five attempts.
 

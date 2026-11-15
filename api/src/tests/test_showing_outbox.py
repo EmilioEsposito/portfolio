@@ -455,7 +455,8 @@ async def test_a_send_cut_off_midway_becomes_unknown_and_is_not_sent_again(showi
     notice = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
     texts = RecordingTextSender()
     # A run claims the row and stops before calling Quo, as a restart would.
-    (claimed,), _ = await outbox._claim(now=NOW, limit=10)
+    claimed, settled = await outbox._claim_one(notice, now=NOW)
+    assert claimed is not None and settled is None
 
     assert (await outbox.drain(now=NOW + timedelta(minutes=5), texts=texts)).total == 0
     report = await outbox.drain(
@@ -469,6 +470,68 @@ async def test_a_send_cut_off_midway_becomes_unknown_and_is_not_sent_again(showi
     # If the cut-off run's answer arrives after all, it is the better record.
     await outbox._record(claimed, outbox._Outcome("sent", provider_id="AC9999"), now=NOW)
     assert ((await row(notice)).status, (await row(notice)).provider_id) == ("sent", "AC9999")
+
+
+class ProcessDied(BaseException):
+    """Not an Exception: escapes the outbox the way a killed process or a cancelled task does."""
+
+
+class DiesOnFirstSend(RecordingTextSender):
+    async def send_text(self, to: str, body: str):
+        raise ProcessDied()
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_dies_mid_batch_leaves_the_rows_it_had_not_reached(showing):
+    await live(test_sends_enabled=True)
+    first, *rest = [
+        await queue_text(showing, to=TEAM_PHONE, key=f"agent:{n}", body=f"Text {n}")
+        for n in range(4)
+    ]
+
+    with pytest.raises(ProcessDied):
+        await outbox.drain(now=NOW, texts=DiesOnFirstSend())
+
+    # Only the row it was sending is claimed; the others are untouched.
+    cut_off = await row(first)
+    assert (cut_off.status, cut_off.sending_started_at, cut_off.attempts) == ("pending", NOW, 1)
+    for notice in rest:
+        untouched = await row(notice)
+        assert (untouched.status, untouched.sending_started_at, untouched.attempts) == (
+            "pending",
+            None,
+            0,
+        )
+
+    texts = RecordingTextSender()
+    assert (await outbox.drain(now=NOW + timedelta(minutes=1), texts=texts)).sent == 3
+    assert [text.body for text in texts.sent] == ["Text 1", "Text 2", "Text 3"]
+
+    # The one cut off midway is never sent again; it becomes unknown once it has waited.
+    later = await outbox.drain(
+        now=NOW + outbox.INTERRUPTED_AFTER + timedelta(seconds=1), texts=texts
+    )
+    assert later.interrupted == 1 and len(texts.sent) == 3
+    assert (await row(first)).status == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_settling_and_claiming_are_separate_steps(showing):
+    """A capture is settled in the batch; a send is claimed only when its turn comes."""
+    await live(test_sends_enabled=True)
+    to_team = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
+    to_prospect = await queue_text(showing)
+
+    to_send, report = await outbox._settle_due(now=NOW, limit=10)
+
+    assert (to_send, report.captured) == ([to_team], 1)
+    assert (await row(to_prospect)).status == "captured"
+    unclaimed = await row(to_team)
+    assert (unclaimed.status, unclaimed.sending_started_at, unclaimed.mode) == (
+        "pending",
+        None,
+        None,
+    )
 
 
 # Delivering one notice at once

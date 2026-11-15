@@ -11,9 +11,12 @@ row through the guard in ``guard.py``:
   ``captured``; no provider is called.
 - send: in three steps, so a row is never sent twice.
 
-  1. Claim. The row is locked (``FOR UPDATE SKIP LOCKED``, so two runs at once
-     take different rows), ``attempts`` goes up and ``sending_started_at`` is
-     set. This is committed before the provider is called.
+  1. Claim, just before this row's own provider call. The row is locked
+     (``FOR UPDATE SKIP LOCKED``, so two runs at once never take the same
+     row), the guard is asked again, ``attempts`` goes up and
+     ``sending_started_at`` is set. This is committed before the provider is
+     called. A run claims its sends one at a time, so a run that stops partway
+     leaves the rows it had not reached pending and unclaimed.
   2. Call the provider, outside any transaction.
   3. Save the answer: ``sent``; ``failed`` when the provider refused it (an
      opted-out or invalid number); ``pending`` again with a later
@@ -41,7 +44,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings.guard import decide
+from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
     CalendarSource,
@@ -61,6 +64,7 @@ from api.src.showing_bookings.schema import (
     normalize_us_mobile,
 )
 from api.src.showing_bookings.settings import (
+    ShowingBookingSettings,
     current_environment,
     read_test_recipients,
     settings_for_delivery,
@@ -164,9 +168,9 @@ async def deliver(
     A row that is not due, already delivered or being sent by another run
     is left as it is.
     """
-    claimed, _ = await _claim(now=_aware(now), limit=1, notice_id=notice_id)
-    for item in claimed:
-        await _record(item, await _send(item, texts=texts, calendar=calendar), now=now)
+    await _deliver_one(
+        notice_id, now=_aware(now), texts=texts, calendar=calendar, report=DrainReport()
+    )
     async with AsyncSessionFactory() as session:
         return await session.scalar(
             select(ShowingNotice.status).where(ShowingNotice.id == notice_id)
@@ -180,15 +184,14 @@ async def drain(
     calendar: CalendarSource | None = None,
     limit: int = DRAIN_LIMIT,
 ) -> DrainReport:
-    """Deliver every notice due by ``now``, oldest first. Safe to run twice at once."""
-    claimed, report = await _claim(now=_aware(now), limit=limit)
-    for item in claimed:
-        outcome = await _send(item, texts=texts, calendar=calendar)
-        await _record(item, outcome, now=now)
-        if outcome.status == "retry":
-            report.retrying += 1
-        else:
-            setattr(report, outcome.status, getattr(report, outcome.status) + 1)
+    """Deliver every notice due by ``now``, oldest first. Safe to run twice at once.
+
+    Rows the guard skips or captures are settled together. Rows it would send
+    are claimed one at a time, each just before its own provider call.
+    """
+    to_send, report = await _settle_due(now=_aware(now), limit=limit)
+    for notice_id in to_send:
+        await _deliver_one(notice_id, now=now, texts=texts, calendar=calendar, report=report)
     if report.total:
         logfire.info("showing notices delivered", **report.model_dump())
     return report
@@ -278,76 +281,136 @@ async def _mark_interrupted(session: AsyncSession, now: datetime) -> int:
     return len(stale)
 
 
-async def _claim(
-    *, now: datetime, limit: int, notice_id: int | None = None
-) -> tuple[list[_Claimed], DrainReport]:
-    """Lock due rows, settle the ones the guard skips or captures, and claim the rest."""
+def _due_rows(now: datetime):
+    """Due, pending rows that no run is sending, oldest first, locked for the
+    transaction. Rows another run has locked are skipped, never waited on."""
+    return (
+        select(
+            ShowingNotice,
+            Showing.unit,
+            Showing.host_event_id,
+            ShowingAttendee.calendar_event_id,
+        )
+        .join(Showing, Showing.id == ShowingNotice.showing_id)
+        .outerjoin(ShowingAttendee, ShowingAttendee.id == ShowingNotice.attendee_id)
+        .where(
+            ShowingNotice.status == "pending",
+            ShowingNotice.not_before <= now,
+            ShowingNotice.sending_started_at.is_(None),
+        )
+        .order_by(ShowingNotice.not_before, ShowingNotice.id)
+        .with_for_update(of=ShowingNotice, skip_locked=True)
+    )
+
+
+_GuardInputs = tuple[ShowingBookingSettings, str, frozenset[str]]
+
+
+async def _guard_inputs(session: AsyncSession) -> _GuardInputs:
+    return await settings_for_delivery(session), current_environment(), read_test_recipients()
+
+
+def _guard(notice: ShowingNotice, unit: str, inputs: _GuardInputs, now: datetime) -> Decision:
+    """Ask the guard about one locked row, and settle it when the answer is skip or capture."""
+    settings, environment, test_recipients = inputs
+    decision = decide(
+        settings=settings,
+        environment=environment,
+        unit=unit,
+        addresses=_addresses(notice),
+        test_recipients=test_recipients,
+    )
+    if decision.action != "send":
+        notice.mode = settings.send_mode
+        notice.guard_reason = decision.reason
+        notice.status = "skipped" if decision.action == "skip" else "captured"
+        notice.delivered_at = now
+    return decision
+
+
+def _count(report: DrainReport, status: str) -> None:
+    field = "retrying" if status == "retry" else status
+    setattr(report, field, getattr(report, field) + 1)
+
+
+async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainReport]:
+    """Settle the due rows the guard skips or captures, and list the ones it would send.
+
+    The rows to send are not claimed here: each is claimed just before its own
+    provider call, so a run that stops partway leaves the rest pending.
+    """
     report = DrainReport()
-    claimed: list[_Claimed] = []
+    to_send: list[int] = []
     async with AsyncSessionFactory() as session, session.begin():
         report.interrupted = await _mark_interrupted(session, now)
-        query = (
-            select(
-                ShowingNotice,
-                Showing.unit,
-                Showing.host_event_id,
-                ShowingAttendee.calendar_event_id,
-            )
-            .join(Showing, Showing.id == ShowingNotice.showing_id)
-            .outerjoin(ShowingAttendee, ShowingAttendee.id == ShowingNotice.attendee_id)
-            .where(
-                ShowingNotice.status == "pending",
-                ShowingNotice.not_before <= now,
-                ShowingNotice.sending_started_at.is_(None),
-            )
-            .order_by(ShowingNotice.not_before, ShowingNotice.id)
-            .limit(limit)
-            .with_for_update(of=ShowingNotice, skip_locked=True)
-        )
-        if notice_id is not None:
-            query = query.where(ShowingNotice.id == notice_id)
-        rows = (await session.execute(query)).all()
-        if not rows:
-            return claimed, report
+        rows = (await session.execute(_due_rows(now).limit(limit))).all()
+        if rows:
+            inputs = await _guard_inputs(session)
+            for notice, unit, _host_event_id, _invite_event_id in rows:
+                if _guard(notice, unit, inputs, now).action == "send":
+                    to_send.append(notice.id)
+                else:
+                    _count(report, notice.status)
+    return to_send, report
 
-        settings = await settings_for_delivery(session)
-        environment = current_environment()
-        test_recipients = read_test_recipients()
-        for notice, unit, host_event_id, invite_event_id in rows:
-            decision = decide(
-                settings=settings,
-                environment=environment,
-                unit=unit,
-                addresses=_addresses(notice),
-                test_recipients=test_recipients,
-            )
-            notice.mode = settings.send_mode
-            notice.guard_reason = decision.reason
-            if decision.action in ("skip", "capture"):
-                notice.status = "skipped" if decision.action == "skip" else "captured"
-                notice.delivered_at = now
-                setattr(report, notice.status, getattr(report, notice.status) + 1)
-                continue
-            notice.attempts += 1
-            notice.sending_started_at = now
-            claimed.append(
-                _Claimed(
-                    id=notice.id,
-                    kind=notice.kind,
-                    channel=notice.channel,
-                    recipient=notice.recipient,
-                    payload=dict(notice.payload),
-                    showing_id=notice.showing_id,
-                    attendee_id=notice.attendee_id,
-                    attempts=notice.attempts,
-                    started_at=now,
-                    stored_event_id={
-                        "calendar_event": host_event_id,
-                        "calendar_invite": invite_event_id,
-                    }.get(notice.channel),
-                )
-            )
-    return claimed, report
+
+async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None, str | None]:
+    """Claim one due row for sending, asking the guard again, and commit the claim.
+
+    Returns the claimed row; or, when the guard now skips or captures it, the
+    status it was settled with; or neither, when the row is not due, already
+    delivered, or held by another run.
+    """
+    async with AsyncSessionFactory() as session, session.begin():
+        row = (await session.execute(_due_rows(now).where(ShowingNotice.id == notice_id))).first()
+        if row is None:
+            return None, None
+        notice, unit, host_event_id, invite_event_id = row
+        inputs = await _guard_inputs(session)
+        decision = _guard(notice, unit, inputs, now)
+        if decision.action != "send":
+            return None, notice.status
+        notice.mode = inputs[0].send_mode
+        notice.guard_reason = decision.reason
+        notice.attempts += 1
+        notice.sending_started_at = now
+        return (
+            _Claimed(
+                id=notice.id,
+                kind=notice.kind,
+                channel=notice.channel,
+                recipient=notice.recipient,
+                payload=dict(notice.payload),
+                showing_id=notice.showing_id,
+                attendee_id=notice.attendee_id,
+                attempts=notice.attempts,
+                started_at=now,
+                stored_event_id={
+                    "calendar_event": host_event_id,
+                    "calendar_invite": invite_event_id,
+                }.get(notice.channel),
+            ),
+            None,
+        )
+
+
+async def _deliver_one(
+    notice_id: int,
+    *,
+    now: datetime,
+    texts: TextSender | None,
+    calendar: CalendarSource | None,
+    report: DrainReport,
+) -> None:
+    """Claim one row, call its provider, save the answer, and count what happened."""
+    item, settled = await _claim_one(notice_id, now=now)
+    if settled is not None:
+        _count(report, settled)
+    if item is None:
+        return
+    outcome = await _send(item, texts=texts, calendar=calendar)
+    await _record(item, outcome, now=now)
+    _count(report, outcome.status)
 
 
 def _live_text_sender() -> TextSender:
