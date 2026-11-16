@@ -122,6 +122,17 @@ class Guest:
     mobile: str | None
     email: str | None
     confirmations: Sequence[str]
+    # How they booked: "page", "team" or "lead_agent".
+    source: str = "page"
+    # Whether they take texts about the showing.
+    texts: bool = True
+
+
+_HOW_BOOKED = {
+    "page": "booked on the booking page",
+    "team": "booked by the team",
+    "lead_agent": "booked by email with the lead agent",
+}
 
 
 def _local(moment: datetime, timezone: str) -> datetime:
@@ -163,9 +174,15 @@ def host_event_summary(visit: Visit, guests: Sequence[Guest]) -> str:
 
 
 def host_event_description(guests: Sequence[Guest]) -> str:
-    lines = ["Booked on the Sernia Capital booking page:"]
+    """Who is coming and how each booked, true for every way a booking is made."""
+    lines = ["Booked for this Sernia Capital showing:"]
     for guest in guests:
-        lines.append(f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'}")
+        how = _HOW_BOOKED.get(guest.source, "booked")
+        if not guest.texts:
+            how += ", no texts"
+        lines.append(
+            f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'} ({how})"
+        )
         for confirmed in guest.confirmations:
             lines.append(f"  Confirmed: {confirmed}")
     return "\n".join(lines)
@@ -256,6 +273,20 @@ def resident_cancelled_text(visit: Visit) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The team's actions (CANCELLATION_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def host_event_moved_summary(visit: Visit) -> str:
+    """The old host's event, cancelled when the team gives the showing to another host."""
+    return f"Moved to another host: {visit.unit}"
+
+
+def host_event_moved_description() -> str:
+    return "The team gave this showing to another host. You are no longer hosting it."
+
+
+# ---------------------------------------------------------------------------
 # Reminders the evening before (REMINDER_VERSION)
 # ---------------------------------------------------------------------------
 
@@ -323,6 +354,23 @@ def host_left_text(visit: Visit, name: str, *, by_team: bool, booked: int) -> st
     return f"{opening} {_booked(booked)} still."
 
 
+def host_moved_to_text(visit: Visit, booked: int) -> str:
+    """To the new host, when the team gives them a showing less than 2 hours ahead."""
+    return (
+        f"Sernia Capital: the showing of {place(visit)} on {when(visit)} is now yours to host. "
+        f"{_booked(booked)}."
+    )
+
+
+def host_moved_from_text(visit: Visit) -> str:
+    """To the old host, when the team gives their showing to someone else less than
+    2 hours ahead."""
+    return (
+        f"Sernia Capital: the showing of {place(visit)} on {when(visit)} has moved to "
+        "another host. You are no longer hosting it."
+    )
+
+
 def host_showing_cancelled_text(visit: Visit, reason: str | None) -> str:
     """To the host, when the team cancels the showing (or the unit goes off the market)
     less than 2 hours ahead."""
@@ -352,6 +400,9 @@ NOTICE_LABELS = {
     "resident_new_showing": "Residents' text: new showing",
     "resident_cancelled": "Residents' text: showing cancelled",
     "resident_reminder": "Residents' reminder",
+    "host_event_moved": "Old host's event cancelled",
+    "host_moved_to": "Host's text: showing now theirs",
+    "host_moved_from": "Host's text: showing moved away",
 }
 
 

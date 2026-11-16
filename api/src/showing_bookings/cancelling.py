@@ -68,13 +68,15 @@ INVITE_CANCEL_KIND = host_event.INVITE_CANCEL_KIND
 HOST_CANCEL_KIND = host_event.CANCEL_KIND
 # Notices a cancellation queues. Stopping the notices of a cancelled booking
 # never stops these, so a later cancellation in the same showing keeps the
-# texts an earlier one queued.
+# texts an earlier one queued. A change of host's cancellation of the old
+# host's event is one too: it always goes, so the old calendar is cleaned up.
 CANCELLATION_KINDS = frozenset(
     {
         PROSPECT_TEXT_KIND,
         TEAM_TEXT_KIND,
         INVITE_CANCEL_KIND,
         HOST_CANCEL_KIND,
+        host_event.MOVED_KIND,
         residents.CANCELLED_KIND,
         delivery_checks.HOST_LEFT_KIND,
         delivery_checks.HOST_SHOWING_CANCELLED_KIND,
@@ -217,6 +219,7 @@ async def queue_host_cancel(session: AsyncSession, showing: Showing, now: dateti
         .where(
             ShowingNotice.showing_id == showing.id,
             ShowingNotice.kind.in_(host_event.KINDS),
+            host_event.since_last_move(showing.id),
             _went_out(),
         )
         .order_by(ShowingNotice.id.desc())

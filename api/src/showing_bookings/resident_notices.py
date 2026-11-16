@@ -147,12 +147,15 @@ def _stopped_with_its_confirmation() -> frozenset[str]:
 
 
 async def bring_back(
-    session: AsyncSession, showing_id: int, *, waits_for_notice_id: int, now: datetime
+    session: AsyncSession, showing_id: int, *, waits_for_notice_id: int | None, now: datetime
 ) -> bool:
     """When someone joins a showing, or corrects their mobile in it, and its
     announcement was stopped with a failed confirmation (whoever's it last waited
     for), hold it again behind their new confirmation, in the caller's
     transaction. Returns whether it was brought back.
+
+    With ``waits_for_notice_id`` None (someone the team booked without texts,
+    so there is no confirmation to wait for) it is due at once, in the daytime.
 
     A showing has one announcement row at most (one per kind, showing and
     recipient key), so this never makes a second; a cancelled one never went
@@ -167,7 +170,7 @@ async def bring_back(
             ShowingNotice.last_error.in_(_stopped_with_its_confirmation()),
         )
         .values(
-            status="held",
+            status="held" if waits_for_notice_id is not None else "pending",
             waits_for_notice_id=waits_for_notice_id,
             last_error=None,
             not_before=now,
@@ -187,8 +190,10 @@ async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | No
     Called before the notices held behind a confirmation are stopped (it was
     undelivered, or its booking withdrawn): while someone else is booked whose
     confirmation is not known to be wrong, the showing goes ahead and the
-    residents are still told once theirs is delivered. Otherwise the text stays
-    held and is stopped with the rest.
+    residents are still told once theirs is delivered. When everyone else still
+    booked has no confirmation text (booked by the team without texts or a
+    mobile), the text is due at once instead, in the daytime. Otherwise it
+    stays held and is stopped with the rest.
 
     The other person's current confirmation is the latest one sent to the
     mobile on their booking now: after a corrected mobile, the replacement,
@@ -224,6 +229,29 @@ async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | No
             .limit(1)
         )
         if other is None:
+            # Someone still booked without a confirmation text (the team booked
+            # them without texts or a mobile): the showing goes ahead and there is
+            # nothing to wait for, so the text is due now, in the daytime.
+            unconfirmed = await session.scalar(
+                select(ShowingAttendee.id)
+                .where(
+                    ShowingAttendee.showing_id == notice.showing_id,
+                    ShowingAttendee.status == "booked",
+                    ShowingAttendee.attention_reason.is_(None),
+                    ShowingAttendee.texts_accepted.is_(False) | ShowingAttendee.mobile.is_(None),
+                    *([ShowingAttendee.id != attendee_id] if attendee_id is not None else []),
+                )
+                .limit(1)
+            )
+            if unconfirmed is None:
+                continue
+            await session.execute(
+                update(ShowingNotice)
+                .where(ShowingNotice.id == notice.id)
+                .values(status="pending", waits_for_notice_id=None),
+                execution_options={"synchronize_session": False},
+            )
+            moved += 1
             continue
         await session.execute(
             update(ShowingNotice)

@@ -34,6 +34,13 @@ Signed-in Sernia users only, on every route.
 - ``POST /showings/{id}/cancel``: cancel a showing and everyone in it.
 - ``POST /showings/{id}/attendees/{attendee_id}/remove``: remove one person.
   Both send what ``cancelling.py`` describes; a second call changes nothing.
+- ``POST /showings/bookings``: book someone who called into one of a unit's
+  open times, with or without texts.
+- ``POST /showings/{id}/host``: give the showing to another agent who is free.
+- ``PUT /showings/{id}/attendees/{attendee_id}/attendance``: mark whether a
+  person came, once the showing has started. Sends nothing.
+  These three are ``team_actions.py``; a refusal answers
+  ``{"detail": {"code", "message", "fields"}}``.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -54,10 +61,12 @@ from api.src.rental_listings.models import RentalListingRecord
 from api.src.showing_bookings import (
     agents,
     alerts,
+    bookings,
     cancelling,
     connections,
     holds,
     open_times,
+    team_actions,
     wording,
 )
 from api.src.showing_bookings.guard import PRODUCTION
@@ -71,6 +80,7 @@ from api.src.showing_bookings.models import (
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.schema import (
     DAYS_AHEAD,
+    Attendance,
     AttendeeSource,
     ConnectionStatus,
     Email,
@@ -99,6 +109,10 @@ def text_sender() -> TextSender | None:
 def clock() -> datetime:
     """The time a team action is handled at. Tests replace it to move the clock."""
     return datetime.now(UTC)
+
+
+# Showings that started this many days ago stay on the tab, so who came can be marked.
+ATTENDANCE_DAYS = 3
 
 
 router = APIRouter(
@@ -616,12 +630,15 @@ class BookedPersonView(BaseModel):
     texts_accepted: bool
     # Set when the booking needs a call, such as "confirmation_undelivered".
     attention_reason: str | None
+    # Whether they came: "unknown" until the team marks it after the start.
+    attendance: Attendance
 
 
 class BookedShowingView(BaseModel):
     id: int
     unit: str
     starts_at: datetime
+    host_id: int
     host_name: str
     attendees: int
     capacity: int
@@ -635,7 +652,8 @@ class BookedShowingView(BaseModel):
 
 class ShowingsView(BaseModel):
     open_times: open_times.OpenTimes
-    # Scheduled showings from now to 14 days out, earliest first.
+    # Scheduled showings from 3 days ago (so who came can be marked) to 14 days
+    # out, earliest first.
     booked: list[BookedShowingView]
     # Whether the Zillow lead agent offers these times (the switch in settings).
     lead_agent_uses_open_times: bool
@@ -664,7 +682,7 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
         .outerjoin(attendees, attendees.c.showing_id == Showing.id)
         .where(
             Showing.status == "scheduled",
-            Showing.ends_at > now,
+            Showing.starts_at > now - timedelta(days=ATTENDANCE_DAYS),
             Showing.starts_at <= now + timedelta(days=DAYS_AHEAD),
         )
         .order_by(Showing.starts_at, Showing.unit)
@@ -689,6 +707,7 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
                     source=person.source,
                     texts_accepted=person.texts_accepted,
                     attention_reason=person.attention_reason,
+                    attendance=person.attendance,
                 )
             )
     try:
@@ -703,6 +722,7 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
                 id=showing.id,
                 unit=showing.unit,
                 starts_at=showing.starts_at,
+                host_id=showing.agent_id,
                 host_name=name,
                 attendees=count,
                 capacity=showing.capacity,
@@ -760,3 +780,86 @@ async def remove_attendee(
         showing_id=showing_id,
         attendee_id=attendee_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# The team's other actions (team_actions.py)
+# ---------------------------------------------------------------------------
+
+
+def _refusal(refused: bookings.Refused) -> HTTPException:
+    return HTTPException(refused.status, refused.detail())
+
+
+@router.post("/showings/bookings", response_model=team_actions.TeamBooking, status_code=201)
+async def book_for_caller(
+    body: team_actions.TeamBookingRequest,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    """Book someone who called into one of a unit's open times, with or without texts."""
+    try:
+        result = await team_actions.book_for_caller(
+            body, taken_by=_sernia_email(user), now=now, texts=texts
+        )
+    except bookings.Refused as refused:
+        raise _refusal(refused) from None
+    logfire.info(
+        "showing bookings: booking added by the team",
+        user_id=user.id,
+        showing_id=result.showing_id,
+        attendee_id=result.attendee_id,
+        texts=result.texts_accepted,
+    )
+    return result
+
+
+@router.post("/showings/{showing_id}/host", response_model=team_actions.HostChange)
+async def change_host(
+    showing_id: int,
+    body: team_actions.HostChangeRequest,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    """Give the showing to another agent who is free then. Prospects are told nothing;
+    within 2 hours of the start both hosts are texted."""
+    try:
+        result = await team_actions.change_host(showing_id, body.agent_id, now=now, texts=texts)
+    except bookings.Refused as refused:
+        raise _refusal(refused) from None
+    logfire.info(
+        "showing bookings: host changed by the team",
+        user_id=user.id,
+        showing_id=showing_id,
+        agent_id=body.agent_id,
+    )
+    return result
+
+
+@router.put(
+    "/showings/{showing_id}/attendees/{attendee_id}/attendance",
+    response_model=team_actions.AttendanceMark,
+)
+async def mark_attendance(
+    showing_id: int,
+    attendee_id: int,
+    body: team_actions.AttendanceRequest,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+):
+    """Mark whether a person came, once the showing has started. Sends nothing."""
+    try:
+        result = await team_actions.mark_attendance(
+            showing_id, attendee_id, body.attendance, now=now
+        )
+    except bookings.Refused as refused:
+        raise _refusal(refused) from None
+    logfire.info(
+        "showing bookings: attendance marked",
+        user_id=user.id,
+        showing_id=showing_id,
+        attendee_id=attendee_id,
+    )
+    return result

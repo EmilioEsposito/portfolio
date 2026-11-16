@@ -9,6 +9,7 @@ at their own mobile (``showing_agents.mobile``):
 | Someone books (a join, or a new showing) | ``host_late_join`` | who, which showing, how many are booked now |
 | Someone cancels, or the team removes them | ``host_late_cancel`` | who, which showing, how many are still booked, or that it is cancelled |
 | The team cancels the showing, or the unit goes off the market | ``host_showing_cancelled`` | which showing, and why |
+| The team gives the showing to another host | ``host_moved_to`` and ``host_moved_from`` | to the new host that it is theirs and how many are booked; to the old host that it is not |
 
 Each is queued in the caller's transaction and delivered at once after it
 commits (an off-market save leaves it to the job every minute). An agent with
@@ -29,6 +30,8 @@ from api.src.showing_bookings import outbox, wording
 from api.src.showing_bookings.delivery_checks import (
     HOST_JOIN_KIND,
     HOST_LEFT_KIND,
+    HOST_MOVED_FROM_KIND,
+    HOST_MOVED_TO_KIND,
     HOST_SHOWING_CANCELLED_KIND,
 )
 from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingAttendee
@@ -176,3 +179,50 @@ async def queue_showing_cancelled(
         attendee_id=None,
         now=now,
     )
+
+
+async def queue_moved(
+    session: AsyncSession,
+    showing: Showing,
+    old_host: ShowingAgentRecord,
+    new_host: ShowingAgentRecord,
+    *,
+    move: str,
+    rules: ShowingRules,
+    now: datetime,
+) -> list[int]:
+    """The team gave the showing to ``new_host`` inside 2 hours; called after the
+    showing names its new host. One text to each host with a mobile; ``move`` is
+    the change's own key, so a showing moved twice texts each time."""
+    if not is_late(showing, now):
+        return []
+    visit = _visit(showing, rules)
+    queued = []
+    if new_host.mobile:
+        body = wording.host_moved_to_text(visit, await _booked(session, showing.id))
+        queued.append(
+            await _queue(
+                session,
+                showing,
+                kind=HOST_MOVED_TO_KIND,
+                body=body,
+                mobile=new_host.mobile,
+                recipient_key=f"agent:{new_host.id}:moved:{move}",
+                attendee_id=None,
+                now=now,
+            )
+        )
+    if old_host.mobile:
+        queued.append(
+            await _queue(
+                session,
+                showing,
+                kind=HOST_MOVED_FROM_KIND,
+                body=wording.host_moved_from_text(visit),
+                mobile=old_host.mobile,
+                recipient_key=f"agent:{old_host.id}:moved:{move}",
+                attendee_id=None,
+                now=now,
+            )
+        )
+    return queued

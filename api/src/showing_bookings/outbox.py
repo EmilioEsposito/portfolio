@@ -48,6 +48,9 @@ A cancellation of the host's event or of a prospect's invite
 claimed: it waits while the event is being created, goes ahead when the event
 exists (or its create was captured, so capture mode keeps it too), and is
 cancelled when there is no event to cancel. A cancellation never creates one.
+The old host's event after a change of host (``host_event.MOVED_KIND``) is
+checked the same way, and is applied to the event the notice names, never to
+the showing's current one.
 
 A resident's text (``residents.TEXT_KINDS``) is checked too: the new-showing
 text is cancelled once the showing is, either is cancelled once the showing
@@ -501,6 +504,14 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     if notice.kind == host_event.CANCEL_KIND:
         verdict = await host_event.cancel_check(session, notice, event_id=showing.host_event_id)
         return showing.host_event_id if _settle_cancel_check(notice, verdict, now) else _NOT_NOW
+    if notice.kind == host_event.MOVED_KIND:
+        # The old host's event, named on the notice: never the showing's current one.
+        verdict = await host_event.moved_check(session, notice)
+        return (
+            notice.payload.get("event_id")
+            if _settle_cancel_check(notice, verdict, now)
+            else _NOT_NOW
+        )
     rendered = await host_event.render(
         session, showing, calendar_id=notice.payload.get("calendar_id") or "unknown"
     )
@@ -510,6 +521,7 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
             others.where(
                 ShowingNotice.status == "unknown",
                 ShowingNotice.provider_id.is_(None),
+                host_event.since_last_move(notice.showing_id),
             ).limit(1)
         )
         if unsure:
@@ -616,7 +628,9 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         prepared = await _prepare(session, notice, now)
         if prepared is _NOT_NOW:
             return None, None
-        if prepared is not None and notice.channel == "calendar_event":
+        if notice.kind == host_event.MOVED_KIND:
+            host_event_id = prepared
+        elif prepared is not None and notice.channel == "calendar_event":
             host_event_id = prepared
         elif prepared is not None:
             invite_event_id = prepared

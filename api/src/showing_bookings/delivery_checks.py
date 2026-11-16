@@ -13,7 +13,9 @@ try or retry, under the lock on the notice:
   (``TextPayload.daytime_timezone``), waiting for 8 AM otherwise.
 - A host's text goes to the current host's own mobile while the showing has
   not started; a host with no mobile gets none. "Someone booked" goes only
-  while that person is still booked in a scheduled showing.
+  while that person is still booked in a scheduled showing. After a change of
+  host, each of the two texts goes to the host it names while the showing is
+  scheduled, and the new host's only while they still host it.
 
 Nothing here imports the outbox or sends anything; the outbox applies the
 answer (``Verdict``).
@@ -40,7 +42,13 @@ REMINDER_KINDS = frozenset({PROSPECT_REMINDER_KIND, RESIDENT_REMINDER_KIND})
 HOST_JOIN_KIND = "host_late_join"
 HOST_LEFT_KIND = "host_late_cancel"
 HOST_SHOWING_CANCELLED_KIND = "host_showing_cancelled"
-HOST_TEXT_KINDS = frozenset({HOST_JOIN_KIND, HOST_LEFT_KIND, HOST_SHOWING_CANCELLED_KIND})
+# The team gave the showing to another host: to the new host, and to the old one.
+HOST_MOVED_TO_KIND = "host_moved_to"
+HOST_MOVED_FROM_KIND = "host_moved_from"
+HOST_MOVED_KINDS = frozenset({HOST_MOVED_TO_KIND, HOST_MOVED_FROM_KIND})
+HOST_TEXT_KINDS = (
+    frozenset({HOST_JOIN_KIND, HOST_LEFT_KIND, HOST_SHOWING_CANCELLED_KIND}) | HOST_MOVED_KINDS
+)
 KINDS = REMINDER_KINDS | HOST_TEXT_KINDS
 
 # A booking whose confirmation text could not reach the number: it is texted
@@ -54,6 +62,8 @@ NOT_TEXTED = (
 )
 NOTHING_LEFT = "Not sent: every showing it listed was cancelled or has started."
 NO_HOST_MOBILE = "Not sent: the host has no mobile number."
+MOVED_AGAIN = "Not sent: the showing has changed host again."
+SHOWING_CANCELLED = "Not sent: the showing was cancelled."
 
 
 @dataclass(frozen=True)
@@ -154,6 +164,14 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
     showing = await session.get_one(Showing, notice.showing_id)
     if showing.starts_at <= now:
         return Verdict(cancel=STARTED)
+    if notice.kind in HOST_MOVED_KINDS:
+        # Each goes to the host it names (``agent:<id>:moved:<move>``), the old one too.
+        if showing.status != "scheduled":
+            return Verdict(cancel=SHOWING_CANCELLED)
+        named = int(notice.recipient_key.split(":")[1])
+        if notice.kind == HOST_MOVED_TO_KIND and named != showing.agent_id:
+            return Verdict(cancel=MOVED_AGAIN)
+        return GO
     if notice.kind == HOST_JOIN_KIND:
         status = await session.scalar(
             select(ShowingAttendee.status).where(ShowingAttendee.id == notice.attendee_id)

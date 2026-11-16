@@ -8,7 +8,7 @@ capture mode.
 
 The steps so far hold the tables, the notice outbox, the test harness, the
 calendar connections, the showing agents, the open times, the public
-booking API, cancelling and the residents' texts. Nothing is sent unless switched on: the setting starts in capture
+booking API, cancelling, the residents' texts and the team's actions. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -439,7 +439,23 @@ tokens; a cancel token travels in the body for the same reason.
      notice (`host_event` with the first attendee, `host_event_update` for
      each one who joins); and the prospect's own invite (`prospect_invite`,
      with that prospect as its only guest). The host notice and the invite
-     are held behind the confirmation text.
+     are held behind the confirmation text. Someone booked without texts, or
+     with no mobile, gets no text and nothing is held: the host notice and
+     the invite are due now, and with no email there is no invite.
+
+   Steps 3 and 4 are `bookings.place_booking`, which every booking goes
+   through: the page, the team (see The team's actions below) and later the
+   Zillow lead agent. It takes a `Person` (name, source, and optionally a
+   mobile, an email, consent to texts, the form's confirmations, a lead
+   token or Zillow thread) and an optional `checks(session)` run under the
+   locks, which is how the page applies its limits. It looks up the unit's
+   residents itself, before its transaction (`resident_notices.find_for`, which
+   may read Quo), so every source tells them the same way: a new showing
+   queues their text held behind the confirmation text, or due at once (in the
+   daytime) when the booking has none; a join brings back an announcement
+   stopped with an earlier failed confirmation, held behind this booking's
+   confirmation or due at once without one; a lookup that went wrong marks the
+   showing and never stops the booking.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
@@ -484,7 +500,9 @@ captured), an update is queued behind the new text.
 A host event notice is rendered when the outbox delivers it, not when it is
 queued (`host_event.py`, called from `outbox._prepare` under a lock
 on the showing): the summary and description list the attendees booked then,
-with their current mobiles and emails, and the notice creates the showing's
+with their current mobiles and emails and how each booked ("booked on the
+booking page", "booked by the team", "booked by email with the lead agent",
+and "no texts" for someone who takes none), and the notice creates the showing's
 event if it has none yet (saving its id on the showing) or updates it. So a
 showing has one event whatever order its notices are released in: an update
 released before the first booking's create creates the event, and the create
@@ -507,6 +525,43 @@ the calendar and remove it by hand". A cancellation never creates an event.
 All wording, with versions, is in `wording.py`: the three confirmations, the
 consent small print, and the texts and calendar entries a booking sends.
 Emilio reviews it before launch.
+
+### Changing the host
+
+When the team gives a showing to another agent (`team_actions.change_host`),
+the old host's event is cancelled and the new host's is created from
+scratch, whatever state the host notices are in:
+
+| A host notice of the old host that is | What the move does with it |
+| --- | --- |
+| `held` | Cancelled ("Not sent: the showing moved to another host.") with its hold cleared, and queued again for the new host, on the new host's calendar, held behind the same confirmation text. |
+| `pending`, not started (released, or a booking without texts) | Cancelled the same way, and queued again for the new host, due now. |
+| being sent (`pending` with `sending_started_at`) | The move is refused (409 `event_being_sent`): try again in a minute, so the old event's id is always known. |
+| `sent` | A `host_event_moved` notice cancels the old event, named by its id, on the old host's showings calendar; the new host gets a `host_event` due now. |
+| `captured` | The same `host_event_moved` notice, which capture mode captures in turn; the new host's event is due now. |
+| `unknown` | The same notice; at delivery it is stopped with "check the calendar and remove it by hand". The new host's event still goes. |
+| `failed` (the old calendar refused it) | Left as it is; the old host has no event. The new host gets a `host_event` due now. |
+| `cancelled` and revivable (it waits for a confirmation and was not stopped by a withdrawal, as when the text was reported undelivered) | Its hold is cleared, so nothing for the old host can come back, and a cancelled copy for the new host, on the new host's calendar, takes the hold: a corrected mobile then brings back the new host's event only. |
+| `cancelled` otherwise (a withdrawal, an earlier move) | Left as it is; nothing can bring it back. |
+
+A `host_event_moved` notice is one of the cancellation notices
+(`cancelling.CANCELLATION_KINDS`): cancelling the showing or its last
+attendee afterwards never stops it, so the old host's calendar is always
+cleaned up.
+
+The `host_event_moved` notice names the old event (`payload.event_id`), and
+the outbox applies it to that event, never to the showing's current one. The
+showing's `host_event_id` is cleared, so the new host's event is a create.
+Host notices from before the move no longer count for the current host's
+event (`host_event.since_last_move`): an unknown old create does not stop the
+new host's event, and a later cancellation, update or corrected mobile looks
+only at the new host's notices. The moved notice is checked at delivery
+(`host_event.moved_check`): it goes ahead when it names an event or the old
+create was captured, and is cancelled with "never created", or "check the
+calendar and remove it by hand" when the old create's outcome is unknown.
+The old host's notices that are stopped lose their hold, so a corrected
+mobile does not bring them back. Prospects are told nothing: they were never
+shown a host, and their invites stay as they are.
 
 ### Cancelling
 
@@ -634,7 +689,9 @@ booking transaction, as it may read Quo.
   when it is undelivered or the booking is withdrawn. When someone else is
   still booked in the showing, the text waits for their confirmation instead
   (`resident_notices.hand_over`), so a showing that goes ahead is still
-  announced. That is their current confirmation: the latest one sent to the
+  announced. When the only people still booked have no confirmation text (the
+  team booked them without texts or a mobile), there is nothing to wait for
+  and the text is due at once, in the daytime. That is their current confirmation: the latest one sent to the
   mobile on their booking now, so after a corrected mobile the replacement,
   and while a correction is still being sent, the text to the number they
   have (a later correction that takes over re-points it, as for every held
@@ -719,12 +776,69 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `POST /showings/{id}/attendees/{attendee_id}/remove`: remove one person.
   Both answer `{showing_id, showing_status, attendees_cancelled, texts_queued}`;
   404 for no such showing or person, 409 once the showing has started.
+- `POST /showings/bookings`, `POST /showings/{id}/host` and
+  `PUT /showings/{id}/attendees/{attendee_id}/attendance`: the team's actions
+  below. A refusal answers `{"detail": {"code", "message", "fields"}}`.
+
+`GET /showings` lists showings from 3 days before now (so who came can be
+marked) to 14 days ahead, each with its host's id and each person's
+`attendance`.
+
+### The team's actions
+
+`team_actions.py`. Each answers what it did and the notices it queued
+(`notices`: id, kind, channel, status and whether it is held).
+
+| Route | Body | Does |
+| --- | --- | --- |
+| `POST /showings/bookings` | `{unit, start, name, mobile?, email?, texts}` | Books someone who called through `place_booking` with source `team`. 201 with `{showing_id, attendee_id, kind, texts_accepted, confirmation, notices}`. |
+| `POST /showings/{id}/host` | `{agent_id}` | Gives the showing to another agent (see Changing the host). `{showing_id, host_id, host_name, previous_host_name, notices}`. |
+| `PUT /showings/{id}/attendees/{attendee_id}/attendance` | `{attendance: "attended" \| "no_show" \| "unknown"}` | Marks whether the person came; `unknown` clears it. Sends nothing. |
+
+A booking for a caller:
+
+- The team picks one of the unit's current offers (joins included), so the
+  same re-check applies: 409 `time_gone` or `full`, 404 `unknown_unit`,
+  409 `already_booked` for a mobile already in the showing. Fields are 422
+  `invalid` with a line per field: a name is required, a mobile and an email
+  are optional and checked when given.
+- It skips what only protects the public form: Turnstile, the limits per
+  mobile, email, IP address and site, and the confirmation ticks. Team
+  bookings do not count towards the site's daily cap.
+- `texts: true` with a mobile: the consent record is saved (the time, the
+  wording version, and `team:<who took it>` as the page), the confirmation
+  text is delivered at once, and the host's event and the invite wait behind
+  it, as for a page booking. A number Quo refuses withdraws the booking as on
+  the page: 422 `number_refused`.
+- Otherwise the attendee is saved as not accepting texts, nothing is texted
+  or held, and a later cancellation texts them nothing either.
+- The unit's residents are told as for a page booking (see `place_booking`
+  above): held behind the confirmation text, or due at once in the daytime
+  when there is none. The answer's `notices` lists the residents' text with
+  the others. Changing the host and marking attendance tell the residents
+  nothing.
+
+Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
+`not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's
+problem by the open-times rules (`open_times.host_problem`, with calendars
+read afresh): `inactive`, `outside_hours`, `calendar_unreadable`,
+`calendar_busy`, or `in_another_showing` (overlapping, or without 30 minutes'
+travel between buildings; none is needed inside one). The tab lists every
+active agent but the host and shows the reason when one is refused.
+
+Attendance refuses 404 `unknown_attendee`, 409 `not_booked` for a cancelled
+booking and 409 `not_started` before the start.
 
 The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
 mode, Messages, Calendar connections, Showing agents and Showings sections.
 The Showings section holds the lead agent's switch, lists who is coming to
 each showing with a mark on a booking that needs a call and a line when the
-residents were not texted, and has Cancel showing and Remove, each behind a confirmation that says what will be sent.
+residents were not texted, and has Cancel showing and Remove, each behind a
+confirmation that says what will be sent. Add a booking opens a short form
+(unit, one of its open times, name, and an optional mobile, email and "They
+agreed to texts"); it asks first only when something will reach the caller.
+Before a showing starts it has Change host; after, each person has Came and
+Did not come.
 
 ## Tests
 
@@ -753,6 +867,13 @@ another attendee or the team number. `test_showing_public_units.py` covers the
 units list: order, wording, no units, no agent free, one calendar read for the
 list, the switch, nothing about hosts or bookings, the address in the unit read,
 and the call line's route (the site key alone, no listing or calendar read, the switch).
+`test_showing_team_actions.py` runs the team's actions through the routes:
+bookings with and without texts, without a mobile, with a name alone, a join,
+a refused number, a time gone, a full showing, the limits not applied; a
+change of host after the event went out, while it is held, with a join still
+held, in capture mode, after an unknown create, to a busy agent, outside
+their hours, across buildings and inside one, while the event is being sent
+and after the start; attendance; and every route refused without a sign-in.
 `test_showing_cancelling.py` runs each cancellation through the routes: a
 prospect with others booked, the last one, twice, after the start, an unknown
 link, while the notices are held, while the event is being created, after the
@@ -770,6 +891,6 @@ that no public answer mentions residents.
 
 - A text to the team when a connection is lost; today it is an error-level log.
 - Reminders (the residents' evening-before list too), texts to the host, alerts
-  for failed sends, and the team's other actions (add a booking for a caller,
-  change the host, mark attendance).
+  for failed sends, and the apply-link text after a showing to everyone not
+  marked a no-show.
 - Reminders, per-lead links, and the lead agent's own showing in its case.
