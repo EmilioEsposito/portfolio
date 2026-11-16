@@ -45,7 +45,7 @@ is its latest row in `rental_listing_changes` on or before that day.
 | `asking_rent` | The monthly rent asked for the next lease. Not what the current resident pays |
 | `next_lease_start_earliest`, `next_lease_start_latest` | When the next lease can start |
 | `virtual_tours_allowed` | Whether a virtual tour may be offered |
-| `off_market_on` | From this date the unit is no longer on offer, usually because the next lease is signed. Cleared when it goes back on offer |
+| `off_market_on` | From this date the unit is no longer on offer, usually because the next lease is signed. Cleared when it goes back on offer. Saving it cancels the scheduled showings from that day ([showing bookings](../showing_bookings/README.md#cancelling)) |
 | `showing_booking_url` | Where a prospect books a showing themselves |
 | `showing_notice_hours` | Hours of notice before a showing, when this unit's resident needs more than the showing rules give. Empty uses the rules'; a shorter value has no effect. From 1 to 336. Used by the booking system's open times; the lead agent keeps its own 24-hour floor |
 | `zillow_listing_url_public_view`, `zillow_listing_url_internal_editor_view` | The unit's Zillow ad: the page a lead sees, and the Zillow Rental Manager page where the team edits it. Given by a person; an ad keeps its link from season to season. For the team and the ad check below. The lead agent is not given them |
