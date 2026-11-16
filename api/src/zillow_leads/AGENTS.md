@@ -9,4 +9,6 @@ owning integration or conversation module. The general agent's adapter for this
 package's leasing policy lives in `sernia_ai/lead_policy.py`.
 
 Keep applicant emails, eval scenarios, labels, and generated review pages in
-ignored `evals/data/`. Never force-add them. Tests belong in `api/src/tests/`.
+ignored `evals/data/`. Never force-add them. The one exception is made-up
+scenarios with invented names, numbers and threads, such as `evals/synthetic.py`.
+Tests belong in `api/src/tests/`.

@@ -12,6 +12,7 @@ from api.src.zillow_leads.case import (
     BookedTour,
     LeadCase,
     ListingData,
+    OwnShowing,
     TourSlot,
     build_case,
     decision_points,
@@ -106,6 +107,13 @@ class CaseEdit(BaseModel):
     offered: list[AwareDatetime] = Field(default_factory=list)
     booked: list[BookedTour] = Field(default_factory=list)
     note: str = ""  # what in the thread shows it
+    # What the booking service adds to a live case while the lead agent uses
+    # it (``showing_bookings/lead_tours.py``), for scenarios that need it:
+    # times open at one unit only, the thread's own booking links by unit,
+    # and the thread's own showings. Empty, an edit is what it always was.
+    unit_offered: list[TourSlot] = Field(default_factory=list)
+    booking_links: dict[str, str] = Field(default_factory=dict)
+    own_showings: list[OwnShowing] | None = None
 
 
 def read_case_edits(path: Path) -> dict[str, CaseEdit]:
@@ -131,6 +139,18 @@ def edit_fingerprint(edit: CaseEdit | None) -> str:
             [tour.unit, tour.start.astimezone(UTC).isoformat()] for tour in edit.booked
         ),
     }
+    # Added only when used, so an edit from before they existed keeps its fingerprint.
+    if edit.unit_offered:
+        facts["unit_offered"] = sorted(
+            [slot.unit or "", slot.start.astimezone(UTC).isoformat()] for slot in edit.unit_offered
+        )
+    if edit.booking_links:
+        facts["booking_links"] = sorted(edit.booking_links.items())
+    if edit.own_showings is not None:
+        facts["own_showings"] = sorted(
+            [own.unit, own.start.astimezone(UTC).isoformat(), own.status, own.cancelled_by or ""]
+            for own in edit.own_showings
+        )
     return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:12]
 
 
@@ -161,15 +181,27 @@ def case_for(
     upto = len(scenario.thread.messages) - 1
     if edit is None:
         return build_case(scenario.thread, listing_data, upto=upto)
-    case = build_case(scenario.thread, listing_data, upto=upto, booked_tours=edit.booked)
+    case = build_case(
+        scenario.thread,
+        listing_data,
+        upto=upto,
+        booked_tours=edit.booked,
+        booking_links=edit.booking_links or None,
+        own_showings=edit.own_showings,
+    )
     known = {slot.start for slot in case.offerable_slots}
     added = [TourSlot(start=start, agent="") for start in edit.offered if start not in known]
-    slots = sorted(case.offerable_slots + added, key=_slot_order)
+    by_unit = [
+        slot.model_copy(update={"agent": ""})
+        for slot in edit.unit_offered
+        if (slot.start, slot.unit) not in {(item.start, item.unit) for item in case.offerable_slots}
+    ]
+    slots = sorted(case.offerable_slots + added + by_unit, key=_slot_order)
     return case.model_copy(update={"offerable_slots": slots})
 
 
-def _slot_order(slot: TourSlot) -> tuple[datetime, str]:
-    return (slot.start, slot.agent)
+def _slot_order(slot: TourSlot) -> tuple[datetime, str, str]:
+    return (slot.start, slot.agent, slot.unit or "")
 
 
 def read_scenarios(path: Path) -> list[Scenario]:

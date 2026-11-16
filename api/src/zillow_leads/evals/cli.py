@@ -454,6 +454,17 @@ async def serve(args: argparse.Namespace) -> None:
         server.server_close()
 
 
+async def write_synthetic(args: argparse.Namespace) -> None:
+    from api.src.zillow_leads.evals import synthetic
+
+    for path in synthetic.write(args.out):
+        print(f"wrote {path}")
+    print(
+        f"run: --scenarios {args.out}/scenarios.jsonl --listings {args.out}/listings.json "
+        f"--case-edits {args.out}/case-edits.json"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(required=True)
@@ -550,6 +561,12 @@ def main() -> None:
     judge_parser.add_argument("--concurrency", type=int, default=6)
     judge_parser.add_argument("--model", help="Model to judge with instead of the configured one")
     judge_parser.set_defaults(handler=judge_runs)
+
+    synthetic_parser = commands.add_parser(
+        "synthetic", help="Write the made-up booking scenarios as files `run` reads"
+    )
+    synthetic_parser.add_argument("--out", type=Path, default=DATA_DIR / "synthetic")
+    synthetic_parser.set_defaults(handler=write_synthetic)
 
     serve_parser = commands.add_parser("serve", help="Serve the pages on this machine only")
     serve_parser.add_argument("--data", type=Path, default=DATA_DIR)
