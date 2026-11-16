@@ -15,9 +15,12 @@ A listing saved with an off-market date cancels the unit's showings booked
 from that date and texts the people booked
 (``showing_bookings.cancelling``). When that would cancel at least one
 showing, the save is refused with 409 ``cancels_showings`` and the counts
-(``showings``, ``people``, ``people_texted``) unless the body says the person
-confirmed (``confirm_cancellations: true``); the edit screen asks and sends
-the save again. With nothing booked it is saved as before.
+(``showings``, ``people``, ``people_texted``) unless the body carries the
+counts the person agreed to (``confirm_cancellations: {showings, people,
+people_texted}``). The route counts again under the booking lock and saves
+only when they match; otherwise it answers 409 ``cancels_showings`` again
+with the new counts, and the edit screen asks again. A bare ``true`` is
+refused the same way. With nothing booked it is saved as before.
 
 A write with ``?dry_run=true`` runs every check and answers as it would, but
 saves nothing. The Sernia MCP service uses it so a person is never asked to
@@ -99,8 +102,9 @@ class ListingSave(BaseModel):
     listing: RentalListing
     # The listing as the caller last read it. Leave out to save regardless.
     based_on: RentalListing | None = None
-    # The person agreed to the showings an off-market date cancels.
-    confirm_cancellations: bool = False
+    # What the person agreed an off-market date cancels: the counts from the
+    # 409 ``cancels_showings`` they were shown. Saved only if they still hold.
+    confirm_cancellations: cancelling.OffMarketEffect | bool | None = None
 
 
 class RulesSave(BaseModel):
@@ -167,22 +171,28 @@ async def _hold_bookings(session: DBSession, body: ListingSave) -> None:
 
 
 async def _check_cancellations(session: DBSession, body: ListingSave) -> None:
-    """Refuse an off-market date that cancels showings until the person has confirmed."""
-    if body.confirm_cancellations or body.listing.off_market_on is None:
+    """Refuse an off-market date that cancels showings unless the person agreed to
+    exactly what it cancels now. The caller holds the booking lock."""
+    if body.listing.off_market_on is None:
         return
     effect = await cancelling.off_market_effect(
         session, body.listing.unit, body.listing.off_market_on
     )
-    if effect.showings:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={
-                "code": "cancels_showings",
-                "message": f"Not saved. {effect.sentence()} Confirm to save.",
-                "problems": [],
-                **effect.model_dump(),
-            },
-        )
+    if not effect.showings:
+        return
+    agreed = body.confirm_cancellations
+    if isinstance(agreed, cancelling.OffMarketEffect) and agreed == effect:
+        return
+    changed = "The bookings changed since you were asked. " if agreed else ""
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "code": "cancels_showings",
+            "message": f"Not saved. {changed}{effect.sentence()} Confirm to save.",
+            "problems": [],
+            **effect.model_dump(),
+        },
+    )
 
 
 async def _checked_only(session: DBSession, listing: RentalListing) -> RentalListing:

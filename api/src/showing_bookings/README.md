@@ -542,9 +542,12 @@ because phones and mail scanners open links to preview them.
 - A person agrees first. `cancelling.off_market_effect` says what a date
   would cancel now (showings, people, people texted) without changing
   anything. When it is at least one showing, the rental listing routes refuse
-  the save with 409 `cancels_showings` and the counts unless the body has
-  `confirm_cancellations: true` (the listings screen asks "This cancels 2
-  showings and texts 3 people. Save?" and sends it again), and the general
+  the save with 409 `cancels_showings` and the counts unless the body carries
+  the counts the person agreed to (`confirm_cancellations: {showings, people,
+  people_texted}`); they are counted again under the booking lock and must
+  match, or the answer is 409 again with the new counts (a bare `true` too).
+  The listings screen asks "This cancels 2 showings and texts 3 people.
+  Save?", sends the counts back, and asks again if they changed. The general
   agent's `rental_listing_update` waits for a person's approval with that
   sentence in its arguments (`off_market_effect`). With nothing booked from
   the date, both save at once. The Sernia MCP service gets the refusal and

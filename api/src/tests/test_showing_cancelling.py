@@ -553,7 +553,13 @@ async def test_saving_an_off_market_date_cancels_the_showings_from_that_day(worl
         async with AsyncSessionFactory() as session:
             assert (await listings_service.read_listing(session, UNIT)).off_market_on is None
 
-        saved = await client.put(path, json={**body, "confirm_cancellations": True})
+        # A bare "true" names no counts, so it is refused the same way.
+        bare = await client.put(path, json={**body, "confirm_cancellations": True})
+        assert bare.status_code == 409
+        assert bare.json()["detail"]["code"] == "cancels_showings"
+
+        agreed = {"showings": 1, "people": 1, "people_texted": 1}
+        saved = await client.put(path, json={**body, "confirm_cancellations": agreed})
 
     assert saved.status_code == 200, saved.text
     showings, attendees, notices = await rows()
@@ -808,3 +814,41 @@ async def test_a_booking_under_way_makes_the_agents_approved_save_ask_again(worl
     assert [s.status for s in showings] == ["scheduled"]
     assert [a.status for a in attendees] == ["booked", "booked"]
     assert not [n for n in notices if n.kind in cancelling.CANCELLATION_KINDS]
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_save_whose_counts_changed_asks_again(world):
+    await _listed(world)
+    await book(world)
+    changed = world.listing.model_copy(update={"off_market_on": WEDNESDAY})
+    path = f"/api/rental-listings/listings/{UNIT}"
+    body = {"listing": changed.model_dump(mode="json")}
+    async with world.client(listing_app()) as client:
+        asked = (await client.put(path, json=body)).json()["detail"]
+        agreed = {key: asked[key] for key in ("showings", "people", "people_texted")}
+        assert agreed == {"showings": 1, "people": 1, "people_texted": 1}
+
+        # Someone books while the dialog is open.
+        await book(world, robin_body())
+        again = await client.put(path, json={**body, "confirm_cancellations": agreed})
+
+        assert again.status_code == 409
+        detail = again.json()["detail"]
+        assert detail["message"] == (
+            "Not saved. The bookings changed since you were asked. "
+            "This cancels 1 showing and texts 2 people. Confirm to save."
+        )
+        assert (detail["showings"], detail["people"], detail["people_texted"]) == (1, 2, 2)
+        showings, attendees, notices = await rows()
+        assert [s.status for s in showings] == ["scheduled"]
+        assert [a.status for a in attendees] == ["booked", "booked"]
+        assert not [n for n in notices if n.kind in cancelling.CANCELLATION_KINDS]
+
+        # Agreeing to the new counts saves.
+        newer = {key: detail[key] for key in ("showings", "people", "people_texted")}
+        saved = await client.put(path, json={**body, "confirm_cancellations": newer})
+
+    assert saved.status_code == 200, saved.text
+    showings, attendees, _ = await rows()
+    assert [s.status for s in showings] == ["cancelled"]
+    assert [a.status for a in attendees] == ["cancelled", "cancelled"]

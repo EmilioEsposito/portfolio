@@ -35,6 +35,7 @@ import {
   cancellationQuestion,
   cancellationsFrom,
   cleanRules,
+  listingSaveBody,
   cleanListing,
   describeHistory,
   isOffMarket,
@@ -550,23 +551,25 @@ function UnitEditor({
     setSaving(true);
     setRefusal(null);
     const listing = cleanListing(draft);
-    const send = (confirmed: boolean) => {
-      const extra = confirmed ? { confirm_cancellations: true } : {};
-      return isNew
-        ? api<RentalListing>("/listings", { method: "POST", body: JSON.stringify({ listing, ...extra }) })
+    const send = (agreed: Cancellations | null) =>
+      isNew
+        ? api<RentalListing>("/listings", {
+            method: "POST",
+            body: JSON.stringify(listingSaveBody(listing, null, agreed)),
+          })
         : api<RentalListing>(`/listings/${encodeURIComponent(original.unit)}`, {
             method: "PUT",
-            body: JSON.stringify({ listing, based_on: original, ...extra }),
+            body: JSON.stringify(listingSaveBody(listing, original, agreed)),
           });
-    };
-    let result = await send(false);
-    // An off-market date that cancels booked showings is saved only once the person agrees.
-    if (!result.ok && result.cancels) {
+    let result = await send(null);
+    // An off-market date that cancels booked showings is saved only with the counts
+    // the person agreed to; if bookings changed meanwhile, the API asks again.
+    while (!result.ok && result.cancels) {
       if (!window.confirm(cancellationQuestion(result.cancels))) {
         setSaving(false);
         return;
       }
-      result = await send(true);
+      result = await send(result.cancels);
     }
     setSaving(false);
     if (!result.ok) {

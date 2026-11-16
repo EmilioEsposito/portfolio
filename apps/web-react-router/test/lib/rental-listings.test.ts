@@ -16,6 +16,7 @@ import {
   zillowHref,
   cancellationQuestion,
   cancellationsFrom,
+  listingSaveBody,
 } from "../../app/lib/rental-listings.ts";
 
 const unit = (patch: Partial<RentalListing> = {}): RentalListing => ({ ...newListing("12-A"), ...patch });
@@ -180,4 +181,16 @@ test("an off-market date that cancels showings is asked about with the counts", 
   assert.equal(cancellationsFrom({ detail: { message: "Not saved.", problems: ["Someone changed this"] } }), null);
   assert.equal(cancellationsFrom({ detail: "Nope" }), null);
   assert.equal(cancellationsFrom(null), null);
+});
+
+test("a save carries the counts the person agreed to, and only then", () => {
+  const listing = { unit: "320-03" } as unknown as Parameters<typeof listingSaveBody>[0];
+  const agreed = { showings: 2, people: 4, people_texted: 3 };
+  assert.deepEqual(listingSaveBody(listing, null, null), { listing });
+  assert.deepEqual(listingSaveBody(listing, listing, null), { listing, based_on: listing });
+  assert.deepEqual(listingSaveBody(listing, listing, agreed), {
+    listing,
+    based_on: listing,
+    confirm_cancellations: { showings: 2, people: 4, people_texted: 3 },
+  });
 });

@@ -186,6 +186,22 @@ export function cancellationsFrom(body: unknown): Cancellations | null {
   return { showings, people: typeof people === "number" ? people : people_texted, people_texted };
 }
 
+/**
+ * The body of a save. `agreed` is the counts the person was asked about: the
+ * API saves only if they still hold, and otherwise asks again with new ones.
+ */
+export function listingSaveBody(
+  listing: RentalListing,
+  basedOn: RentalListing | null,
+  agreed: Cancellations | null,
+): Record<string, unknown> {
+  return {
+    listing,
+    ...(basedOn ? { based_on: basedOn } : {}),
+    ...(agreed ? { confirm_cancellations: agreed } : {}),
+  };
+}
+
 /** "This cancels 2 showings and texts 3 people. Save?" */
 export function cancellationQuestion(cancels: Cancellations): string {
   const showings = cancels.showings === 1 ? "1 showing" : `${cancels.showings} showings`;
