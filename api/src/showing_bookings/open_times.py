@@ -210,7 +210,8 @@ def start_problem(
     """Why ``start`` is not a start time this unit may offer at ``now``, or None.
 
     ``join``: the time joins a showing already booked, which needs only
-    ``JOIN_CLOSES_HOURS`` of notice; a new time needs the full notice period.
+    ``JOIN_CLOSES_HOURS`` of notice (or the notice period, when that is
+    shorter); a new time needs the full notice period.
     """
     if start.tzinfo is None:
         return "not_a_start_time", "The time has no time zone."
@@ -226,7 +227,10 @@ def start_problem(
         return "blackout_date", "That day is a blackout date."
     if listing.off_market_on is not None and local.date() >= listing.off_market_on:
         return "off_market", f"The unit is off the market from {listing.off_market_on}."
-    hours = JOIN_CLOSES_HOURS if join else notice_hours(listing, rules)
+    hours = notice_hours(listing, rules)
+    if join:
+        # Never stricter than the notice itself, should that be shorter.
+        hours = min(hours, JOIN_CLOSES_HOURS)
     if start < now + timedelta(hours=hours):
         return "inside_notice", "The time is inside the notice period."
     if start > now + HORIZON:

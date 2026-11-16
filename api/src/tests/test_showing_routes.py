@@ -277,6 +277,8 @@ async def test_send_pending_runs_the_sending_step_once(api):
         "stopped": 0,
         "prospect_reminders": 0,
         "resident_reminders": 0,
+        "host_mornings": 0,
+        "apply_texts": 0,
         "alerts": 0,
     }
     body = (await api.get("/api/showing-bookings/notices")).json()
