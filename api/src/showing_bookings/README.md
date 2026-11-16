@@ -99,7 +99,7 @@ The setting is the `showing_bookings_config` row in `app_settings`:
 | `test_sends_enabled` | `false` | in live mode, also send notices that reach only test recipients |
 | `lead_agent_uses_open_times` | `false` | the Zillow lead agent offers these open times |
 | `public_booking_enabled` | unset | the public booking routes answer; unset is off in production, on elsewhere |
-| `public_limits` | 2, 2, 6 | upcoming showings per mobile and per email, bookings per IP address a day |
+| `public_limits` | 2, 2, 6, 50 | upcoming showings per mobile and per email, bookings per IP address a day, page bookings from everyone a day |
 
 `guard.decide` is one pure function. A notice is sent only when the mode is
 `live` and either this is production (`RAILWAY_ENVIRONMENT_NAME` is
@@ -400,12 +400,16 @@ tokens; a cancel token travels in the body for the same reason.
    longer matches (the listing's lease dates changed) is 409.
 2. Turnstile (`turnstile.py`): 403 `turnstile_failed`, or 503 in production
    with no secret.
-3. One transaction, holding advisory locks on the unit and start, the mobile
-   and the email:
+3. One transaction, holding advisory locks: first one lock shared by every
+   public booking (`BOOKING_LOCK`), then the unit and start, the mobile and
+   the email:
    - the limits (`public_limits` in the settings row): upcoming booked
-     showings per mobile (default 2) and per email (2), and bookings from one
-     IP address in 24 hours (6), withdrawn ones included. 429 `limit_mobile`,
-     `limit_email` or `limit_ip`. The IP address is kept only as a keyed hash.
+     showings per mobile (default 2) and per email (2), page bookings from
+     everyone in 24 hours (50), and bookings from one IP address in 24 hours
+     (6), withdrawn ones counted in the last two. 429 `limit_mobile`,
+     `limit_email`, `limit_site` (no field; "Online booking is paused right
+     now. Call us to book.", with a warning in the logs) or `limit_ip`. The IP
+     address is kept only as a keyed hash.
    - `recheck` with fresh calendars: 409 `time_gone` or `full`.
    - the showing: new, or the one already booked at that unit and start,
      locked; a full one is 409 `full`, and a mobile already in it 409
@@ -414,25 +418,49 @@ tokens; a cancel token travels in the body for the same reason.
      the page), the lease start and pet confirmations with the wording shown,
      its version and the time, the `?t=` lead token, the user agent, and the
      `Signature-Agent` header.
-   - the notices: the prospect's confirmation text, due now; the host's event
-     (`host_event`, created with the first attendee) or its update
-     (`host_event_update`, one per attendee who joins, listing everyone
-     booked); and the prospect's own invite (`prospect_invite`, with that
-     prospect as its only guest). The event and the invite are held behind
-     the confirmation text.
+   - the notices: the prospect's confirmation text, due now; a host event
+     notice (`host_event` with the first attendee, `host_event_update` for
+     each one who joins); and the prospect's own invite (`prospect_invite`,
+     with that prospect as its only guest). The host notice and the invite
+     are held behind the confirmation text.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
    left with no one is cancelled (`no_attendees`), its notices are cancelled,
    and the answer is 422 `number_refused` on the mobile field.
 
-The locks make two bookings of one unit and start at the same moment one
-showing with two attendees: the second waits and its re-check sees a join.
+The shared lock means one booking's limits, re-check and insert never
+interleave with another's. Two bookings of one unit and start at the same
+moment become one showing with two attendees (the second's re-check sees a
+join), and two bookings at different buildings at adjacent times never both
+get one host inside the travel gap, which the database's no-overlap rule
+cannot see. Volume is a few bookings a day, so one lock is enough.
 
 A corrected mobile is texted first; only if Quo does not refuse it does it
-replace the old one, and the held notices (and any stopped because the old
-number's text was undelivered) then wait for the new text. The booking's
-`attention_reason` is cleared.
+replace the old one. The final step takes the number's lock again and checks
+the per-mobile limit and the showing once more, so two corrections to one
+number at once cannot both win; the loser keeps its old number and gets the
+same refusal. The held notices (and any stopped because the old number's
+text was undelivered) then wait for the new text, and the booking's
+`attention_reason` is cleared. If the host's event already went out (sent or
+captured), an update is queued behind the new text.
+
+### The host's event
+
+A host event notice is rendered when the outbox delivers it, not when it is
+queued (`host_event.py`, called from `outbox._prepare_host_event` under a lock
+on the showing): the summary and description list the attendees booked then,
+with their current mobiles and emails, and the notice creates the showing's
+event if it has none yet (saving its id on the showing) or updates it. So a
+showing has one event whatever order its notices are released in: an update
+released before the first booking's create creates the event, and the create
+then updates it. While another host notice for the showing is being sent, a
+notice waits a minute. A showing that is cancelled or has no one booked
+cancels the notice ("Not sent: the showing has no one booked"), and so does an
+earlier create whose outcome is unknown, rather than risk a second event.
+What was rendered is saved on the row, so the Messages list and capture mode
+show what went out. The prospect's own invite keeps the payload it was queued
+with.
 
 All wording, with versions, is in `wording.py`: the three confirmations, the
 consent small print, and the texts and calendar entries a booking sends.
@@ -517,7 +545,9 @@ times with the switch off or unreadable.
 `test_showing_public_booking.py` runs bookings through the public routes with
 a moved clock and checks the rows left behind (capture and live mode, held
 notices released, stopped or let go after five minutes, a refused number
-withdrawn, joins, two bookings at once); `test_showing_public_routes.py`
+withdrawn, joins, two bookings at once); `test_showing_public_concurrency.py` covers bookings that race (the shared
+lock and the travel gap, two corrections to one number) and the host's event
+rendered at delivery; `test_showing_public_routes.py`
 covers the switch, each refusal and its field, the limits, the team number,
 mobile corrections, what a booking saves, and that no answer shows a host, an
 address before booking, another attendee or the team number.
