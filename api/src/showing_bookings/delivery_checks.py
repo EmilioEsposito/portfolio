@@ -9,8 +9,16 @@ try or retry, under the lock on the notice:
   on the booking now, so a corrected number gets it.
 - The residents' reminder lists only the showings it was queued for that are
   still scheduled and not started; with none left it is not sent.
-- Both reminders go out only from 8 AM to 9 PM in the showing rules' time zone
-  (``TextPayload.daytime_timezone``), waiting for 8 AM otherwise.
+- A lead's reminder by email (``LEAD_EMAIL_REMINDER_KIND``) goes only while
+  the place is still booked, the showing still scheduled and not started, the
+  lead agent's switch on, and the lead still has no mobile we text (once they
+  add one with consent, the reminder text is theirs instead). Its recipient,
+  subject and the message it answers are read again from the lead
+  conversation's stored route (``lead_email.route_of``); when that cannot be
+  found, or is no longer a Zillow relay address, the notice fails with the
+  reason, so the team is alerted, and nothing is sent.
+- Every reminder goes out only from 8 AM to 9 PM in the showing rules' time
+  zone (the payload's ``daytime_timezone``), waiting for 8 AM otherwise.
 - A host's text goes to the current host's own mobile while the showing has
   not started; a host with no mobile gets none. "Someone booked" goes only
   while that person is still booked in a scheduled showing. After a change of
@@ -28,18 +36,24 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.showing_bookings import residents, wording
+from api.src.showing_bookings import lead_email, residents, wording
+from api.src.showing_bookings.lead_email import RouteProblem
 from api.src.showing_bookings.models import (
     Showing,
     ShowingAgentRecord,
     ShowingAttendee,
     ShowingNotice,
 )
-from api.src.showing_bookings.schema import TextPayload
+from api.src.showing_bookings.schema import EmailPayload, TextPayload
+from api.src.showing_bookings.settings import settings_for_delivery
 
 PROSPECT_REMINDER_KIND = "prospect_reminder"
 RESIDENT_REMINDER_KIND = "resident_reminder"
-REMINDER_KINDS = frozenset({PROSPECT_REMINDER_KIND, RESIDENT_REMINDER_KIND})
+# The reminder by email in a lead's Zillow thread (``lead_email.py``).
+LEAD_EMAIL_REMINDER_KIND = "lead_email_reminder"
+REMINDER_KINDS = frozenset(
+    {PROSPECT_REMINDER_KIND, RESIDENT_REMINDER_KIND, LEAD_EMAIL_REMINDER_KIND}
+)
 HOST_JOIN_KIND = "host_late_join"
 HOST_LEFT_KIND = "host_late_cancel"
 HOST_SHOWING_CANCELLED_KIND = "host_showing_cancelled"
@@ -66,14 +80,21 @@ NO_HOST_MOBILE = "Not sent: the host has no mobile number."
 MOVED_AGAIN = "Not sent: the showing has changed host again."
 HOSTING_AGAIN = "Not sent: this host has the showing again."
 SHOWING_CANCELLED = "Not sent: the showing was cancelled."
+TEXTED_INSTEAD = "Not sent: they added a mobile for texts, so the reminder goes by text."
+REPLY_NOT_SENT = "Not sent: the reply that booked it was not sent."
+SWITCH_OFF = "Not sent: the lead agent's bookings are switched off."
 
 
 @dataclass(frozen=True)
 class Verdict:
-    """Go (both empty), cancel with a note, or wait until ``later``."""
+    """Go (all empty), cancel with a note, fail with a reason, or wait until ``later``.
+
+    ``fail`` is for a notice that cannot go and needs the team: saved as
+    failed, so the team's alert picks it up."""
 
     cancel: str | None = None
     later: datetime | None = None
+    fail: RouteProblem | None = None
 
 
 GO = Verdict()
@@ -101,7 +122,60 @@ async def check(session: AsyncSession, notice: ShowingNotice, now: datetime) -> 
         return await _prospect_reminder(session, notice, now)
     if notice.kind == RESIDENT_REMINDER_KIND:
         return await _resident_reminder(session, notice, now)
+    if notice.kind == LEAD_EMAIL_REMINDER_KIND:
+        return await _lead_email_reminder(session, notice, now)
     return await _host_text(session, notice, now)
+
+
+def owes_lead_email(attendee: ShowingAttendee) -> bool:
+    """A place booked in a Zillow thread whose confirming reply was sent, for a lead
+    with no mobile we text. One whose reply is uncertain (``reply_uncertain``,
+    no ``lead_reply_sent_at``) or was never sent is owed nothing."""
+    return (
+        attendee.source == "lead_agent"
+        and attendee.lead_reply_sent_at is not None
+        and not can_text(attendee)
+    )
+
+
+async def _lead_email_reminder(
+    session: AsyncSession, notice: ShowingNotice, now: datetime
+) -> Verdict:
+    row = (
+        await session.execute(
+            select(ShowingAttendee, Showing.status, Showing.starts_at)
+            .join(Showing, Showing.id == ShowingAttendee.showing_id)
+            .where(ShowingAttendee.id == notice.attendee_id)
+        )
+    ).first()
+    if row is None or row[0].status != "booked" or row[1] != "scheduled":
+        return Verdict(cancel=BOOKING_CANCELLED)
+    attendee, _status, starts_at = row
+    if starts_at <= now:
+        return Verdict(cancel=STARTED)
+    if can_text(attendee):
+        return Verdict(cancel=TEXTED_INSTEAD)
+    if not owes_lead_email(attendee):
+        return Verdict(cancel=REPLY_NOT_SENT)
+    if not (await settings_for_delivery(session)).lead_agent_uses_open_times:
+        return Verdict(cancel=SWITCH_OFF)
+    # Who it goes to: the stored route of the conversation that booked the
+    # place, read now. Never the attendee's own fields or anything a lead wrote.
+    route = await lead_email.route_of(
+        session, attendee.lead_conversation_id, attendee.zillow_thread_id
+    )
+    if isinstance(route, RouteProblem):
+        return Verdict(fail=route)
+    payload = EmailPayload.model_validate(notice.payload)
+    notice.recipient = route.to
+    notice.payload = payload.model_copy(
+        update={
+            "subject": route.subject,
+            "conversation_id": attendee.lead_conversation_id,
+            "reply_to_message_id": route.reply_to_message_id,
+        }
+    ).model_dump(mode="json", exclude_defaults=True)
+    return _daytime(notice, now)
 
 
 async def _prospect_reminder(

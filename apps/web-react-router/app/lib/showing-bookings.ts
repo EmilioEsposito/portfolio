@@ -93,6 +93,7 @@ export interface DrainReport {
   // Reminders queued and team alerts raised by the same run.
   prospect_reminders?: number;
   resident_reminders?: number;
+  lead_email_reminders?: number;
   alerts?: number;
 }
 
@@ -184,7 +185,10 @@ export function describeDrain(report: DrainReport): string {
   };
   add(report.released ?? 0, "released from hold");
   add(report.stopped ?? 0, "stopped");
-  add((report.prospect_reminders ?? 0) + (report.resident_reminders ?? 0), "reminders queued");
+  add(
+    (report.prospect_reminders ?? 0) + (report.resident_reminders ?? 0) + (report.lead_email_reminders ?? 0),
+    "reminders queued",
+  );
   add(report.sent, "sent");
   add(report.captured, "captured");
   add(report.skipped, "skipped");
@@ -558,6 +562,15 @@ export function describeResidentAttention(reason: string): string {
 export function noticeRecipients(notice: Pick<Notice, "recipient" | "payload">): string {
   const others = notice.payload?.also_to;
   return Array.isArray(others) && others.length > 0 ? [notice.recipient, ...others].join(", ") : notice.recipient;
+}
+
+/**
+ * The lead conversation an email in a Zillow thread answers (the reminder by
+ * email), so the list can link to its thread; null for every other notice.
+ */
+export function noticeLeadConversation(notice: Pick<Notice, "channel" | "payload">): string | null {
+  const id = notice.payload?.conversation_id;
+  return notice.channel === "email" && typeof id === "string" && id ? id : null;
 }
 
 /** A booking whose confirmation never reached the number: a cancellation does not text it again. */
