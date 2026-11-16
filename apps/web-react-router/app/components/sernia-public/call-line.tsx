@@ -89,7 +89,7 @@ export function CallLine({
         )}
       </p>
       {problem && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm font-medium text-red-700 dark:text-red-400">
           {problem}
         </p>
       )}
