@@ -38,6 +38,8 @@ SHOWINGS_TIME_ZONE = "America/New_York"
 CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 # Google's 403 reasons that mean "slow down", not "never".
 RATE_LIMITS = {"rateLimitExceeded", "userRateLimitExceeded"}
+# 403 reasons about the account's usage, which say nothing about a calendar.
+USAGE_LIMITS = RATE_LIMITS | {"dailyLimitExceeded", "quotaExceeded"}
 NOT_SHARED = (
     "Google cannot find this calendar, or the connected account cannot see it. "
     "Share its free/busy times with that account."
@@ -285,16 +287,20 @@ class GoogleCalendar:
         """The id of the account's "Sernia showings" calendar, made the first time.
 
         ``existing_id`` is the calendar saved from an earlier connection of the
-        same account, kept while Google still has it. Raises
-        ``ShowingsCalendarError``.
+        same account. It is replaced only when Google says it is gone, or
+        refuses it for a reason about the calendar; a rate or quota limit, or
+        any other failure, raises ``ShowingsCalendarError`` and keeps it, so a
+        reconnect never leaves the saved calendar and its events behind.
         """
         try:
             if existing_id:
                 found = await self._call("GET", f"/calendars/{_q(existing_id)}")
                 if found.status_code == 200:
                     return existing_id
-                if found.status_code not in (403, 404, 410):
-                    raise ShowingsCalendarError(_api_error(found)[1])
+                reason, detail = _api_error(found)
+                refused = found.status_code == 403 and bool(reason) and reason not in USAGE_LIMITS
+                if found.status_code not in (404, 410) and not refused:
+                    raise ShowingsCalendarError(detail)
             made = await self._call(
                 "POST",
                 "/calendars",

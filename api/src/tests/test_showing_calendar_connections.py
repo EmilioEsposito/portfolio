@@ -226,6 +226,29 @@ async def test_connecting_the_same_account_again_keeps_its_row_and_its_calendar(
 
 
 @pytest.mark.asyncio
+async def test_a_reconnect_google_rate_limits_keeps_the_saved_calendar(api, google):
+    await connect(api, google)
+    (first,) = await rows()
+    google.forced[("GET", f"/calendar/v3/calendars/{first.showings_calendar_id}")] = httpx.Response(
+        403,
+        json={
+            "error": {
+                "code": 403,
+                "message": "Rate Limit Exceeded",
+                "errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded"}],
+            }
+        },
+    )
+
+    assert result_of(await connect(api, google)) == "failed"
+
+    (kept,) = await rows()
+    assert kept.showings_calendar_id == first.showings_calendar_id
+    assert kept.encrypted_refresh_token == first.encrypted_refresh_token
+    assert len(google.sent("POST", "/calendar/v3/calendars")) == 1
+
+
+@pytest.mark.asyncio
 async def test_two_accounts_get_a_row_and_a_calendar_each(api, google):
     await connect(api, google)
     await connect(api, google, Account("100000000000000000002", "jane.doe@example.com"))

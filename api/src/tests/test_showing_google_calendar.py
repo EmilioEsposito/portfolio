@@ -380,6 +380,38 @@ async def test_a_showings_calendar_deleted_in_google_is_made_again(google, calen
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "answer",
+    [
+        google_error(403, "rateLimitExceeded"),
+        google_error(403, "userRateLimitExceeded"),
+        google_error(403, "quotaExceeded"),
+        httpx.Response(403, json={}),  # no reason given
+        google_error(429, "rateLimitExceeded"),
+    ],
+)
+async def test_a_limited_lookup_keeps_the_saved_calendar(google, calendar, answer):
+    saved = "c_saved@group.calendar.google.com"
+    google.forced[("GET", f"/calendar/v3/calendars/{saved}")] = answer
+
+    with pytest.raises(ShowingsCalendarError):
+        await calendar.ensure_showings_calendar(saved)
+
+    assert google.sent("POST", "/calendar/v3/calendars") == []
+
+
+@pytest.mark.asyncio
+async def test_a_saved_calendar_google_refuses_for_its_own_reason_is_replaced(google, calendar):
+    saved = "c_saved@group.calendar.google.com"
+    google.forced[("GET", f"/calendar/v3/calendars/{saved}")] = google_error(403, "forbidden")
+
+    replacement = await calendar.ensure_showings_calendar(saved)
+
+    assert replacement != saved
+    assert len(google.sent("POST", "/calendar/v3/calendars")) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "path, answer",
     [
         ("/calendar/v3/calendars", google_error(403, "forbidden")),
