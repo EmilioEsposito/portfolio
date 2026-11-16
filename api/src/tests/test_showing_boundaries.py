@@ -5,12 +5,15 @@
   (``google_calendar.py``), which it hands out as a ``CalendarSource`` through
   ``calendar_for_connection``.
 - Only ``outbox.py`` uses a sending method: a text (``send_text``,
-  ``text_status``) or an event write (``create_event``, ``update_event``,
+  ``send_group_text``, ``text_status``) or an event write (``create_event``, ``update_event``,
   ``cancel_event``), called or merely referenced. Reading busy times is open to
   any file. Creating the showings calendar at connect time is not an event write.
 - Only the two Google files name Google's hosts, so no other file reaches
   Google, and only a sender module talks to the repo's provider packages
-  (``api.src.open_phone`` and ``api.src.google``).
+  (``api.src.open_phone`` and ``api.src.google``). The one reader,
+  ``quo_contacts.py``, lists contacts for the resident lookup, sends nothing
+  and is imported only by ``residents.py``; the tenant field rules
+  (``api.src.open_phone.tenants``) are pure functions any file may use.
 - Nothing in the module uses ``send_message`` or ``create_calendar_event``,
   the repo's general senders, which have no guard.
 
@@ -28,14 +31,19 @@ OUTBOX = "outbox.py"
 SENDERS = {
     "api.src.showing_bookings.quo": {OUTBOX},
     "api.src.showing_bookings.google_calendar": {"connections.py"},
+    "api.src.showing_bookings.quo_contacts": {"residents.py"},
 }
 SENDER_FILES = {"quo.py", "google_calendar.py"}
+# Reads Quo's contacts and sends nothing.
+READER_FILES = {"quo_contacts.py"}
+# Pure functions in a provider package: no I/O, no import side effects.
+PURE_PROVIDER_MODULES = ("api.src.open_phone.tenants",)
 PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google")
 GOOGLE_HOSTS = ("googleapis.com", "accounts.google.com")
 GOOGLE_FILES = {"google_calendar.py", "google_oauth.py"}
 GENERAL_SENDERS = {"send_message", "create_calendar_event"}
 EVENT_WRITES = {"create_event", "update_event", "cancel_event"}
-SENDING_METHODS = {"send_text", "text_status", *EVENT_WRITES}
+SENDING_METHODS = {"send_text", "send_group_text", "text_status", *EVENT_WRITES}
 
 
 def imported(tree: ast.AST) -> list[tuple[int, str]]:
@@ -77,6 +85,7 @@ def reaches_a_provider(tree: ast.AST) -> list[int]:
         line
         for line, module in imported(tree)
         if any(module == p or module.startswith(f"{p}.") for p in PROVIDER_PACKAGES)
+        and not any(module == p or module.startswith(f"{p}.") for p in PURE_PROVIDER_MODULES)
     ]
 
 
@@ -126,8 +135,15 @@ def test_each_sender_is_imported_only_where_allowed():
 
 def test_only_sender_modules_talk_to_the_provider_packages():
     for name, tree in sources().items():
-        if name not in SENDER_FILES:
+        if name not in SENDER_FILES | READER_FILES:
             assert reaches_a_provider(tree) == [], name
+
+
+def test_the_contact_reader_sends_nothing():
+    tree = sources()["quo_contacts.py"]
+    assert uses_a_method(tree, SENDING_METHODS) == []
+    assert uses_a_general_sender(tree) == []
+    assert reaches_a_provider(tree)
 
 
 def test_only_the_google_files_reach_google():
@@ -165,6 +181,13 @@ def test_the_checks_catch_what_they_are_for():
     assert imports_a_sender(ast.parse("from api.src.showing_bookings.quo import QuoTextSender"))
     assert reaches_a_provider(ast.parse("from api.src.open_phone import service"))
     assert reaches_a_provider(ast.parse("import api.src.google.calendar.service"))
+    assert reaches_a_provider(ast.parse("from api.src.open_phone import tenants"))
+    assert not reaches_a_provider(
+        ast.parse("from api.src.open_phone.tenants import get_contact_unit")
+    )
+    assert uses_a_method(
+        ast.parse("async def f(t):\n    await t.send_group_text(['+1'], 'hi')"), SENDING_METHODS
+    )
     assert names_a_google_host('URL = "https://www.googleapis.com/calendar/v3"')
     assert uses_a_general_sender(ast.parse("from api.src.open_phone.service import send_message"))
     assert uses_a_general_sender(ast.parse("import x\nx.service.create_calendar_event()"))

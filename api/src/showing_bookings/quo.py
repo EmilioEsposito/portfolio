@@ -7,6 +7,9 @@ Written from Quo's API reference:
   on 2026-11-15 Quo accepted a send to a well-formed number that does not
   exist. The later status read, not the send, catches a number like that.
   https://www.quo.com/docs/mdx/api-reference/messages/send-a-text-message.md
+- a group text: the same call with several numbers in ``to``, which land in
+  one shared thread (the Sernia AI's ``send_sms`` has sent these since
+  2026-08-13).
 - status: ``GET /v1/messages/{id}``; ``status`` is one of queued, sent,
   delivered, undelivered or received.
   https://www.quo.com/docs/mdx/api-reference/messages/get-a-message-by-id.md
@@ -17,7 +20,7 @@ POST that may have reached Quo. Only ``outbox.py`` may use this class.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import httpx
 
@@ -32,6 +35,7 @@ REFUSAL_CODES = {
     "0203400": "unreachable_number",
 }
 MAX_LENGTH = 1600  # Quo's limit for ``content``
+MAX_GROUP = 10  # Quo's most numbers in one message's ``to``
 _E164 = re.compile(r"\+[1-9]\d{1,14}")
 _MESSAGE_ID = re.compile(r"AC[A-Za-z0-9]+")
 
@@ -70,11 +74,20 @@ class QuoTextSender:
         self._client_factory = client_factory or _shared_client
 
     async def send_text(self, to: str, body: str) -> SentText:
-        if not _E164.fullmatch(to):
+        return await self._send([to], body)
+
+    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
+        numbers = list(dict.fromkeys(to))
+        if not 2 <= len(numbers) <= MAX_GROUP:
+            raise NotSent("rejected", f"A group text goes to 2 to {MAX_GROUP} numbers.")
+        return await self._send(numbers, body)
+
+    async def _send(self, to: list[str], body: str) -> SentText:
+        if not all(_E164.fullmatch(number) for number in to):
             raise NotSent("invalid_number", "The number is not in E.164 form.")
         if not body.strip() or len(body) > MAX_LENGTH:
             raise NotSent("rejected", f"A text must have 1 to {MAX_LENGTH} characters.")
-        payload = {"content": body, "from": self._from, "to": [to]}
+        payload = {"content": body, "from": self._from, "to": to}
         try:
             async with self._client_factory() as client:
                 response = await client.post("/v1/messages", json=payload)

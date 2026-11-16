@@ -11,6 +11,8 @@
 - What a cancellation sends (``CANCELLATION_VERSION``): the prospect's text
   confirming their own cancellation, the text when the team cancels (or the
   unit goes off the market), and the cancelled event and invite.
+- What a unit's residents are texted (``RESIDENT_VERSION``): a new showing at
+  their home, and its cancellation.
 
 Change the wording here and raise the version beside it. Emilio reviews the
 wording before launch.
@@ -29,6 +31,7 @@ CONFIRMATIONS_VERSION = "v1"
 TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
+RESIDENT_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
 TEXTS_WORDING = "Text me about this showing and my rental inquiry."
@@ -214,3 +217,30 @@ def invite_cancelled_summary(visit: Visit) -> str:
 
 def invite_cancelled_description() -> str:
     return "Your in-person showing with Sernia Capital is cancelled."
+
+
+# ---------------------------------------------------------------------------
+# What a unit's residents are texted (RESIDENT_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def _minutes(visit: Visit) -> int:
+    return round((visit.ends_at - visit.starts_at).total_seconds() / 60)
+
+
+def resident_new_showing_text(visit: Visit) -> str:
+    """To the residents of a unit, once, when a new showing of it is booked."""
+    return (
+        f"Hi, this is Sernia Capital. We've scheduled an in-person showing of your home at "
+        f"{place(visit)} on {when(visit)}. It will take about {_minutes(visit)} minutes, and "
+        "a Sernia agent will be there the whole time. Questions? Reply to this number."
+    )
+
+
+def resident_cancelled_text(visit: Visit) -> str:
+    """To the residents who were told of a showing that is now cancelled."""
+    return (
+        f"Hi, this is Sernia Capital. The showing of your home at {place(visit)} on "
+        f"{when(visit)} is cancelled, so no one will come by for it. "
+        "Questions? Reply to this number."
+    )

@@ -48,6 +48,12 @@ A cancellation of the host's event or of a prospect's invite
 claimed: it waits while the event is being created, goes ahead when the event
 exists (or its create was captured, so capture mode keeps it too), and is
 cancelled when there is no event to cancel. A cancellation never creates one.
+
+A resident's text (``residents.TEXT_KINDS``) is checked too: the new-showing
+text is cancelled once the showing is, either is cancelled once the showing
+has started, and one due outside 8 AM to 9 PM in its time zone waits for 8 AM.
+A group text (``TextPayload.also_to``) goes out as one text to every number,
+and the guard counts every number in it.
 """
 
 import os
@@ -61,7 +67,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import connections, google_http, host_event
+from api.src.showing_bookings import connections, google_http, host_event, residents
 from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
@@ -160,7 +166,10 @@ async def enqueue(
             attendee_id=attendee_id,
             recipient=address,
             recipient_key=recipient_key,
-            payload=payload.model_dump(mode="json"),
+            # A plain text is saved as {"body": ...}, as before group texts.
+            payload=payload.model_dump(
+                mode="json", exclude_defaults=isinstance(payload, TextPayload)
+            ),
             status="pending" if waits_for_notice_id is None else "held",
             waits_for_notice_id=waits_for_notice_id,
             not_before=not_before or now,
@@ -275,9 +284,11 @@ class _Outcome:
 
 
 def _addresses(notice: ShowingNotice) -> list[str]:
-    """Everyone the notice reaches: the number texted, the address emailed, or every
-    guest of an event."""
-    if notice.channel in ("sms", "email"):
+    """Everyone the notice reaches: every number texted (a group text has several),
+    the address emailed, or every guest of an event."""
+    if notice.channel == "sms":
+        return [notice.recipient, *notice.payload.get("also_to", [])]
+    if notice.channel == "email":
         return [notice.recipient]
     return [notice.recipient, *notice.payload.get("attendees", [])]
 
@@ -392,6 +403,8 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     sent). Otherwise the event id it applies to, or None when there is none
     yet, so it is created. Other rows are returned unchanged with None.
     """
+    if notice.kind in residents.TEXT_KINDS:
+        return await _prepare_resident_text(session, notice, now)
     if notice.kind in host_event.FOR_A_BOOKING_KINDS:
         row = (
             await session.execute(
@@ -452,6 +465,30 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
         return _NOT_NOW
     notice.payload = rendered.model_dump(mode="json")
     return showing.host_event_id
+
+
+async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, now: datetime):
+    """A resident's text goes only while its showing is ahead, and only in the daytime."""
+    status, starts_at = (
+        await session.execute(
+            select(Showing.status, Showing.starts_at).where(Showing.id == notice.showing_id)
+        )
+    ).one()
+    note = None
+    if notice.kind == residents.NEW_SHOWING_KIND and status != "scheduled":
+        note = residents.SHOWING_CANCELLED_NOTE
+    elif starts_at <= now:
+        note = residents.TOO_LATE_NOTE
+    if note is not None:
+        notice.status = "cancelled"
+        notice.last_error = note
+        return _NOT_NOW
+    timezone = notice.payload.get("daytime_timezone")
+    later = residents.next_daytime(now, timezone) if timezone else None
+    if later is not None:
+        notice.not_before = later
+        return _NOT_NOW
+    return None
 
 
 async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainReport]:
@@ -585,9 +622,11 @@ async def _send(
         sender = texts if texts is not None else _live_text_sender()
     try:
         if sender is not None:
-            sent = await sender.send_text(
-                item.recipient, TextPayload.model_validate(item.payload).body
-            )
+            text = TextPayload.model_validate(item.payload)
+            if text.also_to:
+                sent = await sender.send_group_text([item.recipient, *text.also_to], text.body)
+            else:
+                sent = await sender.send_text(item.recipient, text.body)
             return _Outcome(
                 "sent", provider_id=sent.provider_id, provider_status=sent.provider_status
             )
