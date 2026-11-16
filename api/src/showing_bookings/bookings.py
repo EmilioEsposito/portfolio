@@ -733,16 +733,64 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
             .select_from(ShowingAttendee)
             .where(ShowingAttendee.showing_id == showing.id, ShowingAttendee.status == "booked")
         )
+        update_queued = False
         if remaining == 0 and showing.status == "scheduled":
             showing.status = "cancelled"
             showing.cancel_reason = "no_attendees"
             showing.cancelled_at = now
+        elif showing.status == "scheduled":
+            update_queued = await _queue_host_update_after_withdrawal(
+                session, showing=showing, attendee_id=attendee_id, now=now
+            )
     logfire.info(
         "showing booking withdrawn: number refused",
         attendee_id=attendee_id,
         showing_cancelled=remaining == 0,
         notices_stopped=stopped,
+        host_update_queued=update_queued,
     )
+
+
+async def _queue_host_update_after_withdrawal(
+    session: AsyncSession, *, showing: Showing, attendee_id: int, now: datetime
+) -> bool:
+    """Tell the host when the event may already list the withdrawn person.
+
+    That is when a host notice for the showing went out (sent or captured), may
+    have gone out (unknown), or is being sent now. The update is due at once and
+    renders at delivery, so it lists whoever is booked then; one queued while
+    another is mid-send waits for it. When every host notice is still held or
+    pending and not started, nothing is queued: they render at delivery.
+    """
+    out = await session.scalar(
+        select(ShowingNotice)
+        .where(
+            ShowingNotice.showing_id == showing.id,
+            ShowingNotice.kind.in_(host_event.KINDS),
+            ShowingNotice.status.in_(["sent", "captured", "unknown"])
+            | ((ShowingNotice.status == "pending") & ShowingNotice.sending_started_at.is_not(None)),
+        )
+        .order_by(ShowingNotice.id.desc())
+        .limit(1)
+    )
+    if out is None:
+        return False
+    calendar_id = out.payload.get("calendar_id") or NO_SHOWINGS_CALENDAR
+    payload = await host_event.render(session, showing, calendar_id=calendar_id)
+    if payload is None:
+        return False
+    await outbox.enqueue(
+        session,
+        kind=HOST_UPDATE_KIND,
+        channel="calendar_event",
+        showing_id=showing.id,
+        attendee_id=attendee_id,
+        recipient=out.recipient,
+        recipient_key=f"agent:{showing.agent_id}:attendee:{attendee_id}:withdrawn",
+        payload=payload,
+        now=now,
+    )
+    return True
 
 
 # ---------------------------------------------------------------------------

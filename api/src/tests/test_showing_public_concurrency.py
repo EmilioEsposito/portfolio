@@ -21,6 +21,7 @@ from sqlalchemy import select
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings.schema import RentalListing
 from api.src.showing_bookings import bookings, open_times
+from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
 from api.src.showing_bookings.models import ShowingAgentRecord, ShowingNotice
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
@@ -272,3 +273,117 @@ async def test_two_corrections_into_one_showing_to_one_number(world):
     assert sorted(answer.status_code for answer in answers) == [200, 409]
     _, attendees, _ = await rows()
     assert [a.mobile for a in attendees].count(CASEY_MOBILE) == 1
+
+
+# A withdrawal after the host's event listed the withdrawn person
+
+
+class SenderWithAHook(RecordingTextSender):
+    """Runs ``hook`` once, just before the first text to ``number`` is answered."""
+
+    def __init__(self, number: str, hook) -> None:
+        super().__init__()
+        self.number, self.hook = number, hook
+
+    async def send_text(self, to: str, body: str):
+        if to == self.number and self.hook is not None:
+            hook, self.hook = self.hook, None
+            await hook()
+        return await super().send_text(to, body)
+
+
+class CalendarWithAHook(InMemoryCalendar):
+    """Runs ``hook`` once, in the middle of the first event it creates."""
+
+    def __init__(self, hook=None) -> None:
+        super().__init__()
+        self.hook = hook
+
+    async def create_event(self, calendar_id, event):
+        if self.hook is not None:
+            hook, self.hook = self.hook, None
+            await hook()
+        return await super().create_event(calendar_id, event)
+
+
+@pytest.mark.asyncio
+async def test_a_number_refused_after_the_event_listed_it_updates_the_event(world):
+    """Codex's sequence: the first attendee's event goes out while the second
+    one's text is being sent, listing both; then Quo refuses the second number."""
+    await live()
+
+    async def deliver_the_first_event():
+        await world.send_pending(NOW + timedelta(minutes=1))
+
+    world.texts = SenderWithAHook(ROBIN_MOBILE, deliver_the_first_event)
+    world.texts.refuse(ROBIN_MOBILE, "invalid_number")
+    await book(world, booking())
+    assert host_events(world) == []  # Alex's event waits for the next run
+
+    refused = await book(world, robin())
+
+    assert refused.status_code == 422
+    (event,) = host_events(world)
+    _, attendees, notices = await rows()
+    assert [a.status for a in attendees] == ["booked", "cancelled"]
+    (queued,) = [n for n in notices if n.recipient_key.endswith(":withdrawn")]
+    assert (queued.kind, queued.status, queued.waits_for_notice_id) == (
+        "host_event_update",
+        "pending",
+        None,
+    )
+    assert "Robin Lee" in event.draft.description  # what the host saw first
+
+    await world.send_pending(NOW + timedelta(minutes=2))
+
+    assert host_events(world) == [event]
+    assert "Alex Parker" in event.draft.description
+    assert "Robin Lee" not in event.draft.description
+    _, _, notices = await rows()
+    updates = [n for n in notices if n.kind == "host_event_update" and n.status == "sent"]
+    assert len(updates) == 1 and updates[0].payload["operation"] == "update"
+
+
+@pytest.mark.asyncio
+async def test_a_withdrawal_while_the_event_is_being_sent_updates_it_afterwards(world):
+    await live()
+    world.texts.report(ROBIN_MOBILE, "sent")  # Robin's own notices stay held
+    await book(world, booking())
+    await book(world, robin())
+    _, attendees, notices = await rows()
+    robin_text = next(n for n in notices if n.recipient == ROBIN_MOBILE)
+
+    async def withdraw_robin():
+        await bookings.withdraw(attendees[1].id, robin_text.id, now=NOW + timedelta(minutes=1))
+
+    world.calendar = CalendarWithAHook(withdraw_robin)
+
+    # Alex's event is created listing both; Robin is withdrawn mid-send.
+    await world.send_pending(NOW + timedelta(minutes=1))
+    (event,) = host_events(world)
+    assert "Robin Lee" in event.draft.description
+    _, _, notices = await rows()
+    (queued,) = [n for n in notices if n.recipient_key.endswith(":withdrawn")]
+    assert queued.status == "pending"
+
+    await world.send_pending(NOW + timedelta(minutes=2))
+
+    assert host_events(world) == [event]
+    assert "Robin Lee" not in event.draft.description
+    assert "Alex Parker" in event.draft.description
+
+
+@pytest.mark.asyncio
+async def test_a_withdrawal_before_any_host_notice_went_out_queues_nothing(world):
+    await live()
+    world.texts.report(ALEX_MOBILE, "sent")  # Alex's notices stay held
+    await book(world, booking())
+    world.texts.refuse(ROBIN_MOBILE, "invalid_number")
+
+    assert (await book(world, robin())).status_code == 422
+
+    _, _, notices = await rows()
+    assert not [n for n in notices if n.recipient_key.endswith(":withdrawn")]
+    await world.send_pending(NOW + timedelta(minutes=5))
+    (event,) = host_events(world)
+    assert "Robin Lee" not in event.draft.description

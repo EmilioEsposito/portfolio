@@ -427,7 +427,12 @@ tokens; a cancel token travels in the body for the same reason.
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
    left with no one is cancelled (`no_attendees`), its notices are cancelled,
-   and the answer is 422 `number_refused` on the mobile field.
+   and the answer is 422 `number_refused` on the mobile field. When someone
+   is still booked and a host notice for the showing has gone out (sent or
+   captured), may have gone out (unknown) or is being sent, the same
+   transaction queues a host event update, due now and not held, which
+   renders at delivery without the withdrawn person. When every host notice
+   is still held or pending, nothing is queued: they render at delivery.
 
 The shared lock means one booking's limits, re-check and insert never
 interleave with another's. Two bookings of one unit and start at the same
