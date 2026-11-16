@@ -956,8 +956,20 @@ hosting at least one scheduled showing that day that has not started gets one
 text (`host_morning`) at their own mobile from the team number: the day's
 showings in order, each with its time, place and how many people are booked.
 
-- One per agent per day: recipient key `agent:<id>:morning:<day>`, on the
-  day's first showing, with every showing it lists in `payload.showing_ids`.
+- One per agent per day: recipient key `agent:<id>:morning:<day>`, with every
+  showing it lists in `payload.showing_ids`.
+- Only what the guard lets through: the guard judges a notice by the unit of
+  the showing it is attached to, and this text lists several units. So it
+  lists only the showings the guard would really send for to the agent's
+  number now (`guard.would_send`, which is `decide` answering send: live mode,
+  and the unit in `live_units` in production or the number a test recipient),
+  and is attached to the first of them. With none (capture, off, or no listed
+  unit live) it lists every showing and is captured or skipped as usual, so
+  the Messages list still shows it. It never mixes the two. The same rule runs
+  when it is queued and again at delivery, where it may move to another of the
+  day's showings; the outbox then judges it by that showing's unit. It is the
+  only notice that lists more than one unit: the residents' reminder lists one
+  unit's showings, and every other notice names one showing.
   The step looks for it by kind and key, so it is queued once whichever
   showing comes first.
 - Safe every minute and after a missed run: queued from 8 AM up to noon. A

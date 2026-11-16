@@ -44,7 +44,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.showing_bookings import lead_email, residents, wording
+from api.src.showing_bookings import guard, lead_email, residents, wording
 from api.src.showing_bookings.lead_email import RouteProblem
 from api.src.showing_bookings.models import (
     Showing,
@@ -53,7 +53,11 @@ from api.src.showing_bookings.models import (
     ShowingNotice,
 )
 from api.src.showing_bookings.schema import EmailPayload, TextPayload
-from api.src.showing_bookings.settings import settings_for_delivery
+from api.src.showing_bookings.settings import (
+    current_environment,
+    read_test_recipients,
+    settings_for_delivery,
+)
 
 PROSPECT_REMINDER_KIND = "prospect_reminder"
 RESIDENT_REMINDER_KIND = "resident_reminder"
@@ -339,6 +343,34 @@ async def day_showings(
     return [(showing, count) for showing, count in rows.all()]
 
 
+async def morning_selection(
+    session: AsyncSession, showings: list[tuple[Showing, int]], mobile: str
+) -> list[tuple[Showing, int]]:
+    """The showings a host's morning text lists, from the day's ``showings``.
+
+    The guard judges a notice by the unit of the showing it is attached to, and
+    this text lists several. So it lists only the showings the guard would really
+    send for to ``mobile`` now (live mode, and the unit live in production or the
+    number a test recipient), and is attached to the first of them; when there are
+    none it lists them all and is captured or skipped as usual. Never a list
+    mixing showings the guard would send for and ones it would not."""
+    settings = await settings_for_delivery(session)
+    environment = current_environment()
+    test_recipients = read_test_recipients()
+    sent_for = [
+        item
+        for item in showings
+        if guard.would_send(
+            settings=settings,
+            environment=environment,
+            unit=item[0].unit,
+            addresses=[mobile],
+            test_recipients=test_recipients,
+        )
+    ]
+    return sent_for or showings
+
+
 def morning_body(showings: list[tuple[Showing, int]], timezone: str) -> str:
     return wording.host_morning_text(
         [
@@ -371,7 +403,10 @@ async def _host_morning(session: AsyncSession, notice: ShowingNotice, now: datet
     )
     if not mobile:
         return Verdict(cancel=NO_HOST_MOBILE)
+    showings = await morning_selection(session, showings, mobile)
     notice.recipient = mobile
+    # Attached to the first showing it lists, which the guard then judges.
+    notice.showing_id = showings[0][0].id
     notice.payload = payload.model_copy(
         update={
             "body": morning_body(showings, timezone),

@@ -13,15 +13,19 @@ import pytest
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.rental_listings.schema import RentalListing
 from api.src.showing_bookings import daily_texts, delivery_checks, holds, outbox, wording
 from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingAttendee
 from api.src.showing_bookings.schema import TextPayload
+from api.src.tests.showing_helpers import store_settings
 from api.src.tests.showing_public import (
     ALEX_MOBILE,
     CASEY_MOBILE,
     ROBIN_MOBILE,
+    UNIT,
     PublicWorld,
     at,
+    booking,
     rows,
 )
 from api.src.tests.test_showing_cancelling import team
@@ -533,3 +537,148 @@ async def test_a_day_that_would_overflow_is_queued_and_sent_within_the_limit(wor
     assert len(text.splitlines()) == 19  # the header and all 18 showings
     (notice,) = await of_kind(MORNING)
     assert notice.status == "sent"
+
+
+# ---------------------------------------------------------------------------
+# The morning text and the guard: only units it would really send for
+# ---------------------------------------------------------------------------
+
+OTHER_UNIT = "412-01"
+
+
+async def two_units_booked(world, monkeypatch) -> dict[str, int]:
+    """Alex at 320-03 at 10 AM and Robin at 412-01 at 4 PM, both hosted by Jane,
+    booked outside production; then the clock and the environment move to the
+    morning in production."""
+    world.other_listings.append(RentalListing(unit=OTHER_UNIT, address="412 Example St"))
+    short_notice(world, 12)
+    await book(world, booking_at(at(10)))
+    async with world.client() as client:
+        answer = await client.post(
+            f"/api/showing-bookings/public/units/{OTHER_UNIT}/bookings", json=robin(at(16))
+        )
+    assert answer.status_code == 201, answer.text
+    await run(world, world.now + timedelta(minutes=1))
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+    showings, _, _ = await rows()
+    return {showing.unit: showing.id for showing in showings}
+
+
+def booking_at(start):
+    return booking(start)
+
+
+TEN_AT_320 = "- 10:00 AM at 320 Example St (unit 320-03), 1 person"
+FOUR_AT_412 = "- 4:00 PM at 412 Example St (unit 412-01), 1 person"
+HEADER = "Sernia Capital: your showings today, Wed, Apr 14:"
+
+
+async def morning_notice():
+    (notice,) = await of_kind(MORNING)
+    return notice
+
+
+@pytest.mark.asyncio
+async def test_production_first_unit_not_live_a_later_one_live_lists_only_the_live_one(
+    world, monkeypatch
+):
+    ids = await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="live", live_units=[OTHER_UNIT])
+
+    await run(world, at(8))
+    assert morning_texts(world) == [f"{HEADER}\n{FOUR_AT_412}"]
+    notice = await morning_notice()
+    assert (notice.status, notice.guard_reason, notice.showing_id) == (
+        "sent",
+        "live_unit",
+        ids[OTHER_UNIT],
+    )
+    assert notice.payload["showing_ids"] == [ids[OTHER_UNIT]]
+
+
+@pytest.mark.asyncio
+async def test_production_first_unit_live_a_later_one_not_lists_only_the_live_one(
+    world, monkeypatch
+):
+    ids = await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="live", live_units=[UNIT])
+
+    await run(world, at(8))
+    assert morning_texts(world) == [f"{HEADER}\n{TEN_AT_320}"]
+    notice = await morning_notice()
+    assert (notice.status, notice.showing_id) == ("sent", ids[UNIT])
+
+
+@pytest.mark.asyncio
+async def test_production_no_unit_live_captures_the_whole_list(world, monkeypatch):
+    ids = await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="live", live_units=[])
+
+    await run(world, at(8))
+    assert morning_texts(world) == []
+    notice = await morning_notice()
+    assert (notice.status, notice.guard_reason, notice.showing_id) == (
+        "captured",
+        "unit_not_live",
+        ids[UNIT],
+    )
+    assert notice.payload["body"] == f"{HEADER}\n{TEN_AT_320}\n{FOUR_AT_412}"
+
+
+@pytest.mark.asyncio
+async def test_capture_mode_lists_every_showing(world, monkeypatch):
+    await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="capture", live_units=[UNIT, OTHER_UNIT])
+
+    await run(world, at(8))
+    assert morning_texts(world) == []
+    notice = await morning_notice()
+    assert (notice.status, notice.guard_reason) == ("captured", "send_mode_capture")
+    assert notice.payload["body"] == f"{HEADER}\n{TEN_AT_320}\n{FOUR_AT_412}"
+
+
+@pytest.mark.asyncio
+async def test_a_unit_taken_off_live_between_queueing_and_delivery(world, monkeypatch):
+    ids = await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="live", live_units=[OTHER_UNIT])
+    world.now = at(8)
+    await daily_texts.queue_due(now=at(8))
+    queued = await morning_notice()
+    assert (queued.showing_id, queued.payload["body"]) == (
+        ids[OTHER_UNIT],
+        f"{HEADER}\n{FOUR_AT_412}",
+    )
+
+    await store_settings(send_mode="live", live_units=[])
+    await run(world, at(8, 1))
+    assert morning_texts(world) == []
+    notice = await morning_notice()
+    # Nothing live now: it lists every showing, on the first, and is captured.
+    assert (notice.status, notice.guard_reason, notice.showing_id) == (
+        "captured",
+        "unit_not_live",
+        ids[UNIT],
+    )
+    assert notice.payload["body"] == f"{HEADER}\n{TEN_AT_320}\n{FOUR_AT_412}"
+
+
+@pytest.mark.asyncio
+async def test_the_first_unit_taken_off_live_moves_the_text_to_the_one_still_live(
+    world, monkeypatch
+):
+    ids = await two_units_booked(world, monkeypatch)
+    await store_settings(send_mode="live", live_units=[UNIT, OTHER_UNIT])
+    world.now = at(8)
+    await daily_texts.queue_due(now=at(8))
+    queued = await morning_notice()
+    assert queued.showing_id == ids[UNIT]
+
+    await store_settings(send_mode="live", live_units=[OTHER_UNIT])
+    await run(world, at(8, 1))
+    assert morning_texts(world) == [f"{HEADER}\n{FOUR_AT_412}"]
+    notice = await morning_notice()
+    assert (notice.status, notice.guard_reason, notice.showing_id) == (
+        "sent",
+        "live_unit",
+        ids[OTHER_UNIT],
+    )

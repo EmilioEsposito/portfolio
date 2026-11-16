@@ -8,7 +8,10 @@ catches up after a missed run.
   time zone, one text to each agent hosting at least one scheduled showing that
   day that has not started, at the agent's own mobile, listing the day's
   showings in order (time, place, how many people). One per agent per day
-  (recipient key ``agent:<id>:morning:<day>``), on the day's first showing. A
+  (recipient key ``agent:<id>:morning:<day>``). The guard judges a notice by
+  one unit, so the text lists only the showings it would really send for to
+  the agent's number (``delivery_checks.morning_selection``) and is attached to
+  the first of them; with none, it lists them all and is captured or skipped. A
   morning missed past noon is not sent; an agent with no mobile gets none.
   It is written again when it is delivered (``delivery_checks``), so it lists
   the day as it is then. It names no prospect and no phone number.
@@ -119,6 +122,7 @@ async def _queue_mornings(session: AsyncSession, now: datetime, timezone: str) -
         showings = await delivery_checks.day_showings(session, agent_id, day, timezone, now)
         if not showings:
             continue
+        showings = await delivery_checks.morning_selection(session, showings, mobile)
         await outbox.enqueue(
             session,
             kind=HOST_MORNING_KIND,
