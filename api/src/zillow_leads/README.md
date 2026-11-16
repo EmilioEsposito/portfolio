@@ -96,8 +96,8 @@ the token, another lead's token) does not. A time must still be one the case
 offers; when the case's times belong to units and the reply's `lead.unit` is a
 listed unit, it must be open at, or a showing booked at, that unit. The lead's
 own booked showing may be repeated back. The evals' `ReplyChecks` use the same
-calculation (`case.allowed_tour_times`), so the two cannot disagree. The policy does not mention the own
-showings yet; that is a later step of issue #368, run through the evals first.
+calculation (`case.allowed_tour_times`), so the two cannot disagree. How the
+agent treats the own showings is in "The policy for booked showings" below.
 
 Each outcome also saves the structured case in the conversation's metadata
 (`case`, from `case.case_record`), so a past decision can be rebuilt with
@@ -122,8 +122,10 @@ showing, so a person sends it." (or "moves", or "cancels"); the conversation
 records `auto_delivery: needs_review`. A reply that changes nothing (no tour,
 a virtual tour, a time already booked for the thread) is sent automatically as
 before. The reason: the booked time is the agent's structured start time, and
-nothing yet checks that the reply's words name it. A check that the words name
-the booked time, run through the evals, would let this be relaxed. With the switch off nothing here runs: `handle_thread`,
+the automatic send does not check that the reply's words name it.
+`auto_reply.states_tour_time` is that check (below); the evals report it, and
+once they show the agent keeps the form, a later change can let a reply that
+passes it go automatically. With the switch off nothing here runs: `handle_thread`,
 `apply_approval` and `maybe_send_reply` behave as before, which
 `test_zillow_lead_bookings.py` and the case snapshot test check.
 
@@ -193,9 +195,37 @@ kept as the mobile for the host and never texted. The host's event and the
 residents' text go as for a team booking without texts; nothing goes to the
 lead. The reply's own booking link (the case's per-lead link) opens the
 booking page in an "add your details" state, which completes the same place
-and sends the confirmation text and the invite as for a page booking. The
-policy does not yet mention the link line or the own showings; that is a later
-step with an eval run.
+and sends the confirmation text and the invite as for a page booking.
+
+### The policy for booked showings
+
+The prompts mention the new parts of the case only on condition that the case
+has them ("when the case lists this lead's own showings"), so a case built
+with the switch off is told what it was told before. What they add:
+
+- `policy.md`: a showing listed as booked under "This lead's own showings" is
+  a tour both sides have confirmed, so it is never offered again and a
+  question or "running late" is about it. A reply that confirms a tour time
+  states it once as "Wednesday, April 14 at 4:00 PM" (this one applies to
+  every case). With the own-showings section, a confirming reply also carries
+  the lead's own link on the line "To get a text reminder and a calendar
+  invite, add your details here: <link>", and never makes a mobile number a
+  condition of the showing.
+- `record.md` (lead agent only): with the own-showings section, `confirmed` or
+  `rescheduled` only for a time this reply confirms (or the lead's own booked
+  showing, unchanged), `start` exactly that time, `lead.unit` the listing's
+  unit, and `cancelled` when the lead will not come. Code books from these.
+
+`auto_reply.states_tour_time(case, reply)` checks that the reply's words
+contain the outcome's `tour.start`, in the case's time zone, in that fixed
+form (`case.tour_time_words`). It is not called by the automatic send. The
+evals report it, with the details line and what code would book, on every
+reply that would book or move the lead's showing; `evals/README.md` ("Checking
+the booking policy before it merges") is the run that decides whether these
+prompt lines merge. `test_zillow_lead_instructions_change.py` checks that the
+joined instructions differ from the last reviewed version only by
+`api/src/tests/zillow_instructions_change.diff`; a later prompt change writes
+a new diff with its `--write` command.
 
 | Component | Owner | Responsibility |
 | --- | --- | --- |

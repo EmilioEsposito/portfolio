@@ -389,6 +389,16 @@ def _day(moment: datetime) -> str:
     return f"{moment.strftime('%A, %B')} {moment.day}"
 
 
+def tour_time_words(start: datetime, timezone: str) -> str:
+    """A tour time as the policy has a confirming reply state it: "Wednesday, April 14 at 4:00 PM".
+
+    Day of the week, month, day, then the hour without a leading zero, in the
+    case's time zone. The same words the case uses for a booked showing.
+    """
+    local = start.astimezone(ZoneInfo(timezone))
+    return f"{_day(local)} at {_clock(local)}"
+
+
 def _fact_lines(text: str) -> list[str]:
     """Free-text facts as clean lines, whatever bullets the author used."""
     return [line.strip().lstrip("-*• ").strip() for line in text.splitlines() if line.strip(" -*•")]

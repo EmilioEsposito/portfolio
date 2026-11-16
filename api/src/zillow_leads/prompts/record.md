@@ -7,6 +7,13 @@ Fill these in whatever the action:
 - `tour`: where tour scheduling stands after this message. Use `proposed` when
   times or the booking link have been offered but nothing is agreed, including
   by the reply you are writing now.
+  - When the case lists this lead's own showings, even as "(none)", code
+    books, moves and cancels the lead's showing from `tour` and `lead.unit`.
+    Use `confirmed` or `rescheduled` only for a time this reply confirms to
+    the lead, or for the lead's own booked showing when nothing changes it,
+    and set `start` to exactly that time. Set `lead.unit` to that tour's unit
+    as the listing writes it. Use `cancelled` when the lead has said they will
+    not come and no new time is agreed.
 - `team_notes`: anything a person must do by hand.
   - When a tour is confirmed, add a note to text the lead at least 24 hours
     before it with the date, time, and address; mark it urgent if the tour is

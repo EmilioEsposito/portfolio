@@ -6,11 +6,19 @@ they live in the repository: each is a ``Scenario`` and a ``CaseEdit`` in the
 evals' usual form, run against ``LISTINGS``, and they cover what the case
 holds only while the lead agent uses the booking service: per-lead booking
 links, the lead's own showings (booked or cancelled), a showing others booked
-that the lead can join, and times open at one unit only.
+that the lead can join, and times open at one unit only. They also cover
+the policy for a lead's own showing: confirming a time by email, moving and
+cancelling it, a lead who would rather not give a mobile number, and one case
+built as production builds it with the switch off, which must be answered as
+before the booking service existed.
 
-``expected`` is what a person would want and why; it is for whoever reads a
-run, not a check. ``good_reply`` is a reply that keeps every exact rule, so
-the deterministic checks can be run on each case without a model.
+``expected`` is the action a person would want, and ``why`` what a person or
+the judge should look for. ``booking``, when set, is what sending the decision
+should do to the lead's showings, and ``details_line`` whether the reply
+should carry the line offering a text reminder. ``run --expected`` checks those
+three by code (``checks.ExpectedOutcome``). ``good_reply`` (with ``good_tour``)
+is a decision that keeps every exact rule, so the deterministic checks can be
+run on each case without a model.
 
 Write them as files the ``run`` command reads:
 
@@ -26,6 +34,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
 from api.src.zillow_leads.case import BookedTour, Listing, ListingData, OwnShowing, TourSlot
+from api.src.zillow_leads.evals.checks import Booking
 from api.src.zillow_leads.evals.scenarios import CaseEdit, Scenario
 from api.src.zillow_leads.thread import LeadMessage, LeadThread
 
@@ -91,9 +100,12 @@ class Synthetic(BaseModel):
     edit: CaseEdit
     expected: Literal["reply", "no_reply", "escalate"]
     why: str
+    booking: Booking | None = None
+    details_line: bool | None = None
     good_reply: str = ""
     good_offered: list[datetime] = []
     good_unit: str | None = None
+    good_tour: dict = {}
 
 
 # Every scenario's open times: 320-03 and 412-01 share Wednesday at 4:00;
@@ -113,6 +125,12 @@ def scenarios() -> list[Synthetic]:
         "Pe4bL7cR1yN8uT2wM5zK9d",
         "Ua6gS3hD8jF1kL4qW7eR2t",
         "Tb2nM8vC5xZ1aQ7wE4rY6u",
+    )
+    max_, ash, pat, rio = (
+        "Kc5vB9nM2xL8qW4eR7tY1u",
+        "Wf3gH6jK9lZ2xC5vB8nM1q",
+        "Rj7kL1zX4cV8bN2mQ5wE9t",
+        "Ym4nB7vC1xZ5aS8dF2gH6j",
     )
     booked_alex = OwnShowing(unit="320-03", start=_at(14, 16), status="booked")
     return [
@@ -137,7 +155,11 @@ def scenarios() -> list[Synthetic]:
                 note="Made up: the lead booked through their own link.",
             ),
             expected="no_reply",
-            why="The lead is booked; a late arrival needs nothing from us.",
+            why=(
+                "The lead is booked; a late arrival needs nothing from us. The tour stays "
+                "confirmed: not escalated, not recorded as cancelled."
+            ),
+            booking=Booking(),
         ),
         Synthetic(
             scenario=Scenario(
@@ -160,7 +182,11 @@ def scenarios() -> list[Synthetic]:
                 "Answer the parking question from the facts. The lead is already booked, so "
                 "do not offer them the showing they are in."
             ),
+            booking=Booking(),
+            details_line=False,
             good_reply="Hello,\n\nYes, there is street parking near the building." + SIGNATURE,
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(14, 16).isoformat()},
         ),
         Synthetic(
             scenario=Scenario(
@@ -178,6 +204,7 @@ def scenarios() -> list[Synthetic]:
             ),
             expected="reply",
             why="Offer the showing already booked at 4:00 tomorrow, with the lead's own link.",
+            booking=Booking(),
             good_reply=(
                 "Hello,\n\nA showing is already set for tomorrow, Wednesday, at 4:00 PM. "
                 f"Book your place here: {links(jo)['320-03']}" + SIGNATURE
@@ -234,10 +261,174 @@ def scenarios() -> list[Synthetic]:
                 "The team cancelled it; say so plainly and give the lead's own link to book "
                 "another time. Do not confirm Thursday."
             ),
+            booking=Booking(),
             good_reply=(
                 "Hello,\n\nSorry, the Thursday 11:00 AM showing was cancelled. "
                 f"You can book another time here: {links(kim)['320-03']}" + SIGNATURE
             ),
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-confirm-by-email",
+                    (5, False, "Hi, could I see 320 Example St tomorrow at 4 PM?"),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booking_links=links(max_),
+                own_showings=[],
+                note="Made up: the lead names a time open at 320-03 and is not booked yet.",
+            ),
+            expected="reply",
+            why=(
+                "Accept 4:00 tomorrow: confirm it once as 'Wednesday, April 14 at 4:00 PM' with "
+                "the address, then the details line with the lead's own 320-03 link. Record the "
+                "tour as confirmed at that time for 320-03. No other times, no booking link "
+                "offered as a way to book."
+            ),
+            booking=Booking(action="book", unit="320-03", start=_at(14, 16)),
+            details_line=True,
+            good_reply=(
+                "Hello,\n\nYou're confirmed for Wednesday, April 14 at 4:00 PM at "
+                "320 Example St, Unit 3.\n\n"
+                f"To get a text reminder and a calendar invite, add your details here: "
+                f"{links(max_)['320-03']}" + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(14, 16).isoformat()},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-move",
+                    (180, False, "Is 320 Example St available?"),
+                    (150, True, f"Hello,\n\nYes. Book a showing here: {links(ash)['320-03']}"),
+                    (
+                        5,
+                        False,
+                        "Something came up tomorrow. Could we move my showing to Thursday at 11?",
+                    ),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                booking_links=links(ash),
+                own_showings=[booked_alex.model_copy()],
+                note="Made up: the lead is booked for Wednesday at 4:00; Thursday 11:00 is open.",
+            ),
+            expected="reply",
+            why=(
+                "Thursday at 11:00 is open at 320-03: confirm the move, stating 'Thursday, April "
+                "15 at 11:00 AM' once, with the details line. Record the tour as rescheduled (or "
+                "confirmed) at that time for 320-03, and a team note with the old and new times."
+            ),
+            booking=Booking(action="move", unit="320-03", start=_at(15, 11)),
+            details_line=True,
+            good_reply=(
+                "Hello,\n\nNo problem. Your showing is now Thursday, April 15 at 11:00 AM at "
+                "320 Example St, Unit 3.\n\n"
+                f"To get a text reminder and a calendar invite, add your details here: "
+                f"{links(ash)['320-03']}" + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "rescheduled", "start": _at(15, 11).isoformat()},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-cancel",
+                    (180, False, "Is 320 Example St available?"),
+                    (150, True, f"Hello,\n\nYes. Book a showing here: {links(pat)['320-03']}"),
+                    (5, False, "Sorry, I can't make it tomorrow after all. Please cancel."),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                booking_links=links(pat),
+                own_showings=[booked_alex.model_copy()],
+                note="Made up: the lead is booked for Wednesday at 4:00 and cancels.",
+            ),
+            expected="reply",
+            why=(
+                "Acknowledge the cancellation once and give the lead's own 320-03 link in case "
+                "they want another time. Record the tour as cancelled for 320-03. No details "
+                "line, no new times offered."
+            ),
+            booking=Booking(action="cancel", unit="320-03"),
+            details_line=False,
+            good_reply=(
+                "Hello,\n\nThanks for letting us know, your showing is cancelled. If you would "
+                f"like another time, you can book one here: {links(pat)['320-03']}" + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "cancelled"},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-no-mobile",
+                    (
+                        5,
+                        False,
+                        "Can I see 320 Example St on Thursday at 11? I'd rather not give out "
+                        "my cell number, is that OK?",
+                    ),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booking_links=links(rio),
+                own_showings=[],
+                note="Made up: Thursday 11:00 is open at 320-03; the lead offers no mobile.",
+            ),
+            expected="reply",
+            why=(
+                "Confirm Thursday, April 15 at 11:00 AM and say no number is needed. The "
+                "details line may follow, but nothing may ask for a mobile number or make one "
+                "a condition of the showing."
+            ),
+            booking=Booking(action="book", unit="320-03", start=_at(15, 11)),
+            details_line=True,
+            good_reply=(
+                "Hello,\n\nThat's fine, no phone number is needed. You're confirmed for "
+                "Thursday, April 15 at 11:00 AM at 320 Example St, Unit 3.\n\n"
+                f"To get a text reminder and a calendar invite, add your details here: "
+                f"{links(rio)['320-03']}" + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(15, 11).isoformat()},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-without-booking-service",
+                    (5, False, "Hi, could I see 320 Example St tomorrow at 4 PM?"),
+                )
+            ),
+            edit=CaseEdit(
+                offered=[_at(14, 16), _at(15, 11)],
+                note=(
+                    "Made up: built as production builds a case with the switch off: times "
+                    "with no unit, no per-lead links, no own-showings section."
+                ),
+            ),
+            expected="reply",
+            why=(
+                "Answered as before the booking service existed: confirm Wednesday, April 14 "
+                "at 4:00 PM with the address. No details line and no link, since the case "
+                "gives none."
+            ),
+            booking=Booking(),
+            details_line=False,
+            good_reply=(
+                "Hello,\n\nYou're confirmed for Wednesday, April 14 at 4:00 PM at "
+                "320 Example St, Unit 3." + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(14, 16).isoformat()},
         ),
     ]
 
@@ -258,7 +449,18 @@ def write(out: Path) -> list[Path]:
         "listings.json": LISTINGS.model_dump_json(indent=2),
         "expected.json": json.dumps(
             {
-                item.scenario.scenario_id: {"expected": item.expected, "why": item.why}
+                item.scenario.scenario_id: {
+                    "expected": item.expected,
+                    "why": item.why,
+                    **(
+                        {"booking": item.booking.model_dump(mode="json")}
+                        if item.booking is not None
+                        else {}
+                    ),
+                    **(
+                        {"details_line": item.details_line} if item.details_line is not None else {}
+                    ),
+                }
                 for item in items
             },
             indent=2,

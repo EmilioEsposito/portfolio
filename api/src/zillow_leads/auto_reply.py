@@ -8,8 +8,9 @@ again. An uncertain delivery stays with the team for inspection.
 With the booking service's switch ``lead_agent_uses_open_times`` on, a reply
 whose sending would book, move or cancel a showing is never sent here: like a
 reply that fails a check, it stays on its send card for a person, with the
-reason ("This reply books a showing, so a person sends it."). Nothing yet
-checks that the reply's words name the time code would book; approval
+reason ("This reply books a showing, so a person sends it."). The send does
+not check that the reply's words name the time code would book
+(``states_tour_time`` can, and is reported by the evals only); approval
 (``handle.apply_approval``) does the booking. This path books nothing.
 """
 
@@ -34,7 +35,7 @@ from api.src.showing_bookings import lead_bookings
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.zillow_leads import handle
 from api.src.zillow_leads.agent import Reply, load_instructions
-from api.src.zillow_leads.case import LeadCase, times_allowed
+from api.src.zillow_leads.case import LeadCase, times_allowed, tour_time_words
 from api.src.zillow_leads.settings import effective_settings
 
 LINK = re.compile(r"(?:https?://|www\.)[^\s<>\"')\]]+", re.I)
@@ -59,6 +60,29 @@ def reply_problems(case: LeadCase, reply: Reply) -> list[str]:
     if not reply.reply_body.strip():
         problems.append("The reply is empty.")
     return problems
+
+
+def states_tour_time(case: LeadCase, reply: Reply) -> bool:
+    """Whether the reply's words state the time its outcome confirms, in the policy's form.
+
+    True when the text contains the outcome's ``tour.start``, in the case's
+    time zone, written as the policy has a confirming reply write it
+    ("Wednesday, April 14 at 4:00 PM", from ``case.tour_time_words``). Line
+    breaks, repeated spaces and letter case are ignored; any other wording is
+    not the fixed form. False without a start, or with one that has no UTC
+    offset.
+
+    Not used by the automatic send. A reply that would book, move or cancel a
+    showing still waits for a person; this is the check a later change can
+    require before letting such a reply go automatically, once the evals show
+    the agent keeps the form. The evals' ``ReplyChecks`` report it today.
+    """
+    start = reply.tour.start
+    if start is None or start.tzinfo is None:
+        return False
+    wanted = " ".join(tour_time_words(start, case.timezone).split()).casefold()
+    said = " ".join(reply.reply_body.split()).casefold()
+    return re.search(rf"(?<!\w){re.escape(wanted)}(?![\w:])", said) is not None
 
 
 async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -> None:

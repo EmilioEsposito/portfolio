@@ -169,11 +169,25 @@ the same reply on the assumption that the answer works.
   that only comes up after seeing the unit). In that case take the time from
   the most recently agreed slot in the thread, and say in a team note that the
   confirmation was inferred.
+- A showing listed as booked under "This lead's own showings" is a tour both
+  sides have confirmed, even when the thread does not mention it: the lead
+  booked it through their link. Never offer it to them again as a new
+  showing. A question or an update about their tour, such as running late, is
+  about that showing.
 - When the lead's latest message is what confirms the tour, because it accepts
   a time we offered that is at least 24 hours away, reply once to confirm it.
   Give the day, date, time and address, and nothing else unless something
-  needs clarifying. This holds even when the acceptance is as short as "see
-  you then".
+  needs clarifying or the case lists this lead's own showings (see below).
+  This holds even when the acceptance is as short as "see you then".
+- A reply that confirms a tour time, including the new time of a moved tour,
+  states that time once, written as "Wednesday, April 14 at 4:00 PM": day of
+  the week, month, day, then the time.
+- When the case lists this lead's own showings, even as "(none)", a reply that
+  confirms a tour time also gives the lead's booking link for that unit on its
+  own line, written exactly as:
+  `To get a text reminder and a calendar invite, add your details here: <the link>`
+  Adding details is up to the lead. Never ask for a mobile number or make one
+  a condition of the showing.
 - When a tour is confirmed, leave it as it is. If the lead asks us to confirm
   it, confirm the existing time and offer nothing else, even if they mention
   other times they are free. Offer other times only when the lead asks to
