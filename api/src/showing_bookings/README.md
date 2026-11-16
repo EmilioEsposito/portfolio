@@ -370,7 +370,9 @@ and `lead_booking_for` adds what belongs to the lead's thread:
   as the case's booking link;
 - the thread's own upcoming showings, from the attendee rows tied to it
   (`zillow_thread_id`): unit, start, and booked or the cancel reason. Nothing
-  about the host or anyone else booked.
+  about the host or anyone else booked. A place cancelled because the reply
+  that booked it was never sent (`reply_not_sent`) is left out: the lead never
+  heard of it.
 
 If the token or those rows cannot be read, the case keeps the listings' own
 links and has no own-showings section, and the error is logged.

@@ -505,6 +505,18 @@ async def test_a_refused_send_cancels_the_booking_before_anything_goes(lead, mon
 
 
 @pytest.mark.asyncio
+async def test_a_place_whose_reply_was_never_sent_is_not_in_the_next_case(lead, monkeypatch):
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
+    await lead.decide(outcome(), auto=True)
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
+
+    await lead.decide(outcome("no_reply", status="none"))
+
+    (case,) = handle.respond.call_args.args
+    assert case.own_showings == []
+
+
+@pytest.mark.asyncio
 async def test_a_refused_automatic_send_cancels_the_booking(lead, monkeypatch):
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
 
