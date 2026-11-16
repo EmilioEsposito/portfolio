@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { API_PORT, BASE_URL, WEB_PORT } from "./e2e/setup.ts";
 
 // The booking page's browser test, against the local API and the built web
-// app on a disposable database. See e2e/README.md.
+// app on a disposable database. See "Browser test" in README.md.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
