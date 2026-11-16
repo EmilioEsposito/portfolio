@@ -317,30 +317,6 @@ async def test_an_approved_confirmation_books_a_provisional_place(lead):
 
 
 @pytest.mark.asyncio
-async def test_an_automatic_confirmation_books_before_it_sends(lead, monkeypatch):
-    seen = {}
-
-    async def send(*args, **kwargs):
-        # Booked and held before Gmail is called: nothing can go out yet.
-        _, attendees, notices = await rows()
-        seen["attendees"] = len(attendees)
-        seen["held_past_now"] = all(n.not_before > lead.world.now for n in notices)
-        return "Email sent."
-
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=send))
-    conversation_id = await lead.decide(outcome(), auto=True)
-
-    assert seen == {"attendees": 1, "held_past_now": True}
-    _, attendees, notices = await rows()
-    assert [a.source for a in attendees] == ["lead_agent"]
-    assert sorted(n.kind for n in notices) == ["host_event", "resident_new_showing"]
-    assert all(n.not_before <= lead.world.now for n in notices)  # released after the send
-    row, _ = await stored(conversation_id)
-    assert row.metadata_["auto_delivery"]["status"] == "sent"
-    assert row.metadata_["showing_booking"]["action"] == "booked"
-
-
-@pytest.mark.asyncio
 async def test_the_residents_and_host_notices_go_out_with_the_job_and_nothing_to_the_lead(lead):
     await lead.decide_on(await lead.decide(outcome()))
 
@@ -407,21 +383,6 @@ async def test_approving_twice_books_once(lead):
 
 
 @pytest.mark.asyncio
-async def test_a_retried_automatic_send_books_once(lead):
-    conversation_id = await lead.decide(outcome(), auto=True)
-    row, _ = await stored(conversation_id)
-    from api.src.zillow_leads.case import case_from_record
-
-    await auto_reply.maybe_send_reply(
-        conversation_id, case_from_record(row.metadata_["case"]), outcome()
-    )
-
-    handle.send_reply.assert_awaited_once()
-    _, attendees, _ = await rows()
-    assert len(attendees) == 1
-
-
-@pytest.mark.asyncio
 async def test_a_thread_already_booked_through_its_link_books_nothing_new(lead):
     token = await lead_links.token_for_thread(THREAD)
     async with lead.world.client() as client:
@@ -474,21 +435,6 @@ async def test_a_refused_time_holds_an_approved_reply_with_the_reason(lead):
     assert len(attendees) == 1
 
 
-@pytest.mark.asyncio
-async def test_a_refused_time_holds_an_automatic_reply(lead):
-    lead.world.calendar.add_busy("jane.doe@example.com", at(15), at(17))
-
-    conversation_id = await lead.decide(outcome(), auto=True)
-
-    handle.send_reply.assert_not_called()
-    (card,) = await pending_cards(conversation_id)
-    assert card["tool_name"] == handle.SEND_REPLY
-    assert "the showing could not be booked" in card["args"]["team_notes"][-1]
-    row, _ = await stored(conversation_id)
-    assert row.metadata_["auto_delivery"]["status"] == "needs_review"
-    assert await rows() == ([], [], [])
-
-
 # ---------------------------------------------------------------------------
 # When the send fails
 # ---------------------------------------------------------------------------
@@ -516,44 +462,14 @@ async def test_a_refused_send_cancels_the_booking_before_anything_goes(lead, mon
 @pytest.mark.asyncio
 async def test_a_place_whose_reply_was_never_sent_is_not_in_the_next_case(lead, monkeypatch):
     monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
-    await lead.decide(outcome(), auto=True)
+    with pytest.raises(HTTPException):
+        await lead.decide_on(await lead.decide(outcome()))
     monkeypatch.setattr(handle, "send_reply", AsyncMock(return_value="Email sent."))
 
     await lead.decide(outcome("no_reply", status="none"))
 
     (case,) = handle.respond.call_args.args
     assert case.own_showings == []
-
-
-@pytest.mark.asyncio
-async def test_a_refused_automatic_send_cancels_the_booking(lead, monkeypatch):
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
-
-    conversation_id = await lead.decide(outcome(), auto=True)
-
-    _, attendees, notices = await rows()
-    assert attendees[0].cancel_reason == "reply_not_sent"
-    assert {n.status for n in notices} == {"cancelled"}
-    row, messages = await stored(conversation_id)
-    assert row.metadata_["showing_booking"]["sent"] == "failed"
-    assert "Gmail refused the reply" in messages[-1].parts[0].content
-
-
-@pytest.mark.asyncio
-async def test_an_uncertain_send_keeps_the_booking_and_says_so(lead, monkeypatch):
-    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=TimeoutError("maybe sent")))
-
-    conversation_id = await lead.decide(outcome(), auto=True)
-
-    _, attendees, _ = await rows()
-    (jordan,) = attendees
-    assert jordan.status == "booked"
-    assert jordan.attention_reason == lead_bookings.REPLY_UNCERTAIN
-    (card,) = await pending_cards(conversation_id)
-    assert card["tool_name"] == handle.ASK_TEAM
-    assert "Showing booked with this reply: 320-03" in card["args"]["team_notes"][-1]
-    row, _ = await stored(conversation_id)
-    assert row.metadata_["showing_booking"]["sent"] == "uncertain"
 
 
 @pytest.mark.asyncio
@@ -1414,3 +1330,210 @@ async def test_a_card_whose_time_the_lead_already_booked_sends_and_changes_nothi
     handle.send_reply.assert_awaited_once()
     _, attendees, _ = await rows()
     assert [(a.source, a.status) for a in attendees] == [("page", "booked")]
+
+
+# ---------------------------------------------------------------------------
+# The automatic send never sends a reply that changes a booking
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "reason", "note"),
+    [
+        ("book", "This reply books a showing, so a person sends it.", BOOK_NOTE),
+        ("move", "This reply moves a showing, so a person sends it.", MOVE_NOTE),
+        ("cancel", "This reply cancels a showing, so a person sends it.", CANCEL_NOTE),
+    ],
+)
+async def test_an_automatic_reply_that_changes_a_booking_waits_for_a_person(
+    lead, kind, reason, note
+):
+    if kind != "book":
+        await booked_and_told(lead)
+    _, before, notices_before = await rows()
+    decided = {
+        "book": outcome(),
+        "move": outcome(status="rescheduled", start=at(17)),
+        "cancel": outcome(status="cancelled"),
+    }[kind]
+
+    conversation_id = await lead.decide(decided, auto=True)
+
+    sends = 0 if kind == "book" else 1  # the first reply, approved by hand
+    assert handle.send_reply.await_count == sends
+    (card,) = await pending_cards(conversation_id)
+    assert card["tool_name"] == handle.SEND_REPLY
+    assert card["args"]["team_notes"] == [note, reason]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["auto_delivery"] == {"status": "needs_review", "reasons": [reason]}
+    assert "showing_booking" not in row.metadata_
+    _, attendees, notices = await rows()
+    assert [(a.id, a.status) for a in attendees] == [(a.id, a.status) for a in before]
+    assert len(notices) == len(notices_before)
+    async with AsyncSessionFactory() as session:
+        claimed = await session.scalar(
+            select(AutoApprovedSend.conversation_id).where(
+                AutoApprovedSend.conversation_id == conversation_id
+            )
+        )
+    assert claimed is None  # nothing was reserved
+
+
+@pytest.mark.asyncio
+async def test_approving_a_held_automatic_reply_books_and_sends(lead):
+    conversation_id = await lead.decide(outcome(), auto=True)
+    handle.send_reply.assert_not_called()
+
+    result = await lead.decide_on(conversation_id)
+
+    assert result["status"] == "completed"
+    handle.send_reply.assert_awaited_once()
+    _, attendees, notices = await rows()
+    assert [(a.source, a.status) for a in attendees] == [("lead_agent", "booked")]
+    assert sorted(n.kind for n in notices) == ["host_event", "resident_new_showing"]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["action"] == "booked"
+
+
+@pytest.mark.asyncio
+async def test_a_held_automatic_reply_stays_held_when_tried_again(lead):
+    conversation_id = await lead.decide(outcome(), auto=True)
+    row, _ = await stored(conversation_id)
+    from api.src.zillow_leads.case import case_from_record
+
+    await auto_reply.maybe_send_reply(
+        conversation_id, case_from_record(row.metadata_["case"]), outcome()
+    )
+
+    handle.send_reply.assert_not_called()
+    assert await rows() == ([], [], [])
+    assert [c["tool_name"] for c in await pending_cards(conversation_id)] == [handle.SEND_REPLY]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "decided",
+    [
+        outcome(status="none", tour={"start": None}),
+        outcome(tour={"virtual": True}),
+        outcome(status="proposed"),
+    ],
+    ids=["no tour", "virtual", "proposed"],
+)
+async def test_an_automatic_reply_that_changes_nothing_is_sent(lead, decided):
+    conversation_id = await lead.decide(decided, auto=True)
+
+    handle.send_reply.assert_awaited_once()
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["auto_delivery"]["status"] == "sent"
+    assert await rows() == ([], [], [])
+
+
+@pytest.mark.asyncio
+async def test_an_automatic_reply_confirming_a_time_already_booked_is_sent(lead):
+    await booked_and_told(lead)
+    _, before, notices_before = await rows()
+
+    conversation_id = await lead.decide(outcome(), auto=True)
+
+    assert handle.send_reply.await_count == 2  # the first by hand, this one automatically
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["auto_delivery"]["status"] == "sent"
+    assert "showing_booking" not in row.metadata_
+    _, attendees, notices = await rows()
+    assert [a.status for a in attendees] == ["booked"] and len(notices) == len(notices_before)
+
+
+# ---------------------------------------------------------------------------
+# Never sent, sent, uncertain: three states of a place, each kept or not
+# ---------------------------------------------------------------------------
+
+
+async def sent_then_not_saved(lead: Lead, monkeypatch) -> str:
+    """Gmail sends the approved reply, then saving the approval fails: the card stays."""
+    conversation_id = await lead.decide(outcome())
+    monkeypatch.setattr(
+        handle, "save_agent_conversation", AsyncMock(side_effect=RuntimeError("db gone"))
+    )
+    with pytest.raises(RuntimeError):
+        await lead.decide_on(conversation_id)
+    from api.src.agent_conversations import models as conversation_models
+
+    monkeypatch.setattr(
+        handle, "save_agent_conversation", conversation_models.save_agent_conversation
+    )
+    handle.send_reply.assert_awaited_once()
+    assert [c["tool_name"] for c in await pending_cards(conversation_id)] == [handle.SEND_REPLY]
+    return conversation_id
+
+
+async def the_place() -> ShowingAttendee:
+    _, attendees, _ = await rows()
+    (place,) = attendees
+    return place
+
+
+@pytest.mark.asyncio
+async def test_a_sent_place_is_marked_sent(lead):
+    await lead.decide_on(await lead.decide(outcome()))
+
+    place = await the_place()
+    assert place.lead_reply_sent_at == lead.world.now
+    assert place.attention_reason is None
+
+
+@pytest.mark.asyncio
+async def test_an_uncertain_place_is_kept_marked_and_not_marked_sent(lead, monkeypatch):
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=TimeoutError("maybe")))
+    with pytest.raises(TimeoutError):
+        await lead.decide_on(await lead.decide(outcome()))
+
+    place = await the_place()
+    assert place.status == "booked"
+    assert place.attention_reason == lead_bookings.REPLY_UNCERTAIN
+    assert place.lead_reply_sent_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_never_sent_place_is_not_marked_sent_and_is_cleaned_up(lead):
+    conversation_id = await lead.decide(outcome())
+    await stopped_after_booking(conversation_id, lead)
+    assert (await the_place()).lead_reply_sent_at is None
+
+    await lead.decide_on(conversation_id, approved=False)
+
+    assert (await the_place()).cancel_reason == "reply_not_sent"
+
+
+@pytest.mark.asyncio
+async def test_sent_then_the_leftover_card_rejected_keeps_the_place(lead, monkeypatch):
+    conversation_id = await sent_then_not_saved(lead, monkeypatch)
+
+    await lead.decide_on(conversation_id, approved=False)
+
+    place = await the_place()
+    assert place.status == "booked" and place.lead_reply_sent_at is not None
+
+
+@pytest.mark.asyncio
+async def test_sent_then_the_leftover_card_edited_keeps_the_place(lead, monkeypatch):
+    conversation_id = await sent_then_not_saved(lead, monkeypatch)
+
+    await lead.decide_on(conversation_id, body=EDITED)
+
+    assert (await the_place()).status == "booked"
+
+
+@pytest.mark.asyncio
+async def test_sent_then_approved_again_and_refused_keeps_the_place(lead, monkeypatch):
+    conversation_id = await sent_then_not_saved(lead, monkeypatch)
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
+
+    with pytest.raises(HTTPException):
+        await lead.decide_on(conversation_id)
+
+    place = await the_place()
+    assert place.status == "booked" and place.lead_reply_sent_at is not None
+    _, _, notices = await rows()
+    assert "cancelled" not in {n.status for n in notices}

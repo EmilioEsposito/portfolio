@@ -7,8 +7,11 @@ turns those decisions into bookings, only while the setting
 ``lead_agent_uses_open_times`` is on. With it off, or unreadable, every
 function here does nothing and answers None.
 
-When a reply is about to be sent (a person approved it, or it passed the
-automatic-send checks), ``prepare_reply`` runs first:
+Only a person sends a reply that changes a booking: the automatic send holds
+any reply for which ``plan_reply`` answers a change (``Plan.person_sends``),
+until a check that the reply's words name the booked time exists, with an
+eval run. When a person approves a reply (``handle.apply_approval``),
+``prepare_reply`` runs just before the send:
 
 - A reply whose tour is ``confirmed`` or ``rescheduled``, in person, with a
   start and a unit the case lists, books the lead into that showing through
@@ -37,7 +40,7 @@ Then ``after_send`` settles it with what the send did:
   booked is cancelled at once (``reply_not_sent``), and its notices, still
   held, are stopped before they go. Nothing else changes.
 - ``uncertain``: the place stands, marked ``reply_uncertain`` on the
-  Showings section, and the caller's delivery-review card says so; the old
+  Showings section; the old
   time of a move, or a cancellation, goes ahead as for ``sent``.
 
 Before anyone approves, the send card states what sending does
@@ -216,12 +219,13 @@ async def _thread_places(thread_id: str, unit: str, now: datetime) -> list[tuple
 async def _unsent_booking_of(attendee_id: int, conversation_id: str) -> bool:
     """Whether a place is an unsent booking of this conversation's reply.
 
-    It is when this conversation booked it (``lead_conversation_id``), the lead
-    has not completed it through their link, and no send of the reply may have
-    reached the lead (``reply_uncertain``). A place the lead booked through
-    their link, or one an earlier reply booked and sent, is never this
-    conversation's: a sent reply that finds it takes nothing over until it is
-    sent (``_confirmed_by``).
+    A place is in one of three states: never sent (cleaned up), sent
+    (``lead_reply_sent_at``: kept, whatever happens to the card afterwards) or
+    uncertain (``reply_uncertain``: kept and marked). It is this
+    conversation's unsent booking when this conversation booked it
+    (``lead_conversation_id``), its reply was never sent nor may have been, and
+    the lead has not completed it through their link. A place the lead booked
+    through their link, or one an earlier reply booked and sent, never is.
     """
     async with AsyncSessionFactory() as session:
         row = (
@@ -230,13 +234,19 @@ async def _unsent_booking_of(attendee_id: int, conversation_id: str) -> bool:
                     ShowingAttendee.lead_conversation_id,
                     ShowingAttendee.texts_consent_at,
                     ShowingAttendee.attention_reason,
+                    ShowingAttendee.lead_reply_sent_at,
                 ).where(ShowingAttendee.id == attendee_id)
             )
         ).first()
     if row is None:
         return False
-    owner, consent, attention = row
-    return owner == conversation_id and consent is None and attention != REPLY_UNCERTAIN
+    owner, consent, attention, sent_at = row
+    return (
+        owner == conversation_id
+        and consent is None
+        and sent_at is None
+        and attention != REPLY_UNCERTAIN
+    )
 
 
 async def _booking_rows(attendee_id: int) -> tuple[int, int | None]:
@@ -279,6 +289,11 @@ class Plan:
                 f"to {_short(self.start, timezone)}."
             )
         return f"Sending this cancels their showing of {self.unit} on {old}."
+
+    def person_sends(self) -> str:
+        """Why the automatic send holds this reply for a person."""
+        verb = {"book": "books", "move": "moves", "cancel": "cancels"}[self.action]
+        return f"This reply {verb} a showing, so a person sends it."
 
     def not_applied(self) -> str:
         """The result line when a person sent edited words, so nothing was applied."""
@@ -496,9 +511,7 @@ async def after_send(
                 cancelled.append(prepared.attendee_id)
         else:
             if booked_here and result == "sent":
-                await bookings.release_notices(
-                    prepared.attendee_id, prepared.residents_notice_id, now=now
-                )
+                await _sent(prepared.attendee_id, prepared.residents_notice_id, now=now)
             if booked_here and result == "uncertain":
                 await _mark(prepared.attendee_id, REPLY_UNCERTAIN)
             if prepared.action == "already_booked" and result == "sent":
@@ -518,6 +531,19 @@ async def after_send(
         cancelled=len(cancelled),
     )
     return replace(prepared, sent=result, cancelled=cancelled)
+
+
+async def _sent(attendee_id: int, residents_notice_id: int | None, *, now: datetime) -> None:
+    """The reply that booked a place was sent: say so on the place, and let its
+    held notices go, in one transaction. From here the place is never cleaned
+    up as unsent, whatever happens to the reply's card afterwards."""
+    async with AsyncSessionFactory() as session, session.begin():
+        await session.execute(
+            update(ShowingAttendee)
+            .where(ShowingAttendee.id == attendee_id)
+            .values(lead_reply_sent_at=now)
+        )
+        await bookings.release_notices(session, attendee_id, residents_notice_id, now=now)
 
 
 async def _mark(attendee_id: int, reason: str) -> None:
@@ -543,7 +569,12 @@ async def _confirmed_by(attendee_id: int | None, conversation_id: str | None) ->
                 ShowingAttendee.status == "booked",
                 ShowingAttendee.lead_conversation_id.is_not(None),
             )
-            .values(lead_conversation_id=conversation_id)
+            .values(
+                lead_conversation_id=conversation_id,
+                lead_reply_sent_at=func.coalesce(
+                    ShowingAttendee.lead_reply_sent_at, datetime.now(UTC)
+                ),
+            )
         )
         await session.execute(
             update(ShowingAttendee)
@@ -573,6 +604,7 @@ async def cancel_unsent(
                     ShowingAttendee.lead_conversation_id == conversation_id,
                     ShowingAttendee.status == "booked",
                     ShowingAttendee.texts_consent_at.is_(None),
+                    ShowingAttendee.lead_reply_sent_at.is_(None),
                     ShowingAttendee.attention_reason.is_distinct_from(REPLY_UNCERTAIN),
                 )
             )

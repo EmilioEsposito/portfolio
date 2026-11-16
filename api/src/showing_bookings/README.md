@@ -767,8 +767,10 @@ booking transaction, as it may read Quo.
 only while `lead_agent_uses_open_times` is on (the zillow_leads README has the
 table of which decision does what, and the order around a send).
 
-- A reply that confirms an in-person time at a listed unit calls
-  `place_booking` just before it is sent, with a `Person` of source
+- Only a person sends a reply that changes a booking: the lead agent's
+  automatic send holds any reply for which `plan_reply` answers a change.
+- A reply a person approves that confirms an in-person time at a listed unit
+  calls `place_booking` just before it is sent, with a `Person` of source
   `lead_agent`: the thread's name or "Zillow lead", the thread id, the
   conversation id (`lead_conversation_id`), no email, no consent to texts,
   and the thread's phone number as the mobile if it reads as a US mobile
@@ -776,8 +778,9 @@ table of which decision does what, and the order around a send).
   applies; a refusal is answered to the caller, which does not send.
 - The booking's notices that are due now (the host's event, the residents'
   text) are held for `HOLD` (5 minutes) with `hold_notices_until`, so they
-  cannot go before the send's result is known. `after_send` then lets them go
-  (`bookings.release_notices`) when the reply is sent, cancels the place with
+  cannot go before the send's result is known. `after_send` then, when the
+  reply is sent, saves `lead_reply_sent_at` on the place and lets the notices
+  go in one transaction; it cancels the place with
   reason `reply_not_sent` when Gmail refused it (its notices are stopped
   before they go, so there is nothing to undo), or marks it `reply_uncertain`
   when the send's result is unknown.
@@ -789,10 +792,14 @@ table of which decision does what, and the order around a send).
 - `plan_reply` says what sending a reply would do without changing anything;
   the lead agent puts it on the send card, holds a card whose statement went
   stale, and applies nothing when a person sends edited words.
-- A place this conversation booked and never sent (`lead_conversation_id`,
-  no details, not `reply_uncertain`) is still the reply's own booking: a
-  later approval recovers it, and a definite send failure cancels it. A place
-  booked through the lead's link or by an earlier sent reply never is.
+- A place is in one of three states: never sent (cleaned up), sent
+  (`lead_reply_sent_at`: kept, whatever happens to the reply's card
+  afterwards) or uncertain (`reply_uncertain`: kept and marked). A place this
+  conversation booked and never sent (`lead_conversation_id`, no details,
+  neither sent nor uncertain) is still the reply's own booking: a later
+  approval recovers it, and a definite send failure, a rejection or an edited
+  send cancels it. A place booked through the lead's link, by an earlier sent
+  reply, or whose own reply was sent, never is.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
 thread's token; on that unit's page the web app's loader asks
@@ -1069,7 +1076,7 @@ each path and a host without a mobile, each alert rule once only, the
 channel in and outside production, capture and live mode, the Messages
 list, and that no public answer changes. `test_zillow_lead_bookings.py` covers
 showings booked by email: nothing with the switch off; booking on approval and
-on an automatic send, with nothing to the lead; what is not booked (virtual,
+a reply that would change a booking never sent automatically, and one that changes nothing sent as before; nothing to the lead; what is not booked (virtual,
 no start, an unlisted unit, a rejected reply); a refused time holding the
 reply; a refused, an uncertain and an interrupted send; approving twice;
 moves, cancellations and the decisions that make them; and the lead adding

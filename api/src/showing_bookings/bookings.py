@@ -930,25 +930,24 @@ async def _hold_until(session: AsyncSession, condition, until: datetime) -> None
 
 
 async def release_notices(
-    attendee_id: int, residents_notice_id: int | None, *, now: datetime
+    session: AsyncSession, attendee_id: int, residents_notice_id: int | None, *, now: datetime
 ) -> None:
-    """Let a booking's notices held by ``hold_notices_until`` go now.
+    """Let a booking's notices held by ``hold_notices_until`` go now, in the caller's transaction.
 
     Only those still waiting past ``now``; the daytime rule for the residents'
     text is applied when it is delivered, as always.
     """
-    async with AsyncSessionFactory() as session, session.begin():
-        await session.execute(
-            update(ShowingNotice)
-            .where(
-                _booking_notices(attendee_id, residents_notice_id),
-                ShowingNotice.status == "pending",
-                ShowingNotice.sending_started_at.is_(None),
-                ShowingNotice.not_before > now,
-            )
-            .values(not_before=now),
-            execution_options={"synchronize_session": False},
+    await session.execute(
+        update(ShowingNotice)
+        .where(
+            _booking_notices(attendee_id, residents_notice_id),
+            ShowingNotice.status == "pending",
+            ShowingNotice.sending_started_at.is_(None),
+            ShowingNotice.not_before > now,
         )
+        .values(not_before=now),
+        execution_options={"synchronize_session": False},
+    )
 
 
 async def deliver_host_text(
