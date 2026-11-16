@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useRevalidator } from "react-router";
 
 import { type BookingView, PUBLIC_API, bookingPlace, formatSpan } from "~/lib/showing-booking-page";
 import { type CancelState, cancelCopy, cancelState, readCancelAnswer } from "~/lib/showing-cancel-page";
@@ -16,6 +16,8 @@ export function ShowingCancel({ token, initial }: { token: string; initial: Book
   const [busy, setBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const changed = useRef(false);
+  // Read the booking again after a change, so the page's title follows it.
+  const revalidator = useRevalidator();
 
   useEffect(() => {
     if (changed.current) heading.current?.focus();
@@ -44,6 +46,7 @@ export function ShowingCancel({ token, initial }: { token: string; initial: Book
     if (outcome.kind === "view") {
       setView(outcome.view);
       setState(cancelState(outcome.view, true));
+      void revalidator.revalidate();
     } else if (outcome.kind === "started") {
       setState("started");
     } else if (outcome.kind === "unknown") {

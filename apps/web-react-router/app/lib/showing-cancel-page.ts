@@ -71,7 +71,7 @@ export function cancelCopy(state: CancelState, unit: string): CancelCopy {
       return {
         title: "Showing cancelled",
         heading: "We cancelled this showing",
-        line: "We're sorry for the change of plans.",
+        line: null,
         next: { label: "See units open for showings", href: UNITS_PATH },
       };
     case "started":
