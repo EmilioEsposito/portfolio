@@ -82,7 +82,12 @@ in by code (`showing_bookings/lead_tours.py`):
   (`showing_attendees.zillow_thread_id`); see the booking service's README.
 - **The lead's own showings.** `LeadCase.own_showings` lists the thread's
   upcoming showings from the attendee rows tied to it: unit, start, and
-  booked or who cancelled it. The rendered case shows them under "This lead's
+  booked or who cancelled it. A booked one also says whether the lead's
+  details are in (`details_added`): "details not yet added" only for the
+  provisional place a reply booked (source `lead_agent`, no consent to texts),
+  the one place the link's "add your details" page can complete; "details
+  added (text reminders and invite set up)" otherwise. The rendered case shows
+  them under "This lead's
   own showings", or "(none)". With the switch off the field is `None` and the
   section is absent. Nothing about the host or other attendees is included.
 - **Tour times know their unit.** `TourSlot.unit` is set by the booking
@@ -209,8 +214,9 @@ with the switch off is told what it was told before. What they add:
   states it once as "Wednesday, April 14 at 4:00 PM" (this one applies to
   every case). With the own-showings section, a confirming reply also carries
   the lead's own link on the line "To get a text reminder and a calendar
-  invite, add your details here: <link>", and never makes a mobile number a
-  condition of the showing.
+  invite, add your details here: <link>", unless that showing is listed with
+  "details added" (the link would only show the booking form again), and
+  never makes a mobile number a condition of the showing.
 - `record.md` (lead agent only): with the own-showings section, `confirmed` or
   `rescheduled` only for a time this reply confirms (or the lead's own booked
   showing, unchanged), `start` exactly that time, `lead.unit` the listing's

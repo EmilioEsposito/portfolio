@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel
@@ -23,7 +24,8 @@ CLARIFICATION = "Quick clarification"
 LINK = re.compile(r"https?://[^\s<>\"')\]]+")
 # How the line offering a text reminder starts. The policy has a reply that
 # confirms a tour carry it, with the lead's own link after it on the same
-# line, while the case lists the lead's own showings.
+# line, while the case lists the lead's own showings, unless the case lists
+# that showing with its details added.
 DETAILS_LINE = "To get a text reminder and a calendar invite, add your details here:"
 
 
@@ -99,6 +101,17 @@ def booking_change(case: LeadCase, outcome: Reply | NoReply | Escalate) -> Booki
     return Booking(action="move" if others else "book", unit=want.unit, start=want.start)
 
 
+def _confirmed_place(case: LeadCase, outcome: Reply) -> tuple[str, datetime] | None:
+    """The unit and time a reply records as confirmed, in person at a listed unit,
+    while the case has the own-showings section; None otherwise."""
+    if case.own_showings is None:
+        return None
+    want = wanted(outcome.tour, outcome.lead, [listing.unit for listing in case.listings])
+    if want is None or want.action != "book" or want.start is None:
+        return None
+    return want.unit, want.start
+
+
 @dataclass
 class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
     """Rules about a reply that have exact answers. Skipped when there is no reply."""
@@ -135,21 +148,37 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
                 for link in LINK.findall(body)
             ),
         }
-        # Only for a reply that would book or move the lead's showing, so a
-        # case without the own-showings section is checked exactly as before.
+        # Only with the own-showings section, so a case without it is checked
+        # exactly as before. For a reply that would book or move the lead's showing:
         change = booking_change(case, outcome)
         if change.action in ("book", "move") and change.start is not None:
-            link = next(
-                listing.booking_url
-                for listing in case.listings
-                if listing.unit.casefold() == (change.unit or "").casefold()
-            )
             checks |= {
                 # The words name the time code would book, in the policy's form.
                 "states_tour_time": states_tour_time(case, outcome),
-                "details_line": bool(link) and _has_details_line(body, link),
                 "tour_time_allowed": change.start in allowed_tour_times(case, change.unit),
             }
+        # For a reply that confirms a time, new or the lead's own showing restated:
+        # the details line when that showing's details are not in, and never when they are.
+        place = _confirmed_place(case, outcome)
+        if place and (change.action in ("book", "move") or states_tour_time(case, outcome)):
+            unit, start = place
+            link = next(
+                listing.booking_url
+                for listing in case.listings
+                if listing.unit.casefold() == unit.casefold()
+            )
+            added = any(
+                own.status == "booked"
+                and own.unit.casefold() == unit.casefold()
+                and own.start == start
+                and own.details_added
+                for own in case.own_showings or []
+            )
+            checks["details_line"] = (
+                not _has_details_line(body)
+                if added
+                else bool(link) and _has_details_line(body, link)
+            )
         return checks
 
 

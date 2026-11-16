@@ -149,6 +149,8 @@ def edit_fingerprint(edit: CaseEdit | None) -> str:
     if edit.own_showings is not None:
         facts["own_showings"] = sorted(
             [own.unit, own.start.astimezone(UTC).isoformat(), own.status, own.cancelled_by or ""]
+            # Added only when known, so an edit from before it existed keeps its fingerprint.
+            + ([] if own.details_added is None else [own.details_added])
             for own in edit.own_showings
         )
     return hashlib.sha256(json.dumps(facts).encode()).hexdigest()[:12]

@@ -233,6 +233,29 @@ def test_a_run_without_expectations_gets_no_expected_checks():
     assert checks(case, decision(), {}, ExpectedOutcome()) == {}
 
 
+def test_restating_an_own_showing_needs_the_details_line_only_while_details_are_missing():
+    line = "To get a text reminder and a calendar invite, add your details here: "
+    unit = {"unit": "320-03"}
+    added = ITEMS["synthetic-reconfirm-details-added-2"]
+    pending = ITEMS["synthetic-reconfirm-provisional-2"]
+    for item, needs_line in ((added, False), (pending, True)):
+        case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
+        link = item.edit.booking_links["320-03"]
+        plain = item.good_reply.removesuffix(synthetic.SIGNATURE).split("\n\nTo get")[0]
+        with_line = plain + f"\n\n{line}{link}" + synthetic.SIGNATURE
+        without = plain + synthetic.SIGNATURE
+        tour = item.good_tour
+        found = {
+            body: checks(case, decision(reply_body=body, lead=unit, tour=tour))["details_line"]
+            for body in (with_line, without)
+        }
+        assert found == {with_line: needs_line, without: not needs_line}, item.scenario
+        # Nothing is booked or moved, so the time and booking checks do not apply.
+        assert "states_tour_time" not in checks(
+            case, decision(reply_body=with_line, lead=unit, tour=tour)
+        )
+
+
 @pytest.mark.asyncio
 async def test_a_run_with_expected_reports_the_checks_for_each_good_decision(tmp_path):
     """The ``run --expected`` path, with each scenario's good decision in place of a model."""

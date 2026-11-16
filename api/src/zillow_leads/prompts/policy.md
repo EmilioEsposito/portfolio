@@ -184,7 +184,8 @@ the same reply on the assumption that the answer works.
   the week, month, day, then the time.
 - When the case lists this lead's own showings, even as "(none)", a reply that
   confirms a tour time also gives the lead's booking link for that unit on its
-  own line, written exactly as:
+  own line, unless that showing is listed there with "details added". Write
+  the line exactly as:
   `To get a text reminder and a calendar invite, add your details here: <the link>`
   Adding details is up to the lead. Never ask for a mobile number or make one
   a condition of the showing.

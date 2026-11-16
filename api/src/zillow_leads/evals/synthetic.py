@@ -8,7 +8,7 @@ holds only while the lead agent uses the booking service: per-lead booking
 links, the lead's own showings (booked or cancelled), a showing others booked
 that the lead can join, and times open at one unit only. They also cover
 the policy for a lead's own showing: confirming a time by email, moving and
-cancelling it, a lead who would rather not give a mobile number, and one case
+cancelling it, reconfirming it with and without the lead's details in, a lead who would rather not give a mobile number, and one case
 built as production builds it with the switch off, which must be answered as
 before the booking service existed.
 
@@ -126,14 +126,88 @@ def scenarios() -> list[Synthetic]:
         "Ua6gS3hD8jF1kL4qW7eR2t",
         "Tb2nM8vC5xZ1aQ7wE4rY6u",
     )
-    max_, ash, pat, rio = (
+    max_, ash, pat, rio, dee, eli = (
         "Kc5vB9nM2xL8qW4eR7tY1u",
         "Wf3gH6jK9lZ2xC5vB8nM1q",
         "Rj7kL1zX4cV8bN2mQ5wE9t",
         "Ym4nB7vC1xZ5aS8dF2gH6j",
+        "Qa9sD2fG5hJ8kL1zX4cV7b",
+        "Nm6bV3cX9zL2kJ5hG8fD1s",
     )
-    booked_alex = OwnShowing(unit="320-03", start=_at(14, 16), status="booked")
+    # Booked through the lead's own link: details in. A place a confirming
+    # reply booked is provisional until the lead adds them.
+    booked_alex = OwnShowing(unit="320-03", start=_at(14, 16), status="booked", details_added=True)
+    provisional = booked_alex.model_copy(update={"details_added": False})
     return [
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-reconfirm-details-added",
+                    (180, False, "Is 320 Example St available?"),
+                    (150, True, f"Hello,\n\nYes. Book a showing here: {links(dee)['320-03']}"),
+                    (5, False, "Just checking we're still on for tomorrow at 4?"),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                booking_links=links(dee),
+                own_showings=[booked_alex.model_copy()],
+                note="Made up: the lead booked through their link, with their details.",
+            ),
+            expected="reply",
+            why=(
+                "Confirm the existing time, 'Wednesday, April 14 at 4:00 PM', and nothing else. "
+                "No details line: the lead's details are in, and their link would only show "
+                "the booking form again."
+            ),
+            booking=Booking(),
+            details_line=False,
+            good_reply=(
+                "Hello,\n\nYes, you're confirmed for Wednesday, April 14 at 4:00 PM at "
+                "320 Example St, Unit 3." + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(14, 16).isoformat()},
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-reconfirm-provisional",
+                    (300, False, "Could I see 320 Example St tomorrow at 4 PM?"),
+                    (
+                        270,
+                        True,
+                        "Hello,\n\nYou're confirmed for Wednesday, April 14 at 4:00 PM at "
+                        "320 Example St, Unit 3.\n\nTo get a text reminder and a calendar "
+                        f"invite, add your details here: {links(eli)['320-03']}",
+                    ),
+                    (5, False, "Can you confirm my showing tomorrow at 4?"),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booked=[BookedTour(unit="320-03", start=_at(14, 16))],
+                booking_links=links(eli),
+                own_showings=[provisional],
+                note="Made up: an email reply booked the place; the lead has not added details.",
+            ),
+            expected="reply",
+            why=(
+                "Confirm the existing time once, 'Wednesday, April 14 at 4:00 PM', with the "
+                "details line and the lead's own 320-03 link, since the details are not in yet."
+            ),
+            booking=Booking(),
+            details_line=True,
+            good_reply=(
+                "Hello,\n\nYes, you're confirmed for Wednesday, April 14 at 4:00 PM at "
+                "320 Example St, Unit 3.\n\n"
+                "To get a text reminder and a calendar invite, add your details here: "
+                f"{links(eli)['320-03']}" + SIGNATURE
+            ),
+            good_unit="320-03",
+            good_tour={"status": "confirmed", "start": _at(14, 16).isoformat()},
+        ),
         Synthetic(
             scenario=Scenario(
                 thread=_thread(

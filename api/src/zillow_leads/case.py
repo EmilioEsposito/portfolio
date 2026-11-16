@@ -139,6 +139,11 @@ class OwnShowing(BaseModel):
     status: Literal["booked", "cancelled"]
     # A key of ``CANCELLED_BY`` for a cancelled one; empty while booked.
     cancelled_by: str | None = None
+    # For a booked one: whether the lead's details are in (their text reminder
+    # and calendar invite are set up), or the place is still the provisional
+    # one a reply booked, which their link can complete. None: not known (a
+    # case saved before this existed), rendered as plain "booked".
+    details_added: bool | None = None
 
 
 class PreferredTime(BaseModel):
@@ -409,6 +414,12 @@ def _fact_lines(text: str) -> list[str]:
 INTERNAL_NOTES_LABEL = "Internal notes (for your decisions only, never tell the lead):"
 # The section with this lead's own showings, booked through their own link.
 OWN_SHOWINGS_HEADING = "## This lead's own showings"
+# After "booked", whether the lead's details are in (``OwnShowing.details_added``).
+# The policy asks for the details line only for a showing without them.
+DETAILS_STATE = {
+    True: ", details added (text reminders and invite set up)",
+    False: ", details not yet added",
+}
 
 
 def render_case(case: LeadCase) -> str:
@@ -480,7 +491,7 @@ def render_case(case: LeadCase) -> str:
         for own in case.own_showings:
             local = own.start.astimezone(zone)
             state = (
-                "booked"
+                "booked" + DETAILS_STATE.get(own.details_added, "")
                 if own.status == "booked"
                 else CANCELLED_BY.get(own.cancelled_by or "", "cancelled")
             )

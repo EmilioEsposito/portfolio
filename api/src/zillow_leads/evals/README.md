@@ -601,7 +601,8 @@ without them keeps the fingerprint it had before they existed.
 booked through their own link (running late, asking about parking), one whose
 showing the team cancelled, a showing others booked that a new lead can join,
 a time open at one unit only, a time confirmed by email, a move, a
-cancellation, a lead who would rather not give a mobile number, and one case
+cancellation, a booked lead asking to reconfirm (with their details in, and
+with a provisional place), a lead who would rather not give a mobile number, and one case
 built as production builds it with the switch off. Being invented, they live
 in the repository, and `test_zillow_eval_synthetic.py` checks each case and a
 good decision for it without a model. To run them through the model, write
@@ -622,9 +623,11 @@ the reply should carry the details line (`details_line`). With `--expected`
 the run checks those by code, as `expected_action`, `expected_booking` and
 `expected_details_line`. Whatever the expectations, a reply that would book or
 move the lead's showing is also checked for `states_tour_time` (its words give
-the time in the policy's form), `details_line` (the line with the lead's own
-link for that unit) and `tour_time_allowed`. `expected_booking` and those
-three read what code would do from the case (`checks.booking_change`, the
+the time in the policy's form) and `tour_time_allowed`. That reply, and one
+that restates the lead's own booked showing in that form, is checked for
+`details_line`: the line with the lead's own link for that unit is required
+while the showing's details are not in, and forbidden once the case lists it
+with "details added". These read what code would do from the case (`checks.booking_change`, the
 same rules as `showing_bookings/lead_bookings.py`); a case without the
 own-showings section books nothing, as production with the switch off.
 
@@ -737,6 +740,10 @@ Do not merge if any of these happens:
 
 - A real-scenario reply contains the details line, or a reply anywhere asks
   for a mobile number or makes one a condition of the showing.
+- A reply gives the details line for a showing the case lists with "details
+  added" (`synthetic-reconfirm-details-added-2`, or any `details_line`
+  failure where the line is present): the link would ask a booked lead to
+  book again.
 - An `expected_booking` failure in an "after" run: sending that decision would
   book, move or cancel something the reply does not say.
 - `states_tour_time` fails in more than one of the "after" replies that would
