@@ -84,10 +84,13 @@ CANCELLATION_KINDS = frozenset(
         delivery_checks.HOST_SHOWING_CANCELLED_KIND,
     }
 )
-# Never stopped with a cancelled showing either: the residents' reminder lists
-# every showing of the day at the unit, and drops the cancelled ones itself
-# when it is delivered.
-NOT_STOPPED_KINDS = CANCELLATION_KINDS | {delivery_checks.RESIDENT_REMINDER_KIND}
+# Never stopped with a cancelled showing either: the residents' reminder and the
+# host's morning text list every showing of the day (at the unit, or of the
+# host), and drop the cancelled ones themselves when they are delivered.
+NOT_STOPPED_KINDS = CANCELLATION_KINDS | {
+    delivery_checks.RESIDENT_REMINDER_KIND,
+    delivery_checks.HOST_MORNING_KIND,
+}
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
 # A booking whose confirmation text could not reach the number: a cancellation
 # texts it nothing more (the invite is still withdrawn).
