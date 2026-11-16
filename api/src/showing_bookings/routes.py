@@ -624,8 +624,7 @@ class ShowingsView(BaseModel):
 
 
 @router.get("/showings", response_model=ShowingsView)
-async def list_showings(session: DBSession):
-    now = datetime.now(UTC)
+async def list_showings(session: DBSession, now: datetime = Depends(clock)):
     try:
         found = await open_times.open_times(now=now, session=session)
     except RentalDataInvalid as invalid:

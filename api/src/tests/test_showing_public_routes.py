@@ -91,6 +91,9 @@ async def every_route(world: PublicWorld) -> list[int]:
                 )
             ).status_code,
             (await client.post(f"{PUBLIC}/team-phone", json={"turnstile_token": "t"})).status_code,
+            (
+                await client.post(f"{PUBLIC}/bookings/cancel", json={"cancel_token": "x"})
+            ).status_code,
         ]
 
 
@@ -98,7 +101,7 @@ async def every_route(world: PublicWorld) -> list[int]:
 async def test_switched_off_every_public_route_answers_404_and_saves_nothing(world):
     await store_settings(public_booking_enabled=False)
 
-    assert await every_route(world) == [404] * 5
+    assert await every_route(world) == [404] * 6
     assert await rows() == ([], [], [])
     assert world.turnstile_checks == []
     assert world.texts.sent == []
@@ -110,7 +113,7 @@ async def test_unset_means_off_in_production_and_on_elsewhere(world, monkeypatch
         assert (await client.get(f"{PUBLIC}/units/{UNIT}")).status_code == 200
 
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
-    assert await every_route(world) == [404] * 5
+    assert await every_route(world) == [404] * 6
 
     await store_settings(public_booking_enabled=True)
     async with world.client() as client:
@@ -143,7 +146,7 @@ async def test_the_tab_switches_public_booking_and_keeps_it_through_a_send_mode_
             "/api/showing-bookings/settings/public-booking", json={"public_booking_enabled": None}
         )
         assert back.json()["public_booking_on"] is True
-    assert await every_route(world) != [404] * 5
+    assert await every_route(world) != [404] * 6
 
 
 # What the page reads
