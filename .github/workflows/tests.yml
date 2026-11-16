@@ -32,6 +32,74 @@ jobs:
       - run: pnpm --filter web-react-router typecheck
       - run: pnpm build
 
+  # The booking page end to end in Chromium: the local API and the built web
+  # app on a disposable Postgres, in capture mode. No secret is used and
+  # nothing outside the runner is called; see "Browser test" in
+  # apps/web-react-router/README.md.
+  browser:
+    name: Booking page in the browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: portfolio
+          POSTGRES_PASSWORD: portfolio
+          POSTGRES_DB: portfolio_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+      - name: Bootstrap trusted tooling
+        run: |
+          sudo apt-get update && sudo apt-get install -y ca-certificates
+          sudo sh apps/sernia_mcp/trust/distrust-emsign.sh
+          node scripts/check-node-trust.cjs
+      - uses: pnpm/action-setup@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.4"
+          enable-cache: true
+          cache-suffix: emsign-2026-10-22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Bootstrap trusted Python tooling
+        run: |
+          sh apps/sernia_mcp/trust/bootstrap-pip.sh python
+          python apps/sernia_mcp/trust/check_python_trust.py --require-uv
+      - run: uv sync --locked -p 3.11
+      - run: .venv/bin/python apps/sernia_mcp/trust/check_python_trust.py --require-certifi --require-uv
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm --filter web-react-router exec playwright install --with-deps --only-shell chromium
+      - name: Browser test
+        env:
+          E2E_DATABASE_URL: postgresql://portfolio:portfolio@127.0.0.1:5432/portfolio_e2e
+        run: pnpm --filter web-react-router test:e2e
+      - name: Keep the trace and screenshots of a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: |
+            apps/web-react-router/test-results/
+            apps/web-react-router/playwright-report/
+          retention-days: 14
+
   sernia-mcp:
     name: Sernia MCP (not live)
     runs-on: ubuntu-latest

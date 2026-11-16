@@ -48,8 +48,9 @@ Sernia Capital's public pages (issue #368) will be served on serniacapital.com b
 this same service. They need no sign-in, and they load no Clerk at all, because
 Clerk's production keys belong to eesposito.com.
 
-- Paths: `/showings`, `/showings/*`, `/privacy` and `/sms-terms`. Only `/privacy`
-  and `/sms-terms` exist so far. Pages live in `app/routes/_sernia-public.*.tsx`
+- Paths: `/showings`, `/showings/*`, `/privacy` and `/sms-terms`. So far there
+  are `/privacy`, `/sms-terms` and the booking page `/showings/:unit` (below).
+  Pages live in `app/routes/_sernia-public.*.tsx`
   under a layout with its own header and footer. Tests check that each page there
   sits at a Sernia public path, and that every page at such a path is under the
   layout, whose middleware enforces the switch below.
@@ -79,6 +80,50 @@ Clerk's production keys belong to eesposito.com.
 
 To check locally, open `http://serniacapital.localhost:<web port>/privacy`.
 Browsers resolve `*.localhost` to this machine without any hosts-file change.
+
+### The booking page
+
+`/showings/:unit` books a 30-minute in-person showing through the public
+booking API (`api/src/showing_bookings/README.md`). Its loader reads the unit on
+the server (`app/lib/backend-url.server.ts` picks the backend as `server.js`
+does), so a unit not on offer, or booking switched off, is a 404 page. The
+booking, a corrected mobile and the team's number go from the browser straight
+to `/api/showing-bookings/public/...`, so the API sees the person's own IP
+address, user agent and `Signature-Agent` header. The ticks' wording and the
+small print come from the API. The page is `noindex` for now. Pure logic
+(times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
+and tested in `test/lib/showing-booking-page.test.ts`.
+
+Turnstile runs on demand (`app/components/sernia-public/turnstile.tsx`): each
+booking and each "Show phone number" gets a fresh token. Outside production the
+API uses Cloudflare's test keys and answers the test secret itself.
+
+### Browser test
+
+`test/e2e/` holds the repository's browser test (Playwright, Chromium only): book a
+showing, miss a tick, correct the mobile, an unknown unit. It builds the app,
+starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
+made-up keys only, no secret, capture mode), opens the page on
+`serniacapital.localhost`, answers Turnstile's script in the browser and blocks
+every other request that would leave the machine. Before each test
+`scripts/showing_browser_test.py reset` empties the showing tables and saves a
+made-up listing, and the tests read the rows back with its `rows` command. The
+script refuses production and any database not on this machine.
+
+Run it from the repository root against a disposable local database (the CI job
+`Booking page in the browser` does the same with a Postgres service):
+
+```bash
+psql postgresql://portfolio:portfolio@127.0.0.1:5432/postgres -c 'CREATE DATABASE portfolio_e2e'  # once
+pnpm --filter web-react-router exec playwright install chromium                                    # once
+pnpm --filter web-react-router test:e2e
+```
+
+`E2E_DATABASE_URL` (default `postgresql://portfolio:portfolio@127.0.0.1:5432/portfolio_e2e`),
+`E2E_API_PORT` (8765) and `E2E_WEB_PORT` (5765) change the defaults, for example
+to run two worktrees at once. A failure keeps a trace and a screenshot in
+`test-results/`; open a trace with `pnpm --filter web-react-router exec playwright show-trace <trace.zip>`.
+In CI they are uploaded as the `browser-test-results` artifact.
 
 ## Structure
 
