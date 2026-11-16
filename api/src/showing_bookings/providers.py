@@ -1,9 +1,12 @@
-"""What the booking code needs from the outside world, as two small interfaces.
+"""What the booking code needs from the outside world, as three small interfaces.
 
 - ``TextSender``: send a text or a group text, and read a sent text's status. Quo in
   production (``quo.py``); ``fakes.RecordingTextSender`` in tests.
 - ``CalendarSource``: busy times for a set of calendars, and events with
   invited guests. Google later; ``fakes.InMemoryCalendar`` in tests.
+- ``TeamAlerter``: an alert on the team's phones. The Sernia web push the
+  approval flow uses, in production only (``push.py``);
+  ``fakes.RecordingAlerter`` in tests.
 
 Only ``outbox.py`` hands a notice to one of these, so nothing reaches a
 person except through the guard. Reading busy times is not a notice and is
@@ -95,6 +98,14 @@ class EventDraft(BaseModel):
     starts_at: datetime
     ends_at: datetime
     attendees: list[str]
+
+
+class TeamAlerter(Protocol):
+    async def send_alert(self, title: str, body: str, url: str) -> None:
+        """Get the team's attention: ``title`` and ``body`` on their phones, opening
+        ``url`` (a path on the site) when tapped. Never names a prospect's or a
+        resident's number."""
+        ...
 
 
 class CalendarSource(Protocol):

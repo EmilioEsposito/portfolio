@@ -5,6 +5,7 @@
   undelivered.
 - ``InMemoryCalendar`` holds busy times and events in memory, and can be told
   to lose a calendar.
+- ``RecordingAlerter`` keeps every alert the team would have been pushed.
 - ``StandInContacts`` answers made-up Quo contacts for the resident lookup,
   with residents a test adds, or sample residents for every unit outside
   production, and can be told to fail.
@@ -61,6 +62,10 @@ class RecordingTextSender:
         """Refuse every text to ``number`` the way Quo does: nothing is recorded as sent."""
         self._refusals[number] = NotSent(reason, _REFUSALS.get(reason, reason), retryable=retryable)
 
+    def accept(self, number: str) -> None:
+        """Stop refusing ``number``, as Quo back in reach would."""
+        self._refusals.pop(number, None)
+
     def lose_answer(self, number: str) -> None:
         """Send texts to ``number`` but fail before answering, as a timeout would."""
         self._lost_answers.add(number)
@@ -109,6 +114,26 @@ class RecordingTextSender:
         if number is None:
             raise LookupError(f"No text {provider_id} was sent.")
         return self._statuses.get(number, "delivered")
+
+
+@dataclass(frozen=True)
+class RecordedAlert:
+    title: str
+    body: str
+    url: str
+
+
+class RecordingAlerter:
+    """A ``TeamAlerter`` that records alerts instead of pushing them, and can be told to fail."""
+
+    def __init__(self) -> None:
+        self.alerts: list[RecordedAlert] = []
+        self.failing = False
+
+    async def send_alert(self, title: str, body: str, url: str) -> None:
+        if self.failing:
+            raise RuntimeError("The push service did not answer.")
+        self.alerts.append(RecordedAlert(title=title, body=body, url=url))
 
 
 @dataclass

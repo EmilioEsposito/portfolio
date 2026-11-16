@@ -41,7 +41,9 @@ from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.schema import ShowingRules
 from api.src.showing_bookings import (
     bookings,
+    delivery_checks,
     host_event,
+    host_texts,
     outbox,
     resident_notices,
     residents,
@@ -76,12 +78,18 @@ CANCELLATION_KINDS = frozenset(
         HOST_CANCEL_KIND,
         host_event.MOVED_KIND,
         residents.CANCELLED_KIND,
+        delivery_checks.HOST_LEFT_KIND,
+        delivery_checks.HOST_SHOWING_CANCELLED_KIND,
     }
 )
+# Never stopped with a cancelled showing either: the residents' reminder lists
+# every showing of the day at the unit, and drops the cancelled ones itself
+# when it is delivered.
+NOT_STOPPED_KINDS = CANCELLATION_KINDS | {delivery_checks.RESIDENT_REMINDER_KIND}
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
 # A booking whose confirmation text could not reach the number: a cancellation
 # texts it nothing more (the invite is still withdrawn).
-WRONG_NUMBER = frozenset({"confirmation_undelivered", "confirmation_refused"})
+WRONG_NUMBER = delivery_checks.WRONG_NUMBER
 STARTED_MESSAGE = "This showing has already started."
 
 
@@ -105,7 +113,7 @@ async def _stop(session: AsyncSession, condition) -> int:
             condition,
             ShowingNotice.status.in_(["held", "pending"]),
             ShowingNotice.sending_started_at.is_(None),
-            ShowingNotice.kind.not_in(CANCELLATION_KINDS),
+            ShowingNotice.kind.not_in(NOT_STOPPED_KINDS),
         )
         .values(status="cancelled", last_error=STOPPED_NOTE),
         execution_options={"synchronize_session": False},
@@ -116,11 +124,7 @@ async def _stop(session: AsyncSession, condition) -> int:
 def will_text(attendee: ShowingAttendee) -> bool:
     """Whether a cancellation texts this person: a mobile, texts accepted, and no
     sign the number is wrong (its confirmation was undelivered or refused)."""
-    return bool(
-        attendee.mobile
-        and attendee.texts_accepted
-        and attendee.attention_reason not in WRONG_NUMBER
-    )
+    return delivery_checks.can_text(attendee)
 
 
 def _mark(row: Showing | ShowingAttendee, reason: str, now: datetime) -> None:
@@ -279,15 +283,16 @@ async def _cancel_showings(
     reason: CancelReason,
     rules: ShowingRules,
     now: datetime,
-) -> tuple[int, list[int]]:
+) -> tuple[int, list[int], list[int]]:
     """Cancel the showings and everyone booked in them, in the caller's transaction.
 
     The caller holds the shared booking lock. Returns how many attendees were
-    cancelled and the ids of the texts queued.
+    cancelled, the ids of the texts queued to them, and the ids of the host's
+    texts (a showing starting within 2 hours).
     """
     ids = sorted(set(showing_ids))
     if not ids:
-        return 0, []
+        return 0, [], []
     attendees = list(
         await session.scalars(
             select(ShowingAttendee)
@@ -303,6 +308,7 @@ async def _cancel_showings(
         if showing.status == "scheduled"
     ]
     texts: list[int] = []
+    host: list[int] = []
     cancelled = 0
     for showing in showings:
         _mark(showing, reason, now)
@@ -316,7 +322,9 @@ async def _cancel_showings(
             )
         await queue_host_cancel(session, showing, now)
         await queue_resident_cancellation(session, showing, now=now)
-    return cancelled, texts
+        late = await host_texts.queue_showing_cancelled(session, showing, rules=rules, now=now)
+        host += [late] if late is not None else []
+    return cancelled, texts, host
 
 
 async def _lock_showings_after_notices(session: AsyncSession, ids: list[int]) -> list[Showing]:
@@ -333,11 +341,13 @@ async def _remove(
     reason: CancelReason,
     rules: ShowingRules,
     now: datetime,
-) -> tuple[Showing, list[int]]:
+) -> tuple[Showing, list[int], list[int]]:
     """Cancel one booked attendee, and their showing when they were the last.
 
     The caller holds the shared booking lock and the attendee's row lock, so
-    the number still booked cannot change underneath.
+    the number still booked cannot change underneath. Returns the showing, the
+    ids of the texts queued to the attendee, and the id of the host's text when
+    the showing starts within 2 hours; all are delivered at once.
     """
     others = await session.scalar(
         select(func.count())
@@ -371,7 +381,10 @@ async def _remove(
         await bookings.queue_host_update_after_leaving(
             session, showing=showing, attendee_id=attendee.id, now=now, why="cancelled"
         )
-    return showing, texts
+    late = await host_texts.queue_left(
+        session, showing, attendee, by_team=reason in BY_TEAM, rules=rules, now=now
+    )
+    return showing, texts, [late] if late is not None else []
 
 
 async def _deliver_texts(ids: list[int], *, now: datetime, texts: TextSender | None) -> None:
@@ -400,13 +413,14 @@ async def cancel_by_token(
     async with AsyncSessionFactory() as session:
         rules = await listings_service.read_showing_rules(session)
     queued: list[int] = []
+    host: list[int] = []
     async with AsyncSessionFactory() as session, session.begin():
         await bookings.lock(session, bookings.BOOKING_LOCK)
         attendee, showing = await bookings.by_token(session, token, lock=True)
         if attendee.status == "booked" and showing.status == "scheduled":
             if showing.starts_at <= now:
                 raise bookings.Refused(409, "started", STARTED_MESSAGE)
-            showing, queued = await _remove(
+            showing, queued, host = await _remove(
                 session, attendee, showing.id, reason="prospect", rules=rules, now=now
             )
             logfire.info(
@@ -416,7 +430,7 @@ async def cancel_by_token(
                 showing_cancelled=showing.status == "cancelled",
             )
         view = bookings.view_of(showing, attendee, rules.timezone, now)
-    await _deliver_texts(queued, now=now, texts=texts)
+    await _deliver_texts(queued + host, now=now, texts=texts)
     return view
 
 
@@ -454,18 +468,18 @@ async def cancel_showing(
         showing = await session.get(Showing, showing_id)
         if showing is None:
             raise NotFound
-        cancelled, queued = 0, []
+        cancelled, queued, host = 0, [], []
         if showing.status == "scheduled":
             if showing.starts_at <= now:
                 raise Started
-            cancelled, queued = await _cancel_showings(
+            cancelled, queued, host = await _cancel_showings(
                 session, [showing_id], reason="team", rules=rules, now=now
             )
         status = showing.status
     logfire.info(
         "showing cancelled by the team", showing_id=showing_id, attendees_cancelled=cancelled
     )
-    await _deliver_texts(queued, now=now, texts=texts)
+    await _deliver_texts(queued + host, now=now, texts=texts)
     return TeamCancel(
         showing_id=showing_id,
         showing_status=status,
@@ -493,11 +507,11 @@ async def remove_attendee(
         if attendee is None:
             raise NotFound
         showing = await session.get_one(Showing, showing_id)
-        cancelled, queued = 0, []
+        cancelled, queued, host = 0, [], []
         if attendee.status == "booked" and showing.status == "scheduled":
             if showing.starts_at <= now:
                 raise Started
-            showing, queued = await _remove(
+            showing, queued, host = await _remove(
                 session, attendee, showing_id, reason="team", rules=rules, now=now
             )
             cancelled = 1
@@ -509,7 +523,7 @@ async def remove_attendee(
         changed=bool(cancelled),
         showing_cancelled=status == "cancelled",
     )
-    await _deliver_texts(queued, now=now, texts=texts)
+    await _deliver_texts(queued + host, now=now, texts=texts)
     return TeamCancel(
         showing_id=showing_id,
         showing_status=status,
@@ -616,7 +630,7 @@ async def cancel_off_market(
     showing_ids = await _off_market_showing_ids(session, unit, off_market_on, now)
     if not showing_ids:
         return 0
-    cancelled, queued = await _cancel_showings(
+    cancelled, queued, _host = await _cancel_showings(
         session, showing_ids, reason="off_market", rules=rules, now=now
     )
     logfire.info(

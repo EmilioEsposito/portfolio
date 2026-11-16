@@ -45,8 +45,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
-from api.src.showing_bookings import bookings, host_event, open_times, outbox, wording
+from api.src.showing_bookings import (
+    bookings,
+    host_event,
+    host_texts,
+    open_times,
+    outbox,
+    wording,
+)
 from api.src.showing_bookings.bookings import Refused
 from api.src.showing_bookings.models import (
     Showing,
@@ -196,6 +204,8 @@ async def book_for_caller(
                 TEAM_NUMBER_REFUSED,
                 {"mobile": "Quo refused this number."},
             )
+    # A showing starting within 2 hours: the host is texted at once.
+    await bookings.deliver_host_text(placed.host_text_id, now=now, texts=texts)
     async with AsyncSessionFactory() as session:
         ids = list(
             await session.scalars(
@@ -234,9 +244,19 @@ class HostChange(BaseModel):
     notices: list[QueuedNotice]
 
 
-async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostChange:
-    """Give a scheduled showing that has not started to another agent. Raises ``Refused``."""
+async def change_host(
+    showing_id: int, agent_id: int, *, now: datetime, texts: TextSender | None = None
+) -> HostChange:
+    """Give a scheduled showing that has not started to another agent. Raises ``Refused``.
+
+    Within 2 hours of the start, both hosts are also texted at once
+    (``host_texts.queue_moved``): the new one that it is theirs, the old one
+    that it is not.
+    """
     queued: list[int] = []
+    late: list[int] = []
+    async with AsyncSessionFactory() as session:
+        rules = await listings_service.read_showing_rules(session)
     try:
         async with AsyncSessionFactory() as session, session.begin():
             await bookings.lock(session, bookings.BOOKING_LOCK)
@@ -353,6 +373,10 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
             showing.agent_id = agent.id
             showing.host_event_id = None
             await session.flush()
+            late = await host_texts.queue_moved(
+                session, showing, old_host, agent, move=move, rules=rules, now=now
+            )
+            queued += late
 
             calendar_id = await bookings._showings_calendar(session, agent)
             payload = await host_event.render(session, showing, calendar_id=calendar_id)
@@ -416,6 +440,8 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
         agent_id=agent_id,
         notices_queued=len(queued),
     )
+    for notice_id in late:
+        await bookings.deliver_host_text(notice_id, now=now, texts=texts)
     return HostChange(
         showing_id=showing_id,
         host_id=agent_id,
