@@ -1061,6 +1061,11 @@ async def correct_mobile(
                 .values(status="held", waits_for_notice_id=confirmation.id, last_error=None),
                 execution_options={"synchronize_session": False},
             )
+            # The residents' announcement may have been handed to someone else
+            # and stopped there: bring it back by showing, as a join does.
+            await resident_notices.bring_back(
+                session, showing_id, waits_for_notice_id=confirmation.id, now=now
+            )
             attendee.mobile = mobile
             if attendee.attention_reason and attendee.attention_reason.startswith("confirmation_"):
                 attendee.attention_reason = None

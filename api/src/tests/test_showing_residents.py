@@ -929,6 +929,48 @@ async def test_a_correction_after_a_join_brought_it_back_makes_no_second_announc
 
 
 @pytest.mark.asyncio
+async def test_a_correction_brings_back_an_announcement_handed_over_and_stopped(world):
+    """Alex's text fails and the announcement is handed to Robin; Robin's then fails
+    too, so it is stopped behind Robin's text. Alex corrects their mobile: the
+    announcement comes back behind Alex's new text, though it last waited on Robin's."""
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    world.texts.report(ROBIN_MOBILE, "sent")  # no final report yet
+    alex = await book(world)
+    await book(world, robin())
+    await world.send_pending(NOW + timedelta(minutes=1))
+    _, attendees, notices = await rows()
+    robin_confirmation = next(
+        n for n in by_kind(notices)[CONFIRMATION] if n.attendee_id == attendees[1].id
+    )
+    assert (await one(NEW)).waits_for_notice_id == robin_confirmation.id
+
+    world.texts.report(ROBIN_MOBILE, "undelivered")
+    await world.send_pending(NOW + timedelta(minutes=2))
+    stopped = await one(NEW)
+    assert (stopped.status, stopped.waits_for_notice_id) == ("cancelled", robin_confirmation.id)
+    assert (await showing_row()).status == "scheduled"
+
+    world.now = NOW + timedelta(minutes=3)
+    async with world.client() as client:
+        corrected = await client.post(
+            f"{PUBLIC}/bookings/mobile",
+            json={"cancel_token": alex["cancel_token"], "mobile": NEW_NUMBER},
+        )
+    assert corrected.status_code == 200, corrected.text
+    _, _, notices = await rows()
+    replacement = next(n for n in by_kind(notices)[CONFIRMATION] if n.recipient == NEW_NUMBER)
+    text = await one(NEW)
+    assert (text.status, text.waits_for_notice_id) == ("held", replacement.id)
+
+    await world.send_pending(NOW + timedelta(minutes=4))
+
+    assert [(n.kind, n.status) for n in await resident_notices()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
 async def test_a_join_after_the_announcement_went_out_sends_nothing_new(world):
     await sent_first(world)
 

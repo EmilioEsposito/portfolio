@@ -643,9 +643,9 @@ booking transaction, as it may read Quo.
   waited for failed (undelivered, refused or not sent) or its booking was
   withdrawn, while the showing stays scheduled, a person who joins later
   holds it again behind their own confirmation
-  (`resident_notices.bring_back`), and the first person correcting their
-  mobile does the same behind their new text (the correction's own revival of
-  held notices). It is the same row either way, so a showing never gets two
+  (`resident_notices.bring_back`), and anyone booked who corrects their
+  mobile does the same behind their new text, whoever's confirmation the
+  announcement last waited on. It is the same row either way, so a showing never gets two
   announcements; one stopped for a cancelled showing or a passed start time
   stays stopped.
 - Daytime only: a resident's text due outside 8 AM to 9 PM in the showing

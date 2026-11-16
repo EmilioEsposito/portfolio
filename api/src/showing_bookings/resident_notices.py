@@ -149,8 +149,9 @@ def _stopped_with_its_confirmation() -> frozenset[str]:
 async def bring_back(
     session: AsyncSession, showing_id: int, *, waits_for_notice_id: int, now: datetime
 ) -> bool:
-    """When someone joins a showing whose announcement was stopped with a failed
-    confirmation, hold it again behind the joiner's confirmation, in the caller's
+    """When someone joins a showing, or corrects their mobile in it, and its
+    announcement was stopped with a failed confirmation (whoever's it last waited
+    for), hold it again behind their new confirmation, in the caller's
     transaction. Returns whether it was brought back.
 
     A showing has one announcement row at most (one per kind, showing and
@@ -175,7 +176,7 @@ async def bring_back(
     )
     brought = bool(result.rowcount)
     if brought:
-        logfire.info("showing residents' text brought back by a join", showing_id=showing_id)
+        logfire.info("showing residents' text brought back", showing_id=showing_id)
     return brought
 
 
