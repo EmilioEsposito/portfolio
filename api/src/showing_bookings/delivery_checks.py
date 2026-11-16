@@ -17,15 +17,23 @@ try or retry, under the lock on the notice:
   host, each of the two texts goes to the host it names while the showing is
   scheduled: the new host's only while they host it, the old host's only while
   they do not (a quick move back makes it false).
+- The host's morning text (``daily_texts.py``) is written afresh: the host's
+  scheduled showings that day not started yet, with the people booked now, to
+  the host's mobile now. With none left, a host without a mobile, or from
+  noon that day (a missed morning), it is not sent.
+- The apply text goes only while the person is still booked in a showing that
+  was not cancelled, is not marked a no-show, and is still a number we text,
+  to the mobile on the booking now, and only from 8 AM to 9 PM.
 
 Nothing here imports the outbox or sends anything; the outbox applies the
 answer (``Verdict``).
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.showing_bookings import residents, wording
@@ -50,7 +58,12 @@ HOST_MOVED_KINDS = frozenset({HOST_MOVED_TO_KIND, HOST_MOVED_FROM_KIND})
 HOST_TEXT_KINDS = (
     frozenset({HOST_JOIN_KIND, HOST_LEFT_KIND, HOST_SHOWING_CANCELLED_KIND}) | HOST_MOVED_KINDS
 )
-KINDS = REMINDER_KINDS | HOST_TEXT_KINDS
+# The host's text at 8 AM with the day's showings, and the prospect's text with
+# the apply link two hours after a showing (``daily_texts.py``).
+HOST_MORNING_KIND = "host_morning"
+APPLY_KIND = "prospect_apply"
+DAILY_TEXT_KINDS = frozenset({HOST_MORNING_KIND, APPLY_KIND})
+KINDS = REMINDER_KINDS | HOST_TEXT_KINDS | DAILY_TEXT_KINDS
 
 # A booking whose confirmation text could not reach the number: it is texted
 # nothing more (``cancelling.will_text``).
@@ -66,6 +79,17 @@ NO_HOST_MOBILE = "Not sent: the host has no mobile number."
 MOVED_AGAIN = "Not sent: the showing has changed host again."
 HOSTING_AGAIN = "Not sent: this host has the showing again."
 SHOWING_CANCELLED = "Not sent: the showing was cancelled."
+NO_SHOW = "Not sent: this person was marked a no-show."
+MORNING_MISSED = "Not sent: the morning had passed."
+NOTHING_TODAY = "Not sent: the host has no showing left today."
+
+MORNING = time(8, 0)
+# A morning text not sent by noon is not sent at all.
+MORNING_ENDS = time(12, 0)
+# The apply text is owed two hours after a showing's start, for showings that
+# started up to two days ago.
+APPLY_AFTER = timedelta(hours=2)
+APPLY_LOOKBACK = timedelta(days=2)
 
 
 @dataclass(frozen=True)
@@ -101,6 +125,10 @@ async def check(session: AsyncSession, notice: ShowingNotice, now: datetime) -> 
         return await _prospect_reminder(session, notice, now)
     if notice.kind == RESIDENT_REMINDER_KIND:
         return await _resident_reminder(session, notice, now)
+    if notice.kind == HOST_MORNING_KIND:
+        return await _host_morning(session, notice, now)
+    if notice.kind == APPLY_KIND:
+        return await _apply_text(session, notice, now)
     return await _host_text(session, notice, now)
 
 
@@ -193,3 +221,108 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
         return Verdict(cancel=NO_HOST_MOBILE)
     notice.recipient = mobile
     return GO
+
+
+# ---------------------------------------------------------------------------
+# The host's morning text and the apply text
+# ---------------------------------------------------------------------------
+
+
+def morning_key(agent_id: int, day: date) -> str:
+    """The recipient key of one host's morning text for one day."""
+    return f"agent:{agent_id}:morning:{day.isoformat()}"
+
+
+def _morning_of(recipient_key: str) -> tuple[int, date]:
+    _, agent_id, _, day = recipient_key.split(":")
+    return int(agent_id), date.fromisoformat(day)
+
+
+async def day_showings(
+    session: AsyncSession, agent_id: int, day: date, timezone: str, now: datetime
+) -> list[tuple[Showing, int]]:
+    """The agent's scheduled showings on ``day`` in ``timezone`` that have not
+    started by ``now``, by start, each with how many people are booked."""
+    zone = ZoneInfo(timezone)
+    day_starts = datetime.combine(day, time(0, 0), zone)
+    day_ends = datetime.combine(day + timedelta(days=1), time(0, 0), zone)
+    booked = (
+        select(func.count())
+        .where(ShowingAttendee.showing_id == Showing.id, ShowingAttendee.status == "booked")
+        .scalar_subquery()
+    )
+    rows = await session.execute(
+        select(Showing, booked)
+        .where(
+            Showing.agent_id == agent_id,
+            Showing.status == "scheduled",
+            Showing.starts_at >= day_starts,
+            Showing.starts_at < day_ends,
+            Showing.starts_at > now,
+        )
+        .order_by(Showing.starts_at, Showing.id)
+    )
+    return [(showing, count) for showing, count in rows.all()]
+
+
+def morning_body(showings: list[tuple[Showing, int]], timezone: str) -> str:
+    return wording.host_morning_text(
+        [
+            wording.DayShowing(
+                visit=wording.Visit(
+                    unit=showing.unit,
+                    address=showing.address,
+                    starts_at=showing.starts_at,
+                    ends_at=showing.ends_at,
+                    timezone=timezone,
+                ),
+                booked=count,
+            )
+            for showing, count in showings
+        ]
+    )
+
+
+async def _host_morning(session: AsyncSession, notice: ShowingNotice, now: datetime) -> Verdict:
+    payload = TextPayload.model_validate(notice.payload)
+    timezone = payload.daytime_timezone or "UTC"
+    agent_id, day = _morning_of(notice.recipient_key)
+    if now >= datetime.combine(day, MORNING_ENDS, ZoneInfo(timezone)):
+        return Verdict(cancel=MORNING_MISSED)
+    showings = await day_showings(session, agent_id, day, timezone, now)
+    if not showings:
+        return Verdict(cancel=NOTHING_TODAY)
+    mobile = await session.scalar(
+        select(ShowingAgentRecord.mobile).where(ShowingAgentRecord.id == agent_id)
+    )
+    if not mobile:
+        return Verdict(cancel=NO_HOST_MOBILE)
+    notice.recipient = mobile
+    notice.payload = payload.model_copy(
+        update={
+            "body": morning_body(showings, timezone),
+            "showing_ids": [showing.id for showing, _ in showings],
+        }
+    ).model_dump(mode="json", exclude_defaults=True)
+    return GO
+
+
+async def _apply_text(session: AsyncSession, notice: ShowingNotice, now: datetime) -> Verdict:
+    row = (
+        await session.execute(
+            select(ShowingAttendee, Showing.status)
+            .join(Showing, Showing.id == ShowingAttendee.showing_id)
+            .where(ShowingAttendee.id == notice.attendee_id)
+        )
+    ).first()
+    if row is None or row[0].status != "booked":
+        return Verdict(cancel=BOOKING_CANCELLED)
+    attendee, showing_status = row
+    if showing_status == "cancelled":
+        return Verdict(cancel=SHOWING_CANCELLED)
+    if attendee.attendance == "no_show":
+        return Verdict(cancel=NO_SHOW)
+    if not can_text(attendee):
+        return Verdict(cancel=NOT_TEXTED)
+    notice.recipient = attendee.mobile
+    return _daytime(notice, now)

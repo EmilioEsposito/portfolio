@@ -27,7 +27,10 @@ The rules, from the design's "Open times":
    be read counts as busy, never as free, and is logged as an error.
 3. A showing already booked at the unit that has room is offered as a join,
    without reading the host's calendar again: that busy time is our showing.
-   A full one is not offered, and no second showing starts beside it.
+   A join is offered until 2 hours before its start (``JOIN_CLOSES_HOURS``),
+   inside the notice period too: the residents were told when the showing
+   was first booked. A full one is not offered, and no second showing starts
+   beside it.
 4. Order: joins, then times the unit or an available agent prefers, then the
    rest, each group by time.
 5. The host of a new time is an agent already at the same address just before
@@ -73,6 +76,7 @@ from api.src.showing_bookings.schema import (
     DAYS_AHEAD,
     DEFAULT_CAPACITY,
     FREE_BUSY_CACHE_SECONDS,
+    JOIN_CLOSES_HOURS,
     SHOWING_MINUTES,
     START_EVERY_MINUTES,
     TRAVEL_MINUTES,
@@ -196,9 +200,18 @@ def notice_hours(listing: RentalListing, rules: ShowingRules) -> int:
 
 
 def start_problem(
-    start: datetime, listing: RentalListing, rules: ShowingRules, now: datetime
+    start: datetime,
+    listing: RentalListing,
+    rules: ShowingRules,
+    now: datetime,
+    *,
+    join: bool = False,
 ) -> tuple[RefusalCode, str] | None:
-    """Why ``start`` is not a start time this unit may offer at ``now``, or None."""
+    """Why ``start`` is not a start time this unit may offer at ``now``, or None.
+
+    ``join``: the time joins a showing already booked, which needs only
+    ``JOIN_CLOSES_HOURS`` of notice; a new time needs the full notice period.
+    """
     if start.tzinfo is None:
         return "not_a_start_time", "The time has no time zone."
     zone = ZoneInfo(rules.timezone)
@@ -213,7 +226,8 @@ def start_problem(
         return "blackout_date", "That day is a blackout date."
     if listing.off_market_on is not None and local.date() >= listing.off_market_on:
         return "off_market", f"The unit is off the market from {listing.off_market_on}."
-    if start < now + timedelta(hours=notice_hours(listing, rules)):
+    hours = JOIN_CLOSES_HOURS if join else notice_hours(listing, rules)
+    if start < now + timedelta(hours=hours):
         return "inside_notice", "The time is inside the notice period."
     if start > now + HORIZON:
         return "too_far_ahead", f"Showings are offered up to {DAYS_AHEAD} days out."
@@ -314,7 +328,13 @@ def offers_for(
     if listing.off_market_on is not None and listing.off_market_on <= today:
         return [], f"Off the market from {listing.off_market_on}."
     candidates = [only] if only is not None else list(_grid(rules, now))
-    starts = [start for start in candidates if start_problem(start, listing, rules, now) is None]
+    # A join needs less notice than a new time, so the shorter rule picks the
+    # candidates here and a new time is held to the full notice below.
+    starts = [
+        start
+        for start in candidates
+        if start_problem(start, listing, rules, now, join=True) is None
+    ]
     if not starts:
         return [], (
             "No start time is inside the showing window, past the notice period and within "
@@ -365,6 +385,8 @@ def offers_for(
                         showing_id=booked.id,
                     )
                 )
+            continue
+        if start_problem(start, listing, rules, now) is not None:
             continue
         # One showing at a unit at a time.
         if any(s.starts_at < end and s.ends_at > start for s in at_unit):
@@ -749,7 +771,7 @@ async def recheck(
     )
     if listing is None:
         return HostCheck(ok=False, refusal="unknown_unit", message=f"No rental listing for {unit}.")
-    problem = start_problem(start, listing, known.rules, now)
+    problem = start_problem(start, listing, known.rules, now, join=True)
     if problem is not None:
         return HostCheck(ok=False, refusal=problem[0], message=problem[1])
     booked = next(
@@ -762,6 +784,11 @@ async def recheck(
     )
     if booked is not None and booked.booked >= booked.capacity:
         return HostCheck(ok=False, refusal="full", message="That showing is full.")
+    if booked is None:
+        # A new time needs the full notice period.
+        problem = start_problem(start, listing, known.rules, now)
+        if problem is not None:
+            return HostCheck(ok=False, refusal=problem[0], message=problem[1])
     if booked is not None:
         return HostCheck(
             ok=True,

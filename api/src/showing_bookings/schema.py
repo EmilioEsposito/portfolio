@@ -60,6 +60,10 @@ START_EVERY_MINUTES = 30
 DAYS_AHEAD = 14
 TRAVEL_MINUTES = 30
 FREE_BUSY_CACHE_SECONDS = 90
+# A showing already booked can be joined until this many hours before its
+# start, inside the notice period too: its residents were told when it was
+# first booked. A new time still needs the full notice.
+JOIN_CLOSES_HOURS = 2
 
 _E164_US = re.compile(r"\+1[2-9]\d{2}[2-9]\d{6}")
 _EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")

@@ -17,6 +17,8 @@
   with the cancel link, and the residents' list of the next day's showings.
 - The host's texts when someone books or cancels, or the showing is
   cancelled, less than 2 hours ahead (``HOST_TEXT_VERSION``).
+- The host's text on the morning of a day with showings (``HOST_MORNING_VERSION``).
+- The prospect's text after a showing with the apply link (``APPLY_VERSION``).
 - What each notice is called (``notice_label``) and the team's alert when a
   notice fails or is stuck (``ALERT_VERSION``), which names no phone number.
 
@@ -40,6 +42,8 @@ CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v1"
 REMINDER_VERSION = "v1"
 HOST_TEXT_VERSION = "v1"
+HOST_MORNING_VERSION = "v1"
+APPLY_VERSION = "v1"
 ALERT_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
@@ -382,6 +386,48 @@ def host_showing_cancelled_text(visit: Visit, reason: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The host's morning text (HOST_MORNING_VERSION)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DayShowing:
+    """One of the host's showings on the day, as the morning text lists it."""
+
+    visit: Visit
+    booked: int
+
+
+def _people(count: int) -> str:
+    return "1 person" if count == 1 else f"{count} people"
+
+
+def host_morning_text(showings: Sequence[DayShowing]) -> str:
+    """To a host at 8 AM: the day's showings in order, each with its time, place and
+    how many people are booked. Names no one booked and no phone number."""
+    showings = sorted(showings, key=lambda item: item.visit.starts_at)
+    first = _local(showings[0].visit.starts_at, showings[0].visit.timezone)
+    lines = [f"Sernia Capital: your showings today, {first:%a}, {first:%b} {first.day}:"]
+    for item in showings:
+        start = _local(item.visit.starts_at, item.visit.timezone)
+        lines.append(f"- {_clock(start)} at {place(item.visit)}, {_people(item.booked)}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# The prospect's text after a showing (APPLY_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def apply_text(visit: Visit, apply_url: str) -> str:
+    """To a prospect two hours after their showing, unless marked a no-show."""
+    return (
+        f"Sernia Capital: thanks for coming to see {place(visit)}. If you'd like to rent "
+        f"it, you can apply here: {apply_url}\nReply STOP to opt out."
+    )
+
+
+# ---------------------------------------------------------------------------
 # What each notice is, in words, and the team's alert (ALERT_VERSION)
 # ---------------------------------------------------------------------------
 
@@ -404,6 +450,8 @@ NOTICE_LABELS = {
     "host_event_moved": "Old host's event cancelled",
     "host_moved_to": "Host's text: showing now theirs",
     "host_moved_from": "Host's text: showing moved away",
+    "host_morning": "Host's morning text: today's showings",
+    "prospect_apply": "Prospect's text: apply link",
 }
 
 
