@@ -1,4 +1,4 @@
-"""Stand-ins for Quo and the calendars, for tests and local runs. Nothing here leaves the process.
+"""Stand-ins for Quo, Gmail and the calendars, for tests and local runs. Nothing here leaves the process.
 
 - ``RecordingTextSender`` keeps every text that would have gone out, in
   order, and can be told to refuse a number, lose an answer or report a text
@@ -6,6 +6,8 @@
 - ``InMemoryCalendar`` holds busy times and events in memory, and can be told
   to lose a calendar.
 - ``RecordingAlerter`` keeps every alert the team would have been pushed.
+- ``RecordingEmailSender`` keeps every email in a lead's thread that would
+  have gone out, and can be told to refuse, lose the thread or lose an answer.
 - ``StandInContacts`` answers made-up Quo contacts for the resident lookup,
   with residents a test adds, or sample residents for every unit outside
   production, and can be told to fail.
@@ -23,7 +25,9 @@ from api.src.showing_bookings.providers import (
     CalendarUnreadable,
     EventDraft,
     NotSent,
+    SentEmail,
     SentText,
+    ThreadRoute,
 )
 
 # Quo's answers to a refused number, by reason.
@@ -134,6 +138,35 @@ class RecordingAlerter:
         if self.failing:
             raise RuntimeError("The push service did not answer.")
         self.alerts.append(RecordedAlert(title=title, body=body, url=url))
+
+
+@dataclass(frozen=True)
+class RecordedEmail:
+    route: ThreadRoute
+    body: str
+
+
+class RecordingEmailSender:
+    """An ``EmailSender`` that records each email in a lead's thread instead of sending it.
+
+    ``failing`` is "rejected" (Gmail refused it), "thread_unreadable" (the
+    thread's headers could not be read; tried again later) or "lost" (no
+    answer, so it may have gone out). None sends.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[RecordedEmail] = []
+        self.failing: str | None = None
+
+    async def send_in_thread(self, route: ThreadRoute, body: str) -> SentEmail:
+        if self.failing == "rejected":
+            raise NotSent("rejected", "Gmail refused the email.")
+        if self.failing == "thread_unreadable":
+            raise NotSent("thread_unreadable", "The thread could not be read.", retryable=True)
+        if self.failing == "lost":
+            raise TimeoutError("Gmail did not answer.")
+        self.sent.append(RecordedEmail(route=route, body=body))
+        return SentEmail(provider_id=f"gmail-{len(self.sent)}")
 
 
 @dataclass

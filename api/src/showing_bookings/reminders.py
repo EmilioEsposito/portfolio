@@ -21,6 +21,16 @@ evening it catches up while the showing is still ahead.
   lists (``TextPayload.showing_ids``); a cancelled showing never stops it, and
   at delivery it lists only the ones still ahead (``delivery_checks``).
 
+- A lead's reminder by email (``lead_email_reminder``, one per booking): for a
+  place the Zillow lead agent booked in an email thread whose confirming reply
+  was sent (``lead_reply_sent_at``, before 6 PM the day before), for a lead
+  with no mobile we text, and only while ``lead_agent_uses_open_times`` is on.
+  It goes as a reply in the lead's thread, to the route stored on the
+  conversation that booked the place (``lead_email.py``), with the cancel
+  link and the lead's own link to add their details. Someone owed the
+  reminder text never gets it, and someone already sent it (or with it on
+  its way) is not queued the reminder text: one reminder per place.
+
 Every reminder is a notice in the outbox behind the guard, checked again when
 it is delivered (still booked, still scheduled, not started) and sent only from
 8 AM to 9 PM. One notice per kind, showing and recipient key means it is never
@@ -43,13 +53,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
-from api.src.showing_bookings import bookings, delivery_checks, outbox, residents, wording
+from api.src.rental_listings.schema import ShowingRules
+from api.src.showing_bookings import (
+    bookings,
+    delivery_checks,
+    lead_email,
+    lead_tours,
+    outbox,
+    residents,
+    wording,
+)
 from api.src.showing_bookings.delivery_checks import (
+    LEAD_EMAIL_REMINDER_KIND,
     PROSPECT_REMINDER_KIND,
     RESIDENT_REMINDER_KIND,
 )
+from api.src.showing_bookings.lead_email import RouteProblem
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
-from api.src.showing_bookings.schema import TextPayload
+from api.src.showing_bookings.schema import EmailPayload, TextPayload
+from api.src.showing_bookings.settings import settings_for_delivery
+from api.src.zillow_leads import lead_links
+
+# A reminder by email that still stands: sent, on its way, or kept in capture
+# mode. Someone with one is not queued the reminder text as well.
+_EMAIL_STANDS = ("pending", "held", "sent", "captured", "unknown", "skipped")
 
 EVENING = time(18, 0)
 # Showings this far ahead are the only ones whose evening can have come.
@@ -65,6 +92,7 @@ class ReminderReport(BaseModel):
 
     prospect_reminders: int = 0
     resident_reminders: int = 0
+    lead_email_reminders: int = 0
 
 
 def forget_lookups() -> None:
@@ -150,12 +178,20 @@ async def _prospects(
         ShowingNotice.showing_id.in_(by_id),
         ShowingNotice.attendee_id.is_not(None),
     )
+    # A lead reminded by email (or about to be) is not texted the reminder too.
+    emailed = select(ShowingNotice.attendee_id).where(
+        ShowingNotice.kind == LEAD_EMAIL_REMINDER_KIND,
+        ShowingNotice.showing_id.in_(by_id),
+        ShowingNotice.attendee_id.is_not(None),
+        ShowingNotice.status.in_(_EMAIL_STANDS),
+    )
     people = await session.scalars(
         select(ShowingAttendee)
         .where(
             ShowingAttendee.showing_id.in_(by_id),
             ShowingAttendee.status == "booked",
             ShowingAttendee.id.not_in(reminded),
+            ShowingAttendee.id.not_in(emailed),
         )
         .order_by(ShowingAttendee.id)
         .with_for_update()
@@ -166,6 +202,75 @@ async def _prospects(
         if delivery_checks.can_text(person)
         and person.created_at < due_at(by_id[person.showing_id].starts_at, timezone)
     ]
+
+
+async def _email_leads(
+    session: AsyncSession, showings: list[Showing], timezone: str, *, lock: bool
+) -> list[ShowingAttendee]:
+    """The places in ``showings`` owed a reminder by email and not yet queued one:
+    booked by the lead agent in a Zillow thread, the confirming reply sent before
+    the evening came, and no mobile we text (``delivery_checks.owes_lead_email``)."""
+    by_id = {showing.id: showing for showing in showings}
+    queued = select(ShowingNotice.attendee_id).where(
+        ShowingNotice.kind == LEAD_EMAIL_REMINDER_KIND,
+        ShowingNotice.showing_id.in_(by_id),
+        ShowingNotice.attendee_id.is_not(None),
+    )
+    query = (
+        select(ShowingAttendee)
+        .where(
+            ShowingAttendee.showing_id.in_(by_id),
+            ShowingAttendee.status == "booked",
+            ShowingAttendee.source == "lead_agent",
+            ShowingAttendee.lead_reply_sent_at.is_not(None),
+            ShowingAttendee.id.not_in(queued),
+        )
+        .order_by(ShowingAttendee.id)
+    )
+    people = await session.scalars(query.with_for_update() if lock else query)
+    return [
+        person
+        for person in people
+        if delivery_checks.owes_lead_email(person)
+        and person.lead_reply_sent_at < due_at(by_id[person.showing_id].starts_at, timezone)
+    ]
+
+
+async def _queue_lead_email(
+    session: AsyncSession,
+    person: ShowingAttendee,
+    showing: Showing,
+    rules: ShowingRules,
+    token: str,
+    now: datetime,
+) -> None:
+    """Queue one lead's reminder by email. The recipient and subject are the stored
+    route of the conversation that booked the place, read again at delivery; when
+    there is none now, a placeholder the notice is never sent to, so the check at
+    delivery fails it for the team."""
+    route = await lead_email.route_of(session, person.lead_conversation_id, person.zillow_thread_id)
+    found = not isinstance(route, RouteProblem)
+    await outbox.enqueue(
+        session,
+        kind=LEAD_EMAIL_REMINDER_KIND,
+        channel="email",
+        showing_id=showing.id,
+        attendee_id=person.id,
+        recipient=route.to if found else lead_email.NO_ROUTE_RECIPIENT,
+        recipient_key=f"attendee:{person.id}",
+        payload=EmailPayload(
+            subject=route.subject if found else lead_email.NO_ROUTE_SUBJECT,
+            body=wording.lead_email_reminder_text(
+                bookings.visit_of(showing, rules),
+                bookings.cancel_url(person.cancel_token),
+                lead_tours.lead_link(showing.unit, token),
+            ),
+            conversation_id=person.lead_conversation_id,
+            reply_to_message_id=route.reply_to_message_id if found else None,
+            daytime_timezone=rules.timezone,
+        ),
+        now=now,
+    )
 
 
 def _skip_lookup(unit: str, day: date, now: datetime) -> bool:
@@ -182,11 +287,28 @@ async def queue_due(*, now: datetime) -> ReminderReport:
         if not due:
             return report
         groups = await _resident_groups(session, due, rules.timezone)
+        emails_on = (await settings_for_delivery(session)).lead_agent_uses_open_times
+        email_threads = (
+            sorted(
+                {
+                    person.zillow_thread_id
+                    for person in await _email_leads(session, due, rules.timezone, lock=False)
+                    if person.zillow_thread_id
+                }
+            )
+            if emails_on
+            else []
+        )
     # Read before the transaction, as it may reach Quo.
     found = {
         (unit, day): await residents.find(unit, day)
         for unit, day in groups
         if not _skip_lookup(unit, day, now)
+    }
+    # Each lead's own link carries their thread's token, made in its own
+    # transaction (it is normally made already, when the lead agent sent the link).
+    tokens = {
+        thread: await lead_links.token_for_thread(thread, now=now) for thread in email_threads
     }
 
     async with AsyncSessionFactory() as session, session.begin():
@@ -214,6 +336,15 @@ async def queue_due(*, now: datetime) -> ReminderReport:
                 now=now,
             )
             report.prospect_reminders += 1
+        if emails_on:
+            for person in await _email_leads(session, due, rules.timezone, lock=True):
+                token = tokens.get(person.zillow_thread_id or "")
+                if token is None:
+                    continue  # booked since the read above: the next run queues it
+                await _queue_lead_email(
+                    session, person, by_id[person.showing_id], rules, token, now
+                )
+                report.lead_email_reminders += 1
         groups = await _resident_groups(session, due, rules.timezone)
         to_mark: dict[int, str] = {}
         for (unit, day), group in groups.items():
@@ -259,6 +390,6 @@ async def queue_due(*, now: datetime) -> ReminderReport:
                 showing_ids=sorted(to_mark),
                 problems=sorted(set(to_mark.values())),
             )
-    if report.prospect_reminders or report.resident_reminders:
+    if any(report.model_dump().values()):
         logfire.info("showing reminders queued", **report.model_dump())
     return report

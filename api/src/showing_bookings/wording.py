@@ -15,6 +15,8 @@
   their home, and its cancellation.
 - The reminders the evening before (``REMINDER_VERSION``): the prospect's,
   with the cancel link, and the residents' list of the next day's showings.
+- The reminder by email in a lead's Zillow thread, for a showing agreed there
+  by a lead who has not added their details (``LEAD_EMAIL_VERSION``).
 - The host's texts when someone books or cancels, or the showing is
   cancelled, less than 2 hours ahead (``HOST_TEXT_VERSION``).
 - What each notice is called (``notice_label``) and the team's alert when a
@@ -39,6 +41,7 @@ NOTICES_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v1"
 REMINDER_VERSION = "v1"
+LEAD_EMAIL_VERSION = "v1"
 HOST_TEXT_VERSION = "v1"
 ALERT_VERSION = "v1"
 
@@ -300,6 +303,20 @@ def prospect_reminder_text(visit: Visit, cancel_url: str) -> str:
     )
 
 
+def lead_email_reminder_text(visit: Visit, cancel_url: str, details_url: str) -> str:
+    """To a lead whose showing was agreed in their Zillow email thread and who has
+    not added their details, the evening before, as a reply in that thread:
+    when, where, the cancel link, and their own link to add their details.
+    Plain text (``LEAD_EMAIL_VERSION``)."""
+    return (
+        "Hello,\n\n"
+        f"A reminder of your in-person showing on {when(visit)} at {place(visit)}.\n\n"
+        f"If you can no longer make it, please cancel here: {cancel_url}\n\n"
+        f"To get a text reminder and a calendar invite, add your details here: {details_url}\n\n"
+        "Sernia Capital Team"
+    )
+
+
 def _times(visits: Sequence[Visit]) -> str:
     """ "4:00 PM", "4:00 PM and 5:30 PM", or "10:00 AM, 1:00 PM and 4:00 PM"."""
     clocks = [_clock(_local(visit.starts_at, visit.timezone)) for visit in visits]
@@ -389,6 +406,7 @@ NOTICE_LABELS = {
     "prospect_confirmation": "Prospect's confirmation",
     "prospect_invite": "Prospect's invite",
     "prospect_reminder": "Prospect's reminder",
+    "lead_email_reminder": "Lead's reminder by email, in their Zillow thread",
     "prospect_cancelled": "Prospect's cancellation",
     "prospect_cancelled_by_team": "Team's cancellation to the prospect",
     "prospect_invite_cancel": "Prospect's invite withdrawn",
