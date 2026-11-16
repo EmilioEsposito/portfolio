@@ -5,6 +5,7 @@
   undelivered.
 - ``InMemoryCalendar`` holds busy times and events in memory, and can be told
   to lose a calendar.
+- ``RecordingAlerter`` keeps every alert the team would have been pushed.
 - ``StandInContacts`` answers made-up Quo contacts for the resident lookup,
   with residents a test adds, or sample residents for every unit outside
   production, and can be told to fail.
@@ -109,6 +110,26 @@ class RecordingTextSender:
         if number is None:
             raise LookupError(f"No text {provider_id} was sent.")
         return self._statuses.get(number, "delivered")
+
+
+@dataclass(frozen=True)
+class RecordedAlert:
+    title: str
+    body: str
+    url: str
+
+
+class RecordingAlerter:
+    """A ``TeamAlerter`` that records alerts instead of pushing them, and can be told to fail."""
+
+    def __init__(self) -> None:
+        self.alerts: list[RecordedAlert] = []
+        self.failing = False
+
+    async def send_alert(self, title: str, body: str, url: str) -> None:
+        if self.failing:
+            raise RuntimeError("The push service did not answer.")
+        self.alerts.append(RecordedAlert(title=title, body=body, url=url))
 
 
 @dataclass

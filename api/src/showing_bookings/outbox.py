@@ -57,6 +57,13 @@ the announcement is being sent, then goes only if the announcement went out
 (sent, captured or unknown), and is cancelled otherwise.
 A group text (``TextPayload.also_to``) goes out as one text to every number,
 and the guard counts every number in it.
+
+A reminder or a host's text (``delivery_checks.KINDS``) is checked by
+``delivery_checks.check``: still booked, still scheduled, not started, the
+number as it is now, and a reminder only in the daytime.
+
+``send_team_alert`` is the one way to the team's alert channel (web push,
+``push.py``), and pushes only in production.
 """
 
 import os
@@ -70,15 +77,23 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import connections, google_http, host_event, residents
+from api.src.showing_bookings import (
+    connections,
+    delivery_checks,
+    google_http,
+    host_event,
+    residents,
+)
 from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
     CalendarSource,
     EventDraft,
     NotSent,
+    TeamAlerter,
     TextSender,
 )
+from api.src.showing_bookings.push import PushTeamAlerter
 from api.src.showing_bookings.quo import QuoTextSender
 from api.src.showing_bookings.schema import (
     CalendarPayload,
@@ -256,6 +271,33 @@ async def refresh_text_status(notice_id: int, *, texts: TextSender | None = None
     return status
 
 
+async def send_team_alert(
+    title: str, body: str, *, url: str, alerter: TeamAlerter | None = None
+) -> bool:
+    """Push one alert to the team. Returns whether it was handed to the channel.
+
+    Left without a stand-in, the alert is pushed only in production
+    (``RAILWAY_ENVIRONMENT_NAME`` is ``production``); everywhere else it is
+    not pushed, so a preview or a local run never reaches a real phone, and
+    the caller keeps it on its notice. ``alerts.py`` decides what to alert
+    about and words it with no phone number.
+    """
+    if alerter is None:
+        if current_environment() != "production":
+            return False
+        alerter = _live_alerter()
+    await alerter.send_alert(title, body, url)
+    return True
+
+
+def _live_alerter() -> TeamAlerter:
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        raise RuntimeError(
+            "Tests pass a stand-in TeamAlerter; the live one is never used in tests."
+        )
+    return PushTeamAlerter()
+
+
 # ---------------------------------------------------------------------------
 # Claiming, sending and saving the answer
 # ---------------------------------------------------------------------------
@@ -408,6 +450,16 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     """
     if notice.kind in residents.TEXT_KINDS:
         return await _prepare_resident_text(session, notice, now)
+    if notice.kind in delivery_checks.KINDS:
+        verdict = await delivery_checks.check(session, notice, now)
+        if verdict.cancel is not None:
+            notice.status = "cancelled"
+            notice.last_error = verdict.cancel
+            return _NOT_NOW
+        if verdict.later is not None:
+            notice.not_before = verdict.later
+            return _NOT_NOW
+        return None
     if notice.kind in host_event.FOR_A_BOOKING_KINDS:
         row = (
             await session.execute(

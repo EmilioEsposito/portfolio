@@ -21,7 +21,8 @@ A booking, in order:
    refuses the number (invalid, unreachable or opted out), the booking is
    withdrawn: the attendee is cancelled with that reason, a showing left with
    no one is cancelled, its notices are stopped, and the answer names the
-   mobile field.
+   mobile field. Otherwise, for a showing starting within 2 hours, the host
+   is texted at once (``host_texts.queue_join``, queued in step 3).
 
 The locks make two bookings of one unit and start at the same moment one
 showing with two attendees: the second waits, and its re-check then sees the
@@ -54,6 +55,7 @@ from api.src.showing_bookings import (
     agents,
     holds,
     host_event,
+    host_texts,
     open_times,
     outbox,
     resident_notices,
@@ -707,6 +709,9 @@ async def book(
                 await resident_notices.bring_back(
                     session, showing.id, waits_for_notice_id=confirmation.id, now=now
                 )
+            host_text = await host_texts.queue_join(
+                session, showing, attendee, rules=rules, now=now
+            )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
         logfire.info("showing booking lost a race", unit=listing.unit)
@@ -727,12 +732,27 @@ async def book(
         raise Refused(
             422, "number_refused", NUMBER_REFUSED, {"mobile": "We couldn't text this number."}
         )
+    await deliver_host_text(host_text, now=now, texts=texts)
     return BookingResult(
         cancel_token=attendee.cancel_token,
         kind=check.kind,
         confirmation=status,
         booking=view_of(showing, attendee, rules.timezone, now),
     )
+
+
+async def deliver_host_text(
+    notice_id: int | None, *, now: datetime, texts: TextSender | None
+) -> None:
+    """Deliver the host's text about a booking inside 2 hours at once, after the
+    confirmation went (a withdrawn booking's is stopped when it is delivered)."""
+    if notice_id is None:
+        return
+    try:
+        await outbox.deliver(notice_id, now=now, texts=texts)
+    except Exception:
+        # The row stays pending or is saved as unknown; the job takes it from there.
+        logfire.exception("showing host text could not be delivered now")
 
 
 async def _send_confirmation(

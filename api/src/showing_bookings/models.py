@@ -1,4 +1,4 @@
-"""Tables for showing bookings. Migrations 0042 and 0044 build the same thing.
+"""Tables for showing bookings. Migrations 0042 to 0046 build the same thing.
 
 Three rules live in the database, so no code path can break them:
 
@@ -37,6 +37,7 @@ from api.src.showing_bookings.schema import (
     CHANNELS,
     CONNECTION_STATUSES,
     DEFAULT_CAPACITY,
+    NOTICE_ATTENTIONS,
     NOTICE_STATUSES,
     SEND_MODES,
     SHOWING_STATUSES,
@@ -267,6 +268,7 @@ class ShowingNotice(Base):
     __table_args__ = (
         _one_of("channel", CHANNELS),
         _one_of("status", NOTICE_STATUSES),
+        _one_of("alert_reason", NOTICE_ATTENTIONS),
         CheckConstraint(
             "mode IS NULL OR mode IN (" + ", ".join(f"'{m}'" for m in SEND_MODES) + ")",
             name="mode",
@@ -323,6 +325,10 @@ class ShowingNotice(Base):
     provider_status: Mapped[str | None] = mapped_column(String, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The one alert to the team about this notice (``alerts.py``): when, and
+    # why, "failed" or "stuck". Set before the alert goes, so it never goes twice.
+    alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    alert_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

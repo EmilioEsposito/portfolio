@@ -13,6 +13,12 @@
   unit goes off the market), and the cancelled event and invite.
 - What a unit's residents are texted (``RESIDENT_VERSION``): a new showing at
   their home, and its cancellation.
+- The reminders the evening before (``REMINDER_VERSION``): the prospect's,
+  with the cancel link, and the residents' list of the next day's showings.
+- The host's texts when someone books or cancels, or the showing is
+  cancelled, less than 2 hours ahead (``HOST_TEXT_VERSION``).
+- What each notice is called (``notice_label``) and the team's alert when a
+  notice fails or is stuck (``ALERT_VERSION``), which names no phone number.
 
 Change the wording here and raise the version beside it. Emilio reviews the
 wording before launch.
@@ -32,6 +38,9 @@ TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v1"
+REMINDER_VERSION = "v1"
+HOST_TEXT_VERSION = "v1"
+ALERT_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
 TEXTS_WORDING = "Text me about this showing and my rental inquiry."
@@ -243,4 +252,129 @@ def resident_cancelled_text(visit: Visit) -> str:
         f"Hi, this is Sernia Capital. The showing of your home at {place(visit)} on "
         f"{when(visit)} is cancelled, so no one will come by for it. "
         "Questions? Reply to this number."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reminders the evening before (REMINDER_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def prospect_reminder_text(visit: Visit, cancel_url: str) -> str:
+    """To a prospect still booked, the evening before: when, where, and the cancel link."""
+    return (
+        f"Sernia Capital: a reminder of your in-person showing on {when(visit)} "
+        f"at {place(visit)}.\nTo cancel: {cancel_url}\nReply STOP to opt out."
+    )
+
+
+def _times(visits: Sequence[Visit]) -> str:
+    """ "4:00 PM", "4:00 PM and 5:30 PM", or "10:00 AM, 1:00 PM and 4:00 PM"."""
+    clocks = [_clock(_local(visit.starts_at, visit.timezone)) for visit in visits]
+    if len(clocks) == 1:
+        return clocks[0]
+    return f"{', '.join(clocks[:-1])} and {clocks[-1]}"
+
+
+def resident_reminder_text(visits: Sequence[Visit]) -> str:
+    """To a unit's residents, the evening before: the next day's showings there, in order."""
+    visits = sorted(visits, key=lambda visit: visit.starts_at)
+    first = visits[0]
+    start = _local(first.starts_at, first.timezone)
+    day = f"{start:%a}, {start:%b} {start.day}"
+    if len(visits) == 1:
+        booked = f"an in-person showing of your home at {place(first)} is booked for {day} at"
+        length = f"It will take about {_minutes(first)} minutes"
+    else:
+        booked = f"in-person showings of your home at {place(first)} are booked for {day} at"
+        length = f"Each will take about {_minutes(first)} minutes"
+    return (
+        f"Hi, this is Sernia Capital. A reminder: {booked} {_times(visits)}. {length}, and a "
+        "Sernia agent will be there the whole time. Questions? Reply to this number."
+    )
+
+
+# ---------------------------------------------------------------------------
+# The host's texts when something changes inside 2 hours (HOST_TEXT_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def _booked(count: int) -> str:
+    return "1 person is booked" if count == 1 else f"{count} people are booked"
+
+
+def host_joined_text(visit: Visit, name: str, booked: int) -> str:
+    """To the host, when someone books their showing less than 2 hours ahead."""
+    return (
+        f"Sernia Capital: {name} just booked your showing of {place(visit)} on {when(visit)}. "
+        f"{_booked(booked)} now."
+    )
+
+
+def host_left_text(visit: Visit, name: str, *, by_team: bool, booked: int) -> str:
+    """To the host, when someone cancels (or the team removes them) less than 2 hours ahead."""
+    showing = f"your showing of {place(visit)} on {when(visit)}"
+    if by_team:
+        opening = f"Sernia Capital: the team removed {name} from {showing}."
+    else:
+        opening = f"Sernia Capital: {name} cancelled {showing}."
+    if booked == 0:
+        return f"{opening} No one is booked now, so the showing is cancelled."
+    return f"{opening} {_booked(booked)} still."
+
+
+def host_showing_cancelled_text(visit: Visit, reason: str | None) -> str:
+    """To the host, when the team cancels the showing (or the unit goes off the market)
+    less than 2 hours ahead."""
+    return (
+        f"Sernia Capital: your showing of {place(visit)} on {when(visit)} is cancelled. "
+        f"{_REASONS.get(reason or '', '')}"
+    ).strip()
+
+
+# ---------------------------------------------------------------------------
+# What each notice is, in words, and the team's alert (ALERT_VERSION)
+# ---------------------------------------------------------------------------
+
+NOTICE_LABELS = {
+    "prospect_confirmation": "Prospect's confirmation",
+    "prospect_invite": "Prospect's invite",
+    "prospect_reminder": "Prospect's reminder",
+    "prospect_cancelled": "Prospect's cancellation",
+    "prospect_cancelled_by_team": "Team's cancellation to the prospect",
+    "prospect_invite_cancel": "Prospect's invite withdrawn",
+    "host_event": "Host's event",
+    "host_event_update": "Host's event update",
+    "host_event_cancel": "Host's event cancelled",
+    "host_late_join": "Host's text: someone booked",
+    "host_late_cancel": "Host's text: someone cancelled",
+    "host_showing_cancelled": "Host's text: showing cancelled",
+    "resident_new_showing": "Residents' text: new showing",
+    "resident_cancelled": "Residents' text: showing cancelled",
+    "resident_reminder": "Residents' reminder",
+}
+
+
+def notice_label(kind: str) -> str:
+    """ "Prospect's reminder" for ``prospect_reminder``; an unknown kind in plain words."""
+    if kind in NOTICE_LABELS:
+        return NOTICE_LABELS[kind]
+    words = kind.replace("_", " ").strip()
+    return words[:1].upper() + words[1:]
+
+
+def alert_title(reason: str) -> str:
+    return "Showing message failed" if reason == "failed" else "Showing message stuck"
+
+
+def alert_body(kind: str, visit: Visit, reason: str) -> str:
+    """The team's alert: which notice, the unit and the showing's time. Never a number."""
+    what = (
+        "It failed and will not be tried again."
+        if reason == "failed"
+        else "It has waited more than 10 minutes to go out."
+    )
+    return (
+        f"{notice_label(kind)} for unit {visit.unit}, showing {when(visit)}. {what} "
+        "Check it under Messages on the Booking settings tab."
     )
