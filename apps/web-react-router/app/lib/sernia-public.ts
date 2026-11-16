@@ -1,6 +1,9 @@
 /**
  * Which requests belong to Sernia Capital's public pages (serniacapital.com).
  *
+ * The pages are /showings, /showings/*, /privacy and /sms-terms on any host,
+ * and the home page at / on a Sernia host only.
+ *
  * Those pages need no sign-in and load no Clerk: Clerk's production keys
  * belong to eesposito.com. The root route, the Sernia layout route, server.js
  * and the Vite dev proxy all decide from this module. server.js imports it
@@ -123,20 +126,37 @@ export function isSerniaPublicPath(pathname: string): boolean {
 }
 
 /**
- * - `sernia-public`: a Sernia public path, on any host, while the pages are
- *   on. Served without Clerk.
+ * `/`, the one path whose page depends on the host: the Sernia home page on a
+ * Sernia host, the personal site's home page everywhere else.
+ */
+export function isHomePath(pathname: string): boolean {
+  return pathname.replace(/\/+$/, "") === "";
+}
+
+/**
+ * - `sernia-public`: a Sernia public path, on any host, and `/` on a Sernia
+ *   host (the Sernia home page), while the pages are on. Served without Clerk.
  * - `sernia-not-found`: anything else on a Sernia host, and every path there
  *   while the pages are off. Answers the Sernia 404, also without Clerk.
- * - `app`: everything else, served as before. While the pages are off this
- *   includes their paths on other hosts, which then 404 like any unknown URL.
+ * - `app`: everything else, served as before, `/` on other hosts included.
+ *   While the pages are off this includes their paths on other hosts, which
+ *   then 404 like any unknown URL.
  */
 export function rootRequestMode(url: URL | string, options: SerniaRequestOptions = {}): RootRequestMode {
   const parsed = typeof url === "string" ? new URL(url) : url;
   const serniaHost = isSerniaHost(parsed.host, options.hostsSetting);
   const pagesEnabled = options.pagesEnabled ?? serniaPublicPagesEnabled();
   const publicPage = pagesEnabled && isSerniaPublicPath(parsed.pathname);
-  if (serniaHost) return publicPage ? "sernia-public" : "sernia-not-found";
+  if (serniaHost) {
+    return publicPage || (pagesEnabled && isHomePath(parsed.pathname)) ? "sernia-public" : "sernia-not-found";
+  }
   return publicPage ? "sernia-public" : "app";
+}
+
+/** True for `/` on a Sernia host while the pages are on: the Sernia home page. */
+export function isSerniaHomeRequest(url: URL | string, options: SerniaRequestOptions = {}): boolean {
+  const parsed = typeof url === "string" ? new URL(url) : url;
+  return isHomePath(parsed.pathname) && rootRequestMode(parsed, options) === "sernia-public";
 }
 
 /**

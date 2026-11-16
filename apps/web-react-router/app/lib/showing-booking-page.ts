@@ -18,6 +18,7 @@ export type Offer = { start: string; join: boolean; preferred: boolean; places_l
 /** `GET /units/{unit}`. */
 export type UnitPage = {
   unit: string;
+  address: string;
   rent: number | null;
   showing_minutes: number;
   timezone: string;
@@ -179,15 +180,20 @@ export function findOffer(offers: Offer[], start: string | null): Offer | undefi
   return offers.find((offer) => Date.parse(offer.start) === wanted);
 }
 
-/** "Unit 320-03 · $1,450 a month · 30 minutes". */
-export function unitSummary(unit: Pick<UnitPage, "unit" | "rent" | "showing_minutes">): string {
-  const items = [`Unit ${unit.unit}`];
-  if (unit.rent !== null) items.push(`$${unit.rent.toLocaleString("en-US")} a month`);
+/** "$1,450 a month". */
+export function monthlyRent(rent: number): string {
+  return `$${rent.toLocaleString("en-US")} a month`;
+}
+
+/** "320 Example St, unit 320-03 · $1,450 a month · 30 minutes". */
+export function unitSummary(unit: Pick<UnitPage, "unit" | "address" | "rent" | "showing_minutes">): string {
+  const items = [bookingPlace(unit)];
+  if (unit.rent !== null) items.push(monthlyRent(unit.rent));
   items.push(`${unit.showing_minutes} minutes`);
   return items.join(" · ");
 }
 
-/** "320 Example St, unit 320-03". */
+/** "320 Example St, unit 320-03", or "Unit 320-03" with no address. */
 export function bookingPlace(view: Pick<BookingView, "address" | "unit">): string {
   return view.address ? `${view.address}, unit ${view.unit}` : `Unit ${view.unit}`;
 }

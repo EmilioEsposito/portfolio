@@ -4,6 +4,7 @@ import { createRequestHandler, type MiddlewareFunction, type ServerBuild } from 
 
 import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
 import * as catchAllRoute from "~/routes/$";
+import * as indexRoute from "~/routes/_index";
 import * as serniaLayoutRoute from "~/routes/_sernia-public";
 import * as privacyRoute from "~/routes/_sernia-public.privacy";
 
@@ -63,6 +64,7 @@ const build = {
       path: "privacy",
       module: privacyRoute,
     },
+    "routes/_index": { id: "routes/_index", parentId: "root", index: true, module: indexRoute },
     "routes/$": { id: "routes/$", parentId: "root", path: "*", module: catchAllRoute },
   },
   assets: {},
@@ -156,5 +158,76 @@ test("outside production SERNIA_PUBLIC_PAGES_ENABLED=false switches the pages of
     assert.deepEqual([page.status, page.clerk], [404, true]);
     const data = await request(`https://react-router-portfolio-pr-397.up.railway.app${PRIVACY_DATA}`);
     assert.deepEqual([data.status, data.clerk], [404, true]);
+  });
+});
+
+// The index route's loader reads the call line's route for the Sernia home page.
+// A stand-in answers the API: 200 with the site key, or 404 (public booking off).
+async function withApi(status: 200 | 404, run: (calls: string[]) => Promise<void>) {
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return status === 200
+      ? Response.json({ turnstile_site_key: "1x00000000000000000000AA" })
+      : Response.json({ detail: "Not Found" }, { status: 404 });
+  }) as typeof fetch;
+  try {
+    await run(calls);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// What the browser asks for when a link moves to /: React Router names the root's data `/_.data`.
+const HOME_DATA = "/_.data?_routes=root,routes/_index";
+
+test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
+  await withApi(200, async (calls) => {
+    for (const origin of ["https://serniacapital.com", "http://serniacapital.localhost:5293"]) {
+      const page = await request(`${origin}/`);
+      assert.deepEqual([page.status, page.clerk], [200, false], origin);
+      const data = await request(`${origin}${HOME_DATA}`);
+      assert.deepEqual([data.status, data.clerk], [200, false], origin);
+      assert.match(data.body, /serniaPublic/, origin);
+      assert.match(data.body, /bookingOpen/, origin);
+    }
+    // Only the call line's route; never the units list, which reads calendars.
+    assert.ok(calls.length > 0);
+    assert.ok(calls.every((url) => url.endsWith("/api/showing-bookings/public/call-line")), calls.join());
+  });
+});
+
+test("on other hosts / stays the personal site's home page, through Clerk, with no API call", async () => {
+  await withApi(200, async (calls) => {
+    for (const origin of ["http://localhost:5293", "https://eesposito.com"]) {
+      const page = await request(`${origin}/`);
+      assert.deepEqual([page.status, page.clerk], [200, true], origin);
+      const data = await request(`${origin}${HOME_DATA}`);
+      assert.deepEqual([data.status, data.clerk], [200, true], origin);
+      assert.doesNotMatch(data.body, /serniaPublic|bookingOpen/, origin);
+    }
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("in production / on a Sernia host is the Sernia 404 until the pages are on", async () => {
+  await withApi(404, async (calls) => {
+    await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production" }, async () => {
+      const page = await request("https://serniacapital.com/");
+      assert.deepEqual([page.status, page.clerk], [404, false]);
+      const data = await request(`https://serniacapital.com${HOME_DATA}`);
+      assert.deepEqual([data.status, data.clerk], [404, false]);
+      assert.match(data.body, /sernia-public-not-found/);
+      const personal = await request("https://eesposito.com/");
+      assert.deepEqual([personal.status, personal.clerk], [200, true]);
+    });
+    assert.deepEqual(calls, []);
+    await withEnvironment({ RAILWAY_ENVIRONMENT_NAME: "production", SERNIA_PUBLIC_PAGES_ENABLED: "true" }, async () => {
+      // Public booking off: the page still renders, with no call line.
+      const data = await request(`https://serniacapital.com${HOME_DATA}`);
+      assert.deepEqual([data.status, data.clerk], [200, false]);
+      assert.match(data.body, /bookingOpen/);
+    });
   });
 });
