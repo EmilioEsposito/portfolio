@@ -104,6 +104,10 @@ Run these explicitly from the repository root with development configuration:
   if `TEST_DELEGATION_EMAIL` is set, construct delegated credentials.
 - `python -m scripts.inspect_dbos_scheduler`: start DBOS and print its registered
   jobs. DBOS remains disabled in the application; this is a manual diagnostic.
+- `uv run python -m scripts.showing_calendar_live_check --account ACCOUNT --guest GUEST`:
+  through a connected showing calendar account, read free/busy once, then create and
+  cancel one event whose only guest is an address in `SHOWING_TEST_EMAILS` (any other
+  guest is refused). See `api/src/showing_bookings/README.md`.
 
 These replace the former inline `__main__` checks in the corresponding service
 modules. They are not part of the automated test suite.

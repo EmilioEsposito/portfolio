@@ -1,12 +1,18 @@
 """Only the outbox hands a notice to a provider. Read from the source, no database.
 
-- Only ``outbox.py`` imports a provider sender (``quo.py``, and the calendar
-  adapter when it is added).
-- Only a sender module talks to the provider packages (``api.src.open_phone``
-  and ``api.src.google``).
+- Only ``outbox.py`` imports the Quo sender (``quo.py``). Only
+  ``connections.py`` imports the Google calendar adapter
+  (``google_calendar.py``), which it hands out as a ``CalendarSource`` through
+  ``calendar_for_connection``.
+- Only ``outbox.py`` uses a sending method: a text (``send_text``,
+  ``text_status``) or an event write (``create_event``, ``update_event``,
+  ``cancel_event``), called or merely referenced. Reading busy times is open to
+  any file. Creating the showings calendar at connect time is not an event write.
+- Only the two Google files name Google's hosts, so no other file reaches
+  Google, and only a sender module talks to the repo's provider packages
+  (``api.src.open_phone`` and ``api.src.google``).
 - Nothing in the module uses ``send_message`` or ``create_calendar_event``,
   the repo's general senders, which have no guard.
-- Only ``outbox.py`` calls a sending method.
 
 A second way out of the module fails here.
 """
@@ -18,12 +24,18 @@ from api.src.showing_bookings import outbox
 
 PACKAGE = Path(outbox.__file__).parent
 OUTBOX = "outbox.py"
-# The module's own live senders, and the files allowed to be one.
-SENDER_MODULES = {"api.src.showing_bookings.quo"}
-SENDER_FILES = {"quo.py"}
+# The module's own live senders, and the only files that may import each.
+SENDERS = {
+    "api.src.showing_bookings.quo": {OUTBOX},
+    "api.src.showing_bookings.google_calendar": {"connections.py"},
+}
+SENDER_FILES = {"quo.py", "google_calendar.py"}
 PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google")
+GOOGLE_HOSTS = ("googleapis.com", "accounts.google.com")
+GOOGLE_FILES = {"google_calendar.py", "google_oauth.py"}
 GENERAL_SENDERS = {"send_message", "create_calendar_event"}
-SENDING_METHODS = {"send_text", "text_status", "create_event", "update_event", "cancel_event"}
+EVENT_WRITES = {"create_event", "update_event", "cancel_event"}
+SENDING_METHODS = {"send_text", "text_status", *EVENT_WRITES}
 
 
 def imported(tree: ast.AST) -> list[tuple[int, str]]:
@@ -38,18 +50,26 @@ def imported(tree: ast.AST) -> list[tuple[int, str]]:
     return found
 
 
-def sources() -> dict[str, ast.AST]:
-    found = {path.name: ast.parse(path.read_text()) for path in PACKAGE.glob("*.py")}
-    assert OUTBOX in found and SENDER_FILES <= set(found)
+def texts() -> dict[str, str]:
+    found = {path.name: path.read_text() for path in PACKAGE.glob("*.py")}
+    assert OUTBOX in found and SENDER_FILES <= set(found) and GOOGLE_FILES <= set(found)
     return found
 
 
-def imports_a_sender(tree: ast.AST) -> list[int]:
+def sources() -> dict[str, ast.AST]:
+    return {name: ast.parse(text) for name, text in texts().items()}
+
+
+def imports_of(tree: ast.AST, sender: str) -> list[int]:
     return [
         line
         for line, module in imported(tree)
-        if any(module == m or module.startswith(f"{m}.") for m in SENDER_MODULES)
+        if module == sender or module.startswith(f"{sender}.")
     ]
+
+
+def imports_a_sender(tree: ast.AST) -> list[int]:
+    return [line for sender in SENDERS for line in imports_of(tree, sender)]
 
 
 def reaches_a_provider(tree: ast.AST) -> list[int]:
@@ -57,6 +77,14 @@ def reaches_a_provider(tree: ast.AST) -> list[int]:
         line
         for line, module in imported(tree)
         if any(module == p or module.startswith(f"{p}.") for p in PROVIDER_PACKAGES)
+    ]
+
+
+def names_a_google_host(text: str) -> list[int]:
+    return [
+        number
+        for number, line in enumerate(text.splitlines(), start=1)
+        if any(host in line for host in GOOGLE_HOSTS)
     ]
 
 
@@ -72,20 +100,28 @@ def uses_a_general_sender(tree: ast.AST) -> list[int]:
     return lines
 
 
-def calls_a_sending_method(tree: ast.AST) -> list[int]:
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in SENDING_METHODS
-    ]
+def uses_a_method(tree: ast.AST, methods: set[str]) -> list[int]:
+    """Lines that call or reference one of ``methods`` on anything, including through
+    ``getattr``. Defining a method of that name is not a use."""
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in methods:
+            lines.append(node.lineno)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and any(isinstance(arg, ast.Constant) and arg.value in methods for arg in node.args)
+        ):
+            lines.append(node.lineno)
+    return lines
 
 
-def test_only_the_outbox_imports_a_sender():
+def test_each_sender_is_imported_only_where_allowed():
     for name, tree in sources().items():
-        if name != OUTBOX:
-            assert imports_a_sender(tree) == [], name
+        for sender, allowed in SENDERS.items():
+            if name not in allowed:
+                assert imports_of(tree, sender) == [], (name, sender)
 
 
 def test_only_sender_modules_talk_to_the_provider_packages():
@@ -94,27 +130,56 @@ def test_only_sender_modules_talk_to_the_provider_packages():
             assert reaches_a_provider(tree) == [], name
 
 
+def test_only_the_google_files_reach_google():
+    for name, text in texts().items():
+        if name not in GOOGLE_FILES:
+            assert names_a_google_host(text) == [], name
+
+
 def test_nothing_uses_the_repos_general_senders():
     for name, tree in sources().items():
         assert uses_a_general_sender(tree) == [], name
 
 
-def test_only_the_outbox_calls_a_sending_method():
+def test_only_the_outbox_uses_a_sending_method():
     for name, tree in sources().items():
         if name != OUTBOX:
-            assert calls_a_sending_method(tree) == [], name
-    assert calls_a_sending_method(sources()[OUTBOX])
+            assert uses_a_method(tree, SENDING_METHODS) == [], name
+    assert uses_a_method(sources()[OUTBOX], SENDING_METHODS)
+
+
+def test_only_the_outbox_writes_calendar_events():
+    """Google event writes, which invite people, are reached only through the outbox."""
+    for name, tree in sources().items():
+        if name != OUTBOX:
+            assert uses_a_method(tree, EVENT_WRITES) == [], name
+    outbox_tree = sources()[OUTBOX]
+    for method in EVENT_WRITES:
+        assert uses_a_method(outbox_tree, {method}), method
 
 
 def test_the_checks_catch_what_they_are_for():
     """Each check finds a violation, so a passing run means something."""
-    cases = {
-        imports_a_sender: "from api.src.showing_bookings.quo import QuoTextSender",
-        reaches_a_provider: "from api.src.open_phone import service",
-        uses_a_general_sender: "from api.src.open_phone.service import send_message",
-        calls_a_sending_method: "async def f(texts):\n    await texts.send_text('+1', 'hi')",
-    }
-    for check, source in cases.items():
-        assert check(ast.parse(source)), check.__name__
-    assert uses_a_general_sender(ast.parse("import x\nx.service.create_calendar_event()"))
+    sender_import = "from api.src.showing_bookings.google_calendar import GoogleCalendar"
+    assert imports_of(ast.parse(sender_import), "api.src.showing_bookings.google_calendar")
+    assert imports_a_sender(ast.parse("from api.src.showing_bookings.quo import QuoTextSender"))
+    assert reaches_a_provider(ast.parse("from api.src.open_phone import service"))
     assert reaches_a_provider(ast.parse("import api.src.google.calendar.service"))
+    assert names_a_google_host('URL = "https://www.googleapis.com/calendar/v3"')
+    assert uses_a_general_sender(ast.parse("from api.src.open_phone.service import send_message"))
+    assert uses_a_general_sender(ast.parse("import x\nx.service.create_calendar_event()"))
+    writes = {
+        "async def f(calendar, e):\n    await calendar.create_event('c', e)",
+        "async def f(calendar):\n    cancel = calendar.cancel_event\n    await cancel('c', 'e')",
+        "async def f(calendar):\n    await getattr(calendar, 'update_event')('c', 'e', None)",
+    }
+    for source in writes:
+        assert uses_a_method(ast.parse(source), EVENT_WRITES), source
+    assert uses_a_method(
+        ast.parse("async def f(t):\n    await t.send_text('+1', 'hi')"), SENDING_METHODS
+    )
+    # Defining an event method, as an adapter does, is not a use.
+    definition = (
+        "class C:\n    async def create_event(self, calendar_id, event):\n        return 'e'"
+    )
+    assert uses_a_method(ast.parse(definition), EVENT_WRITES) == []
