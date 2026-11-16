@@ -545,6 +545,24 @@ async def test_a_move_after_the_event_with_a_join_still_held(world):
 
 
 @pytest.mark.asyncio
+async def test_a_move_before_a_due_event_goes_out_keeps_it_due_for_the_new_host(world):
+    await live()
+    sam = await add_sam()
+    booked = await team_book(world, caller())  # no texts: the host's event is due, not held
+    showing_id = booked.json()["showing_id"]
+
+    answer = await move(world, showing_id, sam)
+
+    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
+        ("host_event", "pending")
+    ]
+    await world.send_pending(NOW + timedelta(minutes=1))
+    (event,) = world.calendar.events.values()
+    assert event.draft.attendees == [SAM]
+    assert [op for op, *_ in world.calendar.log] == ["create"]
+
+
+@pytest.mark.asyncio
 async def test_a_move_in_capture_mode_keeps_the_cancellation_and_the_new_event(world):
     sam = await add_sam()
     await page_book(world)

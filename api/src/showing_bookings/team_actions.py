@@ -45,6 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.showing_bookings import bookings, host_event, open_times, outbox, wording
 from api.src.showing_bookings.bookings import Refused
 from api.src.showing_bookings.models import (
@@ -274,7 +275,13 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            problem = await open_times.host_problem(showing, agent, now=now, session=session)
+            try:
+                problem = await open_times.host_problem(showing, agent, now=now, session=session)
+            except RentalDataInvalid:
+                logfire.exception("showing bookings: rental data fails its checks")
+                raise Refused(
+                    503, "unavailable", "Rental listing data fails its checks. Fix it first."
+                ) from None
             if problem is not None:
                 raise Refused(409, problem[0], problem[1])
             old_host = await session.get_one(ShowingAgentRecord, showing.agent_id)
@@ -318,7 +325,10 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
 
             # The old host's notices that have not gone out never will. Their
             # hold is dropped too, so a corrected mobile does not bring them back.
-            holds_by_notice = {n.id: n.waits_for_notice_id for n in waiting}
+            # Held ones wait for the same confirmation again; released ones stay due.
+            holds_by_notice = {
+                n.id: n.waits_for_notice_id if n.status == "held" else None for n in waiting
+            }
             for notice in waiting:
                 notice.status = "cancelled"
                 notice.last_error = host_event.HOST_CHANGED
