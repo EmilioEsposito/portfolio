@@ -37,6 +37,13 @@ DEFAULTS = {
     "live_units": [],
     "test_sends_enabled": False,
     "lead_agent_uses_open_times": False,
+    "public_booking_enabled": None,
+    "public_limits": {
+        "upcoming_per_mobile": 2,
+        "upcoming_per_email": 2,
+        "bookings_per_ip_per_day": 6,
+        "bookings_per_day": 50,
+    },
 }
 PERSON = SimpleNamespace(id="user_test")
 
@@ -101,6 +108,8 @@ async def test_settings_start_in_capture_and_say_where_they_run(api, monkeypatch
         "environment": "local",
         "is_production": False,
         "test_recipients": ["t…@example.com", "•••-0150"],
+        "public_booking_on": True,
+        "public_booking_default": True,
     }
 
 
@@ -264,6 +273,8 @@ async def test_send_pending_runs_the_sending_step_once(api):
         "skipped": 0,
         "retrying": 0,
         "interrupted": 0,
+        "released": 0,
+        "stopped": 0,
     }
     body = (await api.get("/api/showing-bookings/notices")).json()
     assert {(n["status"], n["mode"], n["guard_reason"]) for n in body} == {

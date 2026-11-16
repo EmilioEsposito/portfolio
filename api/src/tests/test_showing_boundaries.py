@@ -183,3 +183,76 @@ def test_the_checks_catch_what_they_are_for():
         "class C:\n    async def create_event(self, calendar_id, event):\n        return 'e'"
     )
     assert uses_a_method(ast.parse(definition), EVENT_WRITES) == []
+
+
+# The public booking path
+
+
+CLOUDFLARE_HOSTS = ("challenges.cloudflare.com",)
+PUBLIC_PATH_FILES = {"public_routes.py", "bookings.py", "holds.py", "turnstile.py", "host_event.py"}
+
+
+def private_outbox_uses(tree: ast.AST) -> list[int]:
+    """Lines that reach into the outbox past its public functions."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "outbox"
+        and node.attr.startswith("_")
+    ]
+
+
+def calls_named(tree: ast.AST, name: str) -> list[int]:
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+    ]
+
+
+def test_the_public_path_is_scanned_like_every_other_file():
+    assert PUBLIC_PATH_FILES <= set(texts())
+
+
+def test_the_public_path_reaches_providers_only_through_the_outbox():
+    trees = sources()
+    for name in PUBLIC_PATH_FILES:
+        assert imports_a_sender(trees[name]) == [], name
+        assert reaches_a_provider(trees[name]) == [], name
+        assert uses_a_method(trees[name], SENDING_METHODS) == [], name
+        assert private_outbox_uses(trees[name]) == [], name
+    assert private_outbox_uses(ast.parse("outbox._send(item)"))
+
+
+def test_only_turnstile_reaches_cloudflare():
+    for name, text in texts().items():
+        if name != "turnstile.py":
+            assert not any(host in text for host in CLOUDFLARE_HOSTS), name
+
+
+def test_every_public_route_is_under_the_public_prefix_and_no_team_route_is():
+    from api.src.showing_bookings import public_routes, routes
+
+    public_paths = [route.path for route in public_routes.public_router.routes]
+    assert public_paths
+    assert all(path.startswith("/showing-bookings/public/") for path in public_paths)
+    assert not any(
+        route.path.startswith("/showing-bookings/public") for route in routes.router.routes
+    )
+
+
+def test_the_notice_job_is_registered_only_by_the_scheduler_startup():
+    index = (PACKAGE.parents[1] / "index.py").read_text()
+    tree = ast.parse(index)
+    startup = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_apscheduler_startup_async"
+    )
+    everywhere = calls_named(tree, "register_showing_notices")
+    assert len(everywhere) == 1
+    assert calls_named(startup, "register_showing_notices") == everywhere
+    # That startup task runs only when background automation is on.
+    assert "if background_automation_enabled():" in index

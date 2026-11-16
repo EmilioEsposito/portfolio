@@ -6,8 +6,9 @@ Signed-in Sernia users only, on every route.
   test-send switch. A save sends ``based_on``, the settings as the caller last
   read them; if they have changed since, nothing is saved and the answer is 409.
 - ``GET /notices``: notices newest first, with their wording, status and mode.
-- ``POST /notices/send-pending``: run the sending step once, the same one the
-  scheduled job will run, and answer what it did.
+- ``POST /notices/send-pending``: release or stop the held notices, then run
+  the sending step once: the same two steps the job every minute runs
+  (``holds.send_pending``). Answers what it did.
 - ``GET /calendar/connections``: each connected Google account, whether it can
   be used here, and whether this environment can connect calendars at all.
 - ``POST /calendar/connect``: Google's consent URL for a new connection, or to
@@ -19,6 +20,8 @@ Signed-in Sernia users only, on every route.
   then mark the connection revoked.
 - ``PUT /settings/lead-agent``: switch the lead agent's use of open times on or
   off, changing nothing else in the settings.
+- ``PUT /settings/public-booking``: open booking to the public, close it, or
+  go back to the environment's default, changing nothing else.
 - ``GET /agents``, ``POST /agents``, ``PUT /agents/{id}``,
   ``POST /agents/{id}/deactivate`` and ``.../activate``: the showing agents.
 - ``POST /agents/load-samples``: add the made-up agents from ``seed.py``.
@@ -41,7 +44,7 @@ from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.models import RentalListingRecord
-from api.src.showing_bookings import agents, connections, open_times, outbox
+from api.src.showing_bookings import agents, connections, holds, open_times
 from api.src.showing_bookings.guard import PRODUCTION
 from api.src.showing_bookings.models import (
     CalendarConnection,
@@ -53,7 +56,6 @@ from api.src.showing_bookings.models import (
 from api.src.showing_bookings.schema import (
     DAYS_AHEAD,
     ConnectionStatus,
-    DrainReport,
     Email,
     Notice,
     ShowingAgent,
@@ -62,6 +64,8 @@ from api.src.showing_bookings.settings import (
     SETTINGS_KEY,
     ShowingBookingSettings,
     current_environment,
+    public_booking_default,
+    public_booking_on,
     read_settings,
     read_test_recipients,
 )
@@ -81,6 +85,9 @@ class SettingsView(BaseModel):
     is_production: bool
     # Who test sends can reach here, shortened: "•••-0142", "p…@example.com".
     test_recipients: list[str]
+    # Whether the public booking routes answer here, and what unset means here.
+    public_booking_on: bool
+    public_booking_default: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -127,6 +134,8 @@ async def get_settings(session: DBSession):
         environment=environment or "local",
         is_production=environment == PRODUCTION,
         test_recipients=sorted(_shortened(address) for address in read_test_recipients()),
+        public_booking_on=public_booking_on(settings, environment),
+        public_booking_default=public_booking_default(environment),
     )
 
 
@@ -165,9 +174,15 @@ async def update_settings(
         select(AppSetting).where(AppSetting.key == SETTINGS_KEY).with_for_update()
     )
     stored = ShowingBookingSettings.model_validate(row.value)
-    # The lead agent's switch has its own route and is kept as stored here, so a
-    # send-mode screen loaded before the switch moved neither undoes it nor is refused.
-    switch = {"lead_agent_uses_open_times": stored.lead_agent_uses_open_times}
+    # The lead agent's switch and the public booking switch have their own
+    # routes, and the public limits are changed in the row itself; all three are
+    # kept as stored here, so a send-mode screen loaded before one of them moved
+    # neither undoes it nor is refused.
+    switch = {
+        "lead_agent_uses_open_times": stored.lead_agent_uses_open_times,
+        "public_booking_enabled": stored.public_booking_enabled,
+        "public_limits": stored.public_limits,
+    }
     if stored != body.based_on.model_copy(update=switch):
         raise HTTPException(409, "Settings changed elsewhere. Reload before saving.")
     new = new.model_copy(update=switch)
@@ -212,9 +227,9 @@ async def list_notices(session: DBSession, limit: int = Query(100, ge=1, le=500)
     ]
 
 
-@router.post("/notices/send-pending", response_model=DrainReport)
+@router.post("/notices/send-pending", response_model=holds.SendPendingReport)
 async def send_pending(user: User = Depends(verify_serniacapital_user)):
-    report = await outbox.drain(now=datetime.now(UTC))
+    report = await holds.send_pending(now=datetime.now(UTC))
     logfire.info(
         "showing bookings: send pending run by hand", user_id=user.id, **report.model_dump()
     )
@@ -369,6 +384,45 @@ class LeadAgentSwitch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lead_agent_uses_open_times: bool
+
+
+class PublicBookingSwitch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # None goes back to the environment's default: off in production, on elsewhere.
+    public_booking_enabled: bool | None
+
+
+@router.put("/settings/public-booking", response_model=SettingsView)
+async def set_public_booking_switch(
+    body: PublicBookingSwitch, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    """Open or close booking to the public, changing nothing else in the settings."""
+    try:
+        current = await read_settings(session)
+    except Exception:
+        logfire.exception("showing bookings: settings could not be loaded")
+        raise HTTPException(503, "Settings could not be loaded. Try again.") from None
+    await session.execute(
+        insert(AppSetting)
+        .values(key=SETTINGS_KEY, value=current.model_dump())
+        .on_conflict_do_nothing(index_elements=["key"])
+    )
+    row = await session.scalar(
+        select(AppSetting).where(AppSetting.key == SETTINGS_KEY).with_for_update()
+    )
+    new = ShowingBookingSettings.model_validate(row.value).model_copy(
+        update={"public_booking_enabled": body.public_booking_enabled}
+    )
+    row.value = new.model_dump()
+    await session.commit()
+    logfire.info(
+        "showing bookings: public booking switched",
+        user_id=user.id,
+        public_booking_enabled=body.public_booking_enabled,
+        on=public_booking_on(new, current_environment()),
+    )
+    return await get_settings(session)
 
 
 @router.put("/settings/lead-agent", response_model=ShowingBookingSettings)
