@@ -7,7 +7,7 @@
  */
 import type { Page } from "@playwright/test";
 
-import { formatDay, formatWhen } from "../app/lib/showing-booking-page.ts";
+import { formatDay, formatWhen } from "../../app/lib/showing-booking-page.ts";
 import { expect, readRows, resetDatabase, test, turnstileRuns } from "./fixtures.ts";
 import { TEAM_PHONE, UNIT } from "./setup.ts";
 

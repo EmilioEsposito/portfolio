@@ -10,8 +10,8 @@
  */
 import { fileURLToPath } from "node:url";
 
-export const WEB_DIR = fileURLToPath(new URL("..", import.meta.url));
-export const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+export const WEB_DIR = fileURLToPath(new URL("../..", import.meta.url));
+export const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 export const PYTHON = `${REPO_ROOT}.venv/bin/python`;
 
 export const API_PORT = Number(process.env.E2E_API_PORT || 8765);

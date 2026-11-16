@@ -1,4 +1,4 @@
-"""Data for the booking page's browser test (apps/web-react-router/e2e/): a reset and a read.
+"""Data for the booking page's browser test (apps/web-react-router/test/e2e/): a reset and a read.
 
     uv run python -m scripts.showing_browser_test reset
     uv run python -m scripts.showing_browser_test rows

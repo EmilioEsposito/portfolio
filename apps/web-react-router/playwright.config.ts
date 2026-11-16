@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { API_PORT, BASE_URL, WEB_PORT } from "./e2e/setup.ts";
+import { API_PORT, BASE_URL, WEB_PORT } from "./test/e2e/setup.ts";
 
 // The booking page's browser test, against the local API and the built web
 // app on a disposable database. See "Browser test" in README.md.
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./test/e2e",
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
@@ -21,14 +21,14 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "node e2e/serve.ts api",
+      command: "node test/e2e/serve.ts api",
       url: `http://127.0.0.1:${API_PORT}/api/health`,
       reuseExistingServer: false,
       timeout: 120_000,
       stdout: "pipe",
     },
     {
-      command: "node e2e/serve.ts web",
+      command: "node test/e2e/serve.ts web",
       url: `http://127.0.0.1:${WEB_PORT}/privacy`,
       reuseExistingServer: false,
       timeout: 60_000,

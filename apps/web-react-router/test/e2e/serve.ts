@@ -1,7 +1,7 @@
 /**
  * Starts one of the browser test's servers with the clean environment from
- * setup.ts: `node e2e/serve.ts api` (migrations, then the API) or
- * `node e2e/serve.ts web` (the built web app, `node server.js`).
+ * setup.ts: `node test/e2e/serve.ts api` (migrations, then the API) or
+ * `node test/e2e/serve.ts web` (the built web app, `node server.js`).
  * Playwright's webServer runs both and stops them after the run.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
@@ -23,7 +23,7 @@ function run(): ChildProcess {
   if (which === "web") {
     return spawn(process.execPath, ["server.js"], { cwd: WEB_DIR, env: webEnvironment(), stdio: "inherit" });
   }
-  console.error("Usage: node e2e/serve.ts api|web");
+  console.error("Usage: node test/e2e/serve.ts api|web");
   process.exit(2);
 }
 
