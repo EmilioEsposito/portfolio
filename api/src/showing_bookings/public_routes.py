@@ -14,6 +14,9 @@ elsewhere).
   confirmation screen.
 - ``POST /bookings/mobile``: correct the mobile on a booking by its cancel
   token, which texts the confirmation again, at most twice per booking.
+- ``POST /bookings/cancel``: cancel a booking by its cancel token, up to the
+  showing's start. A second call answers the booking as cancelled and sends
+  nothing more.
 - ``POST /team-phone``: the team's number and extension, after Turnstile.
 
 A refusal answers ``{"detail": {"code", "message", "fields"}}``, where
@@ -32,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings
+from api.src.showing_bookings import bookings, cancelling
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.settings import (
     current_environment,
@@ -122,10 +125,10 @@ async def book(
 
 
 @public_router.post("/bookings/lookup", response_model=bookings.BookingView)
-async def lookup(request: Request):
+async def lookup(request: Request, now: datetime = Depends(clock)):
     try:
         body = bookings.parse_body(bookings.TokenRequest, await _body(request))
-        view = await bookings.booking_by_token(body.cancel_token)
+        view = await bookings.booking_by_token(body.cancel_token, now=now)
     except bookings.Refused as refused:
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
@@ -141,6 +144,21 @@ async def correct_mobile(
         body = bookings.parse_body(bookings.MobileCorrection, await _body(request))
         view = await bookings.correct_mobile(body, now=now, texts=texts)
     except bookings.Refused as refused:
+        return _refused(refused)
+    return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+@public_router.post("/bookings/cancel", response_model=bookings.BookingView)
+async def cancel(
+    request: Request,
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    try:
+        body = bookings.parse_body(bookings.TokenRequest, await _body(request))
+        view = await cancelling.cancel_by_token(body.cancel_token, now=now, texts=texts)
+    except bookings.Refused as refused:
+        logfire.info("public cancellation refused", code=refused.code)
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
 

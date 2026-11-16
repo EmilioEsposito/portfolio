@@ -35,13 +35,19 @@ connected Google account whose showings calendar the notice names
 (``connections.calendar_for_showings_calendar``).
 
 A host event notice (``host_event.KINDS``) is rendered again when it is
-settled or claimed, under a lock on its showing (``_prepare_host_event``): its
+settled or claimed, under a lock on its showing (``_prepare_calendar``): its
 summary and description come from the attendees booked now, and it creates
 the showing's event when there is none yet, else updates it. While another
 host notice for the showing is being sent it waits a minute, so a showing
 never gets two events. A showing with no one booked, or cancelled, cancels
 the notice, and so does an earlier create whose outcome is unknown. What was
 rendered is saved on the row.
+
+A cancellation of the host's event or of a prospect's invite
+(``host_event.CANCEL_KINDS``) is checked the same way when it is settled or
+claimed: it waits while the event is being created, goes ahead when the event
+exists (or its create was captured, so capture mode keeps it too), and is
+cancelled when there is no event to cancel. A cancellation never creates one.
 """
 
 import os
@@ -355,23 +361,47 @@ _NOT_NOW = object()
 HOST_EVENT_BUSY_DELAY = timedelta(minutes=1)
 
 
-async def _prepare_host_event(session: AsyncSession, notice: ShowingNotice, now: datetime):
-    """Render a host event notice from its showing as it is now, under the showing's lock.
+def _settle_cancel_check(notice: ShowingNotice, verdict: str, now: datetime) -> bool:
+    """Apply ``host_event.cancel_check``'s answer; True when the row goes ahead."""
+    if verdict == "go":
+        return True
+    if verdict == "wait":
+        notice.not_before = now + HOST_EVENT_BUSY_DELAY
+    else:
+        notice.status = "cancelled"
+        notice.last_error = verdict
+    return False
+
+
+async def _prepare_calendar(session: AsyncSession, notice: ShowingNotice, now: datetime):
+    """Get a calendar notice ready to deliver, from things as they are now.
+
+    A host event notice is rendered from its showing under the showing's
+    lock; a cancellation (the host's event or a prospect's invite) is checked
+    for an event to cancel (``host_event.cancel_check``).
 
     Returns ``_NOT_NOW`` when the row is not delivered in this run: cancelled
-    (no one booked, or an earlier create may have gone out) or put off a
-    minute (another host notice for the showing is being sent). Otherwise the
-    showing's event id, or None when there is none yet, so it is created. Rows
-    that are not host event notices are returned unchanged with None.
+    (no one booked, an earlier create may have gone out, or there is no event
+    to cancel) or put off a minute (another notice for the event is being
+    sent). Otherwise the event id it applies to, or None when there is none
+    yet, so it is created. Other rows are returned unchanged with None.
     """
-    if notice.kind not in host_event.KINDS:
+    if notice.kind == host_event.INVITE_CANCEL_KIND:
+        event_id = await session.scalar(
+            select(ShowingAttendee.calendar_event_id).where(
+                ShowingAttendee.id == notice.attendee_id
+            )
+        )
+        verdict = await host_event.cancel_check(session, notice, event_id=event_id)
+        return event_id if _settle_cancel_check(notice, verdict, now) else _NOT_NOW
+    if notice.kind not in host_event.SHOWING_LOCKED_KINDS:
         return None
     showing = await session.scalar(
         select(Showing).where(Showing.id == notice.showing_id).with_for_update()
     )
     others = select(ShowingNotice.id).where(
         ShowingNotice.showing_id == notice.showing_id,
-        ShowingNotice.kind.in_(host_event.KINDS),
+        ShowingNotice.kind.in_(host_event.SHOWING_LOCKED_KINDS),
         ShowingNotice.id != notice.id,
     )
     if await session.scalar(
@@ -381,6 +411,9 @@ async def _prepare_host_event(session: AsyncSession, notice: ShowingNotice, now:
     ):
         notice.not_before = now + HOST_EVENT_BUSY_DELAY
         return _NOT_NOW
+    if notice.kind == host_event.CANCEL_KIND:
+        verdict = await host_event.cancel_check(session, notice, event_id=showing.host_event_id)
+        return showing.host_event_id if _settle_cancel_check(notice, verdict, now) else _NOT_NOW
     rendered = await host_event.render(
         session, showing, calendar_id=notice.payload.get("calendar_id") or "unknown"
     )
@@ -417,7 +450,11 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
             # The showings of the host notices, locked together in id order, so
             # two runs at once never take them in opposite orders.
             host_showings = sorted(
-                {notice.showing_id for notice, *_ in rows if notice.kind in host_event.KINDS}
+                {
+                    notice.showing_id
+                    for notice, *_ in rows
+                    if notice.kind in host_event.SHOWING_LOCKED_KINDS
+                }
             )
             if host_showings:
                 await session.execute(
@@ -428,7 +465,7 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
                 )
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
-                if await _prepare_host_event(session, notice, now) is _NOT_NOW:
+                if await _prepare_calendar(session, notice, now) is _NOT_NOW:
                     continue
                 if _guard(notice, unit, inputs, now).action == "send":
                     to_send.append(notice.id)
@@ -449,11 +486,13 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         if row is None:
             return None, None
         notice, unit, host_event_id, invite_event_id = row
-        prepared = await _prepare_host_event(session, notice, now)
+        prepared = await _prepare_calendar(session, notice, now)
         if prepared is _NOT_NOW:
             return None, None
-        if prepared is not None:
+        if prepared is not None and notice.channel == "calendar_event":
             host_event_id = prepared
+        elif prepared is not None:
+            invite_event_id = prepared
         inputs = await _guard_inputs(session)
         decision = _guard(notice, unit, inputs, now)
         if decision.action != "send":

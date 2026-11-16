@@ -94,7 +94,7 @@ HOST_UPDATE_KIND = host_event.UPDATE_KIND
 # checked in code, which the database's no-overlap rule cannot see).
 BOOKING_LOCK = "showing-bookings:public-booking"
 SITE_LIMIT_MESSAGE = "Online booking is paused right now. Call us to book."
-INVITE_KIND = "prospect_invite"
+INVITE_KIND = host_event.INVITE_KIND
 WITHDRAWN_NOTE = "Not sent: the booking was withdrawn because the number could not be texted."
 _LEAD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
@@ -133,6 +133,16 @@ def public_base_url() -> str:
 
 def cancel_url(cancel_token: str) -> str:
     return f"{public_base_url()}/showings/cancel/{cancel_token}"
+
+
+def unit_url(unit: str) -> str:
+    """The unit's booking page, where a new time is a new booking."""
+    return f"{public_base_url()}/showings/{unit}"
+
+
+def units_url() -> str:
+    """The units still on offer."""
+    return f"{public_base_url()}/showings"
 
 
 def team_extension() -> str:
@@ -272,6 +282,10 @@ class BookingView(BaseModel):
     timezone: str
     mobile: str | None  # all but the last two digits hidden
     corrections_left: int
+    # The showing's start has passed, so it can no longer be cancelled or changed here.
+    started: bool
+    # Cancelled by the team, or because the unit went off the market, rather than by the person.
+    cancelled_by_team: bool
 
 
 class BookingResult(BaseModel):
@@ -363,7 +377,7 @@ async def _check_turnstile(token: str | None, ip: str | None) -> None:
         )
 
 
-async def _lock(session: AsyncSession, *keys: str) -> None:
+async def lock(session: AsyncSession, *keys: str) -> None:
     """Transaction-level advisory locks, always taken in the order given."""
     for key in keys:
         await session.execute(
@@ -470,7 +484,7 @@ async def _showings_calendar(session: AsyncSession, agent: ShowingAgentRecord) -
     return NO_SHOWINGS_CALENDAR
 
 
-def _visit(showing: Showing, rules: ShowingRules) -> wording.Visit:
+def visit_of(showing: Showing, rules: ShowingRules) -> wording.Visit:
     return wording.Visit(
         unit=showing.unit,
         address=showing.address,
@@ -491,7 +505,7 @@ async def _enqueue_booking_notices(
     now: datetime,
 ) -> ShowingNotice:
     """The confirmation text, and the host's event and the invite held behind it."""
-    visit = _visit(showing, rules)
+    visit = visit_of(showing, rules)
     link = cancel_url(attendee.cancel_token)
     confirmation = await outbox.enqueue(
         session,
@@ -545,8 +559,11 @@ async def _enqueue_booking_notices(
     return confirmation
 
 
-def _view(showing: Showing, attendee: ShowingAttendee, timezone: str) -> BookingView:
+def view_of(
+    showing: Showing, attendee: ShowingAttendee, timezone: str, now: datetime
+) -> BookingView:
     booked = attendee.status == "booked" and showing.status == "scheduled"
+    reason = attendee.cancel_reason if attendee.status == "cancelled" else showing.cancel_reason
     return BookingView(
         status="booked" if booked else "cancelled",
         unit=showing.unit,
@@ -556,6 +573,8 @@ def _view(showing: Showing, attendee: ShowingAttendee, timezone: str) -> Booking
         timezone=timezone,
         mobile=masked_mobile(attendee.mobile),
         corrections_left=max(0, MAX_MOBILE_CORRECTIONS - attendee.mobile_corrections),
+        started=showing.starts_at <= now,
+        cancelled_by_team=not booked and reason in ("team", "off_market"),
     )
 
 
@@ -579,7 +598,7 @@ async def book(
 
     try:
         async with AsyncSessionFactory() as session, session.begin():
-            await _lock(
+            await lock(
                 session,
                 BOOKING_LOCK,
                 f"showing:{listing.unit.casefold()}:{checked.start.astimezone(UTC).isoformat()}",
@@ -692,7 +711,7 @@ async def book(
         cancel_token=attendee.cancel_token,
         kind=check.kind,
         confirmation=status,
-        booking=_view(showing, attendee, rules.timezone),
+        booking=view_of(showing, attendee, rules.timezone, now),
     )
 
 
@@ -712,8 +731,15 @@ async def _send_confirmation(
 
 
 async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> None:
-    """Withdraw a booking whose number Quo refused, in one transaction."""
+    """Withdraw a booking whose number Quo refused, in one transaction.
+
+    It takes the shared booking lock first, as a cancellation does, so a
+    cancellation of someone else in the showing cannot run in between.
+    """
+    from api.src.showing_bookings import cancelling  # cancelling imports this module
+
     async with AsyncSessionFactory() as session, session.begin():
+        await lock(session, BOOKING_LOCK)
         attendee = await session.scalar(
             select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
         )
@@ -738,9 +764,11 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
             showing.status = "cancelled"
             showing.cancel_reason = "no_attendees"
             showing.cancelled_at = now
+            # Only when someone else left in between could the event be out already.
+            await cancelling.queue_host_cancel(session, showing, now)
         elif showing.status == "scheduled":
-            update_queued = await _queue_host_update_after_withdrawal(
-                session, showing=showing, attendee_id=attendee_id, now=now
+            update_queued = await queue_host_update_after_leaving(
+                session, showing=showing, attendee_id=attendee_id, now=now, why="withdrawn"
             )
     logfire.info(
         "showing booking withdrawn: number refused",
@@ -751,10 +779,11 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
     )
 
 
-async def _queue_host_update_after_withdrawal(
-    session: AsyncSession, *, showing: Showing, attendee_id: int, now: datetime
+async def queue_host_update_after_leaving(
+    session: AsyncSession, *, showing: Showing, attendee_id: int, now: datetime, why: str
 ) -> bool:
-    """Tell the host when the event may already list the withdrawn person.
+    """Tell the host when the event may already list someone who left (``why``:
+    "withdrawn" or "cancelled").
 
     That is when a host notice for the showing went out (sent or captured), may
     have gone out (unknown), or is being sent now. The update is due at once and
@@ -786,7 +815,7 @@ async def _queue_host_update_after_withdrawal(
         showing_id=showing.id,
         attendee_id=attendee_id,
         recipient=out.recipient,
-        recipient_key=f"agent:{showing.agent_id}:attendee:{attendee_id}:withdrawn",
+        recipient_key=f"agent:{showing.agent_id}:attendee:{attendee_id}:{why}",
         payload=payload,
         now=now,
     )
@@ -808,7 +837,7 @@ class MobileCorrection(TokenRequest):
     mobile: str = ""
 
 
-async def _by_token(session: AsyncSession, token: str, *, lock: bool = False):
+async def by_token(session: AsyncSession, token: str, *, lock: bool = False):
     if not token or len(token) > 100:
         raise Refused(404, "unknown_booking", "We couldn't find this booking.")
     query = (
@@ -899,11 +928,11 @@ async def _queue_host_update_after_correction(
     )
 
 
-async def booking_by_token(token: str) -> BookingView:
+async def booking_by_token(token: str, *, now: datetime) -> BookingView:
     async with AsyncSessionFactory() as session:
-        attendee, showing = await _by_token(session, token)
+        attendee, showing = await by_token(session, token)
         rules = await listings_service.read_showing_rules(session)
-    return _view(showing, attendee, rules.timezone)
+    return view_of(showing, attendee, rules.timezone, now)
 
 
 class _Superseded(Exception):
@@ -926,8 +955,8 @@ async def correct_mobile(
     async with AsyncSessionFactory() as session, session.begin():
         # Advisory locks before row locks, as in a booking.
         if mobile is not None:
-            await _lock(session, f"showing-mobile:{mobile}")
-        attendee, showing = await _by_token(session, body.cancel_token, lock=True)
+            await lock(session, f"showing-mobile:{mobile}")
+        attendee, showing = await by_token(session, body.cancel_token, lock=True)
         if attendee.status != "booked" or showing.status != "scheduled":
             raise Refused(409, "not_booked", "This booking is cancelled.")
         if showing.starts_at <= now:
@@ -956,7 +985,7 @@ async def correct_mobile(
         limit = settings.public_limits.upcoming_per_mobile
         await _check_new_mobile(session, showing.id, mobile, limit=limit, now=now)
         attendee.mobile_corrections += 1
-        visit = _visit(showing, rules)
+        visit = visit_of(showing, rules)
         confirmation = await outbox.enqueue(
             session,
             kind=CONFIRMATION_KIND,
@@ -981,13 +1010,14 @@ async def correct_mobile(
     try:
         async with AsyncSessionFactory() as session, session.begin():
             # The number's advisory lock, then the attendee, then its notices.
-            await _lock(session, f"showing-mobile:{mobile}")
+            await lock(session, f"showing-mobile:{mobile}")
             attendee = await session.scalar(
                 select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
             )
-            if attendee.mobile_corrections != corrections:
+            if attendee.mobile_corrections != corrections or attendee.status != "booked":
                 # A newer correction of this booking was made while this text was
-                # being sent; the person's latest choice stands, so change nothing.
+                # being sent, so the person's latest choice stands; or the booking
+                # was cancelled meanwhile, so nothing it held comes back. Change nothing.
                 raise _Superseded
             # Another correction may have taken this number since the first check.
             await _check_new_mobile(session, showing_id, mobile, limit=limit, now=now)
@@ -1030,9 +1060,9 @@ async def correct_mobile(
         ) from None
     except _Superseded:
         logfire.info("showing booking mobile correction superseded", attendee_id=attendee_id)
-        return await booking_by_token(body.cancel_token)
+        return await booking_by_token(body.cancel_token, now=now)
     logfire.info("showing booking mobile corrected", attendee_id=attendee_id)
-    return await booking_by_token(body.cancel_token)
+    return await booking_by_token(body.cancel_token, now=now)
 
 
 # ---------------------------------------------------------------------------
