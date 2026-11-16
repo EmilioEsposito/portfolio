@@ -128,3 +128,24 @@ def test_test_recipients_come_from_the_environment_at_call_time(monkeypatch):
     monkeypatch.delenv("SHOWING_TEST_PHONES")
     monkeypatch.delenv("SHOWING_TEST_EMAILS")
     assert read_test_recipients() == frozenset()
+
+
+def test_would_send_is_exactly_decide_answering_send():
+    """The helper the host's morning text uses adds no rule of its own."""
+    for mode, live, tests, environment, unit, address in product(
+        ("off", "capture", "live"),
+        ((), (UNIT,)),
+        (False, True),
+        ("production", "development"),
+        (UNIT, "412-01"),
+        (PROSPECT, TEAM_PHONE),
+    ):
+        rules = settings(mode=mode, live_units=live, test_sends=tests)
+        expected = run(rules, environment=environment, unit=unit, addresses=[address])
+        assert guard.would_send(
+            settings=rules,
+            environment=environment,
+            unit=unit,
+            addresses=[address],
+            test_recipients=TESTERS,
+        ) == (expected.action == "send")

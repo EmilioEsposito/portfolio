@@ -19,6 +19,8 @@
   by a lead who has not added their details (``LEAD_EMAIL_VERSION``).
 - The host's texts when someone books or cancels, or the showing is
   cancelled, less than 2 hours ahead (``HOST_TEXT_VERSION``).
+- The host's text on the morning of a day with showings (``HOST_MORNING_VERSION``).
+- The prospect's text after a showing with the apply link (``APPLY_VERSION``).
 - What each notice is called (``notice_label``) and the team's alert when a
   notice fails or is stuck (``ALERT_VERSION``), which names no phone number.
 
@@ -43,6 +45,8 @@ RESIDENT_VERSION = "v1"
 REMINDER_VERSION = "v1"
 LEAD_EMAIL_VERSION = "v1"
 HOST_TEXT_VERSION = "v1"
+HOST_MORNING_VERSION = "v1"
+APPLY_VERSION = "v1"
 ALERT_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
@@ -399,6 +403,88 @@ def host_showing_cancelled_text(visit: Visit, reason: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The host's morning text (HOST_MORNING_VERSION)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DayShowing:
+    """One of the host's showings on the day, as the morning text lists it."""
+
+    visit: Visit
+    booked: int
+
+
+def _people(count: int) -> str:
+    return "1 person" if count == 1 else f"{count} people"
+
+
+# The longest text a notice holds (``schema.TextPayload.body``).
+TEXT_LIMIT = 1600
+
+
+def _more(count: int) -> str:
+    return f"…and {count} more showing{'' if count == 1 else 's'} today."
+
+
+def host_morning_text(showings: Sequence[DayShowing], *, limit: int = TEXT_LIMIT) -> str:
+    """To a host at 8 AM: the day's showings in order, each with its time, place and
+    how many people are booked. Names no one booked and no phone number.
+
+    Never longer than ``limit``: when the full list is too long, the lines are
+    compacted (the address once when every showing shares it, then time, unit
+    and count per line); when that is still too long, it lists as many as fit
+    and ends with how many more there are."""
+    showings = sorted(showings, key=lambda item: item.visit.starts_at)
+    first = _local(showings[0].visit.starts_at, showings[0].visit.timezone)
+    day = f"{first:%a}, {first:%b} {first.day}"
+
+    def clock(item: DayShowing) -> str:
+        return _clock(_local(item.visit.starts_at, item.visit.timezone))
+
+    full = [f"Sernia Capital: your showings today, {day}:"] + [
+        f"- {clock(item)} at {place(item.visit)}, {_people(item.booked)}" for item in showings
+    ]
+    text = "\n".join(full)
+    if len(text) <= limit:
+        return text
+
+    addresses = {item.visit.address for item in showings}
+    if len(addresses) == 1 and showings[0].visit.address:
+        header = f"Sernia Capital: your showings today, {day}, at {showings[0].visit.address}:"
+    else:
+        header = f"Sernia Capital: your showings today, {day}:"
+    lines = [
+        f"- {clock(item)}, unit {item.visit.unit}, {_people(item.booked)}" for item in showings
+    ]
+    text = "\n".join([header, *lines])
+    if len(text) <= limit:
+        return text
+
+    kept: list[str] = []
+    for index, line in enumerate(lines):
+        left = len(lines) - index - 1
+        candidate = "\n".join([header, *kept, line] + ([_more(left)] if left else []))
+        if len(candidate) > limit:
+            break
+        kept.append(line)
+    return "\n".join([header, *kept, _more(len(lines) - len(kept))])[:limit]
+
+
+# ---------------------------------------------------------------------------
+# The prospect's text after a showing (APPLY_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def apply_text(visit: Visit, apply_url: str) -> str:
+    """To a prospect two hours after their showing, unless marked a no-show."""
+    return (
+        f"Sernia Capital: thanks for coming to see {place(visit)}. If you'd like to rent "
+        f"it, you can apply here: {apply_url}\nReply STOP to opt out."
+    )
+
+
+# ---------------------------------------------------------------------------
 # What each notice is, in words, and the team's alert (ALERT_VERSION)
 # ---------------------------------------------------------------------------
 
@@ -422,6 +508,8 @@ NOTICE_LABELS = {
     "host_event_moved": "Old host's event cancelled",
     "host_moved_to": "Host's text: showing now theirs",
     "host_moved_from": "Host's text: showing moved away",
+    "host_morning": "Host's morning text: today's showings",
+    "prospect_apply": "Prospect's text: apply link",
 }
 
 
