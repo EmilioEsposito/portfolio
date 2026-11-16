@@ -6,8 +6,8 @@ work is tracked in [issue #368](https://github.com/EmilioEsposito/portfolio/issu
 and lands one pull request at a time, each with sending switched off or in
 capture mode.
 
-The first steps hold the tables, the notice outbox, the test harness and the
-calendar connections. Nothing here books a showing yet, and nothing is sent:
+The first steps hold the tables, the notice outbox, the test harness, the
+calendar connections, the showing agents and the open times. Nothing here books a showing yet, and nothing is sent:
 the setting starts in capture mode, and outside production only test
 recipients can ever be sent to.
 
@@ -247,6 +247,99 @@ environment where the account was connected:
 uv run python -m scripts.showing_calendar_live_check --account ACCOUNT --guest GUEST
 ```
 
+## Showing agents
+
+An agent is a row in `showing_agents`, managed on the Booking settings tab
+(`agents.py`): name, email, mobile, weekly hours and preferred windows (the
+listings' `PreferredWindow` shape, where `end` is the last start), priority
+(1 hosts before 2), the calendars that make them busy, and the connection
+that reads them. Every save is checked (`agents.agent_problems`): a name,
+priority 1 to 99, at most 10 calendar addresses without spaces or repeats, and
+windows with days whose first start is not after the last. An email belongs to
+one agent.
+
+- No hours means the whole showing window.
+- No connection chosen means the team's: the oldest connection that is
+  connected. An agent added before any calendar is connected is read once one
+  is.
+- An agent with no calendars listed counts as busy.
+- Deactivating keeps the row, so past showings still name the agent, and gives
+  them no new showings. Showings already booked keep their host.
+
+## Open times
+
+`open_times.py`, from the design's "Open times":
+
+1. Start times every 30 minutes inside the showing window, in the showing
+   rules' time zone, from the notice period out to 14 days out. The notice is
+   the showing rules' `showing_notice_hours` (24 unless changed), or the
+   listing's own `showing_notice_hours` when it is longer. Blackout dates are
+   skipped, and so is every day from the listing's `off_market_on`. A wall
+   time that does not exist on a daylight-saving change is skipped.
+2. A start is open when an active agent is within their hours, free on their
+   calendars, and not in another scheduled showing, with 30 minutes' travel
+   between different addresses and none at the same address. Two showings are
+   at the same address when they are at the same unit or their addresses read
+   the same, ignoring case and punctuation.
+3. A scheduled showing at the unit that has room is offered as a join, without
+   reading the host's calendar again. A full one is not offered, and nothing
+   else starts at that unit while a showing is on.
+4. Order: joins, then times the unit or an available agent prefers, then the
+   rest, each group by time.
+5. The host of a new time: an agent already at the same address just before or
+   after, then one who prefers the time, then the lower priority number, then
+   whoever has fewer scheduled showings that week (Monday to Sunday).
+
+The constants (30 minutes, 4 places, every 30 minutes, 14 days, 30 minutes'
+travel, 90 seconds' cache) are in `schema.py`.
+
+What other code calls:
+
+| Call | Answers |
+| --- | --- |
+| `offers_for_unit(unit, now=)` | the unit's offers in order: start, `join` or `new`, preferred, places left, host, and the showing a join adds to; `why_none` when there are none |
+| `recheck(unit, start, now=, session=)` | `HostCheck`: the host and kind, or a refusal code and message (`unknown_unit`, `not_a_start_time`, `outside_window`, `blackout_date`, `off_market`, `inside_notice`, `too_far_ahead`, `full`, `no_agent_free`). Reads calendars with no cached answer. Pass the booking's session to see showings as that transaction does |
+| `open_times(now=, units=)` | the same for several units (by default every unit on offer), and how each agent's calendars were read |
+
+Every call takes `now`. Calendars come through
+`connections.calendar_for_connection`: one free/busy read per connection
+covers its agents, and the answer is kept in memory for 90 seconds per
+connection and set of calendars. A calendar that cannot be read makes its
+agent count as busy, never free; it is logged at error level and the tab shows
+it.
+
+### The sample calendar outside production
+
+Outside production (`RAILWAY_ENVIRONMENT_NAME` is not `production`), an agent
+with no usable connection is read from `seed.sample_calendar`, the made-up week
+of `fill_sample_week`, so local runs and previews show open times with no
+Google account. The answer says so (`sample_calendar_in_use`), and so does the
+tab. In production such an agent counts as busy.
+
+A preview's database is a copy of production's, which has no agents yet. On
+the Booking settings tab, **Load sample agents** (`POST /agents/load-samples`)
+adds the two made-up agents from `seed.py`; it is refused in production and
+shown only outside it. With them, every unit on offer in the preview shows
+open times from the sample week.
+
+## The lead agent's tour source
+
+`lead_tours.py` gives the Zillow lead agent its tour times, behind the setting
+`lead_agent_uses_open_times` (off by default). `zillow_leads/handle.py` asks
+`tour_source_for_lead_agent` for each lead: with the switch off, or the setting
+unreadable, it gets its own `NoTours` and behaves exactly as before.
+
+With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`:
+
+- open times: the starts every unit on offer can take (as a new time or a
+  join), each with the agent who would host. The case lists times for no
+  particular unit, so a time open at one unit and not another is left out
+  rather than offered for the wrong unit.
+- booked: the showings with room, by unit, which the lead policy offers first.
+
+`tours_for_case` still filters what it returns with the lead agent's own fixed
+rules, including its 24-hour floor (`case.MIN_NOTICE`).
+
 ## Team API
 
 Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
@@ -254,6 +347,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `GET /settings`: the settings, the environment, and the test recipients, shortened.
 - `PATCH /settings`: `{settings, based_on}`. A save from a stale screen answers
   409. A live unit must be a rental listing and is saved as the listing spells it.
+  The lead agent's switch is kept as stored.
+- `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
 - `GET /notices`: notices newest first, with their wording, status and mode.
 - `POST /notices/send-pending`: run `drain` once and answer its counts.
 - `GET /calendar/connections`: each connection with its last read and whether
@@ -261,10 +356,16 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `POST /calendar/connect`: `{origin, account?}`, Google's consent URL;
   `account` preselects the account for a reconnect.
 - `POST /calendar/connections/{id}/check` and `.../disconnect`.
+- `GET /agents`, `POST /agents`, `PUT /agents/{id}`,
+  `POST /agents/{id}/deactivate` and `.../activate`. A failed check answers
+  422 with `detail.problems`.
+- `POST /agents/load-samples`: add the made-up agents. 403 in production.
+- `GET /showings`: `open_times` for every unit on offer, the scheduled showings
+  in the next 14 days with host and attendee count, and the lead agent's switch.
 
 The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
-mode, Messages and Calendar connections sections; its other sections are
-placeholders.
+mode, Messages, Calendar connections, Showing agents and Showings sections.
+The Showings section holds the lead agent's switch.
 
 ## Tests
 
@@ -277,11 +378,15 @@ or Google. `test_showing_google_oauth.py` and `test_showing_google_calendar.py`
 cover the Google code without a database; `test_showing_calendar_connections.py`
 covers connecting, using and disconnecting end to end, including that no
 token, code or secret reaches the logs or the browser.
+`test_showing_open_times.py` holds the design's worked example and each rule;
+`test_showing_agents.py` the agents, Showings and switch routes;
+`test_showing_lead_tours.py` the tour source and that the lead agent offers no
+times with the switch off or unreadable.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- Open times from agents' hours, calendars and existing showings.
 - The public booking page, bookings and cancellations, which write the notices
   this outbox delivers, and the scheduled job that drains it every minute.
-- Reminders, and the lead agent offering real times and per-lead links.
+  They call `recheck` inside the booking's transaction.
+- Reminders, per-lead links, and the lead agent's own showing in its case.
