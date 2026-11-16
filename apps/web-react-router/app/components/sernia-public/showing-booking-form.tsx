@@ -28,8 +28,9 @@ import {
 import { cn } from "~/lib/utils";
 
 const INPUT =
-  "block w-full rounded-md border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive";
-const ERROR_LINE = "text-sm font-medium text-destructive";
+  "block w-full rounded-md border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-red-600 dark:aria-[invalid=true]:border-red-400";
+// The theme's destructive red is too dark to read on the dark background.
+const ERROR_LINE = "text-sm font-medium text-red-700 dark:text-red-400";
 
 type Status = { tone: "error" | "info"; text: string } | null;
 
@@ -295,7 +296,7 @@ export function ShowingBookingForm({
                 className={cn(
                   "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 text-[15px] leading-6",
                   checked && "border-primary/60 bg-primary/5",
-                  fields[name] && "border-destructive bg-destructive/5",
+                  fields[name] && "border-red-600 bg-red-600/5 dark:border-red-400 dark:bg-red-400/10",
                 )}
               >
                 <input
@@ -350,7 +351,7 @@ export function ShowingBookingForm({
         <p
           id={`${id}-status`}
           role="status"
-          className={cn("min-h-6 text-sm leading-6", status?.tone === "error" && "font-medium text-destructive")}
+          className={cn("min-h-6 text-sm leading-6", status?.tone === "error" && ERROR_LINE)}
         >
           {status?.text}
         </p>

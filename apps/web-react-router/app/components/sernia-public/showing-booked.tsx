@@ -77,8 +77,9 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         setNoMore(true);
         return;
       }
-      setProblem(refusal.message);
       setFieldLine(refusal.fields.mobile ?? null);
+      // "Check the marked fields." adds nothing to the line beside the field.
+      if (refusal.code !== "invalid" || !refusal.fields.mobile) setProblem(refusal.message);
       input.current?.focus();
     } finally {
       setBusy(false);
@@ -142,10 +143,10 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
                 }}
                 aria-invalid={Boolean(fieldLine)}
                 aria-describedby={fieldLine ? `${id}-mobile-error` : undefined}
-                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive"
+                className="block w-full rounded-md border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-red-600 dark:aria-[invalid=true]:border-red-400"
               />
               {fieldLine && (
-                <p id={`${id}-mobile-error`} className="text-sm font-medium text-destructive">
+                <p id={`${id}-mobile-error`} className="text-sm font-medium text-red-700 dark:text-red-400">
                   {fieldLine}
                 </p>
               )}
@@ -174,7 +175,7 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         )}
 
         <p role="status" className="text-sm font-medium">
-          {problem ? <span className="text-destructive">{problem}</span> : done}
+          {problem ? <span className="text-red-700 dark:text-red-400">{problem}</span> : done}
         </p>
 
         {noMore && <CallLine siteKey={siteKey} lead="To change the number again," tail="." />}
