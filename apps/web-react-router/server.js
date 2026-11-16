@@ -63,14 +63,52 @@ function waitForDrain(res) {
 }
 
 /**
- * Stream-proxy a request to the backend.
+ * A request target without its query or fragment, for logs. A query can carry
+ * private values, such as the one-time code and state Google sends to the
+ * calendar callback, so logs name the path only.
+ * @param {string} url
+ */
+export function pathForLog(url) {
+  return String(url).split(/[?#]/, 1)[0];
+}
+
+/**
+ * A proxy error as one log line: each error in its cause chain, with the
+ * request's query taken out wherever the text quotes it.
+ * @param {unknown} error
+ * @param {string} requestUrl
+ */
+function describeProxyError(error, requestUrl) {
+  const parts = [];
+  for (let current = error, depth = 0; current && depth < 4; current = current.cause, depth += 1) {
+    const code = typeof current.code === "string" ? ` (${current.code})` : "";
+    parts.push(current instanceof Error ? `${current.name}: ${current.message}${code}` : String(current));
+    if (!(current instanceof Error)) break;
+  }
+  const query = String(requestUrl).split("?").slice(1).join("?").split("#")[0];
+  let line = parts.join(" <- ");
+  if (!query) return line;
+  let decoded = query;
+  try {
+    decoded = decodeURIComponent(query);
+  } catch {
+    // A malformed escape: the query as received is still taken out.
+  }
+  for (const form of new Set([query, decoded])) line = line.replaceAll(form, "[query]");
+  return line;
+}
+
+/**
+ * Stream-proxy a request to the backend. The request is forwarded whole; the
+ * logs name its method and path only.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {string} targetUrl
  * @param {string} logTag
  */
 export async function proxyToBackend(req, res, targetUrl, logTag) {
-  console.log(`[${logTag}] ${req.method} ${req.originalUrl} -> ${targetUrl}`);
+  const loggedRequest = `${req.method} ${pathForLog(req.originalUrl)}`;
+  console.log(`[${logTag}] ${loggedRequest}`);
 
   // Keep aligned with PublicAIGuard.PUBLIC_PATHS. Operational conversations
   // deliberately keep draining after disconnect so persistence can finish.
@@ -144,7 +182,7 @@ export async function proxyToBackend(req, res, targetUrl, logTag) {
     }
   } catch (error) {
     if (controller?.signal.aborted) return;
-    console.error(`[${logTag}] Error proxying to ${targetUrl}:`, error);
+    console.error(`[${logTag}] Error proxying ${loggedRequest}: ${describeProxyError(error, req.originalUrl)}`);
     if (!res.headersSent) {
       res.status(502).json({
         error: "Proxy Error",

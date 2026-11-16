@@ -30,7 +30,9 @@ row through the guard in ``guard.py``:
 
 Every function that depends on the time takes ``now``. Tests pass the stand-ins
 from ``fakes.py``; left out, the live senders are used, and under pytest that
-fails loudly instead of reaching Quo.
+fails loudly instead of reaching Quo or Google. The live calendar is the
+connected Google account whose showings calendar the notice names
+(``connections.calendar_for_showings_calendar``).
 """
 
 import os
@@ -44,6 +46,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
+from api.src.showing_bookings import connections, google_http
 from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
@@ -419,10 +422,14 @@ def _live_text_sender() -> TextSender:
     return QuoTextSender()
 
 
-def _live_calendar() -> CalendarSource:
-    # The Google adapter comes with the calendar connections. Until then a
-    # calendar notice the guard would send fails, visibly, instead of waiting.
-    raise NotSent("calendar_not_connected", "Calendar sending is not built yet.")
+async def _live_calendar(calendar_id: str) -> CalendarSource:
+    """The connected Google account that holds ``calendar_id``, its showings calendar.
+
+    Raises ``NotSent`` when no connection holds it. A connection that cannot be
+    used here (lost, revoked, or no token key, as in a preview) refuses the
+    change the same way, so the notice fails visibly instead of waiting.
+    """
+    return await connections.calendar_for_showings_calendar(calendar_id)
 
 
 async def _send(
@@ -444,13 +451,19 @@ async def _send(
         if item.channel == "email":
             # Captured like any other notice; one the guard would send cannot go yet.
             raise NotSent("no_email_sender", "There is no email sender yet.")
-        source = calendar if calendar is not None else _live_calendar()
+        if calendar is not None:
+            source = calendar
+        else:
+            source = await _live_calendar(CalendarPayload.model_validate(item.payload).calendar_id)
         event_id = await _change_calendar(source, item)
         return _Outcome("sent", provider_id=event_id)
     except NotSent as refused:
         if refused.retryable and item.attempts < MAX_ATTEMPTS:
             return _Outcome("retry", error=refused.detail)
         return _Outcome("failed", provider_status=refused.reason, error=refused.detail)
+    except google_http.LiveGoogleInTests:
+        # A test without its mock transport fails instead of saving a status.
+        raise
     except Exception as exc:
         # It may have gone out before the error: never retried.
         return _Outcome("unknown", error=f"{type(exc).__name__}: {exc}"[:500])

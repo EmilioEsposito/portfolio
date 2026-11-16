@@ -181,3 +181,80 @@ export function refusalMessage(status: number, body: unknown, fallback: string):
   }
   return status ? `${fallback} (${status}).` : fallback;
 }
+
+// Calendar connections, as /api/showing-bookings/calendar/* sends them
+// (routes.py's ConnectionView and ConnectionsView).
+
+export type ConnectionStatus = "connected" | "lost" | "revoked";
+
+export interface CalendarConnection {
+  id: number;
+  google_email: string;
+  status: ConnectionStatus;
+  has_showings_calendar: boolean;
+  connected_by: string; // the Sernia email of whoever connected it
+  connected_at: string;
+  last_read_at: string | null;
+  last_read_ok: boolean | null; // null until the first read
+  last_error: string | null;
+  // False when this environment cannot use it: lost or disconnected, no Google
+  // client here, or no key to read its token (as in a preview).
+  usable_here: boolean;
+  unusable_reason: string | null;
+}
+
+export interface ConnectionsView {
+  can_connect: boolean;
+  setup_problem: string | null;
+  connections: CalendarConnection[];
+}
+
+export const CONNECTION_STATUS_LABELS: Record<ConnectionStatus, string> = {
+  connected: "Connected",
+  lost: "Lost",
+  revoked: "Disconnected",
+};
+
+// What Google's callback sends back in ?calendar= (connections.py's ConnectResult).
+export const CONNECT_RESULTS = {
+  connected: {
+    ok: true,
+    message: "Google account connected. The app can read its free and busy times, and its Sernia showings calendar is ready.",
+  },
+  denied: { ok: false, message: "Nothing was connected: the request was cancelled on Google's screen." },
+  missing_permissions: {
+    ok: false,
+    message: "Nothing was connected: both calendar permissions are needed. Connect again and leave both ticked on Google's screen.",
+  },
+  expired: { ok: false, message: "Nothing was connected: it took more than ten minutes. Start again." },
+  invalid: { ok: false, message: "Nothing was connected: the link back from Google was not valid. Start again from this tab." },
+  not_configured: { ok: false, message: "Nothing was connected: calendar connections are not set up in this environment." },
+  failed: { ok: false, message: "Nothing was connected: Google did not complete the connection. Try again." },
+} as const satisfies Record<string, { ok: boolean; message: string }>;
+
+export type ConnectResult = keyof typeof CONNECT_RESULTS;
+
+/** The callback's result from the address, or null for none or one this tab does not know. */
+export function connectResult(code: string | null): { code: ConnectResult; ok: boolean; message: string } | null {
+  if (!code || !Object.hasOwn(CONNECT_RESULTS, code)) return null;
+  const known = code as ConnectResult;
+  return { code: known, ...CONNECT_RESULTS[known] };
+}
+
+/** One line on how the last free/busy read went. */
+export function describeLastRead(connection: Pick<CalendarConnection, "last_read_at" | "last_read_ok">): string {
+  if (!connection.last_read_at || connection.last_read_ok === null) return "Not read yet.";
+  const when = formatWhen(connection.last_read_at);
+  return connection.last_read_ok ? `Last read ${when}: fine.` : `Last read ${when}: a problem.`;
+}
+
+/** Which buttons a connection gets. Reconnect saves a new token, so it also mends one unusable here. */
+export function connectionActions(connection: Pick<CalendarConnection, "status" | "usable_here">, canConnect: boolean) {
+  return {
+    check: connection.status === "connected" && connection.usable_here,
+    reconnect: canConnect,
+    // Disconnect asks Google to end the grant first; where the token cannot be
+    // read, the server refuses and says why.
+    disconnect: connection.status !== "revoked",
+  };
+}

@@ -75,6 +75,12 @@ from api.src.sernia_ai.config import WORKSPACE_PATH
 from api.src.sernia_ai.memory import initialize_workspace
 from api.src.sernia_ai.tools.code_tools import shutdown_code_sandbox, warm_code_sandbox
 from api.src.sernia_ai.triggers.scheduled_triggers import register_scheduled_triggers
+from api.src.showing_bookings.calendar_callback import (
+    CALLBACK_URL_PATTERN as SHOWING_CALLBACK_URL_PATTERN,
+)
+from api.src.showing_bookings.calendar_callback import (
+    callback_router as showing_bookings_callback_router,
+)
 from api.src.showing_bookings.routes import router as showing_bookings_router
 from api.src.user.routes import router as user_router
 from api.src.zillow_leads.settings import router as zillow_leads_router
@@ -295,7 +301,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
-logfire.instrument_fastapi(app)
+# Google's calendar callback carries a one-time code and a signed state in its
+# query string, which request spans would record in full (Logfire never scrubs
+# url.query), so that one path is left out; the route logs its own outcome.
+# Exclusions set in the environment still apply.
+_untraced_urls = [
+    os.getenv("OTEL_PYTHON_FASTAPI_EXCLUDED_URLS") or os.getenv("OTEL_PYTHON_EXCLUDED_URLS"),
+    SHOWING_CALLBACK_URL_PATTERN,
+]
+logfire.instrument_fastapi(app, excluded_urls=",".join(url for url in _untraced_urls if url))
 
 # --- Middleware Registration ---
 app.add_middleware(PublicAIGuard)
@@ -341,6 +355,8 @@ app.include_router(user_router, prefix="/api")
 app.include_router(contact_router, prefix="/api")
 app.include_router(rental_listings_router, prefix="/api")
 app.include_router(showing_bookings_router, prefix="/api")
+# Google's OAuth callback: the module's one route without the Sernia sign-in.
+app.include_router(showing_bookings_callback_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")

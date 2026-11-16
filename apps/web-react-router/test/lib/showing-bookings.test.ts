@@ -4,7 +4,11 @@ import test from "node:test";
 import {
   type BookingSettings,
   type DrainReport,
+  CONNECT_RESULTS,
   cleanSettings,
+  connectResult,
+  connectionActions,
+  describeLastRead,
   describeDrain,
   describeGuard,
   describeMode,
@@ -101,4 +105,46 @@ test("the server's reason for a refusal is shown when it gives one", () => {
   );
   assert.equal(refusalMessage(500, null, "Could not save"), "Could not save (500).");
   assert.equal(refusalMessage(0, null, "Network error"), "Network error");
+});
+
+test("the callback's result is shown only when this tab knows it", () => {
+  assert.deepEqual(connectResult("connected"), { code: "connected", ...CONNECT_RESULTS.connected });
+  assert.equal(connectResult("missing_permissions")?.ok, false);
+  assert.match(connectResult("missing_permissions")?.message ?? "", /both calendar permissions/);
+  assert.equal(connectResult("toString"), null);
+  assert.equal(connectResult("something_else"), null);
+  assert.equal(connectResult(null), null);
+  // Every result the API can send has words here (connections.py's ConnectResult).
+  for (const code of ["connected", "denied", "missing_permissions", "expired", "invalid", "not_configured", "failed"]) {
+    assert.ok(connectResult(code), code);
+  }
+});
+
+test("the last read says whether it worked, and when", () => {
+  assert.equal(describeLastRead({ last_read_at: null, last_read_ok: null }), "Not read yet.");
+  assert.equal(describeLastRead({ last_read_at: "2026-11-15T21:32:00Z", last_read_ok: true }), "Last read Sun, Nov 15, 4:32 PM: fine.");
+  assert.match(describeLastRead({ last_read_at: "2026-11-15T21:32:00Z", last_read_ok: false }), /a problem\.$/);
+});
+
+test("a connection offers only the buttons that can work here", () => {
+  assert.deepEqual(connectionActions({ status: "connected", usable_here: true }, true), {
+    check: true,
+    reconnect: true,
+    disconnect: true,
+  });
+  assert.deepEqual(connectionActions({ status: "connected", usable_here: false }, false), {
+    check: false,
+    reconnect: false,
+    disconnect: true,
+  });
+  assert.deepEqual(connectionActions({ status: "lost", usable_here: false }, true), {
+    check: false,
+    reconnect: true,
+    disconnect: true,
+  });
+  assert.deepEqual(connectionActions({ status: "revoked", usable_here: false }, true), {
+    check: false,
+    reconnect: true,
+    disconnect: false,
+  });
 });

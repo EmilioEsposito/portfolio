@@ -8,6 +8,15 @@ Signed-in Sernia users only, on every route.
 - ``GET /notices``: notices newest first, with their wording, status and mode.
 - ``POST /notices/send-pending``: run the sending step once, the same one the
   scheduled job will run, and answer what it did.
+- ``GET /calendar/connections``: each connected Google account, whether it can
+  be used here, and whether this environment can connect calendars at all.
+- ``POST /calendar/connect``: Google's consent URL for a new connection, or to
+  reconnect an account. The browser comes back through
+  ``calendar_callback.py``, the module's one route without sign-in.
+- ``POST /calendar/connections/{id}/check``: read the account's own free/busy
+  once and save the result.
+- ``POST /calendar/connections/{id}/disconnect``: revoke the grant at Google,
+  then mark the connection revoked.
 """
 
 from datetime import UTC, datetime
@@ -15,17 +24,18 @@ from datetime import UTC, datetime
 import logfire
 from clerk_backend_api import User
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.rental_listings.models import RentalListingRecord
-from api.src.showing_bookings import outbox
+from api.src.showing_bookings import connections, outbox
 from api.src.showing_bookings.guard import PRODUCTION
-from api.src.showing_bookings.models import Showing, ShowingNotice
-from api.src.showing_bookings.schema import DrainReport, Notice
+from api.src.showing_bookings.models import CalendarConnection, Showing, ShowingNotice
+from api.src.showing_bookings.schema import ConnectionStatus, DrainReport, Email, Notice
 from api.src.showing_bookings.settings import (
     SETTINGS_KEY,
     ShowingBookingSettings,
@@ -182,3 +192,142 @@ async def send_pending(user: User = Depends(verify_serniacapital_user)):
         "showing bookings: send pending run by hand", user_id=user.id, **report.model_dump()
     )
     return report
+
+
+# ---------------------------------------------------------------------------
+# Calendar connections
+# ---------------------------------------------------------------------------
+
+
+class ConnectionView(BaseModel):
+    """One connected Google account, as the Connections section shows it."""
+
+    id: int
+    google_email: str
+    status: ConnectionStatus
+    has_showings_calendar: bool
+    # The Sernia email of the team member who connected it.
+    connected_by: str
+    connected_at: datetime
+    last_read_at: datetime | None
+    # Empty until the first read.
+    last_read_ok: bool | None
+    last_error: str | None
+    # False when this environment cannot use it: lost or revoked, no Google
+    # client here, or no key to read its token (as in a preview).
+    usable_here: bool
+    unusable_reason: str | None
+
+
+class ConnectionsView(BaseModel):
+    # Whether a calendar can be connected here, and why not.
+    can_connect: bool
+    setup_problem: str | None
+    connections: list[ConnectionView]
+
+
+class ConnectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The page's own origin; Google sends the browser back there.
+    origin: str = Field(max_length=200)
+    # The account to preselect on Google's screen, for a reconnect.
+    account: Email | None = None
+
+
+class ConnectStart(BaseModel):
+    url: str
+
+
+def _connection_view(connection: CalendarConnection) -> ConnectionView:
+    reason = connections.unusable_reason(connection)
+    return ConnectionView(
+        id=connection.id,
+        google_email=connection.google_email,
+        status=connection.status,
+        has_showings_calendar=bool(connection.showings_calendar_id),
+        connected_by=connection.connected_by,
+        connected_at=connection.connected_at,
+        last_read_at=connection.last_read_at,
+        last_read_ok=connection.last_read_ok,
+        last_error=connection.last_error,
+        usable_here=reason is None,
+        unusable_reason=reason,
+    )
+
+
+def _sernia_email(user: User) -> str:
+    """The person's verified Sernia email, or their user id when there is none."""
+    for address in getattr(user, "email_addresses", None) or []:
+        verification = getattr(address, "verification", None)
+        if address.email_address.endswith("@serniacapital.com") and (
+            verification is not None and verification.status == "verified"
+        ):
+            return address.email_address
+    return user.id
+
+
+async def _connection_view_by_id(session: AsyncSession, connection_id: int) -> ConnectionView:
+    connection = await session.get(CalendarConnection, connection_id)
+    if connection is None:
+        raise HTTPException(404, "No such calendar connection.")
+    return _connection_view(connection)
+
+
+@router.get("/calendar/connections", response_model=ConnectionsView)
+async def list_connections(session: DBSession):
+    rows = await session.scalars(
+        # Working ones first, then lost ones, which need a reconnect, then disconnected ones.
+        select(CalendarConnection).order_by(
+            case(
+                (CalendarConnection.status == "connected", 0),
+                (CalendarConnection.status == "lost", 1),
+                else_=2,
+            ),
+            CalendarConnection.google_email,
+        )
+    )
+    problem = connections.setup_problem()
+    return ConnectionsView(
+        can_connect=problem is None,
+        setup_problem=problem,
+        connections=[_connection_view(row) for row in rows],
+    )
+
+
+@router.post("/calendar/connect", response_model=ConnectStart)
+async def start_connection(body: ConnectRequest, user: User = Depends(verify_serniacapital_user)):
+    try:
+        url = connections.start_connect(
+            user_id=user.id, by=_sernia_email(user), origin=body.origin, account=body.account
+        )
+    except connections.NotConfigured as problem:
+        raise HTTPException(409, str(problem)) from None
+    except ValueError as refused:
+        raise HTTPException(400, str(refused)) from None
+    logfire.info("showing bookings: calendar connection started", user_id=user.id)
+    return ConnectStart(url=url)
+
+
+@router.post("/calendar/connections/{connection_id}/check", response_model=ConnectionView)
+async def check_connection(connection_id: int, session: DBSession):
+    try:
+        await connections.check_connection(connection_id, now=datetime.now(UTC))
+    except LookupError:
+        raise HTTPException(404, "No such calendar connection.") from None
+    except connections.ConnectionUnusable as unusable:
+        raise HTTPException(409, str(unusable)) from None
+    return await _connection_view_by_id(session, connection_id)
+
+
+@router.post("/calendar/connections/{connection_id}/disconnect", response_model=ConnectionView)
+async def disconnect_connection(
+    connection_id: int, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    try:
+        await connections.disconnect(connection_id, user_id=user.id)
+    except LookupError:
+        raise HTTPException(404, "No such calendar connection.") from None
+    except connections.CannotDisconnect as refused:
+        raise HTTPException(409, str(refused)) from None
+    return await _connection_view_by_id(session, connection_id)
