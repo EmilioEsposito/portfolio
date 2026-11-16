@@ -634,6 +634,8 @@ class BookedShowingView(BaseModel):
     people: list[BookedPersonView]
     # Started showings can no longer be cancelled.
     started: bool
+    # Why the unit's residents were not texted about it, such as "lookup_failed".
+    resident_attention: str | None = None
 
 
 class ShowingsView(BaseModel):
@@ -714,6 +716,7 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
                 capacity=showing.capacity,
                 people=people.get(showing.id, []),
                 started=showing.starts_at <= now,
+                resident_attention=showing.resident_attention,
             )
             for showing, name, count in showings
         ],

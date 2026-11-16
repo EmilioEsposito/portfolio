@@ -57,6 +57,7 @@ from api.src.showing_bookings import (
     host_event,
     open_times,
     outbox,
+    resident_notices,
     turnstile,
     wording,
 )
@@ -705,8 +706,16 @@ async def place_booking(
     page's limits); ``open_times.recheck`` with fresh calendars; the showing,
     new or joined and locked; the attendee; the notices. Raises ``Refused``.
     Nothing is sent here; the caller delivers the confirmation text.
+
+    The unit's residents are looked up first, outside the transaction, as that
+    may read Quo. A new showing queues their text, held behind the confirmation
+    text, or due at once (in the daytime) when there is none; a join brings back
+    an announcement stopped with an earlier failed confirmation the same way. A
+    lookup that went wrong marks the showing and never stops the booking.
     """
     texted = person.texts_accepted and person.mobile is not None
+    # Read before the transaction, as it may reach Quo; used only for a new showing.
+    found = await resident_notices.find_for(listing.unit, start, rules)
     keys = [BOOKING_LOCK, f"showing:{listing.unit.casefold()}:{start.astimezone(UTC).isoformat()}"]
     if person.mobile:
         keys.append(f"showing-mobile:{person.mobile}")
@@ -792,6 +801,23 @@ async def place_booking(
                 rules=rules,
                 now=now,
             )
+            # No confirmation text (no texts, or no mobile): nothing to wait for.
+            held_by = confirmation.id if confirmation is not None else None
+            if check.kind == "new":
+                await resident_notices.queue_new_showing(
+                    session,
+                    showing,
+                    found,
+                    rules=rules,
+                    now=now,
+                    waits_for_notice_id=held_by,
+                )
+            else:
+                # An announcement stopped with an earlier confirmation that failed
+                # waits for this one instead; one that went out is left as it is.
+                await resident_notices.bring_back(
+                    session, showing.id, waits_for_notice_id=held_by, now=now
+                )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
         logfire.info("showing booking lost a race", unit=listing.unit)
@@ -849,6 +875,7 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
         attendee.cancelled_at = now
         # The session does not flush on its own before the count below.
         await session.flush()
+        await resident_notices.hand_over(session, confirmation_id, attendee_id)
         stopped = await holds.stop_waiting_on(
             session, confirmation_id, note=WITHDRAWN_NOTE, include_released=True
         )
@@ -867,6 +894,7 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
             showing.cancelled_at = now
             # Only when someone else left in between could the event be out already.
             await cancelling.queue_host_cancel(session, showing, now)
+            await cancelling.queue_resident_cancellation(session, showing, now=now)
         elif showing.status == "scheduled":
             update_queued = await queue_host_update_after_leaving(
                 session, showing=showing, attendee_id=attendee_id, now=now, why="withdrawn"
@@ -1141,6 +1169,11 @@ async def correct_mobile(
                 )
                 .values(status="held", waits_for_notice_id=confirmation.id, last_error=None),
                 execution_options={"synchronize_session": False},
+            )
+            # The residents' announcement may have been handed to someone else
+            # and stopped there: bring it back by showing, as a join does.
+            await resident_notices.bring_back(
+                session, showing_id, waits_for_notice_id=confirmation.id, now=now
             )
             attendee.mobile = mobile
             if attendee.attention_reason and attendee.attention_reason.startswith("confirmation_"):

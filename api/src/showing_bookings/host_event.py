@@ -98,6 +98,8 @@ async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.
             mobile=row.mobile,
             email=row.email,
             confirmations=[item.get("wording", "") for item in row.requirement_confirmations],
+            source=row.source,
+            texts=row.texts_accepted,
         )
         for row in rows
     ]

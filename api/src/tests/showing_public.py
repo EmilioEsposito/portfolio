@@ -17,8 +17,15 @@ from sqlalchemy import select
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.showing_bookings import connections, holds, public_routes, routes, turnstile
-from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
+from api.src.showing_bookings import (
+    connections,
+    holds,
+    public_routes,
+    residents,
+    routes,
+    turnstile,
+)
+from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender, StandInContacts
 from api.src.showing_bookings.models import (
     CalendarConnection,
     Showing,
@@ -62,6 +69,8 @@ class PublicWorld:
         self.rules = ShowingRules()
         self.calendar = InMemoryCalendar()
         self.texts = RecordingTextSender()
+        # The resident lookup's contacts: none, so the unit is vacant, unless a test adds some.
+        self.residents = StandInContacts()
         # Each check Turnstile was asked for: (secret, token, remote ip).
         self.turnstile_checks: list[tuple[str, str, str | None]] = []
         self.agent_id: int | None = None
@@ -125,6 +134,7 @@ def install(world: PublicWorld, monkeypatch) -> None:
     monkeypatch.setattr(listings_service, "read_showing_rules", read_rules)
     monkeypatch.setattr(connections, "calendar_for_connection", lambda row: world.calendar)
     monkeypatch.setattr(connections, "unusable_reason", lambda row: None)
+    monkeypatch.setattr(residents, "contact_source", lambda: world.residents)
     monkeypatch.setattr(
         turnstile,
         "client",

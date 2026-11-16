@@ -23,8 +23,8 @@ then the attendees in id order, then their notices, then the showings in id
 order. Each is safe to call twice: a second call finds the booking cancelled,
 changes nothing and queues nothing.
 
-Residents are not texted yet. ``queue_resident_cancellation`` is where the
-resident's cancellation text is added; it queues nothing today.
+A showing that is cancelled texts its residents (``queue_resident_cancellation``)
+when they were told of it; see ``resident_notices.py``.
 """
 
 from datetime import UTC, date, datetime, time
@@ -39,7 +39,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.schema import ShowingRules
-from api.src.showing_bookings import bookings, host_event, outbox, wording
+from api.src.showing_bookings import (
+    bookings,
+    host_event,
+    outbox,
+    resident_notices,
+    residents,
+    wording,
+)
 from api.src.showing_bookings.models import (
     Showing,
     ShowingAgentRecord,
@@ -68,6 +75,7 @@ CANCELLATION_KINDS = frozenset(
         INVITE_CANCEL_KIND,
         HOST_CANCEL_KIND,
         host_event.MOVED_KIND,
+        residents.CANCELLED_KIND,
     }
 )
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
@@ -253,13 +261,15 @@ async def queue_host_cancel(session: AsyncSession, showing: Showing, now: dateti
 async def queue_resident_cancellation(
     session: AsyncSession, showing: Showing, *, now: datetime
 ) -> None:
-    """The resident's cancellation text, for a showing that is now cancelled.
+    """The residents' cancellation text, for a showing that is now cancelled.
 
-    Resident texts arrive in a later pull request, which queues the text here
-    (the design: the resident is told when the last prospect cancels, the team
-    cancels, or the unit goes off the market). Nothing is queued today.
+    Every path that cancels a showing calls this after stopping its unsent
+    notices: the last prospect cancelling, the team, the unit going off the
+    market, and a withdrawn booking that leaves the showing empty. Queued only
+    when the residents' first text went out, may have, or is being sent; due
+    now, for the job, in the daytime.
     """
-    return None
+    await resident_notices.queue_cancellation(session, showing, now=now)
 
 
 async def _cancel_showings(
