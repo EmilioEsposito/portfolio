@@ -60,7 +60,7 @@ from api.src.google.common.config import (
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import send_email as _send_email
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
-from api.src.showing_bookings.lead_tours import tour_source_for_lead_agent
+from api.src.showing_bookings.lead_tours import lead_booking_for, tour_source_for_lead_agent
 from api.src.utils.background_tasks import create_logged_task
 from api.src.zillow_leads import listing_data
 from api.src.zillow_leads.agent import (
@@ -72,7 +72,7 @@ from api.src.zillow_leads.agent import (
     TourState,
     respond,
 )
-from api.src.zillow_leads.case import build_case, render_case
+from api.src.zillow_leads.case import build_case, case_record, render_case
 from api.src.zillow_leads.identity import HANDLER
 from api.src.zillow_leads.thread import LeadThread, load_lead_thread
 from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
@@ -210,8 +210,16 @@ async def handle_thread(
     loaded = await listing_data.load()
     source = await tour_source_for_lead_agent(fallback=TOUR_SOURCE)
     tours = await tours_for_case(source, loaded.data, now)
+    # The thread's own booking links and showings: only from the booking source.
+    lead = await lead_booking_for(source, thread_id, loaded.data, now)
     case = build_case(
-        thread, loaded.data, now=now, slots=tours.open_times, booked_tours=tours.booked
+        thread,
+        loaded.data,
+        now=now,
+        slots=tours.open_times,
+        booked_tours=tours.booked,
+        booking_links=lead.booking_links if lead else None,
+        own_showings=lead.own_showings if lead else None,
     )
     if loaded.problem:
         outcome: Reply | NoReply | Escalate = unusable_data_escalation(loaded.problem)
@@ -226,6 +234,9 @@ async def handle_thread(
         "handler": HANDLER,
         "lead_thread_id": thread_id,
         "outcome": outcome.model_dump(mode="json"),
+        # The structured case the outcome was decided on, so it can be rebuilt
+        # (``case.case_from_record``) and replayed as an eval scenario.
+        "case": case_record(case),
         # The route the send will use. Stored here, not read back from the
         # card, so nothing typed into an approval can redirect a reply.
         "reply_route": (

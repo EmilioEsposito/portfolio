@@ -12,8 +12,9 @@ A booking, in order:
    (``settings.PublicLimits``); ``open_times.recheck`` of the time, with fresh
    calendars; then the showing (new, or the one already booked at that unit
    and start, locked), the attendee with the consent record, the
-   confirmations, the lead token, the user agent and the ``Signature-Agent``
-   header, and the notices: the confirmation text, due now; the host's event
+   confirmations, the lead token (and the Zillow thread it belongs to, if any:
+   ``zillow_leads.lead_links``; one place per thread in a showing), the user
+   agent and the ``Signature-Agent`` header, and the notices: the confirmation text, due now; the host's event
    (created with the first attendee, an update for each one who joins) and
    the prospect's own invite, both held until the text is reported delivered
    (``holds.py``).
@@ -80,6 +81,7 @@ from api.src.showing_bookings.schema import (
 )
 from api.src.showing_bookings.settings import PublicLimits, settings_for_delivery
 from api.src.utils.phone_config import PhoneConfigError, team_phone, us_phone_display
+from api.src.zillow_leads import lead_links
 
 PUBLIC_BASE_URL_ENV = "SHOWING_PUBLIC_BASE_URL"
 DEFAULT_PUBLIC_BASE_URL = "https://serniacapital.com"
@@ -610,6 +612,9 @@ async def book(
     lead_token = (
         body.lead_token if body.lead_token and _LEAD_TOKEN.fullmatch(body.lead_token) else None
     )
+    # A token from a lead agent's link ties the booking to its Zillow thread;
+    # an unknown one is kept as it came and ties it to nothing.
+    thread_id = await lead_links.thread_for_token(lead_token)
 
     async def limits(session: AsyncSession) -> None:
         await _check_limits(
@@ -634,6 +639,7 @@ async def book(
             consent_page=f"{public_base_url()}/showings/{listing.unit}",
             confirmations=tuple(checked.confirmations),
             lead_token=lead_token,
+            zillow_thread_id=thread_id,
             user_agent=(facts.user_agent or None) and facts.user_agent[:500],
             signature_agent=(facts.signature_agent or None) and facts.signature_agent[:500],
             client_ip_hash=ip_hash(facts.ip),
@@ -724,6 +730,8 @@ async def place_booking(
         keys.append(f"showing-mobile:{person.mobile}")
     if person.email:
         keys.append(f"showing-email:{person.email}")
+    if person.zillow_thread_id:
+        keys.append(f"showing-thread:{person.zillow_thread_id}")
     try:
         async with AsyncSessionFactory() as session, session.begin():
             await lock(session, *keys)
@@ -763,6 +771,15 @@ async def place_booking(
                         "This number is already booked for that showing.",
                         {"mobile": "Already booked for this showing."},
                     )
+                # One Zillow thread holds one place in a showing, whatever number it gives.
+                if person.zillow_thread_id and await session.scalar(
+                    select(ShowingAttendee.id).where(
+                        ShowingAttendee.showing_id == showing.id,
+                        ShowingAttendee.status == "booked",
+                        ShowingAttendee.zillow_thread_id == person.zillow_thread_id,
+                    )
+                ):
+                    raise Refused(409, "already_booked", "You're already booked for that showing.")
             else:
                 showing = Showing(
                     unit=listing.unit,

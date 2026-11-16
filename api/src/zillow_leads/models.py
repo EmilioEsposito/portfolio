@@ -44,3 +44,19 @@ class ZillowEmailJob(Base):
 
     def __repr__(self) -> str:
         return f"<ZillowEmailJob(message_id={self.message_id!r}, state={self.state!r})>"
+
+
+class ZillowLeadLink(Base):
+    """A lead thread's own booking-link token. See ``lead_links.py``.
+
+    One row per thread, made the first time the thread is handled while the
+    lead agent uses the booking service. The token is random and holds no
+    personal data; it appears only in that thread's booking links.
+    """
+
+    __tablename__ = "zillow_lead_links"
+
+    # The thread's id in the shared mailbox, as ``showing_attendees.zillow_thread_id``.
+    thread_id: Mapped[str] = mapped_column(String, primary_key=True)
+    token: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

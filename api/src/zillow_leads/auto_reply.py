@@ -46,14 +46,41 @@ def reply_problems(case: LeadCase, reply: Reply) -> list[str]:
     }
     if any(_link(url) not in allowed_links for url in LINK.findall(reply.reply_body)):
         problems.append("The reply contains a link that was not supplied in the case or policy.")
-    allowed_times = {slot.start for slot in case.offerable_slots} | {
-        tour.start for tour in case.booked_tours
-    }
+    allowed_times = _allowed_times(case, reply.lead.unit)
     if any(slot.tzinfo is None or slot not in allowed_times for slot in reply.offered_slots):
         problems.append("The reply offers a time outside the supplied availability.")
     if not reply.reply_body.strip():
         problems.append("The reply is empty.")
     return problems
+
+
+def _allowed_times(case: LeadCase, unit: str | None) -> set:
+    """The tour times a reply may offer: the times the case offers.
+
+    Without the booking service, times have no unit and are open at every
+    unit: any of them, or any booked showing, may be offered, exactly as
+    before. With it (the case then has times by unit, or its own-showings
+    section), each time belongs to one unit, so when the reply names a unit the
+    case lists, a time must be open, or a showing booked, at that unit.
+    """
+    by_unit = case.own_showings is not None or any(slot.unit for slot in case.offerable_slots)
+    known = {listing.unit.casefold() for listing in case.listings}
+    named = unit.strip().casefold() if unit and by_unit else ""
+    if named not in known:
+        named = ""
+    return {
+        slot.start
+        for slot in case.offerable_slots
+        if not named or slot.unit is None or slot.unit.casefold() == named
+    } | {
+        tour.start
+        for tour in [
+            *case.booked_tours,
+            # The lead's own booked showing may be repeated back to them.
+            *(own for own in case.own_showings or [] if own.status == "booked"),
+        ]
+        if not named or tour.unit.casefold() == named
+    }
 
 
 async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -> None:

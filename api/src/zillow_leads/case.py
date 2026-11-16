@@ -15,6 +15,7 @@ is the same for every lead, such as how to apply, belongs in
 """
 
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
@@ -103,12 +104,41 @@ class ListingData(BaseModel):
 
 class TourSlot(BaseModel):
     start: datetime  # local time, timezone-aware
-    agent: str  # internal: who would host. Never shown to the lead.
+    # Internal: who would host, from a weekly pattern. Never shown to the lead
+    # and never saved with a case; empty from the booking service.
+    agent: str = ""
+    # The unit this time is open for. Empty means any unit on offer, as with a
+    # weekly pattern; the booking service gives each unit its own times.
+    unit: str | None = None
 
 
 class BookedTour(BaseModel):
     unit: str
     start: datetime
+
+
+# Why a lead's own showing was cancelled, keyed by the booking service's
+# ``showing_attendees.cancel_reason``, in the words the case shows.
+CANCELLED_BY = {
+    "prospect": "cancelled by the lead",
+    "team": "cancelled by the team",
+    "off_market": "cancelled by the team: the unit is no longer on offer",
+    "number_refused": "not booked: the mobile number given could not be texted",
+}
+
+
+class OwnShowing(BaseModel):
+    """A showing this lead's thread is booked into, or was until it was cancelled.
+
+    Only the lead's own, tied to the thread through its booking link. Nothing
+    about the host or anyone else in the showing.
+    """
+
+    unit: str
+    start: datetime
+    status: Literal["booked", "cancelled"]
+    # A key of ``CANCELLED_BY`` for a cancelled one; empty while booked.
+    cancelled_by: str | None = None
 
 
 class PreferredTime(BaseModel):
@@ -130,6 +160,10 @@ class LeadCase(BaseModel):
     offerable_slots: list[TourSlot]
     booked_tours: list[BookedTour]
     preferred_times: list[PreferredTime] = Field(default_factory=list)
+    # This lead's own upcoming showings, booked or cancelled. None while the
+    # booking service is not in use (the switch ``lead_agent_uses_open_times``
+    # is off): the rendered case then has no such section at all.
+    own_showings: list[OwnShowing] | None = None
 
 
 def within_showing_rules(start: datetime, listing_data: ListingData, now: datetime) -> bool:
@@ -204,6 +238,8 @@ def build_case(
     now: datetime | None = None,
     booked_tours: list[BookedTour] | None = None,
     slots: list[TourSlot] | None = None,
+    booking_links: dict[str, str] | None = None,
+    own_showings: list[OwnShowing] | None = None,
 ) -> LeadCase:
     """Assemble the case for a thread as it stood after message ``upto``.
 
@@ -215,6 +251,11 @@ def build_case(
     ``slots`` are the tour times that may be offered, when something other than
     the weekly pattern in ``listing_data`` knows them (a calendar, a booking
     service). The case stores the times either way, never where they came from.
+
+    ``booking_links`` replace units' booking links (the booking service's page
+    with this thread's own token), and ``own_showings`` are the thread's own
+    showings. Both come from the booking service, only while it is in use;
+    without them the case is exactly what it was before either existed.
     """
     last = len(thread.messages) - 1 if upto is None else upto
     visible = thread.model_copy(update={"messages": thread.messages[: last + 1]})
@@ -223,8 +264,13 @@ def build_case(
     zone = ZoneInfo(listing_data.timezone)
     today = now.astimezone(zone).date()
     rented = [item for item in listing_data.listings if item.rented_on and item.rented_on <= today]
+    links = booking_links or {}
     listed = [
-        item.model_copy(update={"booking_url": item.booking_url or listing_data.booking_url})
+        item.model_copy(
+            update={
+                "booking_url": links.get(item.unit) or item.booking_url or listing_data.booking_url
+            }
+        )
         for item in listing_data.listings
         if item not in rented
     ]
@@ -239,20 +285,57 @@ def build_case(
         offerable_slots=offerable,
         booked_tours=[tour for tour in (booked_tours or []) if tour.start > now],
         preferred_times=_preferred_times(listed, offerable, zone),
+        own_showings=(
+            None
+            if own_showings is None
+            else sorted(
+                (item for item in own_showings if item.start > now),
+                key=lambda item: (item.start, item.unit),
+            )
+        ),
     )
 
 
 def _preferred_times(
     listings: list[Listing], slots: list[TourSlot], zone: ZoneInfo
 ) -> list[PreferredTime]:
-    """The times that may be offered that fall in each unit's preferred windows."""
-    starts = sorted({slot.start for slot in slots})
+    """The times that may be offered that fall in each unit's preferred windows.
+
+    A time open for one unit only (from the booking service) counts for that
+    unit alone; a time with no unit counts for every unit, as before.
+    """
     return [
         PreferredTime(unit=listing.unit, start=start)
         for listing in listings
-        for start in starts
+        for start in sorted({slot.start for slot in slots if slot.unit in (None, listing.unit)})
         if any(window.covers(start.astimezone(zone)) for window in listing.preferred_times)
     ]
+
+
+# What a saved case leaves out: the names of staff in a weekly pattern, and
+# the lead's email addresses. Neither is in the rendered case, so a saved case
+# holds nothing private that the conversation it is saved with does not show.
+_NOT_SAVED: dict = {
+    "offerable_slots": {"__all__": {"agent"}},
+    "thread": {"messages": {"__all__": {"from_address", "reply_to"}}},
+}
+
+
+def case_record(case: LeadCase) -> dict:
+    """The case as JSON, to save with its outcome and rebuild it later.
+
+    ``case_from_record`` gives back a case that renders exactly as this one,
+    so a past decision can be replayed on the input it had, and a production
+    lead can become an eval scenario.
+    """
+    return case.model_dump(mode="json", exclude=_NOT_SAVED)
+
+
+def case_from_record(record: dict) -> LeadCase:
+    """A case saved by ``case_record``. The left-out addresses come back empty."""
+    thread = record["thread"]
+    messages = [{"from_address": "", "reply_to": None, **message} for message in thread["messages"]]
+    return LeadCase.model_validate({**record, "thread": {**thread, "messages": messages}})
 
 
 def _utc_now() -> datetime:
@@ -275,6 +358,8 @@ def _fact_lines(text: str) -> list[str]:
 # How a unit's internal notes are introduced in the case. The policy says what
 # the model may do with them; this label repeats the one rule that matters.
 INTERNAL_NOTES_LABEL = "Internal notes (for your decisions only, never tell the lead):"
+# The section with this lead's own showings, booked through their own link.
+OWN_SHOWINGS_HEADING = "## This lead's own showings"
 
 
 def render_case(case: LeadCase) -> str:
@@ -313,15 +398,23 @@ def render_case(case: LeadCase) -> str:
     ] or ["- (none)"]
 
     lines += ["", "## Tour times that may be offered"]
-    by_day: dict[date, list[str]] = {}
+    # Times for no particular unit read as they always have. The booking
+    # service's times each belong to one unit, so each line names its unit.
+    by_unit = any(slot.unit for slot in case.offerable_slots)
+    by_day: dict[tuple[str, date], list[str]] = {}
     for slot in case.offerable_slots:
         local = slot.start.astimezone(zone)
-        times = by_day.setdefault(local.date(), [])
+        times = by_day.setdefault(((slot.unit or "") if by_unit else "", local.date()), [])
         if _clock(local) not in times:  # two people free at once is one time to the lead
             times.append(_clock(local))
-    for day, times in by_day.items():
+    keys = list(by_day)
+    if by_unit:
+        order = {listing.unit: place for place, listing in enumerate(case.listings)}
+        keys.sort(key=lambda key: (order.get(key[0], len(order)), key[0], key[1]))
+    for unit, day in keys:
         label = _day(datetime.combine(day, time(), tzinfo=zone))
-        lines.append(f"- {label}: {', '.join(times)}")
+        where = f"{unit or 'Any unit'}, " if by_unit else ""
+        lines.append(f"- {where}{label}: {', '.join(by_day[(unit, day)])}")
     if not by_day:
         lines.append("- (none)")
 
@@ -331,6 +424,20 @@ def render_case(case: LeadCase) -> str:
         lines.append(f"- {tour.unit}: {_day(local)} at {_clock(local)}")
     if not case.booked_tours:
         lines.append("- (none)")
+
+    # Only while the booking service is in use (see ``LeadCase.own_showings``).
+    if case.own_showings is not None:
+        lines += ["", OWN_SHOWINGS_HEADING]
+        for own in case.own_showings:
+            local = own.start.astimezone(zone)
+            state = (
+                "booked"
+                if own.status == "booked"
+                else CANCELLED_BY.get(own.cancelled_by or "", "cancelled")
+            )
+            lines.append(f"- {own.unit}: {_day(local)} at {_clock(local)}, {state}")
+        if not case.own_showings:
+            lines.append("- (none)")
 
     # Only when there are some, so a case without preferences reads exactly as
     # it did before they existed and earlier eval runs stay comparable.

@@ -119,7 +119,9 @@ async def test_open_times_and_joinable_showings_pass_tours_for_case_unchanged(da
         "Thu 11:30",
         "Thu 12:00",
     ]
-    assert {slot.agent for slot in raw.open_times} == {"Jane Doe"}
+    # Each time is the unit's own, and no host is named.
+    assert {slot.unit for slot in raw.open_times} == {"320-03"}
+    assert {slot.agent for slot in raw.open_times} == {""}
     assert raw.booked[0] == BookedTour(unit="320-03", start=at(11, 0))
     # Nothing the source gives is outside the lead agent's own rules.
     assert kept.open_times == raw.open_times
@@ -127,7 +129,7 @@ async def test_open_times_and_joinable_showings_pass_tours_for_case_unchanged(da
 
 
 @pytest.mark.asyncio
-async def test_a_time_is_listed_only_when_every_unit_on_offer_can_take_it(data):
+async def test_each_unit_on_offer_gets_its_own_times(data):
     data.listings.append(
         RentalListing(unit="412-01", address="412 Example St", showing_notice_hours=48)
     )
@@ -138,10 +140,12 @@ async def test_a_time_is_listed_only_when_every_unit_on_offer_can_take_it(data):
 
     tours = await lead_tours.BookingTourSource().tours(listing_data, NOW)
 
-    days = {slot.start.astimezone(LOCAL).date() for slot in tours.open_times}
-    # 412-01 needs 48 hours, which rules out Thursday morning for both units;
-    # 500-02 is off the market and does not count.
-    assert days == {date(2027, 4, 22)}
+    days: dict[str, set[date]] = {}
+    for slot in tours.open_times:
+        days.setdefault(slot.unit, set()).add(slot.start.astimezone(LOCAL).date())
+    # 412-01 needs 48 hours, which rules out Thursday morning for it alone;
+    # 500-02 is off the market and gets nothing.
+    assert days == {"320-03": {THURSDAY, date(2027, 4, 22)}, "412-01": {date(2027, 4, 22)}}
 
 
 @pytest.mark.asyncio
