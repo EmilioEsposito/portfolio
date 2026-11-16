@@ -132,6 +132,9 @@ async def lead_booking_for(
                     .where(
                         ShowingAttendee.zillow_thread_id == thread_id,
                         Showing.starts_at > now,
+                        # A place booked for a reply that was never sent: the
+                        # lead never heard of it (``lead_bookings.py``).
+                        ShowingAttendee.cancel_reason.is_distinct_from("reply_not_sent"),
                     )
                     .order_by(Showing.starts_at, ShowingAttendee.id)
                 )

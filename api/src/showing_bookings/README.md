@@ -40,7 +40,8 @@ The database enforces three rules, so no code path can break them:
 An attendee is booked on the page, by the team, or by the Zillow lead agent
 (`source` is `page`, `team` or `lead_agent`). A lead the lead agent books in an
 email thread may not have given a mobile number or an email yet, so both can
-be empty; such a row is tied to its Zillow thread. A booked mobile number, and
+be empty; such a row is tied to its Zillow thread, and to the lead conversation
+whose reply booked it (`lead_conversation_id`). A booked mobile number, and
 a booked Zillow thread, each appear once per showing (partial unique indexes
 that ignore empty values and cancelled rows). Every attendee gets a random
 cancel token.
@@ -369,7 +370,9 @@ and `lead_booking_for` adds what belongs to the lead's thread:
   as the case's booking link;
 - the thread's own upcoming showings, from the attendee rows tied to it
   (`zillow_thread_id`): unit, start, and booked or the cancel reason. Nothing
-  about the host or anyone else booked.
+  about the host or anyone else booked. A place cancelled because the reply
+  that booked it was never sent (`reply_not_sent`) is left out: the lead never
+  heard of it.
 
 If the token or those rows cannot be read, the case keeps the listings' own
 links and has no own-showings section, and the error is logged.
@@ -418,6 +421,8 @@ tokens; a cancel token travels in the body for the same reason.
 | `GET /call-line` | `{turnstile_site_key}` and nothing else, for the call line on a page with no unit (the Sernia home page). Reads no listings and no calendars, so the page can answer at once; the 404 while the switch is off tells the page to leave the call line out. |
 | `GET /units/{unit}` | the listing's unit key, address, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names. 404 `unknown_unit` for a unit not on offer. |
 | `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
+| `POST /units/{unit}/lead-booking` | `{lead_token}`: the place the lead agent booked by email for the token's thread at this unit, while the lead has not added their details: `{unit, address, starts_at, ends_at, timezone}`, nothing else. 404 `no_booking` otherwise, or with the lead agent's switch off. See Showings booked by email below. |
+| `POST /units/{unit}/lead-booking/details` | The booking form's body without `start`, plus `lead_token`: completes that place with the lead's details. 201 with the same answer as a booking, `kind` `details`; 409 `already_completed`; 404 `no_booking`. |
 | `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
 | `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
 | `POST /bookings/cancel` | `{cancel_token}`: cancels the booking (see Cancelling below) and answers as the lookup does. A booking already cancelled answers the same and sends nothing; 409 `started` once the showing has started; 404 `unknown_booking`. |
@@ -756,6 +761,67 @@ booking transaction, as it may read Quo.
   `wording.resident_cancelled_text`, version `RESIDENT_VERSION`.
 - No public answer carries anything about residents.
 
+### Showings booked by email
+
+`lead_bookings.py` turns the Zillow lead agent's decisions into bookings,
+only while `lead_agent_uses_open_times` is on (the zillow_leads README has the
+table of which decision does what, and the order around a send).
+
+- Only a person sends a reply that changes a booking: the lead agent's
+  automatic send holds any reply for which `plan_reply` answers a change.
+- A reply a person approves that confirms an in-person time at a listed unit
+  calls `place_booking` just before it is sent, with a `Person` of source
+  `lead_agent`: the thread's name or "Zillow lead", the thread id, the
+  conversation id (`lead_conversation_id`), no email, no consent to texts,
+  and the thread's phone number as the mobile if it reads as a US mobile
+  (shown to the host, never texted). The same re-check under the shared lock
+  applies; a refusal is answered to the caller, which does not send.
+- The booking's notices that are due now (the host's event, the residents'
+  text) are held for `HOLD` (5 minutes) with `hold_notices_until`, so they
+  cannot go before the send's result is known. `after_send` then, when the
+  reply is sent, saves `lead_reply_sent_at` on the place and lets the notices
+  go in one transaction; it cancels the place with
+  reason `reply_not_sent` when Gmail refused it (its notices are stopped
+  before they go, so there is nothing to undo), or marks it `reply_uncertain`
+  when the send's result is unknown.
+- A thread holds at most one upcoming place per unit. Confirming another time
+  there books the new one first and cancels the old one (reason `prospect`)
+  after the send; a cancellation in the thread cancels with reason `prospect`
+  (`cancelling.cancel_attendee`), with the same texts to the residents and the
+  host as any cancellation. Every step is safe to repeat.
+- `plan_reply` says what sending a reply would do without changing anything;
+  the lead agent puts it on the send card, holds a card whose statement went
+  stale, and applies nothing when a person sends edited words.
+- A place is in one of three states: never sent (cleaned up), sent
+  (`lead_reply_sent_at`: kept, whatever happens to the reply's card
+  afterwards) or uncertain (`reply_uncertain`: kept and marked). A place this
+  conversation booked and never sent (`lead_conversation_id`, no details,
+  neither sent nor uncertain) is still the reply's own booking: a later
+  approval recovers it, and a definite send failure, a rejection or an edited
+  send cancels it. A place booked through the lead's link, by an earlier sent
+  reply, or whose own reply was sent, never is.
+
+The lead adds their details (`lead_details.py`). The reply's link carries the
+thread's token; on that unit's page the web app's loader asks
+`POST /units/{unit}/lead-booking` with the token in the body. When the thread
+holds a provisional place there (source `lead_agent`, no consent saved yet,
+scheduled and ahead), the page shows that time and the usual form without
+the picker. `POST /units/{unit}/lead-booking/details` checks the fields and
+ticks as for a page booking, Turnstile, the page's limits (not counting this
+place), then under the locks (shared booking lock, mobile, email, thread)
+saves the details and the consent record on the same attendee and queues the
+confirmation text with the invite held behind it, plus a host event update
+held behind it when the host's event already went out. The confirmation is
+delivered at once; the held notices are released by the usual rules. If Quo
+refuses the number, the details are undone, the held notices stopped, and the
+place stays booked (422 `number_refused`, so another number can be tried). A
+completed place answers 409 `already_completed`. Neither route returns
+anything about the host or anyone else booked.
+
+The Showings section marks such a place "Booked by email with the lead agent"
+with "details not added yet" or "details added" (`details_pending`) and a
+link to the conversation (`lead_conversation_id`).
+
 ### Reminders the evening before
 
 `reminders.py`. "The evening before" is 6 PM in the showing rules' time zone
@@ -1008,10 +1074,19 @@ lookup problem, a showing cancelled between queuing and sending, a showing
 booked after; never twice), the host's texts inside and outside 2 hours for
 each path and a host without a mobile, each alert rule once only, the
 channel in and outside production, capture and live mode, the Messages
-list, and that no public answer changes.
+list, and that no public answer changes. `test_zillow_lead_bookings.py` covers
+showings booked by email: nothing with the switch off; booking on approval and
+a reply that would change a booking never sent automatically, and one that changes nothing sent as before; nothing to the lead; what is not booked (virtual,
+no start, an unlisted unit, a rejected reply); a refused time holding the
+reply; a refused, an uncertain and an interrupted send; approving twice;
+moves, cancellations and the decisions that make them; and the lead adding
+their details (the confirmation and the invite, a refused number, twice,
+another thread's or unit's token, the limits, the switches, nothing about
+anyone else), and the Showings section.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
 - The apply-link text after a showing to everyone not marked a no-show.
-- Reminders, per-lead links, and the lead agent's own showing in its case.
+- The lead policy's line about the details link, and the reminder by email in
+  the thread for a lead who has not added their details, each with an eval run.

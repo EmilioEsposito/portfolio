@@ -230,6 +230,7 @@ _REASONS = {
     "team": "The team cancelled it.",
     "off_market": "The unit went off the market.",
     "no_attendees": "No one is booked.",
+    "reply_not_sent": "The email reply that booked it was not sent.",
 }
 
 

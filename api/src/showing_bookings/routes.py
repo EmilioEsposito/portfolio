@@ -632,6 +632,11 @@ class BookedPersonView(BaseModel):
     attention_reason: str | None
     # Whether they came: "unknown" until the team marks it after the start.
     attendance: Attendance
+    # Booked by the lead agent from an email thread and the lead has not yet
+    # added their details through their link: no texts or invite until then.
+    details_pending: bool = False
+    # The lead conversation whose reply booked the place, for a link to it.
+    lead_conversation_id: str | None = None
 
 
 class BookedShowingView(BaseModel):
@@ -708,6 +713,9 @@ async def list_showings(session: DBSession, now: datetime = Depends(clock)):
                     texts_accepted=person.texts_accepted,
                     attention_reason=person.attention_reason,
                     attendance=person.attendance,
+                    details_pending=person.source == "lead_agent"
+                    and person.texts_consent_at is None,
+                    lead_conversation_id=person.lead_conversation_id,
                 )
             )
     try:

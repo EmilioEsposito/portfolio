@@ -7,6 +7,7 @@ import {
   type BookingResult,
   EMPTY_FORM,
   type FormValues,
+  type LeadBooking,
   NETWORK_MESSAGE,
   PUBLIC_API,
   type UnitPage,
@@ -51,14 +52,23 @@ async function fetchUnit(unit: string): Promise<UnitPage | null> {
 export function ShowingBookingForm({
   initialUnit,
   leadToken,
+  leadPlace = null,
   onBooked,
 }: {
   initialUnit: UnitPage;
   leadToken: string | null;
+  /**
+   * The place the lead agent already booked for this lead (their own link).
+   * The form then shows that time instead of the picker and adds the
+   * person's details to the place rather than booking another.
+   */
+  leadPlace?: LeadBooking | null;
   onBooked: (result: BookingResult) => void;
 }) {
   const [unit, setUnit] = useState(initialUnit);
-  const [values, setValues] = useState<FormValues>(EMPTY_FORM);
+  const [values, setValues] = useState<FormValues>(
+    leadPlace ? { ...EMPTY_FORM, start: leadPlace.starts_at } : EMPTY_FORM,
+  );
   const [fields, setFields] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<Status>(null);
   const [busy, setBusy] = useState(false);
@@ -127,7 +137,8 @@ export function ShowingBookingForm({
       }
       let response: Response;
       try {
-        response = await fetch(`${PUBLIC_API}/units/${encodeURIComponent(unit.unit)}/bookings`, {
+        const path = leadPlace ? "lead-booking/details" : "bookings";
+        response = await fetch(`${PUBLIC_API}/units/${encodeURIComponent(unit.unit)}/${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(bookingBody(values, unit, token, leadToken)),
@@ -186,7 +197,7 @@ export function ShowingBookingForm({
       </p>
     ) : null;
 
-  if (unit.offers.length === 0) {
+  if (unit.offers.length === 0 && !leadPlace) {
     return (
       <div className="space-y-4">
         <p className="leading-7">No times are open online right now. We can still find a time with you by phone.</p>
@@ -199,25 +210,29 @@ export function ShowingBookingForm({
 
   return (
     <form noValidate onSubmit={submit} className="space-y-8" aria-describedby={`${id}-status`}>
-      <TimePicker
-        unit={unit}
-        value={values.start}
-        open={pickerOpen}
-        onOpen={() => {
-          setPickerOpen(true);
-          setFocusTarget({ name: "start" });
-        }}
-        onPick={(start) => {
-          update({ start }, "start");
-          setPickerOpen(false);
-          setFocusTarget({ name: "start" });
-        }}
-        error={fields.start}
-        errorId={`${id}-start-error`}
-        focusRef={(element) => {
-          refs.current.start = element;
-        }}
-      />
+      {leadPlace ? (
+        <BookedTime place={leadPlace} />
+      ) : (
+        <TimePicker
+          unit={unit}
+          value={values.start}
+          open={pickerOpen}
+          onOpen={() => {
+            setPickerOpen(true);
+            setFocusTarget({ name: "start" });
+          }}
+          onPick={(start) => {
+            update({ start }, "start");
+            setPickerOpen(false);
+            setFocusTarget({ name: "start" });
+          }}
+          error={fields.start}
+          errorId={`${id}-start-error`}
+          focusRef={(element) => {
+            refs.current.start = element;
+          }}
+        />
+      )}
 
       <fieldset className="space-y-4">
         <legend className="mb-3 text-base font-semibold">Your details</legend>
@@ -347,7 +362,7 @@ export function ShowingBookingForm({
           disabled={busy}
           className="w-full rounded-lg bg-primary px-4 py-3.5 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-70"
         >
-          {busy ? "Booking…" : "Book in-person showing"}
+          {leadPlace ? (busy ? "Saving…" : "Add my details") : busy ? "Booking…" : "Book in-person showing"}
         </button>
         <p
           id={`${id}-status`}
@@ -358,6 +373,27 @@ export function ShowingBookingForm({
         </p>
       </div>
     </form>
+  );
+}
+
+/** The time the lead agent already booked, in place of the picker, with what adding details brings. */
+function BookedTime({ place }: { place: LeadBooking }) {
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="space-y-3">
+      <h2 id={headingId} className="text-base font-semibold">
+        Your showing
+      </h2>
+      <div className="rounded-lg border px-3 py-3 text-[15px]">
+        <b className="font-semibold">{formatDay(place.starts_at, place.timezone)}</b> at{" "}
+        {formatTime(place.starts_at, place.timezone)}
+        <span className="text-muted-foreground"> · booked</span>
+      </div>
+      <p className="text-sm leading-6 text-muted-foreground">
+        Your in-person showing is booked. Add your details to get a text confirmation, a reminder the evening
+        before and a calendar invite.
+      </p>
+    </section>
   );
 }
 

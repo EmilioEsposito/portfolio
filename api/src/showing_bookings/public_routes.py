@@ -14,6 +14,11 @@ text keeps working after booking is closed.
   rent, showing length, the confirmations with their wording, the consent
   small print, the Turnstile site key, and the offers in order. No host names.
 - ``POST /units/{unit}/bookings``: book or join a showing at one start.
+- ``POST /units/{unit}/lead-booking``: ``{lead_token}``: the place the Zillow
+  lead agent booked for the token's thread at this unit, before the lead has
+  added their details (``lead_details.py``); 404 ``no_booking`` otherwise.
+- ``POST /units/{unit}/lead-booking/details``: the booking form without a
+  time, plus ``lead_token``: completes that place with the lead's details.
 - ``POST /bookings/lookup``: a booking by its cancel token, for the
   confirmation screen.
 - ``POST /bookings/mobile``: correct the mobile on a booking by its cancel
@@ -39,7 +44,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings, cancelling, public_units
+from api.src.showing_bookings import bookings, cancelling, lead_details, public_units
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.settings import (
     current_environment,
@@ -146,6 +151,36 @@ async def book(
         result = await bookings.book(unit, body, _facts(request), now=now, texts=texts)
     except bookings.Refused as refused:
         logfire.info("public booking refused", code=refused.code, fields=sorted(refused.fields))
+        return _refused(refused)
+    return JSONResponse(result.model_dump(mode="json"), status_code=201, headers=_NO_STORE)
+
+
+@public_router.post("/units/{unit}/lead-booking", response_model=lead_details.ProvisionalView)
+async def lead_booking(unit: str, request: Request, now: datetime = Depends(clock)):
+    try:
+        body = bookings.parse_body(lead_details.LeadTokenRequest, await _body(request))
+        view = await lead_details.provisional(unit, body, now=now)
+    except bookings.Refused as refused:
+        return _refused(refused)
+    return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+@public_router.post(
+    "/units/{unit}/lead-booking/details",
+    status_code=201,
+    response_model=bookings.BookingResult,
+)
+async def lead_booking_details(
+    unit: str,
+    request: Request,
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    try:
+        body = bookings.parse_body(lead_details.DetailsRequest, await _body(request))
+        result = await lead_details.complete(unit, body, _facts(request), now=now, texts=texts)
+    except bookings.Refused as refused:
+        logfire.info("lead details refused", code=refused.code, fields=sorted(refused.fields))
         return _refused(refused)
     return JSONResponse(result.model_dump(mode="json"), status_code=201, headers=_NO_STORE)
 

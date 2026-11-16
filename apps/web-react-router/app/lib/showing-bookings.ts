@@ -491,6 +491,10 @@ export interface BookedPerson {
   attention_reason: string | null;
   /** Whether they came; "unknown" until marked after the start. */
   attendance: "attended" | "no_show" | "unknown";
+  /** Booked by the lead agent from an email thread; the lead has not added their details yet. */
+  details_pending?: boolean;
+  /** The lead conversation whose reply booked the place. */
+  lead_conversation_id?: string | null;
 }
 
 export interface BookedShowing {
@@ -519,7 +523,17 @@ export const ATTENTION_LABELS: Record<string, string> = {
   confirmation_undelivered: "Confirmation text not delivered: call them",
   confirmation_refused: "Quo refused the number: call them",
   confirmation_not_sent: "Confirmation text not sent: call them",
+  reply_uncertain: "The email reply that booked this may not have gone out: check the thread",
 };
+
+/**
+ * How a place the lead agent booked from an email thread stands, or null for
+ * any other booking: "Booked by email with the lead agent · details not added yet".
+ */
+export function leadAgentLine(person: Pick<BookedPerson, "source" | "details_pending">): string | null {
+  if (person.source !== "lead_agent") return null;
+  return `Booked by email with the lead agent · ${person.details_pending ? "details not added yet" : "details added"}`;
+}
 
 /** Why a booking needs the team, in words; any reason not listed is shown humanized. */
 export function describeAttention(reason: string): string {
