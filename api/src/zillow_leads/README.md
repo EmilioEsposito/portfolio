@@ -60,8 +60,10 @@ that setting cannot be read, it is `NoTours`, which returns no open times and
 no booked showings. With the switch on, the booking service's open times and
 showings with room come through `tours_for_case` like any other source. A case may contain a configured booking
 link; without one, the policy tells the lead that the team will check and get
-back, and records a team note. A tour recorded in an outcome does not create a
-booking, phone contact, or calendar event.
+back, and records a team note. With the switch off, a tour recorded in an
+outcome does not create a booking, phone contact, or calendar event. With it
+on, a sent reply that confirms a tour books it; see "Showings agreed by email"
+below.
 
 ### What the case knows about showings
 
@@ -104,6 +106,62 @@ can become an eval scenario. It leaves out what the rendered case does not
 show: weekly-pattern staff names and the lead's email addresses. This is saved
 whatever the switch says.
 
+### Showings agreed by email
+
+With the switch on, code books, moves and cancels the thread's showings from
+the agent's decisions (`showing_bookings/lead_bookings.py`). The agent still
+has no tools and the case gains nothing private; who a reply goes to, the
+approval flow, the automatic-send checks and the one-send reservation are
+unchanged. With the switch off nothing here runs: `handle_thread`,
+`apply_approval` and `maybe_send_reply` behave as before, which
+`test_zillow_lead_bookings.py` and the case snapshot test check.
+
+| Decision | What happens to the thread's showing at the decision's unit |
+| --- | --- |
+| A reply, about to be sent, with the tour `confirmed` or `rescheduled`, in person, with a start and a listed unit | Booked through `place_booking` (source `lead_agent`) just before the send. Already booked there at that time: nothing new. Booked there at another time: a move, the old place cancelled after the send. |
+| A reply, about to be sent, with the tour `cancelled` | Cancelled after the send (reason `prospect`). |
+| A reply that is rejected | Nothing booked; a place booked for it by a run that stopped before sending is cancelled. |
+| `no_reply` recording the tour as `cancelled` | Cancelled at once (reason `prospect`): nothing waits for a send. |
+| `escalate` recording the tour as `cancelled` | Nothing; the card lists the times still booked, for the person to cancel. |
+| Anything else (proposed, none, virtual, no start, an unlisted unit, no unit) | Nothing. |
+
+Around a send, in order:
+
+- **On approval** (`apply_approval`, under the conversation's row lock): book,
+  then send, then settle, then save the decision. A refused time (gone, full,
+  off the market, the thread already in that showing, or the booking service
+  unreachable) sends nothing: the card stays pending with the reason in its
+  team notes, and the answer is `pending_approval`. A person can approve it
+  again once the time is free, or reject it.
+- **Automatically** (`maybe_send_reply`): the checks, the threading lookup and
+  the reservation as before, then book, then the review card is committed,
+  then Gmail, then settle. A refused time puts the reason on the send card for
+  a person (`needs_review`).
+- **Settling**: sent, the booking's held notices go now and a move's old place
+  or a cancellation's places are cancelled. Gmail refused it (a 4xx other than
+  a timeout, `handle.send_result`), the booking is cancelled at once
+  (`reply_not_sent`), before its held notices could go. Uncertain (a timeout,
+  a 5xx, anything else), the booking stands, marked `reply_uncertain` on the
+  Showings section, and the automatic review card names it.
+
+A process that stops between the booking and the send leaves the send card
+pending (approval) or the review card uncommitted (automatic), and the place
+carries the conversation id (`showing_attendees.lead_conversation_id`): a
+person who approves finds it already booked and sends; one who rejects
+cancels it. The conversation keeps what was done under `showing_booking`
+(action, unit, start, showing and attendee ids, what was cancelled, the send
+result).
+
+The place starts provisional: the thread's name (or "Zillow lead"), the
+thread id, no email and no consent to texts; a phone number from the thread is
+kept as the mobile for the host and never texted. The host's event and the
+residents' text go as for a team booking without texts; nothing goes to the
+lead. The reply's own booking link (the case's per-lead link) opens the
+booking page in an "add your details" state, which completes the same place
+and sends the confirmation text and the invite as for a page booking. The
+policy does not yet mention the link line or the own showings; that is a later
+step with an eval run.
+
 | Component | Owner | Responsibility |
 | --- | --- | --- |
 | Gmail ingestion | [`google/pubsub`](../google/pubsub/README.md) | Authenticate notifications, persist mail, enqueue Zillow messages |
@@ -112,7 +170,7 @@ whatever the switch says.
 | Listing store | [`rental_listings`](../rental_listings/README.md) | Validated data, history, editor API, on-request Zillow-ad comparison |
 | Case preparation | `listing_data.py`, `case.py`, `tours.py`, `lead_links.py` | Convert saved rows, known tour state and the thread's own booking link into the model's input |
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
-| Review and delivery | `handle.py`, `auto_reply.py` | Persist the outcome; use manual approval or an idempotent automatic send |
+| Review and delivery | `handle.py`, `auto_reply.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what a sent reply confirms (switch on) |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 

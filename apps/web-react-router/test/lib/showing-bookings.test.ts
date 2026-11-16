@@ -23,6 +23,7 @@ import {
   cleanAgent,
   clock,
   describeAttention,
+  leadAgentLine,
   describeOffer,
   describeRemoval,
   describeResidentAttention,
@@ -291,4 +292,17 @@ test("a number known to be wrong is not counted as texted", () => {
   const wrong = { ...PEOPLE[0], attention_reason: "confirmation_undelivered" };
   assert.match(describeRemoval({ ...SHOWING, people: [wrong] }, wrong, "live"), /Alex Parker gets no text, /);
   assert.match(describeShowingCancel({ ...SHOWING, people: [wrong] }, "live"), /0 of them get a cancellation text/);
+});
+
+test("a place booked by email says so, and whether the details arrived", () => {
+  assert.equal(
+    leadAgentLine({ source: "lead_agent", details_pending: true }),
+    "Booked by email with the lead agent · details not added yet",
+  );
+  assert.equal(leadAgentLine({ source: "lead_agent", details_pending: false }), "Booked by email with the lead agent · details added");
+  assert.equal(leadAgentLine({ source: "page", details_pending: false }), null);
+  assert.equal(
+    describeAttention("reply_uncertain"),
+    "The email reply that booked this may not have gone out: check the thread",
+  );
 });

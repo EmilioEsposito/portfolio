@@ -18,6 +18,7 @@ import {
   formatTime,
   formatWhen,
   groupOffers,
+  leadTokenOf,
   missingFields,
   readRefusal,
   refusalAction,
@@ -221,6 +222,8 @@ test("each refusal code leads to what the page does next", () => {
     unavailable: "call",
     unknown_unit: "call",
     unknown: "call",
+    no_booking: "call",
+    already_completed: "fix",
   };
   for (const [code, action] of Object.entries(cases)) assert.equal(refusalAction({ code }), action, code);
 });
@@ -236,4 +239,11 @@ test("the API's own message is shown for everything but a plain field check", ()
   });
   assert.equal(refusalMessage(refused), "We couldn't text this number. Check it, or call us instead.");
   assert.deepEqual(refused.fields, { mobile: "We couldn't text this number." });
+});
+
+test("only a token-shaped ?t= value is sent to look up a showing booked by email", () => {
+  assert.equal(leadTokenOf("AbCdEf0123456789_-xyZ1"), "AbCdEf0123456789_-xyZ1");
+  for (const value of [null, "", "short", "has space in it 12345", "a".repeat(65), "<script>alert(1)</script>"]) {
+    assert.equal(leadTokenOf(value), null, String(value));
+  }
 });
