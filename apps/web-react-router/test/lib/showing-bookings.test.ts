@@ -227,8 +227,8 @@ test("a failed check's reasons are kept, and its message is shown", () => {
 });
 
 const PEOPLE = [
-  { id: 1, name: "Alex Parker", mobile: "412-555-0117", email: "alex@example.com", source: "page" as const, texts_accepted: true, attention_reason: null },
-  { id: 2, name: "Robin Lee", mobile: "no mobile", email: null, source: "team" as const, texts_accepted: false, attention_reason: null },
+  { id: 1, name: "Alex Parker", mobile: "412-555-0117", email: "alex@example.com", source: "page" as const, texts_accepted: true, attention_reason: null, attendance: "unknown" as const },
+  { id: 2, name: "Robin Lee", mobile: "no mobile", email: null, source: "team" as const, texts_accepted: false, attention_reason: null, attendance: "unknown" as const },
 ];
 const SHOWING = { unit: "320-03", starts_at: "2027-04-14T20:00:00Z", host_name: "Jane Doe", people: PEOPLE };
 
