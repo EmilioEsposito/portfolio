@@ -31,7 +31,7 @@ from sqlalchemy import exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import outbox
+from api.src.showing_bookings import outbox, resident_notices
 from api.src.showing_bookings.models import ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import CalendarSource, TextSender
 from api.src.showing_bookings.schema import DrainReport, HoldReport
@@ -101,6 +101,9 @@ async def _stop(holder: ShowingNotice, *, reason: str, note: str) -> int:
                 .where(ShowingAttendee.id == holder.attendee_id)
                 .with_for_update()
             )
+        # The residents' text waits for someone else's confirmation instead,
+        # when someone else is booked; otherwise it is stopped with the rest.
+        await resident_notices.hand_over(session, holder.id, holder.attendee_id)
         stopped = await stop_waiting_on(session, holder.id, note=note)
         if holder.attendee_id is not None:
             await session.execute(

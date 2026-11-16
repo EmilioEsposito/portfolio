@@ -129,9 +129,15 @@ class ShowingAgent(BaseModel):
 
 
 class TextPayload(BaseModel):
+    """A text. With ``also_to`` it is one group text to the notice's recipient and
+    these numbers, who share one thread. With ``daytime_timezone`` it goes out only
+    from 8 AM to 9 PM there, waiting for 8 AM otherwise (a resident's text)."""
+
     model_config = ConfigDict(extra="forbid")
 
     body: str = Field(min_length=1, max_length=1600)
+    also_to: list[Mobile] = Field(default_factory=list, max_length=9)
+    daytime_timezone: str | None = None
 
 
 class EmailPayload(BaseModel):

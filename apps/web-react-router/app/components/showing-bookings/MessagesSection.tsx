@@ -13,6 +13,7 @@ import {
   formatWhen,
   humanize,
   needsAttention,
+  noticeRecipients,
 } from "~/lib/showing-bookings";
 import { cn } from "~/lib/utils";
 import { useShowingBookingsApi } from "./use-showing-bookings-api";
@@ -49,7 +50,7 @@ function NoticeItem({ notice }: { notice: Notice }) {
             {CHANNEL_LABELS[notice.channel]} · {humanize(notice.kind)}
           </p>
           <p className="mt-0.5 break-words text-sm text-muted-foreground">
-            Unit {notice.unit} · showing {formatWhen(notice.showing_starts_at)} · to {notice.recipient}
+            Unit {notice.unit} · showing {formatWhen(notice.showing_starts_at)} · to {noticeRecipients(notice)}
           </p>
         </div>
         <Badge variant="outline" className={cn("shrink-0 font-medium", STATUS_STYLES[notice.status])}>

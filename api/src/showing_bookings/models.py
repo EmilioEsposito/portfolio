@@ -162,6 +162,9 @@ class Showing(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # The host's event on the showings calendar.
     host_event_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Why the residents could not be texted about this showing, such as
+    # "lookup_failed" (``residents.PROBLEMS``); the team tells them instead.
+    resident_attention: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

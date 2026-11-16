@@ -111,11 +111,17 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
     ["prospect_confirmation", "captured"],
     ["host_event", "held"],
     ["prospect_invite", "held"],
+    ["resident_new_showing", "held"],
   ]);
   const text = rows.notices[0];
   expect(text.recipient).toBe("+14125550117");
   expect(text.body).toContain(`Sernia Capital: your in-person showing is booked for ${picked}`);
   expect(text.body).toMatch(/To cancel: https:\/\/serniacapital\.com\/showings\/cancel\/\S+/);
+  // Outside production the unit's resident is the made-up stand-in for Quo's contacts.
+  const resident = rows.notices[3];
+  expect(resident.recipient).toBe("+14125550180");
+  expect(resident.also_to).toEqual([]);
+  expect(resident.body).toContain("We've scheduled an in-person showing of your home at 900 Example Ave (unit 900-01)");
 });
 
 test("a missed tick is marked and nothing is booked until it is ticked", async ({ page }) => {
@@ -226,14 +232,16 @@ test("cancel from the confirmation screen's link", async ({ page }) => {
   expect(rows.attendees.map((a) => [a.name, a.status, a.cancel_reason])).toEqual([
     ["Sam Rivera", "cancelled", "prospect"],
   ]);
-  // The event and invite were still held, so they are stopped, never created and never cancelled.
+  // The event, invite and resident text were still held, so they are stopped, and the
+  // resident, never told, gets no cancellation text.
   expect(rows.notices.map((n) => [n.kind, n.status])).toEqual([
     ["prospect_confirmation", "captured"],
     ["host_event", "cancelled"],
     ["prospect_invite", "cancelled"],
+    ["resident_new_showing", "cancelled"],
     ["prospect_cancelled", "captured"],
   ]);
-  const text = rows.notices[3];
+  const text = rows.notices[4];
   expect(text.recipient).toBe("+14125550121");
   expect(text.body).toBe(
     `Sernia Capital: your showing on ${picked} at 900 Example Ave (unit 900-01) is cancelled. ` +

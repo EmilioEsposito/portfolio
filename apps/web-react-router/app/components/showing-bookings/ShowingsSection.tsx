@@ -16,6 +16,7 @@ import {
   describeAttention,
   describeOffer,
   describeRemoval,
+  describeResidentAttention,
   describeShowingCancel,
   formatWhen,
 } from "~/lib/showing-bookings";
@@ -168,6 +169,12 @@ function BookedItem({
           )}
         </span>
       </div>
+      {showing.resident_attention && (
+        <p className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+          <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+          {describeResidentAttention(showing.resident_attention)}
+        </p>
+      )}
       {showing.people.length > 0 && (
         <ul className="space-y-1.5" aria-label={`People booked for ${label}`}>
           {showing.people.map((person) => (

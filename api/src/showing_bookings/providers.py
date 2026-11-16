@@ -1,6 +1,6 @@
 """What the booking code needs from the outside world, as two small interfaces.
 
-- ``TextSender``: send a text, and read a sent text's status. Quo in
+- ``TextSender``: send a text or a group text, and read a sent text's status. Quo in
   production (``quo.py``); ``fakes.RecordingTextSender`` in tests.
 - ``CalendarSource``: busy times for a set of calendars, and events with
   invited guests. Google later; ``fakes.InMemoryCalendar`` in tests.
@@ -51,6 +51,11 @@ class SentText:
 class TextSender(Protocol):
     async def send_text(self, to: str, body: str) -> SentText:
         """Send ``body`` to one number in E.164. Raises ``NotSent`` when nothing went out."""
+        ...
+
+    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
+        """Send ``body`` to 2 to 10 numbers in E.164 as one group text, so they share
+        one thread. Raises ``NotSent`` when nothing went out."""
         ...
 
     async def text_status(self, provider_id: str) -> str:

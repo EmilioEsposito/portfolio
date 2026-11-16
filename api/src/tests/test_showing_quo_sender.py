@@ -194,3 +194,60 @@ async def test_a_status_read_needs_a_quo_message_id():
     with pytest.raises(ValueError):
         await sender(quo).text_status("../contacts")
     assert quo.requests == []
+
+
+# Group texts: one message to several numbers, which share one thread.
+
+ROOMMATE = "+14125550143"
+
+
+@pytest.mark.asyncio
+async def test_a_group_text_names_every_number_in_one_message():
+    quo = Quo(202, accepted())
+
+    sent = await sender(quo).send_group_text([TO, ROOMMATE, TO], "Showing booked.")
+
+    assert sent == SentText("AC123abc", "queued")
+    (request,) = quo.requests
+    assert json.loads(request.content) == {
+        "content": "Showing booked.",
+        "from": QUO_SHARED_EXTERNAL_PHONE_ID,
+        "to": [TO, ROOMMATE],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "numbers",
+    [[TO], [f"+1412555{index:04d}" for index in range(150, 161)]],
+    ids=["one number", "eleven numbers"],
+)
+async def test_a_group_text_needs_two_to_ten_numbers(numbers):
+    quo = Quo(202, accepted())
+
+    with pytest.raises(NotSent) as refused:
+        await sender(quo).send_group_text(numbers, "Showing booked.")
+
+    assert refused.value.reason == "rejected"
+    assert quo.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_group_text_with_one_bad_number_sends_nothing():
+    quo = Quo(202, accepted())
+
+    with pytest.raises(NotSent) as refused:
+        await sender(quo).send_group_text([TO, "4125550143"], "Showing booked.")
+
+    assert refused.value.reason == "invalid_number"
+    assert quo.requests == []
+
+
+@pytest.mark.asyncio
+async def test_a_refused_group_text_is_not_sent():
+    quo = Quo(400, error(400, "0201400", "User Opted Out"))
+
+    with pytest.raises(NotSent) as refused:
+        await sender(quo).send_group_text([TO, ROOMMATE], "Showing booked.")
+
+    assert refused.value.reason == "opted_out"
