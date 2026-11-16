@@ -9,6 +9,7 @@ Residents come from ``StandInContacts``: made-up Quo contacts, never the
 real ones. Nothing is sent anywhere.
 """
 
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -24,11 +25,19 @@ from api.src.showing_bookings import (
     cancelling,
     holds,
     open_times,
+    outbox,
     quo_contacts,
     residents,
 )
-from api.src.showing_bookings.fakes import StandInContacts, lease_day, sample_contacts
+from api.src.showing_bookings.fakes import (
+    RecordedText,
+    RecordingTextSender,
+    StandInContacts,
+    lease_day,
+    sample_contacts,
+)
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
+from api.src.showing_bookings.providers import NotSent
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
     ALEX_EMAIL,
@@ -57,6 +66,7 @@ THURSDAY = WEDNESDAY + timedelta(days=1)
 RESIDENT = "+14125550142"
 ROOMMATE = "+14125550143"
 OUTSIDER = "+14125550144"  # a roommate who is not a test recipient
+NEW_NUMBER = "+14125550146"  # a corrected mobile
 NEW = residents.NEW_SHOWING_KIND
 CANCELLED = residents.CANCELLED_KIND
 CONFIRMATION = bookings.CONFIRMATION_KIND
@@ -67,7 +77,7 @@ async def world(monkeypatch):
     for name in ("RAILWAY_ENVIRONMENT_NAME", "TURNSTILE_SECRET_KEY", "SHOWING_PUBLIC_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(
-        "SHOWING_TEST_PHONES", ",".join([ALEX_MOBILE, ROBIN_MOBILE, RESIDENT, ROOMMATE])
+        "SHOWING_TEST_PHONES", ",".join([ALEX_MOBILE, ROBIN_MOBILE, NEW_NUMBER, RESIDENT, ROOMMATE])
     )
     monkeypatch.setenv("SHOWING_TEST_EMAILS", f"{ALEX_EMAIL},{ROBIN_EMAIL},{JANE}")
     open_times.forget_free_busy()
@@ -689,6 +699,264 @@ async def test_a_cancellation_while_the_resident_text_is_being_sent_tells_them(w
 
     assert (await one(CANCELLED)).status == "pending"
     assert (await one(NEW)).status == "pending"  # left to finish
+
+
+class GatedTexts(RecordingTextSender):
+    """Holds a text to the resident inside the provider call until the test lets it go,
+    then sends it or has Quo refuse it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.inside = asyncio.Event()
+        self.go = asyncio.Event()
+        self.refuse_resident = False
+
+    async def send_text(self, to: str, body: str):
+        if to == RESIDENT:
+            if self.inside.is_set() and not self.go.is_set():
+                # Recorded, so the test sees the order a resident would have.
+                self.sent.append(RecordedText(to=to, body=body, provider_id="ACoverlap"))
+                raise AssertionError("A second text reached the resident during the first.")
+            self.inside.set()
+            await self.go.wait()
+            if self.refuse_resident:
+                raise NotSent("opted_out", "User Opted Out")
+        return await super().send_text(to, body)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "refused", [False, True], ids=["announcement sent", "announcement refused"]
+)
+async def test_the_cancellation_never_overtakes_an_announcement_being_sent(world, refused):
+    """Run 1 is calling Quo with the announcement when the showing is cancelled; run 2
+    (the job and "Send pending now" together) must not send the cancellation first."""
+    gated = GatedTexts()
+    gated.refuse_resident = refused
+    world.texts = gated
+    await live()
+    lives_here(world)
+    alex = await book(world)
+    await holds.release_held(now=world.now, texts=gated)  # the announcement is due
+
+    first_run = asyncio.create_task(
+        outbox.drain(now=world.now, texts=gated, calendar=world.calendar)
+    )
+    await asyncio.wait_for(gated.inside.wait(), timeout=10)
+    await cancel(world, alex["cancel_token"])
+    assert (await one(CANCELLED)).status == "pending"
+
+    # The second run, while run 1 waits on Quo.
+    await asyncio.wait_for(
+        outbox.drain(now=world.now, texts=gated, calendar=world.calendar), timeout=10
+    )
+
+    waiting = await one(CANCELLED)
+    assert (waiting.status, waiting.not_before) == ("pending", world.now + timedelta(minutes=1))
+    assert gated.to(RESIDENT) == []
+
+    gated.go.set()
+    await first_run
+    await world.send_pending(world.now + timedelta(minutes=1))
+
+    told, cancelled = await one(NEW), await one(CANCELLED)
+    if refused:
+        assert told.status == "failed"
+        assert (cancelled.status, cancelled.last_error) == (
+            "cancelled",
+            residents.NEVER_TOLD_NOTE,
+        )
+        assert gated.to(RESIDENT) == []
+    else:
+        assert (told.status, cancelled.status) == ("sent", "sent")
+        scheduled, then_cancelled = gated.to(RESIDENT)
+        assert "We've scheduled" in scheduled and "is cancelled" in then_cancelled
+
+
+@pytest.mark.asyncio
+async def test_the_hand_over_picks_the_current_confirmation_after_a_corrected_mobile(world):
+    """Robin's first text was undelivered and Robin corrected the number; when Alex's
+    text then fails, the residents' text waits for Robin's replacement, not the
+    undelivered first one."""
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "sent")  # no final report yet
+    world.texts.report(ROBIN_MOBILE, "undelivered")
+    await book(world)
+    robin_booking = await book(world, robin())
+    await world.send_pending(NOW + timedelta(minutes=1))
+    _, attendees, _ = await rows()
+    assert attendees[1].attention_reason == "confirmation_undelivered"
+
+    world.now = NOW + timedelta(minutes=2)
+    async with world.client() as client:
+        corrected = await client.post(
+            f"{PUBLIC}/bookings/mobile",
+            json={"cancel_token": robin_booking["cancel_token"], "mobile": NEW_NUMBER},
+        )
+    assert corrected.status_code == 200, corrected.text
+    _, attendees, notices = await rows()
+    assert (attendees[1].mobile, attendees[1].attention_reason) == (NEW_NUMBER, None)
+    replacement = next(n for n in by_kind(notices)[CONFIRMATION] if n.recipient == NEW_NUMBER)
+
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await world.send_pending(NOW + timedelta(minutes=3))
+
+    assert (await one(NEW)).waits_for_notice_id == replacement.id
+    await world.send_pending(NOW + timedelta(minutes=4))
+
+    _, attendees, _ = await rows()
+    assert attendees[1].attention_reason is None
+    assert (await one(NEW)).status == "sent"
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_hand_over_skips_a_correction_still_being_sent(world):
+    """A correction whose text has not come back yet is not the person's number yet:
+    the residents' text waits for the text to the number on the booking."""
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await book(world)
+    robin_booking = await book(world, robin())
+    _, attendees, notices = await rows()
+    robin_first = next(
+        n for n in by_kind(notices)[CONFIRMATION] if n.attendee_id == attendees[1].id
+    )
+    async with AsyncSessionFactory() as session, session.begin():
+        # A correction under way: its confirmation is queued, the booking keeps its number.
+        session.add(
+            ShowingNotice(
+                kind=CONFIRMATION,
+                channel="sms",
+                showing_id=robin_first.showing_id,
+                attendee_id=attendees[1].id,
+                recipient=NEW_NUMBER,
+                recipient_key=f"attendee:{attendees[1].id}:correction:1",
+                payload={"body": "Booked."},
+                status="pending",
+                not_before=world.now,
+                sending_started_at=world.now,
+            )
+        )
+    assert robin_booking["kind"] == "join"
+
+    await holds.release_held(now=NOW + timedelta(minutes=1), texts=world.texts)
+
+    assert (await one(NEW)).waits_for_notice_id == robin_first.id
+
+
+# An announcement stopped with a failed confirmation comes back
+
+
+async def stopped_alone(world: PublicWorld) -> dict:
+    """Alex books alone, the confirmation is reported undelivered, and the residents'
+    text is stopped while the showing stays scheduled."""
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    alex = await book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    text = await one(NEW)
+    assert (text.status, text.last_error) == ("cancelled", holds.UNDELIVERED_NOTE)
+    assert (await showing_row()).status == "scheduled"
+    world.now = NOW + timedelta(minutes=2)
+    return alex
+
+
+@pytest.mark.asyncio
+async def test_a_join_brings_back_an_announcement_stopped_by_an_undelivered_confirmation(world):
+    await stopped_alone(world)
+
+    await book(world, robin())
+
+    _, attendees, notices = await rows()
+    robin_confirmation = next(
+        n for n in by_kind(notices)[CONFIRMATION] if n.attendee_id == attendees[1].id
+    )
+    text = await one(NEW)
+    assert (text.status, text.waits_for_notice_id, text.last_error) == (
+        "held",
+        robin_confirmation.id,
+        None,
+    )
+
+    await world.send_pending(NOW + timedelta(minutes=3))
+
+    assert [(n.kind, n.status) for n in await resident_notices()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_corrected_mobile_brings_back_an_announcement_stopped_by_its_first_text(world):
+    alex = await stopped_alone(world)
+
+    async with world.client() as client:
+        corrected = await client.post(
+            f"{PUBLIC}/bookings/mobile",
+            json={"cancel_token": alex["cancel_token"], "mobile": NEW_NUMBER},
+        )
+
+    assert corrected.status_code == 200, corrected.text
+    _, _, notices = await rows()
+    replacement = next(n for n in by_kind(notices)[CONFIRMATION] if n.recipient == NEW_NUMBER)
+    text = await one(NEW)
+    assert (text.status, text.waits_for_notice_id) == ("held", replacement.id)
+
+    await world.send_pending(NOW + timedelta(minutes=3))
+
+    assert [(n.kind, n.status) for n in await resident_notices()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_correction_after_a_join_brought_it_back_makes_no_second_announcement(world):
+    alex = await stopped_alone(world)
+    await book(world, robin())
+    async with world.client() as client:
+        corrected = await client.post(
+            f"{PUBLIC}/bookings/mobile",
+            json={"cancel_token": alex["cancel_token"], "mobile": NEW_NUMBER},
+        )
+    assert corrected.status_code == 200, corrected.text
+
+    await world.send_pending(NOW + timedelta(minutes=3))
+    await world.send_pending(NOW + timedelta(minutes=4))
+
+    assert [(n.kind, n.status) for n in await resident_notices()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_join_after_the_announcement_went_out_sends_nothing_new(world):
+    await sent_first(world)
+
+    await book(world, robin())
+    await world.send_pending()
+
+    assert [(n.kind, n.status) for n in await resident_notices()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_join_does_not_bring_back_an_announcement_stopped_for_another_reason(world):
+    """An announcement cancelled at delivery (here: the showing's time had passed) is
+    not one stopped with a failed confirmation, so a join leaves it alone."""
+    await live()
+    lives_here(world)
+    await book(world)
+    async with AsyncSessionFactory() as session, session.begin():
+        await session.execute(
+            update(ShowingNotice)
+            .where(ShowingNotice.kind == NEW)
+            .values(status="cancelled", last_error=residents.TOO_LATE_NOTE)
+        )
+
+    await book(world, robin())
+
+    text = await one(NEW)
+    assert (text.status, text.last_error) == ("cancelled", residents.TOO_LATE_NOTE)
 
 
 @pytest.mark.asyncio

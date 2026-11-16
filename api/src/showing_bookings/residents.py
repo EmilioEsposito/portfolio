@@ -72,6 +72,10 @@ PROBLEMS = {
 
 SHOWING_CANCELLED_NOTE = "Not sent: the showing was cancelled."
 TOO_LATE_NOTE = "Not sent: the showing's time had passed before it was daytime."
+NEVER_TOLD_NOTE = (
+    "Not sent: the residents' text about this showing never went out, "
+    "so there is nothing to cancel."
+)
 
 
 class ContactSource(Protocol):

@@ -137,6 +137,48 @@ async def queue_cancellation(
     )
 
 
+def _stopped_with_its_confirmation() -> frozenset[str]:
+    """The notes of an announcement stopped because the confirmation it waited for
+    failed (undelivered, refused or not sent) or its booking was withdrawn. Not a
+    cancelled showing, a passed start time, or a cancelled booking."""
+    from api.src.showing_bookings import bookings, holds  # both import this module
+
+    return frozenset({holds.UNDELIVERED_NOTE, holds.NOT_SENT_NOTE, bookings.WITHDRAWN_NOTE})
+
+
+async def bring_back(
+    session: AsyncSession, showing_id: int, *, waits_for_notice_id: int, now: datetime
+) -> bool:
+    """When someone joins a showing whose announcement was stopped with a failed
+    confirmation, hold it again behind the joiner's confirmation, in the caller's
+    transaction. Returns whether it was brought back.
+
+    A showing has one announcement row at most (one per kind, showing and
+    recipient key), so this never makes a second; a cancelled one never went
+    out. A showing whose lookup went wrong has none, and keeps its mark.
+    """
+    result = await session.execute(
+        update(ShowingNotice)
+        .where(
+            ShowingNotice.showing_id == showing_id,
+            ShowingNotice.kind == residents.NEW_SHOWING_KIND,
+            ShowingNotice.status == "cancelled",
+            ShowingNotice.last_error.in_(_stopped_with_its_confirmation()),
+        )
+        .values(
+            status="held",
+            waits_for_notice_id=waits_for_notice_id,
+            last_error=None,
+            not_before=now,
+        ),
+        execution_options={"synchronize_session": False},
+    )
+    brought = bool(result.rowcount)
+    if brought:
+        logfire.info("showing residents' text brought back by a join", showing_id=showing_id)
+    return brought
+
+
 async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | None) -> int:
     """Re-point the residents' text held behind ``holder_id`` to another booked
     person's confirmation text, in the caller's transaction. Returns how many moved.
@@ -146,6 +188,12 @@ async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | No
     confirmation is not known to be wrong, the showing goes ahead and the
     residents are still told once theirs is delivered. Otherwise the text stays
     held and is stopped with the rest.
+
+    The other person's current confirmation is the latest one sent to the
+    mobile on their booking now: after a corrected mobile, the replacement,
+    never the earlier text to the old number; while a correction is still
+    being sent (its number not yet on the booking, and it may be refused or
+    superseded), the text to the number they have.
     """
     held = list(
         await session.scalars(
@@ -164,12 +212,14 @@ async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | No
             .where(
                 ShowingNotice.kind == host_event.CONFIRMATION_KIND,
                 ShowingNotice.id != holder_id,
+                ShowingNotice.recipient == ShowingAttendee.mobile,
                 ShowingAttendee.showing_id == notice.showing_id,
                 ShowingAttendee.status == "booked",
                 ShowingAttendee.attention_reason.is_(None),
                 *([ShowingAttendee.id != attendee_id] if attendee_id is not None else []),
             )
-            .order_by(ShowingNotice.id)
+            # The first person still booked, and their latest text to that number.
+            .order_by(ShowingAttendee.id, ShowingNotice.id.desc())
             .limit(1)
         )
         if other is None:

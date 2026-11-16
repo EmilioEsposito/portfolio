@@ -634,14 +634,30 @@ booking transaction, as it may read Quo.
   when it is undelivered or the booking is withdrawn. When someone else is
   still booked in the showing, the text waits for their confirmation instead
   (`resident_notices.hand_over`), so a showing that goes ahead is still
-  announced.
+  announced. That is their current confirmation: the latest one sent to the
+  mobile on their booking now, so after a corrected mobile the replacement,
+  and while a correction is still being sent, the text to the number they
+  have (a later correction that takes over re-points it, as for every held
+  notice).
+- Brought back: when the announcement was stopped because the confirmation it
+  waited for failed (undelivered, refused or not sent) or its booking was
+  withdrawn, while the showing stays scheduled, a person who joins later
+  holds it again behind their own confirmation
+  (`resident_notices.bring_back`), and the first person correcting their
+  mobile does the same behind their new text (the correction's own revival of
+  held notices). It is the same row either way, so a showing never gets two
+  announcements; one stopped for a cancelled showing or a passed start time
+  stays stopped.
 - Daytime only: a resident's text due outside 8 AM to 9 PM in the showing
   rules' time zone waits for the next 8 AM (`TextPayload.daytime_timezone`,
   applied by the outbox when the text is due, in capture mode too). One whose
   showing has started by then, or a new-showing text whose showing is
   cancelled, is cancelled instead of sent.
 - "Told" means the first text was sent, captured, may have gone out
-  (unknown), or is being sent when the showing is cancelled.
+  (unknown), or is being sent when the showing is cancelled. The cancellation
+  text never overtakes the announcement: while the announcement is being sent
+  it waits a minute, then goes only if the announcement went out, and is
+  cancelled ("never went out") if it failed or was stopped.
 - A lookup that goes wrong never blocks a booking. The booking stands, no
   resident text is queued, and the showing gets `resident_attention`, which
   the Showings section shows beside it: `lookup_failed` (Quo out of reach),

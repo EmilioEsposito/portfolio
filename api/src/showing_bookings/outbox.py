@@ -52,6 +52,9 @@ cancelled when there is no event to cancel. A cancellation never creates one.
 A resident's text (``residents.TEXT_KINDS``) is checked too: the new-showing
 text is cancelled once the showing is, either is cancelled once the showing
 has started, and one due outside 8 AM to 9 PM in its time zone waits for 8 AM.
+The cancellation text never overtakes the announcement: it waits a minute while
+the announcement is being sent, then goes only if the announcement went out
+(sent, captured or unknown), and is cancelled otherwise.
 A group text (``TextPayload.also_to``) goes out as one text to every number,
 and the guard counts every number in it.
 """
@@ -479,6 +482,22 @@ async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, n
         note = residents.SHOWING_CANCELLED_NOTE
     elif starts_at <= now:
         note = residents.TOO_LATE_NOTE
+    if note is None and notice.kind == residents.CANCELLED_KIND:
+        # Never ahead of the announcement: wait while it is being sent, then go
+        # only if it went out (or may have).
+        told = (
+            await session.execute(
+                select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
+                    ShowingNotice.showing_id == notice.showing_id,
+                    ShowingNotice.kind == residents.NEW_SHOWING_KIND,
+                )
+            )
+        ).first()
+        if told is not None and told[0] == "pending" and told[1] is not None:
+            notice.not_before = now + HOST_EVENT_BUSY_DELAY
+            return _NOT_NOW
+        if told is None or told[0] not in ("sent", "captured", "unknown"):
+            note = residents.NEVER_TOLD_NOTE
     if note is not None:
         notice.status = "cancelled"
         notice.last_error = note

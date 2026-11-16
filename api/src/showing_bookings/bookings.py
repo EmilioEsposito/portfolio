@@ -701,6 +701,12 @@ async def book(
                     now=now,
                     waits_for_notice_id=confirmation.id,
                 )
+            else:
+                # An announcement stopped with an earlier confirmation that failed
+                # waits for this one instead; one that went out is left as it is.
+                await resident_notices.bring_back(
+                    session, showing.id, waits_for_notice_id=confirmation.id, now=now
+                )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
         logfire.info("showing booking lost a race", unit=listing.unit)
