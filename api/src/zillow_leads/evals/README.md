@@ -330,6 +330,7 @@ result is used to tune the system, the test split has become part of dev.
 | 16 | Five policy questions answered by the owner: acknowledge a cancelled tour once; answer an earlier unanswered question while the lead still qualifies; the lead-in to the booking link may vary. Three exact rules moved into code checks | same 30 as 11 | 21 / 3 / 6 | By the judge: 25 of 30 pass; 19 of 30 on the first sample |
 | 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | By the judge: 28 of 30 pass; 20 of 30 on the first sample. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
 | 18 | Policy for a lead's own showing (issue #368, pull request #410): an own booked showing is a confirmed tour, a confirmed time is stated in one fixed form, and a details line with the lead's own link while the case lists own showings. Run against main's instructions and then the branch's, same code | both samples of 17, and 13 made-up booking scenarios 3 times | Second sample 21 / 3 / 6 before and after; first sample 18 / 4 / 8 before, 18 / 3 / 9 after | By the judge: 26 → 27 of 30 on the second sample, 22 → 22 on the first. Made-up set: 25 of 32 distinct outputs pass. Not merged as run: one real reply carried the details line without the own-showings section, and the move scenario left it out 3 of 3 |
+| 19 | The details-line sentence from 18 reworded: it names the "This lead's own showings" section, ties the "details added" exception to the time the reply confirms, and forbids the line without the section. Made-up threads about 412-01 now carry that unit in their subject. Only the "after" half was run, compared with 18's "before" | same as 18 | Second sample 21 / 3 / 6; first sample 20 / 2 / 8 | By the judge: 26 → 26 of 30 on the second sample, 22 → 23 on the first. Made-up set: 24 of 29 distinct outputs pass. No real reply carries the details line; the move scenario still leaves it out 3 of 3 |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -398,6 +399,33 @@ details line out in all three runs: the lead's old showing is listed with
 the new time is a fresh place without details. Main's instructions already
 wrote confirmed times in the fixed form (`states_tour_time` did not fail
 before either).
+
+Experiment 19 reran only the "after" half with the reworded sentence, on the
+same cases, and compares with experiment 18's "before". It fixed the leak:
+no real reply carries the details line, and no code check fails. Three real
+cases changed action against 18's "before": the rented-unit case again, a
+lead confirming continued interest after an offer the case lacks (escalated
+before, answered with the booking link after, as experiment 17 did), and a
+lead withdrawing from a proposed same-day time (quiet before, acknowledged
+with the booking link after, which the judge passed). None of them involves
+a confirmed time or the own-showings section. All seven new judge fails cite
+older rules (the friend's phone number, the exact booking-link line, pets
+not mentioned by the lead, a named day that should have been accepted,
+conflicting facts, the case-by-case pet rule), against eight fixed: run-to-run
+variation. The fixture change worked: neither 412-01 scenario asks a
+clarification now.
+
+The move scenario still leaves the details line out in all three runs. The
+judge, reading the same sentence, says the line is required for the new
+time, so the wording is not ambiguous to it; the agent seems to treat a move
+of a showing that had its details as needing none. That is not one of the
+conditions for not merging, but it misses the bar for `expected_details_line`.
+Left for the owner: whether to name moves in the sentence, or accept that a
+lead who moves by email adds their details again only when asked.
+
+Open question for Emilio, raised by the judge in 18: should the first tour
+rule ("offer only those booked times" when a tour is booked for the unit)
+apply when a lead moves their own showing? The policy was not changed for it.
 
 The split was made after experiment 2. Both samples are all in dev.
 
