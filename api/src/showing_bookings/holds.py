@@ -22,12 +22,17 @@ confirmation that holds something:
 ``daily_texts.queue_due`` (the host's morning text and the apply text),
 ``outbox.drain`` and ``alerts.check``, in that order: the job every minute
 (``scheduled_run``, registered by ``register_job`` only when background
-automation is on) and the team's "Send pending now" both run it. With nothing
+automation is on) and the team's "Send pending now" both run it. Each step runs
+on its own: one that raises is logged at error level with the step's name and
+the rest still run, so held notices are always released and due notices always
+delivered. With nothing
 held, due, failed, coming up in the next two days or owed an apply text, the
 job returns after one query.
 """
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import TypeVar
 
 import logfire
 from sqlalchemy import exists, or_, select, update
@@ -45,6 +50,7 @@ from api.src.showing_bookings.providers import (
 from api.src.showing_bookings.schema import DrainReport, HoldReport
 
 JOB_ID = "showing-notices"
+T = TypeVar("T")
 REPORT_WAIT = timedelta(minutes=5)
 DELIVERED = {"delivered"}
 UNDELIVERED = {"undelivered", "failed"}
@@ -265,6 +271,16 @@ async def anything_to_do(now: datetime) -> bool:
         )
 
 
+async def _step(name: str, run: Callable[[], Awaitable[T]], fallback: T) -> T:
+    """Run one step of the job. A step that raises is logged at error level, naming
+    the step, and counts as having done nothing, so the steps after it still run."""
+    try:
+        return await run()
+    except Exception:
+        logfire.exception("showing notices job step failed: {step}", step=name)
+        return fallback
+
+
 async def send_pending(
     *,
     now: datetime,
@@ -273,17 +289,29 @@ async def send_pending(
     alerter: TeamAlerter | None = None,
     emails: EmailSender | None = None,
 ) -> SendPendingReport:
-    """The job's steps in order: release or stop held notices, queue the reminders,
-    morning texts and apply texts due by ``now``, deliver every due notice, then
-    alert the team about any notice that failed or is stuck."""
+    """The job's steps in order: release or stop held notices, queue the reminders
+    (by text and by email), morning texts and apply texts due by ``now``, deliver
+    every due notice, then alert the team about any notice that failed or is stuck.
+
+    Each step runs on its own: one that raises is logged with the step's name and
+    the others still run, so releasing held notices and the drain are always
+    attempted."""
     # Imported here: they import modules that import this one.
     from api.src.showing_bookings import alerts, daily_texts, reminders
 
-    held = await release_held(now=now, texts=texts)
-    queued = await reminders.queue_due(now=now)
-    daily = await daily_texts.queue_due(now=now)
-    drained = await outbox.drain(now=now, texts=texts, calendar=calendar, emails=emails)
-    alerted = await alerts.check(now=now, alerter=alerter)
+    held = await _step("release_held", lambda: release_held(now=now, texts=texts), HoldReport())
+    queued = await _step(
+        "reminders", lambda: reminders.queue_due(now=now), reminders.ReminderReport()
+    )
+    daily = await _step(
+        "daily_texts", lambda: daily_texts.queue_due(now=now), daily_texts.DailyTextReport()
+    )
+    drained = await _step(
+        "drain",
+        lambda: outbox.drain(now=now, texts=texts, calendar=calendar, emails=emails),
+        DrainReport(),
+    )
+    alerted = await _step("alerts", lambda: alerts.check(now=now, alerter=alerter), 0)
     return SendPendingReport(
         **drained.model_dump(),
         **held.model_dump(),

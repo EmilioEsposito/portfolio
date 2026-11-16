@@ -706,7 +706,10 @@ the apply text), `outbox.drain` and `alerts.check`. The APScheduler job
 `showing-notices` runs it every minute, registered only when background
 automation is on; with nothing held, due, recently failed, coming up in the
 next two days or owed an apply text it returns after one query. "Send pending
-now" on the tab runs the same steps.
+now" on the tab runs the same steps. Each step runs on its own: one that raises
+is logged at error level (`logfire.exception`, naming the step) and the rest
+still run, so held notices are always released and due notices always
+delivered.
 
 ### Residents' texts
 
@@ -967,6 +970,11 @@ showings in order, each with its time, place and how many people are booked.
   left the text is not sent.
 - An agent with no mobile gets none. It names no prospect and carries no
   prospect's phone number or email.
+- Never longer than a text can be (1,600 characters), when queued and when
+  written again at delivery: a list too long is compacted (the address once
+  in the first line when every showing shares it, then time, unit and count
+  per line), and if still too long lists as many showings as fit and ends
+  with "…and 3 more showings today."
 - Wording: `wording.host_morning_text`, version `HOST_MORNING_VERSION`.
 
 ### The apply text
@@ -999,15 +1007,22 @@ For each showing that started 12 months ago or more and still holds details:
 | Row | Changed | Kept |
 | --- | --- | --- |
 | `showing_attendees` | `name` becomes "Removed"; `mobile`, `email`, `user_agent`, `signature_agent`, `client_ip_hash`, `lead_token` and `texts_consent_page` emptied; `requirement_confirmations` emptied; `cancel_token` replaced by a new random value (`removed-<uuid>`) that was never sent, so the old link answers 404 `unknown_booking` | the row and its id, status, attendance, source, `texts_accepted`, consent time and version, cancel reason, `attention_reason`, Zillow thread and conversation ids, calendar event id and times |
-| `showing_notices` of the showing, to anyone (prospects, residents, the host) | `recipient` becomes `removed`; `payload` becomes `{"body" or "summary": "Removed 12 months after the showing.", "removed": true}` | the row and its kind, channel, status, mode, guard reason, attempts, provider id and status, notes and times |
+| `showing_notices` of the showing, to anyone (prospects, residents, the host, a lead's reminder by email) | `recipient` becomes `removed` (for the email reminder, the Zillow relay address); `payload` becomes `{"body" or "summary": "Removed 12 months after the showing.", "removed": true}` (for the email reminder, its subject, conversation id and message id go too); `last_error`, when set, becomes that same marker, since a provider's message can quote a number or an address | the row and its kind, channel, status, mode, guard reason, attempts, provider id and status (codes and opaque ids), and times |
 | `showings` | nothing | everything |
 
 - 12 months is `interval '12 months'` before the database's own clock
   (`now()`). A test may pass an earlier `now`, never a later one: the cut-off
   is 12 months before whichever is earlier.
 - In batches of 100 showings, one transaction each, up to 50 batches a run;
-  the next run carries on. A cleared showing is not taken again, so running
-  it twice changes nothing.
+  the next run carries on. A showing is taken while any attendee or notice of
+  it still holds one of the fields above, so a row cleared before a field was
+  covered is taken again; a cleared showing is not, so running it twice
+  changes nothing.
+- The free-form fields on these rows: a notice's `last_error` (the one that
+  can quote a provider's message), the attendee fields above, and payloads.
+  Everything else is a code (`cancel_reason`, `attention_reason`,
+  `resident_attention`, `guard_reason`, `alert_reason`, `provider_status`), an
+  opaque id, or the unit's own address.
 - No route calls it. The APScheduler job `showing-details-removal` runs it
   daily at 3:30 AM Eastern, registered only when background automation is on.
 
@@ -1236,6 +1251,9 @@ the daily job on the database's clock). `test_showing_late_joins.py` covers
 joins until 2 hours before (offered 3 hours ahead and not 1, booking,
 the team, a new time still refused, the re-check, a full showing, the lead
 agent's times unchanged).
+`test_showing_job_steps.py` makes each step of the every-minute job raise in
+turn and checks the release and the drain still deliver and the failure is
+logged with the step's name.
 
 ## Later steps
 
