@@ -279,8 +279,12 @@ one agent.
 2. A start is open when an active agent is within their hours, free on their
    calendars, and not in another scheduled showing, with 30 minutes' travel
    between different addresses and none at the same address. Two showings are
-   at the same address when they are at the same unit or their addresses read
-   the same, ignoring case and punctuation.
+   at the same address when they are at the same unit, in the same building,
+   or their addresses read the same, ignoring case and punctuation. A unit key
+   is a property and a unit joined by a hyphen (`320-03` is property 320, unit
+   03), so two keys with a hyphen and the same part before the last one, such
+   as `320-03` and `320-05`, are one building. A key with no hyphen falls back
+   to the address.
 3. A scheduled showing at the unit that has room is offered as a join, without
    reading the host's calendar again. A full one is not offered, and nothing
    else starts at that unit while a showing is on.

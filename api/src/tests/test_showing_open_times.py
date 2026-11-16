@@ -334,6 +334,48 @@ async def test_travel_time_between_addresses_and_none_at_the_same_address(world)
     assert "12:00" not in times
 
 
+def test_units_in_one_building_share_an_address():
+    same = open_times.same_address
+    assert same("320-03", "320 Example St Apt 3", "320-05", "320 Example St Apt 5")
+    assert same(" 320-03", "", "320-05 ", "")
+    assert same("A-12-3", "", "a-12-7", "")  # the part before the last hyphen
+    assert not same("320-03", "320 Example St", "659-01", "659 Other Rd")
+    # A key with no hyphen falls back to the address.
+    assert not same("32003", "320 Example St Apt 3", "32005", "320 Example St Apt 5")
+    assert same("32003", "320 Example St", "32005", "320 example st.")
+    assert not same("320-03", "", "32005", "")
+
+
+@pytest.mark.asyncio
+async def test_no_travel_time_between_units_in_one_building(world):
+    jane = await agent()
+    thursday = date(2027, 4, 15)
+    # Another unit in this building, at an address that names its own apartment.
+    world.listing("320-05", address="320 Example St Apt 5")
+    await add_showing(jane, unit="320-05", starts_at=at(12, 0, day=thursday))
+    times = {s.astimezone(LOCAL).strftime("%H:%M") for s in starts_on(await offers(), thursday)}
+    assert {"11:30", "12:30"} <= times
+    assert "12:00" not in times
+
+    # A unit in another building still needs the travel gap.
+    friday = date(2027, 4, 16)
+    await add_showing(jane, unit="659-01", starts_at=at(12, 0, day=friday))
+    times = {s.astimezone(LOCAL).strftime("%H:%M") for s in starts_on(await offers(), friday)}
+    assert not {"11:30", "12:00", "12:30"} & times
+    assert {"11:00", "13:00"} <= times
+
+
+@pytest.mark.asyncio
+async def test_an_agent_in_the_same_building_hosts_next(world):
+    thursday = date(2027, 4, 15)
+    await agent(priority=1)
+    sam = await agent("Sam Rivera", SAM, priority=2)
+    await add_showing(sam, unit="320-05", starts_at=at(11, 30, day=thursday))
+    found = await offers()
+    assert host_at(found, at(12, 0, day=thursday)) == "Sam Rivera"
+    assert host_at(found, at(14, 0, day=thursday)) == "Jane Doe"
+
+
 def host_at(found: open_times.UnitOffers, start: datetime) -> str:
     return next(offer.host_name for offer in found.offers if offer.start == start)
 

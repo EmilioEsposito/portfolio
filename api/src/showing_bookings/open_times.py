@@ -244,10 +244,26 @@ def _place(text: str) -> str:
 
 
 def same_address(unit: str, address: str, other_unit: str, other_address: str) -> bool:
-    """Whether two showings are at one address, so no travel time is needed between them."""
-    if unit.casefold() == other_unit.casefold():
+    """Whether two showings are at one address, so no travel time is needed between them.
+
+    The same unit, the same address ignoring case and punctuation, or the same
+    building: unit keys are a property and a unit joined by a hyphen ("320-03"
+    is property 320, unit 03), so "320-03" and "320-05" share a building.
+    """
+    if unit.strip().casefold() == other_unit.strip().casefold():
+        return True
+    building, other_building = _building(unit), _building(other_unit)
+    if building is not None and building == other_building:
         return True
     return bool(_place(address)) and _place(address) == _place(other_address)
+
+
+def _building(unit: str) -> str | None:
+    """The property part of a unit key: what comes before its last hyphen, or None."""
+    key = unit.strip()
+    if "-" not in key:
+        return None
+    return key.rsplit("-", 1)[0].strip().casefold() or None
 
 
 def _in_hours(agent: AgentAvailability, local: datetime) -> bool:
