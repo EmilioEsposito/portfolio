@@ -113,6 +113,17 @@ class Guest:
     mobile: str | None
     email: str | None
     confirmations: Sequence[str]
+    # How they booked: "page", "team" or "lead_agent".
+    source: str = "page"
+    # Whether they take texts about the showing.
+    texts: bool = True
+
+
+_HOW_BOOKED = {
+    "page": "booked on the booking page",
+    "team": "booked by the team",
+    "lead_agent": "booked by email with the lead agent",
+}
 
 
 def _local(moment: datetime, timezone: str) -> datetime:
@@ -154,9 +165,15 @@ def host_event_summary(visit: Visit, guests: Sequence[Guest]) -> str:
 
 
 def host_event_description(guests: Sequence[Guest]) -> str:
-    lines = ["Booked on the Sernia Capital booking page:"]
+    """Who is coming and how each booked, true for every way a booking is made."""
+    lines = ["Booked for this Sernia Capital showing:"]
     for guest in guests:
-        lines.append(f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'}")
+        how = _HOW_BOOKED.get(guest.source, "booked")
+        if not guest.texts:
+            how += ", no texts"
+        lines.append(
+            f"- {guest.name}, {display_phone(guest.mobile)}, {guest.email or 'no email'} ({how})"
+        )
         for confirmed in guest.confirmations:
             lines.append(f"  Confirmed: {confirmed}")
     return "\n".join(lines)
@@ -244,3 +261,17 @@ def resident_cancelled_text(visit: Visit) -> str:
         f"{when(visit)} is cancelled, so no one will come by for it. "
         "Questions? Reply to this number."
     )
+
+
+# ---------------------------------------------------------------------------
+# The team's actions (CANCELLATION_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def host_event_moved_summary(visit: Visit) -> str:
+    """The old host's event, cancelled when the team gives the showing to another host."""
+    return f"Moved to another host: {visit.unit}"
+
+
+def host_event_moved_description() -> str:
+    return "The team gave this showing to another host. You are no longer hosting it."

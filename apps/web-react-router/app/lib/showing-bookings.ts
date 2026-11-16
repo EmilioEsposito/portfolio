@@ -457,12 +457,15 @@ export interface BookedPerson {
   texts_accepted: boolean;
   /** Set when the booking needs a call, such as "confirmation_undelivered". */
   attention_reason: string | null;
+  /** Whether they came; "unknown" until marked after the start. */
+  attendance: "attended" | "no_show" | "unknown";
 }
 
 export interface BookedShowing {
   id: number;
   unit: string;
   starts_at: string;
+  host_id: number;
   host_name: string;
   attendees: number;
   capacity: number;

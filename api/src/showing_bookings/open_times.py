@@ -281,6 +281,19 @@ def _calendar_free(agent: AgentAvailability, start: datetime, end: datetime) -> 
     return not any(block.start < end and block.end > start for block in agent.busy)
 
 
+def clashing(
+    unit: str, address: str, start: datetime, end: datetime, others: Sequence[BookedShowing]
+) -> BookedShowing | None:
+    """The first of an agent's ``others`` too close to a showing at ``unit`` from
+    ``start`` to ``end``: overlapping, or without 30 minutes' travel between
+    different addresses. None when there is none."""
+    for other in others:
+        gap = timedelta(0) if same_address(unit, address, other.unit, other.address) else TRAVEL
+        if other.starts_at < end + gap and other.ends_at + gap > start:
+            return other
+    return None
+
+
 def offers_for(
     listing: RentalListing,
     rules: ShowingRules,
@@ -314,15 +327,7 @@ def offers_for(
         by_agent[showing.agent_id].append(showing)
 
     def clash(agent: AgentAvailability, start: datetime, end: datetime) -> bool:
-        for other in by_agent[agent.id]:
-            gap = (
-                timedelta(0)
-                if same_address(listing.unit, listing.address, other.unit, other.address)
-                else TRAVEL
-            )
-            if other.starts_at < end + gap and other.ends_at + gap > start:
-                return True
-        return False
+        return clashing(listing.unit, listing.address, start, end, by_agent[agent.id]) is not None
 
     def next_door(agent: AgentAvailability, start: datetime, end: datetime) -> bool:
         return any(
@@ -783,3 +788,55 @@ async def recheck(
         showing_id=offer.showing_id,
         places_left=offer.places_left,
     )
+
+
+HostProblem = Literal[
+    "inactive", "outside_hours", "calendar_unreadable", "calendar_busy", "in_another_showing"
+]
+
+
+async def host_problem(
+    showing: Showing, agent: ShowingAgentRecord, *, now: datetime, session: AsyncSession
+) -> tuple[HostProblem, str] | None:
+    """Why ``agent`` cannot host ``showing``, by the rules open times use, or None.
+
+    The agent must be active, within their hours at the start, free on their
+    calendars (read afresh, with no cached answer; unreadable counts as busy),
+    and in no other scheduled showing, with travel time between buildings. The
+    showing itself is left out, so it never stands in its own way. Pass the
+    caller's ``session`` to see showings as its transaction does.
+    """
+    if not agent.active:
+        return "inactive", f"{agent.name} is inactive."
+    known = await _load(session, now)
+    zone = ZoneInfo(known.rules.timezone)
+    local = showing.starts_at.astimezone(zone)
+    reads = await _agent_calendars(
+        [agent], known.connections, showing.starts_at, showing.ends_at, fresh=True
+    )
+    read = reads[agent.id]
+    (available,) = _availability(reads)
+    if not _in_hours(available, local):
+        return "outside_hours", f"{agent.name}'s hours do not cover {_clock_text(local)} that day."
+    if read.status == "unreadable":
+        detail = f" {read.problem}" if read.problem else ""
+        return (
+            "calendar_unreadable",
+            f"{agent.name}'s calendar cannot be read, so they count as busy.{detail}",
+        )
+    if not _calendar_free(available, showing.starts_at, showing.ends_at):
+        return "calendar_busy", f"{agent.name} is busy on their calendar then."
+    others = [s for s in known.showings if s.agent_id == agent.id and s.id != showing.id]
+    other = clashing(showing.unit, showing.address, showing.starts_at, showing.ends_at, others)
+    if other is not None:
+        return (
+            "in_another_showing",
+            f"{agent.name} has a showing of {other.unit} at "
+            f"{_clock_text(other.starts_at.astimezone(zone))}, too close to this one.",
+        )
+    return None
+
+
+def _clock_text(local: datetime) -> str:
+    """ "4:30 PM" """
+    return local.strftime("%I:%M %p").lstrip("0")

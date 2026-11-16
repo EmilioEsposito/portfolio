@@ -14,14 +14,22 @@ and a prospect's withdrawn invite by ``INVITE_CANCEL_KIND``. ``cancel_check``
 decides when such a notice is delivered whether there is an event to cancel,
 so a cancellation never creates one.
 
+When the team gives a showing to another host (``team_actions.change_host``),
+the old host's event is cancelled by a ``MOVED_KIND`` notice that names the
+event itself, and the new host's event starts afresh: the showing's
+``host_event_id`` is cleared, and the host notices from before the move no
+longer count (``since_last_move``). ``moved_check`` decides at delivery
+whether there is an old event to cancel.
+
 Rendering only reads; ``outbox.py`` saves what was rendered on the notice and
 is the only code that hands it to a calendar. Nothing here imports the outbox.
 """
 
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.src.showing_bookings import wording
 from api.src.showing_bookings.models import (
@@ -37,8 +45,11 @@ UPDATE_KIND = "host_event_update"
 # The notices rendered from the showing at delivery.
 KINDS = frozenset({CREATE_KIND, UPDATE_KIND})
 CANCEL_KIND = "host_event_cancel"
+# The old host's event cancelled when the showing moves to another host.
+MOVED_KIND = "host_event_moved"
 # The host notices delivered under a lock on their showing.
-SHOWING_LOCKED_KINDS = KINDS | {CANCEL_KIND}
+SHOWING_LOCKED_KINDS = KINDS | {CANCEL_KIND, MOVED_KIND}
+HOST_CHANGED = "Not sent: the showing moved to another host."
 INVITE_KIND = "prospect_invite"
 CONFIRMATION_KIND = "prospect_confirmation"
 # Notices that are for one booking only: checked when delivered, first try or
@@ -59,6 +70,22 @@ MAYBE_CREATED = (
 )
 
 
+def since_last_move(showing_id: int):
+    """A condition on ``ShowingNotice``: queued since the showing last changed host.
+
+    The host notices of the current host are these; the ones before the last
+    ``MOVED_KIND`` notice were for an earlier host's event, which that notice
+    cancels. With no move, every notice counts.
+    """
+    moved = aliased(ShowingNotice)
+    last_move = (
+        select(func.coalesce(func.max(moved.id), 0))
+        .where(moved.showing_id == showing_id, moved.kind == MOVED_KIND)
+        .scalar_subquery()
+    )
+    return ShowingNotice.id > last_move
+
+
 async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.Guest]:
     rows = await session.scalars(
         select(ShowingAttendee)
@@ -71,6 +98,8 @@ async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.
             mobile=row.mobile,
             email=row.email,
             confirmations=[item.get("wording", "") for item in row.requirement_confirmations],
+            source=row.source,
+            texts=row.texts_accepted,
         )
         for row in rows
     ]
@@ -123,7 +152,9 @@ async def cancel_check(
     """
     if notice.kind == CANCEL_KIND:
         creates = select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
-            ShowingNotice.showing_id == notice.showing_id, ShowingNotice.kind.in_(KINDS)
+            ShowingNotice.showing_id == notice.showing_id,
+            ShowingNotice.kind.in_(KINDS),
+            since_last_move(notice.showing_id),
         )
     else:
         creates = select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
@@ -135,6 +166,45 @@ async def cancel_check(
         return "wait"
     if event_id:
         return "go"
+    if any(status == "unknown" for status, _ in rows):
+        return MAYBE_CREATED
+    if any(status == "captured" for status, _ in rows):
+        return "go"
+    return NEVER_CREATED
+
+
+async def moved_check(session: AsyncSession, notice: ShowingNotice) -> Literal["go", "wait"] | str:
+    """Whether the old host's event can be cancelled now (``MOVED_KIND``).
+
+    "go" when the notice names the event, or when the old host's create was
+    captured, so capture mode keeps the cancellation too. "wait" while one of
+    the old host's notices is being sent. Otherwise the note to cancel the
+    notice with: never created, or an earlier create may have gone out.
+    """
+    if notice.payload.get("event_id"):
+        return "go"
+    moved = aliased(ShowingNotice)
+    previous_move = (
+        select(func.coalesce(func.max(moved.id), 0))
+        .where(
+            moved.showing_id == notice.showing_id,
+            moved.kind == MOVED_KIND,
+            moved.id < notice.id,
+        )
+        .scalar_subquery()
+    )
+    rows = (
+        await session.execute(
+            select(ShowingNotice.status, ShowingNotice.sending_started_at).where(
+                ShowingNotice.showing_id == notice.showing_id,
+                ShowingNotice.kind.in_(KINDS),
+                ShowingNotice.id > previous_move,
+                ShowingNotice.id < notice.id,
+            )
+        )
+    ).all()
+    if any(status == "pending" and started is not None for status, started in rows):
+        return "wait"
     if any(status == "unknown" for status, _ in rows):
         return MAYBE_CREATED
     if any(status == "captured" for status, _ in rows):
