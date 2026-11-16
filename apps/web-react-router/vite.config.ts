@@ -15,6 +15,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+import { isApiProxyAllowed } from "./app/lib/sernia-public";
+
 export default defineConfig(({ mode }) => {
   // Load env from this directory (apps/web-react-router)
   const managed = Boolean(process.env.PORTFOLIO_CONFIG_SOURCE);
@@ -33,6 +35,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           ws: true,
+          // Same rule as server.js: a Sernia host reaches only the public
+          // showing-bookings API. Returning false answers 404.
+          bypass: (req) => (isApiProxyAllowed(req.headers.host, req.url ?? "") ? undefined : false),
         },
       },
     },

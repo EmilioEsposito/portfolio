@@ -6,8 +6,13 @@
  * - Railway: CUSTOM_RAILWAY_BACKEND_URL
  * - Local: http://127.0.0.1:${BACKEND_PORT} (default: 8000)
  *
+ * On a Sernia host (serniacapital.com) the proxy forwards only the public
+ * showing-bookings API; see app/lib/sernia-public.ts.
+ *
  * Environment variables:
  *   BACKEND_PORT - FastAPI backend port for local dev (default: 8000)
+ *   SERNIA_PUBLIC_HOSTS - comma-separated hosts that replace the default Sernia hosts
+ *   SERNIA_PUBLIC_PAGES_ENABLED - read by the app; see app/lib/sernia-public.ts
  *
  * See also: vite.config.ts (dev proxy), README.md, docker-compose.yml
  */
@@ -15,6 +20,9 @@ import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import compression from "compression";
 import { pathToFileURL } from "node:url";
+// Node strips this module's types at load time (Node 22.18+). The Dockerfile
+// copies it next to server.js.
+import { isApiProxyAllowed } from "./app/lib/sernia-public.ts";
 
 const app = express();
 
@@ -157,8 +165,23 @@ export async function proxyToBackend(req, res, targetUrl, logTag) {
   }
 }
 
+/**
+ * A Sernia host reaches only the public showing-bookings API; other hosts
+ * reach every /api path, as before.
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {import("express").NextFunction} next
+ */
+export function serniaApiGuard(req, res, next) {
+  if (isApiProxyAllowed(req.headers.host, req.originalUrl)) {
+    next();
+    return;
+  }
+  res.status(404).json({ detail: "Not Found" });
+}
+
 // API Proxy: Forward /api/* requests to the backend
-app.use("/api", async (req, res) => {
+app.use("/api", serniaApiGuard, async (req, res) => {
   const backendUrl = getBackendUrl();
   const targetUrl = `${backendUrl}${req.originalUrl}`;
   await proxyToBackend(req, res, targetUrl, "API Proxy");
