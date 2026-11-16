@@ -161,15 +161,15 @@ test("outside production SERNIA_PUBLIC_PAGES_ENABLED=false switches the pages of
   });
 });
 
-// The index route's loader reads the units on offer for the Sernia home page.
-// A stand-in answers the API: 200 with no units, or 404 (public booking off).
+// The index route's loader reads the call line's route for the Sernia home page.
+// A stand-in answers the API: 200 with the site key, or 404 (public booking off).
 async function withApi(status: 200 | 404, run: (calls: string[]) => Promise<void>) {
   const calls: string[] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     calls.push(String(input));
     return status === 200
-      ? Response.json({ units: [], turnstile_site_key: "1x00000000000000000000AA" })
+      ? Response.json({ turnstile_site_key: "1x00000000000000000000AA" })
       : Response.json({ detail: "Not Found" }, { status: 404 });
   }) as typeof fetch;
   try {
@@ -192,8 +192,9 @@ test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
       assert.match(data.body, /serniaPublic/, origin);
       assert.match(data.body, /bookingOpen/, origin);
     }
+    // Only the call line's route; never the units list, which reads calendars.
     assert.ok(calls.length > 0);
-    assert.ok(calls.every((url) => url.endsWith("/api/showing-bookings/public/units")), calls.join());
+    assert.ok(calls.every((url) => url.endsWith("/api/showing-bookings/public/call-line")), calls.join());
   });
 });
 

@@ -824,6 +824,7 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
     public = {path for path in found if path.startswith("/api/showing-bookings/public/")}
     assert public == {
         "/api/showing-bookings/public/units",
+        "/api/showing-bookings/public/call-line",
         "/api/showing-bookings/public/units/{unit}",
         "/api/showing-bookings/public/units/{unit}/bookings",
         "/api/showing-bookings/public/bookings/lookup",

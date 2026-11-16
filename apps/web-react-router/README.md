@@ -96,6 +96,11 @@ Buildium portal, since residents type the domain to reach it), then Book a
 showing (`/showings`) and Apply (`/apply`, which stays a Cloudflare redirect, so
 it has no page here and 404s on previews and localhost). Below them is the call
 line; the footer carries the Equal Housing Opportunity line and the policy links.
+The page never waits on the units list: its loader reads only
+`GET /api/showing-bookings/public/call-line` (the Turnstile site key, no listings
+or calendars) with a 3-second timeout (`readCallLine` in
+`app/lib/showing-units.server.ts`). Off, slow or failing, the page renders at
+once without the call line.
 
 `/showings` lists the units on offer from `GET /api/showing-bookings/public/units`,
 read on the server (`app/lib/showing-units.server.ts`): address, unit, asking

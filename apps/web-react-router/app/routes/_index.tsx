@@ -10,7 +10,7 @@ import {
 } from "~/lib/seo";
 import { SerniaHome, serniaHomeMeta, type SerniaHomeData } from "~/components/sernia-public/home";
 import { isSerniaHomeRequest } from "~/lib/sernia-public";
-import { readUnitsOnOffer } from "~/lib/showing-units.server";
+import { readCallLine } from "~/lib/showing-units.server";
 
 // `/` is the one page that depends on the host. On a Sernia host, while the
 // Sernia pages are on, it is Sernia Capital's home page, served without Clerk
@@ -19,13 +19,10 @@ import { readUnitsOnOffer } from "~/lib/showing-units.server";
 
 export async function loader({ url }: Route.LoaderArgs): Promise<{ serniaHome: SerniaHomeData | null }> {
   if (!isSerniaHomeRequest(url)) return { serniaHome: null };
-  const units = await readUnitsOnOffer();
-  return {
-    serniaHome:
-      units.status === "open"
-        ? { bookingOpen: true, turnstileSiteKey: units.turnstileSiteKey }
-        : { bookingOpen: false, turnstileSiteKey: null },
-  };
+  // Residents type the domain to reach the portal, so this page never waits on
+  // the units list: the call line's own route answers at once, or the page
+  // renders without the call line after a short timeout.
+  return { serniaHome: await readCallLine() };
 }
 
 export function meta({ loaderData }: Route.MetaArgs) {

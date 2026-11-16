@@ -7,6 +7,8 @@ elsewhere).
 
 - ``GET /units``: the units on offer for the list at ``/showings``: address,
   rent, lease start, and whether each has an open time now (``public_units.py``).
+- ``GET /call-line``: only the Turnstile site key, for the call line on a page
+  with no unit (the Sernia home page). Reads no listings and no calendars.
 - ``GET /units/{unit}``: what the booking page shows for one unit: address,
   rent, showing length, the confirmations with their wording, the consent
   small print, the Turnstile site key, and the offers in order. No host names.
@@ -102,6 +104,11 @@ async def list_units(now: datetime = Depends(clock)):
         return await public_units.units_on_offer(now=now)
     except bookings.Refused as refused:
         return _refused(refused)
+
+
+@public_router.get("/call-line", response_model=public_units.CallLine)
+async def call_line():
+    return public_units.call_line()
 
 
 @public_router.get("/units/{unit}", response_model=bookings.UnitPage)

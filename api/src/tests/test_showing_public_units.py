@@ -210,3 +210,49 @@ async def test_the_unit_read_has_the_address(world):
 
     assert answer.status_code == 200
     assert (answer.json()["unit"], answer.json()["address"]) == (UNIT, ADDRESS)
+
+
+# The call line's route, for a page with no unit (the Sernia home page)
+
+CALL_LINE = f"{PUBLIC}/call-line"
+
+
+@pytest.mark.asyncio
+async def test_the_call_line_route_answers_only_the_site_key_and_reads_nothing(world, monkeypatch):
+    from api.src.rental_listings import service as listings_service
+
+    async def no_listings(session):
+        raise AssertionError("the call line route read the listings")
+
+    async def no_calendar(calendar_ids, start, end):
+        raise AssertionError("the call line route read a calendar")
+
+    monkeypatch.setattr(listings_service, "read_listings", no_listings)
+    monkeypatch.setattr(world.calendar, "busy_blocks", no_calendar)
+
+    async with world.client() as client:
+        answer = await client.get(CALL_LINE)
+
+    assert answer.status_code == 200
+    assert answer.json() == {"turnstile_site_key": turnstile.TEST_SITE_KEY}
+
+
+@pytest.mark.asyncio
+async def test_switched_off_the_call_line_route_answers_404(world, monkeypatch):
+    await store_settings(public_booking_enabled=False)
+    async with world.client() as client:
+        assert (await client.get(CALL_LINE)).status_code == 404
+
+    await store_settings()
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+    async with world.client() as client:
+        assert (await client.get(CALL_LINE)).status_code == 404
+
+    await store_settings(public_booking_enabled=True)
+    monkeypatch.setenv("TURNSTILE_SITE_KEY", "0x4AAAAAAA-made-up")
+    async with world.client() as client:
+        answer = await client.get(CALL_LINE)
+    assert (answer.status_code, answer.json()) == (
+        200,
+        {"turnstile_site_key": "0x4AAAAAAA-made-up"},
+    )

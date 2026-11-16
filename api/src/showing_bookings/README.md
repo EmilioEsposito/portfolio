@@ -384,6 +384,7 @@ tokens; a cancel token travels in the body for the same reason.
 | Route | Answers |
 | --- | --- |
 | `GET /units` | the units on offer, for the list at `/showings` (`public_units.py`): each unit's key, address, asking rent, `lease_start_earliest` and `lease_start_latest`, `lease_start` worded by `wording.lease_start_dates` (the rule the form's tick uses), and `has_open_times`; plus the Turnstile site key for the call line. Ordered by address, then unit. One `open_times` call for every unit, so calendars are read once per connection and the 90-second cache serves the booking page that follows. No host names, nothing about who is booked. |
+| `GET /call-line` | `{turnstile_site_key}` and nothing else, for the call line on a page with no unit (the Sernia home page). Reads no listings and no calendars, so the page can answer at once; the 404 while the switch is off tells the page to leave the call line out. |
 | `GET /units/{unit}` | the listing's unit key, address, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names. 404 `unknown_unit` for a unit not on offer. |
 | `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
 | `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, and the corrections left. |
@@ -563,7 +564,8 @@ covers the switch, each refusal and its field, the limits, the team number,
 mobile corrections, what a booking saves, and that no answer shows a host,
 another attendee or the team number. `test_showing_public_units.py` covers the
 units list: order, wording, no units, no agent free, one calendar read for the
-list, the switch, nothing about hosts or bookings, and the address in the unit read.
+list, the switch, nothing about hosts or bookings, the address in the unit read,
+and the call line's route (the site key alone, no listing or calendar read, the switch).
 
 ## Later steps
 

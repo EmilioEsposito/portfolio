@@ -1,4 +1,5 @@
-"""The units on offer, as the public list at ``/showings`` shows them.
+"""The units on offer, as the public list at ``/showings`` shows them, and what the call
+line needs on a page with no unit (``call_line``).
 
 One call to ``open_times.open_times`` covers every unit on offer, so the
 agents' calendars are read once per connection for the whole list (and that
@@ -35,6 +36,17 @@ class UnitOnOffer(BaseModel):
 class UnitsOnOffer(BaseModel):
     units: list[UnitOnOffer]
     turnstile_site_key: str | None
+
+
+class CallLine(BaseModel):
+    """What the call line needs on a page that shows no unit, such as the Sernia home page."""
+
+    turnstile_site_key: str | None
+
+
+def call_line() -> CallLine:
+    """Reads no listings and no calendars, so a page that needs only this answers at once."""
+    return CallLine(turnstile_site_key=turnstile.site_key())
 
 
 def _natural(text: str) -> tuple:
