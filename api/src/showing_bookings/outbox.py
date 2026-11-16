@@ -101,8 +101,13 @@ async def enqueue(
     now: datetime,
     attendee_id: int | None = None,
     not_before: datetime | None = None,
+    waits_for_notice_id: int | None = None,
 ) -> ShowingNotice:
     """Save a notice in the caller's transaction, or return the one already saved.
+
+    With ``waits_for_notice_id`` the row is saved ``held``: no run delivers it
+    until ``holds.release_held`` makes it pending, once the notice it waits
+    for (a prospect's confirmation text) is reported delivered.
 
     A notice is identified by its kind, showing and recipient key: queuing the
     same one again returns the existing row, whatever else differs, so a retry
@@ -141,7 +146,8 @@ async def enqueue(
             recipient=address,
             recipient_key=recipient_key,
             payload=payload.model_dump(mode="json"),
-            status="pending",
+            status="pending" if waits_for_notice_id is None else "held",
+            waits_for_notice_id=waits_for_notice_id,
             not_before=not_before or now,
         )
         .on_conflict_do_nothing(index_elements=["kind", "showing_id", "recipient_key"])

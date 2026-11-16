@@ -24,10 +24,16 @@ AttendeeSource = Literal["page", "team", "lead_agent"]
 # A text, the host's own event on the showings calendar, the event a prospect
 # is invited to (one per prospect, so guests never see each other), or an email.
 Channel = Literal["sms", "calendar_event", "calendar_invite", "email"]
-# pending: waiting to be delivered. Then exactly one of: captured (rendered and
-# kept, no provider called), sent, failed (the provider refused or never got
-# it), unknown (it may have gone out; never retried), skipped (send mode off).
-NoticeStatus = Literal["pending", "captured", "sent", "failed", "unknown", "skipped"]
+# pending: waiting to be delivered. held: waiting for the notice it waits for
+# (``waits_for_notice_id``, a prospect's confirmation text) to be reported
+# delivered; ``holds.release_held`` makes it pending or cancels it. Then
+# exactly one of: captured (rendered and kept, no provider called), sent,
+# failed (the provider refused or never got it), unknown (it may have gone
+# out; never retried), skipped (send mode off), cancelled (never sent: the
+# booking was withdrawn or its confirmation text was not delivered).
+NoticeStatus = Literal[
+    "pending", "held", "captured", "sent", "failed", "unknown", "skipped", "cancelled"
+]
 SendMode = Literal["off", "capture", "live"]
 
 CONNECTION_STATUSES: tuple[str, ...] = get_args(ConnectionStatus)
@@ -96,6 +102,8 @@ class RequirementConfirmation(BaseModel):
     key: str  # "lease_start" or "pets"
     wording: str
     confirmed_at: datetime
+    # The version of the wording's template (``wording.CONFIRMATIONS_VERSION``).
+    version: str | None = None
 
 
 class ShowingAgent(BaseModel):
@@ -181,6 +189,13 @@ class Notice(BaseModel):
     last_error: str | None
     created_at: datetime
     delivered_at: datetime | None
+
+
+class HoldReport(BaseModel):
+    """What one run of ``holds.release_held`` did with the held notices."""
+
+    released: int = 0
+    stopped: int = 0
 
 
 class DrainReport(BaseModel):

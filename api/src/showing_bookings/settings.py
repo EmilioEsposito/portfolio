@@ -8,6 +8,13 @@
 - ``lead_agent_uses_open_times``: the Zillow lead agent offers the open times
   computed here (``lead_tours.py``) instead of none. Off by default, and a row
   that cannot be read counts as off.
+- ``public_booking_enabled``: the public booking routes answer
+  (``public_routes.py``). True, false or unset; unset means off in production
+  and on everywhere else (``public_booking_on``). A row that cannot be read
+  counts as unset.
+- ``public_limits``: how many bookings one mobile, one email and one IP
+  address may make (``PublicLimits``). Kept here rather than in the repo,
+  which is public.
 
 A preview database is a copy of production's rows, so whatever this row says,
 outside production the guard sends nothing but test sends.
@@ -29,6 +36,18 @@ TEST_EMAILS_ENV = "SHOWING_TEST_EMAILS"
 ENVIRONMENT_ENV = "RAILWAY_ENVIRONMENT_NAME"
 
 
+class PublicLimits(BaseModel):
+    """Limits on public bookings. A booking past one is refused with the field named."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Booked showings still to come for one mobile number, and for one email.
+    upcoming_per_mobile: int = Field(default=2, ge=1, le=20)
+    upcoming_per_email: int = Field(default=2, ge=1, le=20)
+    # Bookings (withdrawn ones included) from one IP address in 24 hours.
+    bookings_per_ip_per_day: int = Field(default=6, ge=1, le=100)
+
+
 class ShowingBookingSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,6 +55,9 @@ class ShowingBookingSettings(BaseModel):
     live_units: list[str] = Field(default_factory=list)
     test_sends_enabled: StrictBool = False
     lead_agent_uses_open_times: StrictBool = False
+    # None: the environment's default (``public_booking_on``).
+    public_booking_enabled: StrictBool | None = None
+    public_limits: PublicLimits = Field(default_factory=PublicLimits)
 
     @field_validator("live_units")
     @classmethod
@@ -65,6 +87,17 @@ async def settings_for_delivery(session: AsyncSession) -> ShowingBookingSettings
     except Exception:
         logfire.exception("showing bookings: settings unreadable, capturing")
         return ShowingBookingSettings()
+
+
+def public_booking_default(environment: str) -> bool:
+    """Unset means off in production and on everywhere else."""
+    return environment != "production"
+
+
+def public_booking_on(settings: ShowingBookingSettings, environment: str) -> bool:
+    if settings.public_booking_enabled is None:
+        return public_booking_default(environment)
+    return settings.public_booking_enabled
 
 
 def current_environment() -> str:

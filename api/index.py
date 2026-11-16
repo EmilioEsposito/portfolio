@@ -81,6 +81,9 @@ from api.src.showing_bookings.calendar_callback import (
 from api.src.showing_bookings.calendar_callback import (
     callback_router as showing_bookings_callback_router,
 )
+from api.src.showing_bookings.public_routes import (
+    public_router as showing_bookings_public_router,
+)
 from api.src.showing_bookings.routes import router as showing_bookings_router
 from api.src.user.routes import router as user_router
 from api.src.zillow_leads.settings import router as zillow_leads_router
@@ -164,6 +167,9 @@ async def _apscheduler_startup_async() -> None:
             from api.src.open_phone.escalation_delivery import register_escalation_recovery
 
             register_escalation_recovery()
+            from api.src.showing_bookings.holds import register_job as register_showing_notices
+
+            register_showing_notices()
 
         # Start the scheduler AFTER the span closes and with a clean OTel context.
         # APScheduler's internal event loop inherits the current trace context —
@@ -357,6 +363,9 @@ app.include_router(rental_listings_router, prefix="/api")
 app.include_router(showing_bookings_router, prefix="/api")
 # Google's OAuth callback: the module's one route without the Sernia sign-in.
 app.include_router(showing_bookings_callback_router, prefix="/api")
+# The public booking API: no sign-in, everything under /api/showing-bookings/public/,
+# and a 404 on every route while public booking is switched off.
+app.include_router(showing_bookings_public_router, prefix="/api")
 app.include_router(apscheduler_router, prefix="/api")
 # DBOS DISABLED: See api/src/schedulers/README.md for re-enabling instructions.
 # app.include_router(dbos_router, prefix="/api")

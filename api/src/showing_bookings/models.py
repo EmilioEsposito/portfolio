@@ -1,4 +1,4 @@
-"""Tables for showing bookings. Migration 0042 builds the same thing.
+"""Tables for showing bookings. Migrations 0042 and 0044 build the same thing.
 
 Three rules live in the database, so no code path can break them:
 
@@ -233,6 +233,17 @@ class ShowingAttendee(Base):
     # The prospect's own event, which invites only them.
     calendar_event_id: Mapped[str | None] = mapped_column(String, nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Why a cancelled attendee was cancelled, such as "number_refused" when Quo
+    # refused the confirmation text and the booking was withdrawn.
+    cancel_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set when the booking needs the team, such as "confirmation_undelivered";
+    # empty when it does not.
+    attention_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # How many times the mobile was corrected from the confirmation screen.
+    mobile_corrections: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # A keyed hash of the booking request's IP address, for the limit per
+    # address. The address itself is not kept.
+    client_ip_hash: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -279,6 +290,12 @@ class ShowingNotice(Base):
     )
     attendee_id: Mapped[int | None] = mapped_column(
         ForeignKey("showing_attendees.id", ondelete="SET NULL"), nullable=True
+    )
+    # The notice this one waits for: a prospect's confirmation text, which has
+    # to be reported delivered before the calendar notices it holds go out.
+    # Kept after release, as a record of what held it.
+    waits_for_notice_id: Mapped[int | None] = mapped_column(
+        ForeignKey("showing_notices.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # A phone number in E.164 for a text, an email address for an email or a
     # calendar notice.
