@@ -9,7 +9,9 @@ capture mode.
 The steps so far hold the tables, the notice outbox, the test harness, the
 calendar connections, the showing agents, the open times, the public
 booking API, cancelling, the residents' texts, the team's actions, the
-reminders, the host's texts and the team's alerts. Nothing is sent unless switched on: the setting starts in capture
+reminders, the host's texts, the team's alerts, the host's morning text, the
+apply text, joins until 2 hours before, and removing prospects' details after
+12 months. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -308,9 +310,14 @@ one agent.
    03), so two keys with a hyphen and the same part before the last one, such
    as `320-03` and `320-05`, are one building. A key with no hyphen falls back
    to the address.
-3. A scheduled showing at the unit that has room is offered as a join, without
-   reading the host's calendar again. A full one is not offered, and nothing
-   else starts at that unit while a showing is on.
+3. A scheduled showing at the unit that has room is offered as a join,
+   without reading the host's calendar again, until 2 hours before its start
+   (`JOIN_CLOSES_HOURS`), inside the notice period too: the residents were
+   told when it was first booked. A notice period shorter than 2 hours applies
+   to joins as well. A new time still needs the full notice, and `recheck`
+   applies the same rule, so the page and the team's Add a booking offer and
+   accept a join 3 hours ahead but refuse one an hour ahead. A full one is not
+   offered, and nothing else starts at that unit while a showing is on.
 4. Order: joins, then times the unit or an available agent prefers, then the
    rest, each group by time.
 5. The host of a new time: an agent already at the same address just before or
@@ -381,8 +388,8 @@ The source passes on only times that pass the lead agent's own fixed rules
 (`case.within_showing_rules`: its 24-hour floor `case.MIN_NOTICE`, the window,
 blackout dates), joins included, since `tours_for_case` filters open times by
 those rules but not booked tours. A join the booking page offers under a
-shorter notice is therefore not given to the lead agent; the page's own offers
-are unchanged.
+shorter notice, such as one 3 hours ahead, is therefore not given to the lead
+agent; the page's own offers are unchanged.
 
 ## Public booking
 
@@ -674,11 +681,12 @@ something:
 
 The status is read from Quo through `outbox.refresh_text_status`.
 `holds.send_pending(now=)` runs, in order, `release_held`,
-`reminders.queue_due`, `outbox.drain` and `alerts.check`. The APScheduler job
+`reminders.queue_due`, `daily_texts.queue_due` (the host's morning text and
+the apply text), `outbox.drain` and `alerts.check`. The APScheduler job
 `showing-notices` runs it every minute, registered only when background
-automation is on; with nothing held, due, recently failed or coming up in the
-next two days it returns after one query. "Send pending now" on the tab runs
-the same steps.
+automation is on; with nothing held, due, recently failed, coming up in the
+next two days or owed an apply text it returns after one query. "Send pending
+now" on the tab runs the same steps.
 
 ### Residents' texts
 
@@ -882,6 +890,71 @@ their own mobile:
   `host_showing_cancelled_text`, `host_moved_to_text`, `host_moved_from_text`,
   version `HOST_TEXT_VERSION`.
 
+### The host's morning text
+
+`daily_texts.py`. From 8 AM in the showing rules' time zone, each agent
+hosting at least one scheduled showing that day that has not started gets one
+text (`host_morning`) at their own mobile from the team number: the day's
+showings in order, each with its time, place and how many people are booked.
+
+- One per agent per day: recipient key `agent:<id>:morning:<day>`, on the
+  day's first showing, with every showing it lists in `payload.showing_ids`.
+  The step looks for it by kind and key, so it is queued once whichever
+  showing comes first.
+- Safe every minute and after a missed run: queued from 8 AM up to noon. A
+  morning missed past noon is not sent, and one queued before noon but
+  delivered from noon is cancelled ("the morning had passed").
+- Written again when it is delivered (`delivery_checks`): the agent's
+  scheduled showings that day not started yet, with the people booked then,
+  to the agent's mobile then. A cancelled showing never stops it (it is in
+  `cancelling.NOT_STOPPED_KINDS`); it drops out of the list, and with nothing
+  left the text is not sent.
+- An agent with no mobile gets none. It names no prospect and carries no
+  prospect's phone number or email.
+- Wording: `wording.host_morning_text`, version `HOST_MORNING_VERSION`.
+
+### The apply text
+
+`daily_texts.py`. Two hours after a showing's start, each person still booked
+in a showing that was not cancelled, with a mobile and consent to texts, whose
+number is not known to be wrong and who is not marked a no-show, gets one text
+(`prospect_apply`, recipient key `attendee:<id>`) with the apply link,
+`<SHOWING_PUBLIC_BASE_URL>/apply`.
+
+- One per person, never repeated. Someone marked `attended` or left `unknown`
+  gets it.
+- Daytime only: one due outside 8 AM to 9 PM waits for the next 8 AM.
+- Checked again when delivered: a person cancelled, a showing cancelled, a
+  no-show marked after it was queued, or a number that stopped being texted
+  cancels it.
+- Showings that started more than two days ago (`APPLY_LOOKBACK`) owe none,
+  so a job that was off for days does not text people about a showing long
+  past.
+- Wording: `wording.apply_text`, version `APPLY_VERSION`.
+
+### Removing prospects' details after 12 months
+
+`retention.py`. The design keeps a prospect's details for 12 months after the
+showing unless they apply. Applications live in another system, which keeps an
+applicant's details itself, so here everyone's are removed.
+
+For each showing that started 12 months ago or more and still holds details:
+
+| Row | Changed | Kept |
+| --- | --- | --- |
+| `showing_attendees` | `name` becomes "Removed"; `mobile`, `email`, `user_agent`, `signature_agent`, `client_ip_hash`, `lead_token` and `texts_consent_page` emptied; `requirement_confirmations` emptied; `cancel_token` replaced by a new random value (`removed-<uuid>`) that was never sent, so the old link answers 404 `unknown_booking` | the row and its id, status, attendance, source, `texts_accepted`, consent time and version, cancel reason, `attention_reason`, Zillow thread and conversation ids, calendar event id and times |
+| `showing_notices` of the showing, to anyone (prospects, residents, the host) | `recipient` becomes `removed`; `payload` becomes `{"body" or "summary": "Removed 12 months after the showing.", "removed": true}` | the row and its kind, channel, status, mode, guard reason, attempts, provider id and status, notes and times |
+| `showings` | nothing | everything |
+
+- 12 months is `interval '12 months'` before the database's own clock
+  (`now()`). A test may pass an earlier `now`, never a later one: the cut-off
+  is 12 months before whichever is earlier.
+- In batches of 100 showings, one transaction each, up to 50 batches a run;
+  the next run carries on. A cleared showing is not taken again, so running
+  it twice changes nothing.
+- No route calls it. The APScheduler job `showing-details-removal` runs it
+  daily at 3:30 AM Eastern, registered only when background automation is on.
+
 ### Alerts to the team
 
 `alerts.py`. A notice needs the team when it:
@@ -1084,9 +1157,23 @@ their details (the confirmation and the invite, a refused number, twice,
 another thread's or unit's token, the limits, the switches, nothing about
 anyone else), and the Showings section.
 
+`test_showing_daily_texts.py` covers the host's morning text (at 7:59 and
+8:00, after a missed morning and past noon, one and three showings, an agent
+hosting none, an agent without a mobile, a showing cancelled before and after
+it is queued, never twice) and the apply text (at two hours, held to the
+daytime, a no-show marked before and after it is queued, a cancelled person or
+showing, no consent, no mobile, a wrong number, a showing long past, never
+twice), and the Messages list's labels. `test_showing_retention.py` covers
+removing details (not at 12 months less a day, every field at 12 months,
+counts and history kept, a showing 11 months old untouched, twice, the cancel
+link answering not found, a later clock unable to remove a younger showing,
+the daily job on the database's clock). `test_showing_late_joins.py` covers
+joins until 2 hours before (offered 3 hours ahead and not 1, booking,
+the team, a new time still refused, the re-check, a full showing, the lead
+agent's times unchanged).
+
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- The apply-link text after a showing to everyone not marked a no-show.
 - The lead policy's line about the details link, and the reminder by email in
   the thread for a lead who has not added their details, each with an eval run.
