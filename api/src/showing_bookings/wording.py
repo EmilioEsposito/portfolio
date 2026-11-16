@@ -214,3 +214,17 @@ def invite_cancelled_summary(visit: Visit) -> str:
 
 def invite_cancelled_description() -> str:
     return "Your in-person showing with Sernia Capital is cancelled."
+
+
+# ---------------------------------------------------------------------------
+# The team's actions (CANCELLATION_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def host_event_moved_summary(visit: Visit) -> str:
+    """The old host's event, cancelled when the team gives the showing to another host."""
+    return f"Moved to another host: {visit.unit}"
+
+
+def host_event_moved_description() -> str:
+    return "The team gave this showing to another host. You are no longer hosting it."

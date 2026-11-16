@@ -200,6 +200,7 @@ async def queue_host_cancel(session: AsyncSession, showing: Showing, now: dateti
         .where(
             ShowingNotice.showing_id == showing.id,
             ShowingNotice.kind.in_(host_event.KINDS),
+            host_event.since_last_move(showing.id),
             _went_out(),
         )
         .order_by(ShowingNotice.id.desc())

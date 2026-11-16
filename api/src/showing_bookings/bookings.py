@@ -36,6 +36,7 @@ import hmac
 import json
 import os
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -505,21 +506,29 @@ async def _enqueue_booking_notices(
     kind: str,
     rules: ShowingRules,
     now: datetime,
-) -> ShowingNotice:
-    """The confirmation text, and the host's event and the invite held behind it."""
+) -> ShowingNotice | None:
+    """The confirmation text, and the host's event and the invite held behind it.
+
+    Someone booked without texts (or with no mobile) gets no text, and nothing
+    is held: the host's event, and the invite when there is an email, are due
+    now. No email, no invite.
+    """
     visit = visit_of(showing, rules)
     link = cancel_url(attendee.cancel_token)
-    confirmation = await outbox.enqueue(
-        session,
-        kind=CONFIRMATION_KIND,
-        channel="sms",
-        showing_id=showing.id,
-        attendee_id=attendee.id,
-        recipient=attendee.mobile,
-        recipient_key=f"attendee:{attendee.id}",
-        payload=TextPayload(body=wording.confirmation_text(visit, link)),
-        now=now,
-    )
+    confirmation = None
+    if attendee.texts_accepted and attendee.mobile:
+        confirmation = await outbox.enqueue(
+            session,
+            kind=CONFIRMATION_KIND,
+            channel="sms",
+            showing_id=showing.id,
+            attendee_id=attendee.id,
+            recipient=attendee.mobile,
+            recipient_key=f"attendee:{attendee.id}",
+            payload=TextPayload(body=wording.confirmation_text(visit, link)),
+            now=now,
+        )
+    held_by = confirmation.id if confirmation is not None else None
     calendar_id = await _showings_calendar(session, host)
     # As things stand now; the outbox renders it again when it is delivered.
     host_payload = await host_event.render(session, showing, calendar_id=calendar_id)
@@ -535,8 +544,10 @@ async def _enqueue_booking_notices(
         ),
         payload=host_payload,
         now=now,
-        waits_for_notice_id=confirmation.id,
+        waits_for_notice_id=held_by,
     )
+    if not attendee.email:
+        return confirmation
     await outbox.enqueue(
         session,
         kind=INVITE_KIND,
@@ -556,7 +567,7 @@ async def _enqueue_booking_notices(
             attendees=[attendee.email],
         ),
         now=now,
-        waits_for_notice_id=confirmation.id,
+        waits_for_notice_id=held_by,
     )
     return confirmation
 
@@ -598,24 +609,115 @@ async def book(
         body.lead_token if body.lead_token and _LEAD_TOKEN.fullmatch(body.lead_token) else None
     )
 
+    async def limits(session: AsyncSession) -> None:
+        await _check_limits(
+            session,
+            settings.public_limits,
+            mobile=checked.mobile,
+            email=checked.email,
+            ip=facts.ip,
+            now=now,
+        )
+
+    placed = await place_booking(
+        listing,
+        rules,
+        checked.start,
+        Person(
+            name=checked.name,
+            source="page",
+            mobile=checked.mobile,
+            email=checked.email,
+            texts_accepted=True,
+            consent_page=f"{public_base_url()}/showings/{listing.unit}",
+            confirmations=tuple(checked.confirmations),
+            lead_token=lead_token,
+            user_agent=(facts.user_agent or None) and facts.user_agent[:500],
+            signature_agent=(facts.signature_agent or None) and facts.signature_agent[:500],
+            client_ip_hash=ip_hash(facts.ip),
+        ),
+        now=now,
+        checks=limits,
+    )
+    showing, attendee = placed.showing, placed.attendee
+    status = await _send_confirmation(placed.confirmation_id, now=now, texts=texts)
+    if status == "refused":
+        await withdraw(attendee.id, placed.confirmation_id, now=now)
+        raise Refused(
+            422, "number_refused", NUMBER_REFUSED, {"mobile": "We couldn't text this number."}
+        )
+    return BookingResult(
+        cancel_token=attendee.cancel_token,
+        kind=placed.kind,
+        confirmation=status,
+        booking=view_of(showing, attendee, rules.timezone, now),
+    )
+
+
+@dataclass(frozen=True)
+class Person:
+    """Who a booking is for, however it was made.
+
+    The page always has a mobile, an email and consent to texts. The team may
+    have a name alone, and the Zillow lead agent a name and a thread. A
+    confirmation text is queued only with ``texts_accepted`` and a mobile;
+    without one nothing is held behind it.
+    """
+
+    name: str
+    source: str  # "page", "team" or "lead_agent"
+    mobile: str | None = None
+    email: str | None = None
+    texts_accepted: bool = False
+    # Where consent to texts was given: the page's address, or who on the team took it.
+    consent_page: str | None = None
+    confirmations: tuple[RequirementConfirmation, ...] = ()
+    lead_token: str | None = None
+    zillow_thread_id: str | None = None
+    user_agent: str | None = None
+    signature_agent: str | None = None
+    client_ip_hash: str | None = None
+
+
+@dataclass
+class Placed:
+    showing: Showing
+    attendee: ShowingAttendee
+    kind: str  # "new" or "join"
+    # The confirmation text, delivered by the caller at once; None without texts.
+    confirmation_id: int | None
+
+
+async def place_booking(
+    listing: RentalListing,
+    rules: ShowingRules,
+    start: datetime,
+    person: Person,
+    *,
+    now: datetime,
+    checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
+) -> Placed:
+    """Book ``person`` at ``start``, or into the showing already there, in one transaction.
+
+    Every booking goes through here: the page, the team and later the lead
+    agent. In order: the shared booking lock and the locks on the unit and
+    start, the mobile and the email; ``checks(session)`` when given (the
+    page's limits); ``open_times.recheck`` with fresh calendars; the showing,
+    new or joined and locked; the attendee; the notices. Raises ``Refused``.
+    Nothing is sent here; the caller delivers the confirmation text.
+    """
+    texted = person.texts_accepted and person.mobile is not None
+    keys = [BOOKING_LOCK, f"showing:{listing.unit.casefold()}:{start.astimezone(UTC).isoformat()}"]
+    if person.mobile:
+        keys.append(f"showing-mobile:{person.mobile}")
+    if person.email:
+        keys.append(f"showing-email:{person.email}")
     try:
         async with AsyncSessionFactory() as session, session.begin():
-            await lock(
-                session,
-                BOOKING_LOCK,
-                f"showing:{listing.unit.casefold()}:{checked.start.astimezone(UTC).isoformat()}",
-                f"showing-mobile:{checked.mobile}",
-                f"showing-email:{checked.email}",
-            )
-            await _check_limits(
-                session,
-                settings.public_limits,
-                mobile=checked.mobile,
-                email=checked.email,
-                ip=facts.ip,
-                now=now,
-            )
-            check = await open_times.recheck(listing.unit, checked.start, now=now, session=session)
+            await lock(session, *keys)
+            if checks is not None:
+                await checks(session)
+            check = await open_times.recheck(listing.unit, start, now=now, session=session)
             if not check.ok:
                 raise _time_gone(check.refusal or "time_gone")
             host = await session.get_one(ShowingAgentRecord, check.host_id)
@@ -635,14 +737,14 @@ async def book(
                     raise _time_gone("time_gone")
                 if booked >= showing.capacity:
                     raise _time_gone("full")
-                already = await session.scalar(
+                already = person.mobile and await session.scalar(
                     select(ShowingAttendee.id).where(
                         ShowingAttendee.showing_id == showing.id,
                         ShowingAttendee.status == "booked",
-                        ShowingAttendee.mobile == checked.mobile,
+                        ShowingAttendee.mobile == person.mobile,
                     )
                 )
-                if already is not None:
+                if already:
                     raise Refused(
                         409,
                         "already_booked",
@@ -653,29 +755,30 @@ async def book(
                 showing = Showing(
                     unit=listing.unit,
                     address=listing.address,
-                    starts_at=checked.start,
-                    ends_at=checked.start + open_times.SLOT,
+                    starts_at=start,
+                    ends_at=start + open_times.SLOT,
                     agent_id=host.id,
                 )
                 session.add(showing)
                 await session.flush()
             attendee = ShowingAttendee(
                 showing_id=showing.id,
-                name=checked.name,
-                mobile=checked.mobile,
-                email=checked.email,
-                source="page",
-                texts_accepted=True,
-                texts_consent_at=now,
-                texts_consent_version=wording.TEXTS_CONSENT_VERSION,
-                texts_consent_page=f"{public_base_url()}/showings/{listing.unit}",
+                name=person.name,
+                mobile=person.mobile,
+                email=person.email,
+                source=person.source,
+                texts_accepted=texted,
+                texts_consent_at=now if texted else None,
+                texts_consent_version=wording.TEXTS_CONSENT_VERSION if texted else None,
+                texts_consent_page=person.consent_page if texted else None,
                 requirement_confirmations=[
-                    item.model_dump(mode="json") for item in checked.confirmations
+                    item.model_dump(mode="json") for item in person.confirmations
                 ],
-                lead_token=lead_token,
-                user_agent=(facts.user_agent or None) and facts.user_agent[:500],
-                signature_agent=(facts.signature_agent or None) and facts.signature_agent[:500],
-                client_ip_hash=ip_hash(facts.ip),
+                lead_token=person.lead_token,
+                zillow_thread_id=person.zillow_thread_id,
+                user_agent=person.user_agent,
+                signature_agent=person.signature_agent,
+                client_ip_hash=person.client_ip_hash,
                 created_at=now,
             )
             session.add(attendee)
@@ -700,20 +803,16 @@ async def book(
         showing_id=showing.id,
         attendee_id=attendee.id,
         kind=check.kind,
-        lead_token=lead_token is not None,
-        signed=facts.signature_agent is not None,
+        source=person.source,
+        texts=texted,
+        lead_token=person.lead_token is not None,
+        signed=person.signature_agent is not None,
     )
-    status = await _send_confirmation(confirmation.id, now=now, texts=texts)
-    if status == "refused":
-        await withdraw(attendee.id, confirmation.id, now=now)
-        raise Refused(
-            422, "number_refused", NUMBER_REFUSED, {"mobile": "We couldn't text this number."}
-        )
-    return BookingResult(
-        cancel_token=attendee.cancel_token,
+    return Placed(
+        showing=showing,
+        attendee=attendee,
         kind=check.kind,
-        confirmation=status,
-        booking=view_of(showing, attendee, rules.timezone, now),
+        confirmation_id=confirmation.id if confirmation is not None else None,
     )
 
 
@@ -798,6 +897,7 @@ async def queue_host_update_after_leaving(
         .where(
             ShowingNotice.showing_id == showing.id,
             ShowingNotice.kind.in_(host_event.KINDS),
+            host_event.since_last_move(showing.id),
             ShowingNotice.status.in_(["sent", "captured", "unknown"])
             | ((ShowingNotice.status == "pending") & ShowingNotice.sending_started_at.is_not(None)),
         )
@@ -904,6 +1004,7 @@ async def _queue_host_update_after_correction(
         .where(
             ShowingNotice.showing_id == showing_id,
             ShowingNotice.kind.in_(host_event.KINDS),
+            host_event.since_last_move(showing_id),
             ShowingNotice.status.in_(["sent", "captured"]),
         )
         .order_by(ShowingNotice.id.desc())
