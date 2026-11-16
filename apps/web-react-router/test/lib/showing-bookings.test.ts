@@ -22,9 +22,11 @@ import {
   describeAttention,
   describeOffer,
   describeRemoval,
+  describeResidentAttention,
   describeShowingCancel,
   describeWindows,
   newAgent,
+  noticeRecipients,
   parseCalendars,
   refusalMessage,
   refusalProblems,
@@ -249,6 +251,18 @@ test("a team cancellation says what it changes and sends", () => {
 test("a booking that needs the team says why", () => {
   assert.equal(describeAttention("confirmation_undelivered"), "Confirmation text not delivered: call them");
   assert.equal(describeAttention("something_new"), "Something new: call them");
+});
+
+test("a showing whose residents were not texted says why", () => {
+  assert.equal(describeResidentAttention("lookup_failed"), "Could not read who lives here: tell the resident yourself");
+  assert.equal(describeResidentAttention("something_new"), "Residents not texted (Something new): tell them yourself");
+});
+
+test("a group text names every number it reaches", () => {
+  const one = { recipient: "+14125550142", payload: { body: "Hi" } };
+  assert.equal(noticeRecipients(one), "+14125550142");
+  const group = { recipient: "+14125550142", payload: { body: "Hi", also_to: ["+14125550143"] } };
+  assert.equal(noticeRecipients(group), "+14125550142, +14125550143");
 });
 
 test("a number known to be wrong is not counted as texted", () => {

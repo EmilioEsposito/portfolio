@@ -154,6 +154,7 @@ async def rows() -> dict:
                 "channel": n.channel,
                 "status": n.status,
                 "recipient": n.recipient,
+                "also_to": (n.payload or {}).get("also_to", []),
                 "body": (n.payload or {}).get("body"),
             }
             for n in notices

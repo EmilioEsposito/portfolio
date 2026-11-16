@@ -47,7 +47,15 @@ export type Rows = {
     mobile_corrections: number;
     user_agent: string | null;
   }[];
-  notices: { kind: string; channel: string; status: string; recipient: string | null; body: string | null }[];
+  notices: {
+    kind: string;
+    channel: string;
+    status: string;
+    recipient: string | null;
+    /** The other numbers of a group text. */
+    also_to: string[];
+    body: string | null;
+  }[];
 };
 
 function database(command: "reset" | "rows"): unknown {
