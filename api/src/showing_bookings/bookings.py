@@ -906,6 +906,10 @@ async def booking_by_token(token: str) -> BookingView:
     return _view(showing, attendee, rules.timezone)
 
 
+class _Superseded(Exception):
+    """A newer correction of the same booking was made while this one's text was sent."""
+
+
 async def correct_mobile(
     body: MobileCorrection, *, now: datetime, texts: TextSender | None = None
 ) -> BookingView:
@@ -981,6 +985,10 @@ async def correct_mobile(
             attendee = await session.scalar(
                 select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
             )
+            if attendee.mobile_corrections != corrections:
+                # A newer correction of this booking was made while this text was
+                # being sent; the person's latest choice stands, so change nothing.
+                raise _Superseded
             # Another correction may have taken this number since the first check.
             await _check_new_mobile(session, showing_id, mobile, limit=limit, now=now)
             earlier = select(ShowingNotice.id).where(
@@ -1020,6 +1028,9 @@ async def correct_mobile(
             "This number is already booked for that showing.",
             {"mobile": "Already booked for this showing."},
         ) from None
+    except _Superseded:
+        logfire.info("showing booking mobile correction superseded", attendee_id=attendee_id)
+        return await booking_by_token(body.cancel_token)
     logfire.info("showing booking mobile corrected", attendee_id=attendee_id)
     return await booking_by_token(body.cancel_token)
 

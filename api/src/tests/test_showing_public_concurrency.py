@@ -387,3 +387,34 @@ async def test_a_withdrawal_before_any_host_notice_went_out_queues_nothing(world
     await world.send_pending(NOW + timedelta(minutes=5))
     (event,) = host_events(world)
     assert "Robin Lee" not in event.draft.description
+
+
+@pytest.mark.asyncio
+async def test_an_older_correction_finishing_last_does_not_undo_a_newer_one(world):
+    """A second correction is made while the first one's text is being sent."""
+    await live()
+    newer: list = []
+
+    async def correct_again():
+        newer.append(await correct(world, token, CASEY_MOBILE))
+
+    world.texts = SenderWithAHook(ROBIN_MOBILE, correct_again)
+    world.texts.report(ALEX_MOBILE, "sent")  # Alex's held notices stay held
+    token = (await book(world, booking())).json()["cancel_token"]
+
+    older = await correct(world, token, ROBIN_MOBILE)
+
+    assert newer[0].status_code == 200
+    # The older request answers with the booking as it now stands.
+    assert older.status_code == 200
+    assert older.json() == newer[0].json()
+    assert older.json()["mobile"] == "•••-•••-••19"
+    _, (alex,), notices = await rows()
+    assert (alex.mobile, alex.mobile_corrections) == (CASEY_MOBILE, 2)
+    casey_text = next(n for n in notices if n.channel == "sms" and n.recipient == CASEY_MOBILE)
+    held = [n for n in notices if n.channel != "sms"]
+    assert [(n.status, n.waits_for_notice_id) for n in held] == [
+        ("held", casey_text.id),
+        ("held", casey_text.id),
+    ]
+    assert not [n for n in notices if n.kind == "host_event_update"]
