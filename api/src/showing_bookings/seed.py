@@ -3,8 +3,10 @@
 ``api/seed_db.py`` saves ``SAMPLE_AGENTS`` in local and preview databases.
 ``fill_sample_week`` puts a week of busy blocks for them in an
 ``InMemoryCalendar``, so tests and later steps of the booking work can compute
-open times without reading a real calendar. Names, numbers and addresses are
-fictional.
+open times without reading a real calendar. ``sample_calendar`` fills every
+week of a stretch of time; outside production, open times use it for an agent
+with no usable calendar connection (``open_times.py``). Names, numbers and
+addresses are fictional.
 """
 
 from datetime import date, datetime, time, timedelta
@@ -67,4 +69,15 @@ def fill_sample_week(calendar: InMemoryCalendar, week_of: date) -> InMemoryCalen
             datetime.combine(day, start, TIMEZONE),
             datetime.combine(day, end, TIMEZONE),
         )
+    return calendar
+
+
+def sample_calendar(start: datetime, end: datetime) -> InMemoryCalendar:
+    """An ``InMemoryCalendar`` holding the sample week for every week from ``start`` to ``end``."""
+    calendar = InMemoryCalendar()
+    day = start.astimezone(TIMEZONE).date()
+    last = end.astimezone(TIMEZONE).date()
+    while day - timedelta(days=day.weekday()) <= last:
+        fill_sample_week(calendar, day)
+        day += timedelta(days=7)
     return calendar

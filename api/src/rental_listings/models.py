@@ -32,6 +32,8 @@ class RentalListingRecord(Base):
     virtual_tours_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     off_market_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     showing_booking_url: Mapped[str] = mapped_column(String, default="")
+    # A longer notice than the showing rules give, in hours. Empty uses the rules'.
+    showing_notice_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     zillow_listing_url_public_view: Mapped[str] = mapped_column(String, default="")
     zillow_listing_url_internal_editor_view: Mapped[str] = mapped_column(String, default="")
     # Lists, validated by ``schema.RentalListing`` on the way in and out.
