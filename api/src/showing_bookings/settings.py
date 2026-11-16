@@ -46,6 +46,9 @@ class PublicLimits(BaseModel):
     upcoming_per_email: int = Field(default=2, ge=1, le=20)
     # Bookings (withdrawn ones included) from one IP address in 24 hours.
     bookings_per_ip_per_day: int = Field(default=6, ge=1, le=100)
+    # Page bookings from everyone together in 24 hours, withdrawn ones included:
+    # a cap on how many strangers a run past Turnstile could have texted.
+    bookings_per_day: int = Field(default=50, ge=1, le=1000)
 
 
 class ShowingBookingSettings(BaseModel):

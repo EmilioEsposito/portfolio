@@ -33,6 +33,15 @@ from ``fakes.py``; left out, the live senders are used, and under pytest that
 fails loudly instead of reaching Quo or Google. The live calendar is the
 connected Google account whose showings calendar the notice names
 (``connections.calendar_for_showings_calendar``).
+
+A host event notice (``host_event.KINDS``) is rendered again when it is
+settled or claimed, under a lock on its showing (``_prepare_host_event``): its
+summary and description come from the attendees booked now, and it creates
+the showing's event when there is none yet, else updates it. While another
+host notice for the showing is being sent it waits a minute, so a showing
+never gets two events. A showing with no one booked, or cancelled, cancels
+the notice, and so does an earlier create whose outcome is unknown. What was
+rendered is saved on the row.
 """
 
 import os
@@ -46,7 +55,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import connections, google_http
+from api.src.showing_bookings import connections, google_http, host_event
 from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
@@ -342,6 +351,57 @@ def _count(report: DrainReport, status: str) -> None:
     setattr(report, field, getattr(report, field) + 1)
 
 
+_NOT_NOW = object()
+HOST_EVENT_BUSY_DELAY = timedelta(minutes=1)
+
+
+async def _prepare_host_event(session: AsyncSession, notice: ShowingNotice, now: datetime):
+    """Render a host event notice from its showing as it is now, under the showing's lock.
+
+    Returns ``_NOT_NOW`` when the row is not delivered in this run: cancelled
+    (no one booked, or an earlier create may have gone out) or put off a
+    minute (another host notice for the showing is being sent). Otherwise the
+    showing's event id, or None when there is none yet, so it is created. Rows
+    that are not host event notices are returned unchanged with None.
+    """
+    if notice.kind not in host_event.KINDS:
+        return None
+    showing = await session.scalar(
+        select(Showing).where(Showing.id == notice.showing_id).with_for_update()
+    )
+    others = select(ShowingNotice.id).where(
+        ShowingNotice.showing_id == notice.showing_id,
+        ShowingNotice.kind.in_(host_event.KINDS),
+        ShowingNotice.id != notice.id,
+    )
+    if await session.scalar(
+        others.where(
+            ShowingNotice.status == "pending", ShowingNotice.sending_started_at.is_not(None)
+        ).limit(1)
+    ):
+        notice.not_before = now + HOST_EVENT_BUSY_DELAY
+        return _NOT_NOW
+    rendered = await host_event.render(
+        session, showing, calendar_id=notice.payload.get("calendar_id") or "unknown"
+    )
+    note = host_event.NO_ONE_BOOKED if rendered is None else None
+    if rendered is not None and rendered.operation == "create":
+        unsure = await session.scalar(
+            others.where(
+                ShowingNotice.status == "unknown",
+                ShowingNotice.provider_id.is_(None),
+            ).limit(1)
+        )
+        if unsure:
+            note = host_event.EARLIER_UNKNOWN
+    if note is not None:
+        notice.status = "cancelled"
+        notice.last_error = note
+        return _NOT_NOW
+    notice.payload = rendered.model_dump(mode="json")
+    return showing.host_event_id
+
+
 async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainReport]:
     """Settle the due rows the guard skips or captures, and list the ones it would send.
 
@@ -356,6 +416,8 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
         if rows:
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
+                if await _prepare_host_event(session, notice, now) is _NOT_NOW:
+                    continue
                 if _guard(notice, unit, inputs, now).action == "send":
                     to_send.append(notice.id)
                 else:
@@ -375,6 +437,11 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         if row is None:
             return None, None
         notice, unit, host_event_id, invite_event_id = row
+        prepared = await _prepare_host_event(session, notice, now)
+        if prepared is _NOT_NOW:
+            return None, None
+        if prepared is not None:
+            host_event_id = prepared
         inputs = await _guard_inputs(session)
         decision = _guard(notice, unit, inputs, now)
         if decision.action != "send":

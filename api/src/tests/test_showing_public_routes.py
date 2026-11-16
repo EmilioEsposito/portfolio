@@ -338,6 +338,33 @@ async def test_bookings_per_ip_address_come_from_the_settings_row(world):
 
 
 @pytest.mark.asyncio
+async def test_a_cap_on_all_page_bookings_a_day_comes_from_the_settings_row(world):
+    await store_settings(public_limits={"bookings_per_day": 2})
+    assert (await book(world, booking(at(16)))).status_code == 201
+    await store_settings(
+        send_mode="live", test_sends_enabled=True, public_limits={"bookings_per_day": 2}
+    )
+    world.texts.refuse(ROBIN_MOBILE, "invalid_number")
+    withdrawn = await book(world, booking(at(17), mobile=ROBIN_MOBILE, email=ROBIN_EMAIL))
+    assert withdrawn.status_code == 422  # withdrawn bookings count too
+
+    third = await book(world, booking(at(18), mobile=CASEY_MOBILE, email=CASEY_EMAIL))
+
+    assert refusal(third) == (429, "limit_site", [])
+    assert (
+        third.json()["detail"]["message"] == "Online booking is paused right now. Call us to book."
+    )
+    _, attendees, _ = await rows()
+    assert len(attendees) == 2
+    # A day later the cap has room again.
+    world.now = NOW + timedelta(days=1, minutes=1)
+    later = booking(
+        at(18, day=at(0).date() + timedelta(days=2)), mobile=CASEY_MOBILE, email=CASEY_EMAIL
+    )
+    assert (await book(world, later)).status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_a_past_showing_does_not_count_against_the_limit(world):
     await book(world, booking(at(16)))
     await book(world, booking(at(17), email=ROBIN_EMAIL))

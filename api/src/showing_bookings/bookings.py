@@ -50,7 +50,15 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.schema import RentalListing, ShowingRules
-from api.src.showing_bookings import agents, holds, open_times, outbox, turnstile, wording
+from api.src.showing_bookings import (
+    agents,
+    holds,
+    host_event,
+    open_times,
+    outbox,
+    turnstile,
+    wording,
+)
 from api.src.showing_bookings.models import (
     CalendarConnection,
     Showing,
@@ -79,8 +87,13 @@ MAX_MOBILE_CORRECTIONS = 2
 # write to it, so in live mode such a notice fails visibly instead of waiting.
 NO_SHOWINGS_CALENDAR = "no-showings-calendar"
 CONFIRMATION_KIND = "prospect_confirmation"
-HOST_EVENT_KIND = "host_event"
-HOST_UPDATE_KIND = "host_event_update"
+HOST_EVENT_KIND = host_event.CREATE_KIND
+HOST_UPDATE_KIND = host_event.UPDATE_KIND
+# Taken first by every public booking, so one booking's limits, re-check and
+# insert never interleave with another's (travel time between buildings is
+# checked in code, which the database's no-overlap rule cannot see).
+BOOKING_LOCK = "showing-bookings:public-booking"
+SITE_LIMIT_MESSAGE = "Online booking is paused right now. Call us to book."
 INVITE_KIND = "prospect_invite"
 WITHDRAWN_NOTE = "Not sent: the booking was withdrawn because the number could not be texted."
 _LEAD_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,128}")
@@ -399,6 +412,20 @@ async def _check_limits(
             "Cancel one first, or call us.",
             {"email": "This email has too many upcoming showings."},
         )
+    today = await session.scalar(
+        select(func.count())
+        .select_from(ShowingAttendee)
+        .where(
+            ShowingAttendee.source == "page",
+            ShowingAttendee.created_at > now - timedelta(days=1),
+        )
+    )
+    if today >= limits.bookings_per_day:
+        logfire.warn(
+            "showing bookings: the daily cap on page bookings was reached",
+            bookings_per_day=limits.bookings_per_day,
+        )
+        raise Refused(429, "limit_site", SITE_LIMIT_MESSAGE)
     hashed = ip_hash(ip)
     if hashed is not None:
         recent = await session.scalar(
@@ -433,23 +460,6 @@ def _time_gone(code: str) -> Refused:
         "That time is no longer open. Pick another time.",
         {"start": "That time is no longer open."},
     )
-
-
-async def _guests(session: AsyncSession, showing_id: int) -> list[wording.Guest]:
-    rows = await session.scalars(
-        select(ShowingAttendee)
-        .where(ShowingAttendee.showing_id == showing_id, ShowingAttendee.status == "booked")
-        .order_by(ShowingAttendee.id)
-    )
-    return [
-        wording.Guest(
-            name=row.name,
-            mobile=row.mobile,
-            email=row.email,
-            confirmations=[item.get("wording", "") for item in row.requirement_confirmations],
-        )
-        for row in rows
-    ]
 
 
 async def _showings_calendar(session: AsyncSession, agent: ShowingAgentRecord) -> str:
@@ -495,17 +505,8 @@ async def _enqueue_booking_notices(
         now=now,
     )
     calendar_id = await _showings_calendar(session, host)
-    guests = await _guests(session, showing.id)
-    host_payload = CalendarPayload(
-        operation="create" if kind == "new" else "update",
-        calendar_id=calendar_id,
-        summary=wording.host_event_summary(visit, guests),
-        description=wording.host_event_description(guests),
-        location=showing.address,
-        starts_at=showing.starts_at,
-        ends_at=showing.ends_at,
-        attendees=[host.email],
-    )
+    # As things stand now; the outbox renders it again when it is delivered.
+    host_payload = await host_event.render(session, showing, calendar_id=calendar_id)
     await outbox.enqueue(
         session,
         kind=HOST_EVENT_KIND if kind == "new" else HOST_UPDATE_KIND,
@@ -580,6 +581,7 @@ async def book(
         async with AsyncSessionFactory() as session, session.begin():
             await _lock(
                 session,
+                BOOKING_LOCK,
                 f"showing:{listing.unit.casefold()}:{checked.start.astimezone(UTC).isoformat()}",
                 f"showing-mobile:{checked.mobile}",
                 f"showing-email:{checked.email}",
@@ -774,6 +776,78 @@ async def _by_token(session: AsyncSession, token: str, *, lock: bool = False):
     return row
 
 
+async def _check_new_mobile(
+    session: AsyncSession, showing_id: int, mobile: str, *, limit: int, now: datetime
+) -> None:
+    """Under the number's lock: refuse a number already in this showing or at its limit."""
+    await _lock(session, f"showing-mobile:{mobile}")
+    taken = await session.scalar(
+        select(ShowingAttendee.id).where(
+            ShowingAttendee.showing_id == showing_id,
+            ShowingAttendee.status == "booked",
+            ShowingAttendee.mobile == mobile,
+        )
+    )
+    if taken is not None:
+        raise Refused(
+            409,
+            "already_booked",
+            "This number is already booked for that showing.",
+            {"mobile": "Already booked for this showing."},
+        )
+    if await _upcoming(session, ShowingAttendee.mobile, mobile, now) >= limit:
+        raise Refused(
+            429,
+            "limit_mobile",
+            "This number already has the most upcoming showings we allow.",
+            {"mobile": "This number has too many upcoming showings."},
+        )
+
+
+async def _queue_host_update_after_correction(
+    session: AsyncSession,
+    *,
+    showing_id: int,
+    attendee_id: int,
+    correction: int,
+    confirmation_id: int,
+    now: datetime,
+) -> None:
+    """When the host's event already went out, queue an update behind the new text.
+
+    A host notice still held or pending needs nothing: it is rendered when delivered.
+    """
+    delivered = await session.scalar(
+        select(ShowingNotice)
+        .where(
+            ShowingNotice.showing_id == showing_id,
+            ShowingNotice.kind.in_(host_event.KINDS),
+            ShowingNotice.status.in_(["sent", "captured"]),
+        )
+        .order_by(ShowingNotice.id.desc())
+        .limit(1)
+    )
+    if delivered is None:
+        return
+    showing = await session.get_one(Showing, showing_id)
+    calendar_id = delivered.payload.get("calendar_id") or NO_SHOWINGS_CALENDAR
+    payload = await host_event.render(session, showing, calendar_id=calendar_id)
+    if payload is None:
+        return
+    await outbox.enqueue(
+        session,
+        kind=HOST_UPDATE_KIND,
+        channel="calendar_event",
+        showing_id=showing_id,
+        attendee_id=attendee_id,
+        recipient=delivered.recipient,
+        recipient_key=f"agent:{showing.agent_id}:attendee:{attendee_id}:correction:{correction}",
+        payload=payload,
+        now=now,
+        waits_for_notice_id=confirmation_id,
+    )
+
+
 async def booking_by_token(token: str) -> BookingView:
     async with AsyncSessionFactory() as session:
         attendee, showing = await _by_token(session, token)
@@ -821,30 +895,8 @@ async def correct_mobile(
                 "That is the number we texted.",
                 {"mobile": "Enter a different number."},
             )
-        await _lock(session, f"showing-mobile:{mobile}")
-        taken = await session.scalar(
-            select(ShowingAttendee.id).where(
-                ShowingAttendee.showing_id == showing.id,
-                ShowingAttendee.status == "booked",
-                ShowingAttendee.mobile == mobile,
-            )
-        )
-        if taken is not None:
-            raise Refused(
-                409,
-                "already_booked",
-                "This number is already booked for that showing.",
-                {"mobile": "Already booked for this showing."},
-            )
-        if await _upcoming(session, ShowingAttendee.mobile, mobile, now) >= (
-            settings.public_limits.upcoming_per_mobile
-        ):
-            raise Refused(
-                429,
-                "limit_mobile",
-                "This number already has the most upcoming showings we allow.",
-                {"mobile": "This number has too many upcoming showings."},
-            )
+        limit = settings.public_limits.upcoming_per_mobile
+        await _check_new_mobile(session, showing.id, mobile, limit=limit, now=now)
         attendee.mobile_corrections += 1
         visit = _visit(showing, rules)
         confirmation = await outbox.enqueue(
@@ -861,6 +913,8 @@ async def correct_mobile(
             now=now,
         )
         attendee_id = attendee.id
+        corrections = attendee.mobile_corrections
+        showing_id = showing.id
     status = await _send_confirmation(confirmation.id, now=now, texts=texts)
     if status == "refused":
         raise Refused(
@@ -871,6 +925,8 @@ async def correct_mobile(
             attendee = await session.scalar(
                 select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
             )
+            # Another correction may have taken this number since the first check.
+            await _check_new_mobile(session, showing_id, mobile, limit=limit, now=now)
             earlier = select(ShowingNotice.id).where(
                 ShowingNotice.attendee_id == attendee_id,
                 ShowingNotice.kind == CONFIRMATION_KIND,
@@ -892,6 +948,15 @@ async def correct_mobile(
             attendee.mobile = mobile
             if attendee.attention_reason and attendee.attention_reason.startswith("confirmation_"):
                 attendee.attention_reason = None
+            await session.flush()
+            await _queue_host_update_after_correction(
+                session,
+                showing_id=showing_id,
+                attendee_id=attendee_id,
+                correction=corrections,
+                confirmation_id=confirmation.id,
+                now=now,
+            )
     except IntegrityError:
         raise Refused(
             409,

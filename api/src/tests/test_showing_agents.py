@@ -244,6 +244,7 @@ async def test_the_lead_agent_switch_changes_only_itself(api):
             "upcoming_per_mobile": 2,
             "upcoming_per_email": 2,
             "bookings_per_ip_per_day": 6,
+            "bookings_per_day": 50,
         },
     }
     shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
@@ -263,6 +264,7 @@ async def test_a_send_mode_save_keeps_the_lead_agent_switch_as_stored(api):
             "upcoming_per_mobile": 2,
             "upcoming_per_email": 2,
             "bookings_per_ip_per_day": 6,
+            "bookings_per_day": 50,
         },
     }
     await store_settings(**before)

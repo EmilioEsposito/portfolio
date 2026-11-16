@@ -42,6 +42,7 @@ DEFAULTS = {
         "upcoming_per_mobile": 2,
         "upcoming_per_email": 2,
         "bookings_per_ip_per_day": 6,
+        "bookings_per_day": 50,
     },
 }
 PERSON = SimpleNamespace(id="user_test")

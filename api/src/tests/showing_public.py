@@ -65,6 +65,8 @@ class PublicWorld:
         # Each check Turnstile was asked for: (secret, token, remote ip).
         self.turnstile_checks: list[tuple[str, str, str | None]] = []
         self.agent_id: int | None = None
+        # More listings, such as a unit in another building.
+        self.other_listings: list[RentalListing] = []
 
     def app(self) -> FastAPI:
         application = FastAPI()
@@ -114,7 +116,7 @@ def install(world: PublicWorld, monkeypatch) -> None:
     from api.src.rental_listings import service as listings_service
 
     async def read_listings(session):
-        return [world.listing]
+        return [world.listing, *world.other_listings]
 
     async def read_rules(session, lock=False):
         return world.rules

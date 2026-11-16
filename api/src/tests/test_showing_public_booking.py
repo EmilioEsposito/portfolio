@@ -265,13 +265,18 @@ async def test_a_join_adds_no_second_event_and_updates_the_first(world):
     assert [a.showing_id for a in attendees] == [showings[0].id] * 2
     kinds = by_kind(notices)
     assert len(kinds["host_event"]) == 1
-    (update_notice,) = kinds["host_event_update"]
-    assert update_notice.payload["operation"] == "update"
-    assert "Alex Parker" in update_notice.payload["description"]
-    assert "Robin Lee" in update_notice.payload["description"]
+    assert len(kinds["host_event_update"]) == 1
     assert [n.recipient for n in kinds["prospect_invite"]] == [ALEX_EMAIL, ROBIN_EMAIL]
 
     await world.send_pending(NOW + timedelta(minutes=1))
+
+    _, _, notices = await rows()
+    (update_notice,) = by_kind(notices)["host_event_update"]
+    # Decided and rendered when delivered: an update, listing both people.
+    assert update_notice.status == "sent"
+    assert update_notice.payload["operation"] == "update"
+    assert "Alex Parker" in update_notice.payload["description"]
+    assert "Robin Lee" in update_notice.payload["description"]
 
     host_events = [e for e in world.calendar.events.values() if e.draft.attendees == [JANE]]
     assert len(host_events) == 1

@@ -189,7 +189,7 @@ def test_the_checks_catch_what_they_are_for():
 
 
 CLOUDFLARE_HOSTS = ("challenges.cloudflare.com",)
-PUBLIC_PATH_FILES = {"public_routes.py", "bookings.py", "holds.py", "turnstile.py"}
+PUBLIC_PATH_FILES = {"public_routes.py", "bookings.py", "holds.py", "turnstile.py", "host_event.py"}
 
 
 def private_outbox_uses(tree: ast.AST) -> list[int]:
