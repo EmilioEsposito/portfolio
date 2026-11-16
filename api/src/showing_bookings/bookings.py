@@ -718,6 +718,8 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
         attendee.status = "cancelled"
         attendee.cancel_reason = "number_refused"
         attendee.cancelled_at = now
+        # The session does not flush on its own before the count below.
+        await session.flush()
         stopped = await holds.stop_waiting_on(
             session, confirmation_id, note=WITHDRAWN_NOTE, include_released=True
         )
