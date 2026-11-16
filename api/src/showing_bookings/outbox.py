@@ -35,7 +35,7 @@ connected Google account whose showings calendar the notice names
 (``connections.calendar_for_showings_calendar``).
 
 A host event notice (``host_event.KINDS``) is rendered again when it is
-settled or claimed, under a lock on its showing (``_prepare_calendar``): its
+settled or claimed, under a lock on its showing (``_prepare``): its
 summary and description come from the attendees booked now, and it creates
 the showing's event when there is none yet, else updates it. While another
 host notice for the showing is being sent it waits a minute, so a showing
@@ -373,8 +373,14 @@ def _settle_cancel_check(notice: ShowingNotice, verdict: str, now: datetime) -> 
     return False
 
 
-async def _prepare_calendar(session: AsyncSession, notice: ShowingNotice, now: datetime):
-    """Get a calendar notice ready to deliver, from things as they are now.
+async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
+    """Get a notice ready to deliver, from things as they are now.
+
+    A notice for one booking (its confirmation text or its invite,
+    ``host_event.FOR_A_BOOKING_KINDS``) is cancelled when the attendee is no
+    longer booked or the showing no longer scheduled. That covers a retry: a
+    send that was under way when the booking was cancelled, then failed and
+    was put back to pending, never goes out later.
 
     A host event notice is rendered from its showing under the showing's
     lock; a cancellation (the host's event or a prospect's invite) is checked
@@ -386,6 +392,19 @@ async def _prepare_calendar(session: AsyncSession, notice: ShowingNotice, now: d
     sent). Otherwise the event id it applies to, or None when there is none
     yet, so it is created. Other rows are returned unchanged with None.
     """
+    if notice.kind in host_event.FOR_A_BOOKING_KINDS:
+        row = (
+            await session.execute(
+                select(ShowingAttendee.status, Showing.status)
+                .join(Showing, Showing.id == ShowingAttendee.showing_id)
+                .where(ShowingAttendee.id == notice.attendee_id)
+            )
+        ).first()
+        if row is not None and (row[0] != "booked" or row[1] != "scheduled"):
+            notice.status = "cancelled"
+            notice.last_error = host_event.BOOKING_CANCELLED
+            return _NOT_NOW
+        return None
     if notice.kind == host_event.INVITE_CANCEL_KIND:
         event_id = await session.scalar(
             select(ShowingAttendee.calendar_event_id).where(
@@ -465,7 +484,7 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
                 )
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
-                if await _prepare_calendar(session, notice, now) is _NOT_NOW:
+                if await _prepare(session, notice, now) is _NOT_NOW:
                     continue
                 if _guard(notice, unit, inputs, now).action == "send":
                     to_send.append(notice.id)
@@ -486,7 +505,7 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         if row is None:
             return None, None
         notice, unit, host_event_id, invite_event_id = row
-        prepared = await _prepare_calendar(session, notice, now)
+        prepared = await _prepare(session, notice, now)
         if prepared is _NOT_NOW:
             return None, None
         if prepared is not None and notice.channel == "calendar_event":

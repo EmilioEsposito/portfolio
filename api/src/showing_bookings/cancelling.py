@@ -27,7 +27,7 @@ Residents are not texted yet. ``queue_resident_cancellation`` is where the
 resident's cancellation text is added; it queues nothing today.
 """
 
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -63,7 +63,10 @@ HOST_CANCEL_KIND = host_event.CANCEL_KIND
 CANCELLATION_KINDS = frozenset(
     {PROSPECT_TEXT_KIND, TEAM_TEXT_KIND, INVITE_CANCEL_KIND, HOST_CANCEL_KIND}
 )
-STOPPED_NOTE = "Not sent: the booking was cancelled."
+STOPPED_NOTE = host_event.BOOKING_CANCELLED
+# A booking whose confirmation text could not reach the number: a cancellation
+# texts it nothing more (the invite is still withdrawn).
+WRONG_NUMBER = frozenset({"confirmation_undelivered", "confirmation_refused"})
 STARTED_MESSAGE = "This showing has already started."
 
 
@@ -93,6 +96,16 @@ async def _stop(session: AsyncSession, condition) -> int:
         execution_options={"synchronize_session": False},
     )
     return result.rowcount or 0
+
+
+def will_text(attendee: ShowingAttendee) -> bool:
+    """Whether a cancellation texts this person: a mobile, texts accepted, and no
+    sign the number is wrong (its confirmation was undelivered or refused)."""
+    return bool(
+        attendee.mobile
+        and attendee.texts_accepted
+        and attendee.attention_reason not in WRONG_NUMBER
+    )
 
 
 def _mark(row: Showing | ShowingAttendee, reason: str, now: datetime) -> None:
@@ -125,7 +138,7 @@ async def _tell_attendee(
     """The attendee's cancellation text and their invite withdrawn. Returns the text's id."""
     visit = bookings.visit_of(showing, rules)
     queued: list[int] = []
-    if attendee.mobile and attendee.texts_accepted:
+    if will_text(attendee):
         body = (
             wording.team_cancelled_text(visit, bookings.units_url())
             if by_team
@@ -492,8 +505,70 @@ async def remove_attendee(
 # ---------------------------------------------------------------------------
 
 
+class OffMarketEffect(BaseModel):
+    """What saving an off-market date would cancel for a unit right now."""
+
+    showings: int
+    # People booked in them.
+    people: int
+    # Of those, the people a cancellation would text (``will_text``).
+    people_texted: int
+
+    def sentence(self) -> str:
+        """ "This cancels 2 showings and texts 3 people." """
+        showings = "1 showing" if self.showings == 1 else f"{self.showings} showings"
+        texted = "1 person" if self.people_texted == 1 else f"{self.people_texted} people"
+        return f"This cancels {showings} and texts {texted}."
+
+
+async def _off_market_showing_ids(
+    session: AsyncSession, unit: str, off_market_on: date, now: datetime
+) -> list[int]:
+    rules = await listings_service.read_showing_rules(session)
+    first_day = datetime.combine(off_market_on, time(0), ZoneInfo(rules.timezone))
+    return list(
+        await session.scalars(
+            select(Showing.id)
+            .where(
+                func.lower(Showing.unit) == unit.strip().lower(),
+                Showing.status == "scheduled",
+                Showing.starts_at >= first_day,
+                Showing.starts_at > now,
+            )
+            .order_by(Showing.id)
+        )
+    )
+
+
+async def off_market_effect(
+    session: AsyncSession, unit: str, off_market_on: date | None, *, now: datetime | None = None
+) -> OffMarketEffect:
+    """What saving ``off_market_on`` for ``unit`` would cancel now. Changes nothing.
+
+    The gates in front of an off-market save (the general agent's approval, the
+    team's confirmation on the listings screen) ask this first.
+    """
+    if off_market_on is None:
+        return OffMarketEffect(showings=0, people=0, people_texted=0)
+    showing_ids = await _off_market_showing_ids(session, unit, off_market_on, now or clock())
+    if not showing_ids:
+        return OffMarketEffect(showings=0, people=0, people_texted=0)
+    people = list(
+        await session.scalars(
+            select(ShowingAttendee).where(
+                ShowingAttendee.showing_id.in_(showing_ids), ShowingAttendee.status == "booked"
+            )
+        )
+    )
+    return OffMarketEffect(
+        showings=len(showing_ids),
+        people=len(people),
+        people_texted=sum(1 for person in people if will_text(person)),
+    )
+
+
 async def cancel_off_market(
-    session: AsyncSession, unit: str, off_market_on, *, now: datetime | None = None
+    session: AsyncSession, unit: str, off_market_on: date, *, now: datetime | None = None
 ) -> int:
     """Cancel the unit's scheduled showings on or after ``off_market_on``, in the caller's
     transaction, the way a team cancellation does. Returns how many were cancelled.
@@ -501,22 +576,13 @@ async def cancel_off_market(
     Called by ``rental_listings.service.save_listing`` whenever a listing is
     saved with an off-market date, before it commits, so the listing and its
     cancellations are saved together. Showings that have started are left as
-    they are. The texts are queued for the job every minute.
+    they are. The texts are queued for the job every minute. Callers that act
+    for a person ask ``off_market_effect`` first and have the person agree.
     """
     now = now or clock()
     rules = await listings_service.read_showing_rules(session)
-    first_day = datetime.combine(off_market_on, time(0), ZoneInfo(rules.timezone))
     await bookings.lock(session, bookings.BOOKING_LOCK)
-    showing_ids = list(
-        await session.scalars(
-            select(Showing.id).where(
-                func.lower(Showing.unit) == unit.strip().lower(),
-                Showing.status == "scheduled",
-                Showing.starts_at >= first_day,
-                Showing.starts_at > now,
-            )
-        )
-    )
+    showing_ids = await _off_market_showing_ids(session, unit, off_market_on, now)
     if not showing_ids:
         return 0
     cancelled, queued = await _cancel_showings(

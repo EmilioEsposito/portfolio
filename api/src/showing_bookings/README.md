@@ -366,7 +366,11 @@ Sernia sign-in.
 
 `public_booking_enabled` in the settings row is true, false or unset. Unset
 means off in production and on everywhere else. While it is off, every public
-route answers 404, as for a path that does not exist, and saves nothing. The
+route answers 404, as for a path that does not exist, and saves nothing,
+except two: `POST /bookings/lookup` and `POST /bookings/cancel` answer either
+way, so a person booked before the team closed booking can still read and
+cancel from the link in their text. A cancel token exists only for a booking
+once made, so they show nothing while booking has never been on. The
 Send mode section of the tab has the control, "Open booking to the public",
 which sets it through `PUT /settings/public-booking` (`null` goes back to the
 default); a send-mode save keeps it as stored.
@@ -463,7 +467,7 @@ captured), an update is queued behind the new text.
 ### The host's event
 
 A host event notice is rendered when the outbox delivers it, not when it is
-queued (`host_event.py`, called from `outbox._prepare_calendar` under a lock
+queued (`host_event.py`, called from `outbox._prepare` under a lock
 on the showing): the summary and description list the attendees booked then,
 with their current mobiles and emails, and the notice creates the showing's
 event if it has none yet (saving its id on the showing) or updates it. So a
@@ -511,7 +515,10 @@ because phones and mail scanners open links to preview them.
   sent) gets a cancellation notice; one still held or pending gets nothing.
   When someone is still booked, the host's event gets an update that renders
   at delivery without them.
-- Texts go only to an attendee with a mobile who accepted texts. A prospect's
+- Texts go only to an attendee with a mobile who accepted texts and whose
+  confirmation text was not reported undelivered or refused
+  (`attention_reason`); a number known to be wrong is not texted again, though
+  the invite is still withdrawn. A prospect's
   or the team's cancellation text is delivered at once; calendar changes go
   with the job every minute. Off-market cancellations queue everything for the
   job.
@@ -525,7 +532,24 @@ because phones and mail scanners open links to preview them.
   (`rental_listings.service.save_listing`, from the rental listings screen,
   the MCP service or the general agent's tool), its scheduled showings from
   that day in the showing rules' time zone that have not started are
-  cancelled in the same transaction.
+  cancelled in the same transaction. The hook is inside `save_listing`, so no
+  path saves the date and leaves the showings standing.
+- A person agrees first. `cancelling.off_market_effect` says what a date
+  would cancel now (showings, people, people texted) without changing
+  anything. When it is at least one showing, the rental listing routes refuse
+  the save with 409 `cancels_showings` and the counts unless the body has
+  `confirm_cancellations: true` (the listings screen asks "This cancels 2
+  showings and texts 3 people. Save?" and sends it again), and the general
+  agent's `rental_listing_update` waits for a person's approval with that
+  sentence in its arguments (`off_market_effect`). With nothing booked from
+  the date, both save at once. The Sernia MCP service gets the refusal and
+  saves nothing; it has no confirm step yet.
+- A prospect's confirmation text and invite are checked again each time they
+  are delivered, first try or retry (`host_event.FOR_A_BOOKING_KINDS`): once
+  the attendee is cancelled or the showing is, they are cancelled and never
+  sent. So a send under way when the booking is cancelled, which then fails
+  and is retried, never goes out later. The host's event notices already
+  render from the showing at delivery.
 
 A place freed by a cancellation is offered again at once, and a cancelled
 showing frees its host's time: open times count only scheduled showings and

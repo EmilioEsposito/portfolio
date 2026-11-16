@@ -250,3 +250,9 @@ test("a booking that needs the team says why", () => {
   assert.equal(describeAttention("confirmation_undelivered"), "Confirmation text not delivered: call them");
   assert.equal(describeAttention("something_new"), "Something new: call them");
 });
+
+test("a number known to be wrong is not counted as texted", () => {
+  const wrong = { ...PEOPLE[0], attention_reason: "confirmation_undelivered" };
+  assert.match(describeRemoval({ ...SHOWING, people: [wrong] }, wrong, "live"), /Alex Parker gets no text, /);
+  assert.match(describeShowingCancel({ ...SHOWING, people: [wrong] }, "live"), /0 of them get a cancellation text/);
+});

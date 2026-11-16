@@ -22,7 +22,8 @@ from api.src.rental_listings import routes as listing_routes
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.schema import RentalListing
 from api.src.showing_bookings import cancelling, open_times, routes
-from api.src.showing_bookings.fakes import InMemoryCalendar
+from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
+from api.src.showing_bookings.providers import NotSent
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
     ADDRESS,
@@ -529,11 +530,29 @@ async def test_saving_an_off_market_date_cancels_the_showings_from_that_day(worl
     await world.send_pending()
 
     changed = world.listing.model_copy(update={"off_market_on": THURSDAY})
+    _, _, before = await rows()
     async with world.client(listing_app()) as client:
-        saved = await client.put(
-            f"/api/rental-listings/listings/{UNIT}",
-            json={"listing": changed.model_dump(mode="json")},
-        )
+        path = f"/api/rental-listings/listings/{UNIT}"
+        body = {"listing": changed.model_dump(mode="json")}
+        # Unconfirmed, and as a dry run, it is refused with the counts and changes nothing.
+        refused = await client.put(path, json=body)
+        dry = await client.put(f"{path}?dry_run=true", json=body)
+        assert [refused.status_code, dry.status_code] == [409, 409]
+        assert refused.json()["detail"] == {
+            "code": "cancels_showings",
+            "message": "Not saved. This cancels 1 showing and texts 1 person. Confirm to save.",
+            "problems": [],
+            "showings": 1,
+            "people": 1,
+            "people_texted": 1,
+        }
+        showings, _, notices = await rows()
+        assert [s.status for s in showings] == ["scheduled", "scheduled"]
+        assert statuses(notices) == statuses(before)
+        async with AsyncSessionFactory() as session:
+            assert (await listings_service.read_listing(session, UNIT)).off_market_on is None
+
+        saved = await client.put(path, json={**body, "confirm_cancellations": True})
 
     assert saved.status_code == 200, saved.text
     showings, attendees, notices = await rows()
@@ -575,3 +594,128 @@ async def test_an_off_market_date_leaves_started_and_past_showings(world):
     assert saved.status_code == 200
     showings, attendees, _ = await rows()
     assert (showings[0].status, attendees[0].status) == ("scheduled", "booked")
+
+
+# A number known to be wrong
+
+
+@pytest.mark.asyncio
+async def test_a_number_whose_confirmation_was_undelivered_gets_no_cancellation_text(world):
+    await live()
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    alex = await book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    _, attendees, _ = await rows()
+    assert attendees[0].attention_reason == "confirmation_undelivered"
+    sent = len(world.texts.sent)
+
+    await cancel(world, alex["cancel_token"])
+
+    _, attendees, notices = await rows()
+    assert attendees[0].status == "cancelled"
+    assert "prospect_cancelled" not in by_kind(notices)
+    assert len(world.texts.sent) == sent
+
+
+# Booking switched off
+
+
+@pytest.mark.asyncio
+async def test_a_booked_person_can_read_and_cancel_after_booking_is_switched_off(world):
+    alex = await book(world)
+    await store_settings(public_booking_enabled=False)
+
+    async with world.client() as client:
+        unit_page = await client.get(f"{PUBLIC}/units/{UNIT}")
+    seen = await lookup(world, alex["cancel_token"])
+    cancelled = await cancel(world, alex["cancel_token"])
+    unknown = await cancel(world, "nope")
+
+    assert unit_page.status_code == 404
+    assert seen.status_code == 200 and seen.json()["status"] == "booked"
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+    assert refusal(unknown) == (404, "unknown_booking")
+
+
+# An invite being sent when the booking is cancelled
+
+
+class FailingOnceCalendar(InMemoryCalendar):
+    """Runs ``hook`` in the middle of the first invite it is asked to create, then
+    answers that create with a refusal worth retrying, as Google out of reach would."""
+
+    def __init__(self, hook) -> None:
+        super().__init__()
+        self.hook = hook
+
+    async def create_event(self, calendar_id, event):
+        if self.hook is not None and event.attendees == [ALEX_EMAIL]:
+            hook, self.hook = self.hook, None
+            await hook()
+            raise NotSent("google_unavailable", "Google could not be reached.", retryable=True)
+        return await super().create_event(calendar_id, event)
+
+
+@pytest.mark.asyncio
+async def test_an_invite_retried_after_its_booking_was_cancelled_is_never_created(world):
+    await live()
+    await book(world, robin_body())
+    alex = await book(world)
+
+    async def cancel_alex():
+        await cancel(world, alex["cancel_token"])
+
+    world.calendar = FailingOnceCalendar(cancel_alex)
+    await world.send_pending(NOW + timedelta(minutes=1))
+
+    # Alex cancelled while the invite was being sent, and the send failed.
+    for minutes in (2, 5, 30, 90):
+        await world.send_pending(NOW + timedelta(minutes=minutes))
+
+    _, _, notices = await rows()
+    alex_invite = next(
+        n for n in notices if n.kind == "prospect_invite" and n.recipient == ALEX_EMAIL
+    )
+    assert alex_invite.status == "cancelled"
+    assert alex_invite.last_error == cancelling.STOPPED_NOTE
+    assert not [n for n in notices if n.status in ("pending", "held")]
+    invites = [e for e in world.calendar.events.values() if e.draft.attendees == [ALEX_EMAIL]]
+    assert invites == []
+
+
+class FailingOnceTexts(RecordingTextSender):
+    """Runs ``hook`` in the middle of the first text to ``number``, then answers that
+    text with a refusal worth retrying, as Quo out of reach would."""
+
+    def __init__(self, number: str, hook) -> None:
+        super().__init__()
+        self.number, self.hook = number, hook
+
+    async def send_text(self, to, body):
+        if self.hook is not None and to == self.number:
+            hook, self.hook = self.hook, None
+            await hook()
+            raise NotSent("quo_unavailable", "Quo could not be reached.", retryable=True)
+        return await super().send_text(to, body)
+
+
+@pytest.mark.asyncio
+async def test_a_confirmation_retried_after_its_booking_was_cancelled_is_never_sent(world):
+    await live()
+
+    async def cancel_alex():
+        _, attendees, _ = await rows()
+        await cancel(world, attendees[0].cancel_token)
+
+    world.texts = FailingOnceTexts(ALEX_MOBILE, cancel_alex)
+    await book(world)
+
+    for minutes in (2, 5, 30, 90):
+        await world.send_pending(NOW + timedelta(minutes=minutes))
+
+    _, _, notices = await rows()
+    (confirmation,) = by_kind(notices)["prospect_confirmation"]
+    assert (confirmation.status, confirmation.last_error) == ("cancelled", cancelling.STOPPED_NOTE)
+    # Only the text confirming the cancellation reached Alex.
+    assert [body.split(":")[1].strip()[:9] for body in world.texts.to(ALEX_MOBILE)] == ["your show"]
+    assert not [n for n in notices if n.status in ("pending", "held")]

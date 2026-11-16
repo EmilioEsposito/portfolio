@@ -40,6 +40,11 @@ CANCEL_KIND = "host_event_cancel"
 # The host notices delivered under a lock on their showing.
 SHOWING_LOCKED_KINDS = KINDS | {CANCEL_KIND}
 INVITE_KIND = "prospect_invite"
+CONFIRMATION_KIND = "prospect_confirmation"
+# Notices that are for one booking only: checked when delivered, first try or
+# retry, and never sent once the booking or its showing is cancelled.
+FOR_A_BOOKING_KINDS = frozenset({CONFIRMATION_KIND, INVITE_KIND})
+BOOKING_CANCELLED = "Not sent: the booking was cancelled."
 INVITE_CANCEL_KIND = "prospect_invite_cancel"
 CANCEL_KINDS = frozenset({CANCEL_KIND, INVITE_CANCEL_KIND})
 NO_ONE_BOOKED = "Not sent: the showing has no one booked, or is cancelled."

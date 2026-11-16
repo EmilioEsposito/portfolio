@@ -86,7 +86,7 @@ MAX_MOBILE_CORRECTIONS = 2
 # A showings calendar that names no connected account: the outbox cannot
 # write to it, so in live mode such a notice fails visibly instead of waiting.
 NO_SHOWINGS_CALENDAR = "no-showings-calendar"
-CONFIRMATION_KIND = "prospect_confirmation"
+CONFIRMATION_KIND = host_event.CONFIRMATION_KIND
 HOST_EVENT_KIND = host_event.CREATE_KIND
 HOST_UPDATE_KIND = host_event.UPDATE_KIND
 # Taken first by every public booking, so one booking's limits, re-check and

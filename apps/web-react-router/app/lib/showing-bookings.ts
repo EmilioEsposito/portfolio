@@ -489,8 +489,14 @@ export function describeAttention(reason: string): string {
   return ATTENTION_LABELS[reason] ?? `${humanize(reason)}: call them`;
 }
 
-function texted(people: Pick<BookedPerson, "texts_accepted" | "mobile">[]): number {
-  return people.filter((person) => person.texts_accepted && person.mobile !== "no mobile").length;
+/** A booking whose confirmation never reached the number: a cancellation does not text it again. */
+const WRONG_NUMBER = new Set(["confirmation_undelivered", "confirmation_refused"]);
+
+function texted(people: Pick<BookedPerson, "texts_accepted" | "mobile" | "attention_reason">[]): number {
+  return people.filter(
+    (person) =>
+      person.texts_accepted && person.mobile !== "no mobile" && !WRONG_NUMBER.has(person.attention_reason ?? ""),
+  ).length;
 }
 
 function modeNote(mode: SendMode): string {
@@ -521,7 +527,7 @@ export function describeShowingCancel(
 /** The confirmation before the team removes one person. */
 export function describeRemoval(
   showing: Pick<BookedShowing, "unit" | "starts_at" | "host_name" | "people">,
-  person: Pick<BookedPerson, "name" | "texts_accepted" | "mobile">,
+  person: Pick<BookedPerson, "name" | "texts_accepted" | "mobile" | "attention_reason">,
   mode: SendMode,
 ): string {
   const last = showing.people.length <= 1;

@@ -11,6 +11,14 @@ A write may send ``based_on``: the listing (or the rules) as the caller last rea
 it. If what is on file has changed since, nothing is saved and the answer is
 409, so an edit made from a stale screen cannot undo someone else's change.
 
+A listing saved with an off-market date cancels the unit's showings booked
+from that date and texts the people booked
+(``showing_bookings.cancelling``). When that would cancel at least one
+showing, the save is refused with 409 ``cancels_showings`` and the counts
+(``showings``, ``people``, ``people_texted``) unless the body says the person
+confirmed (``confirm_cancellations: true``); the edit screen asks and sends
+the save again. With nothing booked it is saved as before.
+
 A write with ``?dry_run=true`` runs every check and answers as it would, but
 saves nothing. The Sernia MCP service uses it so a person is never asked to
 approve a change that would be refused.
@@ -41,6 +49,7 @@ from api.src.rental_listings import service, zillow_ad
 from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.schema import Change, RentalListing, ShowingRules
 from api.src.rental_listings.zillow_ad import ZillowAd
+from api.src.showing_bookings import cancelling
 from api.src.utils.clerk import verify_serniacapital_oauth_user, verify_serniacapital_user
 
 # Recorded as the source of every change, by who made the call.
@@ -90,6 +99,8 @@ class ListingSave(BaseModel):
     listing: RentalListing
     # The listing as the caller last read it. Leave out to save regardless.
     based_on: RentalListing | None = None
+    # The person agreed to the showings an off-market date cancels.
+    confirm_cancellations: bool = False
 
 
 class RulesSave(BaseModel):
@@ -147,6 +158,25 @@ def _broken_on_file(error: RentalDataInvalid) -> HTTPException:
     )
 
 
+async def _check_cancellations(session: DBSession, body: ListingSave) -> None:
+    """Refuse an off-market date that cancels showings until the person has confirmed."""
+    if body.confirm_cancellations or body.listing.off_market_on is None:
+        return
+    effect = await cancelling.off_market_effect(
+        session, body.listing.unit, body.listing.off_market_on
+    )
+    if effect.showings:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "cancels_showings",
+                "message": f"Not saved. {effect.sentence()} Confirm to save.",
+                "problems": [],
+                **effect.model_dump(),
+            },
+        )
+
+
 async def _checked_only(session: DBSession, listing: RentalListing) -> RentalListing:
     """A dry run's answer: the listing as it would be saved, or 422. Saves nothing."""
     if problems := listing_problems(listing):
@@ -186,6 +216,7 @@ async def create_listing(
         raise _broken_on_file(error) from error
     if existing is not None:
         raise _already_listed(name)
+    await _check_cancellations(session, body)
     if dry_run:
         return await _checked_only(session, body.listing)
     try:
@@ -227,6 +258,7 @@ async def update_listing(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"No listing for unit {name!r}.")
     if body.based_on is not None and current != body.based_on:
         raise _changed_since()
+    await _check_cancellations(session, body)
     if dry_run:
         return await _checked_only(session, body.listing)
     try:

@@ -174,6 +174,25 @@ export function localToday(now: Date = new Date()): string {
  * answer `{detail: {message, problems}}`; FastAPI's own type checks answer
  * `{detail: [{loc, msg}]}`; anything else falls back to the status.
  */
+/** What an off-market date would cancel, from the API's 409 `cancels_showings`. */
+export type Cancellations = { showings: number; people: number; people_texted: number };
+
+/** The counts when the save was refused because the person has not confirmed the cancellations, else null. */
+export function cancellationsFrom(body: unknown): Cancellations | null {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (!detail || typeof detail !== "object" || (detail as { code?: unknown }).code !== "cancels_showings") return null;
+  const { showings, people, people_texted } = detail as Record<string, unknown>;
+  if (typeof showings !== "number" || typeof people_texted !== "number") return null;
+  return { showings, people: typeof people === "number" ? people : people_texted, people_texted };
+}
+
+/** "This cancels 2 showings and texts 3 people. Save?" */
+export function cancellationQuestion(cancels: Cancellations): string {
+  const showings = cancels.showings === 1 ? "1 showing" : `${cancels.showings} showings`;
+  const people = cancels.people_texted === 1 ? "1 person" : `${cancels.people_texted} people`;
+  return `This cancels ${showings} and texts ${people}. Save?`;
+}
+
 export function problemsFrom(status: number, body: unknown): { message: string; problems: string[] } {
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {

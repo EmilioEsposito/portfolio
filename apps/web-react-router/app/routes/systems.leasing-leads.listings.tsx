@@ -23,6 +23,7 @@ import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import {
+  type Cancellations,
   type Change,
   type PreferredWindow,
   type RentalData,
@@ -31,6 +32,8 @@ import {
   SHOWING_RULES_SUBJECT,
   WEEKDAY_LABELS,
   WEEKDAYS,
+  cancellationQuestion,
+  cancellationsFrom,
   cleanRules,
   cleanListing,
   describeHistory,
@@ -64,7 +67,9 @@ export function meta({}: Route.MetaArgs) {
 // ---------------------------------------------------------------------------
 
 type Refusal = { message: string; problems: string[] };
-type Result<T> = { ok: true; body: T } | { ok: false; refusal: Refusal; status: number };
+type Result<T> =
+  | { ok: true; body: T }
+  | { ok: false; refusal: Refusal; status: number; cancels?: Cancellations | null };
 
 function useApi() {
   const { getToken } = useAuth();
@@ -81,7 +86,12 @@ function useApi() {
         });
         const body = await response.json().catch(() => null);
         if (response.ok) return { ok: true, body: body as T };
-        return { ok: false, status: response.status, refusal: problemsFrom(response.status, body) };
+        return {
+          ok: false,
+          status: response.status,
+          refusal: problemsFrom(response.status, body),
+          cancels: cancellationsFrom(body),
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : "Network error";
         return { ok: false, status: 0, refusal: { message, problems: [] } };
@@ -540,15 +550,27 @@ function UnitEditor({
     setSaving(true);
     setRefusal(null);
     const listing = cleanListing(draft);
-    const result = isNew
-      ? await api<RentalListing>("/listings", { method: "POST", body: JSON.stringify({ listing }) })
-      : await api<RentalListing>(`/listings/${encodeURIComponent(original.unit)}`, {
-          method: "PUT",
-          body: JSON.stringify({ listing, based_on: original }),
-        });
+    const send = (confirmed: boolean) => {
+      const extra = confirmed ? { confirm_cancellations: true } : {};
+      return isNew
+        ? api<RentalListing>("/listings", { method: "POST", body: JSON.stringify({ listing, ...extra }) })
+        : api<RentalListing>(`/listings/${encodeURIComponent(original.unit)}`, {
+            method: "PUT",
+            body: JSON.stringify({ listing, based_on: original, ...extra }),
+          });
+    };
+    let result = await send(false);
+    // An off-market date that cancels booked showings is saved only once the person agrees.
+    if (!result.ok && result.cancels) {
+      if (!window.confirm(cancellationQuestion(result.cancels))) {
+        setSaving(false);
+        return;
+      }
+      result = await send(true);
+    }
     setSaving(false);
     if (!result.ok) {
-      setRefusal({ refusal: result.refusal, stale: result.status === 409 && !isNew });
+      setRefusal({ refusal: result.refusal, stale: result.status === 409 && !isNew && !result.cancels });
       return;
     }
     setDraft(result.body);

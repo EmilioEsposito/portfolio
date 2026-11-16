@@ -105,6 +105,13 @@ async def test_switched_off_every_public_route_answers_404_and_saves_nothing(wor
     assert await rows() == ([], [], [])
     assert world.turnstile_checks == []
     assert world.texts.sent == []
+    # The read and the cancel by token still answer, so a link in a text keeps
+    # working after booking is closed; with no booking made, a token finds nothing.
+    for path in ("lookup", "cancel"):
+        answer = await post(world, f"{PUBLIC}/bookings/{path}", {"cancel_token": "x"})
+        assert refusal(answer) == (404, "unknown_booking", [])
+    async with world.client() as client:
+        assert (await client.get(f"{PUBLIC}/units/{UNIT}")).json() == {"detail": "Not Found"}
 
 
 @pytest.mark.asyncio

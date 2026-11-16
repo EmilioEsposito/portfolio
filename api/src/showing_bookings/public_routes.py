@@ -3,7 +3,8 @@
 This is the only part of the module the web server's ``/api`` proxy forwards
 for a Sernia host. Every route answers 404 and saves nothing while the
 setting ``public_booking_enabled`` is off (unset: off in production, on
-elsewhere).
+elsewhere), except the read and the cancel by token, so a cancel link in a
+text keeps working after booking is closed.
 
 - ``GET /units/{unit}``: what the booking page shows for one unit: rent,
   showing length, the confirmations with their wording, the consent small
@@ -47,8 +48,17 @@ PREFIX = "/showing-bookings/public"
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
-async def public_booking_switch() -> None:
-    """404, as for a path that does not exist, while public booking is off."""
+async def public_booking_switch(request: Request) -> None:
+    """404, as for a path that does not exist, while public booking is off.
+
+    The read and the cancel by token answer either way: a person booked
+    before booking was closed keeps a working cancel link. A token exists
+    only for a booking once made, so this shows nothing while booking has
+    never been on.
+    """
+    route = request.scope.get("route")
+    if getattr(route, "endpoint", None) in _ANSWER_WHEN_OFF:
+        return
     async with AsyncSessionFactory() as session:
         settings = await settings_for_delivery(session)
     if not public_booking_on(settings, current_environment()):
@@ -161,6 +171,10 @@ async def cancel(
         logfire.info("public cancellation refused", code=refused.code)
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+# Answer while public booking is off (``public_booking_switch``).
+_ANSWER_WHEN_OFF = frozenset({lookup, cancel})
 
 
 @public_router.post("/team-phone", response_model=bookings.TeamPhone)
