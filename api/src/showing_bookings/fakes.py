@@ -241,7 +241,7 @@ def sample_contacts(unit: str) -> list[dict]:
     return [
         contact(
             _SAMPLE_NAMES[(digits + index) % len(_SAMPLE_NAMES)],
-            f"+1412555{first + index:04d}",
+            f"+141255501{first + index:02d}",
             prop=prop,
             unit=number,
         )
