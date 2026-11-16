@@ -97,6 +97,9 @@ The setting is the `showing_bookings_config` row in `app_settings`:
 | `send_mode` | `capture` | `off` skips every notice; `capture` keeps them without sending; `live` lets the guard send |
 | `live_units` | `[]` | units whose notices really go out in production |
 | `test_sends_enabled` | `false` | in live mode, also send notices that reach only test recipients |
+| `lead_agent_uses_open_times` | `false` | the Zillow lead agent offers these open times |
+| `public_booking_enabled` | unset | the public booking routes answer; unset is off in production, on elsewhere |
+| `public_limits` | 2, 2, 6 | upcoming showings per mobile and per email, bookings per IP address a day |
 
 `guard.decide` is one pure function. A notice is sent only when the mode is
 `live` and either this is production (`RAILWAY_ENVIRONMENT_NAME` is

@@ -38,7 +38,11 @@ DEFAULTS = {
     "test_sends_enabled": False,
     "lead_agent_uses_open_times": False,
     "public_booking_enabled": None,
-    "public_limits": {"upcoming_per_mobile": 2, "upcoming_per_email": 2, "bookings_per_ip_per_day": 6},
+    "public_limits": {
+        "upcoming_per_mobile": 2,
+        "upcoming_per_email": 2,
+        "bookings_per_ip_per_day": 6,
+    },
 }
 PERSON = SimpleNamespace(id="user_test")
 
