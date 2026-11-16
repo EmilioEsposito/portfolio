@@ -13,13 +13,18 @@ and still hold details, a batch at a time, and in one transaction per batch:
   empty list; ``cancel_token`` becomes a new random value that was never sent
   to anyone, so the old link answers "not found";
 - each notice of the showing, whoever it was to (prospects, residents and the
-  host): ``recipient`` becomes ``REMOVED_RECIPIENT`` and ``payload`` keeps only
-  a ``REMOVED`` marker in place of the text or the event's details.
+  host): ``recipient`` becomes ``REMOVED_RECIPIENT``, ``payload`` keeps only
+  a ``REMOVED`` marker in place of the text, email or event's details (an
+  email reminder's relay address, subject, conversation and message ids
+  included), and ``last_error``, the one free-form field, which can quote a
+  provider's message naming a number or an address, becomes ``REMOVED``.
 
 Everything else stays: the rows, their ids, times, statuses, counts,
 attendance, sources, consent times and versions, cancel reasons, and the
-notices' kinds, statuses and delivery times, so the history of showings is
-kept.
+notices' kinds, statuses, provider ids and statuses, guard reasons and
+delivery times (all structured codes or opaque ids), so the history of
+showings is kept. A row counts as cleared only when every one of these fields
+is, so a row cleared before a field was added here is taken again.
 
 The cut-off is 12 months before the database's own clock (``now()``). A test
 may pass an earlier ``now``, never a later one: the cut-off is 12 months before
@@ -33,7 +38,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import logfire
-from sqlalchemy import String, cast, exists, func, literal, or_, select, text, update
+from sqlalchemy import String, and_, cast, exists, func, literal, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
@@ -47,6 +52,7 @@ MAX_BATCHES = 50
 REMOVED = "Removed 12 months after the showing."
 REMOVED_NAME = "Removed"
 REMOVED_RECIPIENT = "removed"
+REMOVED_KEY = "removed"
 REMOVED_TOKEN_PREFIX = "removed-"
 
 
@@ -78,15 +84,28 @@ def _attendee_holds_details():
     )
 
 
+def _notice_holds_details():
+    return or_(
+        ShowingNotice.recipient != REMOVED_RECIPIENT,
+        ~ShowingNotice.payload.has_key(REMOVED_KEY),
+        and_(ShowingNotice.last_error.is_not(None), ShowingNotice.last_error != REMOVED),
+    )
+
+
+def _notice_cleared(notice: ShowingNotice) -> bool:
+    return (
+        notice.recipient == REMOVED_RECIPIENT
+        and REMOVED_KEY in (notice.payload or {})
+        and notice.last_error in (None, REMOVED)
+    )
+
+
 def _still_holding(now: datetime | None):
     """Showings at or past the cut-off with an attendee or notice not yet cleared."""
     attendee_left = exists().where(
         ShowingAttendee.showing_id == Showing.id, _attendee_holds_details()
     )
-    notice_left = exists().where(
-        ShowingNotice.showing_id == Showing.id,
-        ShowingNotice.recipient != REMOVED_RECIPIENT,
-    )
+    notice_left = exists().where(ShowingNotice.showing_id == Showing.id, _notice_holds_details())
     return (
         select(Showing.id)
         .where(Showing.starts_at <= _cutoff(now), or_(attendee_left, notice_left))
@@ -97,8 +116,8 @@ def _still_holding(now: datetime | None):
 
 def _removed_payload(channel: str) -> dict:
     if channel in ("calendar_event", "calendar_invite"):
-        return {"summary": REMOVED, "removed": True}
-    return {"body": REMOVED, "removed": True}
+        return {"summary": REMOVED, REMOVED_KEY: True}
+    return {"body": REMOVED, REMOVED_KEY: True}
 
 
 async def _remove_batch(session: AsyncSession, now: datetime | None) -> RemovalReport:
@@ -147,9 +166,11 @@ async def _remove_batch(session: AsyncSession, now: datetime | None) -> RemovalR
         .execution_options(synchronize_session=False)
     )
     for notice in notices:
-        if notice.showing_id in locked and notice.recipient != REMOVED_RECIPIENT:
+        if notice.showing_id in locked and not _notice_cleared(notice):
             notice.recipient = REMOVED_RECIPIENT
             notice.payload = _removed_payload(notice.channel)
+            if notice.last_error is not None:
+                notice.last_error = REMOVED
             report.notices += 1
     report.showings = len(locked)
     report.attendees = attendees.rowcount or 0

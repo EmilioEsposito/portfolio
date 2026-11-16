@@ -64,7 +64,52 @@ async def book_old_showings(world: PublicWorld) -> dict:
     world.now = on(NEWER_DAY - timedelta(days=1), 14)
     newer = await book(world, booking(NEWER_START.isoformat()))
     await run(world, on(NEWER_DAY - timedelta(days=1), 14, 10))
+    await add_email_reminder_and_error(alex["cancel_token"])
     return {"alex": alex, "robin": robin_booking, "newer": newer}
+
+
+RELAY = "lead-7f3a@relay.example.com"
+QUO_ERROR = f"Quo refused the text to {ALEX_MOBILE}; ask {ALEX_EMAIL}."
+
+
+async def add_email_reminder_and_error(token: str) -> None:
+    """A lead's reminder by email on the old showing, as #411 queues it, and a
+    provider's error text that quotes a number and an address."""
+    async with AsyncSessionFactory() as session:
+        alex = (
+            await session.scalars(
+                select(ShowingAttendee).where(ShowingAttendee.cancel_token == token)
+            )
+        ).one()
+        session.add(
+            ShowingNotice(
+                kind="lead_email_reminder",
+                channel="email",
+                showing_id=alex.showing_id,
+                attendee_id=alex.id,
+                recipient=RELAY,
+                recipient_key=f"attendee:{alex.id}:email",
+                payload={
+                    "subject": "Re: 320 Example St",
+                    "body": "A reminder of your showing.",
+                    "conversation_id": "conv-example-1",
+                    "reply_to_message_id": "<msg-example-1@example.com>",
+                    "daytime_timezone": "America/New_York",
+                },
+                status="captured",
+                not_before=OLD_START - timedelta(hours=22),
+            )
+        )
+        confirmation = (
+            await session.scalars(
+                select(ShowingNotice).where(
+                    ShowingNotice.attendee_id == alex.id,
+                    ShowingNotice.kind == "prospect_confirmation",
+                )
+            )
+        ).one()
+        confirmation.last_error = QUO_ERROR
+        await session.commit()
 
 
 async def snapshot() -> dict:
@@ -182,9 +227,36 @@ async def test_details_are_removed_at_12_months_field_by_field(world):
     for notice in notices:
         assert notice.recipient == retention.REMOVED_RECIPIENT
         assert notice.payload["removed"] is True
-        text = str(notice.payload)
-        for detail in (ALEX_MOBILE, ROBIN_MOBILE, RESIDENT, ALEX_EMAIL, "Alex", "Robin", "Casey"):
+        assert notice.last_error in (None, retention.REMOVED)
+        text = f"{notice.payload} {notice.last_error}"
+        for detail in (
+            ALEX_MOBILE,
+            ROBIN_MOBILE,
+            RESIDENT,
+            ALEX_EMAIL,
+            RELAY,
+            "conv-example-1",
+            "msg-example-1",
+            "Alex",
+            "Robin",
+            "Casey",
+        ):
             assert detail not in text
+    by_kind = {notice.kind: notice for notice in notices}
+    email = by_kind["lead_email_reminder"]
+    assert (email.recipient, email.payload) == (
+        retention.REMOVED_RECIPIENT,
+        {"body": retention.REMOVED, "removed": True},
+    )
+    assert email.status == "captured"
+    confirmation = next(
+        n for n in notices if n.kind == "prospect_confirmation" and n.attendee_id == attendees[0].id
+    )
+    assert confirmation.last_error == retention.REMOVED
+    # Structured fields stay.
+    assert {n.status for n in notices} == {n.status for n in old_notices}
+    assert [n.guard_reason for n in notices] == [n.guard_reason for n in old_notices]
+    assert [n.provider_status for n in notices] == [n.provider_status for n in old_notices]
     # The showing a month later, 11 months old then, is untouched.
     _, newer_attendees, newer_notices = await of_showing(NEWER_START)
     assert_untouched(newer_attendees, newer_notices)
@@ -257,3 +329,30 @@ def vars_of(row) -> dict:
         for key, value in vars(row).items()
         if not key.startswith("_") and key != "updated_at"
     }
+
+
+@pytest.mark.asyncio
+async def test_a_row_cleared_before_a_field_was_covered_is_taken_again(world):
+    """A notice cleared but for its error text (as before that field was covered)
+    still holds details, so the next run clears it."""
+    await book_old_showings(world)
+    await retention.remove_old_details(now=ONE_YEAR_LATER)
+    async with AsyncSessionFactory() as session:
+        notice = (
+            await session.scalars(
+                select(ShowingNotice)
+                .where(ShowingNotice.kind == "prospect_confirmation")
+                .order_by(ShowingNotice.id)
+                .limit(1)
+            )
+        ).one()
+        notice.last_error = QUO_ERROR
+        notice_id = notice.id
+        await session.commit()
+
+    report = await retention.remove_old_details(now=ONE_YEAR_LATER)
+    assert (report.showings, report.notices) == (1, 1)
+    async with AsyncSessionFactory() as session:
+        again = await session.get(ShowingNotice, notice_id)
+    assert again.last_error == retention.REMOVED
+    assert (await retention.remove_old_details(now=ONE_YEAR_LATER)).showings == 0
