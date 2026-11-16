@@ -1,9 +1,283 @@
-import { PlaceholderSection } from "./Placeholder";
+import { useCallback, useEffect, useState } from "react";
+import { CircleAlert, FlaskConical, Loader2, RefreshCw } from "lucide-react";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Label } from "~/components/ui/label";
+import { Switch } from "~/components/ui/switch";
+import {
+  type BookingSettings,
+  type CalendarStatus,
+  type ShowingsView,
+  type UnitOffers,
+  CALENDAR_STATUS_LABELS,
+  OFFERS_SHOWN,
+  describeOffer,
+  formatWhen,
+} from "~/lib/showing-bookings";
+import { cn } from "~/lib/utils";
+import { useShowingBookingsApi } from "./use-showing-bookings-api";
+
+const STATUS_STYLES: Record<CalendarStatus, string> = {
+  read: "border-green-300 text-green-800 dark:border-green-900 dark:text-green-400",
+  sample: "border-amber-300 text-amber-800 dark:border-amber-900 dark:text-amber-300",
+  unreadable: "border-red-300 text-red-700 dark:border-red-900 dark:text-red-400",
+  inactive: "border-muted-foreground/40 text-muted-foreground",
+};
+
+function LeadAgentSwitch({
+  on,
+  saving,
+  error,
+  onChange,
+}: {
+  on: boolean;
+  saving: boolean;
+  error: string | null;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div className="mt-4 rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="lead-agent-open-times" className="text-sm font-medium">
+            Zillow lead agent offers these times
+          </Label>
+          <p id="lead-agent-open-times-help" className="text-sm leading-6 text-muted-foreground">
+            This changes what the lead agent offers leads. On, its replies offer the open times below and the showings
+            that have room. Off, it offers no times, as it does today.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 pt-0.5">
+          {saving && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          <Switch
+            id="lead-agent-open-times"
+            checked={on}
+            disabled={saving}
+            aria-describedby="lead-agent-open-times-help"
+            onCheckedChange={onChange}
+          />
+        </div>
+      </div>
+      <p role="status" className="mt-2 text-sm font-medium">
+        {on ? "On: the lead agent offers these times." : "Off: the lead agent offers no times."}
+      </p>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function UnitItem({ unit }: { unit: UnitOffers }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? unit.offers : unit.offers.slice(0, OFFERS_SHOWN);
+  return (
+    <li className="rounded-lg border p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-medium">
+          {unit.unit}
+          {unit.address && <span className="font-normal text-muted-foreground"> · {unit.address}</span>}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {unit.offers.length} {unit.offers.length === 1 ? "time" : "times"} · {unit.notice_hours} hours&rsquo; notice
+        </p>
+      </div>
+      {unit.offers.length === 0 ? (
+        <p className="mt-2 flex items-start gap-2 rounded-md bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-medium">No open time.</span> {unit.why_none}
+          </span>
+        </p>
+      ) : (
+        <>
+          <ol className="mt-2 divide-y text-sm" aria-label={`Times ${unit.unit} offers, in the order they are offered`}>
+            {shown.map((offer) => (
+              <li key={offer.start} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5">
+                <span className="tabular-nums">{formatWhen(offer.start)}</span>
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-normal",
+                      offer.kind === "join" && "border-sky-300 text-sky-800 dark:border-sky-900 dark:text-sky-300",
+                      offer.kind === "new" && offer.preferred && "border-violet-300 text-violet-800 dark:border-violet-900 dark:text-violet-300",
+                    )}
+                  >
+                    {describeOffer(offer)}
+                  </Badge>
+                  {offer.host_name}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {unit.offers.length > OFFERS_SHOWN && (
+            <Button variant="link" size="sm" className="mt-1 h-auto px-0" onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `Show all ${unit.offers.length}`}
+            </Button>
+          )}
+        </>
+      )}
+    </li>
+  );
+}
 
 export function ShowingsSection() {
+  const api = useShowingBookingsApi();
+  const [view, setView] = useState<ShowingsView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    const result = await api<ShowingsView>("/showings", {}, "Could not load the showings");
+    if (result.ok) setView(result.body);
+    else setLoadError(result.problems.length ? `${result.message} ${result.problems.join("; ")}` : result.message);
+    setLoading(false);
+  }, [api]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function setLeadAgent(on: boolean) {
+    if (!view) return;
+    if (
+      on &&
+      !window.confirm(
+        view.open_times.sample_calendar_in_use
+          ? "Some times below come from a made-up calendar. Have the lead agent offer them to leads here anyway?"
+          : "The Zillow lead agent will start offering these times to leads. Turn it on?",
+      )
+    ) {
+      return;
+    }
+    setSwitching(true);
+    setSwitchError(null);
+    const result = await api<BookingSettings>(
+      "/settings/lead-agent",
+      { method: "PUT", body: JSON.stringify({ lead_agent_uses_open_times: on }) },
+      "Could not change what the lead agent offers",
+    );
+    if (result.ok) setView({ ...view, lead_agent_uses_open_times: result.body.lead_agent_uses_open_times });
+    else setSwitchError(result.message);
+    setSwitching(false);
+  }
+
+  const times = view?.open_times;
   return (
-    <PlaceholderSection id="showings-heading" title="Showings">
-      The next 14 days by unit, with who is hosting and who is coming, and the times each unit offers now.
-    </PlaceholderSection>
+    <section aria-labelledby="showings-heading" className="rounded-xl border p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 id="showings-heading" className="text-xl font-semibold">
+            Showings
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            The times each unit on offer is offering right now, in the order they are offered: joins first, then
+            preferred times, then the rest. Then the showings booked in the next 14 days.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" disabled={loading} onClick={() => void load()}>
+          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} aria-hidden="true" />
+          Refresh
+        </Button>
+      </div>
+
+      {loading && !view && (
+        <p role="status" className="mt-5 flex items-center gap-2 text-sm">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Working out open times…
+        </p>
+      )}
+      {loadError && (
+        <div role="alert" className="mt-4 rounded-lg border border-destructive/50 p-3 text-sm">
+          <p>{loadError}</p>
+          <Button variant="outline" size="sm" className="mt-2" disabled={loading} onClick={() => void load()}>
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {view && times && (
+        <>
+          <LeadAgentSwitch
+            on={view.lead_agent_uses_open_times}
+            saving={switching}
+            error={switchError}
+            onChange={(on) => void setLeadAgent(on)}
+          />
+
+          {times.sample_calendar_in_use && (
+            <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <FlaskConical className="mt-1 size-4 shrink-0" aria-hidden="true" />
+              <span>
+                <strong className="font-medium">Sample calendar in use.</strong> No usable calendar connection reads
+                some agents here, so their busy times come from a made-up week. Their times below are not real. This
+                never happens in production.
+              </span>
+            </p>
+          )}
+
+          <h4 className="mt-5 text-sm font-semibold">Agents&rsquo; calendars</h4>
+          {times.agents.length === 0 ? (
+            <p className="mt-1 text-sm text-muted-foreground">No showing agents. Add one under Showing agents.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 text-sm">
+              {times.agents.map((agent) => (
+                <li key={agent.agent_id} className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{agent.name}</span>
+                  <Badge variant="outline" className={cn("font-normal", STATUS_STYLES[agent.status])}>
+                    {CALENDAR_STATUS_LABELS[agent.status]}
+                  </Badge>
+                  {agent.connection_email && agent.status === "read" && (
+                    <span className="break-all text-muted-foreground">through {agent.connection_email}</span>
+                  )}
+                  {agent.problem && <span className="text-red-700 dark:text-red-400">{agent.problem}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h4 className="mt-5 text-sm font-semibold">Open times by unit</h4>
+          {times.units.length === 0 ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              No unit is on offer. Units and their off-market dates are under Rental listing data.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-3">
+              {times.units.map((unit) => (
+                <UnitItem key={unit.unit} unit={unit} />
+              ))}
+            </ul>
+          )}
+
+          <h4 className="mt-5 text-sm font-semibold">Booked in the next 14 days</h4>
+          {view.booked.length === 0 ? (
+            <p className="mt-1 text-sm text-muted-foreground">No showings are booked.</p>
+          ) : (
+            <ul className="mt-2 divide-y rounded-lg border text-sm">
+              {view.booked.map((showing) => (
+                <li key={showing.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <span>
+                    <span className="font-medium">{showing.unit}</span>{" "}
+                    <span className="tabular-nums">{formatWhen(showing.starts_at)}</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {showing.host_name} · {showing.attendees} of {showing.capacity}{" "}
+                    {showing.capacity === 1 ? "place" : "places"} taken
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-4 text-xs text-muted-foreground">Times are Eastern. Worked out {formatWhen(times.now)}.</p>
+        </>
+      )}
+    </section>
   );
 }

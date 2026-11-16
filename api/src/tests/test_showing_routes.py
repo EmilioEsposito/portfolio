@@ -32,7 +32,12 @@ from api.src.tests.showing_helpers import (
 from api.src.utils import clerk as clerk_module
 
 LISTED_UNIT = "991-A"  # made up, and removed after each test
-DEFAULTS = {"send_mode": "capture", "live_units": [], "test_sends_enabled": False}
+DEFAULTS = {
+    "send_mode": "capture",
+    "live_units": [],
+    "test_sends_enabled": False,
+    "lead_agent_uses_open_times": False,
+}
 PERSON = SimpleNamespace(id="user_test")
 
 
@@ -108,7 +113,7 @@ async def test_production_is_reported_as_production(api, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_save_stores_live_units_as_their_listings_spell_them(api):
-    new = {"send_mode": "live", "live_units": ["991-a"], "test_sends_enabled": True}
+    new = {**DEFAULTS, "send_mode": "live", "live_units": ["991-a"], "test_sends_enabled": True}
 
     response = await api.patch(
         "/api/showing-bookings/settings", json={"settings": new, "based_on": DEFAULTS}

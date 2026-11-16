@@ -31,6 +31,9 @@ export interface RentalListing {
   virtual_tours_allowed: boolean;
   off_market_on: string | null;
   showing_booking_url: string;
+  // Hours of notice before a showing of this unit, when its resident needs more
+  // than the showing rules give. null uses the rules' notice.
+  showing_notice_hours: number | null;
   // The unit's Zillow ad: the page a lead sees, and the Rental Manager editor page.
   // For the team and Sernia AI's ad check; not shown to leads.
   zillow_listing_url_public_view: string;
@@ -45,6 +48,8 @@ export interface ShowingRules {
   earliest_start: string;
   latest_start: string;
   blackout_dates: string[];
+  // The least notice before a showing, in hours (24 unless changed).
+  showing_notice_hours: number;
   showing_booking_url: string;
 }
 
@@ -73,6 +78,7 @@ export function newListing(name: string): RentalListing {
     virtual_tours_allowed: false,
     off_market_on: null,
     showing_booking_url: "",
+    showing_notice_hours: null,
     zillow_listing_url_public_view: "",
     zillow_listing_url_internal_editor_view: "",
     preferred_showing_times: [],
@@ -202,6 +208,7 @@ const UNIT_FIELD_LABELS: Record<string, string> = {
   virtual_tours_allowed: "Virtual tours allowed",
   off_market_on: "Off market from",
   showing_booking_url: "Showing booking link",
+  showing_notice_hours: "Notice before a showing (hours)",
   zillow_listing_url_public_view: "Zillow ad (public)",
   zillow_listing_url_internal_editor_view: "Zillow ad (editor)",
   preferred_showing_times: "Preferred showing times",

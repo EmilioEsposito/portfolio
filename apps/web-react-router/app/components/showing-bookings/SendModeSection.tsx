@@ -72,7 +72,13 @@ export function SendModeSection() {
     void load();
   }, [load]);
 
-  const form: BookingSettings = { send_mode: mode, live_units: parseUnits(unitsText), test_sends_enabled: testSends };
+  // The lead agent's switch has its own control (ShowingsSection); the server keeps it as stored.
+  const form: BookingSettings = {
+    send_mode: mode,
+    live_units: parseUnits(unitsText),
+    test_sends_enabled: testSends,
+    lead_agent_uses_open_times: view?.settings.lead_agent_uses_open_times ?? false,
+  };
   const dirty = Boolean(view && !sameSettings(view.settings, form));
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);

@@ -42,6 +42,14 @@ SEND_MODES: tuple[str, ...] = get_args(SendMode)
 # Showings last 30 minutes and take up to 4 parties unless a showing says otherwise.
 SHOWING_MINUTES = 30
 DEFAULT_CAPACITY = 4
+# Open times: a start every 30 minutes inside the showing window, up to 14
+# days out. An agent needs 30 minutes to get from one address to another, and
+# none between showings at the same address. Free/busy answers are reused for
+# about 90 seconds per connection and set of calendars.
+START_EVERY_MINUTES = 30
+DAYS_AHEAD = 14
+TRAVEL_MINUTES = 30
+FREE_BUSY_CACHE_SECONDS = 90
 
 _E164_US = re.compile(r"\+1[2-9]\d{2}[2-9]\d{6}")
 _EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")

@@ -53,8 +53,12 @@ flowchart TD
     BOOK -. Booked showings .-> CASE
 ```
 
-The booking integration is **planned**, not active. `NoTours` currently returns
-no open times and no booked showings. A case may contain a configured booking
+The booking integration is **switched off**. `handle.py` asks
+`showing_bookings/lead_tours.py` for its tour source on each lead: unless the
+Booking settings tab's switch `lead_agent_uses_open_times` is on, and whenever
+that setting cannot be read, it is `NoTours`, which returns no open times and
+no booked showings. With the switch on, the booking service's open times and
+showings with room come through `tours_for_case` like any other source. A case may contain a configured booking
 link; without one, the policy tells the lead that the team will check and get
 back, and records a team note. A tour recorded in an outcome does not create a
 booking, phone contact, or calendar event.

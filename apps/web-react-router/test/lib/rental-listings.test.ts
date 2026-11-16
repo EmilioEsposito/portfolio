@@ -62,6 +62,7 @@ test("blackout dates are sent sorted, once each", () => {
     earliest_start: "09:00:00",
     latest_start: "18:00:00",
     blackout_dates: ["2027-07-04", "2027-01-01", "2027-07-04", ""],
+    showing_notice_hours: 24,
     showing_booking_url: "",
   };
   assert.deepEqual(cleanRules(rules).blackout_dates, ["2027-01-01", "2027-07-04"]);
