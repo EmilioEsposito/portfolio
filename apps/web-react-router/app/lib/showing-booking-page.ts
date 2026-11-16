@@ -121,7 +121,7 @@ export function dayKey(iso: string, timeZone: string): string {
 export type TimeChoice = {
   start: string;
   label: string;
-  /** Other people are already booked for this showing. */
+  /** A showing already booked, which this person would join. */
   join: boolean;
   preferred: boolean;
   /** What the time's button says after the time, if anything. */
@@ -130,17 +130,26 @@ export type TimeChoice = {
 
 export type DayGroup = { key: string; label: string; times: TimeChoice[] };
 
-/** A time's note: "Others booked" for a showing people already booked, else "Suggested" for a preferred time. */
+/**
+ * A time's note: "Suggested" for the times the API ranks first, a showing
+ * already booked (a join) or a preferred time. A join is not called out as
+ * booked: that can read as taken, and any showing can become a group.
+ */
 export function timeNote(offer: Pick<Offer, "join" | "preferred">): string | null {
-  if (offer.join) return "Others booked";
-  return offer.preferred ? "Suggested" : null;
+  return offer.join || offer.preferred ? "Suggested" : null;
+}
+
+/** The day the picker opens on: the day of the API's first offer, its best. */
+export function bestDayKey(offers: Offer[], timeZone: string): string | null {
+  return offers.length > 0 ? dayKey(offers[0].start, timeZone) : null;
 }
 
 /**
  * The offers by day in the unit's time zone, days in order and each day's
  * times in order. The API orders offers by kind (joins, then preferred, then
- * the rest); a person picks by day and time, so the page orders by time and
- * marks the kind on each time instead.
+ * the rest); a person picks by day and time, so the page orders by time,
+ * marks the best times "Suggested" and opens on the best one's day
+ * (`bestDayKey`).
  */
 export function groupOffers(offers: Offer[], timeZone: string): DayGroup[] {
   const sorted = [...offers].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));

@@ -6,6 +6,7 @@ import {
   type Offer,
   SERVER_MESSAGE,
   UNIT_GONE_MESSAGE,
+  bestDayKey,
   bookingBody,
   bookingPlace,
   dayKey,
@@ -67,7 +68,7 @@ test("a showing's span shares AM/PM when it can", () => {
   assert.equal(formatSpan("2027-04-14T15:45:00Z", "2027-04-14T16:15:00Z", NEW_YORK), "Wed, Apr 14, 11:45 AM to 12:15 PM");
 });
 
-test("offers are grouped by day and ordered by time, with joins and preferred times marked", () => {
+test("offers are grouped by day and ordered by time, joins and preferred times both suggested", () => {
   // The API orders joins first, then preferred times, then the rest.
   const offers = [
     offer("2027-04-15T20:00:00Z", { join: true, places_left: 3 }),
@@ -81,11 +82,24 @@ test("offers are grouped by day and ordered by time, with joins and preferred ti
     days.map((day) => [day.key, day.label, day.times.map((time) => [time.label, time.note])]),
     [
       ["2027-04-14", "Wed, Apr 14", [["4:00 PM", null], ["5:00 PM", "Suggested"], ["11:30 PM", null]]],
-      ["2027-04-15", "Thu, Apr 15", [["4:00 PM", "Others booked"]]],
-      ["2027-04-17", "Sat, Apr 17", [["10:00 AM", "Others booked"]]],
+      ["2027-04-15", "Thu, Apr 15", [["4:00 PM", "Suggested"]]],
+      ["2027-04-17", "Sat, Apr 17", [["10:00 AM", "Suggested"]]],
     ],
   );
   assert.deepEqual(groupOffers([], NEW_YORK), []);
+});
+
+test("the picker opens on the day of the API's first offer, not the earliest day", () => {
+  // The API ranks a join on Thursday first; Wednesday has earlier times.
+  const offers = [
+    offer("2027-04-15T20:00:00Z", { join: true }),
+    offer("2027-04-14T21:00:00Z", { preferred: true }),
+    offer("2027-04-14T20:00:00Z"),
+  ];
+  assert.equal(bestDayKey(offers, NEW_YORK), "2027-04-15");
+  // In the unit's time zone: 03:30 UTC Thursday is still Wednesday in New York.
+  assert.equal(bestDayKey([offer("2027-04-15T03:30:00Z")], NEW_YORK), "2027-04-14");
+  assert.equal(bestDayKey([], NEW_YORK), null);
 });
 
 test("an offer is found by its instant, whatever offset the start was written with", () => {

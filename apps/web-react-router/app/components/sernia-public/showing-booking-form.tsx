@@ -10,6 +10,7 @@ import {
   NETWORK_MESSAGE,
   PUBLIC_API,
   type UnitPage,
+  bestDayKey,
   bookingBody,
   fieldOrder,
   findOffer,
@@ -386,7 +387,13 @@ function TimePicker({
   const days = useMemo(() => groupOffers(unit.offers, unit.timezone), [unit.offers, unit.timezone]);
   const picked = findOffer(unit.offers, value);
   const [dayKey, setDayKey] = useState<string | null>(null);
-  const day = days.find((item) => item.key === dayKey) ?? days.find((item) => item.times.some((t) => t.start === value)) ?? days[0];
+  // The day chosen, else the picked time's day, else the day of the API's best offer.
+  const best = bestDayKey(unit.offers, unit.timezone);
+  const day =
+    days.find((item) => item.key === dayKey) ??
+    days.find((item) => item.times.some((t) => t.start === value)) ??
+    days.find((item) => item.key === best) ??
+    days[0];
   const headingId = useId();
 
   const errorLine = error ? (
@@ -429,13 +436,13 @@ function TimePicker({
         Pick a time
       </h2>
       <div role="group" aria-label="Day" className="flex flex-wrap gap-2">
-        {days.map((item, index) => {
+        {days.map((item) => {
           const current = item.key === day?.key;
           return (
             <button
               key={item.key}
               type="button"
-              ref={index === 0 ? focusRef : undefined}
+              ref={current ? focusRef : undefined}
               aria-pressed={current}
               onClick={() => setDayKey(item.key)}
               aria-describedby={error ? errorId : undefined}
