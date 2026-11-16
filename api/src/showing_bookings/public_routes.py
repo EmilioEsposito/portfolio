@@ -3,7 +3,8 @@
 This is the only part of the module the web server's ``/api`` proxy forwards
 for a Sernia host. Every route answers 404 and saves nothing while the
 setting ``public_booking_enabled`` is off (unset: off in production, on
-elsewhere).
+elsewhere), except the read and the cancel by token, so a cancel link in a
+text keeps working after booking is closed.
 
 - ``GET /units``: the units on offer for the list at ``/showings``: address,
   rent, lease start, and whether each has an open time now (``public_units.py``).
@@ -17,6 +18,9 @@ elsewhere).
   confirmation screen.
 - ``POST /bookings/mobile``: correct the mobile on a booking by its cancel
   token, which texts the confirmation again, at most twice per booking.
+- ``POST /bookings/cancel``: cancel a booking by its cancel token, up to the
+  showing's start. A second call answers the booking as cancelled and sends
+  nothing more.
 - ``POST /team-phone``: the team's number and extension, after Turnstile.
 
 A refusal answers ``{"detail": {"code", "message", "fields"}}``, where
@@ -35,7 +39,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings, public_units
+from api.src.showing_bookings import bookings, cancelling, public_units
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.settings import (
     current_environment,
@@ -47,8 +51,17 @@ PREFIX = "/showing-bookings/public"
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
-async def public_booking_switch() -> None:
-    """404, as for a path that does not exist, while public booking is off."""
+async def public_booking_switch(request: Request) -> None:
+    """404, as for a path that does not exist, while public booking is off.
+
+    The read and the cancel by token answer either way: a person booked
+    before booking was closed keeps a working cancel link. A token exists
+    only for a booking once made, so this shows nothing while booking has
+    never been on.
+    """
+    route = request.scope.get("route")
+    if getattr(route, "endpoint", None) in _ANSWER_WHEN_OFF:
+        return
     async with AsyncSessionFactory() as session:
         settings = await settings_for_delivery(session)
     if not public_booking_on(settings, current_environment()):
@@ -138,10 +151,10 @@ async def book(
 
 
 @public_router.post("/bookings/lookup", response_model=bookings.BookingView)
-async def lookup(request: Request):
+async def lookup(request: Request, now: datetime = Depends(clock)):
     try:
         body = bookings.parse_body(bookings.TokenRequest, await _body(request))
-        view = await bookings.booking_by_token(body.cancel_token)
+        view = await bookings.booking_by_token(body.cancel_token, now=now)
     except bookings.Refused as refused:
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
@@ -159,6 +172,25 @@ async def correct_mobile(
     except bookings.Refused as refused:
         return _refused(refused)
     return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+@public_router.post("/bookings/cancel", response_model=bookings.BookingView)
+async def cancel(
+    request: Request,
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    try:
+        body = bookings.parse_body(bookings.TokenRequest, await _body(request))
+        view = await cancelling.cancel_by_token(body.cancel_token, now=now, texts=texts)
+    except bookings.Refused as refused:
+        logfire.info("public cancellation refused", code=refused.code)
+        return _refused(refused)
+    return JSONResponse(view.model_dump(mode="json"), headers=_NO_STORE)
+
+
+# Answer while public booking is off (``public_booking_switch``).
+_ANSWER_WHEN_OFF = frozenset({lookup, cancel})
 
 
 @public_router.post("/team-phone", response_model=bookings.TeamPhone)

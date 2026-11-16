@@ -8,6 +8,9 @@
   listing's dates does not change what a person agreed to.
 - What a booking sends (``NOTICES_VERSION``): the prospect's confirmation
   text, the host's calendar event and the prospect's own invite.
+- What a cancellation sends (``CANCELLATION_VERSION``): the prospect's text
+  confirming their own cancellation, the text when the team cancels (or the
+  unit goes off the market), and the cancelled event and invite.
 
 Change the wording here and raise the version beside it. Emilio reviews the
 wording before launch.
@@ -25,6 +28,7 @@ from api.src.rental_listings.schema import RentalListing
 CONFIRMATIONS_VERSION = "v1"
 TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v1"
+CANCELLATION_VERSION = "v1"
 
 PETS_WORDING = "No pet dogs will live in the apartment."
 TEXTS_WORDING = "Text me about this showing and my rental inquiry."
@@ -165,3 +169,48 @@ def invite_description(cancel_url: str) -> str:
         f"To cancel, use this link: {cancel_url}\n"
         "Declining this invite does not cancel the showing; please use the link."
     )
+
+
+# ---------------------------------------------------------------------------
+# What a cancellation sends (CANCELLATION_VERSION)
+# ---------------------------------------------------------------------------
+
+
+def prospect_cancelled_text(visit: Visit, unit_url: str) -> str:
+    """To a prospect who cancelled: which showing, and where to book another time."""
+    return (
+        f"Sernia Capital: your showing on {when(visit)} at {place(visit)} is cancelled. "
+        f"To book another time: {unit_url}"
+    )
+
+
+def team_cancelled_text(visit: Visit, units_url: str) -> str:
+    """To a prospect whose showing the team cancelled, or whose unit went off the market."""
+    return (
+        f"Sernia Capital: we're sorry, we had to cancel your showing on {when(visit)} "
+        f"at {place(visit)}. Units open for showings: {units_url}"
+    )
+
+
+def host_event_cancelled_summary(visit: Visit) -> str:
+    return f"Cancelled showing: {visit.unit}"
+
+
+_REASONS = {
+    "prospect": "Everyone booked cancelled.",
+    "team": "The team cancelled it.",
+    "off_market": "The unit went off the market.",
+    "no_attendees": "No one is booked.",
+}
+
+
+def host_event_cancelled_description(reason: str | None) -> str:
+    return f"This showing is cancelled. {_REASONS.get(reason or '', '')}".strip()
+
+
+def invite_cancelled_summary(visit: Visit) -> str:
+    return f"Cancelled: {invite_summary(visit)}"
+
+
+def invite_cancelled_description() -> str:
+    return "Your in-person showing with Sernia Capital is cancelled."

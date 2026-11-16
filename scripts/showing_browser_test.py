@@ -123,7 +123,13 @@ async def rows() -> dict:
         )
     return {
         "showings": [
-            {"id": s.id, "starts_at": s.starts_at.isoformat(), "status": s.status} for s in showings
+            {
+                "id": s.id,
+                "starts_at": s.starts_at.isoformat(),
+                "status": s.status,
+                "cancel_reason": s.cancel_reason,
+            }
+            for s in showings
         ],
         "attendees": [
             {
@@ -132,6 +138,7 @@ async def rows() -> dict:
                 "mobile": a.mobile,
                 "email": a.email,
                 "status": a.status,
+                "cancel_reason": a.cancel_reason,
                 "source": a.source,
                 "texts_accepted": a.texts_accepted,
                 "requirement_confirmations": a.requirement_confirmations,

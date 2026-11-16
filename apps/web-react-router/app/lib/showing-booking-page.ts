@@ -41,6 +41,10 @@ export type BookingView = {
   timezone: string;
   mobile: string | null;
   corrections_left: number;
+  /** The start has passed: it can no longer be cancelled or changed online. */
+  started: boolean;
+  /** Cancelled by the team, or because the unit went off the market. */
+  cancelled_by_team: boolean;
 };
 
 /** `POST /units/{unit}/bookings`, 201. */

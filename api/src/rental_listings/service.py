@@ -104,12 +104,22 @@ async def save_listing(
 ) -> None:
     """Add the listing, or replace the one for the same unit, and record the change.
 
+    A listing saved with an off-market date cancels the unit's showings booked
+    from that date (``showing_bookings.cancelling.cancel_off_market``), in the
+    same transaction.
+
     Raises ``RentalDataInvalid`` and saves nothing when a check fails. Commits.
     """
     if problems := listing_problems(listing):
         raise RentalDataInvalid(problems)
     values = listing.model_dump(mode="python")
     values["preferred_showing_times"] = listing.model_dump(mode="json")["preferred_showing_times"]
+    if listing.off_market_on is not None:
+        # Imported here: showing bookings read listings through this module.
+        from api.src.showing_bookings import cancelling
+
+        # The shared booking lock before the listing's own, as every off-market save takes them.
+        await cancelling.lock_bookings(session)
     record = await _record(session, listing.unit, lock=True)
     if record is None:
         record = RentalListingRecord(**values)
@@ -127,6 +137,8 @@ async def save_listing(
             source=source,
         )
     )
+    if listing.off_market_on is not None:
+        await cancelling.cancel_off_market(session, listing.unit, listing.off_market_on)
     await session.commit()
 
 

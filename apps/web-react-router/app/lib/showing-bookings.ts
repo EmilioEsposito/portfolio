@@ -446,6 +446,19 @@ export interface OpenTimes {
   sample_calendar_in_use: boolean;
 }
 
+export interface BookedPerson {
+  id: number;
+  name: string;
+  /** "412-555-0117", or "no mobile". */
+  mobile: string;
+  email: string | null;
+  source: "page" | "team" | "lead_agent";
+  /** False for someone booked without texts: a cancellation texts them nothing. */
+  texts_accepted: boolean;
+  /** Set when the booking needs a call, such as "confirmation_undelivered". */
+  attention_reason: string | null;
+}
+
 export interface BookedShowing {
   id: number;
   unit: string;
@@ -453,12 +466,79 @@ export interface BookedShowing {
   host_name: string;
   attendees: number;
   capacity: number;
+  people: BookedPerson[];
+  /** A started showing can no longer be cancelled. */
+  started: boolean;
 }
 
 export interface ShowingsView {
   open_times: OpenTimes;
   booked: BookedShowing[];
   lead_agent_uses_open_times: boolean;
+  send_mode: SendMode;
+}
+
+export const ATTENTION_LABELS: Record<string, string> = {
+  confirmation_undelivered: "Confirmation text not delivered: call them",
+  confirmation_refused: "Quo refused the number: call them",
+  confirmation_not_sent: "Confirmation text not sent: call them",
+};
+
+/** Why a booking needs the team, in words; any reason not listed is shown humanized. */
+export function describeAttention(reason: string): string {
+  return ATTENTION_LABELS[reason] ?? `${humanize(reason)}: call them`;
+}
+
+/** A booking whose confirmation never reached the number: a cancellation does not text it again. */
+const WRONG_NUMBER = new Set(["confirmation_undelivered", "confirmation_refused"]);
+
+function texted(people: Pick<BookedPerson, "texts_accepted" | "mobile" | "attention_reason">[]): number {
+  return people.filter(
+    (person) =>
+      person.texts_accepted && person.mobile !== "no mobile" && !WRONG_NUMBER.has(person.attention_reason ?? ""),
+  ).length;
+}
+
+function modeNote(mode: SendMode): string {
+  if (mode === "capture") return " Capture mode: these are kept under Messages, not sent.";
+  if (mode === "off") return " Send mode is off: none of these go out.";
+  return "";
+}
+
+/** The confirmation before the team cancels a whole showing: what it changes and sends. */
+export function describeShowingCancel(
+  showing: Pick<BookedShowing, "unit" | "starts_at" | "host_name" | "people">,
+  mode: SendMode,
+): string {
+  const count = showing.people.length;
+  const people = count === 1 ? "the 1 person booked" : `the ${count} people booked`;
+  const texts = texted(showing.people);
+  const told =
+    texts === count
+      ? "Each gets a cancellation text"
+      : `${texts} of them get a cancellation text`;
+  return (
+    `Cancel the showing of ${showing.unit} on ${formatWhen(showing.starts_at)} for ${people}? ` +
+    `${told} with a link to the units open for showings, their calendar invites are withdrawn, ` +
+    `and ${showing.host_name}'s event is cancelled.${modeNote(mode)}`
+  );
+}
+
+/** The confirmation before the team removes one person. */
+export function describeRemoval(
+  showing: Pick<BookedShowing, "unit" | "starts_at" | "host_name" | "people">,
+  person: Pick<BookedPerson, "name" | "texts_accepted" | "mobile" | "attention_reason">,
+  mode: SendMode,
+): string {
+  const last = showing.people.length <= 1;
+  const text = texted([person]) ? `${person.name} gets a cancellation text, ` : `${person.name} gets no text, `;
+  const host = last
+    ? `and the showing is cancelled, with ${showing.host_name}'s event.`
+    : `and ${showing.host_name}'s event is updated.`;
+  return (
+    `Remove ${person.name} from the showing of ${showing.unit} on ${formatWhen(showing.starts_at)}? ` +
+    `${text}their calendar invite is withdrawn, ${host}${modeNote(mode)}`
+  );
 }
 
 export const CALENDAR_STATUS_LABELS: Record<CalendarStatus, string> = {

@@ -14,6 +14,9 @@ import {
   sameRules,
   sameListing,
   zillowHref,
+  cancellationQuestion,
+  cancellationsFrom,
+  listingSaveBody,
 } from "../../app/lib/rental-listings.ts";
 
 const unit = (patch: Partial<RentalListing> = {}): RentalListing => ({ ...newListing("12-A"), ...patch });
@@ -158,4 +161,36 @@ test("the Zillow ad links are trimmed and named in history", () => {
     ),
     ["Zillow ad (public): none → https://www.zillow.com/x"],
   );
+});
+
+test("an off-market date that cancels showings is asked about with the counts", () => {
+  const body = {
+    detail: {
+      code: "cancels_showings",
+      message: "Not saved. This cancels 2 showings and texts 3 people. Confirm to save.",
+      problems: [],
+      showings: 2,
+      people: 4,
+      people_texted: 3,
+    },
+  };
+  assert.deepEqual(cancellationsFrom(body), { showings: 2, people: 4, people_texted: 3 });
+  assert.equal(cancellationQuestion({ showings: 2, people: 4, people_texted: 3 }), "This cancels 2 showings and texts 3 people. Save?");
+  assert.equal(cancellationQuestion({ showings: 1, people: 1, people_texted: 1 }), "This cancels 1 showing and texts 1 person. Save?");
+  // Any other refusal is not a question.
+  assert.equal(cancellationsFrom({ detail: { message: "Not saved.", problems: ["Someone changed this"] } }), null);
+  assert.equal(cancellationsFrom({ detail: "Nope" }), null);
+  assert.equal(cancellationsFrom(null), null);
+});
+
+test("a save carries the counts the person agreed to, and only then", () => {
+  const listing = { unit: "320-03" } as unknown as Parameters<typeof listingSaveBody>[0];
+  const agreed = { showings: 2, people: 4, people_texted: 3 };
+  assert.deepEqual(listingSaveBody(listing, null, null), { listing });
+  assert.deepEqual(listingSaveBody(listing, listing, null), { listing, based_on: listing });
+  assert.deepEqual(listingSaveBody(listing, listing, agreed), {
+    listing,
+    based_on: listing,
+    confirm_cancellations: { showings: 2, people: 4, people_texted: 3 },
+  });
 });

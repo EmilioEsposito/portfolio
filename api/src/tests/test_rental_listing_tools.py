@@ -23,7 +23,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service, zillow_ad
@@ -33,6 +33,9 @@ from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.tools import rental_listing_tools as tools
 from api.src.sernia_ai.tools.workspace_tools import workspace_tools_disabled
+from api.src.showing_bookings.models import Showing, ShowingNotice
+from api.src.tests.showing_helpers import add_agent, add_attendee, add_showing, clear_showing_data
+from api.src.tests.showing_helpers import at as showing_at
 from api.src.tests.test_rental_listings import clear_rental_data
 from api.src.tests.test_zillow_ad import FETCHED_AT, LINK, ad_page
 
@@ -616,3 +619,96 @@ class TestOnTheGeneralAgent:
             )
 
         assert await units() == ON_FILE
+
+
+# An off-market date that cancels booked showings
+
+
+@pytest_asyncio.fixture
+async def booked_12a(on_file):
+    """One showing of 12-A booked on Wed Apr 14 2027 with one person, removed afterwards."""
+    await clear_showing_data()
+    agent_id = await add_agent()
+    showing_id = await add_showing(agent_id, unit="12-A", starts_at=showing_at(16))
+    await add_attendee(showing_id)
+    yield showing_id
+    await clear_showing_data()
+
+
+async def showing_and_notices(showing_id: int):
+    async with AsyncSessionFactory() as session:
+        showing = await session.get(Showing, showing_id)
+        notices = list(await session.scalars(select(ShowingNotice)))
+    return showing, notices
+
+
+EFFECT = "This cancels 1 showing and texts 1 person."
+
+
+class TestAnOffMarketDateThatCancelsShowings:
+    @pytest.mark.asyncio
+    async def test_with_nothing_booked_it_is_saved_at_once(self, on_file):
+        said = await tools.rental_listing_update(ctx(), unit="12-A", off_market_on=date(2027, 4, 1))
+        assert said.startswith("Saved.")
+        assert (await unit("12-A")).off_market_on == date(2027, 4, 1)
+
+    @pytest.mark.asyncio
+    async def test_the_first_call_saves_nothing_and_states_the_effect(self, booked_12a):
+        said = await tools.rental_listing_update(ctx(), unit="12-A", off_market_on=date(2027, 4, 1))
+
+        assert said.startswith(f"Not saved. {EFFECT} A person must approve that.")
+        assert f"off_market_effect={EFFECT!r}" in said
+        assert (await unit("12-A")).off_market_on is None
+        showing, notices = await showing_and_notices(booked_12a)
+        assert showing.status == "scheduled" and notices == []
+
+    @pytest.mark.asyncio
+    async def test_with_the_effect_stated_it_waits_for_a_person(self, booked_12a):
+        with pytest.raises(ApprovalRequired) as raised:
+            await tools.rental_listing_update(
+                ctx(), unit="12-A", off_market_on=date(2027, 4, 1), off_market_effect=EFFECT
+            )
+
+        assert raised.value.metadata == {"off_market_effect": EFFECT}
+        assert (await unit("12-A")).off_market_on is None
+        showing, notices = await showing_and_notices(booked_12a)
+        assert showing.status == "scheduled" and notices == []
+
+    @pytest.mark.asyncio
+    async def test_once_approved_it_saves_and_cancels(self, booked_12a):
+        said = await tools.rental_listing_update(
+            ctx(approved=True),
+            unit="12-A",
+            off_market_on=date(2027, 4, 1),
+            off_market_effect=EFFECT,
+        )
+
+        assert said.startswith("Saved.")
+        assert (await unit("12-A")).off_market_on == date(2027, 4, 1)
+        showing, notices = await showing_and_notices(booked_12a)
+        assert (showing.status, showing.cancel_reason) == ("cancelled", "off_market")
+        assert [(n.kind, n.status) for n in notices] == [("prospect_cancelled_by_team", "pending")]
+
+    @pytest.mark.asyncio
+    async def test_an_approval_of_an_effect_that_changed_saves_nothing(self, booked_12a):
+        await add_attendee(booked_12a, mobile="+14125550118", name="Robin Lee")
+
+        said = await tools.rental_listing_update(
+            ctx(approved=True),
+            unit="12-A",
+            off_market_on=date(2027, 4, 1),
+            off_market_effect=EFFECT,
+        )
+
+        assert said.startswith("Not saved. The effect changed since it was asked.")
+        assert "This cancels 1 showing and texts 2 people." in said
+        assert (await unit("12-A")).off_market_on is None
+        showing, notices = await showing_and_notices(booked_12a)
+        assert showing.status == "scheduled" and notices == []
+
+    @pytest.mark.asyncio
+    async def test_a_date_after_the_booked_showing_is_saved_at_once(self, booked_12a):
+        said = await tools.rental_listing_update(ctx(), unit="12-A", off_market_on=date(2027, 5, 1))
+        assert said.startswith("Saved.")
+        showing, notices = await showing_and_notices(booked_12a)
+        assert showing.status == "scheduled" and notices == []

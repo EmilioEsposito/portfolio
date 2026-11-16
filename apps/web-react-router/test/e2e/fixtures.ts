@@ -32,13 +32,14 @@ window.turnstile = {
 `;
 
 export type Rows = {
-  showings: { id: number; starts_at: string; status: string }[];
+  showings: { id: number; starts_at: string; status: string; cancel_reason: string | null }[];
   attendees: {
     showing_id: number;
     name: string;
     mobile: string | null;
     email: string | null;
     status: string;
+    cancel_reason: string | null;
     source: string;
     texts_accepted: boolean;
     requirement_confirmations: { key: string; wording: string; version: string }[];

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { CallLine } from "~/components/sernia-public/call-line";
 import {
@@ -10,6 +11,7 @@ import {
   formatSpan,
   readRefusal,
 } from "~/lib/showing-booking-page";
+import { cancelPath } from "~/lib/showing-cancel-page";
 
 /**
  * After booking: when and where, the number we texted with "Wrong number?
@@ -181,7 +183,13 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         {noMore && <CallLine siteKey={siteKey} lead="To change the number again," tail="." />}
       </div>
 
-      <p className="leading-7 text-muted-foreground">The text has a link to cancel if your plans change.</p>
+      <p className="leading-7 text-muted-foreground">
+        Plans changed?{" "}
+        <Link to={cancelPath(result.cancel_token)} className="font-medium text-foreground underline underline-offset-4">
+          Cancel this showing
+        </Link>
+        . The text has the same link.
+      </p>
     </div>
   );
 }

@@ -27,7 +27,11 @@ Signed-in Sernia users only, on every route.
 - ``POST /agents/load-samples``: add the made-up agents from ``seed.py``.
   Refused in production.
 - ``GET /showings``: each unit on offer with the offers it makes now, how each
-  agent's calendar was read, and the showings booked in the next 14 days.
+  agent's calendar was read, and the showings booked in the next 14 days with
+  the people booked in each and any booking that needs the team.
+- ``POST /showings/{id}/cancel``: cancel a showing and everyone in it.
+- ``POST /showings/{id}/attendees/{attendee_id}/remove``: remove one person.
+  Both send what ``cancelling.py`` describes; a second call changes nothing.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -44,7 +48,7 @@ from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.models import RentalListingRecord
-from api.src.showing_bookings import agents, connections, holds, open_times
+from api.src.showing_bookings import agents, cancelling, connections, holds, open_times
 from api.src.showing_bookings.guard import PRODUCTION
 from api.src.showing_bookings.models import (
     CalendarConnection,
@@ -53,11 +57,14 @@ from api.src.showing_bookings.models import (
     ShowingAttendee,
     ShowingNotice,
 )
+from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.schema import (
     DAYS_AHEAD,
+    AttendeeSource,
     ConnectionStatus,
     Email,
     Notice,
+    SendMode,
     ShowingAgent,
 )
 from api.src.showing_bookings.settings import (
@@ -69,7 +76,19 @@ from api.src.showing_bookings.settings import (
     read_settings,
     read_test_recipients,
 )
+from api.src.showing_bookings.wording import display_phone
 from api.src.utils.clerk import verify_serniacapital_user
+
+
+def text_sender() -> TextSender | None:
+    """None sends through Quo, behind the outbox's guard. Tests replace it with a stand-in."""
+    return None
+
+
+def clock() -> datetime:
+    """The time a team action is handled at. Tests replace it to move the clock."""
+    return datetime.now(UTC)
+
 
 router = APIRouter(
     prefix="/showing-bookings",
@@ -566,6 +585,21 @@ async def load_sample_agents(session: DBSession, user: User = Depends(verify_ser
 # ---------------------------------------------------------------------------
 
 
+class BookedPersonView(BaseModel):
+    """One person booked into a showing, as the team sees them."""
+
+    id: int
+    name: str
+    # "412-555-0117", or "no mobile".
+    mobile: str
+    email: str | None
+    source: AttendeeSource
+    # False for someone booked without texts: a cancellation sends them none.
+    texts_accepted: bool
+    # Set when the booking needs a call, such as "confirmation_undelivered".
+    attention_reason: str | None
+
+
 class BookedShowingView(BaseModel):
     id: int
     unit: str
@@ -573,6 +607,10 @@ class BookedShowingView(BaseModel):
     host_name: str
     attendees: int
     capacity: int
+    # The people booked, in the order they booked.
+    people: list[BookedPersonView]
+    # Started showings can no longer be cancelled.
+    started: bool
 
 
 class ShowingsView(BaseModel):
@@ -581,11 +619,12 @@ class ShowingsView(BaseModel):
     booked: list[BookedShowingView]
     # Whether the Zillow lead agent offers these times (the switch in settings).
     lead_agent_uses_open_times: bool
+    # The send mode, so a cancellation's confirmation can say what goes out.
+    send_mode: SendMode
 
 
 @router.get("/showings", response_model=ShowingsView)
-async def list_showings(session: DBSession):
-    now = datetime.now(UTC)
+async def list_showings(session: DBSession, now: datetime = Depends(clock)):
     try:
         found = await open_times.open_times(now=now, session=session)
     except RentalDataInvalid as invalid:
@@ -610,10 +649,33 @@ async def list_showings(session: DBSession):
         )
         .order_by(Showing.starts_at, Showing.unit)
     )
+    showings = [(showing, name, count) for showing, name, count in rows]
+    people: dict[int, list[BookedPersonView]] = {}
+    if showings:
+        for person in await session.scalars(
+            select(ShowingAttendee)
+            .where(
+                ShowingAttendee.showing_id.in_([showing.id for showing, *_ in showings]),
+                ShowingAttendee.status == "booked",
+            )
+            .order_by(ShowingAttendee.id)
+        ):
+            people.setdefault(person.showing_id, []).append(
+                BookedPersonView(
+                    id=person.id,
+                    name=person.name,
+                    mobile=display_phone(person.mobile),
+                    email=person.email,
+                    source=person.source,
+                    texts_accepted=person.texts_accepted,
+                    attention_reason=person.attention_reason,
+                )
+            )
     try:
-        switch = (await read_settings(session)).lead_agent_uses_open_times
+        settings = await read_settings(session)
+        switch, send_mode = settings.lead_agent_uses_open_times, settings.send_mode
     except Exception:
-        switch = False
+        switch, send_mode = False, "capture"
     return ShowingsView(
         open_times=found,
         booked=[
@@ -624,8 +686,56 @@ async def list_showings(session: DBSession):
                 host_name=name,
                 attendees=count,
                 capacity=showing.capacity,
+                people=people.get(showing.id, []),
+                started=showing.starts_at <= now,
             )
-            for showing, name, count in rows
+            for showing, name, count in showings
         ],
         lead_agent_uses_open_times=switch,
+        send_mode=send_mode,
+    )
+
+
+async def _team_cancel(action, user: User, **fields) -> cancelling.TeamCancel:
+    try:
+        result = await action
+    except cancelling.NotFound:
+        raise HTTPException(404, "No such showing or person.") from None
+    except cancelling.Started:
+        raise HTTPException(
+            409, "This showing has started; it can no longer be cancelled."
+        ) from None
+    logfire.info("showing bookings: team cancellation", user_id=user.id, **fields)
+    return result
+
+
+@router.post("/showings/{showing_id}/cancel", response_model=cancelling.TeamCancel)
+async def cancel_showing(
+    showing_id: int,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    """Cancel the showing and everyone in it: their texts, invites and the host's event."""
+    return await _team_cancel(
+        cancelling.cancel_showing(showing_id, now=now, texts=texts), user, showing_id=showing_id
+    )
+
+
+@router.post(
+    "/showings/{showing_id}/attendees/{attendee_id}/remove", response_model=cancelling.TeamCancel
+)
+async def remove_attendee(
+    showing_id: int,
+    attendee_id: int,
+    user: User = Depends(verify_serniacapital_user),
+    now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
+):
+    """Remove one person, with the team's cancellation text; the last one cancels the showing."""
+    return await _team_cancel(
+        cancelling.remove_attendee(showing_id, attendee_id, now=now, texts=texts),
+        user,
+        showing_id=showing_id,
+        attendee_id=attendee_id,
     )
