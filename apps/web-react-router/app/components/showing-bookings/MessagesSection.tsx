@@ -5,11 +5,13 @@ import { Button } from "~/components/ui/button";
 import {
   type DrainReport,
   type Notice,
+  ATTENTION_BADGES,
   CHANNEL_LABELS,
   MODE_LABELS,
   STATUS_LABELS,
   describeDrain,
   describeGuard,
+  describeNeedingTeam,
   formatWhen,
   humanize,
   needsAttention,
@@ -41,21 +43,28 @@ function NoticeItem({ notice }: { notice: Notice }) {
     <li
       className={cn(
         "rounded-lg border p-4",
-        needsAttention(notice.status) && "border-red-300 dark:border-red-900",
+        (notice.attention || needsAttention(notice.status)) && "border-red-300 dark:border-red-900",
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-medium">
-            {CHANNEL_LABELS[notice.channel]} · {humanize(notice.kind)}
+            {CHANNEL_LABELS[notice.channel]} · {notice.kind_label || humanize(notice.kind)}
           </p>
           <p className="mt-0.5 break-words text-sm text-muted-foreground">
             Unit {notice.unit} · showing {formatWhen(notice.showing_starts_at)} · to {noticeRecipients(notice)}
           </p>
         </div>
-        <Badge variant="outline" className={cn("shrink-0 font-medium", STATUS_STYLES[notice.status])}>
-          {STATUS_LABELS[notice.status]}
-        </Badge>
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          {notice.attention && (
+            <Badge variant="outline" className="font-medium border-red-300 text-red-700 dark:border-red-900 dark:text-red-400">
+              {ATTENTION_BADGES[notice.attention]}
+            </Badge>
+          )}
+          <Badge variant="outline" className={cn("font-medium", STATUS_STYLES[notice.status])}>
+            {STATUS_LABELS[notice.status]}
+          </Badge>
+        </div>
       </div>
       <p className="mt-3 whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 text-sm leading-6">{notice.wording}</p>
       {notice.last_error && (
@@ -70,6 +79,7 @@ function NoticeItem({ notice }: { notice: Notice }) {
               ? "Not sent"
               : `${STATUS_LABELS[notice.status]} ${formatWhen(notice.delivered_at)}`}
         {details.length > 0 && ` · ${details.join(" · ")}`}
+        {notice.alerted_at && ` · Team alerted ${formatWhen(notice.alerted_at)}`}
       </p>
     </li>
   );
@@ -111,6 +121,7 @@ export function MessagesSection() {
   }
 
   const pending = notices?.filter((notice) => notice.status === "pending").length ?? 0;
+  const needingTeam = notices ? describeNeedingTeam(notices) : null;
 
   return (
     <section aria-labelledby="messages-heading" className="rounded-xl border p-5 sm:p-6">
@@ -135,12 +146,17 @@ export function MessagesSection() {
         </div>
       </div>
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        Send pending now releases or stops the messages held for a confirmation text, then runs the sending step once,
-        as the job every minute does. Each message still goes through the send mode above.
+        Send pending now releases or stops the messages held for a confirmation text, queues the reminders due, then runs
+        the sending step once, as the job every minute does. Each message still goes through the send mode above.
       </p>
       <p role="status" aria-live="polite" className="mt-2 text-sm">
         {lastRun && `Last run: ${lastRun}`}
       </p>
+      {needingTeam && (
+        <p className="mt-3 rounded-lg border border-red-300 p-3 text-sm text-red-700 dark:border-red-900 dark:text-red-400">
+          {needingTeam} Each failed or stuck message is marked below, and the team is alerted once about each.
+        </p>
+      )}
       {error && (
         <p role="alert" className="mt-3 rounded-lg border border-destructive/50 p-3 text-sm">
           {error}

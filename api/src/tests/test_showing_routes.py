@@ -275,6 +275,9 @@ async def test_send_pending_runs_the_sending_step_once(api):
         "interrupted": 0,
         "released": 0,
         "stopped": 0,
+        "prospect_reminders": 0,
+        "resident_reminders": 0,
+        "alerts": 0,
     }
     body = (await api.get("/api/showing-bookings/notices")).json()
     assert {(n["status"], n["mode"], n["guard_reason"]) for n in body} == {

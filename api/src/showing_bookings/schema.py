@@ -35,6 +35,9 @@ NoticeStatus = Literal[
     "pending", "held", "captured", "sent", "failed", "unknown", "skipped", "cancelled"
 ]
 SendMode = Literal["off", "capture", "live"]
+# Why a notice needs the team: it failed (or may have gone out) and will not be
+# tried again, or it has not gone out ten minutes after it was due.
+NoticeAttention = Literal["failed", "stuck"]
 
 CONNECTION_STATUSES: tuple[str, ...] = get_args(ConnectionStatus)
 SHOWING_STATUSES: tuple[str, ...] = get_args(ShowingStatus)
@@ -44,6 +47,7 @@ ATTENDEE_SOURCES: tuple[str, ...] = get_args(AttendeeSource)
 CHANNELS: tuple[str, ...] = get_args(Channel)
 NOTICE_STATUSES: tuple[str, ...] = get_args(NoticeStatus)
 SEND_MODES: tuple[str, ...] = get_args(SendMode)
+NOTICE_ATTENTIONS: tuple[str, ...] = get_args(NoticeAttention)
 
 # Showings last 30 minutes and take up to 4 parties unless a showing says otherwise.
 SHOWING_MINUTES = 30
@@ -131,13 +135,16 @@ class ShowingAgent(BaseModel):
 class TextPayload(BaseModel):
     """A text. With ``also_to`` it is one group text to the notice's recipient and
     these numbers, who share one thread. With ``daytime_timezone`` it goes out only
-    from 8 AM to 9 PM there, waiting for 8 AM otherwise (a resident's text)."""
+    from 8 AM to 9 PM there, waiting for 8 AM otherwise (a resident's text or a
+    reminder). ``showing_ids`` are the showings a residents' reminder lists; at
+    delivery it lists only those still ahead."""
 
     model_config = ConfigDict(extra="forbid")
 
     body: str = Field(min_length=1, max_length=1600)
     also_to: list[Mobile] = Field(default_factory=list, max_length=9)
     daytime_timezone: str | None = None
+    showing_ids: list[int] = Field(default_factory=list)
 
 
 class EmailPayload(BaseModel):
@@ -176,6 +183,8 @@ class Notice(BaseModel):
 
     id: int
     kind: str
+    # What the notice is, in words (``wording.notice_label``).
+    kind_label: str
     channel: Channel
     showing_id: int
     attendee_id: int | None
@@ -195,6 +204,12 @@ class Notice(BaseModel):
     last_error: str | None
     created_at: datetime
     delivered_at: datetime | None
+    # "failed" (failed, or may have gone out, and never tried again) or "stuck"
+    # (not gone out ten minutes after it was due), as ``alerts.py`` decides;
+    # empty when it needs no one.
+    attention: NoticeAttention | None = None
+    # When the team was alerted about it, once.
+    alerted_at: datetime | None = None
 
 
 class HoldReport(BaseModel):

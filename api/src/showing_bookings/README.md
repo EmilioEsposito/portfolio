@@ -8,7 +8,8 @@ capture mode.
 
 The steps so far hold the tables, the notice outbox, the test harness, the
 calendar connections, the showing agents, the open times, the public
-booking API, cancelling, the residents' texts and the team's actions. Nothing is sent unless switched on: the setting starts in capture
+booking API, cancelling, the residents' texts, the team's actions, the
+reminders, the host's texts and the team's alerts. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -92,7 +93,10 @@ Quo sender is imported anywhere but `outbox.py` or the Google calendar adapter
 anywhere but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
 which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py` and
 `google_calendar.py` names Google's hosts, or if anything here uses the repo's
-general `send_message` or `create_calendar_event`, which have no guard.
+general `send_message` or `create_calendar_event`, which have no guard. The
+team's alert channel (`push.py`) is held to the same rule: only `outbox.py`
+imports it or calls `send_alert`, and the reminders, host's texts and alerts
+reach no provider but through the outbox.
 
 ## Send modes and the guard
 
@@ -136,6 +140,8 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
   2026-11-15 Quo accepted a send to a well-formed number that does not exist.
   A number like that is not caught when the text is sent; reading the text's
   status afterwards (`outbox.refresh_text_status`) is what catches it.
+- `TeamAlerter`: an alert on the team's phones. `push.PushTeamAlerter` uses
+  the Sernia web push, in production only (see Alerts to the team).
 - `CalendarSource`: busy blocks for a set of calendars over a window (raising
   `CalendarUnreadable`, with the calendars that were read, when one cannot be
   read), and creating, changing and cancelling events with invited guests.
@@ -147,7 +153,7 @@ Stand-ins in `fakes.py` replace both in tests and later steps:
 numbers) and can refuse a number, lose an answer or report a text undelivered;
 `InMemoryCalendar` holds busy blocks and events and can lose a calendar;
 `StandInContacts` answers made-up Quo contacts for the resident lookup and can
-fail. `seed.py` has two made-up agents, which
+fail; `RecordingAlerter` keeps every alert the team would have been pushed. `seed.py` has two made-up agents, which
 `api/seed_db.py` saves in non-production databases, and `fill_sample_week`,
 which fills an `InMemoryCalendar` with a made-up week of their busy times.
 
@@ -662,10 +668,12 @@ something:
 | pending, or unknown for less than 5 minutes | left held |
 
 The status is read from Quo through `outbox.refresh_text_status`.
-`holds.send_pending(now=)` runs `release_held` and then `outbox.drain`. The
-APScheduler job `showing-notices` runs it every minute, registered only when
-background automation is on; with nothing held or due it returns after one
-query. "Send pending now" on the tab runs the same two steps.
+`holds.send_pending(now=)` runs, in order, `release_held`,
+`reminders.queue_due`, `outbox.drain` and `alerts.check`. The APScheduler job
+`showing-notices` runs it every minute, registered only when background
+automation is on; with nothing held, due, recently failed or coming up in the
+next two days it returns after one query. "Send pending now" on the tab runs
+the same steps.
 
 ### Residents' texts
 
@@ -748,6 +756,94 @@ booking transaction, as it may read Quo.
   `wording.resident_cancelled_text`, version `RESIDENT_VERSION`.
 - No public answer carries anything about residents.
 
+### Reminders the evening before
+
+`reminders.py`. "The evening before" is 6 PM in the showing rules' time zone
+on the day before the showing (`reminders.due_at`). `reminders.queue_due(now=)`
+is a step of the job every minute: it queues every reminder due by `now` that
+is not queued yet, so it is safe to run every minute and catches up after a
+missed evening while the showing is still ahead.
+
+| Reminder | Kind | Goes to | Says |
+| --- | --- | --- | --- |
+| The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong | when, where, and the cancel link |
+| The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that evening by the announcement's own lookup, one group text for roommates | the times of the next day's scheduled showings there, in order |
+
+- A booking made at or after 6 PM the day before gets no reminder: the
+  confirmation it just received is enough. A showing first booked then is
+  left out of the residents' list too; its own announcement covers it.
+- The residents' reminder belongs to the day's first showing and lists every
+  showing in `payload.showing_ids`. A cancelled showing never stops it; at
+  delivery it is rewritten without the showings cancelled or started since,
+  and with none left it is not sent.
+- A vacant unit gets none. A lookup problem marks the day's showings at the
+  unit (`resident_attention`), as for an announcement. A unit looked up with no
+  one to text is not looked up again for an hour in that process.
+- Both are checked again when delivered (`delivery_checks.py`): still booked,
+  still scheduled, not started, and sent only from 8 AM to 9 PM, so a reminder
+  queued after 9 PM goes at 8 AM. The prospect's goes to the mobile on the
+  booking then. A cancellation stops a prospect's reminder that has not gone out.
+- The step reads the residents before its transaction, as that may reach Quo,
+  then queues everything holding the shared booking lock, in the module's lock
+  order.
+- Wording: `wording.prospect_reminder_text` and `wording.resident_reminder_text`,
+  version `REMINDER_VERSION`.
+
+### The host's texts inside 2 hours
+
+`host_texts.py`. The host's calendar event follows every change, but inside 2
+hours of the start a change also texts the host, from the team number, at
+their own mobile:
+
+| When, less than 2 hours before the start | Kind | Paths |
+| --- | --- | --- |
+| Someone books, joining or as a new showing | `host_late_join` | the page, the team's booking for a caller (`bookings.place_booking`) |
+| Someone cancels, or the team removes them | `host_late_cancel` | the cancel link, the team's Remove |
+| The showing is cancelled | `host_showing_cancelled` | the team's Cancel showing, an off-market date |
+| The team gives the showing to another host | `host_moved_to` to the new host, `host_moved_from` to the old | the team's Change host |
+
+- Delivered at once after the change commits, except an off-market save, whose
+  texts go with the job a minute later. A booking's host text goes after its
+  confirmation; a withdrawn booking's is stopped at delivery.
+- An agent with no mobile gets none. A text names the person and the showing,
+  never a number: no more than the host's event shows.
+- At delivery: only before the start; "someone booked" only while that person
+  is still booked; the cancel texts to the showing's host then; after a change
+  of host, each text to the host it names, the new host's only while they
+  still host it and the old host's only while they do not, so after quick
+  moves (A to B to A, or A to B to C) every text that goes is true when it goes.
+- Wording: `wording.host_joined_text`, `host_left_text`,
+  `host_showing_cancelled_text`, `host_moved_to_text`, `host_moved_from_text`,
+  version `HOST_TEXT_VERSION`.
+
+### Alerts to the team
+
+`alerts.py`. A notice needs the team when it:
+
+- failed: refused (`failed`) or may have gone out (`unknown`), and either way
+  will not be tried again. Not a prospect's confirmation whose number Quo
+  refused: the person was told on the page, and the booking is withdrawn or
+  marked on the Showings section;
+- is stuck: due ten minutes ago and neither gone out nor captured, skipped or
+  cancelled; or still held fifteen minutes after its confirmation text went
+  (ten minutes past the five-minute release).
+
+A notice merely captured or skipped never is. `alerts.check(now=)` is the
+job's last step, after the drain. For each notice it saves `alerted_at` and
+`alert_reason` on the row and commits first, then sends one alert: so a notice
+is alerted about once, even when the alert itself fails. Only notices from the
+last two days count. The alert names the kind of notice (`wording.notice_label`),
+the unit and the showing's time, never a phone number (`wording.alert_title`,
+`wording.alert_body`, version `ALERT_VERSION`), and opens the Booking settings tab.
+
+The channel is the Sernia web push the approval flow already uses
+(`push.PushTeamAlerter`, through `notify_all_sernia_users`): every phone and
+browser on which a team member turned on Sernia notifications, with no new
+provider or secret. `outbox.send_team_alert` is the only way to it, and it
+pushes only in production; elsewhere the alert is logged and kept on the row,
+never pushed. Tests pass `fakes.RecordingAlerter`; the live one refuses to run
+under pytest.
+
 ### Configuration
 
 Read at call time. Names only; values live in each environment.
@@ -768,10 +864,13 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   409. A live unit must be a rental listing and is saved as the listing spells it.
   The lead agent's switch is kept as stored.
 - `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
-- `GET /notices`: notices newest first, with their wording, status and mode; a
-  group text's other numbers are in `payload.also_to`.
+- `GET /notices`: notices newest first, with their wording, status and mode,
+  what each is in words (`kind_label`), whether it failed or is stuck
+  (`attention`) and when the team was alerted (`alerted_at`); a group text's
+  other numbers are in `payload.also_to`.
 - `POST /notices/send-pending`: run `holds.send_pending` once (release or
-  stop held notices, then `drain`) and answer its counts.
+  stop held notices, queue the reminders due, `drain`, alert the team) and
+  answer its counts.
 - `PUT /settings/public-booking`: `{public_booking_enabled: true | false | null}`,
   changing nothing else.
 - `GET /calendar/connections`: each connection with its last read and whether
@@ -901,12 +1000,18 @@ at both edges and across midnight; vacant units, roommates, leases by the
 showing day, internal contacts; each failed lookup and its mark; every
 cancellation path with the first text sent, held, stopped or being sent;
 capture mode and a live group text with a roommate outside the test list; and
-that no public answer mentions residents.
+that no public answer mentions residents. `test_showing_reminders.py` covers
+the reminders (at 5:59 and 6:00 PM, after a skipped evening and a missed one,
+a cancelled, withdrawn or late booking, a caller without texts, a wrong
+number; the residents' list with one and three showings, a vacant unit, a
+lookup problem, a showing cancelled between queuing and sending, a showing
+booked after; never twice), the host's texts inside and outside 2 hours for
+each path and a host without a mobile, each alert rule once only, the
+channel in and outside production, capture and live mode, the Messages
+list, and that no public answer changes.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- Reminders (the residents' evening-before list too), texts to the host, alerts
-  for failed sends, and the apply-link text after a showing to everyone not
-  marked a no-show.
+- The apply-link text after a showing to everyone not marked a no-show.
 - Reminders, per-lead links, and the lead agent's own showing in its case.
