@@ -351,11 +351,22 @@ unreadable, it gets its own `NoTours` and behaves exactly as before.
 
 With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`:
 
-- open times: the starts every unit on offer can take (as a new time or a
-  join), each with the agent who would host. The case lists times for no
-  particular unit, so a time open at one unit and not another is left out
-  rather than offered for the wrong unit.
+- open times: each unit's own starts (as a new time or a join), each a
+  `TourSlot` with its unit, which the case lists under that unit. No host's
+  name is passed on.
 - booked: the showings with room, by unit, which the lead policy offers first.
+
+and `lead_booking_for` adds what belongs to the lead's thread:
+
+- each unit's booking page with the thread's own token
+  (`zillow_leads/lead_links.py`), `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`,
+  as the case's booking link;
+- the thread's own upcoming showings, from the attendee rows tied to it
+  (`zillow_thread_id`): unit, start, and booked or the cancel reason. Nothing
+  about the host or anyone else booked.
+
+If the token or those rows cannot be read, the case keeps the listings' own
+links and has no own-showings section, and the error is logged.
 
 The source passes on only times that pass the lead agent's own fixed rules
 (`case.within_showing_rules`: its 24-hour floor `case.MIN_NOTICE`, the window,
@@ -434,7 +445,12 @@ tokens; a cancel token travels in the body for the same reason.
    - the attendee: the consent record (time, `wording.TEXTS_CONSENT_VERSION`,
      the page), the lease start and pet confirmations with the wording shown,
      its version and the time, the `?t=` lead token, the user agent, and the
-     `Signature-Agent` header.
+     `Signature-Agent` header. A lead token that belongs to a Zillow thread
+     (`zillow_leads.lead_links.thread_for_token`, the link the lead agent
+     sends) also sets `zillow_thread_id`, under a lock on the thread; an
+     unknown or malformed token is kept as it came (or dropped, if malformed)
+     and ties nothing. A thread already booked into the showing is 409
+     `already_booked`, as a mobile already in it is.
    - the notices: the prospect's confirmation text, due now; a host event
      notice (`host_event` with the first attendee, `host_event_update` for
      each one who joins); and the prospect's own invite (`prospect_invite`,
@@ -475,7 +491,7 @@ get one host inside the travel gap, which the database's no-overlap rule
 cannot see. Volume is a few bookings a day, so one lock is enough.
 
 Lock order, in every transaction that takes more than one: advisory locks
-first (the shared booking lock, unit and start, mobile, email), then the
+first (the shared booking lock, unit and start, mobile, email, Zillow thread), then the
 attendee, then its notices, then the showing; several attendees and several
 showings are locked in id order. A withdrawal and every cancellation take the
 shared booking lock too, so the number of people booked in a showing cannot
