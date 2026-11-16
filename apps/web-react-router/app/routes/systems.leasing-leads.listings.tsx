@@ -498,6 +498,7 @@ function UnitEditor({
   original,
   isNew,
   sharedBookingUrl,
+  rulesNoticeHours,
   onSaved,
   onCancel,
   onReload,
@@ -507,6 +508,7 @@ function UnitEditor({
   original: RentalListing;
   isNew: boolean;
   sharedBookingUrl: string;
+  rulesNoticeHours: number;
   onSaved: (unit: RentalListing) => void;
   onCancel: () => void;
   onReload: () => void;
@@ -642,6 +644,29 @@ function UnitEditor({
                     </Button>
                   )}
                 </div>
+              </Field>
+              <Field
+                id={id("notice")}
+                label="Notice before a showing (hours)"
+                hint={`Leave empty to use the showing rules' ${rulesNoticeHours} hours. Set it when this unit's resident needs more; a shorter notice has no effect.`}
+              >
+                <Input
+                  id={id("notice")}
+                  aria-describedby={id("notice-hint")}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={336}
+                  step={1}
+                  placeholder={String(rulesNoticeHours)}
+                  value={draft.showing_notice_hours ?? ""}
+                  onChange={(event) =>
+                    set(
+                      "showing_notice_hours",
+                      event.target.value === "" ? null : Math.round(Number(event.target.value)),
+                    )
+                  }
+                />
               </Field>
               <Field
                 id={id("booking")}
@@ -906,6 +931,25 @@ function RulesEditor({
               </select>
             </Field>
           </div>
+
+          <Field
+            id="rules-notice"
+            label="Notice before a showing (hours)"
+            hint="Open times start this many hours from now, so residents are told in time. A unit can ask for more. From 1 to 336."
+          >
+            <Input
+              id="rules-notice"
+              aria-describedby="rules-notice-hint"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={336}
+              step={1}
+              className="sm:w-40"
+              value={Number.isFinite(draft.showing_notice_hours) ? draft.showing_notice_hours : ""}
+              onChange={(event) => set("showing_notice_hours", Math.round(Number(event.target.value)))}
+            />
+          </Field>
 
           <Field
             id="rules-booking"
@@ -1232,6 +1276,7 @@ function RentalUnitsScreen() {
                 original={draftNew}
                 isNew
                 sharedBookingUrl={data.showing_rules.showing_booking_url}
+                rulesNoticeHours={data.showing_rules.showing_notice_hours}
                 onSaved={onUnitSaved}
                 onCancel={() => {
                   setDraftNew(null);
@@ -1248,6 +1293,7 @@ function RentalUnitsScreen() {
                 original={current}
                 isNew={false}
                 sharedBookingUrl={data.showing_rules.showing_booking_url}
+                rulesNoticeHours={data.showing_rules.showing_notice_hours}
                 onSaved={onUnitSaved}
                 onCancel={() => {}}
                 onReload={load}

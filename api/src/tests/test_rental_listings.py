@@ -208,6 +208,20 @@ class TestChecks:
         with pytest.raises(ValidationError):
             ShowingRules.model_validate({"earliestStart": "09:00"})
 
+    def test_showing_notice_is_from_one_hour_to_fourteen_days(self):
+        assert ShowingRules().showing_notice_hours == 24
+        assert RentalListing(unit="12-A").showing_notice_hours is None
+        assert listing_problems(RentalListing(unit="12-A", showing_notice_hours=48)) == []
+        for hours in (0, 337):
+            (problem,) = listing_problems(RentalListing(unit="12-A", showing_notice_hours=hours))
+            assert "showing_notice_hours" in problem
+            (problem,) = rules_problems(ShowingRules(showing_notice_hours=hours))
+            assert "showing_notice_hours" in problem
+        # Rules saved before the field existed read as 24 hours.
+        assert (
+            ShowingRules.model_validate({"timezone": "America/New_York"}).showing_notice_hours == 24
+        )
+
 
 class TestUnits:
     @pytest.mark.asyncio

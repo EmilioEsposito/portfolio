@@ -164,8 +164,13 @@ async def update_settings(
     row = await session.scalar(
         select(AppSetting).where(AppSetting.key == SETTINGS_KEY).with_for_update()
     )
-    if ShowingBookingSettings.model_validate(row.value) != body.based_on:
+    stored = ShowingBookingSettings.model_validate(row.value)
+    # The lead agent's switch has its own route and is kept as stored here, so a
+    # send-mode screen loaded before the switch moved neither undoes it nor is refused.
+    switch = {"lead_agent_uses_open_times": stored.lead_agent_uses_open_times}
+    if stored != body.based_on.model_copy(update=switch):
         raise HTTPException(409, "Settings changed elsewhere. Reload before saving.")
+    new = new.model_copy(update=switch)
     row.value = new.model_dump()
     await session.commit()
     logfire.info("showing bookings: settings updated", user_id=user.id, **new.model_dump())

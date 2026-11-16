@@ -242,3 +242,26 @@ async def test_the_lead_agent_switch_changes_only_itself(api):
     }
     shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
     assert shown["lead_agent_uses_open_times"] is True and shown["send_mode"] == "off"
+
+
+@pytest.mark.asyncio
+async def test_a_send_mode_save_keeps_the_lead_agent_switch_as_stored(api):
+    """A send-mode screen loaded before the switch moved neither undoes it nor is refused."""
+    before = {
+        "send_mode": "capture",
+        "live_units": [],
+        "test_sends_enabled": False,
+        "lead_agent_uses_open_times": False,
+    }
+    await store_settings(**before)
+    await api.put(
+        "/api/showing-bookings/settings/lead-agent", json={"lead_agent_uses_open_times": True}
+    )
+
+    response = await api.patch(
+        "/api/showing-bookings/settings",
+        json={"settings": {**before, "send_mode": "off"}, "based_on": before},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {**before, "send_mode": "off", "lead_agent_uses_open_times": True}
