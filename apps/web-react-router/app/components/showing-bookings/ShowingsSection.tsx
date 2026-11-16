@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 import {
+  type AgentCalendar,
   type BookedPerson,
   type BookedShowing,
   type BookingSettings,
@@ -19,7 +20,14 @@ import {
   describeShowingCancel,
   formatWhen,
 } from "~/lib/showing-bookings";
+import {
+  type Attendance,
+  type HostChangeResult,
+  describeAttendance,
+  describeHostChange,
+} from "~/lib/showing-team-actions";
 import { cn } from "~/lib/utils";
+import { AddBooking, AttendanceMarks, HostPicker } from "./TeamActions";
 import { useShowingBookingsApi } from "./use-showing-bookings-api";
 
 const STATUS_STYLES: Record<CalendarStatus, string> = {
@@ -136,11 +144,17 @@ function BookedItem({
   busy,
   onCancel,
   onRemove,
+  agents,
+  onMove,
+  onMark,
 }: {
   showing: BookedShowing;
   busy: boolean;
   onCancel: () => void;
   onRemove: (person: BookedPerson) => void;
+  agents: AgentCalendar[];
+  onMove: (agentId: number) => void;
+  onMark: (person: BookedPerson, attendance: Attendance) => void;
 }) {
   const label = `${showing.unit} ${formatWhen(showing.starts_at)}`;
   return (
@@ -154,6 +168,7 @@ function BookedItem({
         <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
           {showing.host_name} · {showing.attendees} of {showing.capacity}{" "}
           {showing.capacity === 1 ? "place" : "places"} taken
+          {!showing.started && <HostPicker showing={showing} agents={agents} busy={busy} onMove={onMove} />}
           {!showing.started && (
             <Button
               variant="outline"
@@ -184,7 +199,14 @@ function BookedItem({
                   </span>
                 )}
               </span>
-              {!showing.started && (
+              {showing.started ? (
+                <AttendanceMarks
+                  person={person}
+                  label={label}
+                  busy={busy}
+                  onMark={(attendance) => onMark(person, attendance)}
+                />
+              ) : (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -253,6 +275,47 @@ export function ShowingsSection() {
       `/showings/${showing.id}/attendees/${person.id}/remove`,
       `Removed ${person.name} from the showing of ${showing.unit}.`,
     );
+  }
+
+  async function run<T>(key: string, path: string, init: RequestInit, fallback: string, done: (body: T) => string) {
+    setActing(key);
+    setActionError(null);
+    setActionDone(null);
+    const result = await api<T>(path, init, fallback);
+    if (result.ok) {
+      setActionDone(done(result.body));
+      await load();
+    } else {
+      setActionError(result.message);
+    }
+    setActing(null);
+  }
+
+  async function moveHost(showing: BookedShowing, agentId: number) {
+    // Hosts are the team: nothing reaches a prospect, so no confirmation.
+    await run<HostChangeResult>(
+      `host-${showing.id}`,
+      `/showings/${showing.id}/host`,
+      { method: "POST", body: JSON.stringify({ agent_id: agentId }) },
+      "Could not change the host",
+      describeHostChange,
+    );
+  }
+
+  async function markAttendance(showing: BookedShowing, person: BookedPerson, attendance: Attendance) {
+    await run(
+      `attendance-${person.id}`,
+      `/showings/${showing.id}/attendees/${person.id}/attendance`,
+      { method: "PUT", body: JSON.stringify({ attendance }) },
+      "Could not mark who came",
+      () => describeAttendance(person, attendance),
+    );
+  }
+
+  async function booked(message: string) {
+    setActionError(null);
+    setActionDone(message);
+    await load();
   }
 
   async function setLeadAgent(on: boolean) {
@@ -366,7 +429,8 @@ export function ShowingsSection() {
             </ul>
           )}
 
-          <h4 className="mt-5 text-sm font-semibold">Booked in the next 14 days</h4>
+          <h4 className="mt-5 text-sm font-semibold">Booked, from the last 3 days to 14 days ahead</h4>
+          <AddBooking units={times.units} mode={view.send_mode} api={api} onBooked={booked} />
           {view.booked.length === 0 ? (
             <p className="mt-1 text-sm text-muted-foreground">No showings are booked.</p>
           ) : (
@@ -378,6 +442,9 @@ export function ShowingsSection() {
                   busy={acting !== null}
                   onCancel={() => void cancelShowing(showing)}
                   onRemove={(person) => void removePerson(showing, person)}
+                  agents={times.agents}
+                  onMove={(agentId) => void moveHost(showing, agentId)}
+                  onMark={(person, attendance) => void markAttendance(showing, person, attendance)}
                 />
               ))}
             </ul>
