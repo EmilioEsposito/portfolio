@@ -460,7 +460,8 @@ async def _read_calendars(
             calendars=len(calendar_ids),
         )
     read = _Read(start=start, end=end, busy=busy, unreadable=unreadable)
-    if key is not None:
+    # A fresh read covers one start only, so it is not kept for the next list.
+    if key is not None and not fresh:
         read.good_until = _clock() + FREE_BUSY_CACHE_SECONDS
         _FREE_BUSY[key] = read
     return read

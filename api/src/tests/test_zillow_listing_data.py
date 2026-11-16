@@ -104,7 +104,13 @@ class TestShape:
             "zillow_listing_url_public_view",
             "zillow_listing_url_internal_editor_view",
         }
-        assert set(RentalListing.model_fields) == mapped | not_given_to_the_lead_agent
+        # Applied by the booking service's open times, which the lead agent's tour
+        # source passes on; the lead agent keeps its own 24-hour floor.
+        applied_by_the_tour_source = {"showing_notice_hours"}
+        assert (
+            set(RentalListing.model_fields)
+            == mapped | not_given_to_the_lead_agent | applied_by_the_tour_source
+        )
 
     def test_the_zillow_ad_links_leave_the_case_unchanged(self):
         """The lead agent's case reads byte for byte the same with or without them."""
