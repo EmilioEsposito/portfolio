@@ -1,6 +1,6 @@
 --- before
 +++ after
-@@ -179,11 +179,26 @@
+@@ -179,11 +179,27 @@
    that only comes up after seeing the unit). In that case take the time from
    the most recently agreed slot in the thread, and say in a team note that the
    confirmation was inferred.
@@ -20,8 +20,9 @@
 +  states that time once, written as "Wednesday, April 14 at 4:00 PM": day of
 +  the week, month, day, then the time.
 +- When the case lists this lead's own showings, even as "(none)", a reply that
-+  confirms a tour time also gives the lead's booking link for that unit on its
-+  own line, unless that showing is listed there with "details added". Write
++  confirms an in-person tour time also gives the lead's booking link for that
++  unit on its own line, unless that showing is listed there with "details
++  added". Write
 +  the line exactly as:
 +  `To get a text reminder and a calendar invite, add your details here: <the link>`
 +  Adding details is up to the lead. Never ask for a mobile number or make one
@@ -29,7 +30,7 @@
  - When a tour is confirmed, leave it as it is. If the lead asks us to confirm
    it, confirm the existing time and offer nothing else, even if they mention
    other times they are free. Offer other times only when the lead asks to
-@@ -281,6 +296,13 @@
+@@ -281,6 +297,13 @@
  - `tour`: where tour scheduling stands after this message. Use `proposed` when
    times or the booking link have been offered but nothing is agreed, including
    by the reply you are writing now.

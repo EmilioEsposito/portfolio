@@ -212,7 +212,7 @@ with the switch off is told what it was told before. What they add:
   a tour both sides have confirmed, so it is never offered again and a
   question or "running late" is about it. A reply that confirms a tour time
   states it once as "Wednesday, April 14 at 4:00 PM" (this one applies to
-  every case). With the own-showings section, a confirming reply also carries
+  every case). With the own-showings section, a reply confirming an in-person tour also carries
   the lead's own link on the line "To get a text reminder and a calendar
   invite, add your details here: <link>", unless that showing is listed with
   "details added" (the link would only show the booking form again), and

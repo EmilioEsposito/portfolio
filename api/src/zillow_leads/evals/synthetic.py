@@ -57,6 +57,7 @@ LISTINGS = ListingData(
             unit="412-01",
             address="412 Example Ave, Unit 1",
             rent=1600,
+            virtual_tours=True,
             facts="One bedroom\nOff-street parking for one car",
         ),
     ],
@@ -126,13 +127,14 @@ def scenarios() -> list[Synthetic]:
         "Ua6gS3hD8jF1kL4qW7eR2t",
         "Tb2nM8vC5xZ1aQ7wE4rY6u",
     )
-    max_, ash, pat, rio, dee, eli = (
+    max_, ash, pat, rio, dee, eli, vic = (
         "Kc5vB9nM2xL8qW4eR7tY1u",
         "Wf3gH6jK9lZ2xC5vB8nM1q",
         "Rj7kL1zX4cV8bN2mQ5wE9t",
         "Ym4nB7vC1xZ5aS8dF2gH6j",
         "Qa9sD2fG5hJ8kL1zX4cV7b",
         "Nm6bV3cX9zL2kJ5hG8fD1s",
+        "Jp8rT4yU1iO6pA3sD9fG2h",
     )
     # Booked through the lead's own link: details in. A place a confirming
     # reply booked is provisional until the lead adds them.
@@ -307,6 +309,39 @@ def scenarios() -> list[Synthetic]:
             ),
             good_offered=[_at(14, 17)],
             good_unit="412-01",
+        ),
+        Synthetic(
+            scenario=Scenario(
+                thread=_thread(
+                    "synthetic-virtual-confirmed",
+                    (
+                        5,
+                        False,
+                        "I'm out of town. Could I do a virtual tour of 412 Example Ave on "
+                        "Wednesday at 5?",
+                    ),
+                )
+            ),
+            edit=CaseEdit(
+                unit_offered=OPEN,
+                booking_links=links(vic),
+                own_showings=[],
+                note="Made up: 412-01 allows virtual tours; Wednesday 5:00 is open there.",
+            ),
+            expected="reply",
+            why=(
+                "Confirm the virtual tour, saying plainly that it is virtual, with the time "
+                "once as 'Wednesday, April 14 at 5:00 PM'. No details line: a virtual tour "
+                "books nothing, so the link would only open the in-person booking form."
+            ),
+            booking=Booking(),
+            details_line=False,
+            good_reply=(
+                "Hello,\n\nYou're confirmed for a virtual tour of 412 Example Ave, Unit 1 on "
+                "Wednesday, April 14 at 5:00 PM." + SIGNATURE
+            ),
+            good_unit="412-01",
+            good_tour={"status": "confirmed", "start": _at(14, 17).isoformat(), "virtual": True},
         ),
         Synthetic(
             scenario=Scenario(

@@ -627,7 +627,7 @@ the time in the policy's form) and `tour_time_allowed`. That reply, and one
 that restates the lead's own booked showing in that form, is checked for
 `details_line`: the line with the lead's own link for that unit is required
 while the showing's details are not in, and forbidden once the case lists it
-with "details added". These read what code would do from the case (`checks.booking_change`, the
+with "details added"; a reply confirming a virtual tour must not carry it (nothing is booked for the link to complete). These read what code would do from the case (`checks.booking_change`, the
 same rules as `showing_bookings/lead_bookings.py`); a case without the
 own-showings section books nothing, as production with the switch off.
 
@@ -743,7 +743,7 @@ Do not merge if any of these happens:
 - A reply gives the details line for a showing the case lists with "details
   added" (`synthetic-reconfirm-details-added-2`, or any `details_line`
   failure where the line is present): the link would ask a booked lead to
-  book again.
+  book again. Or a reply confirming a virtual tour carries it (`synthetic-virtual-confirmed-0`).
 - An `expected_booking` failure in an "after" run: sending that decision would
   book, move or cancel something the reply does not say.
 - `states_tour_time` fails in more than one of the "after" replies that would

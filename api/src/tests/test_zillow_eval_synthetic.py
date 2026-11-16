@@ -233,6 +233,23 @@ def test_a_run_without_expectations_gets_no_expected_checks():
     assert checks(case, decision(), {}, ExpectedOutcome()) == {}
 
 
+def test_a_reply_confirming_a_virtual_tour_must_not_carry_the_details_line():
+    item = ITEMS["synthetic-virtual-confirmed-0"]
+    case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
+    unit = {"unit": "412-01"}
+    good = decision(reply_body=item.good_reply, lead=unit, tour=item.good_tour)
+    line = "To get a text reminder and a calendar invite, add your details here: "
+    bad_body = item.good_reply.removesuffix(synthetic.SIGNATURE) + (
+        f"\n\n{line}{item.edit.booking_links['412-01']}" + synthetic.SIGNATURE
+    )
+    bad = decision(reply_body=bad_body, lead=unit, tour=item.good_tour)
+
+    assert checks(case, good)["details_line"] is True
+    assert checks(case, bad)["details_line"] is False
+    # Nothing is booked for a virtual tour, so the booking checks do not apply.
+    assert "states_tour_time" not in checks(case, good)
+
+
 def test_restating_an_own_showing_needs_the_details_line_only_while_details_are_missing():
     line = "To get a text reminder and a calendar invite, add your details here: "
     unit = {"unit": "320-03"}

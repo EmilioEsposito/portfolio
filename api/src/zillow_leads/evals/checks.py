@@ -179,6 +179,13 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
                 if added
                 else bool(link) and _has_details_line(body, link)
             )
+        # A virtual tour books nothing, so there is no place for the link to complete.
+        elif (
+            case.own_showings is not None
+            and outcome.tour.virtual
+            and outcome.tour.status in ("confirmed", "rescheduled")
+        ):
+            checks["details_line"] = not _has_details_line(body)
         return checks
 
 
