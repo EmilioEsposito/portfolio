@@ -469,6 +469,8 @@ export interface BookedShowing {
   people: BookedPerson[];
   /** A started showing can no longer be cancelled. */
   started: boolean;
+  /** Why the unit's residents were not texted about it, such as "lookup_failed". */
+  resident_attention: string | null;
 }
 
 export interface ShowingsView {
@@ -487,6 +489,26 @@ export const ATTENTION_LABELS: Record<string, string> = {
 /** Why a booking needs the team, in words; any reason not listed is shown humanized. */
 export function describeAttention(reason: string): string {
   return ATTENTION_LABELS[reason] ?? `${humanize(reason)}: call them`;
+}
+
+export const RESIDENT_ATTENTION_LABELS: Record<string, string> = {
+  lookup_failed: "Could not read who lives here: tell the resident yourself",
+  lease_dates_missing: "A contact at this unit has no lease dates: check who lives here and tell them yourself",
+  unit_key_unreadable: "The unit key does not read as property-unit: tell the resident yourself",
+  unit_spelled_differently: "A tenant's contact spells this unit differently: fix it, then tell the resident yourself",
+  resident_without_mobile: "A current tenant has no mobile on their contact: tell them yourself",
+  too_many_residents: "More residents than one group text takes: tell them yourself",
+};
+
+/** Why a showing's residents were not texted, in words. */
+export function describeResidentAttention(reason: string): string {
+  return RESIDENT_ATTENTION_LABELS[reason] ?? `Residents not texted (${humanize(reason)}): tell them yourself`;
+}
+
+/** Everyone a notice reaches: its recipient, and the other numbers of a group text. */
+export function noticeRecipients(notice: Pick<Notice, "recipient" | "payload">): string {
+  const others = notice.payload?.also_to;
+  return Array.isArray(others) && others.length > 0 ? [notice.recipient, ...others].join(", ") : notice.recipient;
 }
 
 /** A booking whose confirmation never reached the number: a cancellation does not text it again. */

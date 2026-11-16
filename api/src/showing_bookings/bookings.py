@@ -56,6 +56,7 @@ from api.src.showing_bookings import (
     host_event,
     open_times,
     outbox,
+    resident_notices,
     turnstile,
     wording,
 )
@@ -594,6 +595,8 @@ async def book(
         settings = await settings_for_delivery(session)
     checked = _check_fields(body, listing, now)
     await _check_turnstile(body.turnstile_token, facts.ip)
+    # Read before the transaction, as it may reach Quo; used only for a new showing.
+    found = await resident_notices.find_for(listing.unit, checked.start, rules)
     lead_token = (
         body.lead_token if body.lead_token and _LEAD_TOKEN.fullmatch(body.lead_token) else None
     )
@@ -689,6 +692,21 @@ async def book(
                 rules=rules,
                 now=now,
             )
+            if check.kind == "new":
+                await resident_notices.queue_new_showing(
+                    session,
+                    showing,
+                    found,
+                    rules=rules,
+                    now=now,
+                    waits_for_notice_id=confirmation.id,
+                )
+            else:
+                # An announcement stopped with an earlier confirmation that failed
+                # waits for this one instead; one that went out is left as it is.
+                await resident_notices.bring_back(
+                    session, showing.id, waits_for_notice_id=confirmation.id, now=now
+                )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
         logfire.info("showing booking lost a race", unit=listing.unit)
@@ -750,6 +768,7 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
         attendee.cancelled_at = now
         # The session does not flush on its own before the count below.
         await session.flush()
+        await resident_notices.hand_over(session, confirmation_id, attendee_id)
         stopped = await holds.stop_waiting_on(
             session, confirmation_id, note=WITHDRAWN_NOTE, include_released=True
         )
@@ -768,6 +787,7 @@ async def withdraw(attendee_id: int, confirmation_id: int, *, now: datetime) -> 
             showing.cancelled_at = now
             # Only when someone else left in between could the event be out already.
             await cancelling.queue_host_cancel(session, showing, now)
+            await cancelling.queue_resident_cancellation(session, showing, now=now)
         elif showing.status == "scheduled":
             update_queued = await queue_host_update_after_leaving(
                 session, showing=showing, attendee_id=attendee_id, now=now, why="withdrawn"
@@ -1040,6 +1060,11 @@ async def correct_mobile(
                 )
                 .values(status="held", waits_for_notice_id=confirmation.id, last_error=None),
                 execution_options={"synchronize_session": False},
+            )
+            # The residents' announcement may have been handed to someone else
+            # and stopped there: bring it back by showing, as a join does.
+            await resident_notices.bring_back(
+                session, showing_id, waits_for_notice_id=confirmation.id, now=now
             )
             attendee.mobile = mobile
             if attendee.attention_reason and attendee.attention_reason.startswith("confirmation_"):

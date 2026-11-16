@@ -5,13 +5,17 @@
   undelivered.
 - ``InMemoryCalendar`` holds busy times and events in memory, and can be told
   to lose a calendar.
+- ``StandInContacts`` answers made-up Quo contacts for the resident lookup,
+  with residents a test adds, or sample residents for every unit outside
+  production, and can be told to fail.
 """
 
 import asyncio
+import zlib
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from api.src.showing_bookings.providers import (
     BusyBlock,
@@ -34,6 +38,12 @@ class RecordedText:
     to: str
     body: str
     provider_id: str
+    # Every number of a group text, the first being ``to``; empty for a 1:1 text.
+    group: tuple[str, ...] = ()
+
+    @property
+    def numbers(self) -> tuple[str, ...]:
+        return self.group or (self.to,)
 
 
 class RecordingTextSender:
@@ -60,18 +70,36 @@ class RecordingTextSender:
         self._statuses[number] = status
 
     def to(self, number: str) -> list[str]:
-        """The bodies of the texts sent to ``number``, in order."""
-        return [text.body for text in self.sent if text.to == number]
+        """The bodies of the texts that reached ``number``, group texts included, in order."""
+        return [text.body for text in self.sent if number in text.numbers]
+
+    def groups(self) -> list[RecordedText]:
+        """The group texts, in order."""
+        return [text for text in self.sent if text.group]
 
     async def send_text(self, to: str, body: str) -> SentText:
+        return await self._record([to], body, group=False)
+
+    async def send_group_text(self, to: Sequence[str], body: str) -> SentText:
+        return await self._record(list(to), body, group=True)
+
+    async def _record(self, numbers: list[str], body: str, *, group: bool) -> SentText:
         # Let other tasks run first, so concurrent deliveries really interleave.
         await asyncio.sleep(0)
-        if to in self._refusals:
-            raise self._refusals[to]
+        for number in numbers:
+            if number in self._refusals:
+                raise self._refusals[number]
         self._count += 1
         provider_id = f"AC{self._count:04d}"
-        self.sent.append(RecordedText(to=to, body=body, provider_id=provider_id))
-        if to in self._lost_answers:
+        self.sent.append(
+            RecordedText(
+                to=numbers[0],
+                body=body,
+                provider_id=provider_id,
+                group=tuple(numbers) if group else (),
+            )
+        )
+        if any(number in self._lost_answers for number in numbers):
             raise TimeoutError("The text went out but its answer was lost.")
         return SentText(provider_id=provider_id, provider_status="queued")
 
@@ -161,3 +189,97 @@ class InMemoryCalendar:
     async def cancel_event(self, calendar_id: str, event_id: str) -> None:
         self._existing(calendar_id, event_id).cancelled = True
         self.log.append(("cancel", calendar_id, event_id))
+
+
+# ---------------------------------------------------------------------------
+# Residents: made-up Quo contacts
+# ---------------------------------------------------------------------------
+
+# Made-up first names for sample residents. Numbers are 555-0160 to 555-0199.
+_SAMPLE_NAMES = ("Morgan Ellis", "Riley Chen", "Jordan Vega", "Taylor Brooks", "Avery Quinn")
+_SAMPLE_LEASE = ("2020-01-01", "2099-12-31")
+
+
+def contact(
+    name: str,
+    mobile: str | None,
+    *,
+    prop: str,
+    unit: str,
+    lease_start: str | None = _SAMPLE_LEASE[0],
+    lease_end: str | None = _SAMPLE_LEASE[1],
+    company: str = "",
+) -> dict:
+    """A Quo contact as the API returns it, with the tenant custom fields."""
+    first, _, last = name.partition(" ")
+    fields = [
+        {"name": "Property", "value": prop},
+        {"name": "Unit #", "value": unit},
+        {"name": "Lease Start Date", "value": lease_start},
+        {"name": "Lease End Date", "value": lease_end},
+    ]
+    return {
+        "id": f"CT{zlib.crc32(f'{name}|{mobile}|{prop}|{unit}'.encode()):010d}",
+        "defaultFields": {
+            "firstName": first,
+            "lastName": last,
+            "company": company,
+            "phoneNumbers": [{"name": "mobile", "value": mobile}] if mobile else [],
+        },
+        "customFields": [field for field in fields if field["value"] is not None],
+    }
+
+
+def sample_contacts(unit: str) -> list[dict]:
+    """Made-up residents for any unit key, the same each time: none, one, or two roommates."""
+    prop, hyphen, number = unit.strip().rpartition("-")
+    if not hyphen:
+        return []
+    digits = sum(int(c) for c in unit if c.isdigit())
+    count = digits % 3
+    first = 60 + (digits * 2) % 38
+    return [
+        contact(
+            _SAMPLE_NAMES[(digits + index) % len(_SAMPLE_NAMES)],
+            f"+141255501{first + index:02d}",
+            prop=prop,
+            unit=number,
+        )
+        for index in range(count)
+    ]
+
+
+class StandInContacts:
+    """A resident lookup's ``ContactSource`` that never reaches Quo.
+
+    Contacts a test adds are answered for every unit; with ``samples`` on,
+    ``sample_contacts`` adds made-up residents for the unit asked about.
+    """
+
+    def __init__(self, *, samples: bool = False) -> None:
+        self.samples = samples
+        self.added: list[dict] = []
+        self.reads: list[str] = []
+        self._failure: Exception | None = None
+
+    def add(self, name: str, mobile: str | None, *, unit: str, **fields) -> dict:
+        """Add a contact living at ``unit`` (a key such as ``320-03``)."""
+        prop, _, number = unit.rpartition("-")
+        made = contact(name, mobile, prop=prop, unit=number, **fields)
+        self.added.append(made)
+        return made
+
+    def fail(self, error: Exception | None = None) -> None:
+        """Fail every read, as Quo out of reach would."""
+        self._failure = error or ConnectionError("Quo is out of reach.")
+
+    async def contacts(self, unit: str) -> list[dict]:
+        self.reads.append(unit)
+        if self._failure is not None:
+            raise self._failure
+        return [*self.added, *(sample_contacts(unit) if self.samples else [])]
+
+
+def lease_day(value: date) -> str:
+    """A lease date as Quo stores it."""
+    return f"{value.isoformat()}T16:00:00.000+0000"

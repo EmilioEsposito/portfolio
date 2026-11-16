@@ -8,7 +8,7 @@ capture mode.
 
 The steps so far hold the tables, the notice outbox, the test harness, the
 calendar connections, the showing agents, the open times, the public
-booking API and cancelling. Nothing is sent unless switched on: the setting starts in capture
+booking API, cancelling and the residents' texts. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -80,11 +80,17 @@ later `not_before`, up to five attempts.
 Nothing sends email yet. An email notice is captured like any other, and one
 the guard would send is saved as `failed` with the reason `no_email_sender`.
 
+A text notice to several numbers is one group text: the notice's
+`recipient` is the first number and `payload.also_to` holds the rest, who
+share one thread. The guard counts every number in it, so it is a test send
+only when every number is a test recipient.
+
 `outbox.py` is the only file in this module that hands a row to a provider.
 `test_showing_boundaries.py` fails if another file uses a sending method (a
-text, or a calendar event write, which invites people), if the Quo sender is
-imported anywhere but `outbox.py` or the Google calendar adapter anywhere but
-`connections.py`, if a file other than `google_oauth.py` and
+text, a group text, or a calendar event write, which invites people), if the
+Quo sender is imported anywhere but `outbox.py` or the Google calendar adapter
+anywhere but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
+which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py` and
 `google_calendar.py` names Google's hosts, or if anything here uses the repo's
 general `send_message` or `create_calendar_event`, which have no guard.
 
@@ -120,8 +126,10 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
 
 `providers.py` defines what the module needs from outside:
 
-- `TextSender`: send a text and read its status. `quo.QuoTextSender` sends from
-  the shared team line through the shared OpenPhone client. Quo's refusals
+- `TextSender`: send a text, send one group text to 2 to 10 numbers, and read
+  a text's status. `quo.QuoTextSender` sends from the shared team line through
+  the shared OpenPhone client; a group text is the same call with several
+  numbers in `to`. Quo's refusals
   (opted out `0201400`, invalid number `0202400`, unreachable `0203400`) and
   other 4xx answers become `NotSent`; a 408, a 5xx or a timeout propagates and
   is saved as `unknown`. A 202 means Quo accepted the text and nothing more: on
@@ -135,9 +143,11 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
   connections below.
 
 Stand-ins in `fakes.py` replace both in tests and later steps:
-`RecordingTextSender` keeps every text in order and can refuse a number, lose
-an answer or report a text undelivered; `InMemoryCalendar` holds busy blocks
-and events and can lose a calendar. `seed.py` has two made-up agents, which
+`RecordingTextSender` keeps every text in order (group texts with all their
+numbers) and can refuse a number, lose an answer or report a text undelivered;
+`InMemoryCalendar` holds busy blocks and events and can lose a calendar;
+`StandInContacts` answers made-up Quo contacts for the resident lookup and can
+fail. `seed.py` has two made-up agents, which
 `api/seed_db.py` saves in non-production databases, and `fill_sample_week`,
 which fills an `InMemoryCalendar` with a made-up week of their busy times.
 
@@ -531,8 +541,11 @@ because phones and mail scanners open links to preview them.
   `started`; so is the team (409 on its routes).
 - Twice is safe: a second call finds nothing booked, changes nothing and
   queues nothing.
-- Residents are not texted yet: `cancelling.queue_resident_cancellation` is
-  where the resident's cancellation text goes, and queues nothing today.
+- A cancelled showing texts its residents when they were told of it (see
+  Residents' texts below): the last prospect cancelling, the team cancelling
+  or removing the last person, the unit going off the market, and a withdrawn
+  booking that leaves the showing empty all call
+  `cancelling.queue_resident_cancellation`.
 - When a listing is saved with an `off_market_on` date
   (`rental_listings.service.save_listing`, from the rental listings screen,
   the MCP service or the general agent's tool), its scheduled showings from
@@ -583,6 +596,85 @@ APScheduler job `showing-notices` runs it every minute, registered only when
 background automation is on; with nothing held or due it returns after one
 query. "Send pending now" on the tab runs the same two steps.
 
+### Residents' texts
+
+Most units are lived in, so a new showing texts the unit's residents
+(`residents.py`, `resident_notices.py`).
+
+Who the residents are: the team's Quo contacts whose "Property" and "Unit #"
+match the listing's unit key (`320-03` is Property `320`, Unit # `03`), whose
+lease ("Lease Start Date" to "Lease End Date") is active on the day of the
+showing in the showing rules' time zone, and who are not internal contacts.
+The field rules are the Sernia AI tenant tools' own, moved to
+`api/src/open_phone/tenants.py` so both read contacts the same way. Each
+resident's first phone number is used. No resident on a current lease means
+the unit is vacant and nothing is sent.
+
+Where the contacts come from (`residents.contact_source`): in production, the
+team's contacts through the shared contact store in `open_phone/service.py`,
+which fetches the list at most once every five minutes; everywhere else, made-up
+residents on 555-0160 to 555-0199 numbers for every unit
+(`fakes.sample_contacts`: none, one or two by the unit key, the same each
+time), the way the sample calendar stands in for Google. So no real resident's
+number is stored in a preview or a local database. The lookup runs before the
+booking transaction, as it may read Quo.
+
+| When | The residents get |
+| --- | --- |
+| A new showing is booked | one text from the team number (`resident_new_showing`), held behind the booking prospect's confirmation text like the host's event |
+| Someone joins a booked showing | nothing |
+| The showing is cancelled after they were told | a cancellation text (`resident_cancelled`) to the same numbers |
+| The showing is cancelled before their text went out | nothing: their text is stopped with the showing's other notices |
+
+- One notice per showing for all of a unit's residents (recipient key
+  `residents`): an ordinary text for one resident, one group text for
+  roommates, as the team's tenant texts are, so they share one thread.
+- Held like the host's event: released when the confirmation is reported
+  delivered (or captured), let go after five minutes with no report, stopped
+  when it is undelivered or the booking is withdrawn. When someone else is
+  still booked in the showing, the text waits for their confirmation instead
+  (`resident_notices.hand_over`), so a showing that goes ahead is still
+  announced. That is their current confirmation: the latest one sent to the
+  mobile on their booking now, so after a corrected mobile the replacement,
+  and while a correction is still being sent, the text to the number they
+  have (a later correction that takes over re-points it, as for every held
+  notice).
+- Brought back: when the announcement was stopped because the confirmation it
+  waited for failed (undelivered, refused or not sent) or its booking was
+  withdrawn, while the showing stays scheduled, a person who joins later
+  holds it again behind their own confirmation
+  (`resident_notices.bring_back`), and anyone booked who corrects their
+  mobile does the same behind their new text, whoever's confirmation the
+  announcement last waited on. It is the same row either way, so a showing never gets two
+  announcements; one stopped for a cancelled showing or a passed start time
+  stays stopped.
+- Daytime only: a resident's text due outside 8 AM to 9 PM in the showing
+  rules' time zone waits for the next 8 AM (`TextPayload.daytime_timezone`,
+  applied by the outbox when the text is due, in capture mode too). One whose
+  showing has started by then, or a new-showing text whose showing is
+  cancelled, is cancelled instead of sent.
+- "Told" means the first text was sent, captured, may have gone out
+  (unknown), or is being sent when the showing is cancelled. The cancellation
+  text never overtakes the announcement: while the announcement is being sent
+  it waits a minute, then goes only if the announcement went out, and is
+  cancelled ("never went out") if it failed or was stopped.
+- A lookup that goes wrong never blocks a booking. The booking stands, no
+  resident text is queued, and the showing gets `resident_attention`, which
+  the Showings section shows beside it: `lookup_failed` (Quo out of reach),
+  `lease_dates_missing` (no one at the unit has a current lease, and a
+  non-internal contact naming it exactly lacks a readable lease start or end
+  date, so it may be lived in; a past or future tenant with both dates
+  readable is not this), `unit_key_unreadable` (a key with no hyphen),
+  `unit_spelled_differently` (no
+  contact matches exactly, but a current tenant's contact names the unit
+  another way, such as `3` for `03`), `resident_without_mobile`, or
+  `too_many_residents` (more than ten).
+- Behind the guard like every notice: captured unless the unit is live in
+  production or every number in the text is a test recipient.
+- Wording: `wording.resident_new_showing_text` and
+  `wording.resident_cancelled_text`, version `RESIDENT_VERSION`.
+- No public answer carries anything about residents.
+
 ### Configuration
 
 Read at call time. Names only; values live in each environment.
@@ -603,7 +695,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   409. A live unit must be a rental listing and is saved as the listing spells it.
   The lead agent's switch is kept as stored.
 - `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
-- `GET /notices`: notices newest first, with their wording, status and mode.
+- `GET /notices`: notices newest first, with their wording, status and mode; a
+  group text's other numbers are in `payload.also_to`.
 - `POST /notices/send-pending`: run `holds.send_pending` once (release or
   stop held notices, then `drain`) and answer its counts.
 - `PUT /settings/public-booking`: `{public_booking_enabled: true | false | null}`,
@@ -620,7 +713,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `GET /showings`: `open_times` for every unit on offer, the scheduled showings
   in the next 14 days with host, attendee count and the people booked (name,
   mobile, email, whether they take texts, and `attention_reason` when the
-  booking needs a call), the lead agent's switch and the send mode.
+  booking needs a call), `resident_attention` when the residents were not
+  texted, the lead agent's switch and the send mode.
 - `POST /showings/{id}/cancel`: cancel a showing and everyone in it.
 - `POST /showings/{id}/attendees/{attendee_id}/remove`: remove one person.
   Both answer `{showing_id, showing_status, attendees_cancelled, texts_queued}`;
@@ -629,8 +723,8 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
 mode, Messages, Calendar connections, Showing agents and Showings sections.
 The Showings section holds the lead agent's switch, lists who is coming to
-each showing with a mark on a booking that needs a call, and has Cancel
-showing and Remove, each behind a confirmation that says what will be sent.
+each showing with a mark on a booking that needs a call and a line when the
+residents were not texted, and has Cancel showing and Remove, each behind a confirmation that says what will be sent.
 
 ## Tests
 
@@ -664,12 +758,18 @@ prospect with others booked, the last one, twice, after the start, an unknown
 link, while the notices are held, while the event is being created, after the
 event and invite went out, the team's two actions, an off-market date saved
 through the rental listing routes, the place offered again, and that no answer
-shows another attendee.
+shows another attendee. `test_showing_residents.py` covers the residents'
+texts: held, released, stopped and handed over; joins; the 8 AM to 9 PM window
+at both edges and across midnight; vacant units, roommates, leases by the
+showing day, internal contacts; each failed lookup and its mark; every
+cancellation path with the first text sent, held, stopped or being sent;
+capture mode and a live group text with a roommate outside the test list; and
+that no public answer mentions residents.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- The resident's texts (new showing and cancellation), reminders, texts to
-  the host, and the team's other actions (add a booking for a caller, change
-  the host, mark attendance).
+- Reminders (the residents' evening-before list too), texts to the host, alerts
+  for failed sends, and the team's other actions (add a booking for a caller,
+  change the host, mark attendance).
 - Reminders, per-lead links, and the lead agent's own showing in its case.
