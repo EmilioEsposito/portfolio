@@ -8,6 +8,7 @@
     "dev": "react-router dev",
     "start": "node server.js",
     "test": "tsx --test test/lib/*.test.ts test/*.test.mjs",
+    "test:e2e": "react-router build && playwright test",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
@@ -59,6 +60,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@react-router/dev": "^8.3.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/compression": "^1.8.1",
