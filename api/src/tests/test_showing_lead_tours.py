@@ -145,6 +145,35 @@ async def test_a_time_is_listed_only_when_every_unit_on_offer_can_take_it(data):
 
 
 @pytest.mark.asyncio
+async def test_a_join_inside_the_lead_agents_24_hours_is_not_passed_on(data):
+    """The rules allow an hour's notice; the lead agent keeps its own 24-hour floor."""
+    data.rules = ShowingRules(showing_notice_hours=1)
+    jane = await jane_id()
+    async with AsyncSessionFactory() as session:
+        agent = await session.get(ShowingAgentRecord, jane)
+        agent.weekly_hours = []  # the whole showing window, every day
+        await session.commit()
+    soon = await add_showing(jane, unit="320-03", starts_at=NOW + timedelta(hours=2))
+    later = await add_showing(jane, unit="320-03", starts_at=NOW + timedelta(hours=26))
+    await add_attendee(soon)
+    await add_attendee(later)
+    listing_data = as_listing_data(data.listings, data.rules)
+
+    # The booking page offers both joins.
+    page = await open_times.offers_for_unit("320-03", now=NOW)
+    joins = {offer.start for offer in page.offers if offer.kind == "join"}
+    assert {NOW + timedelta(hours=2), NOW + timedelta(hours=26)} <= joins
+
+    tours = await tours_for_case(lead_tours.BookingTourSource(), listing_data, NOW)
+
+    assert [tour.start for tour in tours.booked] == [NOW + timedelta(hours=26)]
+    starts = [slot.start for slot in tours.open_times]
+    assert NOW + timedelta(hours=2) not in starts
+    assert NOW + timedelta(hours=26) in starts
+    assert min(starts) >= NOW + timedelta(hours=24)
+
+
+@pytest.mark.asyncio
 async def test_no_units_on_offer_means_no_tours(data):
     data.listings = [RentalListing(unit="320-03", off_market_on=date(2027, 4, 1))]
     tours = await lead_tours.BookingTourSource().tours(

@@ -341,8 +341,12 @@ With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`:
   rather than offered for the wrong unit.
 - booked: the showings with room, by unit, which the lead policy offers first.
 
-`tours_for_case` still filters what it returns with the lead agent's own fixed
-rules, including its 24-hour floor (`case.MIN_NOTICE`).
+The source passes on only times that pass the lead agent's own fixed rules
+(`case.within_showing_rules`: its 24-hour floor `case.MIN_NOTICE`, the window,
+blackout dates), joins included, since `tours_for_case` filters open times by
+those rules but not booked tours. A join the booking page offers under a
+shorter notice is therefore not given to the lead agent; the page's own offers
+are unchanged.
 
 ## Team API
 

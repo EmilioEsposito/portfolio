@@ -14,8 +14,11 @@ read, it is the lead agent's own source (``NoTours``), exactly as before.
   lead asks about is never offered.
 - ``booked``: the showings already booked that have room, by unit.
 
-``tours_for_case`` keeps filtering whatever this returns with the lead agent's
-own fixed rules (its 24-hour floor, the window, blackout dates).
+Only times that pass the lead agent's own fixed rules (``within_showing_rules``:
+its 24-hour floor, the window, blackout dates) are passed on, joins included.
+``tours_for_case`` filters open times by the same rules again but not booked
+tours, so a join two hours away, which the booking page may offer under a
+shorter notice, must be left out here. The booking page's offers are unchanged.
 """
 
 from datetime import datetime
@@ -26,7 +29,7 @@ import logfire
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings.open_times import open_times
 from api.src.showing_bookings.settings import read_settings
-from api.src.zillow_leads.case import BookedTour, ListingData, TourSlot
+from api.src.zillow_leads.case import BookedTour, ListingData, TourSlot, within_showing_rules
 from api.src.zillow_leads.tours import Tours, TourSource
 
 
@@ -52,6 +55,8 @@ class BookingTourSource:
         for unit in found.units:
             starts = set()
             for offer in unit.offers:
+                if not within_showing_rules(offer.start, listing_data, now):
+                    continue
                 starts.add(offer.start)
                 if offer.kind == "join":
                     booked.append(BookedTour(unit=unit.unit, start=offer.start))
