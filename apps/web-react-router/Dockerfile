@@ -22,7 +22,11 @@ COPY --from=deps /app/apps/web-react-router/node_modules ./apps/web-react-router
 COPY pnpm-workspace.yaml package.json ./
 COPY apps/web-react-router ./apps/web-react-router
 WORKDIR /app/apps/web-react-router
-RUN pnpm run build
+# The deps stage already installed from the lockfile. Without this setting pnpm
+# re-checks the install before running a script: when the cached deps layer is
+# older than the files copied above, it runs `pnpm install` here, where the
+# lockfile and patches/ are absent, and the build fails.
+RUN pnpm --config.verify-deps-before-run=false run build
 
 FROM base
 WORKDIR /app
