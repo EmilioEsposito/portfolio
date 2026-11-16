@@ -26,7 +26,7 @@ from api.src.google.common.config import SHARED_EXTERNAL_EMAIL
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.zillow_leads import handle
 from api.src.zillow_leads.agent import Reply, load_instructions
-from api.src.zillow_leads.case import LeadCase
+from api.src.zillow_leads.case import LeadCase, times_allowed
 from api.src.zillow_leads.settings import effective_settings
 
 LINK = re.compile(r"(?:https?://|www\.)[^\s<>\"')\]]+", re.I)
@@ -46,10 +46,7 @@ def reply_problems(case: LeadCase, reply: Reply) -> list[str]:
     }
     if any(_link(url) not in allowed_links for url in LINK.findall(reply.reply_body)):
         problems.append("The reply contains a link that was not supplied in the case or policy.")
-    allowed_times = {slot.start for slot in case.offerable_slots} | {
-        tour.start for tour in case.booked_tours
-    }
-    if any(slot.tzinfo is None or slot not in allowed_times for slot in reply.offered_slots):
+    if not times_allowed(case, reply.offered_slots, reply.lead.unit):
         problems.append("The reply offers a time outside the supplied availability.")
     if not reply.reply_body.strip():
         problems.append("The reply is empty.")

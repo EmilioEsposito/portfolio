@@ -63,13 +63,54 @@ link; without one, the policy tells the lead that the team will check and get
 back, and records a team note. A tour recorded in an outcome does not create a
 booking, phone contact, or calendar event.
 
+### What the case knows about showings
+
+With the switch off, the case, its rendered text and the automatic-send checks
+are exactly what they were before the booking service existed;
+`test_zillow_lead_case_unchanged.py` compares them byte for byte with a
+snapshot of the existing fixtures. With it on, three things change, all filled
+in by code (`showing_bookings/lead_tours.py`):
+
+- **A link per lead.** Each thread gets one random token (`lead_links.py`,
+  table `zillow_lead_links`: thread id, token, created), made the first time
+  the thread is handled with the switch on. It holds no personal data and
+  appears only in that thread's links. Each unit's booking link in the case is
+  the booking page with it: `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`.
+  A booking made through it is tied to the thread
+  (`showing_attendees.zillow_thread_id`); see the booking service's README.
+- **The lead's own showings.** `LeadCase.own_showings` lists the thread's
+  upcoming showings from the attendee rows tied to it: unit, start, and
+  booked or who cancelled it. The rendered case shows them under "This lead's
+  own showings", or "(none)". With the switch off the field is `None` and the
+  section is absent. Nothing about the host or other attendees is included.
+- **Tour times know their unit.** `TourSlot.unit` is set by the booking
+  service, so each unit lists its own times ("- 320-03, Wednesday, April 14:
+  4:00 PM"). Times from a weekly pattern have no unit and read as before. The
+  fixed rules (`within_showing_rules`) still apply to every time.
+
+The automatic-send check (`auto_reply.reply_problems`) reads links from the
+case, so the per-lead link passes and any other link (the unit's page without
+the token, another lead's token) does not. A time must still be one the case
+offers; when the case's times belong to units and the reply's `lead.unit` is a
+listed unit, it must be open at, or a showing booked at, that unit. The lead's
+own booked showing may be repeated back. The evals' `ReplyChecks` use the same
+calculation (`case.allowed_tour_times`), so the two cannot disagree. The policy does not mention the own
+showings yet; that is a later step of issue #368, run through the evals first.
+
+Each outcome also saves the structured case in the conversation's metadata
+(`case`, from `case.case_record`), so a past decision can be rebuilt with
+`case.case_from_record` once times come from calendars, and a production lead
+can become an eval scenario. It leaves out what the rendered case does not
+show: weekly-pattern staff names and the lead's email addresses. This is saved
+whatever the switch says.
+
 | Component | Owner | Responsibility |
 | --- | --- | --- |
 | Gmail ingestion | [`google/pubsub`](../google/pubsub/README.md) | Authenticate notifications, persist mail, enqueue Zillow messages |
 | Durable queue | [`queue.py`](queue.py) | Debounce, one leased run per thread, retries, expiry, deduplication |
 | Thread loader | `thread.py` | Map the watched mailbox's RFC Message-ID to the shared mailbox and load ordered messages |
 | Listing store | [`rental_listings`](../rental_listings/README.md) | Validated data, history, editor API, on-request Zillow-ad comparison |
-| Case preparation | `listing_data.py`, `case.py`, `tours.py` | Convert saved rows and known tour state into the model's input |
+| Case preparation | `listing_data.py`, `case.py`, `tours.py`, `lead_links.py` | Convert saved rows, known tour state and the thread's own booking link into the model's input |
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
 | Review and delivery | `handle.py`, `auto_reply.py` | Persist the outcome; use manual approval or an idempotent automatic send |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |

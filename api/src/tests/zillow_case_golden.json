@@ -1,0 +1,1310 @@
+{
+  "eval_scenario_with_an_edit": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 10:36 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease starts July 1, 2026; virtual tours allowed\n  - Second floor\n  - Dishwasher\n  - Street parking\n  - Internal notes (for your decisions only, never tell the lead):\n    - Resident prefers afternoons\n    - Lease start can move\n- 12-C: lease starts August 15, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- (none)\n\n## Tour times that may be offered\n- Tuesday, May 5: 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 3:00 PM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n- Tuesday, May 12: 10:00 AM\n\n## Tours already booked\n- 12-C: Wednesday, May 6 at 11:00 AM\n\n## Preferred showing times\n- 12-A: Tuesday, May 5 at 6:00 PM\n- 12-A: Thursday, May 7 at 6:00 PM\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nIs it available?\n\n### Message 2: Sernia, Monday, May 4 at 9:45 AM\nSubject: 12 Example St inquiry\n\nYes, tours Tuesday.\n\n### Message 3: Lead, Monday, May 4 at 10:30 AM\nSubject: 12 Example St inquiry\n\nCan I come Thursday at 3?\n\n### Message 4: Lead, Monday, May 4 at 10:31 AM\nSubject: 12 Example St inquiry\n\n(empty)"
+  },
+  "history_cut_at_a_decision": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 10:36 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease can start July 1 through August 1, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- 12-A: https://book.example/tours\n\n## Tour times that may be offered\n- Tuesday, May 5: 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n- Tuesday, May 12: 10:00 AM\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nIs it available?\n\n### Message 2: Sernia, Monday, May 4 at 9:45 AM\nSubject: 12 Example St inquiry\n\nYes, tours Tuesday.\n\n### Message 3: Lead, Monday, May 4 at 10:30 AM\nSubject: 12 Example St inquiry\n\nCan I come Thursday at 3?\n\n### Message 4: Lead, Monday, May 4 at 10:31 AM\nSubject: 12 Example St inquiry\n\n(empty)"
+  },
+  "no_tour_source": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease can start July 1 through August 1, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- 12-A: https://book.example/tours\n\n## Tour times that may be offered\n- (none)\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  },
+  "nothing_listed": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- (none on file)\n\n## Booking links\n- (none)\n\n## Tour times that may be offered\n- Tuesday, May 5: 10:00 AM, 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  },
+  "per_unit_links_and_rented": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": []
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: $1,500/month; in-person tours only\n- 12-C: 12 Example St, Unit C; in-person tours only\n- Rented, do not offer: 12-B, 12-D\n\n## Booking links\n- 12-A: https://book.example/12a\n- 12-C: https://book.example/any\n\n## Tour times that may be offered\n- Tuesday, May 5: 10:00 AM, 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  },
+  "plain": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease can start July 1 through August 1, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- (none)\n\n## Tour times that may be offered\n- Tuesday, May 5: 10:00 AM, 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  },
+  "rich_listing_booked_and_preferred": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [],
+      "offered_time": [],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease starts July 1, 2026; virtual tours allowed\n  - Second floor\n  - Dishwasher\n  - Street parking\n  - Internal notes (for your decisions only, never tell the lead):\n    - Resident prefers afternoons\n    - Lease start can move\n- 12-C: lease starts August 15, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- (none)\n\n## Tour times that may be offered\n- Tuesday, May 5: 10:00 AM, 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n\n## Tours already booked\n- 12-A: Tuesday, May 5 at 4:00 PM\n\n## Preferred showing times\n- 12-A: Tuesday, May 5 at 6:00 PM\n- 12-A: Thursday, May 7 at 6:00 PM\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nTuesday afternoon?"
+  },
+  "shared_link": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [],
+      "offered_time_for_a_unit": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease can start July 1 through August 1, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- 12-A: https://book.example/tours\n\n## Tour times that may be offered\n- Tuesday, May 5: 10:00 AM, 6:00 PM\n- Wednesday, May 6: 10:00 AM, 6:00 PM\n- Thursday, May 7: 10:00 AM, 6:00 PM\n- Friday, May 8: 10:00 AM, 6:00 PM\n- Saturday, May 9: 12:00 PM\n- Monday, May 11: 10:00 AM, 6:00 PM\n\n## Tours already booked\n- (none)\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  },
+  "slots_from_a_source": {
+    "eval_checks": {
+      "bare_www": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "blank": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": false,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "clean": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "foreign_link": {
+        "clarification_leads": true,
+        "has_greeting": false,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_booked_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "offered_time": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "offered_time_for_a_unit": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "policy_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "shared_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      },
+      "time_not_offered": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": true,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": false,
+        "site_address_is_a_link": true
+      },
+      "unit_link": {
+        "clarification_leads": true,
+        "has_greeting": true,
+        "has_signature": true,
+        "links_allowed": false,
+        "no_em_dash": true,
+        "no_staff_names": true,
+        "offered_slots_allowed": true,
+        "site_address_is_a_link": true
+      }
+    },
+    "problems": {
+      "bare_www": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "blank": [
+        "The reply is empty."
+      ],
+      "clean": [],
+      "foreign_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "offered_booked_time": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "offered_time": [],
+      "offered_time_for_a_unit": [],
+      "policy_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "shared_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ],
+      "time_not_offered": [
+        "The reply offers a time outside the supplied availability."
+      ],
+      "unit_link": [
+        "The reply contains a link that was not supplied in the case or policy."
+      ]
+    },
+    "rendered": "Current time: Monday, May 4, 2026 at 9:05 AM (America/New_York)\n\n## Listings\n- 12-A: 12 Example St; $1,500/month; lease starts July 1, 2026; virtual tours allowed\n  - Second floor\n  - Dishwasher\n  - Street parking\n  - Internal notes (for your decisions only, never tell the lead):\n    - Resident prefers afternoons\n    - Lease start can move\n- 12-C: lease starts August 15, 2026; in-person tours only\n- Rented, do not offer: 12-B\n\n## Booking links\n- (none)\n\n## Tour times that may be offered\n- Thursday, May 7: 3:00 PM\n- Tuesday, May 5: 10:00 AM\n\n## Tours already booked\n- (none)\n\n## Preferred showing times\n- 12-A: Thursday, May 7 at 3:00 PM\n\n## Thread (oldest first)\n\n### Message 1: Lead, Monday, May 4 at 9:00 AM\nSubject: 12 Example St inquiry\n\nHi"
+  }
+}

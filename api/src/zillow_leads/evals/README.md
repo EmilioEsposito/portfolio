@@ -589,6 +589,34 @@ Edits live in `scenarios/case-edits-<season>.json`, keyed by scenario id. Each
 has a `note` saying whether it matches the thread or was set on purpose. They
 are written by a person, never by the model being evaluated.
 
+An edit can also hold what the booking service adds to a live case while the
+lead agent uses it (`lead_agent_uses_open_times`): `unit_offered` (times open
+at one unit only), `booking_links` (the thread's own links, by unit) and
+`own_showings` (the thread's own showings, booked or cancelled). An edit
+without them keeps the fingerprint it had before they existed.
+
+### Made-up booking scenarios
+
+`synthetic.py` holds made-up scenarios for that part of the case: a lead who
+booked through their own link, one whose showing the team cancelled, a
+showing others booked that a new lead can join, and a time open at one unit
+only. Being invented, they live in the repository, and
+`test_zillow_eval_synthetic.py` checks each case and a good reply for it
+without a model. To run them through the model, write them out as files and
+run them like any other scenarios:
+
+```bash
+uv run python -m api.src.zillow_leads.evals synthetic --out $DATA/synthetic
+uv run python -m api.src.zillow_leads.evals run \
+    --scenarios $DATA/synthetic/scenarios.jsonl --listings $DATA/synthetic/listings.json \
+    --case-edits $DATA/synthetic/case-edits.json \
+    --name booking-synthetic-1 --out $DATA/runs/booking-synthetic-1.jsonl
+```
+
+`expected.json` says what a person would want from each and why; nothing
+scores against it yet. Until the policy learns about a lead's own showing (a
+later step of issue #368), a run shows how today's policy reads such a case.
+
 ```bash
 # Run again only the cases of an earlier run that have a new edit; keep its other rows
 uv run python -m api.src.zillow_leads.evals run \
