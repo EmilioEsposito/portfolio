@@ -136,15 +136,22 @@ class Lead:
         await handle.handle_thread(thread_id, conversation_id=conversation_id, metadata={})
         return conversation_id
 
-    async def decide_on(self, conversation_id: str, approved: bool = True):
+    async def decide_on(
+        self, conversation_id: str, approved: bool = True, *, body: str | None = None
+    ):
         row, messages = await stored(conversation_id)
         (card,) = extract_pending_approval_from_messages(messages)
+        override = {"body": body} if body is not None else None
         async with AsyncSessionFactory() as session:
             return await handle.apply_approval(
                 session,
                 conversation_id=conversation_id,
                 metadata=row.metadata_,
-                decisions=[ApprovalDecision(card["tool_call_id"], approved=approved)],
+                decisions=[
+                    ApprovalDecision(
+                        card["tool_call_id"], approved=approved, override_args=override
+                    )
+                ],
                 approver="Test",
             )
 
@@ -230,6 +237,8 @@ def booked(attendees):
 async def test_switch_off_an_approved_confirmation_books_nothing(lead):
     await switch_off()
     conversation_id = await lead.decide(outcome())
+    (card,) = await pending_cards(conversation_id)
+    assert card["args"]["team_notes"] == []  # no booking note with the switch off
 
     result = await lead.decide_on(conversation_id)
 
@@ -1103,3 +1112,305 @@ async def test_notices_are_held_until_the_send_is_known(lead):
             await session.scalar(select(ShowingNotice.id).where(ShowingNotice.status == "sent"))
             is None
         )
+
+
+# ---------------------------------------------------------------------------
+# The send card says what sending does; edited words change no booking
+# ---------------------------------------------------------------------------
+
+BOOK_NOTE = "Sending this books unit 320-03 for Wed, Apr 14 at 4:00 PM."
+MOVE_NOTE = (
+    "Sending this moves their showing of 320-03 from Wed, Apr 14 at 4:00 PM "
+    "to Wed, Apr 14 at 5:00 PM."
+)
+CANCEL_NOTE = "Sending this cancels their showing of 320-03 on Wed, Apr 14 at 4:00 PM."
+NOT_BOOKED = (
+    "The reply was edited, so the showing was not booked automatically. "
+    "Add it on the Booking settings tab if it still applies."
+)
+NOT_MOVED = (
+    "The reply was edited, so the showing was not moved automatically. "
+    "Change it on the Booking settings tab if it still applies."
+)
+NOT_CANCELLED = (
+    "The reply was edited, so the showing was not cancelled automatically. "
+    "Cancel it on the Booking settings tab if it still applies."
+)
+EDITED = "Sorry, Wednesday no longer works. Could you do Thursday?\n\nSernia Capital Team"
+
+
+async def card_notes(conversation_id: str) -> list[str]:
+    (card,) = await pending_cards(conversation_id)
+    return card["args"]["team_notes"]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_approval_of_a_confirmation_books_as_its_card_said(lead):
+    conversation_id = await lead.decide(outcome())
+    assert await card_notes(conversation_id) == [BOOK_NOTE]
+
+    result = await lead.decide_on(conversation_id)
+
+    assert "Showing booked with this reply" in result["output"]
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_approval_of_a_move_moves_as_its_card_said(lead):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome(status="rescheduled", start=at(17)))
+    assert await card_notes(conversation_id) == [MOVE_NOTE]
+
+    await lead.decide_on(conversation_id)
+
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["cancelled", "booked"]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_approval_of_a_cancellation_cancels_as_its_card_said(lead):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome(status="cancelled"))
+    assert await card_notes(conversation_id) == [CANCEL_NOTE]
+
+    await lead.decide_on(conversation_id)
+
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["cancelled"]
+
+
+@pytest.mark.asyncio
+async def test_a_repeated_confirmation_has_no_note(lead):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome())
+    assert await card_notes(conversation_id) == []
+
+
+@pytest.mark.asyncio
+async def test_trailing_whitespace_is_not_an_edit(lead):
+    conversation_id = await lead.decide(outcome())
+
+    await lead.decide_on(conversation_id, body=outcome().reply_body + "\n\n  ")
+
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+
+
+@pytest.mark.asyncio
+async def test_an_edited_confirmation_books_nothing_and_says_so(lead):
+    conversation_id = await lead.decide(outcome())
+
+    result = await lead.decide_on(conversation_id, body=EDITED)
+
+    assert result["status"] == "completed"
+    handle.send_reply.assert_awaited_once()
+    assert handle.send_reply.call_args.args[1] == EDITED
+    assert result["output"] == f"Email sent. {NOT_BOOKED}"
+    assert await rows() == ([], [], [])
+    row, messages = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["action"] == "not_applied_edited"
+    assert row.metadata_["showing_booking"]["not_applied"] == "book"
+    assert NOT_BOOKED in messages[-1].parts[0].content
+    assert row.metadata_["approval"][0]["edited"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_edited_move_moves_nothing_and_says_so(lead):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome(status="rescheduled", start=at(17)))
+
+    result = await lead.decide_on(conversation_id, body=EDITED)
+
+    assert result["output"].endswith(NOT_MOVED)
+    showings, attendees, _ = await rows()
+    assert [(s.starts_at, s.status) for s in showings] == [(at(16), "scheduled")]
+    assert [a.status for a in attendees] == ["booked"]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["not_applied"] == "move"
+
+
+@pytest.mark.asyncio
+async def test_an_edited_cancellation_cancels_nothing_and_says_so(lead):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome(status="cancelled"))
+
+    result = await lead.decide_on(conversation_id, body="Your showing stays booked.\n\nSernia")
+
+    assert result["output"].endswith(NOT_CANCELLED)
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["not_applied"] == "cancel"
+
+
+@pytest.mark.asyncio
+async def test_an_edited_reply_cancels_a_place_its_draft_booked_and_never_sent(lead):
+    conversation_id = await lead.decide(outcome())
+    # As if a process booked for the draft and stopped before sending.
+    await lead_bookings.prepare_reply(
+        conversation_id=conversation_id,
+        thread_id=THREAD,
+        lead=outcome().lead,
+        tour=outcome().tour,
+        listed_units=[UNIT],
+        now=lead.world.now,
+    )
+
+    result = await lead.decide_on(conversation_id, body=EDITED)
+
+    assert result["output"].endswith(NOT_BOOKED)
+    _, attendees, notices = await rows()
+    assert (attendees[0].status, attendees[0].cancel_reason) == ("cancelled", "reply_not_sent")
+    assert {n.status for n in notices} == {"cancelled"}
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["cancelled_unsent"] == [attendees[0].id]
+
+
+@pytest.mark.asyncio
+async def test_switch_off_an_edited_reply_behaves_as_before(lead):
+    await switch_off()
+    conversation_id = await lead.decide(outcome())
+
+    result = await lead.decide_on(conversation_id, body=EDITED)
+
+    assert result["output"] == "Email sent."
+    row, _ = await stored(conversation_id)
+    assert "showing_booking" not in row.metadata_
+
+
+# ---------------------------------------------------------------------------
+# A place recovered after an interrupted send
+# ---------------------------------------------------------------------------
+
+
+async def stopped_after_booking(conversation_id: str, lead: Lead) -> None:
+    """As if a process booked for this conversation's reply and stopped before sending."""
+    await lead_bookings.prepare_reply(
+        conversation_id=conversation_id,
+        thread_id=THREAD,
+        lead=outcome().lead,
+        tour=outcome().tour,
+        listed_units=[UNIT],
+        now=lead.world.now,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_place_is_kept_when_the_reply_is_then_sent(lead):
+    conversation_id = await lead.decide(outcome())
+    await stopped_after_booking(conversation_id, lead)
+
+    await lead.decide_on(conversation_id)
+
+    _, attendees, notices = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+    row, _ = await stored(conversation_id)
+    assert row.metadata_["showing_booking"]["action"] == "booked"
+    assert all(n.not_before <= lead.world.now for n in notices)
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_place_is_cancelled_when_gmail_then_refuses(lead, monkeypatch):
+    conversation_id = await lead.decide(outcome())
+    await stopped_after_booking(conversation_id, lead)
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
+
+    with pytest.raises(HTTPException):
+        await lead.decide_on(conversation_id)
+
+    _, attendees, notices = await rows()
+    assert (attendees[0].status, attendees[0].cancel_reason) == ("cancelled", "reply_not_sent")
+    assert {n.status for n in notices} == {"cancelled"}
+
+
+@pytest.mark.asyncio
+async def test_a_place_booked_through_the_link_survives_a_refused_send(lead, monkeypatch):
+    token = await lead_links.token_for_thread(THREAD)
+    async with lead.world.client() as client:
+        answer = await client.post(
+            f"{PUBLIC}/units/{UNIT}/bookings", json=booking(lead_token=token)
+        )
+    assert answer.status_code == 201
+    conversation_id = await lead.decide(outcome())
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
+
+    with pytest.raises(HTTPException):
+        await lead.decide_on(conversation_id)
+
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+
+
+@pytest.mark.asyncio
+async def test_a_place_an_earlier_sent_reply_booked_survives_a_refused_send(lead, monkeypatch):
+    await booked_and_told(lead)
+    conversation_id = await lead.decide(outcome())
+    monkeypatch.setattr(handle, "send_reply", AsyncMock(side_effect=gmail_refused()))
+
+    with pytest.raises(HTTPException):
+        await lead.decide_on(conversation_id)
+
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+
+
+# ---------------------------------------------------------------------------
+# A card whose statement went stale
+# ---------------------------------------------------------------------------
+
+
+async def booked_through_link(lead: Lead, start) -> None:
+    token = await lead_links.token_for_thread(THREAD)
+    async with lead.world.client() as client:
+        answer = await client.post(
+            f"{PUBLIC}/units/{UNIT}/bookings", json=booking(start, lead_token=token)
+        )
+    assert answer.status_code == 201, answer.text
+
+
+@pytest.mark.asyncio
+async def test_a_card_is_held_when_sending_it_would_now_do_something_else(lead):
+    conversation_id = await lead.decide(outcome())
+    assert await card_notes(conversation_id) == [BOOK_NOTE]
+    # Meanwhile the lead booked 5 PM through their link: sending would now move it.
+    await booked_through_link(lead, at(17))
+    moved_back = (
+        "Sending this moves their showing of 320-03 from Wed, Apr 14 at 5:00 PM "
+        "to Wed, Apr 14 at 4:00 PM."
+    )
+
+    result = await lead.decide_on(conversation_id)
+
+    handle.send_reply.assert_not_called()
+    assert result["status"] == "pending_approval"
+    assert result["output"] == f"Not sent. {lead_bookings.PLAN_CHANGED} {moved_back}"
+    assert await card_notes(conversation_id) == [
+        BOOK_NOTE,
+        lead_bookings.PLAN_CHANGED,
+        moved_back,
+    ]
+    _, attendees, _ = await rows()
+    assert [a.status for a in attendees] == ["booked"]
+
+    # Approving the card as it now reads applies what it now says.
+    await lead.decide_on(conversation_id)
+    handle.send_reply.assert_awaited_once()
+    _, attendees, _ = await rows()
+    assert [(a.source, a.status) for a in attendees] == [
+        ("page", "cancelled"),
+        ("lead_agent", "booked"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_card_whose_time_the_lead_already_booked_sends_and_changes_nothing(lead):
+    conversation_id = await lead.decide(outcome())
+    await booked_through_link(lead, at(16))
+
+    result = await lead.decide_on(conversation_id)
+
+    assert result["status"] == "completed"
+    handle.send_reply.assert_awaited_once()
+    _, attendees, _ = await rows()
+    assert [(a.source, a.status) for a in attendees] == [("page", "booked")]

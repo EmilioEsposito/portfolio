@@ -786,6 +786,13 @@ table of which decision does what, and the order around a send).
   after the send; a cancellation in the thread cancels with reason `prospect`
   (`cancelling.cancel_attendee`), with the same texts to the residents and the
   host as any cancellation. Every step is safe to repeat.
+- `plan_reply` says what sending a reply would do without changing anything;
+  the lead agent puts it on the send card, holds a card whose statement went
+  stale, and applies nothing when a person sends edited words.
+- A place this conversation booked and never sent (`lead_conversation_id`,
+  no details, not `reply_uncertain`) is still the reply's own booking: a
+  later approval recovers it, and a definite send failure cancels it. A place
+  booked through the lead's link or by an earlier sent reply never is.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
 thread's token; on that unit's page the web app's loader asks

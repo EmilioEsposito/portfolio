@@ -125,6 +125,24 @@ unchanged. With the switch off nothing here runs: `handle_thread`,
 | `escalate` recording the tour as `cancelled` | Nothing; the card lists the times still booked, for the person to cancel. |
 | Anything else (proposed, none, virtual, no start, an unlisted unit, no unit) | Nothing. |
 
+The send card says what sending it does before anyone approves, as a team
+note, only with the switch on and only when it changes something:
+"Sending this books unit 320-03 for Wed, Apr 14 at 4:00 PM.", "Sending this
+moves their showing of 320-03 from Wed, Apr 14 at 4:00 PM to Wed, Apr 14 at
+5:00 PM.", "Sending this cancels their showing of 320-03 on Wed, Apr 14 at
+4:00 PM." Approving the draft unchanged (surrounding whitespace aside)
+applies that change. If the thread's showings changed since the card was
+written, so that sending now would do something else, nothing is sent: the
+card gets "The thread's showings changed since this card was written;
+approve again to send it with this change." and the new statement. Approving
+**edited** words applies no booking change at all: the reply is sent as
+edited, and the result line, the conversation and `showing_booking`
+(`not_applied_edited`) say what was not done ("The reply was edited, so the
+showing was not booked automatically. Add it on the Booking settings tab if
+it still applies.", and the same for a move or a cancellation). A place this
+conversation booked for the draft and never sent is cancelled then, as a
+rejection cancels it.
+
 Around a send, in order:
 
 - **On approval** (`apply_approval`, under the conversation's row lock): book,
@@ -147,8 +165,12 @@ Around a send, in order:
 A process that stops between the booking and the send leaves the send card
 pending (approval) or the review card uncommitted (automatic), and the place
 carries the conversation id (`showing_attendees.lead_conversation_id`): a
-person who approves finds it already booked and sends; one who rejects
-cancels it. The conversation keeps what was done under `showing_booking`
+person who approves recovers it as this reply's booking (kept when the reply
+is sent, cancelled if Gmail refuses it); one who rejects, or sends edited
+words, cancels it. A place the lead booked through their link, or one an
+earlier sent reply booked, is never cancelled by a later reply's failure. If
+nobody ever decides the card, the place stays booked and its held notices go
+after five minutes; the card and the Showings section show it. The conversation keeps what was done under `showing_booking`
 (action, unit, start, showing and attendee ids, what was cancelled, the send
 result).
 

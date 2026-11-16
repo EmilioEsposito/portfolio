@@ -40,6 +40,16 @@ Then ``after_send`` settles it with what the send did:
   Showings section, and the caller's delivery-review card says so; the old
   time of a move, or a cancellation, goes ahead as for ``sent``.
 
+Before anyone approves, the send card states what sending does
+(``plan_reply``, ``Plan.note``): "Sending this books unit 320-03 for Wed,
+Apr 14 at 4:00 PM.", or moves, or cancels. Approving the draft unchanged
+applies exactly that; if the thread's showings changed so that sending would
+now do something else, the card is held with the new statement. Approving
+edited words applies no booking change at all (``Plan.not_applied`` says what
+was not done). A place this conversation booked for its reply and never sent
+(a process stopped in between) is still that reply's booking: approving again
+recovers it, and a definite send failure cancels it.
+
 A reply that is rejected cancels any place its conversation booked
 (``cancel_unsent``), which covers a process that stopped between the booking
 and the send. A ``no_reply`` decision that records the tour as cancelled
@@ -59,8 +69,8 @@ import logfire
 from sqlalchemy import func, select, update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings, cancelling
-from api.src.showing_bookings.models import Showing, ShowingAttendee
+from api.src.showing_bookings import bookings, cancelling, residents
+from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.schema import normalize_us_mobile
 from api.src.showing_bookings.settings import read_settings
@@ -74,6 +84,11 @@ PLACEHOLDER_NAME = "Zillow lead"
 # On an attendee whose booking reply may or may not have gone out.
 REPLY_UNCERTAIN = "reply_uncertain"
 SendResult = Literal["sent", "failed", "uncertain"]
+# How every note on a send card about what sending does begins (``Plan.note``).
+PLAN_PREFIX = "Sending this "
+# Added above a fresh ``Plan.note`` when the thread's showings changed after
+# the card was written, so approving it would now do something else.
+PLAN_CHANGED = "The thread's showings changed since this card was written; approve again to send it with this change."
 
 
 async def enabled() -> bool:
@@ -198,6 +213,136 @@ async def _thread_places(thread_id: str, unit: str, now: datetime) -> list[tuple
         return [(attendee_id, start) for attendee_id, start in rows]
 
 
+async def _unsent_booking_of(attendee_id: int, conversation_id: str) -> bool:
+    """Whether a place is an unsent booking of this conversation's reply.
+
+    It is when this conversation booked it (``lead_conversation_id``), the lead
+    has not completed it through their link, and no send of the reply may have
+    reached the lead (``reply_uncertain``). A place the lead booked through
+    their link, or one an earlier reply booked and sent, is never this
+    conversation's: a sent reply that finds it takes nothing over until it is
+    sent (``_confirmed_by``).
+    """
+    async with AsyncSessionFactory() as session:
+        row = (
+            await session.execute(
+                select(
+                    ShowingAttendee.lead_conversation_id,
+                    ShowingAttendee.texts_consent_at,
+                    ShowingAttendee.attention_reason,
+                ).where(ShowingAttendee.id == attendee_id)
+            )
+        ).first()
+    if row is None:
+        return False
+    owner, consent, attention = row
+    return owner == conversation_id and consent is None and attention != REPLY_UNCERTAIN
+
+
+async def _booking_rows(attendee_id: int) -> tuple[int, int | None]:
+    """A recovered place's showing, and the residents' text of that showing, if any.
+
+    The residents' text is released with the place's own notices once the
+    reply is sent (``release_notices`` moves only one still held past now).
+    """
+    async with AsyncSessionFactory() as session:
+        showing_id = await session.scalar(
+            select(ShowingAttendee.showing_id).where(ShowingAttendee.id == attendee_id)
+        )
+        residents_notice_id = await session.scalar(
+            select(ShowingNotice.id).where(
+                ShowingNotice.showing_id == showing_id,
+                ShowingNotice.kind == residents.NEW_SHOWING_KIND,
+            )
+        )
+    return showing_id, residents_notice_id
+
+
+@dataclass(frozen=True)
+class Plan:
+    """What sending a reply would do to the thread's showings, said before anyone approves."""
+
+    action: Literal["book", "move", "cancel"]
+    unit: str
+    start: datetime | None
+    # The thread's other upcoming times at the unit: a move's old time, or what a cancellation cancels.
+    old: tuple[datetime, ...] = ()
+
+    def note(self, timezone: str) -> str:
+        """The line on the send card."""
+        old = " and ".join(_short(start, timezone) for start in self.old)
+        if self.action == "book":
+            return f"Sending this books unit {self.unit} for {_short(self.start, timezone)}."
+        if self.action == "move":
+            return (
+                f"Sending this moves their showing of {self.unit} from {old} "
+                f"to {_short(self.start, timezone)}."
+            )
+        return f"Sending this cancels their showing of {self.unit} on {old}."
+
+    def not_applied(self) -> str:
+        """The result line when a person sent edited words, so nothing was applied."""
+        if self.action == "book":
+            return (
+                "The reply was edited, so the showing was not booked automatically. "
+                "Add it on the Booking settings tab if it still applies."
+            )
+        if self.action == "move":
+            return (
+                "The reply was edited, so the showing was not moved automatically. "
+                "Change it on the Booking settings tab if it still applies."
+            )
+        return (
+            "The reply was edited, so the showing was not cancelled automatically. "
+            "Cancel it on the Booking settings tab if it still applies."
+        )
+
+
+def _short(start: datetime, timezone: str) -> str:
+    """ "Wed, Apr 14 at 4:00 PM"."""
+    local = start.astimezone(ZoneInfo(timezone))
+    return f"{local:%a, %b} {local.day} at {local.strftime('%I:%M %p').lstrip('0')}"
+
+
+async def plan_reply(
+    *,
+    conversation_id: str,
+    thread_id: str,
+    lead: LeadFacts,
+    tour: TourState,
+    listed_units: list[str],
+    now: datetime,
+) -> Plan | None:
+    """What sending a reply would book, move or cancel, without changing anything.
+
+    None with the switch off, when the decision asks for nothing, or when it
+    would change nothing (the time is already booked for the thread). A place
+    this conversation booked for the reply and never sent counts as not booked
+    yet. Never raises: an unreadable thread plans nothing.
+    """
+    want = wanted(tour, lead, listed_units)
+    if want is None or not await enabled():
+        return None
+    try:
+        places = await _thread_places(thread_id, want.unit, now)
+        mine = [
+            attendee_id
+            for attendee_id, _ in places
+            if await _unsent_booking_of(attendee_id, conversation_id)
+        ]
+    except Exception:
+        logfire.exception("lead bookings: the thread's showings unreadable, nothing planned")
+        return None
+    if want.action == "cancel":
+        old = tuple(start for _, start in places)
+        return Plan("cancel", want.unit, None, old) if old else None
+    others = tuple(start for _, start in places if start != want.start)
+    same = [attendee_id for attendee_id, start in places if start == want.start]
+    if same and not set(same) <= set(mine) and not others:
+        return None  # already booked, nothing changes
+    return Plan("move" if others else "book", want.unit, want.start, others)
+
+
 async def prepare_reply(
     *,
     conversation_id: str,
@@ -248,6 +393,26 @@ async def _prepare(
 
     same = [attendee_id for attendee_id, start in places if start == want.start]
     others = [attendee_id for attendee_id, start in places if start != want.start]
+    if same and await _unsent_booking_of(same[0], conversation_id):
+        # This conversation booked the place for this very reply, and a process
+        # stopped before it was sent. It is still this reply's booking: kept
+        # when the reply is sent, cancelled if Gmail refuses it.
+        logfire.info(
+            "lead bookings: an unsent booking of this reply recovered",
+            conversation_id=conversation_id,
+            attendee_id=same[0],
+        )
+        showing_id, residents_notice_id = await _booking_rows(same[0])
+        return Prepared(
+            "moved" if others else "booked",
+            want.unit,
+            want.start,
+            showing_id=showing_id,
+            attendee_id=same[0],
+            residents_notice_id=residents_notice_id,
+            to_cancel=others,
+            conversation_id=conversation_id,
+        )
     if same:
         return Prepared(
             "already_booked",

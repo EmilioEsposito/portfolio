@@ -237,6 +237,19 @@ async def handle_thread(
         outcome = await respond(case)
     route = reply_route(thread)
     messages = conversation_for(render_case(case), outcome, route)
+    if isinstance(outcome, Reply) and route is not None:
+        # The send card says what sending it does to the showings, before anyone
+        # approves (switch on, and only when it changes something).
+        plan = await lead_bookings.plan_reply(
+            conversation_id=conversation_id,
+            thread_id=thread_id,
+            lead=outcome.lead,
+            tour=outcome.tour,
+            listed_units=[listing.unit for listing in case.listings],
+            now=now,
+        )
+        if plan is not None:
+            add_card_notes(messages, [plan.note(case.timezone)])
     if isinstance(outcome, Escalate):
         # An escalation books and cancels nothing; when it records the tour as
         # cancelled, its card says what the thread still has booked.
@@ -483,6 +496,7 @@ async def apply_approval(
     record: list[dict[str, Any]] = []
     # Cards left pending because the showing they confirm could not be booked.
     held: list[str] = []
+    held_lines: list[str] = []
     booking: dict[str, Any] | None = None
     for decision in decisions:
         # Taken out as it is decided, so the same id twice in one request acts once.
@@ -499,13 +513,41 @@ async def apply_approval(
             edited = body != args.get("body", "")
             if not route or not body.strip():
                 outcome = "Not sent: this conversation has no stored route or no text."
+            elif body.strip() != (args.get("body") or "").strip():
+                # Edited words: the booking the draft would make may no longer be
+                # what the reply says, so no booking change is applied at all.
+                plan = await _plan_booking(conversation_id, metadata)
+                outcome = await send_reply(route, body)
+                skipped = await _not_applied(conversation_id, plan)
+                if skipped is not None:
+                    line, booking = skipped
+                    outcome = f"{outcome} {line}"
             else:
+                # The person approved the change the card stated. If the thread's
+                # showings changed since, so that sending now would do something
+                # else, the card is held with the new statement (switch on only).
+                plan = await _plan_booking(conversation_id, metadata)
+                stated = plan.note(_timezone(metadata)) if plan is not None else None
+                shown = [
+                    note
+                    for note in args.get("team_notes") or []
+                    if note.startswith(lead_bookings.PLAN_PREFIX)
+                ]
+                if stated is not None and (not shown or shown[-1] != stated):
+                    add_card_notes(
+                        messages, [lead_bookings.PLAN_CHANGED, stated], decision.tool_call_id
+                    )
+                    held.append(decision.tool_call_id)
+                    held_lines.append(f"Not sent. {lead_bookings.PLAN_CHANGED} {stated}")
+                    booking = {"action": "held_plan_changed", "stated": stated}
+                    continue
                 # Book what the reply confirms, then send (switch on only).
                 prepared = await _prepare_booking(conversation_id, metadata)
                 if prepared is not None and prepared.refused:
                     # Not sent: the card stays for a person, with the reason.
                     add_card_notes(messages, [prepared.problem()], decision.tool_call_id)
                     held.append(decision.tool_call_id)
+                    held_lines.append(prepared.problem())
                     booking = prepared.record()
                     continue
                 try:
@@ -572,7 +614,7 @@ async def apply_approval(
     if held:
         return {
             "conversation_id": conversation_id,
-            "output": " ".join(results.values()) or "Not sent: the showing could not be booked.",
+            "output": " ".join([*results.values(), *held_lines]),
             "pending": extract_pending_approval_from_messages(messages),
             "tool_results": results,
             "status": "pending_approval",
@@ -604,12 +646,8 @@ async def _prepare_booking(
     conversation_id: str, metadata: dict[str, Any]
 ) -> lead_bookings.Prepared | None:
     """Book what an approved reply confirms, from its stored outcome and case."""
-    stored = metadata.get("outcome") or {}
-    if stored.get("action") != "reply":
-        return None
-    try:
-        reply = Reply.model_validate(stored)
-    except ValueError:  # an outcome saved in another shape books nothing
+    reply = _stored_reply(metadata)
+    if reply is None:
         return None
     return await lead_bookings.prepare_reply(
         conversation_id=conversation_id,
@@ -619,3 +657,60 @@ async def _prepare_booking(
         listed_units=listed_units(metadata.get("case")),
         now=datetime.now(UTC),
     )
+
+
+def _stored_reply(metadata: dict[str, Any]) -> Reply | None:
+    """The reply outcome a conversation was saved with; None for any other."""
+    stored = metadata.get("outcome") or {}
+    if stored.get("action") != "reply":
+        return None
+    try:
+        return Reply.model_validate(stored)
+    except ValueError:  # an outcome saved in another shape books nothing
+        return None
+
+
+async def _plan_booking(
+    conversation_id: str, metadata: dict[str, Any]
+) -> lead_bookings.Plan | None:
+    """What sending the stored reply would book, move or cancel. Changes nothing."""
+    reply = _stored_reply(metadata)
+    if reply is None:
+        return None
+    return await lead_bookings.plan_reply(
+        conversation_id=conversation_id,
+        thread_id=metadata.get("lead_thread_id") or "",
+        lead=reply.lead,
+        tour=reply.tour,
+        listed_units=listed_units(metadata.get("case")),
+        now=datetime.now(UTC),
+    )
+
+
+async def _not_applied(
+    conversation_id: str, plan: lead_bookings.Plan | None
+) -> tuple[str, dict[str, Any]] | None:
+    """After an edited reply was sent: what was not done, and the record of it.
+
+    No booking change is applied for edited words. A place this conversation
+    booked for the draft and never sent (a process stopped after booking) is
+    cancelled, as a rejection cancels it: the edited words may not confirm it.
+    None when there was nothing to apply (or the switch is off).
+    """
+    cancelled = await lead_bookings.cancel_unsent(conversation_id, now=datetime.now(UTC))
+    if plan is None and not cancelled:
+        return None
+    action = plan.action if plan is not None else "book"
+    line = (
+        plan.not_applied()
+        if plan is not None
+        else lead_bookings.Plan("book", "", None).not_applied()
+    )
+    return line, {
+        "action": "not_applied_edited",
+        "not_applied": action,
+        "unit": plan.unit if plan is not None else None,
+        "start": plan.start.isoformat() if plan is not None and plan.start else None,
+        "cancelled_unsent": cancelled,
+        "at": datetime.now(UTC).isoformat(),
+    }
