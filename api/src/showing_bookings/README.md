@@ -464,7 +464,7 @@ Read at call time. Names only; values live in each environment.
 
 | Variable | What it is |
 | --- | --- |
-| `TURNSTILE_SECRET_KEY` | Turnstile's secret. Unset outside production: Cloudflare's test secret that always passes. Unset in production: booking and the team number are refused. |
+| `TURNSTILE_SECRET_KEY` | Turnstile's secret. Unset outside production: Cloudflare's test secret that always passes, which the API answers itself without calling Cloudflare (any non-empty token passes). Unset in production: booking and the team number are refused. |
 | `TURNSTILE_SITE_KEY` | The site key the page shows. Unset outside production: Cloudflare's test site key. |
 | `SHOWING_PUBLIC_BASE_URL` | Where links in texts point; default `https://serniacapital.com`. The cancel link is `<base>/showings/cancel/<cancel token>`. |
 | `SERNIA_TEAM_PHONE_EXTENSION` | The extension for the call line; default 1. The number itself is `SERNIA_TEAM_PHONE`. |
