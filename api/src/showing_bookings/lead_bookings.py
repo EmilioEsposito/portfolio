@@ -444,7 +444,11 @@ async def cancel_from_decision(
     if tour.status != "cancelled" or not (lead.unit or "").strip() or not await enabled():
         return None
     unit = lead.unit.strip()
-    places = await _thread_places(thread_id, unit, now)
+    try:
+        places = await _thread_places(thread_id, unit, now)
+    except Exception:
+        logfire.exception("lead bookings: the thread's showings unreadable, nothing cancelled")
+        return None
     if not places:
         return None
     prepared = Prepared("cancel", unit, to_cancel=[attendee_id for attendee_id, _ in places])
@@ -460,4 +464,8 @@ async def still_booked(
     """
     if tour.status != "cancelled" or not (lead.unit or "").strip() or not await enabled():
         return []
-    return [start for _, start in await _thread_places(thread_id, lead.unit.strip(), now)]
+    try:
+        return [start for _, start in await _thread_places(thread_id, lead.unit.strip(), now)]
+    except Exception:
+        logfire.exception("lead bookings: the thread's showings unreadable")
+        return []
