@@ -39,7 +39,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.schema import ShowingRules
-from api.src.showing_bookings import bookings, host_event, outbox, resident_notices, wording
+from api.src.showing_bookings import (
+    bookings,
+    host_event,
+    outbox,
+    resident_notices,
+    residents,
+    wording,
+)
 from api.src.showing_bookings.models import (
     Showing,
     ShowingAgentRecord,
@@ -61,7 +68,13 @@ HOST_CANCEL_KIND = host_event.CANCEL_KIND
 # never stops these, so a later cancellation in the same showing keeps the
 # texts an earlier one queued.
 CANCELLATION_KINDS = frozenset(
-    {PROSPECT_TEXT_KIND, TEAM_TEXT_KIND, INVITE_CANCEL_KIND, HOST_CANCEL_KIND}
+    {
+        PROSPECT_TEXT_KIND,
+        TEAM_TEXT_KIND,
+        INVITE_CANCEL_KIND,
+        HOST_CANCEL_KIND,
+        residents.CANCELLED_KIND,
+    }
 )
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
 # A booking whose confirmation text could not reach the number: a cancellation
