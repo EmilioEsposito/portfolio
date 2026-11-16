@@ -7,7 +7,7 @@
  */
 import type { Page } from "@playwright/test";
 
-import { formatWhen } from "../app/lib/showing-booking-page.ts";
+import { formatDay, formatWhen } from "../app/lib/showing-booking-page.ts";
 import { expect, readRows, resetDatabase, test, turnstileRuns } from "./fixtures.ts";
 import { TEAM_PHONE, UNIT } from "./setup.ts";
 
@@ -53,6 +53,10 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
   await page.getByRole("button", { name: "Show phone number" }).click();
   await expect(page.getByRole("link", { name: display })).toHaveAttribute("href", `tel:${TEAM_PHONE},1`);
   await expect(page.getByText("(extension 1) instead.")).toBeVisible();
+
+  // The picker opens on the day of the API's best offer.
+  const unit = await page.evaluate(async (path) => (await fetch(path)).json(), `/api/showing-bookings/public/units/${UNIT}`);
+  await expect(page.getByRole("group", { name: `Times on ${formatDay(unit.offers[0].start, unit.timezone)}` })).toBeVisible();
 
   const picked = await pickFirstTime(page);
   await fillDetails(page, { name: "Alex Parker", mobile: "412-555-0117", email: "alex@example.com" });
