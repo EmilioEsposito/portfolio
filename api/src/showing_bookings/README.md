@@ -229,9 +229,11 @@ Make a key with
 A token saved under one key cannot be read under another, so changing the key
 means reconnecting each account.
 
-The request span for the callback is left out of tracing (`api/index.py`),
-since Logfire records a URL's whole query and this one holds Google's code
-and the state; the callback logs its own outcome without them.
+The callback's query holds Google's one-time code and the state, so the app's
+own logs and traces leave it out: the web proxy (`server.js`) logs each
+request's method and path only, and the API's request tracing skips the
+callback (`api/index.py`). The hosting platform's own request log is outside
+the app's control.
 
 ### The live check
 
