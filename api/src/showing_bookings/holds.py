@@ -18,10 +18,11 @@ confirmation that holds something:
   waits is withdrawn by ``bookings.py`` instead, which stops them at once;
 - still pending, or unknown for less than five minutes: wait.
 
-``send_pending`` runs ``release_held`` and then ``outbox.drain``: the job every
-minute (``scheduled_run``, registered by ``register_job`` only when background
-automation is on) and the team's "Send pending now" both run it. With no
-notice pending or held, the job returns after one indexed query.
+``send_pending`` runs ``release_held``, ``reminders.queue_due``, ``outbox.drain``
+and ``alerts.check``, in that order: the job every minute (``scheduled_run``,
+registered by ``register_job`` only when background automation is on) and the
+team's "Send pending now" both run it. With nothing held, due, failed or
+coming up in the next two days, the job returns after one query.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -32,8 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import outbox, resident_notices
-from api.src.showing_bookings.models import ShowingAttendee, ShowingNotice
-from api.src.showing_bookings.providers import CalendarSource, TextSender
+from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
+from api.src.showing_bookings.providers import CalendarSource, TeamAlerter, TextSender
 from api.src.showing_bookings.schema import DrainReport, HoldReport
 
 JOB_ID = "showing-notices"
@@ -49,10 +50,14 @@ NOT_SENT_NOTE = "Not sent: the confirmation text was not sent."
 
 
 class SendPendingReport(DrainReport):
-    """One run of ``send_pending``: the held notices released or stopped, then the drain."""
+    """One run of ``send_pending``: the held notices released or stopped, the
+    reminders queued, the drain, and the team alerts."""
 
     released: int = 0
     stopped: int = 0
+    prospect_reminders: int = 0
+    resident_reminders: int = 0
+    alerts: int = 0
 
 
 async def stop_waiting_on(
@@ -195,17 +200,37 @@ async def release_held(*, now: datetime, texts: TextSender | None = None) -> Hol
     return report
 
 
+# Showings this close may be owed a reminder (``reminders.LOOKAHEAD``).
+REMINDER_LOOKAHEAD = timedelta(days=2)
+# Failed notices this recent may be owed an alert (``alerts.LOOKBACK``).
+ALERT_LOOKBACK = timedelta(days=2)
+
+
 async def anything_to_do(now: datetime) -> bool:
-    """Whether any notice is held, or pending and due. One indexed query."""
+    """Whether any step of the job may have work: a notice held, or pending and
+    due; a scheduled showing in the next two days, which may be owed a reminder;
+    or a notice that failed in the last two days and has not been alerted
+    about. One query."""
     async with AsyncSessionFactory() as session:
         return bool(
             await session.scalar(
                 select(
-                    exists().where(
-                        or_(
-                            ShowingNotice.status == "held",
-                            (ShowingNotice.status == "pending") & (ShowingNotice.not_before <= now),
-                        )
+                    or_(
+                        exists().where(
+                            or_(
+                                ShowingNotice.status == "held",
+                                (ShowingNotice.status == "pending")
+                                & (ShowingNotice.not_before <= now),
+                                ShowingNotice.status.in_(["failed", "unknown"])
+                                & ShowingNotice.alerted_at.is_(None)
+                                & (ShowingNotice.delivered_at >= now - ALERT_LOOKBACK),
+                            )
+                        ),
+                        exists().where(
+                            Showing.status == "scheduled",
+                            Showing.starts_at > now,
+                            Showing.starts_at <= now + REMINDER_LOOKAHEAD,
+                        ),
                     )
                 )
             )
@@ -217,15 +242,25 @@ async def send_pending(
     now: datetime,
     texts: TextSender | None = None,
     calendar: CalendarSource | None = None,
+    alerter: TeamAlerter | None = None,
 ) -> SendPendingReport:
-    """Release or stop held notices, then deliver every due one."""
+    """The job's steps in order: release or stop held notices, queue the reminders
+    due by ``now``, deliver every due notice, then alert the team about any notice
+    that failed or is stuck."""
+    # Imported here: both import modules that import this one.
+    from api.src.showing_bookings import alerts, reminders
+
     held = await release_held(now=now, texts=texts)
+    queued = await reminders.queue_due(now=now)
     drained = await outbox.drain(now=now, texts=texts, calendar=calendar)
-    return SendPendingReport(**drained.model_dump(), **held.model_dump())
+    alerted = await alerts.check(now=now, alerter=alerter)
+    return SendPendingReport(
+        **drained.model_dump(), **held.model_dump(), **queued.model_dump(), alerts=alerted
+    )
 
 
 async def scheduled_run() -> None:
-    """The job every minute. Returns at once when nothing is held or due."""
+    """The job every minute. Returns after one query when no step has anything to do."""
     now = datetime.now(UTC)
     if not await anything_to_do(now):
         return

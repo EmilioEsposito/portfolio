@@ -5,10 +5,12 @@ Signed-in Sernia users only, on every route.
 - ``GET /settings`` and ``PATCH /settings``: the send mode, live units and the
   test-send switch. A save sends ``based_on``, the settings as the caller last
   read them; if they have changed since, nothing is saved and the answer is 409.
-- ``GET /notices``: notices newest first, with their wording, status and mode.
-- ``POST /notices/send-pending``: release or stop the held notices, then run
-  the sending step once: the same two steps the job every minute runs
-  (``holds.send_pending``). Answers what it did.
+- ``GET /notices``: notices newest first, with their wording, status and mode,
+  what each is in words, and whether it failed or is stuck (``alerts.py``).
+- ``POST /notices/send-pending``: run the job's steps once, as the job every
+  minute does (``holds.send_pending``): release or stop the held notices, queue
+  the reminders due, deliver, and alert the team about failed or stuck
+  notices. Answers what it did.
 - ``GET /calendar/connections``: each connected Google account, whether it can
   be used here, and whether this environment can connect calendars at all.
 - ``POST /calendar/connect``: Google's consent URL for a new connection, or to
@@ -50,6 +52,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
@@ -57,12 +60,14 @@ from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.models import RentalListingRecord
 from api.src.showing_bookings import (
     agents,
+    alerts,
     bookings,
     cancelling,
     connections,
     holds,
     open_times,
     team_actions,
+    wording,
 )
 from api.src.showing_bookings.guard import PRODUCTION
 from api.src.showing_bookings.models import (
@@ -233,16 +238,20 @@ async def update_settings(
 
 @router.get("/notices", response_model=list[Notice])
 async def list_notices(session: DBSession, limit: int = Query(100, ge=1, le=500)):
+    holder = aliased(ShowingNotice)
     rows = await session.execute(
-        select(ShowingNotice, Showing.unit, Showing.starts_at)
+        select(ShowingNotice, Showing.unit, Showing.starts_at, holder.delivered_at)
         .join(Showing, Showing.id == ShowingNotice.showing_id)
+        .outerjoin(holder, holder.id == ShowingNotice.waits_for_notice_id)
         .order_by(ShowingNotice.id.desc())
         .limit(limit)
     )
+    now = datetime.now(UTC)
     return [
         Notice(
             id=notice.id,
             kind=notice.kind,
+            kind_label=wording.notice_label(notice.kind),
             channel=notice.channel,
             showing_id=notice.showing_id,
             attendee_id=notice.attendee_id,
@@ -261,8 +270,11 @@ async def list_notices(session: DBSession, limit: int = Query(100, ge=1, le=500)
             last_error=notice.last_error,
             created_at=notice.created_at,
             delivered_at=notice.delivered_at,
+            attention=notice.alert_reason
+            or alerts.attention_of(notice, now, holder_delivered_at=holder_delivered_at),
+            alerted_at=notice.alerted_at,
         )
-        for notice, unit, starts_at in rows
+        for notice, unit, starts_at, holder_delivered_at in rows
     ]
 
 
@@ -809,10 +821,12 @@ async def change_host(
     body: team_actions.HostChangeRequest,
     user: User = Depends(verify_serniacapital_user),
     now: datetime = Depends(clock),
+    texts: TextSender | None = Depends(text_sender),
 ):
-    """Give the showing to another agent who is free then. Prospects are told nothing."""
+    """Give the showing to another agent who is free then. Prospects are told nothing;
+    within 2 hours of the start both hosts are texted."""
     try:
-        result = await team_actions.change_host(showing_id, body.agent_id, now=now)
+        result = await team_actions.change_host(showing_id, body.agent_id, now=now, texts=texts)
     except bookings.Refused as refused:
         raise _refusal(refused) from None
     logfire.info(

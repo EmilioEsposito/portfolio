@@ -16,6 +16,10 @@
   (``api.src.open_phone.tenants``) are pure functions any file may use.
 - Nothing in the module uses ``send_message`` or ``create_calendar_event``,
   the repo's general senders, which have no guard.
+- The team's alert channel (``push.py``, the Sernia web push) is a sender like
+  Quo: only ``outbox.py`` imports it or calls ``send_alert``, and only it talks
+  to the push package. The reminders, the host's texts and the alerts reach a
+  provider only through the outbox.
 
 A second way out of the module fails here.
 """
@@ -30,20 +34,21 @@ OUTBOX = "outbox.py"
 # The module's own live senders, and the only files that may import each.
 SENDERS = {
     "api.src.showing_bookings.quo": {OUTBOX},
+    "api.src.showing_bookings.push": {OUTBOX},
     "api.src.showing_bookings.google_calendar": {"connections.py"},
     "api.src.showing_bookings.quo_contacts": {"residents.py"},
 }
-SENDER_FILES = {"quo.py", "google_calendar.py"}
+SENDER_FILES = {"quo.py", "google_calendar.py", "push.py"}
 # Reads Quo's contacts and sends nothing.
 READER_FILES = {"quo_contacts.py"}
 # Pure functions in a provider package: no I/O, no import side effects.
 PURE_PROVIDER_MODULES = ("api.src.open_phone.tenants",)
-PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google")
+PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google", "api.src.agent_conversations.push")
 GOOGLE_HOSTS = ("googleapis.com", "accounts.google.com")
 GOOGLE_FILES = {"google_calendar.py", "google_oauth.py"}
 GENERAL_SENDERS = {"send_message", "create_calendar_event"}
 EVENT_WRITES = {"create_event", "update_event", "cancel_event"}
-SENDING_METHODS = {"send_text", "send_group_text", "text_status", *EVENT_WRITES}
+SENDING_METHODS = {"send_text", "send_group_text", "text_status", "send_alert", *EVENT_WRITES}
 
 
 def imported(tree: ast.AST) -> list[tuple[int, str]]:
@@ -164,6 +169,26 @@ def test_only_the_outbox_uses_a_sending_method():
     assert uses_a_method(sources()[OUTBOX], SENDING_METHODS)
 
 
+# Reminders, the host's texts and the team's alerts
+LATE_NOTICE_FILES = {"reminders.py", "host_texts.py", "delivery_checks.py", "alerts.py"}
+
+
+def test_reminders_host_texts_and_alerts_reach_providers_only_through_the_outbox():
+    trees = sources()
+    assert LATE_NOTICE_FILES <= set(trees)
+    for name in LATE_NOTICE_FILES:
+        assert imports_a_sender(trees[name]) == [], name
+        assert reaches_a_provider(trees[name]) == [], name
+        assert uses_a_method(trees[name], SENDING_METHODS) == [], name
+        assert private_outbox_uses(trees[name]) == [], name
+
+
+def test_only_the_outbox_sends_a_team_alert():
+    outbox_tree = sources()[OUTBOX]
+    assert uses_a_method(outbox_tree, {"send_alert"})
+    assert imports_of(outbox_tree, "api.src.showing_bookings.push")
+
+
 def test_only_the_outbox_writes_calendar_events():
     """Google event writes, which invite people, are reached only through the outbox."""
     for name, tree in sources().items():
@@ -191,6 +216,13 @@ def test_the_checks_catch_what_they_are_for():
     assert names_a_google_host('URL = "https://www.googleapis.com/calendar/v3"')
     assert uses_a_general_sender(ast.parse("from api.src.open_phone.service import send_message"))
     assert uses_a_general_sender(ast.parse("import x\nx.service.create_calendar_event()"))
+    assert reaches_a_provider(
+        ast.parse("from api.src.agent_conversations.push.service import notify_all_sernia_users")
+    )
+    assert imports_a_sender(ast.parse("from api.src.showing_bookings.push import PushTeamAlerter"))
+    assert uses_a_method(
+        ast.parse("async def f(a):\n    await a.send_alert('t', 'b', '/')"), SENDING_METHODS
+    )
     writes = {
         "async def f(calendar, e):\n    await calendar.create_event('c', e)",
         "async def f(calendar):\n    cancel = calendar.cancel_event\n    await cancel('c', 'e')",
