@@ -65,6 +65,14 @@ A reminder or a host's text (``delivery_checks.KINDS``) is checked by
 ``delivery_checks.check``: still booked, still scheduled, not started, the
 number as it is now, and a reminder only in the daytime.
 
+Email: only a lead's reminder in their Zillow thread
+(``delivery_checks.LEAD_EMAIL_REMINDER_KIND``) is ever sent, through an
+``EmailSender`` (Gmail, ``gmail_thread.py``). Its check reads the recipient,
+subject and the message it answers from the lead conversation's stored route,
+under the same lock, just before the guard is asked; when there is no usable
+route it is saved as failed without a send. Any other email the guard would
+send fails with ``no_email_sender``.
+
 ``send_team_alert`` is the one way to the team's alert channel (web push,
 ``push.py``), and pushes only in production.
 """
@@ -87,14 +95,17 @@ from api.src.showing_bookings import (
     host_event,
     residents,
 )
+from api.src.showing_bookings.gmail_thread import GmailThreadSender, LiveGmailInTests
 from api.src.showing_bookings.guard import Decision, decide
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.providers import (
     CalendarSource,
+    EmailSender,
     EventDraft,
     NotSent,
     TeamAlerter,
     TextSender,
+    ThreadRoute,
 )
 from api.src.showing_bookings.push import PushTeamAlerter
 from api.src.showing_bookings.quo import QuoTextSender
@@ -189,7 +200,7 @@ async def enqueue(
             recipient_key=recipient_key,
             # A plain text is saved as {"body": ...}, as before group texts.
             payload=payload.model_dump(
-                mode="json", exclude_defaults=isinstance(payload, TextPayload)
+                mode="json", exclude_defaults=isinstance(payload, TextPayload | EmailPayload)
             ),
             status="pending" if waits_for_notice_id is None else "held",
             waits_for_notice_id=waits_for_notice_id,
@@ -215,6 +226,7 @@ async def deliver(
     now: datetime,
     texts: TextSender | None = None,
     calendar: CalendarSource | None = None,
+    emails: EmailSender | None = None,
 ) -> NoticeStatus | None:
     """Deliver one due notice now, such as a confirmation text while the person waits.
 
@@ -223,7 +235,10 @@ async def deliver(
     is left as it is.
     """
     await _deliver_one(
-        notice_id, now=_aware(now), texts=texts, calendar=calendar, report=DrainReport()
+        notice_id,
+        now=_aware(now),
+        senders=_Senders(texts, calendar, emails),
+        report=DrainReport(),
     )
     async with AsyncSessionFactory() as session:
         return await session.scalar(
@@ -236,6 +251,7 @@ async def drain(
     now: datetime,
     texts: TextSender | None = None,
     calendar: CalendarSource | None = None,
+    emails: EmailSender | None = None,
     limit: int = DRAIN_LIMIT,
 ) -> DrainReport:
     """Deliver every notice due by ``now``, oldest first. Safe to run twice at once.
@@ -244,8 +260,9 @@ async def drain(
     are claimed one at a time, each just before its own provider call.
     """
     to_send, report = await _settle_due(now=_aware(now), limit=limit)
+    senders = _Senders(texts, calendar, emails)
     for notice_id in to_send:
-        await _deliver_one(notice_id, now=now, texts=texts, calendar=calendar, report=report)
+        await _deliver_one(notice_id, now=now, senders=senders, report=report)
     if report.total:
         logfire.info("showing notices delivered", **report.model_dump())
     return report
@@ -321,6 +338,15 @@ class _Claimed:
     started_at: datetime
     # The event a calendar change applies to when the payload names none.
     stored_event_id: str | None
+
+
+@dataclass(frozen=True)
+class _Senders:
+    """The stand-ins a caller passed; each one left out is the live sender."""
+
+    texts: TextSender | None = None
+    calendar: CalendarSource | None = None
+    emails: EmailSender | None = None
 
 
 @dataclass(frozen=True)
@@ -458,6 +484,13 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
         if verdict.cancel is not None:
             notice.status = "cancelled"
             notice.last_error = verdict.cancel
+            return _NOT_NOW
+        if verdict.fail is not None:
+            # Cannot go and needs the team: failed with nothing sent, so alerted.
+            notice.status = "failed"
+            notice.provider_status = verdict.fail.reason
+            notice.last_error = verdict.fail.detail
+            notice.delivered_at = now
             return _NOT_NOW
         if verdict.later is not None:
             notice.not_before = verdict.later
@@ -666,8 +699,7 @@ async def _deliver_one(
     notice_id: int,
     *,
     now: datetime,
-    texts: TextSender | None,
-    calendar: CalendarSource | None,
+    senders: _Senders,
     report: DrainReport,
 ) -> None:
     """Claim one row, call its provider, save the answer, and count what happened."""
@@ -676,7 +708,7 @@ async def _deliver_one(
         _count(report, settled)
     if item is None:
         return
-    outcome = await _send(item, texts=texts, calendar=calendar)
+    outcome = await _send(item, senders)
     await _record(item, outcome, now=now)
     _count(report, outcome.status)
 
@@ -685,6 +717,35 @@ def _live_text_sender() -> TextSender:
     if "PYTEST_CURRENT_TEST" in os.environ:
         raise RuntimeError("Tests pass a stand-in TextSender; the live one is never used in tests.")
     return QuoTextSender()
+
+
+def _live_email_sender() -> EmailSender:
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        raise LiveGmailInTests(
+            "Tests pass a stand-in EmailSender; the live one is never used in tests."
+        )
+    return GmailThreadSender()
+
+
+async def _send_email(item: _Claimed, sender: EmailSender | None) -> _Outcome:
+    """A lead's reminder in their Zillow thread, to the route its check read from
+    the lead conversation in this claim. Any other email cannot go."""
+    if sender is None:
+        raise NotSent(
+            "no_email_sender", "Only the reminder in a lead's Zillow thread is sent by email."
+        )
+    payload = EmailPayload.model_validate(item.payload)
+    if not payload.reply_to_message_id:
+        raise NotSent("no_route", "The lead's reply route was not read, so nothing was sent.")
+    sent = await sender.send_in_thread(
+        ThreadRoute(
+            to=item.recipient,
+            subject=payload.subject,
+            reply_to_message_id=payload.reply_to_message_id,
+        ),
+        payload.body,
+    )
+    return _Outcome("sent", provider_id=sent.provider_id)
 
 
 async def _live_calendar(calendar_id: str) -> CalendarSource:
@@ -697,14 +758,16 @@ async def _live_calendar(calendar_id: str) -> CalendarSource:
     return await connections.calendar_for_showings_calendar(calendar_id)
 
 
-async def _send(
-    item: _Claimed, *, texts: TextSender | None, calendar: CalendarSource | None
-) -> _Outcome:
+async def _send(item: _Claimed, senders: _Senders) -> _Outcome:
+    texts, calendar = senders.texts, senders.calendar
     # Chosen outside the try, so a test that forgot its stand-in fails instead
     # of saving a status.
     sender = None
+    email_sender = None
     if item.channel == "sms":
         sender = texts if texts is not None else _live_text_sender()
+    elif item.channel == "email" and item.kind == delivery_checks.LEAD_EMAIL_REMINDER_KIND:
+        email_sender = senders.emails if senders.emails is not None else _live_email_sender()
     try:
         if sender is not None:
             text = TextPayload.model_validate(item.payload)
@@ -716,8 +779,7 @@ async def _send(
                 "sent", provider_id=sent.provider_id, provider_status=sent.provider_status
             )
         if item.channel == "email":
-            # Captured like any other notice; one the guard would send cannot go yet.
-            raise NotSent("no_email_sender", "There is no email sender yet.")
+            return await _send_email(item, email_sender)
         if calendar is not None:
             source = calendar
         else:
@@ -728,8 +790,8 @@ async def _send(
         if refused.retryable and item.attempts < MAX_ATTEMPTS:
             return _Outcome("retry", error=refused.detail)
         return _Outcome("failed", provider_status=refused.reason, error=refused.detail)
-    except google_http.LiveGoogleInTests:
-        # A test without its mock transport fails instead of saving a status.
+    except (google_http.LiveGoogleInTests, LiveGmailInTests):
+        # A test without its stand-in fails instead of saving a status.
         raise
     except Exception as exc:
         # It may have gone out before the error: never retried.

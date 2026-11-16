@@ -15,6 +15,7 @@ import {
   formatWhen,
   humanize,
   needsAttention,
+  noticeLeadConversation,
   noticeRecipients,
 } from "~/lib/showing-bookings";
 import { cn } from "~/lib/utils";
@@ -32,6 +33,7 @@ const STATUS_STYLES: Record<Notice["status"], string> = {
 };
 
 function NoticeItem({ notice }: { notice: Notice }) {
+  const conversation = noticeLeadConversation(notice);
   const details = [
     notice.mode && `Mode: ${MODE_LABELS[notice.mode]}`,
     // "Send mode off" or "capture" would only repeat the mode.
@@ -53,6 +55,18 @@ function NoticeItem({ notice }: { notice: Notice }) {
           </p>
           <p className="mt-0.5 break-words text-sm text-muted-foreground">
             Unit {notice.unit} · showing {formatWhen(notice.showing_starts_at)} · to {noticeRecipients(notice)}
+            {conversation && (
+              <>
+                {" · in the lead's Zillow thread ("}
+                <a
+                  href={`/sernia-chat?id=${encodeURIComponent(conversation)}`}
+                  className="underline underline-offset-4"
+                >
+                  conversation
+                </a>
+                {")"}
+              </>
+            )}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -131,7 +145,8 @@ export function MessagesSection() {
             Messages
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Every text, calendar event and invite a booking owes, with its wording and what happened to it. Newest first.
+            Every text, email, calendar event and invite a booking owes, with its wording and what happened to it. Newest
+            first.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

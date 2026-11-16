@@ -3,7 +3,8 @@
 A ``PublicWorld`` is the outside world as the public routes see it: one made-up
 listing and the default showing rules (passed in, not read from the
 database), one agent with a connection whose calendar is an
-``InMemoryCalendar``, a ``RecordingTextSender`` in place of Quo, a stand-in
+``InMemoryCalendar``, a ``RecordingTextSender`` in place of Quo, a
+``RecordingEmailSender`` in place of Gmail, a stand-in
 for Cloudflare Turnstile behind ``httpx.MockTransport``, and a clock the test
 moves. Requests go through the real public router with ``httpx.ASGITransport``.
 Names, numbers and addresses are made up.
@@ -25,7 +26,12 @@ from api.src.showing_bookings import (
     routes,
     turnstile,
 )
-from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender, StandInContacts
+from api.src.showing_bookings.fakes import (
+    InMemoryCalendar,
+    RecordingEmailSender,
+    RecordingTextSender,
+    StandInContacts,
+)
 from api.src.showing_bookings.models import (
     CalendarConnection,
     Showing,
@@ -69,6 +75,8 @@ class PublicWorld:
         self.rules = ShowingRules()
         self.calendar = InMemoryCalendar()
         self.texts = RecordingTextSender()
+        # Gmail, for the reminder by email in a lead's thread.
+        self.emails = RecordingEmailSender()
         # The resident lookup's contacts: none, so the unit is vacant, unless a test adds some.
         self.residents = StandInContacts()
         # Each check Turnstile was asked for: (secret, token, remote ip).
@@ -112,7 +120,7 @@ class PublicWorld:
 
     async def send_pending(self, now: datetime | None = None) -> holds.SendPendingReport:
         return await holds.send_pending(
-            now=now or self.now, texts=self.texts, calendar=self.calendar
+            now=now or self.now, texts=self.texts, calendar=self.calendar, emails=self.emails
         )
 
 

@@ -148,13 +148,23 @@ class TextPayload(BaseModel):
 
 
 class EmailPayload(BaseModel):
-    """An email. Nothing sends email yet: the outbox captures these, and one the
-    guard would send is saved as failed."""
+    """An email. The only kind ever sent is the reminder in a Zillow lead's thread
+    (``lead_email.py``); any other email the guard would send is saved as failed.
+
+    ``conversation_id`` is the lead conversation whose stored reply route the
+    reminder goes to. ``reply_to_message_id`` is that route's message, which the
+    email answers in the thread; it and the notice's recipient and subject are
+    set from the conversation each time the email is about to go, never from a
+    request or anything a lead wrote. With ``daytime_timezone`` it goes out only
+    from 8 AM to 9 PM there."""
 
     model_config = ConfigDict(extra="forbid")
 
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1)
+    conversation_id: str | None = None
+    reply_to_message_id: str | None = None
+    daytime_timezone: str | None = None
 
 
 class CalendarPayload(BaseModel):
