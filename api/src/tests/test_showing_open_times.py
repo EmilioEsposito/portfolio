@@ -485,6 +485,33 @@ async def test_free_busy_is_reused_for_90_seconds_and_the_recheck_reads_afresh(w
 
 
 @pytest.mark.asyncio
+async def test_one_read_serves_requests_while_now_moves_on_until_it_expires(world, monkeypatch):
+    await agent()
+    reads = []
+    read_busy = world.calendar.busy_blocks
+
+    async def counted(calendar_ids, start, end):
+        reads.append((start, end))
+        return await read_busy(calendar_ids, start, end)
+
+    monkeypatch.setattr(world.calendar, "busy_blocks", counted)
+    clock = [1000.0]
+    monkeypatch.setattr(open_times, "_clock", lambda: clock[0])
+
+    for seconds in (0, 5, 60, 89):
+        clock[0] = 1000.0 + seconds
+        found = await offers(now=NOW + timedelta(seconds=seconds))
+        assert found.offers
+    assert len(reads) == 1
+    start, end = reads[0]
+    assert start <= NOW and end >= NOW + timedelta(days=14, minutes=30, seconds=89)
+
+    clock[0] = 1091.0  # the kept answer has expired
+    await offers(now=NOW + timedelta(seconds=91))
+    assert len(reads) == 2
+
+
+@pytest.mark.asyncio
 async def test_the_recheck_answers_the_host_or_why_not(world):
     jane = await agent()
     thursday = date(2027, 4, 15)

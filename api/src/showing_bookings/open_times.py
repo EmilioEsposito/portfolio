@@ -435,6 +435,15 @@ def forget_free_busy() -> None:
     _FREE_BUSY.clear()
 
 
+# How far past the top of the hour a kept read reaches beyond the window asked for.
+READ_MARGIN = timedelta(hours=2)
+
+
+def _hour(moment: datetime) -> datetime:
+    """The top of ``moment``'s hour, in UTC."""
+    return moment.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
 def _clock() -> float:
     return time.monotonic()
 
@@ -448,10 +457,19 @@ async def _read_calendars(
     *,
     fresh: bool,
 ) -> _Read:
-    """Busy times for ``calendar_ids``, from memory when a recent answer covers the window."""
+    """Busy times for ``calendar_ids`` over ``start`` to ``end``.
+
+    A kept answer is used when it is recent and covers that window. So that one
+    answer serves the requests that follow while ``now`` moves on, a kept read
+    covers a wider window aligned to the hour: from the top of ``start``'s hour
+    to two hours past the top of ``end``'s. A fresh read (``recheck``) reads
+    just the window asked for and is never kept.
+    """
     held = _FREE_BUSY.get(key) if key is not None and not fresh else None
     if held and held.good_until > _clock() and held.start <= start and held.end >= end:
         return held
+    if not fresh:
+        start, end = _hour(start), _hour(end) + READ_MARGIN
     try:
         busy = await source.busy_blocks(calendar_ids, start, end)
         unreadable: dict[str, str] = {}
@@ -666,9 +684,7 @@ async def open_times(
             (listing for listing in known.listings if listing.unit.casefold() in wanted),
             key=lambda listing: wanted.index(listing.unit.casefold()),
         )
-    reads = await _agent_calendars(
-        known.agents, known.connections, now, now + HORIZON + timedelta(days=1)
-    )
+    reads = await _agent_calendars(known.agents, known.connections, now, now + HORIZON + SLOT)
     available = _availability(reads)
     results = []
     for listing in chosen:
