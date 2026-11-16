@@ -448,7 +448,14 @@ tokens; a cancel token travels in the body for the same reason.
    Zillow lead agent. It takes a `Person` (name, source, and optionally a
    mobile, an email, consent to texts, the form's confirmations, a lead
    token or Zillow thread) and an optional `checks(session)` run under the
-   locks, which is how the page applies its limits.
+   locks, which is how the page applies its limits. It looks up the unit's
+   residents itself, before its transaction (`resident_notices.find_for`, which
+   may read Quo), so every source tells them the same way: a new showing
+   queues their text held behind the confirmation text, or due at once (in the
+   daytime) when the booking has none; a join brings back an announcement
+   stopped with an earlier failed confirmation, held behind this booking's
+   confirmation or due at once without one; a lookup that went wrong marks the
+   showing and never stops the booking.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
@@ -493,7 +500,9 @@ captured), an update is queued behind the new text.
 A host event notice is rendered when the outbox delivers it, not when it is
 queued (`host_event.py`, called from `outbox._prepare` under a lock
 on the showing): the summary and description list the attendees booked then,
-with their current mobiles and emails, and the notice creates the showing's
+with their current mobiles and emails and how each booked ("booked on the
+booking page", "booked by the team", "booked by email with the lead agent",
+and "no texts" for someone who takes none), and the notice creates the showing's
 event if it has none yet (saving its id on the showing) or updates it. So a
 showing has one event whatever order its notices are released in: an update
 released before the first booking's create creates the event, and the create
@@ -680,7 +689,9 @@ booking transaction, as it may read Quo.
   when it is undelivered or the booking is withdrawn. When someone else is
   still booked in the showing, the text waits for their confirmation instead
   (`resident_notices.hand_over`), so a showing that goes ahead is still
-  announced. That is their current confirmation: the latest one sent to the
+  announced. When the only people still booked have no confirmation text (the
+  team booked them without texts or a mobile), there is nothing to wait for
+  and the text is due at once, in the daytime. That is their current confirmation: the latest one sent to the
   mobile on their booking now, so after a corrected mobile the replacement,
   and while a correction is still being sent, the text to the number they
   have (a later correction that takes over re-points it, as for every held
@@ -801,6 +812,11 @@ A booking for a caller:
   the page: 422 `number_refused`.
 - Otherwise the attendee is saved as not accepting texts, nothing is texted
   or held, and a later cancellation texts them nothing either.
+- The unit's residents are told as for a page booking (see `place_booking`
+  above): held behind the confirmation text, or due at once in the daytime
+  when there is none. The answer's `notices` lists the residents' text with
+  the others. Changing the host and marking attendance tell the residents
+  nothing.
 
 Changing the host refuses: 404 `unknown_showing` or `unknown_agent`; 409
 `not_scheduled`, `started`, `same_host`, `event_being_sent`, and the agent's

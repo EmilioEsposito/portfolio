@@ -202,6 +202,8 @@ async def book_for_caller(
                 select(ShowingNotice.id).where(ShowingNotice.attendee_id == attendee.id)
             )
         )
+    if placed.residents_notice_id is not None:
+        ids.append(placed.residents_notice_id)
     return TeamBooking(
         showing_id=placed.showing.id,
         attendee_id=attendee.id,

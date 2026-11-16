@@ -125,6 +125,7 @@ const NOTICE_LABELS: Record<string, string> = {
   host_event: "host's event",
   host_event_update: "host's event update",
   host_event_moved: "old host's event cancelled",
+  resident_new_showing: "residents' text",
 };
 
 const STATUS_WORDS: Record<string, string> = {

@@ -190,8 +190,10 @@ async def hand_over(session: AsyncSession, holder_id: int, attendee_id: int | No
     Called before the notices held behind a confirmation are stopped (it was
     undelivered, or its booking withdrawn): while someone else is booked whose
     confirmation is not known to be wrong, the showing goes ahead and the
-    residents are still told once theirs is delivered. Otherwise the text stays
-    held and is stopped with the rest.
+    residents are still told once theirs is delivered. When everyone else still
+    booked has no confirmation text (booked by the team without texts or a
+    mobile), the text is due at once instead, in the daytime. Otherwise it
+    stays held and is stopped with the rest.
 
     The other person's current confirmation is the latest one sent to the
     mobile on their booking now: after a corrected mobile, the replacement,

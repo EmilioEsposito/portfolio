@@ -19,7 +19,15 @@ from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings.schema import RentalListing
-from api.src.showing_bookings import cancelling, host_event, open_times, routes
+from api.src.showing_bookings import (
+    cancelling,
+    holds,
+    host_event,
+    open_times,
+    residents,
+    routes,
+    wording,
+)
 from api.src.showing_bookings.models import (
     CalendarConnection,
     Showing,
@@ -37,7 +45,9 @@ from api.src.tests.showing_public import (
     ROBIN_EMAIL,
     ROBIN_MOBILE,
     SHOWINGS_CALENDAR,
+    TUESDAY,
     UNIT,
+    WEDNESDAY,
     PublicWorld,
     add_world_rows,
     at,
@@ -53,6 +63,8 @@ from api.src.utils import clerk as clerk_module
 PUBLIC = "/api/showing-bookings/public"
 TEAM = "/api/showing-bookings"
 SAM = "sam.roe@example.com"
+RESIDENT = "+14125550142"
+NEW = residents.NEW_SHOWING_KIND
 OTHER_UNIT = "412-01"  # another building
 SAME_BUILDING = "320-05"
 
@@ -61,7 +73,9 @@ SAME_BUILDING = "320-05"
 async def world(monkeypatch):
     for name in ("RAILWAY_ENVIRONMENT_NAME", "TURNSTILE_SECRET_KEY", "SHOWING_PUBLIC_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("SHOWING_TEST_PHONES", f"{ALEX_MOBILE},{ROBIN_MOBILE},{CASEY_MOBILE}")
+    monkeypatch.setenv(
+        "SHOWING_TEST_PHONES", f"{ALEX_MOBILE},{ROBIN_MOBILE},{CASEY_MOBILE},{RESIDENT}"
+    )
     monkeypatch.setenv(
         "SHOWING_TEST_EMAILS", f"{ALEX_EMAIL},{ROBIN_EMAIL},{CASEY_EMAIL},{JANE},{SAM}"
     )
@@ -912,3 +926,236 @@ async def test_without_a_sign_in_the_team_actions_are_refused(world, monkeypatch
     assert [s.agent_id for s in after[0]] == [s.agent_id for s in showings]
     assert len(after[1]) == 1 and after[1][0].attendance == "unknown"
     assert statuses(after[2]) == statuses(before)
+
+
+# ---------------------------------------------------------------------------
+# The unit's residents, through the team's booking path
+# ---------------------------------------------------------------------------
+
+
+def lives_here(world: PublicWorld) -> None:
+    world.residents.add("Morgan Ellis", RESIDENT, unit=UNIT)
+
+
+async def resident_texts() -> list[ShowingNotice]:
+    _, _, notices = await rows()
+    return [n for n in notices if n.kind in residents.TEXT_KINDS]
+
+
+@pytest.mark.asyncio
+async def test_a_team_booking_with_texts_holds_the_residents_text_behind_its_confirmation(world):
+    await live()
+    lives_here(world)
+
+    answer = await team_book(world, caller(mobile=CASEY_MOBILE, texts=True))
+
+    assert answer.status_code == 201, answer.text
+    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
+        ("prospect_confirmation", "sent"),
+        ("host_event", "held"),
+        (NEW, "held"),
+    ]
+    _, _, notices = await rows()
+    confirmation = by_kind(notices)["prospect_confirmation"][0]
+    (text,) = await resident_texts()
+    assert (text.recipient, text.waits_for_notice_id) == (RESIDENT, confirmation.id)
+    assert world.texts.to(RESIDENT) == []
+
+    await world.send_pending(NOW + timedelta(minutes=1))
+
+    assert [(n.kind, n.status) for n in await resident_texts()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_team_booking_without_texts_tells_the_residents_at_once(world):
+    await live()
+    lives_here(world)
+
+    answer = await team_book(world, caller())
+
+    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
+        ("host_event", "pending"),
+        (NEW, "pending"),
+    ]
+    (text,) = await resident_texts()
+    assert text.waits_for_notice_id is None
+
+    await world.send_pending()
+
+    assert [(n.kind, n.status) for n in await resident_texts()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_team_booking_without_texts_at_night_tells_the_residents_at_8_am(world):
+    await live()
+    lives_here(world)
+    world.now = at(21, 30, day=TUESDAY)
+
+    answer = await team_book(world, caller(at(16, day=WEDNESDAY + timedelta(days=1))))
+    await world.send_pending(world.now)
+
+    assert answer.status_code == 201, answer.text
+    (text,) = await resident_texts()
+    assert (text.status, text.not_before) == ("pending", at(8, 0, day=WEDNESDAY))
+    assert world.texts.to(RESIDENT) == []
+
+    await world.send_pending(at(8, 0, day=WEDNESDAY))
+
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_team_join_brings_back_a_stopped_announcement(world):
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await page_book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    (text,) = await resident_texts()
+    assert (text.status, text.last_error) == ("cancelled", holds.UNDELIVERED_NOTE)
+    world.now = NOW + timedelta(minutes=2)
+
+    answer = await team_book(world, caller())  # no texts: nothing to wait for
+
+    assert answer.json()["kind"] == "join"
+    assert (NEW, "pending") in [(n["kind"], n["status"]) for n in answer.json()["notices"]]
+    (text,) = await resident_texts()
+    assert (text.status, text.waits_for_notice_id, text.last_error) == ("pending", None, None)
+
+    await world.send_pending(NOW + timedelta(minutes=3))
+
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_team_join_with_texts_holds_the_brought_back_announcement(world):
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await page_book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    world.now = NOW + timedelta(minutes=2)
+
+    answer = await team_book(world, caller(mobile=CASEY_MOBILE, texts=True))
+
+    _, attendees, notices = await rows()
+    casey_confirmation = next(
+        n for n in by_kind(notices)["prospect_confirmation"] if n.attendee_id == attendees[1].id
+    )
+    (text,) = await resident_texts()
+    assert (text.status, text.waits_for_notice_id) == ("held", casey_confirmation.id)
+    assert (NEW, "held") in [(n["kind"], n["status"]) for n in answer.json()["notices"]]
+
+    await world.send_pending(NOW + timedelta(minutes=3))
+
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failed_confirmation_hands_the_residents_text_to_a_caller_without_texts(world):
+    await live()
+    lives_here(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await page_book(world)  # the residents' text waits for Alex's confirmation
+    await team_book(world, caller())  # Casey joins without texts
+
+    await world.send_pending(NOW + timedelta(minutes=1))
+
+    # Alex's text was undelivered, but Casey is still coming: the residents are told.
+    assert [(n.kind, n.status) for n in await resident_texts()] == [(NEW, "sent")]
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_team_booking_of_a_vacant_unit_texts_no_resident(world):
+    answer = await team_book(world, caller())
+
+    assert answer.status_code == 201, answer.text
+    assert await resident_texts() == []
+    showings, _, _ = await rows()
+    assert showings[0].resident_attention is None
+
+
+@pytest.mark.asyncio
+async def test_a_resident_lookup_problem_marks_the_showing_and_the_team_booking_stands(world):
+    world.residents.fail()
+
+    answer = await team_book(world, caller())
+
+    assert answer.status_code == 201, answer.text
+    assert await resident_texts() == []
+    showings, _, _ = await rows()
+    assert showings[0].resident_attention == "lookup_failed"
+
+
+@pytest.mark.asyncio
+async def test_a_withdrawn_team_booking_stops_the_residents_text(world):
+    await live()
+    lives_here(world)
+    world.texts.refuse(CASEY_MOBILE)
+
+    answer = await team_book(world, caller(mobile=CASEY_MOBILE, texts=True))
+
+    assert refusal(answer) == (422, "number_refused")
+    assert [(n.kind, n.status) for n in await resident_texts()] == [(NEW, "cancelled")]
+    await world.send_pending(NOW + timedelta(minutes=10))
+    assert world.texts.to(RESIDENT) == []
+
+
+@pytest.mark.asyncio
+async def test_a_change_of_host_and_attendance_tell_the_residents_nothing(world):
+    await live()
+    lives_here(world)
+    sam = await add_sam()
+    await page_book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    showings, (alex,), _ = await rows()
+    before = [(n.id, n.status) for n in await resident_texts()]
+
+    assert (await move(world, showings[0].id, sam)).status_code == 200
+    world.now = at(16, 10)
+    assert (await mark(world, showings[0].id, alex.id, "attended")).status_code == 200
+    await world.send_pending(world.now)
+
+    assert [(n.id, n.status) for n in await resident_texts()] == before
+    assert len(world.texts.to(RESIDENT)) == 1
+
+
+# ---------------------------------------------------------------------------
+# The host's event says how each person booked
+# ---------------------------------------------------------------------------
+
+
+def test_the_host_event_description_is_true_for_every_source():
+    guests = [
+        wording.Guest("Alex Parker", ALEX_MOBILE, ALEX_EMAIL, ["No pet dogs."], source="page"),
+        wording.Guest("Casey Morgan", None, None, [], source="team", texts=False),
+        wording.Guest("Robin Lee", ROBIN_MOBILE, None, [], source="team"),
+        wording.Guest("Lee Park", None, None, [], source="lead_agent", texts=False),
+    ]
+
+    assert wording.host_event_description(guests) == (
+        "Booked for this Sernia Capital showing:\n"
+        "- Alex Parker, 412-555-0117, alex@example.com (booked on the booking page)\n"
+        "  Confirmed: No pet dogs.\n"
+        "- Casey Morgan, no mobile, no email (booked by the team, no texts)\n"
+        "- Robin Lee, 412-555-0118, no email (booked by the team)\n"
+        "- Lee Park, no mobile, no email (booked by email with the lead agent, no texts)"
+    )
+    assert "booking page" not in wording.host_event_description(guests[1:])
+
+
+@pytest.mark.asyncio
+async def test_the_host_event_says_a_caller_was_booked_by_the_team(world):
+    await live()
+    await page_book(world)
+    await team_book(world, caller())
+
+    await world.send_pending(NOW + timedelta(minutes=1))
+
+    showings, _, _ = await rows()
+    description = world.calendar.events[showings[0].host_event_id].draft.description
+    assert "Alex Parker, 412-555-0117, alex@example.com (booked on the booking page)" in description
+    assert "Casey Morgan, no mobile, no email (booked by the team, no texts)" in description

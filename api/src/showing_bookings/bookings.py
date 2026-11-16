@@ -58,6 +58,7 @@ from api.src.showing_bookings import (
     open_times,
     outbox,
     resident_notices,
+    residents,
     turnstile,
     wording,
 )
@@ -687,6 +688,8 @@ class Placed:
     kind: str  # "new" or "join"
     # The confirmation text, delivered by the caller at once; None without texts.
     confirmation_id: int | None
+    # The residents' text this booking queued or brought back, if any.
+    residents_notice_id: int | None = None
 
 
 async def place_booking(
@@ -803,8 +806,9 @@ async def place_booking(
             )
             # No confirmation text (no texts, or no mobile): nothing to wait for.
             held_by = confirmation.id if confirmation is not None else None
+            residents_notice_id = None
             if check.kind == "new":
-                await resident_notices.queue_new_showing(
+                announced = await resident_notices.queue_new_showing(
                     session,
                     showing,
                     found,
@@ -812,11 +816,17 @@ async def place_booking(
                     now=now,
                     waits_for_notice_id=held_by,
                 )
-            else:
+                residents_notice_id = announced.id if announced is not None else None
+            elif await resident_notices.bring_back(
+                session, showing.id, waits_for_notice_id=held_by, now=now
+            ):
                 # An announcement stopped with an earlier confirmation that failed
                 # waits for this one instead; one that went out is left as it is.
-                await resident_notices.bring_back(
-                    session, showing.id, waits_for_notice_id=held_by, now=now
+                residents_notice_id = await session.scalar(
+                    select(ShowingNotice.id).where(
+                        ShowingNotice.showing_id == showing.id,
+                        ShowingNotice.kind == residents.NEW_SHOWING_KIND,
+                    )
                 )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
@@ -839,6 +849,7 @@ async def place_booking(
         attendee=attendee,
         kind=check.kind,
         confirmation_id=confirmation.id if confirmation is not None else None,
+        residents_notice_id=residents_notice_id,
     )
 
 

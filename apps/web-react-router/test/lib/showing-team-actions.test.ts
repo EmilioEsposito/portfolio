@@ -117,10 +117,12 @@ test("each answer says what it queued", () => {
       { id: 1, kind: "prospect_confirmation", channel: "sms", status: "sent", held: false },
       { id: 2, kind: "host_event", channel: "calendar_event", status: "held", held: true },
       { id: 3, kind: "host_event_moved", channel: "calendar_event", status: "pending", held: false },
-      { id: 4, kind: "resident_new_showing", channel: "sms", status: "captured", held: false },
+      { id: 4, kind: "resident_new_showing", channel: "sms", status: "held", held: true },
+      { id: 5, kind: "some_new_kind", channel: "sms", status: "captured", held: false },
     ]),
     "Queued: confirmation text (sent), host's event (waits for the confirmation text), " +
-      "old host's event cancelled (goes with the next run), resident new showing (captured).",
+      "old host's event cancelled (goes with the next run), residents' text (waits for the " +
+      "confirmation text), some new kind (captured).",
   );
   assert.equal(
     describeBookingResult(
