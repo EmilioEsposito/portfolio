@@ -8,9 +8,32 @@ import {
   generateJsonLd,
   generateCanonicalLink,
 } from "~/lib/seo";
-export function meta(_args: Route.MetaArgs) {
+import { SerniaHome, serniaHomeMeta, type SerniaHomeData } from "~/components/sernia-public/home";
+import { isSerniaHomeRequest } from "~/lib/sernia-public";
+import { readUnitsOnOffer } from "~/lib/showing-units.server";
+
+// `/` is the one page that depends on the host. On a Sernia host, while the
+// Sernia pages are on, it is Sernia Capital's home page, served without Clerk
+// like the other Sernia pages (~/lib/sernia-public decides). Everywhere else
+// it is the personal site's home page, as before.
+
+export async function loader({ url }: Route.LoaderArgs): Promise<{ serniaHome: SerniaHomeData | null }> {
+  if (!isSerniaHomeRequest(url)) return { serniaHome: null };
+  const units = await readUnitsOnOffer();
+  return {
+    serniaHome:
+      units.status === "open"
+        ? { bookingOpen: true, turnstileSiteKey: units.turnstileSiteKey }
+        : { bookingOpen: false, turnstileSiteKey: null },
+  };
+}
+
+export function meta({ loaderData }: Route.MetaArgs) {
+  if (loaderData?.serniaHome) return serniaHomeMeta();
   const url = buildUrl("/");
   return [
+    // In meta rather than links, so the Sernia home page does not carry it.
+    { tagName: "link", ...generateCanonicalLink(url) },
     { title: DEFAULT_META.title },
     { name: "description", content: DEFAULT_META.description },
     ...generateOgMeta({
@@ -111,14 +134,15 @@ export function meta(_args: Route.MetaArgs) {
   ];
 }
 
-export const links: Route.LinksFunction = () => [
-  generateCanonicalLink(buildUrl("/")),
-];
-
 const textLink =
   "inline-flex items-center gap-2 rounded-sm text-sm font-medium underline underline-offset-4 decoration-border hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-4";
 
-export default function Home() {
+export default function Home({ loaderData }: Route.ComponentProps) {
+  if (loaderData.serniaHome) return <SerniaHome data={loaderData.serniaHome} />;
+  return <PersonalHome />;
+}
+
+function PersonalHome() {
   return (
     <main className="mx-auto w-full max-w-5xl px-6 pb-12 pt-12 sm:px-10 sm:pt-20">
       <section aria-labelledby="profile-heading" className="pb-14 sm:pb-20">
