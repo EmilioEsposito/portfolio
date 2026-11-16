@@ -55,6 +55,27 @@ export type BookingResult = {
   booking: BookingView;
 };
 
+/**
+ * `POST /units/{unit}/lead-booking`: the place the lead agent booked in the
+ * lead's email thread, before they added their details. Their own place,
+ * nothing about anyone else.
+ */
+export type LeadBooking = {
+  unit: string;
+  address: string;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+};
+
+/** What the booking page's loader answers: the unit, and the lead's provisional place when the link has one. */
+export type BookingPageData = UnitPage & { lead_booking: LeadBooking | null };
+
+/** A `?t=` value worth asking the API about: the token alphabet the API accepts, at a sane length. */
+export function leadTokenOf(value: string | null): string | null {
+  return value && /^[A-Za-z0-9_-]{16,64}$/.test(value) ? value : null;
+}
+
 /** `POST /team-phone`. */
 export type TeamPhone = { phone: string; display: string; extension: string; tel_href: string };
 
@@ -315,7 +336,7 @@ export type RefusalAction =
   /** Fix the marked fields and press Book again. */
   | "fix";
 
-const CALL_CODES = new Set(["limit_ip", "limit_site", "unavailable", "unknown_unit", "unknown"]);
+const CALL_CODES = new Set(["limit_ip", "limit_site", "unavailable", "unknown_unit", "unknown", "no_booking"]);
 
 export function refusalAction(refusal: Pick<Refusal, "code">): RefusalAction {
   if (refusal.code === "time_gone" || refusal.code === "full") return "pick_again";

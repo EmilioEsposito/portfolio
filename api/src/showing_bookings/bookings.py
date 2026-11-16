@@ -394,8 +394,10 @@ async def lock(session: AsyncSession, *keys: str) -> None:
         )
 
 
-async def _upcoming(session: AsyncSession, column, value: str, now: datetime) -> int:
-    return await session.scalar(
+async def _upcoming(
+    session: AsyncSession, column, value: str, now: datetime, exclude: int | None = None
+) -> int:
+    query = (
         select(func.count())
         .select_from(ShowingAttendee)
         .join(Showing, Showing.id == ShowingAttendee.showing_id)
@@ -406,6 +408,9 @@ async def _upcoming(session: AsyncSession, column, value: str, now: datetime) ->
             Showing.starts_at > now,
         )
     )
+    if exclude is not None:
+        query = query.where(ShowingAttendee.id != exclude)
+    return await session.scalar(query)
 
 
 async def _check_limits(
@@ -416,8 +421,13 @@ async def _check_limits(
     email: str | None,
     ip: str | None,
     now: datetime,
+    exclude: int | None = None,
 ) -> None:
-    if await _upcoming(session, ShowingAttendee.mobile, mobile, now) >= limits.upcoming_per_mobile:
+    """The page's limits. ``exclude``: a booked place being completed, not counted."""
+    if (
+        await _upcoming(session, ShowingAttendee.mobile, mobile, now, exclude)
+        >= limits.upcoming_per_mobile
+    ):
         raise Refused(
             429,
             "limit_mobile",
@@ -426,7 +436,8 @@ async def _check_limits(
             {"mobile": "This number has too many upcoming showings."},
         )
     if email is not None and (
-        await _upcoming(session, ShowingAttendee.email, email, now) >= limits.upcoming_per_email
+        await _upcoming(session, ShowingAttendee.email, email, now, exclude)
+        >= limits.upcoming_per_email
     ):
         raise Refused(
             429,

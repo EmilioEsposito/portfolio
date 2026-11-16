@@ -20,6 +20,7 @@ import {
   describeResidentAttention,
   describeShowingCancel,
   formatWhen,
+  leadAgentLine,
 } from "~/lib/showing-bookings";
 import {
   type Attendance,
@@ -199,6 +200,22 @@ function BookedItem({
                 <span className="tabular-nums text-muted-foreground">{person.mobile}</span>
                 {person.email && <span className="break-all text-muted-foreground"> · {person.email}</span>}
                 {!person.texts_accepted && <span className="text-muted-foreground"> · no texts</span>}
+                {leadAgentLine(person) && (
+                  <span className="mt-0.5 block text-muted-foreground">
+                    {leadAgentLine(person)}
+                    {person.lead_conversation_id && (
+                      <>
+                        {" · "}
+                        <a
+                          href={`/sernia-chat?id=${encodeURIComponent(person.lead_conversation_id)}`}
+                          className="underline underline-offset-4"
+                        >
+                          conversation
+                        </a>
+                      </>
+                    )}
+                  </span>
+                )}
                 {person.attention_reason && (
                   <span className="mt-0.5 flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
                     <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
