@@ -261,7 +261,7 @@ async def rental_listing_update(
         next_lease_start_earliest: The first date the next lease can start.
         next_lease_start_latest: The last date the next lease can start. Equal to the earliest for a fixed date.
         virtual_tours_allowed: Whether a virtual tour may be offered for this unit.
-        off_market_on: The date from which the unit is no longer on offer, usually because the next lease is signed. From that date the lead agent stops offering it.
+        off_market_on: The date from which the unit is no longer on offer, usually because the next lease is signed. From that date the lead agent stops offering it, and saving it cancels the showings booked from that date and texts the people booked.
         showing_booking_url: The https link where a lead books a showing of this unit. An empty string removes it.
         zillow_listing_url_public_view: The unit's Zillow ad as a lead sees it, an https zillow.com link given by a person. Not shown to leads. An empty string removes it.
         zillow_listing_url_internal_editor_view: The Zillow Rental Manager page where the team edits the ad, an https zillow.com link given by a person. An empty string removes it.
