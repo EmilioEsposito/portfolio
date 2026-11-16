@@ -684,6 +684,132 @@ async def test_a_change_of_host_inside_2_hours_texts_both_hosts(world):
     ]
 
 
+MOVED_AWAY = (
+    "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
+    "4:00 PM has moved to another host. You are no longer hosting it."
+)
+NOW_YOURS = (
+    "Sernia Capital: the showing of 320 Example St (unit 320-03) on Wed, Apr 14 at "
+    "4:00 PM is now yours to host. 1 person is booked."
+)
+LEE_MOBILE = "+14125550103"
+
+
+async def add_lee() -> int:
+    async with AsyncSessionFactory() as session:
+        agent = ShowingAgentRecord(
+            name="Lee Park",
+            email="lee.park@example.com",
+            mobile=LEE_MOBILE,
+            busy_calendar_ids=["lee.park@example.com"],
+            priority=3,
+        )
+        session.add(agent)
+        await session.commit()
+        return agent.id
+
+
+async def moved_texts() -> list[tuple[str, str, str, str | None]]:
+    _, _, notices = await rows()
+    return [
+        (n.kind, n.recipient, n.status, n.last_error)
+        for n in notices
+        if n.kind in delivery_checks.HOST_MOVED_KINDS
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_move_back_stops_the_old_hosts_waiting_no_longer_yours_text(world):
+    """A to B to A while A's first "no longer yours" waits for a retry: it never goes."""
+    await live()
+    sam = await add_sam()
+    await book(world)
+    await run(world, NOW + timedelta(minutes=10))
+    showings, _, _ = await rows()
+    jane = showings[0].agent_id
+
+    world.now = at(15)
+    world.texts.refuse(JANE_MOBILE, "unavailable", retryable=True)  # Quo out of reach
+    assert (await move(world, showings[0].id, sam)).status_code == 200
+    assert host_texts(world) == []
+    assert host_texts(world, SAM_MOBILE) == [NOW_YOURS]
+
+    world.texts.accept(JANE_MOBILE)
+    world.now = at(15, 1)
+    assert (await move(world, showings[0].id, jane)).status_code == 200
+    await run(world, at(15, 10))
+
+    assert host_texts(world) == [NOW_YOURS]  # Jane hosts it, and was told so last
+    assert host_texts(world, SAM_MOBILE) == [NOW_YOURS, MOVED_AWAY]
+    assert sorted(await moved_texts()) == sorted(
+        [
+            (delivery_checks.HOST_MOVED_TO_KIND, SAM_MOBILE, "sent", None),
+            (
+                delivery_checks.HOST_MOVED_FROM_KIND,
+                JANE_MOBILE,
+                "cancelled",
+                delivery_checks.HOSTING_AGAIN,
+            ),
+            (delivery_checks.HOST_MOVED_TO_KIND, JANE_MOBILE, "sent", None),
+            (delivery_checks.HOST_MOVED_FROM_KIND, SAM_MOBILE, "sent", None),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_move_back_after_the_texts_went_leaves_each_host_told_the_truth_last(world):
+    """A to B to A with the first texts sent: each host's last text is true."""
+    await live()
+    sam = await add_sam()
+    await book(world)
+    await run(world, NOW + timedelta(minutes=10))
+    showings, _, _ = await rows()
+    jane = showings[0].agent_id
+    world.now = at(15)
+    assert (await move(world, showings[0].id, sam)).status_code == 200
+    world.now = at(15, 1)
+    assert (await move(world, showings[0].id, jane)).status_code == 200
+
+    assert host_texts(world) == [MOVED_AWAY, NOW_YOURS]
+    assert host_texts(world, SAM_MOBILE) == [NOW_YOURS, MOVED_AWAY]
+
+
+@pytest.mark.asyncio
+async def test_two_quick_moves_never_tell_a_host_something_untrue(world, monkeypatch):
+    """A to B to C while B's "now yours" waits for a retry: B never hears it is theirs."""
+    await live()
+    monkeypatch.setenv(
+        "SHOWING_TEST_PHONES",
+        ",".join([*EVERY_TEST_PHONE, JANE_MOBILE, SAM_MOBILE, LEE_MOBILE]),
+    )
+    sam = await add_sam()
+    lee = await add_lee()
+    await book(world)
+    await run(world, NOW + timedelta(minutes=10))
+    showings, _, _ = await rows()
+
+    world.now = at(15)
+    world.texts.refuse(SAM_MOBILE, "unavailable", retryable=True)
+    assert (await move(world, showings[0].id, sam)).status_code == 200
+    world.texts.accept(SAM_MOBILE)
+    world.now = at(15, 1)
+    assert (await move(world, showings[0].id, lee)).status_code == 200
+    await run(world, at(15, 10))
+
+    assert host_texts(world) == [MOVED_AWAY]
+    assert host_texts(world, SAM_MOBILE) == [MOVED_AWAY]
+    assert host_texts(world, LEE_MOBILE) == [NOW_YOURS]
+    stopped = [m for m in await moved_texts() if m[2] == "cancelled"]
+    assert stopped == [
+        (
+            delivery_checks.HOST_MOVED_TO_KIND,
+            SAM_MOBILE,
+            "cancelled",
+            delivery_checks.MOVED_AGAIN,
+        )
+    ]
+
+
 @pytest.mark.asyncio
 async def test_after_a_change_of_host_a_late_cancel_texts_the_new_host(world):
     await live()

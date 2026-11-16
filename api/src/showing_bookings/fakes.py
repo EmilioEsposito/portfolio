@@ -62,6 +62,10 @@ class RecordingTextSender:
         """Refuse every text to ``number`` the way Quo does: nothing is recorded as sent."""
         self._refusals[number] = NotSent(reason, _REFUSALS.get(reason, reason), retryable=retryable)
 
+    def accept(self, number: str) -> None:
+        """Stop refusing ``number``, as Quo back in reach would."""
+        self._refusals.pop(number, None)
+
     def lose_answer(self, number: str) -> None:
         """Send texts to ``number`` but fail before answering, as a timeout would."""
         self._lost_answers.add(number)

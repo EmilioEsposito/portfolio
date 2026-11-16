@@ -15,7 +15,8 @@ try or retry, under the lock on the notice:
   not started; a host with no mobile gets none. "Someone booked" goes only
   while that person is still booked in a scheduled showing. After a change of
   host, each of the two texts goes to the host it names while the showing is
-  scheduled, and the new host's only while they still host it.
+  scheduled: the new host's only while they host it, the old host's only while
+  they do not (a quick move back makes it false).
 
 Nothing here imports the outbox or sends anything; the outbox applies the
 answer (``Verdict``).
@@ -63,6 +64,7 @@ NOT_TEXTED = (
 NOTHING_LEFT = "Not sent: every showing it listed was cancelled or has started."
 NO_HOST_MOBILE = "Not sent: the host has no mobile number."
 MOVED_AGAIN = "Not sent: the showing has changed host again."
+HOSTING_AGAIN = "Not sent: this host has the showing again."
 SHOWING_CANCELLED = "Not sent: the showing was cancelled."
 
 
@@ -168,9 +170,14 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
         # Each goes to the host it names (``agent:<id>:moved:<move>``), the old one too.
         if showing.status != "scheduled":
             return Verdict(cancel=SHOWING_CANCELLED)
+        # Each says something about the host it names, true only while it still
+        # holds: "now yours" while they host it, "no longer yours" while they do
+        # not. A quick move back (A to B to A) makes the older one false.
         named = int(notice.recipient_key.split(":")[1])
         if notice.kind == HOST_MOVED_TO_KIND and named != showing.agent_id:
             return Verdict(cancel=MOVED_AGAIN)
+        if notice.kind == HOST_MOVED_FROM_KIND and named == showing.agent_id:
+            return Verdict(cancel=HOSTING_AGAIN)
         return GO
     if notice.kind == HOST_JOIN_KIND:
         status = await session.scalar(

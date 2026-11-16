@@ -794,7 +794,8 @@ their own mobile:
 - At delivery: only before the start; "someone booked" only while that person
   is still booked; the cancel texts to the showing's host then; after a change
   of host, each text to the host it names, the new host's only while they
-  still host it.
+  still host it and the old host's only while they do not, so after quick
+  moves (A to B to A, or A to B to C) every text that goes is true when it goes.
 - Wording: `wording.host_joined_text`, `host_left_text`,
   `host_showing_cancelled_text`, `host_moved_to_text`, `host_moved_from_text`,
   version `HOST_TEXT_VERSION`.
