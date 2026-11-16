@@ -28,7 +28,8 @@ rental_listings/
 | `rental_listing_changes` | One saved change, never updated: who made it, when, from where, and the whole listing (or the showing rules) as it read afterwards |
 
 The showing rules (showing window, blackout dates, shared booking link, time
-zone) are one row in `app_settings`, key `rental_showing_rules`. Their changes
+zone, and the notice before a showing, `showing_notice_hours`, 24 by default)
+are one row in `app_settings`, key `rental_showing_rules`. Their changes
 go into `rental_listing_changes` with the subject `showing_rules`.
 
 There is no "current version" flag. `rental_listings` holds only the current
@@ -46,6 +47,7 @@ is its latest row in `rental_listing_changes` on or before that day.
 | `virtual_tours_allowed` | Whether a virtual tour may be offered |
 | `off_market_on` | From this date the unit is no longer on offer, usually because the next lease is signed. Cleared when it goes back on offer |
 | `showing_booking_url` | Where a prospect books a showing themselves |
+| `showing_notice_hours` | Hours of notice before a showing, when this unit's resident needs more than the showing rules give. Empty uses the rules'; a shorter value has no effect. From 1 to 336. Used by the booking system's open times; the lead agent keeps its own 24-hour floor |
 | `zillow_listing_url_public_view`, `zillow_listing_url_internal_editor_view` | The unit's Zillow ad: the page a lead sees, and the Zillow Rental Manager page where the team edits it. Given by a person; an ad keeps its link from season to season. For the team and the ad check below. The lead agent is not given them |
 | `preferred_showing_times` | Weekly windows we would like it shown in: a nudge, never a limit |
 | `public_facts` | Lines that may be repeated to anyone, as on a listing |

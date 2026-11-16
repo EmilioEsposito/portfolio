@@ -17,9 +17,17 @@ Signed-in Sernia users only, on every route.
   once and save the result.
 - ``POST /calendar/connections/{id}/disconnect``: revoke the grant at Google,
   then mark the connection revoked.
+- ``PUT /settings/lead-agent``: switch the lead agent's use of open times on or
+  off, changing nothing else in the settings.
+- ``GET /agents``, ``POST /agents``, ``PUT /agents/{id}``,
+  ``POST /agents/{id}/deactivate`` and ``.../activate``: the showing agents.
+- ``POST /agents/load-samples``: add the made-up agents from ``seed.py``.
+  Refused in production.
+- ``GET /showings``: each unit on offer with the offers it makes now, how each
+  agent's calendar was read, and the showings booked in the next 14 days.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import logfire
 from clerk_backend_api import User
@@ -31,11 +39,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
+from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.models import RentalListingRecord
-from api.src.showing_bookings import connections, outbox
+from api.src.showing_bookings import agents, connections, open_times, outbox
 from api.src.showing_bookings.guard import PRODUCTION
-from api.src.showing_bookings.models import CalendarConnection, Showing, ShowingNotice
-from api.src.showing_bookings.schema import ConnectionStatus, DrainReport, Email, Notice
+from api.src.showing_bookings.models import (
+    CalendarConnection,
+    Showing,
+    ShowingAgentRecord,
+    ShowingAttendee,
+    ShowingNotice,
+)
+from api.src.showing_bookings.schema import (
+    DAYS_AHEAD,
+    ConnectionStatus,
+    DrainReport,
+    Email,
+    Notice,
+    ShowingAgent,
+)
 from api.src.showing_bookings.settings import (
     SETTINGS_KEY,
     ShowingBookingSettings,
@@ -142,8 +164,13 @@ async def update_settings(
     row = await session.scalar(
         select(AppSetting).where(AppSetting.key == SETTINGS_KEY).with_for_update()
     )
-    if ShowingBookingSettings.model_validate(row.value) != body.based_on:
+    stored = ShowingBookingSettings.model_validate(row.value)
+    # The lead agent's switch has its own route and is kept as stored here, so a
+    # send-mode screen loaded before the switch moved neither undoes it nor is refused.
+    switch = {"lead_agent_uses_open_times": stored.lead_agent_uses_open_times}
+    if stored != body.based_on.model_copy(update=switch):
         raise HTTPException(409, "Settings changed elsewhere. Reload before saving.")
+    new = new.model_copy(update=switch)
     row.value = new.model_dump()
     await session.commit()
     logfire.info("showing bookings: settings updated", user_id=user.id, **new.model_dump())
@@ -331,3 +358,220 @@ async def disconnect_connection(
     except connections.CannotDisconnect as refused:
         raise HTTPException(409, str(refused)) from None
     return await _connection_view_by_id(session, connection_id)
+
+
+# ---------------------------------------------------------------------------
+# The lead agent's switch
+# ---------------------------------------------------------------------------
+
+
+class LeadAgentSwitch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lead_agent_uses_open_times: bool
+
+
+@router.put("/settings/lead-agent", response_model=ShowingBookingSettings)
+async def set_lead_agent_switch(
+    body: LeadAgentSwitch, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    """Change only the lead agent's switch, so it cannot undo another change to the settings."""
+    try:
+        current = await read_settings(session)
+    except Exception:
+        logfire.exception("showing bookings: settings could not be loaded")
+        raise HTTPException(503, "Settings could not be loaded. Try again.") from None
+    await session.execute(
+        insert(AppSetting)
+        .values(key=SETTINGS_KEY, value=current.model_dump())
+        .on_conflict_do_nothing(index_elements=["key"])
+    )
+    row = await session.scalar(
+        select(AppSetting).where(AppSetting.key == SETTINGS_KEY).with_for_update()
+    )
+    new = ShowingBookingSettings.model_validate(row.value).model_copy(
+        update={"lead_agent_uses_open_times": body.lead_agent_uses_open_times}
+    )
+    row.value = new.model_dump()
+    await session.commit()
+    logfire.info(
+        "showing bookings: lead agent open times switched",
+        user_id=user.id,
+        on=body.lead_agent_uses_open_times,
+    )
+    return new
+
+
+# ---------------------------------------------------------------------------
+# Showing agents
+# ---------------------------------------------------------------------------
+
+
+class AgentView(ShowingAgent):
+    """An agent as the Agents section shows it."""
+
+    id: int
+    # The account that reads this agent's calendars: their own connection, or
+    # the team's when none is chosen. Empty when there is none.
+    reads_through: str | None
+
+
+def _agent_view(record: ShowingAgentRecord, rows: list[CalendarConnection]) -> AgentView:
+    connection = agents.connection_for(record, rows)
+    return AgentView(
+        id=record.id,
+        reads_through=connection.google_email if connection is not None else None,
+        **agents.as_agent(record).model_dump(),
+    )
+
+
+async def _connection_rows(session: AsyncSession) -> list[CalendarConnection]:
+    return list(await session.scalars(select(CalendarConnection)))
+
+
+def _refused(invalid: agents.AgentInvalid) -> HTTPException:
+    return HTTPException(422, {"message": "Not saved.", "problems": invalid.problems})
+
+
+@router.get("/agents", response_model=list[AgentView])
+async def list_agents(session: DBSession):
+    rows = await _connection_rows(session)
+    return [_agent_view(record, rows) for record in await agents.list_agents(session)]
+
+
+@router.post("/agents", response_model=AgentView, status_code=201)
+async def add_agent(
+    body: ShowingAgent, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    try:
+        record = await agents.add_agent(session, body)
+    except agents.AgentInvalid as invalid:
+        raise _refused(invalid) from None
+    logfire.info("showing bookings: agent added", agent_id=record.id, user_id=user.id)
+    return _agent_view(record, await _connection_rows(session))
+
+
+@router.put("/agents/{agent_id}", response_model=AgentView)
+async def change_agent(
+    agent_id: int,
+    body: ShowingAgent,
+    session: DBSession,
+    user: User = Depends(verify_serniacapital_user),
+):
+    try:
+        record = await agents.change_agent(session, agent_id, body)
+    except LookupError:
+        raise HTTPException(404, "No such showing agent.") from None
+    except agents.AgentInvalid as invalid:
+        raise _refused(invalid) from None
+    logfire.info("showing bookings: agent changed", agent_id=agent_id, user_id=user.id)
+    return _agent_view(record, await _connection_rows(session))
+
+
+async def _set_active(session: AsyncSession, agent_id: int, active: bool, user: User) -> AgentView:
+    try:
+        record = await agents.set_active(session, agent_id, active)
+    except LookupError:
+        raise HTTPException(404, "No such showing agent.") from None
+    logfire.info(
+        "showing bookings: agent active changed", agent_id=agent_id, active=active, user_id=user.id
+    )
+    return _agent_view(record, await _connection_rows(session))
+
+
+@router.post("/agents/{agent_id}/deactivate", response_model=AgentView)
+async def deactivate_agent(
+    agent_id: int, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    return await _set_active(session, agent_id, False, user)
+
+
+@router.post("/agents/{agent_id}/activate", response_model=AgentView)
+async def activate_agent(
+    agent_id: int, session: DBSession, user: User = Depends(verify_serniacapital_user)
+):
+    return await _set_active(session, agent_id, True, user)
+
+
+class SamplesAdded(BaseModel):
+    added: list[str]
+
+
+@router.post("/agents/load-samples", response_model=SamplesAdded)
+async def load_sample_agents(session: DBSession, user: User = Depends(verify_serniacapital_user)):
+    """Add the made-up agents, so a preview can show open times. Never in production."""
+    if current_environment() == PRODUCTION:
+        raise HTTPException(403, "Sample agents are never added in production.")
+    added = await agents.add_sample_agents(session)
+    logfire.info("showing bookings: sample agents loaded", added=len(added), user_id=user.id)
+    return SamplesAdded(added=added)
+
+
+# ---------------------------------------------------------------------------
+# Showings and open times
+# ---------------------------------------------------------------------------
+
+
+class BookedShowingView(BaseModel):
+    id: int
+    unit: str
+    starts_at: datetime
+    host_name: str
+    attendees: int
+    capacity: int
+
+
+class ShowingsView(BaseModel):
+    open_times: open_times.OpenTimes
+    # Scheduled showings from now to 14 days out, earliest first.
+    booked: list[BookedShowingView]
+    # Whether the Zillow lead agent offers these times (the switch in settings).
+    lead_agent_uses_open_times: bool
+
+
+@router.get("/showings", response_model=ShowingsView)
+async def list_showings(session: DBSession):
+    now = datetime.now(UTC)
+    try:
+        found = await open_times.open_times(now=now, session=session)
+    except RentalDataInvalid as invalid:
+        raise HTTPException(
+            409,
+            {"message": "Rental listing data fails its checks.", "problems": invalid.problems},
+        ) from None
+    attendees = (
+        select(ShowingAttendee.showing_id, func.count().label("count"))
+        .where(ShowingAttendee.status == "booked")
+        .group_by(ShowingAttendee.showing_id)
+        .subquery()
+    )
+    rows = await session.execute(
+        select(Showing, ShowingAgentRecord.name, func.coalesce(attendees.c.count, 0))
+        .join(ShowingAgentRecord, ShowingAgentRecord.id == Showing.agent_id)
+        .outerjoin(attendees, attendees.c.showing_id == Showing.id)
+        .where(
+            Showing.status == "scheduled",
+            Showing.ends_at > now,
+            Showing.starts_at <= now + timedelta(days=DAYS_AHEAD),
+        )
+        .order_by(Showing.starts_at, Showing.unit)
+    )
+    try:
+        switch = (await read_settings(session)).lead_agent_uses_open_times
+    except Exception:
+        switch = False
+    return ShowingsView(
+        open_times=found,
+        booked=[
+            BookedShowingView(
+                id=showing.id,
+                unit=showing.unit,
+                starts_at=showing.starts_at,
+                host_name=name,
+                attendees=count,
+                capacity=showing.capacity,
+            )
+            for showing, name, count in rows
+        ],
+        lead_agent_uses_open_times=switch,
+    )

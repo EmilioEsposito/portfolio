@@ -60,6 +60,10 @@ class RentalListing(BaseModel):
     off_market_on: date | None = None
     # Where a prospect books a showing of this unit themselves.
     showing_booking_url: str = ""
+    # Hours of notice before a showing of this unit, when its resident needs
+    # more than the showing rules give every unit. Empty uses the rules' notice;
+    # a value shorter than the rules' has no effect.
+    showing_notice_hours: int | None = None
     # The unit's Zillow ad, which keeps its address from one season to the
     # next: the page a lead sees, and the Zillow Rental Manager page where the
     # team edits it. For the team and the general agent's ad check. The lead
@@ -81,6 +85,9 @@ class ShowingRules(BaseModel):
     earliest_start: time = time(9, 0)
     latest_start: time = time(18, 0)
     blackout_dates: list[date] = Field(default_factory=list)
+    # The least notice before a showing, in hours, so a resident is told in
+    # time. A listing may ask for more (``RentalListing.showing_notice_hours``).
+    showing_notice_hours: int = 24
     # The booking page for any unit without its own link.
     showing_booking_url: str = ""
 

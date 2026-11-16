@@ -1,10 +1,11 @@
 import { useCallback } from "react";
 import { useAuth } from "@clerk/react-router";
-import { refusalMessage } from "~/lib/showing-bookings";
+import { refusalMessage, refusalProblems } from "~/lib/showing-bookings";
 
 const API_BASE = "/api/showing-bookings";
 
-export type ApiResult<T> = { ok: true; body: T } | { ok: false; status: number; message: string };
+// A refusal carries the server's message and, for a failed check, its list of reasons.
+export type ApiResult<T> = { ok: true; body: T } | { ok: false; status: number; message: string; problems: string[] };
 
 /** Calls /api/showing-bookings with the signed-in user's token. Never throws. */
 export function useShowingBookingsApi() {
@@ -22,10 +23,15 @@ export function useShowingBookingsApi() {
         });
         const body = await response.json().catch(() => null);
         if (response.ok) return { ok: true, body: body as T };
-        return { ok: false, status: response.status, message: refusalMessage(response.status, body, fallback) };
+        return {
+          ok: false,
+          status: response.status,
+          message: refusalMessage(response.status, body, fallback),
+          problems: refusalProblems(body),
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : "Network error";
-        return { ok: false, status: 0, message: refusalMessage(0, null, message) };
+        return { ok: false, status: 0, message: refusalMessage(0, null, message), problems: [] };
       }
     },
     [getToken],

@@ -16,7 +16,14 @@ import {
   humanize,
   needsAttention,
   parseUnits,
+  cleanAgent,
+  clock,
+  describeOffer,
+  describeWindows,
+  newAgent,
+  parseCalendars,
   refusalMessage,
+  refusalProblems,
   sameSettings,
   startsLiveSends,
 } from "../../app/lib/showing-bookings.ts";
@@ -25,6 +32,7 @@ const settings = (patch: Partial<BookingSettings> = {}): BookingSettings => ({
   send_mode: "capture",
   live_units: [],
   test_sends_enabled: false,
+  lead_agent_uses_open_times: false,
   ...patch,
 });
 
@@ -147,4 +155,58 @@ test("a connection offers only the buttons that can work here", () => {
     reconnect: true,
     disconnect: false,
   });
+});
+
+test("the lead agent's switch is part of the settings and compares in any key order", () => {
+  const reordered = { lead_agent_uses_open_times: true, test_sends_enabled: false, live_units: [], send_mode: "capture" } as const;
+  assert.ok(sameSettings(settings({ lead_agent_uses_open_times: true }), { ...reordered, live_units: [] }));
+  assert.ok(!sameSettings(settings(), settings({ lead_agent_uses_open_times: true })));
+});
+
+test("calendar addresses are read from lines or commas, each once", () => {
+  assert.deepEqual(parseCalendars(" jane@example.com,\nJANE@example.com ; team@example.com "), [
+    "jane@example.com",
+    "team@example.com",
+  ]);
+  assert.deepEqual(parseCalendars(""), []);
+});
+
+test("an agent is sent trimmed, with an empty mobile as none and short times", () => {
+  const draft = {
+    ...newAgent(),
+    name: " Jane Doe ",
+    email: " jane@example.com",
+    mobile: "  ",
+    busy_calendar_ids: ["a@example.com", "A@example.com"],
+    weekly_hours: [{ days: ["mon" as const], start: "16:00:00", end: "18:30:00" }],
+  };
+  const clean = cleanAgent(draft);
+  assert.equal(clean.name, "Jane Doe");
+  assert.equal(clean.email, "jane@example.com");
+  assert.equal(clean.mobile, null);
+  assert.deepEqual(clean.busy_calendar_ids, ["a@example.com"]);
+  assert.deepEqual(clean.weekly_hours, [{ days: ["mon"], start: "16:00", end: "18:30" }]);
+});
+
+test("windows and offers read the way the team says them", () => {
+  assert.equal(clock("16:00:00"), "4:00 PM");
+  assert.equal(clock("00:30"), "12:30 AM");
+  assert.equal(clock("12:00"), "12:00 PM");
+  assert.equal(
+    describeWindows([{ days: ["mon", "wed"], start: "16:00", end: "18:30" }], "none"),
+    "Mon/Wed 4:00 PM–6:30 PM",
+  );
+  assert.equal(describeWindows([], "Any time"), "Any time");
+  assert.equal(describeOffer({ kind: "join", preferred: true, places_left: 1 }), "Join, 1 place left");
+  assert.equal(describeOffer({ kind: "join", preferred: false, places_left: 2 }), "Join, 2 places left");
+  assert.equal(describeOffer({ kind: "new", preferred: true, places_left: 4 }), "Preferred");
+  assert.equal(describeOffer({ kind: "new", preferred: false, places_left: 4 }), "Open");
+});
+
+test("a failed check's reasons are kept, and its message is shown", () => {
+  const body = { detail: { message: "Not saved.", problems: ["priority: must be from 1 to 99"] } };
+  assert.deepEqual(refusalProblems(body), ["priority: must be from 1 to 99"]);
+  assert.equal(refusalMessage(422, body, "Could not save"), "Not saved.");
+  assert.deepEqual(refusalProblems({ detail: "Nope" }), []);
+  assert.deepEqual(refusalProblems(null), []);
 });

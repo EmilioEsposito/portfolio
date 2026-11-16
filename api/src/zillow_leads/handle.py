@@ -60,6 +60,7 @@ from api.src.google.common.config import (
 from api.src.google.common.service_account_auth import get_delegated_credentials
 from api.src.google.gmail.service import send_email as _send_email
 from api.src.google.gmail.threading import GMAIL_SCOPES, _get_threading_headers
+from api.src.showing_bookings.lead_tours import tour_source_for_lead_agent
 from api.src.utils.background_tasks import create_logged_task
 from api.src.zillow_leads import listing_data
 from api.src.zillow_leads.agent import (
@@ -76,8 +77,8 @@ from api.src.zillow_leads.identity import HANDLER
 from api.src.zillow_leads.thread import LeadThread, load_lead_thread
 from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
 
-# Where open tour times and booked tours come from. Nothing knows them until
-# the booking system exists (issue #368), which replaces this.
+# Where open tour times and booked tours come from while the booking service's
+# switch is off (``showing_bookings/lead_tours.py``): nothing open, nothing booked.
 TOUR_SOURCE: TourSource = NoTours()
 # Names shown on the approval card. Neither is a tool the model can call.
 SEND_REPLY = "send_lead_reply"
@@ -207,7 +208,8 @@ async def handle_thread(
 
     now = datetime.now(UTC)
     loaded = await listing_data.load()
-    tours = await tours_for_case(TOUR_SOURCE, loaded.data, now)
+    source = await tour_source_for_lead_agent(fallback=TOUR_SOURCE)
+    tours = await tours_for_case(source, loaded.data, now)
     case = build_case(
         thread, loaded.data, now=now, slots=tours.open_times, booked_tours=tours.booked
     )

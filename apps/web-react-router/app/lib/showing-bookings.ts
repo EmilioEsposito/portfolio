@@ -9,6 +9,8 @@ export interface BookingSettings {
   send_mode: SendMode;
   live_units: string[];
   test_sends_enabled: boolean;
+  // The Zillow lead agent offers the open times computed here. Off by default.
+  lead_agent_uses_open_times: boolean;
 }
 
 export interface SettingsView {
@@ -110,8 +112,14 @@ export function parseUnits(text: string): string[] {
   return units;
 }
 
+/** The settings in one key order with units cleaned, so two that mean the same compare equal. */
 export function cleanSettings(settings: BookingSettings): BookingSettings {
-  return { ...settings, live_units: parseUnits(settings.live_units.join(",")) };
+  return {
+    send_mode: settings.send_mode,
+    live_units: parseUnits(settings.live_units.join(",")),
+    test_sends_enabled: settings.test_sends_enabled,
+    lead_agent_uses_open_times: Boolean(settings.lead_agent_uses_open_times),
+  };
 }
 
 export function sameSettings(a: BookingSettings, b: BookingSettings): boolean {
@@ -172,6 +180,10 @@ export function needsAttention(status: NoticeStatus): boolean {
 export function refusalMessage(status: number, body: unknown, fallback: string): string {
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
   if (Array.isArray(detail)) {
     const messages = detail
       .map((item) => (item as { msg?: unknown })?.msg)
@@ -180,6 +192,14 @@ export function refusalMessage(status: number, body: unknown, fallback: string):
     if (messages.length) return messages.join(" ");
   }
   return status ? `${fallback} (${status}).` : fallback;
+}
+
+/** A failed check's reasons, from `{detail: {message, problems}}`; empty for any other refusal. */
+export function refusalProblems(body: unknown): string[] {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return [];
+  const problems = (detail as { problems?: unknown }).problems;
+  return Array.isArray(problems) ? problems.map(String) : [];
 }
 
 // Calendar connections, as /api/showing-bookings/calendar/* sends them
@@ -258,3 +278,172 @@ export function connectionActions(connection: Pick<CalendarConnection, "status" 
     disconnect: connection.status !== "revoked",
   };
 }
+
+// Showing agents, as /api/showing-bookings/agents sends and takes them
+// (schema.py's ShowingAgent and routes.py's AgentView).
+
+export interface Window {
+  days: ("mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun")[];
+  start: string; // "HH:MM" or "HH:MM:SS", local to the showing rules' time zone
+  end: string; // the last start time, included
+}
+
+export interface ShowingAgent {
+  name: string;
+  email: string;
+  mobile: string | null;
+  // The connection that reads this agent's calendars; null means the team's.
+  connection_id: number | null;
+  busy_calendar_ids: string[];
+  weekly_hours: Window[];
+  preferred_windows: Window[];
+  priority: number;
+  active: boolean;
+}
+
+export interface AgentView extends ShowingAgent {
+  id: number;
+  // The account that reads this agent's calendars, or null when none is connected.
+  reads_through: string | null;
+}
+
+export function newAgent(): ShowingAgent {
+  return {
+    name: "",
+    email: "",
+    mobile: null,
+    connection_id: null,
+    busy_calendar_ids: [],
+    weekly_hours: [],
+    preferred_windows: [],
+    priority: 1,
+    active: true,
+  };
+}
+
+/** Calendar addresses typed one per line or separated by commas: trimmed, each once. */
+export function parseCalendars(text: string): string[] {
+  const found: string[] = [];
+  for (const piece of text.split(/[\s,;]+/)) {
+    const value = piece.trim();
+    if (value && !found.some((seen) => seen.toLowerCase() === value.toLowerCase())) found.push(value);
+  }
+  return found;
+}
+
+function shortClock(value: string): string {
+  return value.slice(0, 5);
+}
+
+/** The agent as it should be sent: text trimmed, empty mobile as null, times in one form. */
+export function cleanAgent(agent: ShowingAgent): ShowingAgent {
+  const windows = (list: Window[]) =>
+    list.map((window) => ({ days: window.days, start: shortClock(window.start), end: shortClock(window.end) }));
+  return {
+    ...agent,
+    name: agent.name.trim(),
+    email: agent.email.trim(),
+    mobile: agent.mobile?.trim() ? agent.mobile.trim() : null,
+    busy_calendar_ids: parseCalendars(agent.busy_calendar_ids.join("\n")),
+    weekly_hours: windows(agent.weekly_hours),
+    preferred_windows: windows(agent.preferred_windows),
+  };
+}
+
+const DAY_NAMES: Record<Window["days"][number], string> = {
+  mon: "Mon",
+  tue: "Tue",
+  wed: "Wed",
+  thu: "Thu",
+  fri: "Fri",
+  sat: "Sat",
+  sun: "Sun",
+};
+
+/** "4:00 PM" from "16:00" or "16:00:00". */
+export function clock(value: string): string {
+  const [hours, minutes] = value.split(":").map(Number);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const twelve = hours % 12 === 0 ? 12 : hours % 12;
+  return `${twelve}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+/** "Mon/Wed 4:00 PM–6:30 PM", with the last start time, as windows are saved. */
+export function describeWindows(windows: Window[], empty: string): string {
+  if (!windows.length) return empty;
+  return windows
+    .map((window) => `${window.days.map((day) => DAY_NAMES[day]).join("/")} ${clock(window.start)}–${clock(window.end)}`)
+    .join(", ");
+}
+
+// Open times and showings, as GET /api/showing-bookings/showings sends them
+// (open_times.py's OpenTimes and routes.py's ShowingsView).
+
+export interface Offer {
+  start: string;
+  kind: "join" | "new";
+  preferred: boolean;
+  places_left: number;
+  host_id: number;
+  host_name: string;
+  showing_id: number | null;
+}
+
+export interface UnitOffers {
+  unit: string;
+  address: string;
+  notice_hours: number;
+  offers: Offer[];
+  why_none: string | null;
+}
+
+export type CalendarStatus = "read" | "sample" | "unreadable" | "inactive";
+
+export interface AgentCalendar {
+  agent_id: number;
+  name: string;
+  status: CalendarStatus;
+  connection_email: string | null;
+  problem: string | null;
+}
+
+export interface OpenTimes {
+  now: string;
+  timezone: string;
+  units: UnitOffers[];
+  agents: AgentCalendar[];
+  sample_calendar_in_use: boolean;
+}
+
+export interface BookedShowing {
+  id: number;
+  unit: string;
+  starts_at: string;
+  host_name: string;
+  attendees: number;
+  capacity: number;
+}
+
+export interface ShowingsView {
+  open_times: OpenTimes;
+  booked: BookedShowing[];
+  lead_agent_uses_open_times: boolean;
+}
+
+export const CALENDAR_STATUS_LABELS: Record<CalendarStatus, string> = {
+  read: "Calendar read",
+  sample: "Sample calendar",
+  unreadable: "Counts as busy",
+  inactive: "Inactive",
+};
+
+/** What kind of offer this is, in a few words: "Join, 2 places left" or "Preferred". */
+export function describeOffer(offer: Pick<Offer, "kind" | "preferred" | "places_left">): string {
+  if (offer.kind === "join") {
+    return `Join, ${offer.places_left} ${offer.places_left === 1 ? "place" : "places"} left`;
+  }
+  return offer.preferred ? "Preferred" : "Open";
+}
+
+/** How many of a unit's offers to show before "Show all". */
+export const OFFERS_SHOWN = 8;

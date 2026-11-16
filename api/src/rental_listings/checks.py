@@ -21,6 +21,8 @@ from api.src.rental_listings.schema import RentalListing, ShowingRules
 MAX_LINES = 60  # public facts, or internal notes, per listing
 MAX_LINE_LENGTH = 300
 MAX_NAME_LENGTH = 120
+# Notice before a showing, in hours: at least one, at most the 14 days showings are offered.
+MAX_NOTICE_HOURS = 14 * 24
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)")
@@ -124,6 +126,9 @@ def listing_problems(listing: RentalListing) -> list[str]:
         problems.append(f"{where}: name or address is over {MAX_NAME_LENGTH} characters")
     if listing.asking_rent is not None and listing.asking_rent <= 0:
         problems.append(f"{where}: asking_rent must be more than 0")
+    notice = listing.showing_notice_hours
+    if notice is not None and not 1 <= notice <= MAX_NOTICE_HOURS:
+        problems.append(f"{where}: showing_notice_hours must be from 1 to {MAX_NOTICE_HOURS}")
     first, final = listing.next_lease_start_earliest, listing.next_lease_start_latest
     if first and final and first > final:
         problems.append(f"{where}: next_lease_start_earliest is after next_lease_start_latest")
@@ -158,6 +163,8 @@ def rules_problems(rules: ShowingRules) -> list[str]:
         problems.append(f"showing rules: earliest_start and latest_start {_LOCAL_TIME}")
     elif rules.earliest_start > rules.latest_start:
         problems.append("showing rules: earliest_start is after latest_start")
+    if not 1 <= rules.showing_notice_hours <= MAX_NOTICE_HOURS:
+        problems.append(f"showing rules: showing_notice_hours must be from 1 to {MAX_NOTICE_HOURS}")
     problems += _booking_url_problems(
         "showing rules showing_booking_url", rules.showing_booking_url
     )

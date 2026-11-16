@@ -5,6 +5,9 @@
 - ``live_units``: the units whose notices really go out in production.
 - ``test_sends_enabled``: in live mode, also send notices addressed only to
   the test recipients in ``SHOWING_TEST_PHONES`` and ``SHOWING_TEST_EMAILS``.
+- ``lead_agent_uses_open_times``: the Zillow lead agent offers the open times
+  computed here (``lead_tours.py``) instead of none. Off by default, and a row
+  that cannot be read counts as off.
 
 A preview database is a copy of production's rows, so whatever this row says,
 outside production the guard sends nothing but test sends.
@@ -32,6 +35,7 @@ class ShowingBookingSettings(BaseModel):
     send_mode: SendMode = "capture"
     live_units: list[str] = Field(default_factory=list)
     test_sends_enabled: StrictBool = False
+    lead_agent_uses_open_times: StrictBool = False
 
     @field_validator("live_units")
     @classmethod
