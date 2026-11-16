@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import daily_texts, delivery_checks, outbox
+from api.src.showing_bookings import daily_texts, delivery_checks, holds, outbox
 from api.src.showing_bookings.models import ShowingAgentRecord, ShowingAttendee
 from api.src.tests.showing_public import (
     ALEX_MOBILE,
@@ -410,3 +410,16 @@ async def test_the_messages_list_names_the_new_kinds(world):
     labels = {item["kind"]: item["kind_label"] for item in answer.json()}
     assert labels[MORNING] == "Host's morning text: today's showings"
     assert labels[APPLY] == "Prospect's text: apply link"
+
+
+@pytest.mark.asyncio
+async def test_the_job_wakes_for_an_apply_text_owed_and_sleeps_once_it_is_sent(world):
+    """The job every minute returns after one query when nothing is owed."""
+    await live()
+    await book(world)
+    await run(world, at(16, 30))
+    # Nothing held, due or coming up, and no apply text owed yet.
+    assert await holds.anything_to_do(at(17, 59)) is False
+    assert await holds.anything_to_do(at(18)) is True
+    await run(world, at(18))
+    assert await holds.anything_to_do(at(18, 1)) is False

@@ -170,7 +170,15 @@ def test_only_the_outbox_uses_a_sending_method():
 
 
 # Reminders, the host's texts and the team's alerts
-LATE_NOTICE_FILES = {"reminders.py", "host_texts.py", "delivery_checks.py", "alerts.py"}
+LATE_NOTICE_FILES = {
+    "reminders.py",
+    "host_texts.py",
+    "delivery_checks.py",
+    "alerts.py",
+    # The host's morning text and the apply text, and removing old details.
+    "daily_texts.py",
+    "retention.py",
+}
 
 
 def test_reminders_host_texts_and_alerts_reach_providers_only_through_the_outbox():
@@ -311,3 +319,40 @@ def test_the_notice_job_is_registered_only_by_the_scheduler_startup():
     assert calls_named(startup, "register_showing_notices") == everywhere
     # That startup task runs only when background automation is on.
     assert "if background_automation_enabled():" in index
+
+
+def test_the_details_removal_job_is_registered_only_by_the_scheduler_startup():
+    index = (PACKAGE.parents[1] / "index.py").read_text()
+    tree = ast.parse(index)
+    startup = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_apscheduler_startup_async"
+    )
+    everywhere = calls_named(tree, "register_showing_details_removal")
+    assert len(everywhere) == 1
+    assert calls_named(startup, "register_showing_details_removal") == everywhere
+
+
+def test_nothing_in_the_module_reaches_the_details_removal_and_it_sends_nothing():
+    """No route, public or not, can remove details: no other file imports it."""
+    trees = sources()
+    for name, tree in trees.items():
+        if name != "retention.py":
+            assert imports_of(tree, "api.src.showing_bookings.retention") == [], name
+            assert not any(
+                module == "api.src.showing_bookings" and "retention" in text
+                for module, text in from_package_imports(tree)
+            ), name
+    retention_tree = trees["retention.py"]
+    assert imports_of(retention_tree, "api.src.showing_bookings.outbox") == []
+    assert not any("outbox" in text for _, text in from_package_imports(retention_tree))
+
+
+def from_package_imports(tree: ast.AST) -> list[tuple[str, str]]:
+    """``from package import a, b`` lines, as (package, names)."""
+    return [
+        (node.module, ",".join(alias.name for alias in node.names))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    ]
