@@ -20,6 +20,10 @@
   Quo: only ``outbox.py`` imports it or calls ``send_alert``, and only it talks
   to the push package. The reminders, the host's texts and the alerts reach a
   provider only through the outbox.
+- Email is the same: only ``outbox.py`` imports the Gmail sender
+  (``gmail_thread.py``) or calls ``send_in_thread``, and only the Gmail sender
+  imports the lead agent's module (``zillow_leads.handle``) or names one of
+  its sends.
 
 A second way out of the module fails here.
 """
@@ -35,10 +39,15 @@ OUTBOX = "outbox.py"
 SENDERS = {
     "api.src.showing_bookings.quo": {OUTBOX},
     "api.src.showing_bookings.push": {OUTBOX},
+    "api.src.showing_bookings.gmail_thread": {OUTBOX},
     "api.src.showing_bookings.google_calendar": {"connections.py"},
     "api.src.showing_bookings.quo_contacts": {"residents.py"},
 }
-SENDER_FILES = {"quo.py", "google_calendar.py", "push.py"}
+SENDER_FILES = {"quo.py", "google_calendar.py", "push.py", "gmail_thread.py"}
+# The lead agent's module and its Gmail sends: reached only by the Gmail sender.
+LEAD_AGENT_MODULE = "api.src.zillow_leads.handle"
+LEAD_AGENT_SENDS = {"send_thread_email", "send_reply", "send_email"}
+GMAIL_SENDER = "gmail_thread.py"
 # Reads Quo's contacts and sends nothing.
 READER_FILES = {"quo_contacts.py"}
 # Pure functions in a provider package: no I/O, no import side effects.
@@ -48,7 +57,14 @@ GOOGLE_HOSTS = ("googleapis.com", "accounts.google.com")
 GOOGLE_FILES = {"google_calendar.py", "google_oauth.py"}
 GENERAL_SENDERS = {"send_message", "create_calendar_event"}
 EVENT_WRITES = {"create_event", "update_event", "cancel_event"}
-SENDING_METHODS = {"send_text", "send_group_text", "text_status", "send_alert", *EVENT_WRITES}
+SENDING_METHODS = {
+    "send_text",
+    "send_group_text",
+    "text_status",
+    "send_alert",
+    "send_in_thread",
+    *EVENT_WRITES,
+}
 
 
 def imported(tree: ast.AST) -> list[tuple[int, str]]:
@@ -169,6 +185,23 @@ def test_only_the_outbox_uses_a_sending_method():
     assert uses_a_method(sources()[OUTBOX], SENDING_METHODS)
 
 
+def test_only_the_gmail_sender_reaches_the_lead_agents_sends():
+    """An email leaves only through the outbox's Gmail sender, which uses the lead
+    agent's own sending function; no other file imports the lead agent's module or
+    names one of its sends."""
+    trees = sources()
+    for name, tree in trees.items():
+        if name == GMAIL_SENDER:
+            continue
+        assert imports_of(tree, LEAD_AGENT_MODULE) == [], name
+        assert uses_a_method(tree, LEAD_AGENT_SENDS) == [], name
+        assert not [line for line, module in imported(tree) if module.endswith(".send_email")], name
+    gmail = trees[GMAIL_SENDER]
+    assert imports_of(gmail, LEAD_AGENT_MODULE)
+    assert uses_a_method(gmail, {"send_thread_email"})
+    assert uses_a_method(trees[OUTBOX], {"send_in_thread"})
+
+
 # Reminders, the host's texts and the team's alerts
 LATE_NOTICE_FILES = {
     "reminders.py",
@@ -178,6 +211,7 @@ LATE_NOTICE_FILES = {
     # The host's morning text and the apply text, and removing old details.
     "daily_texts.py",
     "retention.py",
+    "lead_email.py",
 }
 
 
@@ -241,6 +275,15 @@ def test_the_checks_catch_what_they_are_for():
     assert uses_a_method(
         ast.parse("async def f(t):\n    await t.send_text('+1', 'hi')"), SENDING_METHODS
     )
+    assert uses_a_method(
+        ast.parse("async def f(e, r):\n    await e.send_in_thread(r, 'hi')"), SENDING_METHODS
+    )
+    assert imports_a_sender(
+        ast.parse("from api.src.showing_bookings.gmail_thread import GmailThreadSender")
+    )
+    lazy = "async def f():\n    from api.src.zillow_leads import handle\n    handle.send_reply()"
+    assert imports_of(ast.parse(lazy), LEAD_AGENT_MODULE)
+    assert uses_a_method(ast.parse(lazy), LEAD_AGENT_SENDS)
     # Defining an event method, as an adapter does, is not a use.
     definition = (
         "class C:\n    async def create_event(self, calendar_id, event):\n        return 'e'"

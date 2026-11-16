@@ -1,9 +1,12 @@
-"""What the booking code needs from the outside world, as three small interfaces.
+"""What the booking code needs from the outside world, as four small interfaces.
 
 - ``TextSender``: send a text or a group text, and read a sent text's status. Quo in
   production (``quo.py``); ``fakes.RecordingTextSender`` in tests.
 - ``CalendarSource``: busy times for a set of calendars, and events with
   invited guests. Google later; ``fakes.InMemoryCalendar`` in tests.
+- ``EmailSender``: an email in a Zillow lead's thread, to the relay address
+  stored on the lead conversation. Gmail, through the lead agent's own sending
+  function (``gmail_thread.py``); ``fakes.RecordingEmailSender`` in tests.
 - ``TeamAlerter``: an alert on the team's phones. The Sernia web push the
   approval flow uses, in production only (``push.py``);
   ``fakes.RecordingAlerter`` in tests.
@@ -98,6 +101,30 @@ class EventDraft(BaseModel):
     starts_at: datetime
     ends_at: datetime
     attendees: list[str]
+
+
+@dataclass(frozen=True)
+class ThreadRoute:
+    """Where an email in a lead's Zillow thread goes: the relay address, the
+    thread's subject, and the message it answers. Always read from the lead
+    conversation's stored route (``lead_email.route_of``)."""
+
+    to: str
+    subject: str
+    reply_to_message_id: str
+
+
+@dataclass(frozen=True)
+class SentEmail:
+    provider_id: str
+
+
+class EmailSender(Protocol):
+    async def send_in_thread(self, route: ThreadRoute, body: str) -> SentEmail:
+        """Send ``body`` as plain text to ``route.to``, as a reply in the thread of
+        ``route.reply_to_message_id``. Raises ``NotSent`` when nothing went out,
+        including when the thread cannot be found, so it never goes unthreaded."""
+        ...
 
 
 class TeamAlerter(Protocol):

@@ -36,7 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import delivery_checks, outbox, resident_notices
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
-from api.src.showing_bookings.providers import CalendarSource, TeamAlerter, TextSender
+from api.src.showing_bookings.providers import (
+    CalendarSource,
+    EmailSender,
+    TeamAlerter,
+    TextSender,
+)
 from api.src.showing_bookings.schema import DrainReport, HoldReport
 
 JOB_ID = "showing-notices"
@@ -59,6 +64,7 @@ class SendPendingReport(DrainReport):
     stopped: int = 0
     prospect_reminders: int = 0
     resident_reminders: int = 0
+    lead_email_reminders: int = 0
     host_mornings: int = 0
     apply_texts: int = 0
     alerts: int = 0
@@ -265,6 +271,7 @@ async def send_pending(
     texts: TextSender | None = None,
     calendar: CalendarSource | None = None,
     alerter: TeamAlerter | None = None,
+    emails: EmailSender | None = None,
 ) -> SendPendingReport:
     """The job's steps in order: release or stop held notices, queue the reminders,
     morning texts and apply texts due by ``now``, deliver every due notice, then
@@ -275,7 +282,7 @@ async def send_pending(
     held = await release_held(now=now, texts=texts)
     queued = await reminders.queue_due(now=now)
     daily = await daily_texts.queue_due(now=now)
-    drained = await outbox.drain(now=now, texts=texts, calendar=calendar)
+    drained = await outbox.drain(now=now, texts=texts, calendar=calendar, emails=emails)
     alerted = await alerts.check(now=now, alerter=alerter)
     return SendPendingReport(
         **drained.model_dump(),

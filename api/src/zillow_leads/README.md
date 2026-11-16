@@ -197,6 +197,25 @@ and sends the confirmation text and the invite as for a page booking. The
 policy does not yet mention the link line or the own showings; that is a later
 step with an eval run.
 
+**The reminder by email.** A lead whose place was booked from a sent reply
+(`lead_reply_sent_at`) and who has no mobile with consent gets no reminder
+text, so the evening before (6 PM in the showing rules' time zone, sent only
+from 8 AM to 9 PM) the booking service emails a reminder in the same thread:
+when and where, the cancel link, and the lead's own link to add their details.
+It is a fixed template (`showing_bookings/wording.py`, no model) and a notice in
+the booking outbox behind its send guard, so outside production it is captured
+unless the thread's address is a configured test recipient. Its recipient is
+the `reply_route` stored on the conversation that booked the place
+(`lead_conversation_id`), read again just before it goes and checked by this
+module's relay rule (`relay.py`, which `reply_route` uses too); the conversation
+must be about the place's own thread. It is sent with `handle.send_thread_email`,
+the same Gmail call as `send_reply`, from the same mailbox, with the thread's
+headers, and never unthreaded. If the conversation or its route is gone, or the
+route is no longer a Zillow relay, nothing is sent and the notice fails for the
+team's alert. A place whose reply is uncertain (`reply_uncertain`) or was never
+sent gets none, and nothing is queued with the switch off. See
+[the booking service's reminders](../showing_bookings/README.md#reminders-the-evening-before).
+
 | Component | Owner | Responsibility |
 | --- | --- | --- |
 | Gmail ingestion | [`google/pubsub`](../google/pubsub/README.md) | Authenticate notifications, persist mail, enqueue Zillow messages |
@@ -205,7 +224,7 @@ step with an eval run.
 | Listing store | [`rental_listings`](../rental_listings/README.md) | Validated data, history, editor API, on-request Zillow-ad comparison |
 | Case preparation | `listing_data.py`, `case.py`, `tours.py`, `lead_links.py` | Convert saved rows, known tour state and the thread's own booking link into the model's input |
 | Decision | `agent.py`, `prompts/` | `respond(case)` returns one of the three typed outcomes |
-| Review and delivery | `handle.py`, `auto_reply.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what an approved reply confirms (switch on) |
+| Review and delivery | `handle.py`, `auto_reply.py`, `relay.py` | Persist the outcome; use manual approval or an idempotent automatic send; book what an approved reply confirms (switch on); the one relay rule for where email may go |
 | Lead settings | `settings.py` | Authenticated settings API, explicit approval opt-in/out, validated batching window |
 | Offline evaluation | `evals/` | Replay scenarios, exact checks, human labels, LLM judge; never imported by runtime code |
 
@@ -243,8 +262,10 @@ Shared services have independent owners:
 - **Separate model configuration.** `LEAD_AGENT_MODEL` in `agent.py` controls
   this agent. The general agent's model setting in `/sernia-settings` does not.
 - **Fixed routing.** `handle.py` derives the reply route from the latest lead
-  message before inference. Only a Zillow relay is allowed. Approving or
-  editing the text cannot redirect the recipient.
+  message before inference. Only a Zillow relay is allowed (`relay.py`).
+  Approving or editing the text cannot redirect the recipient. The booking
+  service's reminder by email goes only to that stored route, checked again by
+  the same rule.
 - **Approval is configurable for this agent only.** With approval on, replies
   wait in `/sernia-chat`. With it off, new replies may be sent automatically;
   pending drafts are not swept up. Escalations and team follow-ups remain tasks

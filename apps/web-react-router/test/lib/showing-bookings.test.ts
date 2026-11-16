@@ -30,6 +30,7 @@ import {
   describeShowingCancel,
   describeWindows,
   newAgent,
+  noticeLeadConversation,
   noticeRecipients,
   parseCalendars,
   refusalMessage,
@@ -286,6 +287,18 @@ test("a group text names every number it reaches", () => {
   assert.equal(noticeRecipients(one), "+14125550142");
   const group = { recipient: "+14125550142", payload: { body: "Hi", also_to: ["+14125550143"] } };
   assert.equal(noticeRecipients(group), "+14125550142, +14125550143");
+});
+
+test("an email in a lead's Zillow thread links to its conversation, and nothing else does", () => {
+  const email = { channel: "email" as const, payload: { subject: "Re: hi", body: "Hi", conversation_id: "conv-1" } };
+  assert.equal(noticeLeadConversation(email), "conv-1");
+  assert.equal(noticeLeadConversation({ channel: "email", payload: { subject: "Hi", body: "Hi" } }), null);
+  assert.equal(noticeLeadConversation({ channel: "sms", payload: { body: "Hi", conversation_id: "conv-1" } }), null);
+});
+
+test("reminders by email count among the reminders queued", () => {
+  const report = { captured: 0, sent: 0, failed: 0, unknown: 0, skipped: 0, retrying: 0, interrupted: 0 };
+  assert.equal(describeDrain({ ...report, prospect_reminders: 1, lead_email_reminders: 1 }), "2 reminders queued.");
 });
 
 test("a number known to be wrong is not counted as texted", () => {
