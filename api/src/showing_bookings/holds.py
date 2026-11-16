@@ -92,6 +92,15 @@ async def _release(session: AsyncSession, holder_id: int | None, now: datetime) 
 
 async def _stop(holder: ShowingNotice, *, reason: str, note: str) -> int:
     async with AsyncSessionFactory() as session, session.begin():
+        # Lock order, as everywhere in this module: the attendee, then its
+        # notices, then the showing. A correction or a withdrawal locks the
+        # attendee first too, so neither can deadlock against this.
+        if holder.attendee_id is not None:
+            await session.execute(
+                select(ShowingAttendee.id)
+                .where(ShowingAttendee.id == holder.attendee_id)
+                .with_for_update()
+            )
         stopped = await stop_waiting_on(session, holder.id, note=note)
         if holder.attendee_id is not None:
             await session.execute(

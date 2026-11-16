@@ -827,8 +827,11 @@ async def _by_token(session: AsyncSession, token: str, *, lock: bool = False):
 async def _check_new_mobile(
     session: AsyncSession, showing_id: int, mobile: str, *, limit: int, now: datetime
 ) -> None:
-    """Under the number's lock: refuse a number already in this showing or at its limit."""
-    await _lock(session, f"showing-mobile:{mobile}")
+    """Refuse a number already in this showing or at its limit.
+
+    The caller holds the number's advisory lock, taken at the start of its
+    transaction, before any row lock.
+    """
     taken = await session.scalar(
         select(ShowingAttendee.id).where(
             ShowingAttendee.showing_id == showing_id,
@@ -917,6 +920,9 @@ async def correct_mobile(
         settings = await settings_for_delivery(session)
         rules = await listings_service.read_showing_rules(session)
     async with AsyncSessionFactory() as session, session.begin():
+        # Advisory locks before row locks, as in a booking.
+        if mobile is not None:
+            await _lock(session, f"showing-mobile:{mobile}")
         attendee, showing = await _by_token(session, body.cancel_token, lock=True)
         if attendee.status != "booked" or showing.status != "scheduled":
             raise Refused(409, "not_booked", "This booking is cancelled.")
@@ -970,6 +976,8 @@ async def correct_mobile(
         )
     try:
         async with AsyncSessionFactory() as session, session.begin():
+            # The number's advisory lock, then the attendee, then its notices.
+            await _lock(session, f"showing-mobile:{mobile}")
             attendee = await session.scalar(
                 select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
             )

@@ -441,6 +441,11 @@ join), and two bookings at different buildings at adjacent times never both
 get one host inside the travel gap, which the database's no-overlap rule
 cannot see. Volume is a few bookings a day, so one lock is enough.
 
+Lock order, in every transaction that takes more than one: advisory locks
+first (the shared booking lock, unit and start, mobile, email), then the
+attendee, then its notices, then the showing; several showings are locked in
+id order.
+
 A corrected mobile is texted first; only if Quo does not refuse it does it
 replace the old one. The final step takes the number's lock again and checks
 the per-mobile limit and the showing once more, so two corrections to one

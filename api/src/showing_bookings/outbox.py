@@ -414,6 +414,18 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
         report.interrupted = await _mark_interrupted(session, now)
         rows = (await session.execute(_due_rows(now).limit(limit))).all()
         if rows:
+            # The showings of the host notices, locked together in id order, so
+            # two runs at once never take them in opposite orders.
+            host_showings = sorted(
+                {notice.showing_id for notice, *_ in rows if notice.kind in host_event.KINDS}
+            )
+            if host_showings:
+                await session.execute(
+                    select(Showing.id)
+                    .where(Showing.id.in_(host_showings))
+                    .order_by(Showing.id)
+                    .with_for_update()
+                )
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
                 if await _prepare_host_event(session, notice, now) is _NOT_NOW:
@@ -584,7 +596,22 @@ async def _record(item: _Claimed, outcome: _Outcome, *, now: datetime) -> None:
             "last_error": outcome.error,
             "delivered_at": now,
         }
+    saves_invite_id = (
+        outcome.status == "sent"
+        and item.payload.get("operation") == "create"
+        and item.channel == "calendar_invite"
+        and item.attendee_id is not None
+    )
     async with AsyncSessionFactory() as session, session.begin():
+        # Lock order across the module: the attendee, then its notices, then
+        # the showing. An invite's id is saved on the attendee, so that row is
+        # locked before the notice is updated.
+        if saves_invite_id:
+            await session.execute(
+                select(ShowingAttendee.id)
+                .where(ShowingAttendee.id == item.attendee_id)
+                .with_for_update()
+            )
         saved = await session.execute(
             update(ShowingNotice)
             .where(
