@@ -5,7 +5,15 @@ import type { Route } from "./+types/_sernia-public.showings.$unit";
 import { ShowingBooked } from "~/components/sernia-public/showing-booked";
 import { ShowingBookingForm } from "~/components/sernia-public/showing-booking-form";
 import { backendUrl } from "~/lib/backend-url.server";
-import { type BookingResult, PUBLIC_API, type UnitPage, unitSummary } from "~/lib/showing-booking-page";
+import {
+  type BookingPageData,
+  type BookingResult,
+  type LeadBooking,
+  PUBLIC_API,
+  type UnitPage,
+  leadTokenOf,
+  unitSummary,
+} from "~/lib/showing-booking-page";
 import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
 
 // Book an in-person showing of one unit. The unit is read here on the server,
@@ -13,6 +21,9 @@ import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
 // answers the same way) is a 404 page. The booking, a corrected mobile and
 // the team's number go from the browser straight to the public API, so the
 // person's own IP address, user agent and Signature-Agent header reach it.
+// A lead whose showing the lead agent booked in their email thread opens the
+// page with their own link (`?t=`): the loader then finds that place, and the
+// page shows the time already booked and asks only for their details.
 
 const NOINDEX = { name: "robots", content: "noindex" };
 
@@ -28,10 +39,11 @@ export function headers() {
   return { "X-Robots-Tag": "noindex", "Cache-Control": "no-store" };
 }
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs): Promise<BookingPageData> {
+  const unitPath = `${backendUrl()}${PUBLIC_API}/units/${encodeURIComponent(params.unit)}`;
   let response: Response;
   try {
-    response = await fetch(`${backendUrl()}${PUBLIC_API}/units/${encodeURIComponent(params.unit)}`, {
+    response = await fetch(unitPath, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
@@ -40,25 +52,51 @@ export async function loader({ params }: Route.LoaderArgs) {
   }
   if (response.status === 404) throw data(null, { status: 404, statusText: "Not Found" });
   if (!response.ok) throw data(null, { status: 503, statusText: "Service Unavailable" });
-  return (await response.json()) as UnitPage;
+  const unit = (await response.json()) as UnitPage;
+  return { ...unit, lead_booking: await leadBooking(unitPath, new URL(request.url).searchParams.get("t")) };
+}
+
+/**
+ * The place the lead agent booked in this lead's email thread, when the link's
+ * token has one at this unit: the page then asks only for their details. The
+ * token goes in the request body, never in the API's path or query. Anything
+ * but a 200 means the normal booking form.
+ */
+async function leadBooking(unitPath: string, value: string | null): Promise<LeadBooking | null> {
+  const token = leadTokenOf(value);
+  if (!token) return null;
+  try {
+    const response = await fetch(`${unitPath}/lead-booking`, {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ lead_token: token }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    return response.ok ? ((await response.json()) as LeadBooking) : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function ShowingBookingPage({ loaderData }: Route.ComponentProps) {
   const [searchParams] = useSearchParams();
   const [booked, setBooked] = useState<BookingResult | null>(null);
   const leadToken = searchParams.get("t");
+  const { lead_booking: leadPlace, ...unit } = loaderData;
 
   if (booked) {
-    return <ShowingBooked result={booked} siteKey={loaderData.turnstile_site_key} />;
+    return <ShowingBooked result={booked} siteKey={unit.turnstile_site_key} />;
   }
 
   return (
     <div className="space-y-8">
       <header className="space-y-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Book an in-person showing</h1>
-        <p className="text-muted-foreground">{unitSummary(loaderData)}</p>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          {leadPlace ? "Add your details" : "Book an in-person showing"}
+        </h1>
+        <p className="text-muted-foreground">{unitSummary(unit)}</p>
       </header>
-      <ShowingBookingForm initialUnit={loaderData} leadToken={leadToken} onBooked={setBooked} />
+      <ShowingBookingForm initialUnit={unit} leadToken={leadToken} leadPlace={leadPlace} onBooked={setBooked} />
     </div>
   );
 }

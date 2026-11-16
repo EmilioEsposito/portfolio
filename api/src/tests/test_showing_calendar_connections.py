@@ -827,6 +827,8 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
         "/api/showing-bookings/public/call-line",
         "/api/showing-bookings/public/units/{unit}",
         "/api/showing-bookings/public/units/{unit}/bookings",
+        "/api/showing-bookings/public/units/{unit}/lead-booking",
+        "/api/showing-bookings/public/units/{unit}/lead-booking/details",
         "/api/showing-bookings/public/bookings/lookup",
         "/api/showing-bookings/public/bookings/mobile",
         "/api/showing-bookings/public/bookings/cancel",

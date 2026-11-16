@@ -228,6 +228,15 @@ class ShowingAttendee(Base):
         JSONB, default=list, server_default=_EMPTY_LIST
     )
     zillow_thread_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    # The lead conversation whose reply booked this place (source
+    # ``lead_agent``), saved with the booking so a reply that is then rejected
+    # or never sent can find and cancel it. Empty for every other booking.
+    lead_conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    # When the lead agent's reply that booked or confirmed this place was sent.
+    # Empty while it has not been (or may not have been: ``reply_uncertain``).
+    lead_reply_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # The token in the link the lead agent sent, when the booking came through one.
     lead_token: Mapped[str | None] = mapped_column(String, nullable=True)
     cancel_token: Mapped[str] = mapped_column(String, unique=True, default=new_cancel_token)

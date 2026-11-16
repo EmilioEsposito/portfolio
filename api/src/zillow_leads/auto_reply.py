@@ -4,6 +4,13 @@ Reserve the original RFC Message-ID before sending. Replace the send approval
 with a delivery-review card before the external call: if a process dies after
 Gmail accepts the email, neither a retry nor a simultaneous approval sends it
 again. An uncertain delivery stays with the team for inspection.
+
+With the booking service's switch ``lead_agent_uses_open_times`` on, a reply
+whose sending would book, move or cancel a showing is never sent here: like a
+reply that fails a check, it stays on its send card for a person, with the
+reason ("This reply books a showing, so a person sends it."). Nothing yet
+checks that the reply's words name the time code would book; approval
+(``handle.apply_approval``) does the booking. This path books nothing.
 """
 
 import json
@@ -23,6 +30,7 @@ from api.src.agent_conversations.models import (
 )
 from api.src.database.database import AsyncSessionFactory
 from api.src.google.common.config import SHARED_EXTERNAL_EMAIL
+from api.src.showing_bookings import lead_bookings
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.zillow_leads import handle
 from api.src.zillow_leads.agent import Reply, load_instructions
@@ -82,6 +90,19 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
             or handle.reply_route(latest).to != route["to"]
         ):
             problems.append("The conversation changed while the reply was being prepared.")
+        # A reply whose sending would book, move or cancel a showing always
+        # waits for a person (switch on only): nothing checks yet that its words
+        # name the time code would book. Approval then books it.
+        plan = await lead_bookings.plan_reply(
+            conversation_id=conversation_id,
+            thread_id=row.metadata_["lead_thread_id"],
+            lead=reply.lead,
+            tour=reply.tour,
+            listed_units=[listing.unit for listing in case.listings],
+            now=datetime.now(UTC),
+        )
+        if plan is not None:
+            problems.append(plan.person_sends())
         if problems:
             # Keep the draft for a person and put the reason on its existing card.
             for part in messages[-1].parts:
