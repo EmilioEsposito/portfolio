@@ -1,8 +1,9 @@
 """With the booking integration off, the lead case reads exactly as it did.
 
 ``zillow_case_golden.json`` holds, for a set of cases built from the lead
-agent's existing test fixtures, the rendered case and the automatic-send
-problems for a set of replies, as the code produced them before the case
+agent's existing test fixtures (and one eval scenario with a hand edit), the
+rendered case, the automatic-send problems and the evals' exact-answer checks
+(``ReplyChecks``) for a set of replies, as the code produced them before the case
 learned about per-lead links, a lead's own showings and per-unit tour times.
 Every case here is built the way production builds it with
 ``lead_agent_uses_open_times`` off: no per-lead links, no own showings, tour
@@ -20,6 +21,8 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic_evals.evaluators import EvaluatorContext
+from pydantic_evals.otel.span_tree import SpanTree
 
 from api.src.rental_listings.schema import PreferredWindow
 from api.src.tests.test_zillow_lead_agent import (
@@ -39,6 +42,8 @@ from api.src.zillow_leads.case import (
     build_case,
     render_case,
 )
+from api.src.zillow_leads.evals.checks import ReplyChecks
+from api.src.zillow_leads.evals.scenarios import CaseEdit, case_for, scenarios_from_thread
 
 GOLDEN = Path(__file__).with_name("zillow_case_golden.json")
 TUESDAY_10 = datetime(2026, 5, 5, 10, 0, tzinfo=ET)
@@ -113,6 +118,16 @@ def _cases() -> dict[str, LeadCase]:
             LISTING_DATA.model_copy(update={"listings": [], "rented_units": []}),
             upto=0,
         ),
+        # An eval scenario with a hand edit, as the evals build it.
+        "eval_scenario_with_an_edit": case_for(
+            scenarios_from_thread(history)[-1],
+            rich,
+            CaseEdit(
+                offered=[THURSDAY_3],
+                booked=[BookedTour(unit="12-C", start=datetime(2026, 5, 6, 11, 0, tzinfo=ET))],
+                note="Made up.",
+            ),
+        ),
     }
 
 
@@ -135,6 +150,22 @@ def _replies() -> dict[str, dict]:
     }
 
 
+def _eval_checks(case: LeadCase, outcome) -> dict[str, bool]:
+    """The evals' exact-answer checks (``ReplyChecks``) on one reply."""
+    ctx = EvaluatorContext(
+        name=case.case_id,
+        inputs=case,
+        metadata={},
+        expected_output=None,
+        output=outcome,
+        duration=0.0,
+        _span_tree=SpanTree(),
+        attributes={},
+        metrics={},
+    )
+    return ReplyChecks().evaluate(ctx)
+
+
 def snapshot() -> dict:
     replies = {name: decision(**fields) for name, fields in _replies().items()}
     return {
@@ -142,6 +173,9 @@ def snapshot() -> dict:
             "rendered": render_case(case),
             "problems": {
                 reply: reply_problems(case, outcome) for reply, outcome in replies.items()
+            },
+            "eval_checks": {
+                reply: _eval_checks(case, outcome) for reply, outcome in replies.items()
             },
         }
         for name, case in _cases().items()
@@ -154,6 +188,7 @@ def test_the_rendered_case_and_send_checks_are_unchanged(name):
     actual = snapshot()[name]
     assert actual["rendered"] == expected["rendered"]
     assert actual["problems"] == expected["problems"]
+    assert actual["eval_checks"] == expected["eval_checks"]
 
 
 def test_every_fixture_case_is_in_the_snapshot():

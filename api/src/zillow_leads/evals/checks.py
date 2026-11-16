@@ -7,7 +7,7 @@ from pydantic_evals import Case, Dataset
 from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
 from api.src.zillow_leads.agent import Escalate, NoReply, Reply, load_instructions
-from api.src.zillow_leads.case import LeadCase, ListingData
+from api.src.zillow_leads.case import LeadCase, ListingData, times_allowed
 from api.src.zillow_leads.evals.scenarios import CaseEdit, Scenario, case_for
 
 SIGNATURE = "Sernia Capital Team"
@@ -49,9 +49,6 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
         if not isinstance(outcome, Reply):
             return {}
         body = outcome.reply_body
-        allowed = {slot.start for slot in case.offerable_slots} | {
-            tour.start for tour in case.booked_tours
-        }
         staff = {slot.agent.split()[0].lower() for slot in case.offerable_slots if slot.agent}
         words = {word.strip(".,!?:;()").lower() for word in body.split()}
         # Every link the model was given: in the case, or in its instructions.
@@ -62,10 +59,9 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
             )
         )
         return {
-            # A time without a UTC offset cannot be compared, so it fails.
-            "offered_slots_allowed": all(
-                slot.tzinfo is not None and slot in allowed for slot in outcome.offered_slots
-            ),
+            # The same calculation as the automatic-send check. A time without
+            # a UTC offset cannot be compared, so it fails.
+            "offered_slots_allowed": times_allowed(case, outcome.offered_slots, outcome.lead.unit),
             "no_em_dash": "—" not in body,
             "has_greeting": bool(GREETING.match(body)),
             "site_address_is_a_link": not BARE_SITE.search(body),

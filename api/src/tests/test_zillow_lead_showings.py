@@ -41,7 +41,7 @@ from api.src.tests.showing_public import (
     install,
     rows,
 )
-from api.src.tests.test_zillow_lead_agent import ET, decision
+from api.src.tests.test_zillow_lead_agent import ET, check, decision
 from api.src.tests.test_zillow_lead_agent import LISTING_DATA as WEEKLY_LISTING_DATA
 from api.src.tests.test_zillow_lead_agent import message as weekly_message
 from api.src.tests.test_zillow_lead_agent import thread as weekly_thread
@@ -429,6 +429,33 @@ def test_the_send_check_accepts_a_units_own_time_and_refuses_a_time_not_in_the_c
     assert problems("Somewhere else", only_412) == []
     assert problems(None, at(19)) == time_problem
     assert problems(UNIT, (both + timedelta(days=1))) == time_problem
+
+
+def test_the_evals_and_the_send_check_agree_on_tour_times():
+    """One calculation (``case.allowed_tour_times``) behind both, so they cannot drift."""
+    case, _, both, only_412 = booking_case()
+    own = at(18)  # the lead's own showing, full: not among the showings with room
+    assert own not in {tour.start for tour in case.booked_tours}
+
+    def evals_allow(unit: str | None, *starts: datetime) -> bool:
+        reply = decision(lead={"unit": unit}, offered_slots=[s.isoformat() for s in starts])
+        return check(case, reply)["offered_slots_allowed"]
+
+    def send_allows(unit: str | None, *starts: datetime) -> bool:
+        reply = decision(lead={"unit": unit}, offered_slots=[s.isoformat() for s in starts])
+        return not reply_problems(case, reply)
+
+    # Unit 412-01's time offered for 320-03 fails both.
+    assert evals_allow(UNIT, only_412) is False
+    # Repeating the lead's own booked showing, which has no room left, passes both.
+    assert evals_allow(UNIT, own) is True
+    combos = [
+        (unit, starts)
+        for unit in (UNIT, "412-01", None, "Somewhere else")
+        for starts in ((both,), (only_412,), (at(15),), (own,), (at(19),), (both, only_412))
+    ]
+    for unit, starts in combos:
+        assert evals_allow(unit, *starts) == send_allows(unit, *starts), (unit, starts)
 
 
 def test_the_rendered_case_lists_times_by_unit_and_the_own_showing():

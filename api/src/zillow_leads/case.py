@@ -184,6 +184,45 @@ def within_showing_rules(start: datetime, listing_data: ListingData, now: dateti
     )
 
 
+def allowed_tour_times(case: "LeadCase", unit: str | None = None) -> set[datetime]:
+    """The tour times a reply may offer: the times the case offers.
+
+    The one calculation behind both the automatic-send check
+    (``auto_reply.reply_problems``) and the evals' ``ReplyChecks``.
+
+    Without the booking service, times have no unit and are open at every
+    unit: any of them, or any booked showing, may be offered, exactly as
+    before. With it (the case then has times by unit, or its own-showings
+    section), each time belongs to one unit, so when ``unit`` (the reply's
+    ``lead.unit``) is a unit the case lists, a time must be open, or a showing
+    booked, at that unit. The lead's own booked showing may be repeated back to
+    them, even when it has no room left for others.
+    """
+    by_unit = case.own_showings is not None or any(slot.unit for slot in case.offerable_slots)
+    known = {listing.unit.casefold() for listing in case.listings}
+    named = unit.strip().casefold() if unit and by_unit else ""
+    if named not in known:
+        named = ""
+    return {
+        slot.start
+        for slot in case.offerable_slots
+        if not named or slot.unit is None or slot.unit.casefold() == named
+    } | {
+        tour.start
+        for tour in [
+            *case.booked_tours,
+            *(own for own in case.own_showings or [] if own.status == "booked"),
+        ]
+        if not named or tour.unit.casefold() == named
+    }
+
+
+def times_allowed(case: "LeadCase", offered: list[datetime], unit: str | None = None) -> bool:
+    """Whether every offered time is one the case offers. A time without a UTC offset fails."""
+    allowed = allowed_tour_times(case, unit)
+    return all(start.tzinfo is not None and start in allowed for start in offered)
+
+
 def offerable_slots(
     listing_data: ListingData, now: datetime, *, days_ahead: int = DEFAULT_DAYS_AHEAD
 ) -> list[TourSlot]:

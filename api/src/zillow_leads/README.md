@@ -93,7 +93,8 @@ case, so the per-lead link passes and any other link (the unit's page without
 the token, another lead's token) does not. A time must still be one the case
 offers; when the case's times belong to units and the reply's `lead.unit` is a
 listed unit, it must be open at, or a showing booked at, that unit. The lead's
-own booked showing may be repeated back. The policy does not mention the own
+own booked showing may be repeated back. The evals' `ReplyChecks` use the same
+calculation (`case.allowed_tour_times`), so the two cannot disagree. The policy does not mention the own
 showings yet; that is a later step of issue #368, run through the evals first.
 
 Each outcome also saves the structured case in the conversation's metadata
