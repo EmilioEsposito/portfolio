@@ -79,3 +79,26 @@ def decide(
     if settings.test_sends_enabled and is_test_send(addresses, test_recipients):
         return Decision("send", "test_recipient")
     return Decision("capture", "unit_not_live" if production else "not_production")
+
+
+def would_send(
+    *,
+    settings: ShowingBookingSettings,
+    environment: str,
+    unit: str,
+    addresses: Iterable[str],
+    test_recipients: frozenset[str],
+) -> bool:
+    """Whether a notice for ``unit`` reaching ``addresses`` would really be sent now:
+    exactly when ``decide`` answers send. For a notice that lists several units'
+    showings (the host's morning text), so it lists only what the guard lets through."""
+    return (
+        decide(
+            settings=settings,
+            environment=environment,
+            unit=unit,
+            addresses=addresses,
+            test_recipients=test_recipients,
+        ).action
+        == "send"
+    )

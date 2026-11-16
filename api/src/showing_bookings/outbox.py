@@ -607,6 +607,17 @@ async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, n
     return None
 
 
+async def _unit_now(
+    session: AsyncSession, notice: ShowingNotice, showing_before: int, unit: str
+) -> str:
+    """The unit the guard judges a notice by, after ``_prepare``: the host's morning
+    text may move to another of the day's showings (the first it lists), and the
+    guard must judge the showing it lists."""
+    if notice.showing_id == showing_before:
+        return unit
+    return await session.scalar(select(Showing.unit).where(Showing.id == notice.showing_id))
+
+
 async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainReport]:
     """Settle the due rows the guard skips or captures, and list the ones it would send.
 
@@ -637,8 +648,10 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
                 )
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
+                showing_before = notice.showing_id
                 if await _prepare(session, notice, now) is _NOT_NOW:
                     continue
+                unit = await _unit_now(session, notice, showing_before, unit)
                 if _guard(notice, unit, inputs, now).action == "send":
                     to_send.append(notice.id)
                 else:
@@ -658,9 +671,11 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         if row is None:
             return None, None
         notice, unit, host_event_id, invite_event_id = row
+        showing_before = notice.showing_id
         prepared = await _prepare(session, notice, now)
         if prepared is _NOT_NOW:
             return None, None
+        unit = await _unit_now(session, notice, showing_before, unit)
         if notice.kind == host_event.MOVED_KIND:
             host_event_id = prepared
         elif prepared is not None and notice.channel == "calendar_event":

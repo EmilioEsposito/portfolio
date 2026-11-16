@@ -170,6 +170,11 @@ async def _apscheduler_startup_async() -> None:
             from api.src.showing_bookings.holds import register_job as register_showing_notices
 
             register_showing_notices()
+            from api.src.showing_bookings.retention import (
+                register_job as register_showing_details_removal,
+            )
+
+            register_showing_details_removal()
 
         # Start the scheduler AFTER the span closes and with a clean OTel context.
         # APScheduler's internal event loop inherits the current trace context —
