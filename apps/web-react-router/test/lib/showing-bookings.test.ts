@@ -5,6 +5,7 @@ import {
   type BookingSettings,
   type DrainReport,
   CONNECT_RESULTS,
+  STATUS_LABELS,
   cleanSettings,
   connectResult,
   connectionActions,
@@ -84,6 +85,15 @@ test("a run of the sending step is summed up in one line", () => {
     describeDrain(report({ failed: 1, retrying: 1, interrupted: 1 })),
     "1 failed, 1 to try again later, 1 cut off midway, now unknown.",
   );
+  assert.equal(
+    describeDrain(report({ released: 2, stopped: 1, captured: 2 })),
+    "2 released from hold, 1 stopped, 2 captured.",
+  );
+});
+
+test("held and cancelled messages have labels", () => {
+  assert.equal(STATUS_LABELS.held, "Held");
+  assert.equal(STATUS_LABELS.cancelled, "Cancelled");
 });
 
 test("the guard's reasons read as words, never claim an outcome, and unknown ones pass through", () => {
