@@ -6,10 +6,13 @@ work is tracked in [issue #368](https://github.com/EmilioEsposito/portfolio/issu
 and lands one pull request at a time, each with sending switched off or in
 capture mode.
 
+The design's working copy is a private page, open to the owner only: https://claude.ai/artifact/VQnvyeo2awvhBEc54aNNpE
+
 The steps so far hold the tables, the notice outbox, the test harness, the
 calendar connections, the showing agents, the open times, the public
 booking API, cancelling, the residents' texts, the team's actions, the
-reminders, the host's texts and the team's alerts. Nothing is sent unless switched on: the setting starts in capture
+reminders (including the reminder by email in a Zillow lead's thread), the
+host's texts and the team's alerts. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -79,8 +82,12 @@ row still marked as sending ten minutes later was cut off midway and becomes
 may work (Quo out of reach or rate limited), the row stays `pending` with a
 later `not_before`, up to five attempts.
 
-Nothing sends email yet. An email notice is captured like any other, and one
-the guard would send is saved as `failed` with the reason `no_email_sender`.
+The only email ever sent is a lead's reminder in their Zillow thread
+(`lead_email_reminder`, see Reminders the evening before). An email notice is
+captured like any other; one of another kind that the guard would send is
+saved as `failed` with the reason `no_email_sender`. A notice whose check
+finds it cannot go and needs the team (the reminder by email with no usable
+route) is saved as `failed` before the guard is asked, with no send.
 
 A text notice to several numbers is one group text: the notice's
 `recipient` is the first number and `payload.also_to` holds the rest, who
@@ -97,7 +104,9 @@ which sends nothing) is imported anywhere but `residents.py`, if a file other th
 general `send_message` or `create_calendar_event`, which have no guard. The
 team's alert channel (`push.py`) is held to the same rule: only `outbox.py`
 imports it or calls `send_alert`, and the reminders, host's texts and alerts
-reach no provider but through the outbox.
+reach no provider but through the outbox. Email too: only `outbox.py` imports
+the Gmail sender (`gmail_thread.py`) or calls `send_in_thread`, and only the
+Gmail sender imports the lead agent's module or names one of its sends.
 
 ## Send modes and the guard
 
@@ -141,6 +150,14 @@ reason (`guard_reason`), so the Messages list can say why a row was captured.
   2026-11-15 Quo accepted a send to a well-formed number that does not exist.
   A number like that is not caught when the text is sent; reading the text's
   status afterwards (`outbox.refresh_text_status`) is what catches it.
+- `EmailSender`: an email as a reply in a Zillow lead's thread
+  (`ThreadRoute`: the relay address, the thread's subject, the message it
+  answers). `gmail_thread.GmailThreadSender` reads the thread's headers and
+  sends with `zillow_leads.handle.send_thread_email`, the Gmail call behind
+  the lead agent's `send_reply`, from the shared external mailbox. It never
+  sends unthreaded: headers it cannot read are `NotSent`, tried again later.
+  Gmail's refusals (by the lead agent's own `handle.send_result`) become
+  `NotSent`; anything else may have gone out and is saved as `unknown`.
 - `TeamAlerter`: an alert on the team's phones. `push.PushTeamAlerter` uses
   the Sernia web push, in production only (see Alerts to the team).
 - `CalendarSource`: busy blocks for a set of calendars over a window (raising
@@ -154,12 +171,15 @@ Stand-ins in `fakes.py` replace both in tests and later steps:
 numbers) and can refuse a number, lose an answer or report a text undelivered;
 `InMemoryCalendar` holds busy blocks and events and can lose a calendar;
 `StandInContacts` answers made-up Quo contacts for the resident lookup and can
-fail; `RecordingAlerter` keeps every alert the team would have been pushed. `seed.py` has two made-up agents, which
+fail; `RecordingAlerter` keeps every alert the team would have been pushed;
+`RecordingEmailSender` keeps every email in a thread and can refuse, lose the
+thread or lose an answer. `seed.py` has two made-up agents, which
 `api/seed_db.py` saves in non-production databases, and `fill_sample_week`,
 which fills an `InMemoryCalendar` with a made-up week of their busy times.
 
 The outbox uses the live senders when none are passed. Under pytest that raises
-instead of reaching Quo or Google: `google_http.client`, the one HTTP client
+instead of reaching Quo, Gmail or Google (the Gmail sender raises
+`LiveGmailInTests` itself too): `google_http.client`, the one HTTP client
 for Google, refuses to run under pytest, and tests install `FakeGoogle`
 (`api/src/tests/showing_google.py`) behind `httpx.MockTransport` instead.
 
@@ -822,6 +842,11 @@ The Showings section marks such a place "Booked by email with the lead agent"
 with "details not added yet" or "details added" (`details_pending`) and a
 link to the conversation (`lead_conversation_id`).
 
+Until the lead adds their details, the reminder the evening before goes by
+email in their thread (see Reminders the evening before). The Messages list
+shows it as "Lead's reminder by email, in their Zillow thread", to the relay
+address, with a link to the conversation.
+
 ### Reminders the evening before
 
 `reminders.py`. "The evening before" is 6 PM in the showing rules' time zone
@@ -834,6 +859,7 @@ missed evening while the showing is still ahead.
 | --- | --- | --- | --- |
 | The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong | when, where, and the cancel link |
 | The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that evening by the announcement's own lookup, one group text for roommates | the times of the next day's scheduled showings there, in order |
+| A lead's, by email | `lead_email_reminder`, one per booking, channel `email` | a place the Zillow lead agent booked in an email thread whose confirming reply was sent (`lead_reply_sent_at`), for a lead with no mobile we text; only while `lead_agent_uses_open_times` is on | when, where, the cancel link, and the lead's own link to add their details, as a plain-text reply in their Zillow thread |
 
 - A booking made at or after 6 PM the day before gets no reminder: the
   confirmation it just received is enough. A showing first booked then is
@@ -854,6 +880,36 @@ missed evening while the showing is still ahead.
   order.
 - Wording: `wording.prospect_reminder_text` and `wording.resident_reminder_text`,
   version `REMINDER_VERSION`.
+
+The lead's reminder by email (`lead_email.py`, queued by the same step):
+
+- One reminder per place. Someone owed the reminder text never gets the email,
+  and someone whose email still stands (pending, sent, captured, unknown or
+  skipped) is not queued the reminder text. If the lead adds a mobile with
+  consent before the email goes, the email is cancelled at delivery and the
+  text is queued by the next run.
+- Not for a place whose reply is uncertain (`reply_uncertain`, no
+  `lead_reply_sent_at`) or was never sent, nor one whose reply was sent at or
+  after 6 PM the day before (the reply just confirmed it).
+- Where it goes: the `reply_route` stored on the lead conversation that booked
+  the place (`lead_conversation_id`), never the attendee's own fields, a
+  request or anything a lead wrote. `lead_email.route_of` reads it when the
+  email is queued and again, under the notice's lock, each time it is about to
+  go (`delivery_checks`), and sets the recipient, the subject and the message
+  it answers (`EmailPayload.reply_to_message_id`) from it. The conversation
+  must be the lead agent's and about the place's own thread, and the address
+  a Zillow relay by the lead agent's own rule (`zillow_leads/relay.py`). When
+  any of that fails the notice is saved `failed` with the reason (`no_conversation`,
+  `conversation_missing`, `not_lead_conversation`, `other_thread`, `no_route`
+  or `not_relay`), in every send mode, and the team is alerted; nothing is
+  sent. A notice queued while its route was already missing shows a
+  placeholder address (`no-route@route-not-found.invalid`) that is never
+  sent to.
+- At delivery, as well as the reminders' usual checks (still booked, still
+  scheduled, not started, 8 AM to 9 PM): cancelled once the lead has a mobile
+  we text, or once the lead agent's switch is off.
+- Wording: `wording.lead_email_reminder_text`, version `LEAD_EMAIL_VERSION`;
+  the subject is the thread's (`Re: …`).
 
 ### The host's texts inside 2 hours
 
@@ -1082,11 +1138,19 @@ reply; a refused, an uncertain and an interrupted send; approving twice;
 moves, cancellations and the decisions that make them; and the lead adding
 their details (the confirmation and the invite, a refused number, twice,
 another thread's or unit's token, the limits, the switches, nothing about
-anyone else), and the Showings section.
+anyone else), and the Showings section. `test_zillow_lead_email_reminder.py`
+covers the reminder by email: queued at 6 PM for a place whose reply was sent
+and not for one booked after, never sent or uncertain; the text instead for a
+lead who added details, before or after it was queued, and never both; none
+after a cancellation or with the switch off; the 8 AM to 9 PM window; the
+route read from the conversation at delivery, and each missing or unsafe
+route failing for the team with nothing sent; capture, live outside
+production, a live send to a test recipient once across repeated runs, Gmail's
+answers, the live sender refusing under pytest and its own logic with Gmail
+mocked; and the Messages list.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
 - The apply-link text after a showing to everyone not marked a no-show.
-- The lead policy's line about the details link, and the reminder by email in
-  the thread for a lead who has not added their details, each with an eval run.
+- The lead policy's line about the details link, with an eval run.

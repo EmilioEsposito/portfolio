@@ -64,7 +64,6 @@ from api.src.agent_conversations.push.service import notify_pending_approval
 from api.src.database.database import AsyncSessionFactory
 from api.src.google.common.config import (
     GOOGLE_DELEGATION_EMAIL,
-    INTERNAL_EMAIL_DOMAIN,
     SHARED_EXTERNAL_EMAIL,
 )
 from api.src.google.common.service_account_auth import get_delegated_credentials
@@ -85,6 +84,7 @@ from api.src.zillow_leads.agent import (
 )
 from api.src.zillow_leads.case import build_case, case_record, render_case
 from api.src.zillow_leads.identity import HANDLER
+from api.src.zillow_leads.relay import relay_address
 from api.src.zillow_leads.thread import LeadThread, load_lead_thread
 from api.src.zillow_leads.tours import NoTours, TourSource, tours_for_case
 
@@ -94,8 +94,6 @@ TOUR_SOURCE: TourSource = NoTours()
 # Names shown on the approval card. Neither is a tool the model can call.
 SEND_REPLY = "send_lead_reply"
 ASK_TEAM = "lead_needs_a_person"
-
-_ZILLOW_DOMAIN = "zillow.com"
 
 
 @dataclass(frozen=True)
@@ -146,12 +144,8 @@ def reply_route(thread: LeadThread) -> ReplyRoute | None:
     if not lead_messages:
         return None
     latest = lead_messages[-1]
-    address = (latest.reply_to or latest.from_address or "").strip().lower()
-    local, _, domain = address.partition("@")
-    at_zillow = domain == _ZILLOW_DOMAIN or domain.endswith(f".{_ZILLOW_DOMAIN}")
-    if not local or not at_zillow or domain == INTERNAL_EMAIL_DOMAIN:
-        return None
-    if local.replace("-", "").replace("_", "") in {"noreply", "donotreply"}:
+    address = relay_address(latest.reply_to or latest.from_address)
+    if address is None:
         return None
     subject = latest.subject.strip()
     if not subject.lower().startswith("re:"):
@@ -444,7 +438,21 @@ async def send_reply(
         threading = await _get_threading_headers(
             route["reply_to_message_id"], SHARED_EXTERNAL_EMAIL
         )
-    result = await _send_email(
+    result = await send_thread_email(route, body, threading=threading)
+    return f"Email sent to {route['to']} (message ID: {result.get('id', 'unknown')})."
+
+
+async def send_thread_email(
+    route: dict[str, str], body: str, *, threading: dict[str, str]
+) -> dict[str, Any]:
+    """Send ``body`` to ``route["to"]`` from the shared mailbox with the thread's
+    headers, and answer Gmail's result.
+
+    The one Gmail call behind ``send_reply`` and the showing reminder by email
+    (``showing_bookings/gmail_thread.py``). ``route`` is always a route stored
+    on a lead conversation, never anything typed or written by a lead.
+    """
+    return await _send_email(
         to=route["to"],
         subject=route["subject"],
         message_text=body,
@@ -455,7 +463,6 @@ async def send_reply(
         ),
         **threading,
     )
-    return f"Email sent to {route['to']} (message ID: {result.get('id', 'unknown')})."
 
 
 async def apply_approval(
