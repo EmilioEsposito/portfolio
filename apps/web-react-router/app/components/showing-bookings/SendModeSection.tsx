@@ -18,6 +18,76 @@ import {
 import { cn } from "~/lib/utils";
 import { useShowingBookingsApi } from "./use-showing-bookings-api";
 
+function PublicBookingSwitch({ view, onChanged }: { view: SettingsView; onChanged: (next: SettingsView) => void }) {
+  const api = useShowingBookingsApi();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const stored = view.settings.public_booking_enabled ?? null;
+  const defaultWords = view.public_booking_default ? "open" : "closed";
+
+  async function change(next: boolean | null) {
+    if (
+      next === true &&
+      view.is_production &&
+      !window.confirm("This lets anyone book a showing on the public booking pages. Open booking?")
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const result = await api<SettingsView>(
+      "/settings/public-booking",
+      { method: "PUT", body: JSON.stringify({ public_booking_enabled: next }) },
+      "Could not change public booking",
+    );
+    if (result.ok) onChanged(result.body);
+    else setError(result.message);
+    setSaving(false);
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="public-booking" className="text-sm font-medium">
+            Open booking to the public
+          </Label>
+          <p id="public-booking-help" className="text-sm leading-6 text-muted-foreground">
+            On, anyone can book a showing through the public booking pages and their API. Off, those routes answer as if
+            they did not exist and nothing is booked. Until changed here, booking is {defaultWords} in this environment.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 pt-0.5">
+          {saving && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+          <Switch
+            id="public-booking"
+            checked={view.public_booking_on}
+            disabled={saving}
+            aria-describedby="public-booking-help"
+            onCheckedChange={(checked) => void change(checked)}
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <p role="status" className="text-sm font-medium">
+          {view.public_booking_on ? "Open: the public can book." : "Closed: the public cannot book."}
+          {stored === null ? " (the default here)" : ""}
+        </p>
+        {stored !== null && (
+          <Button variant="outline" size="sm" disabled={saving} onClick={() => void change(null)}>
+            Use the default ({defaultWords})
+          </Button>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function EnvironmentNote({ view }: { view: SettingsView }) {
   if (view.is_production) {
     return (
@@ -132,6 +202,15 @@ export function SendModeSection() {
         </p>
       )}
       {view && <EnvironmentNote view={view} />}
+      {view && (
+        <PublicBookingSwitch
+          view={view}
+          onChanged={(next) => {
+            // Only the switch changed; any unsaved send-mode edits stay as they are.
+            setView(next);
+          }}
+        />
+      )}
       {loadError && (
         <div role="alert" className="mt-4 rounded-lg border border-destructive/50 p-3 text-sm">
           <p>{loadError}</p>

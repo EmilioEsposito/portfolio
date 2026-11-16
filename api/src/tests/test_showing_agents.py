@@ -239,6 +239,13 @@ async def test_the_lead_agent_switch_changes_only_itself(api):
         "live_units": [],
         "test_sends_enabled": True,
         "lead_agent_uses_open_times": True,
+        "public_booking_enabled": None,
+        "public_limits": {
+            "upcoming_per_mobile": 2,
+            "upcoming_per_email": 2,
+            "bookings_per_ip_per_day": 6,
+            "bookings_per_day": 50,
+        },
     }
     shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
     assert shown["lead_agent_uses_open_times"] is True and shown["send_mode"] == "off"
@@ -252,6 +259,13 @@ async def test_a_send_mode_save_keeps_the_lead_agent_switch_as_stored(api):
         "live_units": [],
         "test_sends_enabled": False,
         "lead_agent_uses_open_times": False,
+        "public_booking_enabled": None,
+        "public_limits": {
+            "upcoming_per_mobile": 2,
+            "upcoming_per_email": 2,
+            "bookings_per_ip_per_day": 6,
+            "bookings_per_day": 50,
+        },
     }
     await store_settings(**before)
     await api.put(

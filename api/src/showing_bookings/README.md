@@ -6,10 +6,11 @@ work is tracked in [issue #368](https://github.com/EmilioEsposito/portfolio/issu
 and lands one pull request at a time, each with sending switched off or in
 capture mode.
 
-The first steps hold the tables, the notice outbox, the test harness, the
-calendar connections, the showing agents and the open times. Nothing here books a showing yet, and nothing is sent:
-the setting starts in capture mode, and outside production only test
-recipients can ever be sent to.
+The steps so far hold the tables, the notice outbox, the test harness, the
+calendar connections, the showing agents, the open times and the public
+booking API. Nothing is sent unless switched on: the setting starts in capture
+mode, outside production only test recipients can ever be sent to, and the
+public booking API is off in production until the team opens it.
 
 ## Tables
 
@@ -51,7 +52,8 @@ before it is anything else (`channel` is `sms`, `email`, `calendar_event` or
 transaction, so the notice is saved with the booking or not at all. Queuing the
 same kind, showing and recipient key again returns the row already saved.
 
-A row starts `pending` and ends as one of:
+A row starts `pending`, or `held` when it waits for another notice
+(`waits_for_notice_id`, see Held notices below), and ends as one of:
 
 | Status | Meaning |
 | --- | --- |
@@ -60,6 +62,7 @@ A row starts `pending` and ends as one of:
 | `failed` | The provider refused it, such as a number that has opted out. Nothing went out. |
 | `unknown` | It may have gone out: a timeout, a lost answer or a send cut off midway. Never retried. |
 | `skipped` | The send mode is off. |
+| `cancelled` | Never sent: the booking was withdrawn, or the confirmation text it waited for was not delivered. |
 
 `outbox.deliver` delivers one row at once, and `outbox.drain` delivers every
 row due by its `now` argument. A drain settles the rows the guard skips or
@@ -94,6 +97,9 @@ The setting is the `showing_bookings_config` row in `app_settings`:
 | `send_mode` | `capture` | `off` skips every notice; `capture` keeps them without sending; `live` lets the guard send |
 | `live_units` | `[]` | units whose notices really go out in production |
 | `test_sends_enabled` | `false` | in live mode, also send notices that reach only test recipients |
+| `lead_agent_uses_open_times` | `false` | the Zillow lead agent offers these open times |
+| `public_booking_enabled` | unset | the public booking routes answer; unset is off in production, on elsewhere |
+| `public_limits` | 2, 2, 6, 50 | upcoming showings per mobile and per email, bookings per IP address a day, page bookings from everyone a day |
 
 `guard.decide` is one pure function. A notice is sent only when the mode is
 `live` and either this is production (`RAILWAY_ENVIRONMENT_NAME` is
@@ -348,6 +354,159 @@ those rules but not booked tours. A join the booking page offers under a
 shorter notice is therefore not given to the lead agent; the page's own offers
 are unchanged.
 
+## Public booking
+
+`public_routes.py` is a second router with no sign-in, mounted so every route
+is under `/api/showing-bookings/public/`, the only prefix the web server's
+`/api` proxy forwards for a Sernia host. Nothing else in the module is public;
+`test_showing_calendar_connections.py` checks every other route needs the
+Sernia sign-in.
+
+### The switch
+
+`public_booking_enabled` in the settings row is true, false or unset. Unset
+means off in production and on everywhere else. While it is off, every public
+route answers 404, as for a path that does not exist, and saves nothing. The
+Send mode section of the tab has the control, "Open booking to the public",
+which sets it through `PUT /settings/public-booking` (`null` goes back to the
+default); a send-mode save keeps it as stored.
+
+### Routes
+
+Bodies are JSON. A refusal answers
+`{"detail": {"code", "message", "fields"}}`, where `fields` maps each form
+field to the line shown beside it (`name`, `mobile`, `email`, `start`,
+`confirmations.lease_start`, `confirmations.pets`, `confirmations.texts`,
+`confirmations`, `turnstile`). Bodies are read from the raw request, not
+declared as parameters, so request tracing records no names, numbers or
+tokens; a cancel token travels in the body for the same reason.
+
+| Route | Answers |
+| --- | --- |
+| `GET /units/{unit}` | the listing's unit key, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names, no street address. 404 `unknown_unit` for a unit not on offer. |
+| `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
+| `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, and the corrections left. |
+| `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
+| `POST /team-phone` | `{turnstile_token}`: the team number (`SERNIA_TEAM_PHONE`), its display form, the extension (`SERNIA_TEAM_PHONE_EXTENSION`, default 1) and a `tel:` link that dials it. |
+
+### A booking
+
+`bookings.py`, in order:
+
+1. The unit is a listing on offer. The fields are checked together: a name, a
+   US mobile (stored in E.164), one email address, a start with a time zone,
+   and the confirmations the listing asks for. Everything wrong is answered at
+   once with 422 `invalid`. A `confirmations_version` from the page that no
+   longer matches (the listing's lease dates changed) is 409.
+2. Turnstile (`turnstile.py`): 403 `turnstile_failed`, or 503 in production
+   with no secret.
+3. One transaction, holding advisory locks: first one lock shared by every
+   public booking (`BOOKING_LOCK`), then the unit and start, the mobile and
+   the email:
+   - the limits (`public_limits` in the settings row): upcoming booked
+     showings per mobile (default 2) and per email (2), page bookings from
+     everyone in 24 hours (50), and bookings from one IP address in 24 hours
+     (6), withdrawn ones counted in the last two. 429 `limit_mobile`,
+     `limit_email`, `limit_site` (no field; "Online booking is paused right
+     now. Call us to book.", with a warning in the logs) or `limit_ip`. The IP
+     address is kept only as a keyed hash.
+   - `recheck` with fresh calendars: 409 `time_gone` or `full`.
+   - the showing: new, or the one already booked at that unit and start,
+     locked; a full one is 409 `full`, and a mobile already in it 409
+     `already_booked`.
+   - the attendee: the consent record (time, `wording.TEXTS_CONSENT_VERSION`,
+     the page), the lease start and pet confirmations with the wording shown,
+     its version and the time, the `?t=` lead token, the user agent, and the
+     `Signature-Agent` header.
+   - the notices: the prospect's confirmation text, due now; a host event
+     notice (`host_event` with the first attendee, `host_event_update` for
+     each one who joins); and the prospect's own invite (`prospect_invite`,
+     with that prospect as its only guest). The host notice and the invite
+     are held behind the confirmation text.
+4. After the commit the confirmation text is delivered at once. If Quo refuses
+   the number (invalid, unreachable or opted out) the booking is withdrawn:
+   the attendee is cancelled with `cancel_reason` `number_refused`, a showing
+   left with no one is cancelled (`no_attendees`), its notices are cancelled,
+   and the answer is 422 `number_refused` on the mobile field. When someone
+   is still booked and a host notice for the showing has gone out (sent or
+   captured), may have gone out (unknown) or is being sent, the same
+   transaction queues a host event update, due now and not held, which
+   renders at delivery without the withdrawn person. When every host notice
+   is still held or pending, nothing is queued: they render at delivery.
+
+The shared lock means one booking's limits, re-check and insert never
+interleave with another's. Two bookings of one unit and start at the same
+moment become one showing with two attendees (the second's re-check sees a
+join), and two bookings at different buildings at adjacent times never both
+get one host inside the travel gap, which the database's no-overlap rule
+cannot see. Volume is a few bookings a day, so one lock is enough.
+
+Lock order, in every transaction that takes more than one: advisory locks
+first (the shared booking lock, unit and start, mobile, email), then the
+attendee, then its notices, then the showing; several showings are locked in
+id order.
+
+A corrected mobile is texted first; only if Quo does not refuse it does it
+replace the old one. The final step takes the number's lock again and checks
+the per-mobile limit and the showing once more, so two corrections to one
+number at once cannot both win; the loser keeps its old number and gets the
+same refusal. The held notices (and any stopped because the old number's
+text was undelivered) then wait for the new text, and the booking's
+`attention_reason` is cleared. If the host's event already went out (sent or
+captured), an update is queued behind the new text.
+
+### The host's event
+
+A host event notice is rendered when the outbox delivers it, not when it is
+queued (`host_event.py`, called from `outbox._prepare_host_event` under a lock
+on the showing): the summary and description list the attendees booked then,
+with their current mobiles and emails, and the notice creates the showing's
+event if it has none yet (saving its id on the showing) or updates it. So a
+showing has one event whatever order its notices are released in: an update
+released before the first booking's create creates the event, and the create
+then updates it. While another host notice for the showing is being sent, a
+notice waits a minute. A showing that is cancelled or has no one booked
+cancels the notice ("Not sent: the showing has no one booked"), and so does an
+earlier create whose outcome is unknown, rather than risk a second event.
+What was rendered is saved on the row, so the Messages list and capture mode
+show what went out. The prospect's own invite keeps the payload it was queued
+with.
+
+All wording, with versions, is in `wording.py`: the three confirmations, the
+consent small print, and the texts and calendar entries a booking sends.
+Emilio reviews it before launch.
+
+### Held notices
+
+`holds.release_held(now=)` looks at each confirmation text that holds
+something:
+
+| The confirmation | The held event and invite |
+| --- | --- |
+| reported `delivered` | released: pending and due now |
+| reported `undelivered` or `failed` | cancelled; the booking gets `attention_reason` `confirmation_undelivered` |
+| sent, no final report after 5 minutes | released |
+| captured (capture mode has no report) or skipped | released at once |
+| refused or otherwise failed, or cancelled | cancelled; the booking is marked for the team |
+| pending, or unknown for less than 5 minutes | left held |
+
+The status is read from Quo through `outbox.refresh_text_status`.
+`holds.send_pending(now=)` runs `release_held` and then `outbox.drain`. The
+APScheduler job `showing-notices` runs it every minute, registered only when
+background automation is on; with nothing held or due it returns after one
+query. "Send pending now" on the tab runs the same two steps.
+
+### Configuration
+
+Read at call time. Names only; values live in each environment.
+
+| Variable | What it is |
+| --- | --- |
+| `TURNSTILE_SECRET_KEY` | Turnstile's secret. Unset outside production: Cloudflare's test secret that always passes. Unset in production: booking and the team number are refused. |
+| `TURNSTILE_SITE_KEY` | The site key the page shows. Unset outside production: Cloudflare's test site key. |
+| `SHOWING_PUBLIC_BASE_URL` | Where links in texts point; default `https://serniacapital.com`. The cancel link is `<base>/showings/cancel/<cancel token>`. |
+| `SERNIA_TEAM_PHONE_EXTENSION` | The extension for the call line; default 1. The number itself is `SERNIA_TEAM_PHONE`. |
+
 ## Team API
 
 Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
@@ -358,7 +517,10 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   The lead agent's switch is kept as stored.
 - `PUT /settings/lead-agent`: `{lead_agent_uses_open_times}`, changing nothing else.
 - `GET /notices`: notices newest first, with their wording, status and mode.
-- `POST /notices/send-pending`: run `drain` once and answer its counts.
+- `POST /notices/send-pending`: run `holds.send_pending` once (release or
+  stop held notices, then `drain`) and answer its counts.
+- `PUT /settings/public-booking`: `{public_booking_enabled: true | false | null}`,
+  changing nothing else.
 - `GET /calendar/connections`: each connection with its last read and whether
   it is usable here, and whether this environment can connect calendars.
 - `POST /calendar/connect`: `{origin, account?}`, Google's consent URL;
@@ -390,11 +552,19 @@ token, code or secret reaches the logs or the browser.
 `test_showing_agents.py` the agents, Showings and switch routes;
 `test_showing_lead_tours.py` the tour source and that the lead agent offers no
 times with the switch off or unreadable.
+`test_showing_public_booking.py` runs bookings through the public routes with
+a moved clock and checks the rows left behind (capture and live mode, held
+notices released, stopped or let go after five minutes, a refused number
+withdrawn, joins, two bookings at once); `test_showing_public_concurrency.py` covers bookings that race (the shared
+lock and the travel gap, two corrections to one number) and the host's event
+rendered at delivery; `test_showing_public_routes.py`
+covers the switch, each refusal and its field, the limits, the team number,
+mobile corrections, what a booking saves, and that no answer shows a host, an
+address before booking, another attendee or the team number.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- The public booking page, bookings and cancellations, which write the notices
-  this outbox delivers, and the scheduled job that drains it every minute.
-  They call `recheck` inside the booking's transaction.
+- The public booking page, which calls the public routes above.
+- Cancelling, reminders, the resident's text and the team's actions.
 - Reminders, per-lead links, and the lead agent's own showing in its case.

@@ -19,11 +19,13 @@ import { useShowingBookingsApi } from "./use-showing-bookings-api";
 
 const STATUS_STYLES: Record<Notice["status"], string> = {
   pending: "border-sky-300 text-sky-800 dark:border-sky-800 dark:text-sky-300",
+  held: "border-sky-300 text-sky-800 dark:border-sky-800 dark:text-sky-300",
   captured: "border-muted-foreground/40 text-muted-foreground",
   sent: "border-green-300 text-green-800 dark:border-green-900 dark:text-green-400",
   failed: "border-red-300 text-red-700 dark:border-red-900 dark:text-red-400",
   unknown: "border-amber-300 text-amber-800 dark:border-amber-900 dark:text-amber-300",
   skipped: "border-muted-foreground/40 text-muted-foreground",
+  cancelled: "border-muted-foreground/40 text-muted-foreground",
 };
 
 function NoticeItem({ notice }: { notice: Notice }) {
@@ -61,7 +63,11 @@ function NoticeItem({ notice }: { notice: Notice }) {
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
         {notice.status === "pending"
           ? `Due ${formatWhen(notice.not_before)}`
-          : `${STATUS_LABELS[notice.status]} ${formatWhen(notice.delivered_at)}`}
+          : notice.status === "held"
+            ? "Waits for the confirmation text to be delivered"
+            : notice.status === "cancelled"
+              ? "Not sent"
+              : `${STATUS_LABELS[notice.status]} ${formatWhen(notice.delivered_at)}`}
         {details.length > 0 && ` · ${details.join(" · ")}`}
       </p>
     </li>
@@ -128,8 +134,8 @@ export function MessagesSection() {
         </div>
       </div>
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        Send pending now runs the sending step once, as the scheduled job will. Each message still goes through the send
-        mode above.
+        Send pending now releases or stops the messages held for a confirmation text, then runs the sending step once,
+        as the job every minute does. Each message still goes through the send mode above.
       </p>
       <p role="status" aria-live="polite" className="mt-2 text-sm">
         {lastRun && `Last run: ${lastRun}`}

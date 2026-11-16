@@ -11,6 +11,17 @@ export interface BookingSettings {
   test_sends_enabled: boolean;
   // The Zillow lead agent offers the open times computed here. Off by default.
   lead_agent_uses_open_times: boolean;
+  // The public booking routes answer. null: the environment's default (off in
+  // production, on elsewhere). Changed only through its own route; a send-mode
+  // save keeps what is stored, as it does the limits.
+  public_booking_enabled?: boolean | null;
+  public_limits?: PublicLimits;
+}
+
+export interface PublicLimits {
+  upcoming_per_mobile: number;
+  upcoming_per_email: number;
+  bookings_per_ip_per_day: number;
 }
 
 export interface SettingsView {
@@ -18,9 +29,22 @@ export interface SettingsView {
   environment: string; // Railway's environment name, or "local"
   is_production: boolean;
   test_recipients: string[]; // shortened: "•••-0150", "t…@example.com"
+  // Whether the public booking routes answer here, and what unset means here.
+  public_booking_on: boolean;
+  public_booking_default: boolean;
 }
 
-export type NoticeStatus = "pending" | "captured" | "sent" | "failed" | "unknown" | "skipped";
+// held: waiting for the prospect's confirmation text to be reported delivered.
+// cancelled: never sent, because the booking was withdrawn or the text was not delivered.
+export type NoticeStatus =
+  | "pending"
+  | "held"
+  | "captured"
+  | "sent"
+  | "failed"
+  | "unknown"
+  | "skipped"
+  | "cancelled";
 export type Channel = "sms" | "calendar_event" | "calendar_invite" | "email";
 
 export interface Notice {
@@ -54,6 +78,9 @@ export interface DrainReport {
   skipped: number;
   retrying: number;
   interrupted: number;
+  // Held notices released or stopped before the drain ("Send pending now").
+  released?: number;
+  stopped?: number;
 }
 
 export const MODE_LABELS: Record<SendMode, string> = {
@@ -64,11 +91,13 @@ export const MODE_LABELS: Record<SendMode, string> = {
 
 export const STATUS_LABELS: Record<NoticeStatus, string> = {
   pending: "Waiting",
+  held: "Held",
   captured: "Captured",
   sent: "Sent",
   failed: "Failed",
   unknown: "Unknown",
   skipped: "Skipped",
+  cancelled: "Cancelled",
 };
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
@@ -140,6 +169,8 @@ export function describeDrain(report: DrainReport): string {
   const add = (count: number, words: string) => {
     if (count > 0) parts.push(`${count} ${words}`);
   };
+  add(report.released ?? 0, "released from hold");
+  add(report.stopped ?? 0, "stopped");
   add(report.sent, "sent");
   add(report.captured, "captured");
   add(report.skipped, "skipped");
