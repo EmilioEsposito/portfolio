@@ -352,7 +352,9 @@ export function ShowingsSection() {
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             The times each unit on offer is offering right now, in the order they are offered: joins first, then
-            preferred times, then the rest. Then the showings booked in the next 14 days, with who is coming.
+            preferred times, then the rest. Then the showings booked from the last 3 days to 14 days ahead, with who
+            is coming: add a booking for someone who called, change a showing&rsquo;s host, and mark who came once it
+            has started.
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-1.5" disabled={loading} onClick={() => void load()}>
