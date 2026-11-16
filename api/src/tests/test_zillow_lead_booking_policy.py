@@ -176,8 +176,14 @@ class TestPrompts:
         for bullet in bullets:
             assert (
                 "the case lists this lead's own showings" in bullet
+                or 'the case has a "This lead\'s own showings" section' in bullet
                 or 'listed as booked under "This lead\'s own showings"' in bullet
             ), bullet
+
+    def test_the_details_line_is_forbidden_without_the_section(self):
+        policy = " ".join(agent.load_policy().split())
+        assert "Without that section, never write this line." in policy
+        assert 'unless that time is listed there with "details added"' in policy
 
     def test_the_policy_never_makes_a_mobile_a_condition(self):
         assert "Never ask for a mobile number or make one" in agent.load_policy()

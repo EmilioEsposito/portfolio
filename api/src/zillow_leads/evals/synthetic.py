@@ -73,8 +73,12 @@ def links(token: str) -> dict[str, str]:
     return {listing.unit: f"{BASE}/{listing.unit}?t={token}" for listing in LISTINGS.listings}
 
 
-def _thread(thread_id: str, *messages: tuple[int, bool, str]) -> LeadThread:
-    """Messages as (minutes before ``ASKED``, from Sernia, body)."""
+def _thread(thread_id: str, *messages: tuple[int, bool, str], unit: str = "320-03") -> LeadThread:
+    """Messages as (minutes before ``ASKED``, from Sernia, body).
+
+    The subject names the unit the scenario is about, as a Zillow inquiry's does.
+    """
+    address = next(item.address for item in LISTINGS.listings if item.unit == unit)
     return LeadThread(
         mailbox="all@serniacapital.com",
         thread_id=thread_id,
@@ -86,7 +90,7 @@ def _thread(thread_id: str, *messages: tuple[int, bool, str]) -> LeadThread:
                 from_address="all@serniacapital.com" if ours else "noreply@mail.zillow.com",
                 reply_to=None if ours else f"{thread_id}@convo.zillow.com",
                 from_sernia=ours,
-                subject="320 Example St, Unit 3 inquiry",
+                subject=f"{address} inquiry",
                 body=body,
             )
             for number, (minutes, ours, body) in enumerate(messages)
@@ -293,6 +297,7 @@ def scenarios() -> list[Synthetic]:
                 thread=_thread(
                     "synthetic-other-unit",
                     (5, False, "Could I see 412 Example Ave on Wednesday at 5?"),
+                    unit="412-01",
                 )
             ),
             edit=CaseEdit(
@@ -320,6 +325,7 @@ def scenarios() -> list[Synthetic]:
                         "I'm out of town. Could I do a virtual tour of 412 Example Ave on "
                         "Wednesday at 5?",
                     ),
+                    unit="412-01",
                 )
             ),
             edit=CaseEdit(

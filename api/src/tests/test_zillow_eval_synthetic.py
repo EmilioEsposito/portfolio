@@ -233,6 +233,14 @@ def test_a_run_without_expectations_gets_no_expected_checks():
     assert checks(case, decision(), {}, ExpectedOutcome()) == {}
 
 
+def test_each_thread_subject_names_the_unit_the_scenario_is_about():
+    by_unit = {listing.unit: listing.address for listing in synthetic.LISTINGS.listings}
+    for item in ITEMS.values():
+        unit = item.good_unit or "320-03"
+        subjects = {message.subject for message in item.scenario.thread.messages}
+        assert subjects == {f"{by_unit[unit]} inquiry"}, item.scenario.scenario_id
+
+
 def test_a_reply_confirming_a_virtual_tour_must_not_carry_the_details_line():
     item = ITEMS["synthetic-virtual-confirmed-0"]
     case = case_for(item.scenario, synthetic.LISTINGS, item.edit)
