@@ -48,12 +48,20 @@ Sernia Capital's public pages (issue #368) will be served on serniacapital.com b
 this same service. They need no sign-in, and they load no Clerk at all, because
 Clerk's production keys belong to eesposito.com.
 
-- Paths: `/showings`, `/showings/*`, `/privacy` and `/sms-terms`. So far there
-  are `/privacy`, `/sms-terms` and the booking page `/showings/:unit` (below).
+- Paths: `/showings`, `/showings/*`, `/privacy` and `/sms-terms` on any host, and
+  the home page at `/` on a Sernia host only. There are `/privacy`, `/sms-terms`,
+  the units list `/showings` and the booking page `/showings/:unit` (below).
   Pages live in `app/routes/_sernia-public.*.tsx`
   under a layout with its own header and footer. Tests check that each page there
   sits at a Sernia public path, and that every page at such a path is under the
   layout, whose middleware enforces the switch below.
+- `/` is the one page that depends on the host. `app/routes/_index.tsx` is the
+  only route there: on a Sernia host while the pages are on, its loader and
+  component serve the Sernia home page (`app/components/sernia-public/home.tsx`),
+  without Clerk; on every other host it is the personal site's home page as before. With the pages
+  off, `/` on a Sernia host is the Sernia 404 like every other path there. The
+  personal home page's canonical link moved from `links` to `meta`, so the Sernia
+  home page does not carry it.
 - Switch: `SERNIA_PUBLIC_PAGES_ENABLED`, read on every request. In production
   (`RAILWAY_ENVIRONMENT_NAME` is `production`) the pages are off unless it is
   `true`; elsewhere they are on unless it is `false`. While they are off, their
@@ -78,8 +86,32 @@ Clerk's production keys belong to eesposito.com.
   whether or not the pages are on. `server.js` imports the helper as TypeScript,
   which Node 22.18+ strips at load, and the Dockerfile copies it into the image.
 
-To check locally, open `http://serniacapital.localhost:<web port>/privacy`.
+To check locally, open `http://serniacapital.localhost:<web port>/` or `/privacy`.
 Browsers resolve `*.localhost` to this machine without any hosts-file change.
+
+### The home page and the units list
+
+The Sernia home page has three links, Resident sign-in first (to the residents'
+Buildium portal, since residents type the domain to reach it), then Book a
+showing (`/showings`) and Apply (`/apply`, which stays a Cloudflare redirect, so
+it has no page here and 404s on previews and localhost). Below them is the call
+line; the footer carries the Equal Housing Opportunity line and the policy links.
+The page never waits on the units list: its loader reads only
+`GET /api/showing-bookings/public/call-line` (the Turnstile site key, no listings
+or calendars) with a 3-second timeout (`readCallLine` in
+`app/lib/showing-units.server.ts`). Off, slow or failing, the page renders at
+once without the call line.
+
+`/showings` lists the units on offer from `GET /api/showing-bookings/public/units`,
+read on the server (`app/lib/showing-units.server.ts`): address, unit, asking
+rent and lease start, each row a link to the unit's booking page, in address
+order. The lease start comes worded by the API, by the same rule as the booking
+form's tick. The page is indexable, with its canonical on serniacapital.com.
+
+While public booking is off the API answers 404: `/showings` says no units are
+open for online booking right now, and the home page leaves out the call line,
+whose number route is off too. With booking on and no unit on offer, the list
+says so above the call line. Row wording is in `app/lib/showing-units.ts`.
 
 ### The booking page
 
@@ -102,7 +134,8 @@ API uses Cloudflare's test keys and answers the test secret itself.
 
 `test/e2e/` holds the repository's browser test (Playwright, Chromium only): book a
 showing, miss a tick, correct the mobile, cancel from the confirmation screen, an
-unknown unit. It builds the app,
+unknown unit, and the way from the Sernia home page through the units list to a
+booking page. It builds the app,
 starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks

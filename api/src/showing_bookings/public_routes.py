@@ -6,10 +6,13 @@ setting ``public_booking_enabled`` is off (unset: off in production, on
 elsewhere), except the read and the cancel by token, so a cancel link in a
 text keeps working after booking is closed.
 
-- ``GET /units/{unit}``: what the booking page shows for one unit: rent,
-  showing length, the confirmations with their wording, the consent small
-  print, the Turnstile site key, and the offers in order. No host names, no
-  street address.
+- ``GET /units``: the units on offer for the list at ``/showings``: address,
+  rent, lease start, and whether each has an open time now (``public_units.py``).
+- ``GET /call-line``: only the Turnstile site key, for the call line on a page
+  with no unit (the Sernia home page). Reads no listings and no calendars.
+- ``GET /units/{unit}``: what the booking page shows for one unit: address,
+  rent, showing length, the confirmations with their wording, the consent
+  small print, the Turnstile site key, and the offers in order. No host names.
 - ``POST /units/{unit}/bookings``: book or join a showing at one start.
 - ``POST /bookings/lookup``: a booking by its cancel token, for the
   confirmation screen.
@@ -36,7 +39,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import bookings, cancelling
+from api.src.showing_bookings import bookings, cancelling, public_units
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.settings import (
     current_environment,
@@ -106,6 +109,19 @@ async def _body(request: Request) -> object:
 
 def _refused(refused: bookings.Refused) -> JSONResponse:
     return JSONResponse({"detail": refused.detail()}, status_code=refused.status, headers=_NO_STORE)
+
+
+@public_router.get("/units", response_model=public_units.UnitsOnOffer)
+async def list_units(now: datetime = Depends(clock)):
+    try:
+        return await public_units.units_on_offer(now=now)
+    except bookings.Refused as refused:
+        return _refused(refused)
+
+
+@public_router.get("/call-line", response_model=public_units.CallLine)
+async def call_line():
+    return public_units.call_line()
 
 
 @public_router.get("/units/{unit}", response_model=bookings.UnitPage)

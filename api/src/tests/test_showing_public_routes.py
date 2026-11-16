@@ -178,7 +178,8 @@ async def test_the_unit_page_shows_what_the_form_needs_and_nothing_more(world):
     assert set(first) == {"start", "join", "preferred", "places_left"}
     assert first["places_left"] == 4
     raw = answer.text
-    for private in ("Jane", JANE, ADDRESS, "320 Example", TEAM_PHONE, "412-555-0100"):
+    assert page["address"] == ADDRESS
+    for private in ("Jane", JANE, TEAM_PHONE, "412-555-0100"):
         assert private not in raw
 
 

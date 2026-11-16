@@ -44,7 +44,7 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
   const response = await page.goto(`${PAGE}?t=lead-token-123`);
   expect(response?.status()).toBe(200);
   await expect(page.getByRole("heading", { level: 1, name: "Book an in-person showing" })).toBeVisible();
-  await expect(page.getByText(`Unit ${UNIT} · $1,450 a month · 30 minutes`)).toBeVisible();
+  await expect(page.getByText(`900 Example Ave, unit ${UNIT} · $1,450 a month · 30 minutes`)).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
 
   // The team's number is not in the page until the bot check passes.

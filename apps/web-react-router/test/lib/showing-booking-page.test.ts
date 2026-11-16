@@ -110,8 +110,11 @@ test("an offer is found by its instant, whatever offset the start was written wi
 });
 
 test("the unit's line and the booked place", () => {
-  assert.equal(unitSummary({ unit: "320-03", rent: 1450, showing_minutes: 30 }), "Unit 320-03 · $1,450 a month · 30 minutes");
-  assert.equal(unitSummary({ unit: "320-03", rent: null, showing_minutes: 30 }), "Unit 320-03 · 30 minutes");
+  assert.equal(
+    unitSummary({ unit: "320-03", address: "320 Example St", rent: 1450, showing_minutes: 30 }),
+    "320 Example St, unit 320-03 · $1,450 a month · 30 minutes",
+  );
+  assert.equal(unitSummary({ unit: "320-03", address: "", rent: null, showing_minutes: 30 }), "Unit 320-03 · 30 minutes");
   assert.equal(bookingPlace({ address: "320 Example St", unit: "320-03" }), "320 Example St, unit 320-03");
   assert.equal(bookingPlace({ address: "", unit: "320-03" }), "Unit 320-03");
 });

@@ -54,19 +54,25 @@ def _day(value: date, *, year: bool) -> str:
     return f"{text}, {value.year}" if year else text
 
 
-def lease_start_wording(earliest: date | None, latest: date | None) -> str | None:
-    """ "My lease can start between Jun 1 and Jul 1, 2027." for two dates, "on ..." for
-    one, None for none."""
+def lease_start_dates(earliest: date | None, latest: date | None) -> str | None:
+    """ "between Jun 1 and Jul 1, 2027" for two dates, "on Jun 1, 2027" for one, None for
+    none. The one rule for wording a listing's lease start, on the form's tick and in the
+    list of units on offer."""
     dates = sorted({value for value in (earliest, latest) if value is not None})
     if not dates:
         return None
     if len(dates) == 1:
-        return f"My lease can start on {_day(dates[0], year=True)}."
+        return f"on {_day(dates[0], year=True)}"
     first, last = dates
     same_year = first.year == last.year
-    return (
-        f"My lease can start between {_day(first, year=not same_year)} and {_day(last, year=True)}."
-    )
+    return f"between {_day(first, year=not same_year)} and {_day(last, year=True)}"
+
+
+def lease_start_wording(earliest: date | None, latest: date | None) -> str | None:
+    """ "My lease can start between Jun 1 and Jul 1, 2027." for two dates, "on ..." for
+    one, None for none."""
+    dates = lease_start_dates(earliest, latest)
+    return None if dates is None else f"My lease can start {dates}."
 
 
 def confirmations_for(listing: RentalListing) -> list[Confirmation]:

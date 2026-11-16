@@ -178,9 +178,10 @@ class PublicOffer(BaseModel):
 
 
 class UnitPage(BaseModel):
-    """One unit as the booking page shows it. No host names and no street address."""
+    """One unit as the booking page shows it. No host names."""
 
     unit: str
+    address: str
     rent: int | None
     showing_minutes: int
     timezone: str
@@ -227,6 +228,7 @@ async def unit_page(unit: str, *, now: datetime) -> UnitPage:
     confirmations = wording.confirmations_for(listing)
     return UnitPage(
         unit=listing.unit,
+        address=listing.address,
         rent=listing.asking_rent,
         showing_minutes=SHOWING_MINUTES,
         timezone=rules.timezone,
