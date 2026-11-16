@@ -248,7 +248,9 @@ async def test_every_bad_field_is_named_at_once(world):
 
 
 @pytest.mark.asyncio
-async def test_a_failed_turnstile_check_is_refused(world):
+async def test_a_failed_turnstile_check_is_refused(world, monkeypatch):
+    # A secret other than Cloudflare's test secret, so Cloudflare (the stand-in) is asked.
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "made-up-secret")
     answer = await book(world, booking(token=FAILING_TOKEN))
     assert refusal(answer) == (403, "turnstile_failed", ["turnstile"])
 
@@ -259,9 +261,17 @@ async def test_a_failed_turnstile_check_is_refused(world):
 
 
 @pytest.mark.asyncio
-async def test_outside_production_the_test_secret_is_used_and_the_ip_passed_on(world):
+async def test_outside_production_the_test_secret_passes_without_asking_cloudflare(world):
+    answer = await book(world, booking(token=FAILING_TOKEN))
+    assert answer.status_code == 201, answer.text
+    assert world.turnstile_checks == []
+
+
+@pytest.mark.asyncio
+async def test_a_real_secret_asks_cloudflare_with_the_ip(world, monkeypatch):
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "made-up-secret")
     await book(world, **{"cf-connecting-ip": "203.0.113.7"})
-    assert world.turnstile_checks == [(turnstile.TEST_SECRET, "turnstile-passes", "203.0.113.7")]
+    assert world.turnstile_checks == [("made-up-secret", "turnstile-passes", "203.0.113.7")]
 
 
 @pytest.mark.asyncio
@@ -437,7 +447,8 @@ async def test_a_booking_is_read_back_by_its_cancel_token_only(world):
 
 
 @pytest.mark.asyncio
-async def test_the_number_route_refuses_without_turnstile(world):
+async def test_the_number_route_refuses_without_turnstile(world, monkeypatch):
+    monkeypatch.setenv("TURNSTILE_SECRET_KEY", "made-up-secret")
     assert refusal(await post(world, f"{PUBLIC}/team-phone", {})) == (
         403,
         "turnstile_failed",
