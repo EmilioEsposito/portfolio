@@ -4,6 +4,26 @@ Reserve the original RFC Message-ID before sending. Replace the send approval
 with a delivery-review card before the external call: if a process dies after
 Gmail accepts the email, neither a retry nor a simultaneous approval sends it
 again. An uncertain delivery stays with the team for inspection.
+
+With the booking service's switch on, a reply that confirms a showing books
+it (``showing_bookings/lead_bookings.py``) after the reservation is claimed
+and before the review card is committed and Gmail is called:
+
+    checks -> threading -> claim -> book -> review card (commit) -> send -> settle
+
+- Booking after the claim means only the run that will send books; a retry
+  or a second run finds the claim taken and books nothing.
+- A refused time does not send: the reason goes on the send card, which
+  stays for a person (``needs_review``), as when a check fails. The claim
+  stays used, so only a person can send it after that.
+- If the review card cannot be saved, nothing is sent and the booking is
+  cancelled at once.
+- After the send: sent, the booking's held notices go; Gmail refused it, the
+  booking is cancelled before its notices go; unknown, it stands, marked on
+  the Showings section, and the review card names it.
+- A process that dies after the booking and before the review card commits
+  leaves the send card pending: a person who approves it finds the place
+  already booked and books nothing new; one who rejects it cancels it.
 """
 
 import json
@@ -23,6 +43,7 @@ from api.src.agent_conversations.models import (
 )
 from api.src.database.database import AsyncSessionFactory
 from api.src.google.common.config import SHARED_EXTERNAL_EMAIL
+from api.src.showing_bookings import lead_bookings
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.zillow_leads import handle
 from api.src.zillow_leads.agent import Reply, load_instructions
@@ -107,12 +128,43 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
         claimed = await claim_auto_approved_send(
             original, tool_name=handle.SEND_REPLY, conversation_id=conversation_id
         )
+        # Book what the reply confirms, only in the run that will send it.
+        prepared = (
+            await lead_bookings.prepare_reply(
+                conversation_id=conversation_id,
+                thread_id=row.metadata_["lead_thread_id"],
+                lead=reply.lead,
+                tour=reply.tour,
+                listed_units=[listing.unit for listing in case.listings],
+                now=datetime.now(UTC),
+            )
+            if claimed
+            else None
+        )
+        if prepared is not None and prepared.refused:
+            handle.add_card_notes(messages, [prepared.problem()], card["tool_call_id"])
+            await save_agent_conversation(
+                session,
+                conversation_id=conversation_id,
+                agent_name=AGENT_NAME,
+                messages=messages,
+                metadata={
+                    "auto_delivery": {"status": "needs_review", "reasons": [prepared.problem()]},
+                    "showing_booking": prepared.record(),
+                },
+            )
+            return
+        booking_notes = (
+            [prepared.note(case.timezone)]
+            if prepared is not None and prepared.action in ("booked", "moved")
+            else []
+        )
         review = handle._call(
             handle.ASK_TEAM,
             {
                 "question": "Automatic delivery was reserved. If no sent result appears, check the Gmail thread before replying; delivery may have succeeded.",
                 "why": "Avoid sending the same reply twice when delivery is interrupted.",
-                "team_notes": reply.team_notes,
+                "team_notes": [*reply.team_notes, *booking_notes],
             },
         )
         messages = [
@@ -128,18 +180,25 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
             ),
             ModelResponse(parts=[review]),
         ]
-        await save_agent_conversation(
-            session,
-            conversation_id=conversation_id,
-            agent_name=AGENT_NAME,
-            messages=messages,
-            metadata={
-                "auto_delivery": {
-                    "status": "sending" if claimed else "needs_review",
-                    "at": datetime.now(UTC).isoformat(),
-                }
-            },
-        )
+        try:
+            await save_agent_conversation(
+                session,
+                conversation_id=conversation_id,
+                agent_name=AGENT_NAME,
+                messages=messages,
+                metadata={
+                    "auto_delivery": {
+                        "status": "sending" if claimed else "needs_review",
+                        "at": datetime.now(UTC).isoformat(),
+                    },
+                    **({"showing_booking": prepared.record()} if prepared else {}),
+                },
+            )
+        except Exception:
+            if prepared is not None:
+                # Nothing will be sent: the booking goes before its notices do.
+                await lead_bookings.after_send(prepared, "failed", now=datetime.now(UTC))
+            raise
     if not claimed:
         return
 
@@ -147,11 +206,23 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
     # leaves an inspect-only task, never an actionable duplicate send approval.
     try:
         result = await handle.send_reply(route, reply.reply_body, threading=threading)
-    except Exception:
+    except Exception as error:
         logfire.exception(
             "zillow lead: automatic delivery uncertain", conversation_id=conversation_id
         )
+        if prepared is not None:
+            outcome = handle.send_result(error)
+            settled = await lead_bookings.after_send(prepared, outcome, now=datetime.now(UTC))
+            await handle.record_booking(
+                conversation_id,
+                settled.record(),
+                "Gmail refused the reply, so it was not sent. The showing booked for it was cancelled."
+                if outcome == "failed" and settled.cancelled
+                else None,
+            )
         return
+    if prepared is not None:
+        prepared = await lead_bookings.after_send(prepared, "sent", now=datetime.now(UTC))
 
     async with AsyncSessionFactory() as session:
         await session.get(
@@ -196,6 +267,7 @@ async def maybe_send_reply(conversation_id: str, case: LeadCase, reply: Reply) -
                     "status": "sent",
                     "body": reply.reply_body,
                     "at": datetime.now(UTC).isoformat(),
-                }
+                },
+                **({"showing_booking": prepared.record()} if prepared else {}),
             },
         )

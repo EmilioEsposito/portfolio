@@ -685,6 +685,8 @@ class Person:
     confirmations: tuple[RequirementConfirmation, ...] = ()
     lead_token: str | None = None
     zillow_thread_id: str | None = None
+    # The lead conversation whose reply books this place (source ``lead_agent``).
+    lead_conversation_id: str | None = None
     user_agent: str | None = None
     signature_agent: str | None = None
     client_ip_hash: str | None = None
@@ -712,6 +714,7 @@ async def place_booking(
     *,
     now: datetime,
     checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
+    hold_notices_until: datetime | None = None,
 ) -> Placed:
     """Book ``person`` at ``start``, or into the showing already there, in one transaction.
 
@@ -727,6 +730,12 @@ async def place_booking(
     text, or due at once (in the daytime) when there is none; a join brings back
     an announcement stopped with an earlier failed confirmation the same way. A
     lookup that went wrong marks the showing and never stops the booking.
+
+    ``hold_notices_until`` keeps this booking's notices that are due now (the
+    host's event, the residents' text) from going out before that time. The
+    lead agent books before its reply is sent and passes it, so a reply that
+    then fails to send can cancel the booking before anything went out
+    (``lead_bookings.py``); ``release_notices`` lets them go once it is sent.
     """
     texted = person.texts_accepted and person.mobile is not None
     # Read before the transaction, as it may reach Quo; used only for a new showing.
@@ -811,6 +820,7 @@ async def place_booking(
                 ],
                 lead_token=person.lead_token,
                 zillow_thread_id=person.zillow_thread_id,
+                lead_conversation_id=person.lead_conversation_id,
                 user_agent=person.user_agent,
                 signature_agent=person.signature_agent,
                 client_ip_hash=person.client_ip_hash,
@@ -854,6 +864,12 @@ async def place_booking(
             host_text = await host_texts.queue_join(
                 session, showing, attendee, rules=rules, now=now
             )
+            if hold_notices_until is not None:
+                await _hold_until(
+                    session,
+                    _booking_notices(attendee.id, residents_notice_id),
+                    hold_notices_until,
+                )
     except IntegrityError:
         # Another booking took the host or the time between the re-check and the save.
         logfire.info("showing booking lost a race", unit=listing.unit)
@@ -878,6 +894,50 @@ async def place_booking(
         residents_notice_id=residents_notice_id,
         host_text_id=host_text,
     )
+
+
+def _booking_notices(attendee_id: int, residents_notice_id: int | None):
+    """The notices one booking queued: its own, and the residents' text it queued or brought back."""
+    condition = ShowingNotice.attendee_id == attendee_id
+    if residents_notice_id is not None:
+        condition = condition | (ShowingNotice.id == residents_notice_id)
+    return condition
+
+
+async def _hold_until(session: AsyncSession, condition, until: datetime) -> None:
+    """Push the matching notices that are due and not being sent back to ``until``."""
+    await session.execute(
+        update(ShowingNotice)
+        .where(
+            condition,
+            ShowingNotice.status == "pending",
+            ShowingNotice.sending_started_at.is_(None),
+        )
+        .values(not_before=func.greatest(ShowingNotice.not_before, until)),
+        execution_options={"synchronize_session": False},
+    )
+
+
+async def release_notices(
+    attendee_id: int, residents_notice_id: int | None, *, now: datetime
+) -> None:
+    """Let a booking's notices held by ``hold_notices_until`` go now.
+
+    Only those still waiting past ``now``; the daytime rule for the residents'
+    text is applied when it is delivered, as always.
+    """
+    async with AsyncSessionFactory() as session, session.begin():
+        await session.execute(
+            update(ShowingNotice)
+            .where(
+                _booking_notices(attendee_id, residents_notice_id),
+                ShowingNotice.status == "pending",
+                ShowingNotice.sending_started_at.is_(None),
+                ShowingNotice.not_before > now,
+            )
+            .values(not_before=now),
+            execution_options={"synchronize_session": False},
+        )
 
 
 async def deliver_host_text(

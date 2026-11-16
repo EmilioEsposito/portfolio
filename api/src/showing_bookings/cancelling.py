@@ -58,7 +58,9 @@ from api.src.showing_bookings.models import (
 from api.src.showing_bookings.providers import TextSender
 from api.src.showing_bookings.schema import CalendarPayload, TextPayload
 
-CancelReason = Literal["prospect", "team", "off_market"]
+# "reply_not_sent": a place the Zillow lead agent booked for a reply that was
+# then not sent (``lead_bookings.py``); the lead never heard of it.
+CancelReason = Literal["prospect", "team", "off_market", "reply_not_sent"]
 # Reasons a person did not choose: the page says the team cancelled.
 BY_TEAM = frozenset({"team", "off_market"})
 
@@ -432,6 +434,55 @@ async def cancel_by_token(
         view = bookings.view_of(showing, attendee, rules.timezone, now)
     await _deliver_texts(queued + host, now=now, texts=texts)
     return view
+
+
+# ---------------------------------------------------------------------------
+# The Zillow lead agent's decisions
+# ---------------------------------------------------------------------------
+
+
+async def cancel_attendee(
+    attendee_id: int,
+    *,
+    reason: CancelReason,
+    now: datetime,
+    texts: TextSender | None = None,
+) -> bool:
+    """Cancel one booked place, as the cancel link does, with ``reason``.
+
+    For the lead agent's decisions (``lead_bookings.py``): ``prospect`` when
+    the lead cancelled or moved in the email thread, ``reply_not_sent`` when
+    the reply that booked it was not sent. The same notices as any
+    cancellation: the attendee's own text and invite withdrawn when they had
+    them, the host's event updated or cancelled, and the residents' text when
+    they were told. Returns whether it cancelled anything; a place already
+    cancelled, or whose showing has started, is left as it is.
+    """
+    async with AsyncSessionFactory() as session:
+        rules = await listings_service.read_showing_rules(session)
+    queued: list[int] = []
+    host: list[int] = []
+    async with AsyncSessionFactory() as session, session.begin():
+        await bookings.lock(session, bookings.BOOKING_LOCK)
+        attendee = await session.scalar(
+            select(ShowingAttendee).where(ShowingAttendee.id == attendee_id).with_for_update()
+        )
+        if attendee is None or attendee.status != "booked":
+            return False
+        showing = await session.get_one(Showing, attendee.showing_id)
+        if showing.status != "scheduled" or showing.starts_at <= now:
+            return False
+        showing, queued, host = await _remove(
+            session, attendee, showing.id, reason=reason, rules=rules, now=now
+        )
+    logfire.info(
+        "showing place cancelled from a lead agent decision",
+        attendee_id=attendee_id,
+        reason=reason,
+        showing_cancelled=showing.status == "cancelled",
+    )
+    await _deliver_texts(queued + host, now=now, texts=texts)
+    return True
 
 
 # ---------------------------------------------------------------------------
