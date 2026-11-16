@@ -16,6 +16,9 @@ import {
   formatWhen,
   humanize,
   needsAttention,
+  describeNeedingTeam,
+  noticesNeedingTeam,
+  type Notice,
   parseUnits,
   cleanAgent,
   clock,
@@ -118,6 +121,21 @@ test("kinds read as words, times read in Eastern time", () => {
 test("failed and unknown messages stand out", () => {
   assert.ok(needsAttention("failed") && needsAttention("unknown"));
   assert.ok(!needsAttention("captured") && !needsAttention("sent"));
+});
+
+test("failed or stuck messages are counted for the team", () => {
+  const notice = (attention: Notice["attention"]) => ({ attention }) as Notice;
+  assert.equal(describeNeedingTeam([notice(null)]), null);
+  assert.equal(describeNeedingTeam([notice("failed"), notice(null)]), "1 message needs a look.");
+  assert.equal(describeNeedingTeam([notice("failed"), notice("stuck")]), "2 messages need a look.");
+  assert.equal(noticesNeedingTeam([notice("stuck"), notice(null)]).length, 1);
+});
+
+test("a run that queued reminders and flagged messages says so", () => {
+  assert.equal(
+    describeDrain(report({ prospect_reminders: 2, resident_reminders: 1, sent: 3, alerts: 1 })),
+    "3 reminders queued, 3 sent, 1 flagged to the team.",
+  );
 });
 
 test("the server's reason for a refusal is shown when it gives one", () => {

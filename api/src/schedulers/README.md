@@ -24,7 +24,7 @@ job implementation. Registration and execution follow the
 | `sernia_scheduled_checks` | Runtime-configured days/hours, ET | General-agent scheduled checks (`sernia_ai/triggers/scheduled_triggers.py`) |
 | `zillow-email-queue` | Every 30 seconds | Durable queue worker for the dedicated Zillow Leads Agent (`zillow_leads/queue.py`) |
 | `escalation-outbox` | Every 15 seconds | Recover pending emergency assessments/deliveries (`open_phone/escalation_delivery.py`) |
-| `showing-notices` | Every minute | Release or stop showing notices held for a confirmation text, then send the due ones (`showing_bookings/holds.py`); returns after one query when nothing is held or due |
+| `showing-notices` | Every minute | Release or stop showing notices held for a confirmation text, queue the reminders due the evening before, send the due notices, then alert the team once about each failed or stuck notice (`showing_bookings/holds.py`); returns after one query when nothing is held, due, recently failed or coming up in the next two days |
 | `hello_world_apscheduler_job` | Once at startup | Demo/test job |
 
 ---

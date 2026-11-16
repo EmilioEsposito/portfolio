@@ -47,9 +47,15 @@ export type NoticeStatus =
   | "cancelled";
 export type Channel = "sms" | "calendar_event" | "calendar_invite" | "email";
 
+// Why a notice needs the team (alerts.py): it failed and will not be tried
+// again, or it has not gone out ten minutes after it was due.
+export type NoticeAttention = "failed" | "stuck";
+
 export interface Notice {
   id: number;
   kind: string;
+  // What the notice is, in words, such as "Prospect's reminder".
+  kind_label: string;
   channel: Channel;
   showing_id: number;
   attendee_id: number | null;
@@ -68,6 +74,9 @@ export interface Notice {
   last_error: string | null;
   created_at: string;
   delivered_at: string | null;
+  attention: NoticeAttention | null;
+  // When the team was alerted about it, once.
+  alerted_at: string | null;
 }
 
 export interface DrainReport {
@@ -81,6 +90,10 @@ export interface DrainReport {
   // Held notices released or stopped before the drain ("Send pending now").
   released?: number;
   stopped?: number;
+  // Reminders queued and team alerts raised by the same run.
+  prospect_reminders?: number;
+  resident_reminders?: number;
+  alerts?: number;
 }
 
 export const MODE_LABELS: Record<SendMode, string> = {
@@ -171,6 +184,7 @@ export function describeDrain(report: DrainReport): string {
   };
   add(report.released ?? 0, "released from hold");
   add(report.stopped ?? 0, "stopped");
+  add((report.prospect_reminders ?? 0) + (report.resident_reminders ?? 0), "reminders queued");
   add(report.sent, "sent");
   add(report.captured, "captured");
   add(report.skipped, "skipped");
@@ -178,6 +192,7 @@ export function describeDrain(report: DrainReport): string {
   add(report.unknown, "unknown");
   add(report.retrying, "to try again later");
   add(report.interrupted, "cut off midway, now unknown");
+  add(report.alerts ?? 0, "flagged to the team");
   return parts.length ? `${parts.join(", ")}.` : "Nothing was due.";
 }
 
@@ -205,6 +220,23 @@ export function formatWhen(iso: string | null): string {
 
 export function needsAttention(status: NoticeStatus): boolean {
   return status === "failed" || status === "unknown";
+}
+
+export const ATTENTION_BADGES: Record<NoticeAttention, string> = {
+  failed: "Failed: needs a look",
+  stuck: "Stuck: needs a look",
+};
+
+/** The notices that need the team: failed or stuck, as the server says. */
+export function noticesNeedingTeam(notices: Notice[]): Notice[] {
+  return notices.filter((notice) => notice.attention !== null);
+}
+
+/** "2 messages need a look", or null when none do. */
+export function describeNeedingTeam(notices: Notice[]): string | null {
+  const count = noticesNeedingTeam(notices).length;
+  if (count === 0) return null;
+  return count === 1 ? "1 message needs a look." : `${count} messages need a look.`;
 }
 
 /** The server's reason for refusing a request, or a fallback. */
