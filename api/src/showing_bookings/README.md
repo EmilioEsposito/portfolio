@@ -513,11 +513,22 @@ When the team gives a showing to another agent (`team_actions.change_host`),
 the old host's event is cancelled and the new host's is created from
 scratch, whatever state the host notices are in:
 
-| The old host's notices | What happens |
+| A host notice of the old host that is | What the move does with it |
 | --- | --- |
-| None went out (all held, or pending and not started) | Each is cancelled ("Not sent: the showing moved to another host.") and queued again for the new host, held behind the same confirmation text. Nothing reaches the old host. |
-| One went out (sent, captured or unknown) | A `host_event_moved` notice cancels the old event on the old host's showings calendar; the ones not out are queued again as above; the new host gets a `host_event` due now. |
-| One is being sent right now | Refused (409 `event_being_sent`): try again in a minute, so the old event's id is always known. |
+| `held` | Cancelled ("Not sent: the showing moved to another host.") with its hold cleared, and queued again for the new host, on the new host's calendar, held behind the same confirmation text. |
+| `pending`, not started (released, or a booking without texts) | Cancelled the same way, and queued again for the new host, due now. |
+| being sent (`pending` with `sending_started_at`) | The move is refused (409 `event_being_sent`): try again in a minute, so the old event's id is always known. |
+| `sent` | A `host_event_moved` notice cancels the old event, named by its id, on the old host's showings calendar; the new host gets a `host_event` due now. |
+| `captured` | The same `host_event_moved` notice, which capture mode captures in turn; the new host's event is due now. |
+| `unknown` | The same notice; at delivery it is stopped with "check the calendar and remove it by hand". The new host's event still goes. |
+| `failed` (the old calendar refused it) | Left as it is; the old host has no event. The new host gets a `host_event` due now. |
+| `cancelled` and revivable (it waits for a confirmation and was not stopped by a withdrawal, as when the text was reported undelivered) | Its hold is cleared, so nothing for the old host can come back, and a cancelled copy for the new host, on the new host's calendar, takes the hold: a corrected mobile then brings back the new host's event only. |
+| `cancelled` otherwise (a withdrawal, an earlier move) | Left as it is; nothing can bring it back. |
+
+A `host_event_moved` notice is one of the cancellation notices
+(`cancelling.CANCELLATION_KINDS`): cancelling the showing or its last
+attendee afterwards never stops it, so the old host's calendar is always
+cleaned up.
 
 The `host_event_moved` notice names the old event (`payload.event_id`), and
 the outbox applies it to that event, never to the showing's current one. The

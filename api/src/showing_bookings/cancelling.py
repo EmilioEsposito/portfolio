@@ -59,9 +59,16 @@ INVITE_CANCEL_KIND = host_event.INVITE_CANCEL_KIND
 HOST_CANCEL_KIND = host_event.CANCEL_KIND
 # Notices a cancellation queues. Stopping the notices of a cancelled booking
 # never stops these, so a later cancellation in the same showing keeps the
-# texts an earlier one queued.
+# texts an earlier one queued. A change of host's cancellation of the old
+# host's event is one too: it always goes, so the old calendar is cleaned up.
 CANCELLATION_KINDS = frozenset(
-    {PROSPECT_TEXT_KIND, TEAM_TEXT_KIND, INVITE_CANCEL_KIND, HOST_CANCEL_KIND}
+    {
+        PROSPECT_TEXT_KIND,
+        TEAM_TEXT_KIND,
+        INVITE_CANCEL_KIND,
+        HOST_CANCEL_KIND,
+        host_event.MOVED_KIND,
+    }
 )
 STOPPED_NOTE = host_event.BOOKING_CANCELLED
 # A booking whose confirmation text could not reach the number: a cancellation

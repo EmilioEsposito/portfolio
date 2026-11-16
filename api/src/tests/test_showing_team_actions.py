@@ -20,7 +20,12 @@ from sqlalchemy import update
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings.schema import RentalListing
 from api.src.showing_bookings import cancelling, host_event, open_times, routes
-from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingNotice
+from api.src.showing_bookings.models import (
+    CalendarConnection,
+    Showing,
+    ShowingAgentRecord,
+    ShowingNotice,
+)
 from api.src.tests.showing_helpers import clear_showing_data, store_settings
 from api.src.tests.showing_public import (
     ALEX_EMAIL,
@@ -542,6 +547,126 @@ async def test_a_move_after_the_event_with_a_join_still_held(world):
     assert sam_event.draft.attendees == [SAM]
     # Rendered at delivery from who is booked now.
     assert "Robin Lee" in sam_event.draft.description
+
+
+@pytest.mark.asyncio
+async def test_a_showing_cancelled_after_a_move_before_the_job_leaves_no_event(world):
+    await live()
+    sam = await add_sam()
+    await page_book(world)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    showings, _, _ = await rows()
+    jane_event = showings[0].host_event_id
+
+    assert (await move(world, showings[0].id, sam)).status_code == 200
+    async with world.client(team_app(world)) as client:
+        cancelled = await client.post(f"{TEAM}/showings/{showings[0].id}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    await world.send_pending(NOW + timedelta(minutes=2))
+
+    _, _, notices = await rows()
+    kinds = by_kind(notices)
+    assert [n.status for n in kinds["host_event_moved"]] == ["sent"]
+    # Sam's event was never created, so there is nothing of his to cancel.
+    assert [n.status for n in kinds["host_event"] if n.recipient == SAM] == ["cancelled"]
+    host_events = [e for e in world.calendar.events.values() if e.draft.attendees != [ALEX_EMAIL]]
+    assert [(e.event_id, e.cancelled) for e in host_events] == [(jane_event, True)]
+    assert all(e.cancelled for e in world.calendar.events.values())
+
+
+SAM_CALENDAR = "sam-showings@example.com"
+
+
+async def add_sam_on_own_connection() -> int:
+    async with AsyncSessionFactory() as session:
+        connection = CalendarConnection(
+            google_email=SAM,
+            google_subject="100000000000000000002",
+            connected_by="pat@serniacapital.com",
+            connected_at=NOW - timedelta(days=3),
+            showings_calendar_id=SAM_CALENDAR,
+        )
+        session.add(connection)
+        await session.flush()
+        agent = ShowingAgentRecord(
+            name="Sam Roe",
+            email=SAM,
+            mobile="+14125550102",
+            busy_calendar_ids=[SAM],
+            connection_id=connection.id,
+            priority=2,
+        )
+        session.add(agent)
+        await session.commit()
+        return agent.id
+
+
+@pytest.mark.asyncio
+async def test_a_correction_after_a_move_brings_back_the_new_hosts_event_on_their_calendar(
+    world,
+):
+    await live()
+    sam = await add_sam_on_own_connection()
+    alex = await page_book(world)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await world.send_pending(NOW + timedelta(minutes=1))
+    _, (attendee,), notices = await rows()
+    assert attendee.attention_reason == "confirmation_undelivered"
+    (old,) = by_kind(notices)["host_event"]
+    assert (old.status, old.recipient) == ("cancelled", JANE)
+    showings, _, _ = await rows()
+
+    answer = await move(world, showings[0].id, sam)
+
+    assert answer.status_code == 200, answer.text
+    _, _, notices = await rows()
+    old, new = by_kind(notices)["host_event"]
+    assert (old.status, old.waits_for_notice_id) == ("cancelled", None)
+    assert (new.status, new.recipient, new.payload["calendar_id"]) == (
+        "cancelled",
+        SAM,
+        SAM_CALENDAR,
+    )
+    assert new.waits_for_notice_id is not None
+
+    async with world.client() as client:
+        corrected = await client.post(
+            f"{PUBLIC}/bookings/mobile",
+            json={"cancel_token": alex["cancel_token"], "mobile": ROBIN_MOBILE},
+        )
+    assert corrected.status_code == 200, corrected.text
+    await world.send_pending(NOW + timedelta(minutes=2))
+
+    _, _, notices = await rows()
+    old, new = by_kind(notices)["host_event"]
+    assert old.status == "cancelled"
+    assert (new.status, new.recipient) == ("sent", SAM)
+    host_events = [e for e in world.calendar.events.values() if e.draft.attendees != [ALEX_EMAIL]]
+    assert [(e.calendar_id, e.draft.attendees) for e in host_events] == [(SAM_CALENDAR, [SAM])]
+    assert world.calendar.events_in(SHOWINGS_CALENDAR) == [
+        e for e in world.calendar.events.values() if e.draft.attendees == [ALEX_EMAIL]
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_move_after_the_old_hosts_event_failed_gives_the_new_host_one(world):
+    await live()
+    sam = await add_sam_on_own_connection()
+    await page_book(world)
+    world.calendar.lose(SHOWINGS_CALENDAR)
+    await world.send_pending(NOW + timedelta(minutes=1))
+    _, _, notices = await rows()
+    assert [n.status for n in by_kind(notices)["host_event"]] == ["failed"]
+    showings, _, _ = await rows()
+
+    answer = await move(world, showings[0].id, sam)
+
+    assert [(n["kind"], n["status"]) for n in answer.json()["notices"]] == [
+        ("host_event", "pending")
+    ]
+    await world.send_pending(NOW + timedelta(minutes=2))
+    (event,) = world.calendar.events_in(SAM_CALENDAR)
+    assert event.draft.attendees == [SAM]
 
 
 @pytest.mark.asyncio

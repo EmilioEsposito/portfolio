@@ -287,6 +287,18 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
             old_host = await session.get_one(ShowingAgentRecord, showing.agent_id)
             went_out = [n for n in host_notices if n.status in ("sent", "captured", "unknown")]
             waiting = [n for n in host_notices if n.status in ("held", "pending")]
+            # Stopped, but a corrected mobile would bring them back (``correct_mobile``
+            # revives cancelled notices that wait for an earlier confirmation, except a
+            # withdrawn booking's). They move to the new host the same way, cancelled.
+            revivable = [
+                n
+                for n in host_notices
+                if n.status == "cancelled"
+                and n.waits_for_notice_id is not None
+                and n.last_error != bookings.WITHDRAWN_NOTE
+            ]
+            # The old host's create was refused: the new host still needs the event.
+            failed = any(n.status == "failed" for n in host_notices)
             move = secrets.token_hex(4)
 
             if went_out or showing.host_event_id:
@@ -333,6 +345,9 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
                 notice.status = "cancelled"
                 notice.last_error = host_event.HOST_CHANGED
                 notice.waits_for_notice_id = None
+            stopped_by_notice = {n.id: (n.waits_for_notice_id, n.last_error) for n in revivable}
+            for notice in revivable:
+                notice.waits_for_notice_id = None
             showing.agent_id = agent.id
             showing.host_event_id = None
             await session.flush()
@@ -354,9 +369,28 @@ async def change_host(showing_id: int, agent_id: int, *, now: datetime) -> HostC
                         waits_for_notice_id=holds_by_notice[notice.id],
                     )
                     queued.append(again.id)
-                # The old host had the event: the new host gets theirs now, not
-                # only when a later confirmation is delivered.
-                if went_out and all(holds_by_notice[n.id] is not None for n in waiting):
+                for notice in revivable:
+                    # Saved stopped, as the old one was, so only a correction revives it,
+                    # and then for the new host on the new host's calendar.
+                    holder, note = stopped_by_notice[notice.id]
+                    again = await outbox.enqueue(
+                        session,
+                        kind=notice.kind,
+                        channel="calendar_event",
+                        showing_id=showing.id,
+                        attendee_id=notice.attendee_id,
+                        recipient=agent.email,
+                        recipient_key=f"agent:{agent.id}:replaces:{notice.id}",
+                        payload=payload,
+                        now=now,
+                        waits_for_notice_id=holder,
+                    )
+                    again.status = "cancelled"
+                    again.last_error = note
+                # The old host had the event, or was meant to and the calendar refused
+                # it: the new host gets theirs now, not only when a later
+                # confirmation is delivered.
+                if (went_out or failed) and all(holds_by_notice[n.id] is not None for n in waiting):
                     created = await outbox.enqueue(
                         session,
                         kind=host_event.CREATE_KIND,
