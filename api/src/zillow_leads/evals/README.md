@@ -329,6 +329,7 @@ result is used to tune the system, the test split has become part of dev.
 | 15 | A time less than 24 hours away is not available, even when it is listed or we offered it: say so and give the booking link | same 30 as 11 | 21 / 2 / 7 | By the judge: 20 of 30 pass; 18 of 30 on the first sample |
 | 16 | Five policy questions answered by the owner: acknowledge a cancelled tour once; answer an earlier unanswered question while the lead still qualifies; the lead-in to the booking link may vary. Three exact rules moved into code checks | same 30 as 11 | 21 / 3 / 6 | By the judge: 25 of 30 pass; 19 of 30 on the first sample |
 | 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | By the judge: 28 of 30 pass; 20 of 30 on the first sample. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
+| 18 | Policy for a lead's own showing (issue #368, pull request #410): an own booked showing is a confirmed tour, a confirmed time is stated in one fixed form, and a details line with the lead's own link while the case lists own showings. Run against main's instructions and then the branch's, same code | both samples of 17, and 13 made-up booking scenarios 3 times | Second sample 21 / 3 / 6 before and after; first sample 18 / 4 / 8 before, 18 / 3 / 9 after | By the judge: 26 → 27 of 30 on the second sample, 22 → 22 on the first. Made-up set: 25 of 32 distinct outputs pass. Not merged as run: one real reply carried the details line without the own-showings section, and the move scenario left it out 3 of 3 |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -367,6 +368,36 @@ changed: four became replies and one became no reply. The sixth still
 escalates, for a different reason: the time the lead accepted is now in the
 case but is less than 24 hours away. Two cases with an offered time were left
 as they were, so the rule about a time the case lacks still has tests.
+
+Experiment 18 checks the booking policy before it merges, as "Checking the
+booking policy before it merges" below describes. Only the prompts differ
+between its "before" and "after" runs, and each was judged under its own
+instructions. The team phone was a made-up placeholder in both, so the
+signature is not the real one; nothing else depends on it.
+
+On the real cases the new lines changed little, as intended. One action
+changed in 60: the case with a rented unit that has moved between no reply
+and escalate before did so again. Of the seven judge fails that are new
+after, five cite older rules (the day's-notice explanation, the exact
+booking-link line, a team note on a cancelled time) in cases the new lines
+do not touch, and their "before" versions pass; with four fails fixed in
+the other direction on each sample, that is run-to-run variation. One code
+check (`clarification_leads`) failed once after and once before, in
+different cases. The seventh new fail is caused by the change: a reply
+confirming a time in a case with no own-showings section added the details
+line, with the generic booking link. It happened once in 60.
+
+On the made-up set, nothing would book, move or cancel the wrong thing
+(`expected_booking`, `states_tour_time` and `tour_time_allowed` never
+failed), the booked lead running late stayed quiet and the one asking about
+parking was answered without a new offer, the details line was left out for
+a showing with the details added and for a virtual tour, and the case built
+as with the switch off was answered as before. The move scenario left the
+details line out in all three runs: the lead's old showing is listed with
+"details added", and the agent read "that showing" as the old one, though
+the new time is a fresh place without details. Main's instructions already
+wrote confirmed times in the fixed form (`states_tour_time` did not fail
+before either).
 
 The split was made after experiment 2. Both samples are all in dev.
 
