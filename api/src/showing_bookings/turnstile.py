@@ -9,7 +9,7 @@ Keys are read at call time:
 - ``TURNSTILE_SECRET_KEY``: the secret. In production, a missing secret
   refuses every check (``TurnstileUnavailable``), so nothing is booked
   unchecked. Elsewhere, a missing secret uses Cloudflare's published test
-  secret that always passes.
+  secret that always passes, answered here without a call (see ``verify``).
 - ``TURNSTILE_SITE_KEY``: the site key the page shows. Outside production,
   a missing one uses the test site key that always passes.
 
@@ -79,10 +79,17 @@ async def verify(token: str | None, remote_ip: str | None = None) -> bool:
 
     A missing token, an unreachable Cloudflare or an unreadable answer is a
     failed check, never a pass.
+
+    Outside production, with Cloudflare's published test secret in use, any
+    non-empty token passes without a call to Cloudflare: that is the answer
+    Cloudflare gives for that secret, and it keeps local runs and the browser
+    test from reaching anything outside. Production always asks Cloudflare.
     """
     secret = secret_key()
     if not token or len(token) > MAX_TOKEN_LENGTH:
         return False
+    if secret == TEST_SECRET and not _production():
+        return True
     form = {"secret": secret, "response": token}
     if remote_ip:
         form["remoteip"] = remote_ip
