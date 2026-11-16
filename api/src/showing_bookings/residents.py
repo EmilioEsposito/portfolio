@@ -37,6 +37,7 @@ from api.src.open_phone.tenants import (
     get_contact_unit,
     has_active_lease,
     is_internal_contact,
+    parse_lease_date,
 )
 from api.src.showing_bookings.fakes import StandInContacts
 from api.src.showing_bookings.quo_contacts import LiveQuoInTests, QuoContacts
@@ -57,6 +58,9 @@ DAY_ENDS = time(21, 0)
 # Why a showing's residents could not be told, as ``showings.resident_attention``.
 PROBLEMS = {
     "lookup_failed": "Could not read who lives here: tell the resident yourself",
+    "lease_dates_missing": (
+        "A contact at this unit has no lease dates: check who lives here and tell them yourself"
+    ),
     "unit_key_unreadable": "The unit key does not read as property-unit: tell the resident yourself",
     "unit_spelled_differently": (
         "A current tenant's contact spells this unit differently: fix the contact, "
@@ -112,6 +116,18 @@ def _loose(value: str) -> str:
     return text.lstrip("0") or text
 
 
+def _lacks_lease_dates(contact: dict, prop: str, number: str) -> bool:
+    """A non-internal contact naming exactly this unit, without a readable lease start
+    or end date. Dates that read but are not current (a past or future tenant) are
+    not missing."""
+    if get_contact_unit(contact) != (prop, number) or is_internal_contact(contact):
+        return False
+    dates = {field.get("name"): field.get("value") for field in contact.get("customFields", [])}
+    return any(
+        parse_lease_date(dates.get(name)) is None for name in ("Lease Start Date", "Lease End Date")
+    )
+
+
 def residents_in(contacts: list[dict], unit: str, day: date) -> Found:
     """The residents of ``unit`` on ``day``, by the shared tenant rules. Pure."""
     parts = split_unit(unit)
@@ -121,7 +137,11 @@ def residents_in(contacts: list[dict], unit: str, day: date) -> Found:
     grouped = filter_tenants_by_property_unit(contacts, [prop], [number], today=day)
     found = grouped.get((prop, number), [])
     if not found:
-        # Vacant, unless a current tenant's contact names this unit another way
+        # Vacant, unless a contact at this unit has no readable lease dates: the
+        # unit may well be lived in, so the team checks rather than no one told.
+        if any(_lacks_lease_dates(contact, prop, number) for contact in contacts):
+            return Found(problem="lease_dates_missing")
+        # Or unless a current tenant's contact names this unit another way
         # ("3" for "03"): then the lookup is wrong, not the unit empty.
         for contact in contacts:
             other = get_contact_unit(contact)

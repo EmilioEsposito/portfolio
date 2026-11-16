@@ -361,6 +361,61 @@ async def test_a_unit_whose_only_lease_ended_before_the_showing_day_is_vacant(wo
 
 
 @pytest.mark.asyncio
+async def test_a_unit_whose_only_tenant_moves_in_after_the_showing_day_is_vacant(world):
+    lives_here(world, lease_start=lease_day(THURSDAY), lease_end=lease_day(date(2028, 4, 30)))
+
+    await book(world)  # Wednesday
+
+    assert await resident_notices() == []
+    assert (await showing_row()).resident_attention is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dates",
+    [
+        {"lease_end": None},
+        {"lease_start": None, "lease_end": None},
+        {"lease_start": "not a date"},
+    ],
+    ids=["no end date", "no dates", "an unreadable start date"],
+)
+async def test_a_lone_contact_without_lease_dates_is_a_problem_not_a_vacancy(world, dates):
+    lives_here(world, **dates)
+
+    answer = await book(world)
+
+    assert answer["kind"] == "new"
+    assert await resident_notices() == []
+    assert (await showing_row()).resident_attention == "lease_dates_missing"
+    assert residents.PROBLEMS["lease_dates_missing"] == (
+        "A contact at this unit has no lease dates: check who lives here and tell them yourself"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_contact_without_lease_dates_beside_a_current_tenant_is_left_out(world):
+    lives_here(world, "Morgan Ellis", ROOMMATE, lease_end=None)
+    lives_here(world, "Riley Chen", RESIDENT)
+
+    await book(world)
+
+    text = await one(NEW)
+    assert (text.recipient, text.payload.get("also_to")) == (RESIDENT, None)
+    assert (await showing_row()).resident_attention is None
+
+
+@pytest.mark.asyncio
+async def test_an_internal_contact_without_lease_dates_does_not_mark_the_unit(world):
+    lives_here(world, "Pat Example", ROOMMATE, company=QUO_INTERNAL_COMPANY, lease_end=None)
+
+    await book(world)
+
+    assert await resident_notices() == []
+    assert (await showing_row()).resident_attention is None
+
+
+@pytest.mark.asyncio
 async def test_a_lease_starting_on_the_showing_day_counts(world):
     lives_here(world, lease_start=lease_day(WEDNESDAY), lease_end=lease_day(date(2028, 4, 30)))
 

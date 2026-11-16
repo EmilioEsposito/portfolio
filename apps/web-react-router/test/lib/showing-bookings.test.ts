@@ -255,6 +255,10 @@ test("a booking that needs the team says why", () => {
 
 test("a showing whose residents were not texted says why", () => {
   assert.equal(describeResidentAttention("lookup_failed"), "Could not read who lives here: tell the resident yourself");
+  assert.equal(
+    describeResidentAttention("lease_dates_missing"),
+    "A contact at this unit has no lease dates: check who lives here and tell them yourself",
+  );
   assert.equal(describeResidentAttention("something_new"), "Residents not texted (Something new): tell them yourself");
 });
 

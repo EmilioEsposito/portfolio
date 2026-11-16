@@ -493,6 +493,7 @@ export function describeAttention(reason: string): string {
 
 export const RESIDENT_ATTENTION_LABELS: Record<string, string> = {
   lookup_failed: "Could not read who lives here: tell the resident yourself",
+  lease_dates_missing: "A contact at this unit has no lease dates: check who lives here and tell them yourself",
   unit_key_unreadable: "The unit key does not read as property-unit: tell the resident yourself",
   unit_spelled_differently: "A tenant's contact spells this unit differently: fix it, then tell the resident yourself",
   resident_without_mobile: "A current tenant has no mobile on their contact: tell them yourself",

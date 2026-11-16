@@ -645,7 +645,11 @@ booking transaction, as it may read Quo.
 - A lookup that goes wrong never blocks a booking. The booking stands, no
   resident text is queued, and the showing gets `resident_attention`, which
   the Showings section shows beside it: `lookup_failed` (Quo out of reach),
-  `unit_key_unreadable` (a key with no hyphen), `unit_spelled_differently` (no
+  `lease_dates_missing` (no one at the unit has a current lease, and a
+  non-internal contact naming it exactly lacks a readable lease start or end
+  date, so it may be lived in; a past or future tenant with both dates
+  readable is not this), `unit_key_unreadable` (a key with no hyphen),
+  `unit_spelled_differently` (no
   contact matches exactly, but a current tenant's contact names the unit
   another way, such as `3` for `03`), `resident_without_mobile`, or
   `too_many_residents` (more than ten).
