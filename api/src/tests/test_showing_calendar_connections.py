@@ -812,7 +812,7 @@ def depends_on(dependant: Dependant, call) -> bool:
     return any(d.call is call or depends_on(d, call) for d in dependant.dependencies)
 
 
-def test_every_showing_bookings_route_needs_a_sernia_user_but_googles_callback():
+def test_every_showing_bookings_route_needs_a_sernia_user_but_the_public_ones():
     from api.index import app as real_app
 
     found = {
@@ -821,6 +821,15 @@ def test_every_showing_bookings_route_needs_a_sernia_user_but_googles_callback()
         if isinstance(route, APIRoute) and route.path.startswith("/api/showing-bookings")
     }
     assert found.pop("/api/showing-bookings/calendar/callback") is False
+    public = {path for path in found if path.startswith("/api/showing-bookings/public/")}
+    assert public == {
+        "/api/showing-bookings/public/units/{unit}",
+        "/api/showing-bookings/public/units/{unit}/bookings",
+        "/api/showing-bookings/public/bookings/lookup",
+        "/api/showing-bookings/public/bookings/mobile",
+        "/api/showing-bookings/public/team-phone",
+    }
+    assert not any(found.pop(path) for path in public)
     assert {
         "/api/showing-bookings/calendar/connections",
         "/api/showing-bookings/calendar/connect",
