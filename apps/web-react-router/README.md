@@ -101,7 +101,8 @@ API uses Cloudflare's test keys and answers the test secret itself.
 ### Browser test
 
 `test/e2e/` holds the repository's browser test (Playwright, Chromium only): book a
-showing, miss a tick, correct the mobile, an unknown unit. It builds the app,
+showing, miss a tick, correct the mobile, cancel from the confirmation screen, an
+unknown unit. It builds the app,
 starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks

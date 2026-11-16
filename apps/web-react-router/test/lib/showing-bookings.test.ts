@@ -19,7 +19,10 @@ import {
   parseUnits,
   cleanAgent,
   clock,
+  describeAttention,
   describeOffer,
+  describeRemoval,
+  describeShowingCancel,
   describeWindows,
   newAgent,
   parseCalendars,
@@ -219,4 +222,31 @@ test("a failed check's reasons are kept, and its message is shown", () => {
   assert.equal(refusalMessage(422, body, "Could not save"), "Not saved.");
   assert.deepEqual(refusalProblems({ detail: "Nope" }), []);
   assert.deepEqual(refusalProblems(null), []);
+});
+
+const PEOPLE = [
+  { id: 1, name: "Alex Parker", mobile: "412-555-0117", email: "alex@example.com", source: "page" as const, texts_accepted: true, attention_reason: null },
+  { id: 2, name: "Robin Lee", mobile: "no mobile", email: null, source: "team" as const, texts_accepted: false, attention_reason: null },
+];
+const SHOWING = { unit: "320-03", starts_at: "2027-04-14T20:00:00Z", host_name: "Jane Doe", people: PEOPLE };
+
+test("a team cancellation says what it changes and sends", () => {
+  const all = describeShowingCancel(SHOWING, "live");
+  assert.match(all, /^Cancel the showing of 320-03 on .* for the 2 people booked\?/);
+  assert.match(all, /1 of them get a cancellation text with a link to the units open for showings/);
+  assert.match(all, /Jane Doe's event is cancelled\.$/);
+  assert.match(describeShowingCancel({ ...SHOWING, people: [PEOPLE[0]] }, "live"), /the 1 person booked\? Each gets/);
+  assert.match(describeShowingCancel(SHOWING, "capture"), /Capture mode: these are kept under Messages, not sent\.$/);
+  assert.match(describeShowingCancel(SHOWING, "off"), /none of these go out\.$/);
+
+  const one = describeRemoval(SHOWING, PEOPLE[0], "live");
+  assert.match(one, /^Remove Alex Parker from the showing of 320-03/);
+  assert.match(one, /Alex Parker gets a cancellation text, their calendar invite is withdrawn, and Jane Doe's event is updated\.$/);
+  const last = describeRemoval({ ...SHOWING, people: [PEOPLE[1]] }, PEOPLE[1], "live");
+  assert.match(last, /Robin Lee gets no text, .*the showing is cancelled, with Jane Doe's event\.$/);
+});
+
+test("a booking that needs the team says why", () => {
+  assert.equal(describeAttention("confirmation_undelivered"), "Confirmation text not delivered: call them");
+  assert.equal(describeAttention("something_new"), "Something new: call them");
 });

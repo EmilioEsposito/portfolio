@@ -73,8 +73,10 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Your showing is booked" })).toBeFocused();
   await expect(page.getByText("900 Example Ave, unit 900-01")).toBeVisible();
   await expect(page.getByText("We texted •••-•••-••17.")).toBeVisible();
-  await expect(page.getByText("The text has a link to cancel if your plans change.")).toBeVisible();
-  await expect(page.getByRole("link", { name: /cancel/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Cancel this showing" })).toHaveAttribute(
+    "href",
+    /^\/showings\/cancel\/[\w-]+$/,
+  );
   // One check for the number, one for the booking: a fresh token each time.
   expect(await turnstileRuns(page)).toBe(2);
 
@@ -187,4 +189,63 @@ test("a unit that is not on offer answers 404 with a way forward", async ({ page
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { level: 1, name: "This unit is not open for showings" })).toBeVisible();
   await expect(page.getByRole("link", { name: "all@serniacapital.com" })).toBeVisible();
+});
+
+test("cancel from the confirmation screen's link", async ({ page }) => {
+  await page.goto(PAGE);
+  const picked = await pickFirstTime(page);
+  await fillDetails(page, { name: "Sam Rivera", mobile: "412-555-0121", email: "sam@example.com" });
+  for (const box of await ticks(page).all()) await box.check();
+  await page.getByRole("button", { name: "Book in-person showing" }).click();
+  await expect(page.getByRole("heading", { name: "Your showing is booked" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Cancel this showing" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Cancel your showing?" })).toBeVisible();
+  expect(new URL(page.url()).pathname).toMatch(/^\/showings\/cancel\/[\w-]+$/);
+  await expect(page.getByText("900 Example Ave, unit 900-01")).toBeVisible();
+  await expect(page.getByText(picked.replace(" at ", ", ").replace(/ [AP]M$/, ""))).toBeVisible();
+  // Opening the link cancels nothing; only the button does.
+  expect(readRows().attendees.map((a) => a.status)).toEqual(["booked"]);
+  // Loaded as a document, the page stays out of search and sends no referrer: its URL holds the token.
+  const response = await page.reload();
+  expect(response?.status()).toBe(200);
+  expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
+  expect(response?.headers()["x-robots-tag"]).toBe("noindex");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+  await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
+
+  await page.getByRole("button", { name: "Cancel showing" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Your showing is cancelled" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Cancel showing" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Book another time" })).toHaveAttribute("href", PAGE);
+
+  const rows = readRows();
+  expect(rows.showings.map((s) => [s.status, s.cancel_reason])).toEqual([["cancelled", "prospect"]]);
+  expect(rows.attendees.map((a) => [a.name, a.status, a.cancel_reason])).toEqual([
+    ["Sam Rivera", "cancelled", "prospect"],
+  ]);
+  // The event and invite were still held, so they are stopped, never created and never cancelled.
+  expect(rows.notices.map((n) => [n.kind, n.status])).toEqual([
+    ["prospect_confirmation", "captured"],
+    ["host_event", "cancelled"],
+    ["prospect_invite", "cancelled"],
+    ["prospect_cancelled", "captured"],
+  ]);
+  const text = rows.notices[3];
+  expect(text.recipient).toBe("+14125550121");
+  expect(text.body).toBe(
+    `Sernia Capital: your showing on ${picked} at 900 Example Ave (unit 900-01) is cancelled. ` +
+      "To book another time: https://serniacapital.com/showings/900-01",
+  );
+
+  // Opening the link again says so, and offers no button.
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "This showing is already cancelled" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel showing" })).toHaveCount(0);
+
+  const unknown = await page.goto("/showings/cancel/not-a-real-token");
+  expect(unknown?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1, name: "We couldn't find this booking" })).toBeVisible();
 });

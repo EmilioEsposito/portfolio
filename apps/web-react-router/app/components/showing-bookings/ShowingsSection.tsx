@@ -5,13 +5,18 @@ import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 import {
+  type BookedPerson,
+  type BookedShowing,
   type BookingSettings,
   type CalendarStatus,
   type ShowingsView,
   type UnitOffers,
   CALENDAR_STATUS_LABELS,
   OFFERS_SHOWN,
+  describeAttention,
   describeOffer,
+  describeRemoval,
+  describeShowingCancel,
   formatWhen,
 } from "~/lib/showing-bookings";
 import { cn } from "~/lib/utils";
@@ -124,6 +129,81 @@ function UnitItem({ unit }: { unit: UnitOffers }) {
   );
 }
 
+type CancelResult = { showing_id: number; showing_status: string; attendees_cancelled: number; texts_queued: number };
+
+function BookedItem({
+  showing,
+  busy,
+  onCancel,
+  onRemove,
+}: {
+  showing: BookedShowing;
+  busy: boolean;
+  onCancel: () => void;
+  onRemove: (person: BookedPerson) => void;
+}) {
+  const label = `${showing.unit} ${formatWhen(showing.starts_at)}`;
+  return (
+    <li className="space-y-2 px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          <span className="font-medium">{showing.unit}</span>{" "}
+          <span className="tabular-nums">{formatWhen(showing.starts_at)}</span>
+          {showing.started && <span className="text-muted-foreground"> · started</span>}
+        </span>
+        <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
+          {showing.host_name} · {showing.attendees} of {showing.capacity}{" "}
+          {showing.capacity === 1 ? "place" : "places"} taken
+          {!showing.started && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={busy}
+              aria-label={`Cancel the showing of ${label}`}
+              onClick={onCancel}
+            >
+              Cancel showing
+            </Button>
+          )}
+        </span>
+      </div>
+      {showing.people.length > 0 && (
+        <ul className="space-y-1.5" aria-label={`People booked for ${label}`}>
+          {showing.people.map((person) => (
+            <li key={person.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 rounded-md bg-muted/40 px-2.5 py-1.5">
+              <span className="min-w-0">
+                <span className="font-medium">{person.name}</span>{" "}
+                <span className="tabular-nums text-muted-foreground">{person.mobile}</span>
+                {person.email && <span className="break-all text-muted-foreground"> · {person.email}</span>}
+                {!person.texts_accepted && <span className="text-muted-foreground"> · no texts</span>}
+                {person.attention_reason && (
+                  <span className="mt-0.5 flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                    <CircleAlert className="size-3.5 shrink-0" aria-hidden="true" />
+                    {describeAttention(person.attention_reason)}
+                  </span>
+                )}
+              </span>
+              {!showing.started && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7"
+                  disabled={busy}
+                  aria-label={`Remove ${person.name} from ${label}`}
+                  onClick={() => onRemove(person)}
+                >
+                  Remove
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 export function ShowingsSection() {
   const api = useShowingBookingsApi();
   const [view, setView] = useState<ShowingsView | null>(null);
@@ -131,6 +211,9 @@ export function ShowingsSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionDone, setActionDone] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,6 +227,33 @@ export function ShowingsSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function act(path: string, done: string) {
+    setActing(path);
+    setActionError(null);
+    setActionDone(null);
+    const result = await api<CancelResult>(path, { method: "POST" }, "Could not cancel");
+    if (result.ok) {
+      setActionDone(done);
+      await load();
+    } else {
+      setActionError(result.message);
+    }
+    setActing(null);
+  }
+
+  async function cancelShowing(showing: BookedShowing) {
+    if (!view || !window.confirm(describeShowingCancel(showing, view.send_mode))) return;
+    await act(`/showings/${showing.id}/cancel`, `Cancelled the showing of ${showing.unit} on ${formatWhen(showing.starts_at)}.`);
+  }
+
+  async function removePerson(showing: BookedShowing, person: BookedPerson) {
+    if (!view || !window.confirm(describeRemoval(showing, person, view.send_mode))) return;
+    await act(
+      `/showings/${showing.id}/attendees/${person.id}/remove`,
+      `Removed ${person.name} from the showing of ${showing.unit}.`,
+    );
+  }
 
   async function setLeadAgent(on: boolean) {
     if (!view) return;
@@ -179,7 +289,7 @@ export function ShowingsSection() {
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
             The times each unit on offer is offering right now, in the order they are offered: joins first, then
-            preferred times, then the rest. Then the showings booked in the next 14 days.
+            preferred times, then the rest. Then the showings booked in the next 14 days, with who is coming.
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-1.5" disabled={loading} onClick={() => void load()}>
@@ -262,19 +372,19 @@ export function ShowingsSection() {
           ) : (
             <ul className="mt-2 divide-y rounded-lg border text-sm">
               {view.booked.map((showing) => (
-                <li key={showing.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                  <span>
-                    <span className="font-medium">{showing.unit}</span>{" "}
-                    <span className="tabular-nums">{formatWhen(showing.starts_at)}</span>
-                  </span>
-                  <span className="text-muted-foreground">
-                    {showing.host_name} · {showing.attendees} of {showing.capacity}{" "}
-                    {showing.capacity === 1 ? "place" : "places"} taken
-                  </span>
-                </li>
+                <BookedItem
+                  key={showing.id}
+                  showing={showing}
+                  busy={acting !== null}
+                  onCancel={() => void cancelShowing(showing)}
+                  onRemove={(person) => void removePerson(showing, person)}
+                />
               ))}
             </ul>
           )}
+          <p role="status" className="mt-2 text-sm font-medium">
+            {actionError ? <span className="text-destructive">{actionError}</span> : actionDone}
+          </p>
           <p className="mt-4 text-xs text-muted-foreground">Times are Eastern. Worked out {formatWhen(times.now)}.</p>
         </>
       )}
