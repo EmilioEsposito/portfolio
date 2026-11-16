@@ -13,8 +13,9 @@ import pytest
 from sqlalchemy import update
 
 from api.src.database.database import AsyncSessionFactory
-from api.src.showing_bookings import daily_texts, delivery_checks, holds, outbox
-from api.src.showing_bookings.models import ShowingAgentRecord, ShowingAttendee
+from api.src.showing_bookings import daily_texts, delivery_checks, holds, outbox, wording
+from api.src.showing_bookings.models import Showing, ShowingAgentRecord, ShowingAttendee
+from api.src.showing_bookings.schema import TextPayload
 from api.src.tests.showing_public import (
     ALEX_MOBILE,
     CASEY_MOBILE,
@@ -423,3 +424,112 @@ async def test_the_job_wakes_for_an_apply_text_owed_and_sleeps_once_it_is_sent(w
     assert await holds.anything_to_do(at(18)) is True
     await run(world, at(18))
     assert await holds.anything_to_do(at(18, 1)) is False
+
+
+# ---------------------------------------------------------------------------
+# A morning text never longer than a text can be
+# ---------------------------------------------------------------------------
+
+LONG_ADDRESS = "1234 Example Boulevard Northeast, Building C, Apartment Complex Entrance " * 2
+
+
+def day_showing(hour: int, minute: int, address: str, unit: str = "320-03", booked: int = 1):
+    start = at(hour, minute)
+    return wording.DayShowing(
+        visit=wording.Visit(
+            unit=unit,
+            address=address,
+            starts_at=start,
+            ends_at=start + timedelta(minutes=30),
+            timezone="America/New_York",
+        ),
+        booked=booked,
+    )
+
+
+def full_day(address_of) -> list:
+    return [
+        day_showing(9 + index // 2, 30 * (index % 2), address_of(index), unit=f"320-{index:02d}")
+        for index in range(19)
+    ]
+
+
+def test_a_long_day_at_one_address_names_it_once():
+    text = wording.host_morning_text(full_day(lambda index: LONG_ADDRESS.strip()))
+    assert len(text) <= wording.TEXT_LIMIT
+    lines = text.splitlines()
+    assert lines[0] == (
+        f"Sernia Capital: your showings today, Wed, Apr 14, at {LONG_ADDRESS.strip()}:"
+    )
+    assert lines[1] == "- 9:00 AM, unit 320-00, 1 person"
+    assert lines[-1] == "- 6:00 PM, unit 320-18, 1 person"
+    assert len(lines) == 20
+    assert text.count(LONG_ADDRESS.strip()) == 1
+
+
+def test_a_long_day_at_many_addresses_lists_time_unit_and_count():
+    text = wording.host_morning_text(full_day(lambda index: f"{index} {LONG_ADDRESS}"))
+    assert len(text) <= wording.TEXT_LIMIT
+    lines = text.splitlines()
+    assert lines[0] == "Sernia Capital: your showings today, Wed, Apr 14:"
+    assert len(lines) == 20
+    assert "Example Boulevard" not in text
+
+
+def test_more_than_fit_lists_as_many_as_fit_and_says_how_many_more():
+    showings = full_day(lambda index: f"{index} {LONG_ADDRESS}")
+    text = wording.host_morning_text(showings, limit=300)
+    assert len(text) <= 300
+    lines = text.splitlines()
+    listed = [line for line in lines if line.startswith("- ")]
+    assert lines[-1] == f"…and {19 - len(listed)} more showings today."
+    assert listed[0] == "- 9:00 AM, unit 320-00, 1 person"
+    # In order, none skipped.
+    assert listed == [
+        f"- {wording._clock(s.visit.starts_at)}, unit {s.visit.unit}, 1 person"
+        for s in showings[: len(listed)]
+    ]
+    # Even with the 1,600 limit, 60 showings never overflow.
+    many = [day_showing(9, 0, f"{i} {LONG_ADDRESS}", unit=f"U-{i:03d}") for i in range(60)]
+    text = wording.host_morning_text(many)
+    assert len(text) <= wording.TEXT_LIMIT
+    assert text.splitlines()[-1].startswith("…and ")
+
+
+@pytest.mark.asyncio
+async def test_a_day_that_would_overflow_is_queued_and_sent_within_the_limit(world):
+    """Nineteen showings for one host, each at its own long address: the full list
+    would be far over 1,600 characters. Queued, then rendered again at delivery."""
+    await live()
+    await book(world)  # an apply-text-owing booking keeps the other steps busy too
+    async with AsyncSessionFactory() as session:
+        for index in range(18):
+            start = at(9 + index // 2, 30 * (index % 2))
+            if start == at(16):
+                continue
+            showing = Showing(
+                unit=f"500-{index:02d}",
+                address=f"{index} {LONG_ADDRESS}",
+                starts_at=start,
+                ends_at=start + timedelta(minutes=30),
+                agent_id=world.agent_id,
+            )
+            session.add(showing)
+            await session.flush()
+            session.add(
+                ShowingAttendee(
+                    showing_id=showing.id, name="Sky Rivers", source="team", mobile=None
+                )
+            )
+        await session.commit()
+
+    full = sum(len(f"{index} {LONG_ADDRESS}") for index in range(18))
+    assert full > TextPayload.model_fields["body"].metadata[1].max_length
+
+    report = await run(world, at(8))
+    assert report.host_mornings == 1
+    (text,) = morning_texts(world)
+    assert len(text) <= 1600
+    assert len(text.splitlines()) == 19  # the header and all 18 showings
+    (notice,) = await of_kind(MORNING)
+    assert notice.status == "sent"

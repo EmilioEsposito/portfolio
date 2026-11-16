@@ -419,16 +419,56 @@ def _people(count: int) -> str:
     return "1 person" if count == 1 else f"{count} people"
 
 
-def host_morning_text(showings: Sequence[DayShowing]) -> str:
+# The longest text a notice holds (``schema.TextPayload.body``).
+TEXT_LIMIT = 1600
+
+
+def _more(count: int) -> str:
+    return f"…and {count} more showing{'' if count == 1 else 's'} today."
+
+
+def host_morning_text(showings: Sequence[DayShowing], *, limit: int = TEXT_LIMIT) -> str:
     """To a host at 8 AM: the day's showings in order, each with its time, place and
-    how many people are booked. Names no one booked and no phone number."""
+    how many people are booked. Names no one booked and no phone number.
+
+    Never longer than ``limit``: when the full list is too long, the lines are
+    compacted (the address once when every showing shares it, then time, unit
+    and count per line); when that is still too long, it lists as many as fit
+    and ends with how many more there are."""
     showings = sorted(showings, key=lambda item: item.visit.starts_at)
     first = _local(showings[0].visit.starts_at, showings[0].visit.timezone)
-    lines = [f"Sernia Capital: your showings today, {first:%a}, {first:%b} {first.day}:"]
-    for item in showings:
-        start = _local(item.visit.starts_at, item.visit.timezone)
-        lines.append(f"- {_clock(start)} at {place(item.visit)}, {_people(item.booked)}")
-    return "\n".join(lines)
+    day = f"{first:%a}, {first:%b} {first.day}"
+
+    def clock(item: DayShowing) -> str:
+        return _clock(_local(item.visit.starts_at, item.visit.timezone))
+
+    full = [f"Sernia Capital: your showings today, {day}:"] + [
+        f"- {clock(item)} at {place(item.visit)}, {_people(item.booked)}" for item in showings
+    ]
+    text = "\n".join(full)
+    if len(text) <= limit:
+        return text
+
+    addresses = {item.visit.address for item in showings}
+    if len(addresses) == 1 and showings[0].visit.address:
+        header = f"Sernia Capital: your showings today, {day}, at {showings[0].visit.address}:"
+    else:
+        header = f"Sernia Capital: your showings today, {day}:"
+    lines = [
+        f"- {clock(item)}, unit {item.visit.unit}, {_people(item.booked)}" for item in showings
+    ]
+    text = "\n".join([header, *lines])
+    if len(text) <= limit:
+        return text
+
+    kept: list[str] = []
+    for index, line in enumerate(lines):
+        left = len(lines) - index - 1
+        candidate = "\n".join([header, *kept, line] + ([_more(left)] if left else []))
+        if len(candidate) > limit:
+            break
+        kept.append(line)
+    return "\n".join([header, *kept, _more(len(lines) - len(kept))])[:limit]
 
 
 # ---------------------------------------------------------------------------
