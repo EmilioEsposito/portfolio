@@ -9,6 +9,7 @@ routes), runs the job's two steps as the clock moves, and checks
 mock transport. Nothing is sent anywhere.
 """
 
+import asyncio
 from datetime import date, timedelta
 from types import SimpleNamespace
 
@@ -719,3 +720,91 @@ async def test_a_confirmation_retried_after_its_booking_was_cancelled_is_never_s
     # Only the text confirming the cancellation reached Alex.
     assert [body.split(":")[1].strip()[:9] for body in world.texts.to(ALEX_MOBILE)] == ["your show"]
     assert not [n for n in notices if n.status in ("pending", "held")]
+
+
+# A booking under way while an off-market date is saved
+
+
+def pause_bookings(monkeypatch):
+    """Make the next booking stop inside its transaction, holding the shared booking
+    lock, until ``release`` is set. Answers (entered, release)."""
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = open_times.recheck
+
+    async def paused(*args, **kwargs):
+        if not release.is_set():
+            entered.set()
+            await release.wait()
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(open_times, "recheck", paused)
+    return entered, release
+
+
+async def _while_a_booking_is_under_way(world, monkeypatch, save):
+    """Start Robin's booking, hold it mid-transaction, start ``save``, let both finish."""
+    entered, release = pause_bookings(monkeypatch)
+    booking = asyncio.create_task(book(world, robin_body()))
+    await entered.wait()
+    saving = asyncio.create_task(save())
+    # Long enough for the save to count and save if nothing held it back.
+    await asyncio.sleep(0.5)
+    release.set()
+    return await booking, await saving
+
+
+@pytest.mark.asyncio
+async def test_a_booking_under_way_makes_the_listing_save_ask_instead_of_cancelling_it(
+    world, monkeypatch
+):
+    await _listed(world)
+    changed = world.listing.model_copy(update={"off_market_on": WEDNESDAY})
+
+    async def save():
+        async with world.client(listing_app()) as client:
+            return await client.put(
+                f"/api/rental-listings/listings/{UNIT}",
+                json={"listing": changed.model_dump(mode="json")},
+            )
+
+    robin, saved = await _while_a_booking_is_under_way(world, monkeypatch, save)
+
+    # The save waited for the booking, counted it, and asked.
+    assert robin["kind"] == "new"
+    assert saved.status_code == 409
+    assert saved.json()["detail"]["showings"] == 1
+    showings, attendees, notices = await rows()
+    assert [s.status for s in showings] == ["scheduled"]
+    assert [a.status for a in attendees] == ["booked"]
+    assert not [n for n in notices if n.kind in cancelling.CANCELLATION_KINDS]
+    async with AsyncSessionFactory() as session:
+        assert (await listings_service.read_listing(session, UNIT)).off_market_on is None
+
+
+@pytest.mark.asyncio
+async def test_a_booking_under_way_makes_the_agents_approved_save_ask_again(world, monkeypatch):
+    from api.src.sernia_ai.tools import rental_listing_tools
+
+    await _listed(world)
+    await book(world)  # Alex, Wednesday 4:00
+    approved = "This cancels 1 showing and texts 1 person."
+    person = SimpleNamespace(
+        deps=SimpleNamespace(user_name="Pat", conversation_id="conversation-1"),
+        tool_call_approved=True,
+    )
+
+    async def save():
+        return await rental_listing_tools.rental_listing_update(
+            person, unit=UNIT, off_market_on=WEDNESDAY, off_market_effect=approved
+        )
+
+    robin, said = await _while_a_booking_is_under_way(world, monkeypatch, save)
+
+    # Robin joined Alex's showing before the count, so what was approved no longer holds.
+    assert robin["kind"] == "join"
+    assert said.startswith("Not saved. The effect changed since it was asked.")
+    assert "This cancels 1 showing and texts 2 people." in said
+    showings, attendees, notices = await rows()
+    assert [s.status for s in showings] == ["scheduled"]
+    assert [a.status for a in attendees] == ["booked", "booked"]
+    assert not [n for n in notices if n.kind in cancelling.CANCELLATION_KINDS]

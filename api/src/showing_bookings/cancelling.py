@@ -521,6 +521,18 @@ class OffMarketEffect(BaseModel):
         return f"This cancels {showings} and texts {texted}."
 
 
+async def lock_bookings(session: AsyncSession) -> None:
+    """Take the shared booking lock for the caller's transaction, until it ends.
+
+    A listing save that carries an off-market date takes it first, before the
+    listing's own lock and before counting ``off_market_effect``, and holds it
+    through the save and the cancellation: no booking can then commit between
+    what a person agreed to and what is cancelled. Taking it again in the same
+    transaction is a no-op.
+    """
+    await bookings.lock(session, bookings.BOOKING_LOCK)
+
+
 async def _off_market_showing_ids(
     session: AsyncSession, unit: str, off_market_on: date, now: datetime
 ) -> list[int]:
@@ -546,7 +558,8 @@ async def off_market_effect(
     """What saving ``off_market_on`` for ``unit`` would cancel now. Changes nothing.
 
     The gates in front of an off-market save (the general agent's approval, the
-    team's confirmation on the listings screen) ask this first.
+    team's confirmation on the listings screen) ask this first. A caller that
+    saves on the answer holds ``lock_bookings`` from before this count.
     """
     if off_market_on is None:
         return OffMarketEffect(showings=0, people=0, people_texted=0)

@@ -296,6 +296,10 @@ async def rental_listing_update(
         off_market_effect: Leave empty at first. When the off-market date would cancel booked showings, this tool saves nothing and answers with the effect, e.g. "This cancels 2 showings and texts 3 people."; call again with that exact sentence here, so the person approving sees it.
     """
     async with AsyncSessionFactory() as session:
+        # The shared booking lock first, then the listing's: a save that carries an
+        # off-market date cancels what is booked from it, and no booking may land
+        # between the count below and that save. Held until this session ends.
+        await cancelling.lock_bookings(session)
         try:
             existing = await service.read_listing(session, unit, lock=True)
         except RentalDataInvalid as error:

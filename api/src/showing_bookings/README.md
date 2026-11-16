@@ -453,9 +453,12 @@ first (the shared booking lock, unit and start, mobile, email), then the
 attendee, then its notices, then the showing; several attendees and several
 showings are locked in id order. A withdrawal and every cancellation take the
 shared booking lock too, so the number of people booked in a showing cannot
-change underneath one of them. A listing saved with an off-market date holds
-the listing's own lock before the shared booking lock; nothing takes them the
-other way round.
+change underneath one of them. A listing save that carries an off-market date
+(the listing routes, the general agent's tool, and `save_listing` itself)
+takes the shared booking lock first, before the listing's own lock and before
+counting what the date cancels, and holds it through the save and the
+cancellation (`cancelling.lock_bookings`). No booking can then commit between
+the count a person agreed to and what is cancelled.
 
 A corrected mobile is texted first; only if Quo does not refuse it does it
 replace the old one. The final step takes the number's lock again and checks

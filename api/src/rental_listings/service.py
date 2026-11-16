@@ -114,6 +114,12 @@ async def save_listing(
         raise RentalDataInvalid(problems)
     values = listing.model_dump(mode="python")
     values["preferred_showing_times"] = listing.model_dump(mode="json")["preferred_showing_times"]
+    if listing.off_market_on is not None:
+        # Imported here: showing bookings read listings through this module.
+        from api.src.showing_bookings import cancelling
+
+        # The shared booking lock before the listing's own, as every off-market save takes them.
+        await cancelling.lock_bookings(session)
     record = await _record(session, listing.unit, lock=True)
     if record is None:
         record = RentalListingRecord(**values)
@@ -132,9 +138,6 @@ async def save_listing(
         )
     )
     if listing.off_market_on is not None:
-        # Imported here: showing bookings read listings through this module.
-        from api.src.showing_bookings import cancelling
-
         await cancelling.cancel_off_market(session, listing.unit, listing.off_market_on)
     await session.commit()
 

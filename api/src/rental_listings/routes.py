@@ -158,6 +158,14 @@ def _broken_on_file(error: RentalDataInvalid) -> HTTPException:
     )
 
 
+async def _hold_bookings(session: DBSession, body: ListingSave) -> None:
+    """With an off-market date, take the shared booking lock first, before the
+    listing's lock, and hold it to the end of the request's transaction: the
+    count the person confirms is then the one the save cancels."""
+    if body.listing.off_market_on is not None:
+        await cancelling.lock_bookings(session)
+
+
 async def _check_cancellations(session: DBSession, body: ListingSave) -> None:
     """Refuse an off-market date that cancels showings until the person has confirmed."""
     if body.confirm_cancellations or body.listing.off_market_on is None:
@@ -209,6 +217,7 @@ async def create_listing(
 ) -> RentalListing:
     """Add a unit's listing. Refused with 409 if that unit (in any case) has one."""
     name = body.listing.unit
+    await _hold_bookings(session, body)
     try:
         # Locks the unit name, listed or not, until the save commits.
         existing = await service.read_listing(session, name, lock=True)
@@ -250,6 +259,7 @@ async def update_listing(
                 "problems": [f"The unit in the body is {body.listing.unit!r}, not {name!r}."],
             },
         )
+    await _hold_bookings(session, body)
     try:
         current = await service.read_listing(session, name, lock=True)
     except RentalDataInvalid as error:
