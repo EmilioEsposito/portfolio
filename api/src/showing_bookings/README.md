@@ -7,8 +7,8 @@ and lands one pull request at a time, each with sending switched off or in
 capture mode.
 
 The steps so far hold the tables, the notice outbox, the test harness, the
-calendar connections, the showing agents, the open times and the public
-booking API. Nothing is sent unless switched on: the setting starts in capture
+calendar connections, the showing agents, the open times, the public
+booking API and cancelling. Nothing is sent unless switched on: the setting starts in capture
 mode, outside production only test recipients can ever be sent to, and the
 public booking API is off in production until the team opens it.
 
@@ -366,7 +366,11 @@ Sernia sign-in.
 
 `public_booking_enabled` in the settings row is true, false or unset. Unset
 means off in production and on everywhere else. While it is off, every public
-route answers 404, as for a path that does not exist, and saves nothing. The
+route answers 404, as for a path that does not exist, and saves nothing,
+except two: `POST /bookings/lookup` and `POST /bookings/cancel` answer either
+way, so a person booked before the team closed booking can still read and
+cancel from the link in their text. A cancel token exists only for a booking
+once made, so they show nothing while booking has never been on. The
 Send mode section of the tab has the control, "Open booking to the public",
 which sets it through `PUT /settings/public-booking` (`null` goes back to the
 default); a send-mode save keeps it as stored.
@@ -387,8 +391,9 @@ tokens; a cancel token travels in the body for the same reason.
 | `GET /call-line` | `{turnstile_site_key}` and nothing else, for the call line on a page with no unit (the Sernia home page). Reads no listings and no calendars, so the page can answer at once; the 404 while the switch is off tells the page to leave the call line out. |
 | `GET /units/{unit}` | the listing's unit key, address, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names. 404 `unknown_unit` for a unit not on offer. |
 | `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
-| `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, and the corrections left. |
+| `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
 | `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
+| `POST /bookings/cancel` | `{cancel_token}`: cancels the booking (see Cancelling below) and answers as the lookup does. A booking already cancelled answers the same and sends nothing; 409 `started` once the showing has started; 404 `unknown_booking`. |
 | `POST /team-phone` | `{turnstile_token}`: the team number (`SERNIA_TEAM_PHONE`), its display form, the extension (`SERNIA_TEAM_PHONE_EXTENSION`, default 1) and a `tel:` link that dials it. |
 
 ### A booking
@@ -445,8 +450,15 @@ cannot see. Volume is a few bookings a day, so one lock is enough.
 
 Lock order, in every transaction that takes more than one: advisory locks
 first (the shared booking lock, unit and start, mobile, email), then the
-attendee, then its notices, then the showing; several showings are locked in
-id order.
+attendee, then its notices, then the showing; several attendees and several
+showings are locked in id order. A withdrawal and every cancellation take the
+shared booking lock too, so the number of people booked in a showing cannot
+change underneath one of them. A listing save that carries an off-market date
+(the listing routes, the general agent's tool, and `save_listing` itself)
+takes the shared booking lock first, before the listing's own lock and before
+counting what the date cancels, and holds it through the save and the
+cancellation (`cancelling.lock_bookings`). No booking can then commit between
+the count a person agreed to and what is cancelled.
 
 A corrected mobile is texted first; only if Quo does not refuse it does it
 replace the old one. The final step takes the number's lock again and checks
@@ -460,7 +472,7 @@ captured), an update is queued behind the new text.
 ### The host's event
 
 A host event notice is rendered when the outbox delivers it, not when it is
-queued (`host_event.py`, called from `outbox._prepare_host_event` under a lock
+queued (`host_event.py`, called from `outbox._prepare` under a lock
 on the showing): the summary and description list the attendees booked then,
 with their current mobiles and emails, and the notice creates the showing's
 event if it has none yet (saving its id on the showing) or updates it. So a
@@ -474,9 +486,82 @@ What was rendered is saved on the row, so the Messages list and capture mode
 show what went out. The prospect's own invite keeps the payload it was queued
 with.
 
+A cancellation of the host's event (`host_event_cancel`) or of a prospect's
+invite (`prospect_invite_cancel`) is checked the same way when it is delivered
+(`host_event.cancel_check`): it waits a minute while the event is being
+created, goes ahead when the event exists, or when its create was captured
+(so capture mode keeps the cancellation too), and is cancelled otherwise,
+with "never created" or, when an earlier create's outcome is unknown, "check
+the calendar and remove it by hand". A cancellation never creates an event.
+
 All wording, with versions, is in `wording.py`: the three confirmations, the
 consent small print, and the texts and calendar entries a booking sends.
 Emilio reviews it before launch.
+
+### Cancelling
+
+`cancelling.py`. The cancel link opens `/showings/cancel/<cancel token>`, which
+shows the booking and a Cancel button; opening the link cancels nothing,
+because phones and mail scanners open links to preview them.
+
+| Case | Attendee | Showing | Prospect | Host's event |
+| --- | --- | --- | --- | --- |
+| A prospect cancels, others still booked | cancelled, `prospect` | stays | a text confirming it, with the unit's booking page; invite withdrawn | updated |
+| The last prospect cancels | cancelled, `prospect` | cancelled, `prospect` | the same | cancelled |
+| The team removes one attendee | cancelled, `team` | cancelled when they were the last | the team's cancellation text, with the units on offer; invite withdrawn | updated, or cancelled when they were the last |
+| The team cancels a showing | each cancelled, `team` | cancelled, `team` | the same | cancelled |
+| The unit goes off the market | each cancelled, `off_market` | cancelled, `off_market` | the same | cancelled |
+
+- Notices of a cancelled attendee (or of a cancelled showing) that have not
+  gone out are stopped (`cancelled`, "Not sent: the booking was cancelled.");
+  ones being sent are left to finish. A cancellation never stops the notices
+  an earlier cancellation queued.
+- An invite or host's event that went out (sent, captured, unknown or being
+  sent) gets a cancellation notice; one still held or pending gets nothing.
+  When someone is still booked, the host's event gets an update that renders
+  at delivery without them.
+- Texts go only to an attendee with a mobile who accepted texts and whose
+  confirmation text was not reported undelivered or refused
+  (`attention_reason`); a number known to be wrong is not texted again, though
+  the invite is still withdrawn. A prospect's
+  or the team's cancellation text is delivered at once; calendar changes go
+  with the job every minute. Off-market cancellations queue everything for the
+  job.
+- Up to the start. A prospect cancelling after it is refused with 409
+  `started`; so is the team (409 on its routes).
+- Twice is safe: a second call finds nothing booked, changes nothing and
+  queues nothing.
+- Residents are not texted yet: `cancelling.queue_resident_cancellation` is
+  where the resident's cancellation text goes, and queues nothing today.
+- When a listing is saved with an `off_market_on` date
+  (`rental_listings.service.save_listing`, from the rental listings screen,
+  the MCP service or the general agent's tool), its scheduled showings from
+  that day in the showing rules' time zone that have not started are
+  cancelled in the same transaction. The hook is inside `save_listing`, so no
+  path saves the date and leaves the showings standing.
+- A person agrees first. `cancelling.off_market_effect` says what a date
+  would cancel now (showings, people, people texted) without changing
+  anything. When it is at least one showing, the rental listing routes refuse
+  the save with 409 `cancels_showings` and the counts unless the body carries
+  the counts the person agreed to (`confirm_cancellations: {showings, people,
+  people_texted}`); they are counted again under the booking lock and must
+  match, or the answer is 409 again with the new counts (a bare `true` too).
+  The listings screen asks "This cancels 2 showings and texts 3 people.
+  Save?", sends the counts back, and asks again if they changed. The general
+  agent's `rental_listing_update` waits for a person's approval with that
+  sentence in its arguments (`off_market_effect`). With nothing booked from
+  the date, both save at once. The Sernia MCP service gets the refusal and
+  saves nothing; it has no confirm step yet.
+- A prospect's confirmation text and invite are checked again each time they
+  are delivered, first try or retry (`host_event.FOR_A_BOOKING_KINDS`): once
+  the attendee is cancelled or the showing is, they are cancelled and never
+  sent. So a send under way when the booking is cancelled, which then fails
+  and is retried, never goes out later. The host's event notices already
+  render from the showing at delivery.
+
+A place freed by a cancellation is offered again at once, and a cancelled
+showing frees its host's time: open times count only scheduled showings and
+booked people.
 
 ### Held notices
 
@@ -533,11 +618,19 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   422 with `detail.problems`.
 - `POST /agents/load-samples`: add the made-up agents. 403 in production.
 - `GET /showings`: `open_times` for every unit on offer, the scheduled showings
-  in the next 14 days with host and attendee count, and the lead agent's switch.
+  in the next 14 days with host, attendee count and the people booked (name,
+  mobile, email, whether they take texts, and `attention_reason` when the
+  booking needs a call), the lead agent's switch and the send mode.
+- `POST /showings/{id}/cancel`: cancel a showing and everyone in it.
+- `POST /showings/{id}/attendees/{attendee_id}/remove`: remove one person.
+  Both answer `{showing_id, showing_status, attendees_cancelled, texts_queued}`;
+  404 for no such showing or person, 409 once the showing has started.
 
 The Booking settings tab (`/systems/leasing-leads/bookings`) shows the Send
 mode, Messages, Calendar connections, Showing agents and Showings sections.
-The Showings section holds the lead agent's switch.
+The Showings section holds the lead agent's switch, lists who is coming to
+each showing with a mark on a booking that needs a call, and has Cancel
+showing and Remove, each behind a confirmation that says what will be sent.
 
 ## Tests
 
@@ -566,9 +659,17 @@ another attendee or the team number. `test_showing_public_units.py` covers the
 units list: order, wording, no units, no agent free, one calendar read for the
 list, the switch, nothing about hosts or bookings, the address in the unit read,
 and the call line's route (the site key alone, no listing or calendar read, the switch).
+`test_showing_cancelling.py` runs each cancellation through the routes: a
+prospect with others booked, the last one, twice, after the start, an unknown
+link, while the notices are held, while the event is being created, after the
+event and invite went out, the team's two actions, an off-market date saved
+through the rental listing routes, the place offered again, and that no answer
+shows another attendee.
 
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- Cancelling, reminders, the resident's text and the team's actions.
+- The resident's texts (new showing and cancellation), reminders, texts to
+  the host, and the team's other actions (add a booking for a caller, change
+  the host, mark attendance).
 - Reminders, per-lead links, and the lead agent's own showing in its case.

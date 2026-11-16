@@ -11,6 +11,17 @@ A write may send ``based_on``: the listing (or the rules) as the caller last rea
 it. If what is on file has changed since, nothing is saved and the answer is
 409, so an edit made from a stale screen cannot undo someone else's change.
 
+A listing saved with an off-market date cancels the unit's showings booked
+from that date and texts the people booked
+(``showing_bookings.cancelling``). When that would cancel at least one
+showing, the save is refused with 409 ``cancels_showings`` and the counts
+(``showings``, ``people``, ``people_texted``) unless the body carries the
+counts the person agreed to (``confirm_cancellations: {showings, people,
+people_texted}``). The route counts again under the booking lock and saves
+only when they match; otherwise it answers 409 ``cancels_showings`` again
+with the new counts, and the edit screen asks again. A bare ``true`` is
+refused the same way. With nothing booked it is saved as before.
+
 A write with ``?dry_run=true`` runs every check and answers as it would, but
 saves nothing. The Sernia MCP service uses it so a person is never asked to
 approve a change that would be refused.
@@ -41,6 +52,7 @@ from api.src.rental_listings import service, zillow_ad
 from api.src.rental_listings.checks import RentalDataInvalid, listing_problems, rules_problems
 from api.src.rental_listings.schema import Change, RentalListing, ShowingRules
 from api.src.rental_listings.zillow_ad import ZillowAd
+from api.src.showing_bookings import cancelling
 from api.src.utils.clerk import verify_serniacapital_oauth_user, verify_serniacapital_user
 
 # Recorded as the source of every change, by who made the call.
@@ -90,6 +102,9 @@ class ListingSave(BaseModel):
     listing: RentalListing
     # The listing as the caller last read it. Leave out to save regardless.
     based_on: RentalListing | None = None
+    # What the person agreed an off-market date cancels: the counts from the
+    # 409 ``cancels_showings`` they were shown. Saved only if they still hold.
+    confirm_cancellations: cancelling.OffMarketEffect | bool | None = None
 
 
 class RulesSave(BaseModel):
@@ -147,6 +162,39 @@ def _broken_on_file(error: RentalDataInvalid) -> HTTPException:
     )
 
 
+async def _hold_bookings(session: DBSession, body: ListingSave) -> None:
+    """With an off-market date, take the shared booking lock first, before the
+    listing's lock, and hold it to the end of the request's transaction: the
+    count the person confirms is then the one the save cancels."""
+    if body.listing.off_market_on is not None:
+        await cancelling.lock_bookings(session)
+
+
+async def _check_cancellations(session: DBSession, body: ListingSave) -> None:
+    """Refuse an off-market date that cancels showings unless the person agreed to
+    exactly what it cancels now. The caller holds the booking lock."""
+    if body.listing.off_market_on is None:
+        return
+    effect = await cancelling.off_market_effect(
+        session, body.listing.unit, body.listing.off_market_on
+    )
+    if not effect.showings:
+        return
+    agreed = body.confirm_cancellations
+    if isinstance(agreed, cancelling.OffMarketEffect) and agreed == effect:
+        return
+    changed = "The bookings changed since you were asked. " if agreed else ""
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "code": "cancels_showings",
+            "message": f"Not saved. {changed}{effect.sentence()} Confirm to save.",
+            "problems": [],
+            **effect.model_dump(),
+        },
+    )
+
+
 async def _checked_only(session: DBSession, listing: RentalListing) -> RentalListing:
     """A dry run's answer: the listing as it would be saved, or 422. Saves nothing."""
     if problems := listing_problems(listing):
@@ -179,6 +227,7 @@ async def create_listing(
 ) -> RentalListing:
     """Add a unit's listing. Refused with 409 if that unit (in any case) has one."""
     name = body.listing.unit
+    await _hold_bookings(session, body)
     try:
         # Locks the unit name, listed or not, until the save commits.
         existing = await service.read_listing(session, name, lock=True)
@@ -186,6 +235,7 @@ async def create_listing(
         raise _broken_on_file(error) from error
     if existing is not None:
         raise _already_listed(name)
+    await _check_cancellations(session, body)
     if dry_run:
         return await _checked_only(session, body.listing)
     try:
@@ -219,6 +269,7 @@ async def update_listing(
                 "problems": [f"The unit in the body is {body.listing.unit!r}, not {name!r}."],
             },
         )
+    await _hold_bookings(session, body)
     try:
         current = await service.read_listing(session, name, lock=True)
     except RentalDataInvalid as error:
@@ -227,6 +278,7 @@ async def update_listing(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"No listing for unit {name!r}.")
     if body.based_on is not None and current != body.based_on:
         raise _changed_since()
+    await _check_cancellations(session, body)
     if dry_run:
         return await _checked_only(session, body.listing)
     try:
