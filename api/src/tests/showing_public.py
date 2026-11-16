@@ -153,7 +153,7 @@ async def add_world_rows(world: PublicWorld) -> None:
 
 
 def booking(
-    start: datetime | None = None,
+    start: datetime | str | None = None,
     *,
     name: str = "Alex Parker",
     mobile: str = "412-555-0117",
@@ -162,7 +162,7 @@ def booking(
     **changes,
 ) -> dict:
     body = {
-        "start": (start or at(16)).isoformat(),
+        "start": start if isinstance(start, str) else (start or at(16)).isoformat(),
         "name": name,
         "mobile": mobile,
         "email": email,

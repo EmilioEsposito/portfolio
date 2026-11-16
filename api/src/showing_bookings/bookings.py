@@ -41,7 +41,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import logfire
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,7 +241,7 @@ class BookingRequest(BaseModel):
     mobile: str = ""
     email: str = ""
     # Each box the person ticked, by key: "lease_start", "pets", "texts".
-    confirmations: dict[str, bool] = Field(default_factory=dict)
+    confirmations: dict[str, StrictBool] = Field(default_factory=dict)
     confirmations_version: str | None = None
     turnstile_token: str | None = None
     # The ``?t=`` token from the link the lead agent sent.
