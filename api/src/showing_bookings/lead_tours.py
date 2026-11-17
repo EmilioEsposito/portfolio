@@ -28,6 +28,10 @@ to the lead's thread:
 - ``own_showings``: the thread's own upcoming showings, booked or cancelled,
   from the attendee rows tied to it. Unit, start, and whether it is still
   booked or who cancelled it; nothing about the host or anyone else booked.
+  A booked one also says whether the lead's details are in: not yet when it
+  is still the provisional place a reply booked (source ``lead_agent``, no
+  consent to texts), the one place the link's "add your details" page can
+  complete (``lead_details``); in otherwise.
 """
 
 from dataclasses import dataclass
@@ -152,7 +156,13 @@ async def lead_booking_for(
 
 def _own(attendee: ShowingAttendee, showing: Showing) -> OwnShowing:
     if attendee.status == "booked" and showing.status == "scheduled":
-        return OwnShowing(unit=showing.unit, start=showing.starts_at, status="booked")
+        provisional = attendee.source == "lead_agent" and attendee.texts_consent_at is None
+        return OwnShowing(
+            unit=showing.unit,
+            start=showing.starts_at,
+            status="booked",
+            details_added=not provisional,
+        )
     return OwnShowing(
         unit=showing.unit,
         start=showing.starts_at,

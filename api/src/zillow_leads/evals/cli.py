@@ -210,7 +210,8 @@ async def run(args: argparse.Namespace) -> None:
     model = args.model or LEAD_AGENT_MODEL
     # --model tries another model on the same cases without editing the code.
     with lead_agent().override(model=resolve_model(model)):
-        report = await build_dataset(scenarios, listing_data, edits).evaluate(
+        expected = json.loads(args.expected.read_text()) if args.expected else None
+        report = await build_dataset(scenarios, listing_data, edits, expected).evaluate(
             respond,
             name=args.name,
             max_concurrency=args.concurrency,
@@ -507,6 +508,11 @@ def main() -> None:
         "--cases-from", type=Path, help="Run exactly the cases an earlier run covered"
     )
     run_parser.add_argument("--case-edits", type=Path, help="Hand-set tour times, by scenario")
+    run_parser.add_argument(
+        "--expected",
+        type=Path,
+        help="A synthetic set's expected.json: also check each named case against it",
+    )
     run_parser.add_argument(
         "--carry",
         type=Path,
