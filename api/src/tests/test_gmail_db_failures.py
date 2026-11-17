@@ -91,13 +91,19 @@ async def test_disconnect_requests_redelivery_then_recovers(
         "decode_pubsub_message",
         Mock(return_value={"emailAddress": routes.GMAIL_WATCH_MAILBOX, "historyId": 123}),
     )
+    monkeypatch.setattr(routes, "get_history_checkpoint", AsyncMock(return_value="1"))
+    monkeypatch.setattr(routes, "advance_history_checkpoint", AsyncMock())
     monkeypatch.setattr(routes, "get_delegated_credentials", Mock())
     monkeypatch.setattr(routes, "get_gmail_service", Mock())
     monkeypatch.setattr(
         routes,
         "get_email_changes",
         AsyncMock(
-            return_value={"status": "success", "email_message_ids": [message_data["message_id"]]}
+            return_value={
+                "status": "success",
+                "checkpoint": "123",
+                "email_message_ids": [message_data["message_id"]],
+            }
         ),
     )
     monkeypatch.setattr(routes, "get_email_content", AsyncMock(return_value={"id": "test"}))
@@ -109,7 +115,7 @@ async def test_disconnect_requests_redelivery_then_recovers(
 
     failed_response = await routes.handle_gmail_notifications(request)
 
-    assert failed_response.status_code == 429
+    assert failed_response.status_code == 503
     assert message_data["message_id"].encode() in failed_response.body
     failed_session.rollback.assert_awaited_once()
     failed_session.execute.assert_awaited_once()

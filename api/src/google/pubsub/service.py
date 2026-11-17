@@ -11,6 +11,7 @@ import logfire
 import requests
 from fastapi import HTTPException
 from google.auth import jwt
+from starlette.concurrency import run_in_threadpool
 
 # Cache for Google's public keys
 _GOOGLE_PUBLIC_KEYS = None
@@ -29,7 +30,7 @@ def get_google_public_keys():
         return _GOOGLE_PUBLIC_KEYS
 
     # Fetch new keys
-    resp = requests.get("https://www.googleapis.com/oauth2/v1/certs")
+    resp = requests.get("https://www.googleapis.com/oauth2/v1/certs", timeout=10)
     if resp.status_code != 200:
         raise ValueError(f"Failed to fetch Google public keys: {resp.status_code}")
 
@@ -74,7 +75,7 @@ async def verify_pubsub_token(auth_header: str, expected_audience: str) -> bool:
         token = auth_header.split("Bearer ")[1]
 
         # Get Google's public keys
-        certs = get_google_public_keys()
+        certs = await run_in_threadpool(get_google_public_keys)
 
         # Verify token signature and claims using jwt.decode
         claims = jwt.decode(token, certs=certs)

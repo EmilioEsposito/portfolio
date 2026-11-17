@@ -8,9 +8,11 @@ from datetime import datetime
 
 import logfire
 from fastapi import APIRouter, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.src.database.database import session_context
 from api.src.google.common.service_account_auth import get_delegated_credentials
+from api.src.google.gmail.checkpoint import advance_history_checkpoint, get_history_checkpoint
 from api.src.google.gmail.config import GMAIL_WATCH_MAILBOX
 from api.src.google.gmail.db_ops import save_email_message
 from api.src.google.gmail.service import (
@@ -90,9 +92,14 @@ async def handle_gmail_notifications(
             else:  # "retry_needed"
                 logfire.warn(f"Retry needed: {processing_result['reason']}")
                 return Response(
-                    status_code=429,
+                    status_code=503,
                     content=processing_result["reason"],
-                    headers={"Retry-After": "5", "X-Retry-Reason": "waiting_for_gmail_history"},
+                    headers={
+                        "Retry-After": "5",
+                        "X-Retry-Reason": processing_result.get(
+                            "retry_reason", "gmail_processing_incomplete"
+                        ),
+                    },
                 )
 
         except HTTPException:
@@ -114,7 +121,7 @@ async def handle_gmail_notifications(
         )
 
 
-async def process_gmail_notification(pubsub_notification_data: dict):
+async def _process_gmail_history(pubsub_notification_data: dict, start_history_id: str):
     """
     Process a Gmail notification and store messages in the database.
 
@@ -161,10 +168,10 @@ async def process_gmail_notification(pubsub_notification_data: dict):
         credentials = get_delegated_credentials(
             user_email=email_address, scopes=["https://www.googleapis.com/auth/gmail.readonly"]
         )
-        gmail_service = get_gmail_service(credentials)
+        gmail_service = await run_in_threadpool(get_gmail_service, credentials)
 
         # Get message IDs from history with status
-        email_changes_result = await get_email_changes(gmail_service, history_id)
+        email_changes_result = await get_email_changes(gmail_service, start_history_id)
 
         # If we got a non-success status, pass it through directly
         if email_changes_result["status"] != "success":
@@ -175,6 +182,11 @@ async def process_gmail_notification(pubsub_notification_data: dict):
                 "status": email_changes_result["status"],
                 "messages": [],
                 "reason": email_changes_result["reason"],
+                "checkpoint": email_changes_result.get("checkpoint"),
+                "has_more": email_changes_result.get("has_more", False),
+                "retry_reason": email_changes_result.get(
+                    "retry_reason", "gmail_processing_incomplete"
+                ),
             }
 
         # email_message_ids: ALL messages touched (new + label changes, etc.) — process for DB.
@@ -259,6 +271,8 @@ async def process_gmail_notification(pubsub_notification_data: dict):
             # All messages were skipped due to 404s
             return {
                 "status": "success",
+                "checkpoint": email_changes_result["checkpoint"],
+                "has_more": email_changes_result.get("has_more", False),
                 "messages": [],
                 "reason": f"All {len(legitimately_skipped_message_ids)} messages were not found (likely deleted)",
             }
@@ -266,6 +280,8 @@ async def process_gmail_notification(pubsub_notification_data: dict):
             # All attempted messages processed successfully
             return {
                 "status": "success",
+                "checkpoint": email_changes_result["checkpoint"],
+                "has_more": email_changes_result.get("has_more", False),
                 "messages": processed_email_messages,
                 "reason": f"All {attempted_message_count} messages processed successfully. {len(legitimately_skipped_message_ids)} messages were skipped (not found).",
             }
@@ -291,3 +307,41 @@ async def process_gmail_notification(pubsub_notification_data: dict):
             "messages": [],
             "reason": f"Exception during processing: {str(e)}",
         }
+
+
+async def process_gmail_notification(pubsub_notification_data: dict):
+    """Drain from the last fully processed checkpoint, not the notification's head.
+
+    A notification is a wake-up, not a safe start cursor. No cursor is inferred
+    from a notification or email row: initial reconciliation/seed requires review.
+    """
+    if (
+        not isinstance(pubsub_notification_data, dict)
+        or pubsub_notification_data.get("emailAddress") != GMAIL_WATCH_MAILBOX
+    ):
+        raise HTTPException(status_code=403, detail="Unauthorized Gmail notification mailbox")
+    notified = str(pubsub_notification_data.get("historyId", ""))
+    if not notified.isdecimal():
+        raise HTTPException(status_code=400, detail="Invalid Gmail history ID")
+    start = await get_history_checkpoint()
+    if start is None:
+        return {
+            "status": "retry_needed",
+            "messages": [],
+            "retry_reason": "gmail_checkpoint_uninitialized",
+            "reason": "Gmail checkpoint requires approved reconciliation and initialization",
+        }
+    # Even a redelivered/older notification drains outstanding pages. A page
+    # may advance beyond this wake-up's ID while still having nextPageToken.
+    result = await _process_gmail_history(pubsub_notification_data, start)
+    if result["status"] in {"success", "no_messages"}:
+        checkpoint = result["checkpoint"]
+        await advance_history_checkpoint(start, checkpoint)
+        if result.get("has_more"):
+            return {
+                "status": "retry_needed",
+                "messages": [],
+                "retry_reason": "gmail_history_remaining",
+                "reason": "Processed one history page; more history remains",
+            }
+    return result

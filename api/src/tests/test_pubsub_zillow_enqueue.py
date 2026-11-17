@@ -34,12 +34,15 @@ def gmail(monkeypatch):
     async def changes(_service, _history_id):
         return {
             "status": "success",
+            "checkpoint": "12345",
             "reason": "",
             "email_message_ids": [e["message_id"] for e in emails],
             "added_message_ids": [],
         }
 
     by_id = lambda message_id: next(e for e in emails if e["message_id"] == message_id)  # noqa: E731
+    monkeypatch.setattr(routes, "get_history_checkpoint", AsyncMock(return_value="1"))
+    monkeypatch.setattr(routes, "advance_history_checkpoint", AsyncMock())
     monkeypatch.setattr(routes, "get_delegated_credentials", Mock())
     monkeypatch.setattr(routes, "get_gmail_service", Mock())
     monkeypatch.setattr(routes, "get_email_changes", changes)

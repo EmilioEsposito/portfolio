@@ -2,7 +2,6 @@
 Gmail service functionality for interacting with Gmail API.
 """
 
-import asyncio
 import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,6 +14,7 @@ from fastapi import HTTPException
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from starlette.concurrency import run_in_threadpool
 
 from api.src.google.common.service_account_auth import (
     get_delegated_credentials,
@@ -187,121 +187,61 @@ async def send_email(
 
 
 async def get_email_changes(gmail_service, history_id: str, user_id: str = "me"):
+    """Read one bounded page AFTER a durable checkpoint, without polling empty history.
+
+    A nextPageToken means more work remains. Checkpoint only the last record in
+    this page, never the mailbox's latest historyId, until the final page. The
+    next delivery resumes by that record ID rather than losing the remaining pages.
     """
-    Fetches email changes using the history ID.
-    Uses exponential backoff to handle cases where history ID isn't available yet (race condition)
-
-    Returns:
-        Dictionary with:
-        - status: "success", "no_messages", or "retry_needed"
-        - email_message_ids: ALL message IDs touched in this history window
-          (new arrivals + label changes + read/unread + deletions). Use for
-          DB storage so we capture the full state of every message.
-        - added_message_ids: Subset — only genuinely NEW messages that arrived
-          in the mailbox (Gmail ``messagesAdded``). Use to gate triggers so
-          label changes / starring / archiving don't re-fire agent runs.
-        - reason: Explanation string for what happened
-    """
-    max_retries = 4
-    wait_time = 20  # Start with 10 seconds
-
-    logfire.info(f"Fetching email changes for history ID: {history_id}")
-
-    for attempt in range(max_retries):
-        try:
-            # List all changes since the last history ID
-            results = (
+    try:
+        results = await run_in_threadpool(
+            lambda: (
                 gmail_service.users()
                 .history()
-                .list(
-                    userId=user_id,
-                    startHistoryId=history_id,
-                    # labelId="INBOX",  # Fetching broader history; specific label changes handled by downstream logic
-                )
+                .list(userId=user_id, startHistoryId=history_id, maxResults=50)
                 .execute()
             )
-
-            email_message_ids = set()
-
-            if "history" in results:
-                added_message_ids: set[str] = set()
-                for history in results["history"]:
-                    if "messages" in history:
-                        for msg in history["messages"]:
-                            email_message_ids.add(msg["id"])
-                    if "messagesAdded" in history:
-                        for msg in history["messagesAdded"]:
-                            msg_id = msg["message"]["id"]
-                            email_message_ids.add(msg_id)
-                            added_message_ids.add(msg_id)
-
-                if email_message_ids:
-                    return {
-                        "status": "success",
-                        "email_message_ids": list(email_message_ids),
-                        "added_message_ids": list(added_message_ids),
-                        "reason": f"Found {len(email_message_ids)} messages ({len(added_message_ids)} new)",
-                    }
-                else:
-                    return {
-                        "status": "no_messages",
-                        "email_message_ids": [],
-                        "added_message_ids": [],
-                        "reason": f"History found for ID {history_id}, but no new messages",
-                    }
-            else:
-                # If no history found, wait and retry
-                logfire.info(
-                    f"No history found for ID {history_id}, attempt {attempt + 1}/{max_retries}"
-                )
-                if attempt < max_retries - 1:  # Don't sleep on last attempt
-                    await asyncio.sleep(wait_time)
-                    wait_time *= 2  # Exponential backoff
-                continue
-
-        except Exception as e:
-            if "Invalid history ID" in str(e):
-                logfire.info(
-                    f"History ID {history_id} not yet available, attempt {attempt + 1}/{max_retries}"
-                )
-                if attempt < max_retries - 1:  # Don't sleep on last attempt
-                    await asyncio.sleep(wait_time)
-                    wait_time *= 2  # Exponential backoff
-                continue
-            elif getattr(getattr(e, "resp", None), "status", None) == 404 or "notFound" in str(e):
-                # Expected, self-healing Gmail behavior: a startHistoryId that is too
-                # old (Gmail only retains ~1 week of history) returns HTTP 404
-                # "notFound". Per Google's docs the correct response is to perform a
-                # full sync, which happens automatically on the next notification with
-                # a fresh historyId. Log at warning (not error) so this expected,
-                # recoverable condition does not trip error-level alerts.
-                # https://developers.google.com/gmail/api/guides/sync#partial_synchronization
-                logfire.warn(
-                    f"History ID {history_id} expired (HTTP 404 notFound); skipping — "
-                    f"next notification will provide a fresh historyId. Detail: {str(e)}"
-                )
-                return {
-                    "status": "retry_needed",
-                    "email_message_ids": [],
-                    "added_message_ids": [],
-                    "reason": f"History ID expired (404 notFound): {str(e)}",
-                }
-            else:
-                logfire.error(f"Failed to fetch history: {str(e)}")
-                return {
-                    "status": "retry_needed",
-                    "email_message_ids": [],
-                    "added_message_ids": [],
-                    "reason": f"Exception fetching history: {str(e)}",
-                }
-
-    logfire.warn(f"Failed to retrieve history after {max_retries} retries")
-    return {
-        "status": "retry_needed",
-        "email_message_ids": [],
-        "added_message_ids": [],
-        "reason": f"Failed to retrieve history after {max_retries} retries",
-    }
+        )
+        history = results.get("history", [])
+        has_more = bool(results.get("nextPageToken"))
+        if has_more and not history:
+            raise ValueError("Gmail history page has no checkpointable records")
+        checkpoint = str(history[-1]["id"] if has_more else results["historyId"])
+        if not checkpoint.isdecimal() or int(checkpoint) < int(history_id):
+            raise ValueError("Gmail returned an invalid history checkpoint")
+        if has_more and int(checkpoint) <= int(history_id):
+            raise ValueError("Gmail history page did not advance")
+        message_ids: set[str] = set()
+        added_ids: set[str] = set()
+        for record in history:
+            message_ids.update(m["id"] for m in record.get("messages", []))
+            # Gmail recommends the specific change fields rather than messages.
+            for field in ("messagesAdded", "messagesDeleted", "labelsAdded", "labelsRemoved"):
+                message_ids.update(item["message"]["id"] for item in record.get(field, []))
+            added_ids.update(item["message"]["id"] for item in record.get("messagesAdded", []))
+        return {
+            "status": "success" if message_ids else "no_messages",
+            "email_message_ids": sorted(message_ids),
+            "added_message_ids": sorted(added_ids),
+            "checkpoint": checkpoint,
+            "has_more": has_more,
+            "reason": "Gmail history page retrieved" if history else "No changes after checkpoint",
+        }
+    except Exception as error:
+        status = getattr(getattr(error, "resp", None), "status", None)
+        # An expired checkpoint requires an explicitly reviewed full sync. A newer
+        # notification is not a replacement for the unprocessed history range.
+        retry_reason = "gmail_history_expired" if status == 404 else "gmail_history_failed"
+        logfire.warning("Gmail history read failed", http_status=status, retry_reason=retry_reason)
+        return {
+            "status": "retry_needed",
+            "email_message_ids": [],
+            "added_message_ids": [],
+            "retry_reason": retry_reason,
+            "reason": "Gmail history checkpoint expired; reconciliation required"
+            if status == 404
+            else "Gmail history read failed; checkpoint retained",
+        }
 
 
 async def get_email_content(service, message_id: str, user_id: str = "me"):
@@ -320,8 +260,13 @@ async def get_email_content(service, message_id: str, user_id: str = "me"):
     """
     try:
         # Get the email message
-        message = (
-            service.users().messages().get(userId=user_id, id=message_id, format="full").execute()
+        message = await run_in_threadpool(
+            lambda: (
+                service.users()
+                .messages()
+                .get(userId=user_id, id=message_id, format="full")
+                .execute()
+            )
         )
 
         return message
