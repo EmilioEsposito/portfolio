@@ -329,6 +329,8 @@ result is used to tune the system, the test split has become part of dev.
 | 15 | A time less than 24 hours away is not available, even when it is listed or we offered it: say so and give the booking link | same 30 as 11 | 21 / 2 / 7 | By the judge: 20 of 30 pass; 18 of 30 on the first sample |
 | 16 | Five policy questions answered by the owner: acknowledge a cancelled tour once; answer an earlier unanswered question while the lead still qualifies; the lead-in to the booking link may vary. Three exact rules moved into code checks | same 30 as 11 | 21 / 3 / 6 | By the judge: 25 of 30 pass; 19 of 30 on the first sample |
 | 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | By the judge: 28 of 30 pass; 20 of 30 on the first sample. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
+| 18 | Policy for a lead's own showing (issue #368, pull request #410): an own booked showing is a confirmed tour, a confirmed time is stated in one fixed form, and a details line with the lead's own link while the case lists own showings. Run against main's instructions and then the branch's, same code | both samples of 17, and 13 made-up booking scenarios 3 times | Second sample 21 / 3 / 6 before and after; first sample 18 / 4 / 8 before, 18 / 3 / 9 after | By the judge: 26 → 27 of 30 on the second sample, 22 → 22 on the first. Made-up set: 25 of 32 distinct outputs pass. Not merged as run: one real reply carried the details line without the own-showings section, and the move scenario left it out 3 of 3 |
+| 19 | The details-line sentence from 18 reworded: it names the "This lead's own showings" section, ties the "details added" exception to the time the reply confirms, and forbids the line without the section. Made-up threads about 412-01 now carry that unit in their subject. Only the "after" half was run, compared with 18's "before" | same as 18 | Second sample 21 / 3 / 6; first sample 20 / 2 / 8 | By the judge: 26 → 26 of 30 on the second sample, 22 → 23 on the first. Made-up set: 24 of 29 distinct outputs pass. No real reply carries the details line; the move scenario still leaves it out 3 of 3 |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -367,6 +369,63 @@ changed: four became replies and one became no reply. The sixth still
 escalates, for a different reason: the time the lead accepted is now in the
 case but is less than 24 hours away. Two cases with an offered time were left
 as they were, so the rule about a time the case lacks still has tests.
+
+Experiment 18 checks the booking policy before it merges, as "Checking the
+booking policy before it merges" below describes. Only the prompts differ
+between its "before" and "after" runs, and each was judged under its own
+instructions. The team phone was a made-up placeholder in both, so the
+signature is not the real one; nothing else depends on it.
+
+On the real cases the new lines changed little, as intended. One action
+changed in 60: the case with a rented unit that has moved between no reply
+and escalate before did so again. Of the seven judge fails that are new
+after, five cite older rules (the day's-notice explanation, the exact
+booking-link line, a team note on a cancelled time) in cases the new lines
+do not touch, and their "before" versions pass; with four fails fixed in
+the other direction on each sample, that is run-to-run variation. One code
+check (`clarification_leads`) failed once after and once before, in
+different cases. The seventh new fail is caused by the change: a reply
+confirming a time in a case with no own-showings section added the details
+line, with the generic booking link. It happened once in 60.
+
+On the made-up set, nothing would book, move or cancel the wrong thing
+(`expected_booking`, `states_tour_time` and `tour_time_allowed` never
+failed), the booked lead running late stayed quiet and the one asking about
+parking was answered without a new offer, the details line was left out for
+a showing with the details added and for a virtual tour, and the case built
+as with the switch off was answered as before. The move scenario left the
+details line out in all three runs: the lead's old showing is listed with
+"details added", and the agent read "that showing" as the old one, though
+the new time is a fresh place without details. Main's instructions already
+wrote confirmed times in the fixed form (`states_tour_time` did not fail
+before either).
+
+Experiment 19 reran only the "after" half with the reworded sentence, on the
+same cases, and compares with experiment 18's "before". It fixed the leak:
+no real reply carries the details line, and no code check fails. Three real
+cases changed action against 18's "before": the rented-unit case again, a
+lead confirming continued interest after an offer the case lacks (escalated
+before, answered with the booking link after, as experiment 17 did), and a
+lead withdrawing from a proposed same-day time (quiet before, acknowledged
+with the booking link after, which the judge passed). None of them involves
+a confirmed time or the own-showings section. All seven new judge fails cite
+older rules (the friend's phone number, the exact booking-link line, pets
+not mentioned by the lead, a named day that should have been accepted,
+conflicting facts, the case-by-case pet rule), against eight fixed: run-to-run
+variation. The fixture change worked: neither 412-01 scenario asks a
+clarification now.
+
+The move scenario still leaves the details line out in all three runs. The
+judge, reading the same sentence, says the line is required for the new
+time, so the wording is not ambiguous to it; the agent seems to treat a move
+of a showing that had its details as needing none. That is not one of the
+conditions for not merging, but it misses the bar for `expected_details_line`.
+Left for the owner: whether to name moves in the sentence, or accept that a
+lead who moves by email adds their details again only when asked.
+
+Open question for Emilio, raised by the judge in 18: should the first tour
+rule ("offer only those booked times" when a tour is booked for the unit)
+apply when a lead moves their own showing? The policy was not changed for it.
 
 The split was made after experiment 2. Both samples are all in dev.
 
@@ -598,24 +657,38 @@ without them keeps the fingerprint it had before they existed.
 ### Made-up booking scenarios
 
 `synthetic.py` holds made-up scenarios for that part of the case: a lead who
-booked through their own link, one whose showing the team cancelled, a
-showing others booked that a new lead can join, and a time open at one unit
-only. Being invented, they live in the repository, and
-`test_zillow_eval_synthetic.py` checks each case and a good reply for it
-without a model. To run them through the model, write them out as files and
-run them like any other scenarios:
+booked through their own link (running late, asking about parking), one whose
+showing the team cancelled, a showing others booked that a new lead can join,
+a time open at one unit only, a time confirmed by email, a move, a
+cancellation, a booked lead asking to reconfirm (with their details in, and
+with a provisional place), a lead who would rather not give a mobile number, and one case
+built as production builds it with the switch off. Being invented, they live
+in the repository, and `test_zillow_eval_synthetic.py` checks each case and a
+good decision for it without a model. To run them through the model, write
+them out as files and run them like any other scenarios:
 
 ```bash
 uv run python -m api.src.zillow_leads.evals synthetic --out $DATA/synthetic
 uv run python -m api.src.zillow_leads.evals run \
     --scenarios $DATA/synthetic/scenarios.jsonl --listings $DATA/synthetic/listings.json \
-    --case-edits $DATA/synthetic/case-edits.json \
+    --case-edits $DATA/synthetic/case-edits.json --expected $DATA/synthetic/expected.json \
     --name booking-synthetic-1 --out $DATA/runs/booking-synthetic-1.jsonl
 ```
 
-`expected.json` says what a person would want from each and why; nothing
-scores against it yet. Until the policy learns about a lead's own showing (a
-later step of issue #368), a run shows how today's policy reads such a case.
+`expected.json` says what a person would want from each: the action, `why`
+(what a person or the judge should look for), and for most of them what
+sending the decision should do to the lead's showings (`booking`) and whether
+the reply should carry the details line (`details_line`). With `--expected`
+the run checks those by code, as `expected_action`, `expected_booking` and
+`expected_details_line`. Whatever the expectations, a reply that would book or
+move the lead's showing is also checked for `states_tour_time` (its words give
+the time in the policy's form) and `tour_time_allowed`. That reply, and one
+that restates the lead's own booked showing in that form, is checked for
+`details_line`: the line with the lead's own link for that unit is required
+while the showing's details are not in, and forbidden once the case lists it
+with "details added"; a reply confirming a virtual tour must not carry it (nothing is booked for the link to complete). These read what code would do from the case (`checks.booking_change`, the
+same rules as `showing_bookings/lead_bookings.py`); a case without the
+own-showings section books nothing, as production with the switch off.
 
 ```bash
 # Run again only the cases of an earlier run that have a new edit; keep its other rows
@@ -641,6 +714,107 @@ read it. Grade an edited case like any other, on what the case contained.
 One scenario has one tour state at a time. Running the same thread under two
 states would need a case id per state, which the labels and pages do not have
 yet.
+
+## Checking the booking policy before it merges
+
+The policy for a lead's own showing (issue #368) changes text the production
+model reads on every lead, switch or no switch. It merges only after this run
+with real model keys. `test_zillow_lead_instructions_change.py` shows that the
+instructions differ from the reviewed version only by
+`api/src/tests/zillow_instructions_change.diff`; this run shows what those
+lines do.
+
+Run from a checkout that has `evals/data` and the model keys, on the pull
+request's branch. Only the prompts differ between "before" and "after": the
+code, the case and the checks are the branch's in both, and each run saves the
+instructions it ran with (`<run>.policy.md`).
+
+```bash
+DATA=api/src/zillow_leads/evals/data
+git fetch origin && git switch lead-agent-booking-policy
+uv run python -m api.src.zillow_leads.evals synthetic --out $DATA/synthetic
+# Arrays, so the same lines work in zsh and bash
+SYN=(--scenarios $DATA/synthetic/scenarios.jsonl --listings $DATA/synthetic/listings.json
+     --case-edits $DATA/synthetic/case-edits.json --expected $DATA/synthetic/expected.json)
+REAL=(--scenarios $DATA/scenarios/scenarios.jsonl --listings $DATA/operating/operating.json
+      --case-edits $DATA/scenarios/case-edits.json)
+# BASE: the run file(s) of experiment 17, the last confirming run (both samples
+# of 30). Repeat the real-scenario commands once per file.
+BASE=$DATA/runs/experiment-17.jsonl
+
+# Before: main's instructions
+git restore --source=origin/main -- api/src/zillow_leads/prompts
+for n in 1 2 3; do
+  uv run python -m api.src.zillow_leads.evals run "${SYN[@]}" \
+      --name booking-before-syn-$n --out $DATA/runs/booking-before-syn-$n.jsonl
+done
+uv run python -m api.src.zillow_leads.evals run "${REAL[@]}" --cases-from $BASE \
+    --name booking-before-real --out $DATA/runs/booking-before-real.jsonl
+# The judge grades against the instructions in the checkout, so judge "before" now
+uv run python -m api.src.zillow_leads.evals judge "${REAL[@]}" \
+    --run $DATA/runs/booking-before-real.jsonl --out $DATA/judgements/booking-before-real.jsonl
+
+# After: this branch's instructions
+git restore -- api/src/zillow_leads/prompts
+for n in 1 2 3; do
+  uv run python -m api.src.zillow_leads.evals run "${SYN[@]}" \
+      --name booking-after-syn-$n --out $DATA/runs/booking-after-syn-$n.jsonl
+done
+uv run python -m api.src.zillow_leads.evals run "${REAL[@]}" --cases-from $BASE \
+    --name booking-after-real --out $DATA/runs/booking-after-real.jsonl
+uv run python -m api.src.zillow_leads.evals judge "${REAL[@]}" \
+    --run $DATA/runs/booking-after-real.jsonl --out $DATA/judgements/booking-after-real.jsonl
+uv run python -m api.src.zillow_leads.evals judge \
+    --scenarios $DATA/synthetic/scenarios.jsonl --listings $DATA/synthetic/listings.json \
+    --case-edits $DATA/synthetic/case-edits.json \
+    --run $DATA/runs/booking-after-syn-1.jsonl --run $DATA/runs/booking-after-syn-2.jsonl \
+    --run $DATA/runs/booking-after-syn-3.jsonl --out $DATA/judgements/booking-after-syn.jsonl
+
+# Per case: action, and the code checks that failed
+for f in $DATA/runs/booking-{before,after}-*.jsonl; do echo "== $f"; jq -r \
+  '[.case_id, .decision.action, ([.checks | to_entries[] | select(.value == false) | .key] | join(","))] | @tsv' $f; done
+# The details line must never appear where the case has no own-showings section
+jq -r 'select(.decision.reply_body // "" | test("add your details here")) | .case_id' \
+    $DATA/runs/booking-after-real.jsonl
+```
+
+`git restore --source=origin/main` changes only the working files, so the
+"before" runs record the commit as `+dirty`; the saved `<run>.policy.md` says
+which instructions they had. Check `git status` shows no prompt change before
+the "after" runs.
+
+What to compare:
+
+| | Before | After, to merge |
+|---|---|---|
+| Real scenarios: `actions` and the action per case | baseline | The same, up to the usual run-to-run changes (one or two cases per 30 in the log above). Read every case whose action changed |
+| Real scenarios: failed code checks | baseline (none in experiment 17) | None new |
+| Real scenarios: the details-line search | empty | Empty |
+| Real scenarios: judge passes, each sample of 30 | baseline under main's instructions | Not lower by more than two, and no new fail citing a line in the diff |
+| Synthetic, 3 runs of 10: `expected_booking`, `states_tour_time`, `details_line`, `tour_time_allowed` | mostly failing: main's policy has no details line or fixed form | No failures |
+| Synthetic: `expected_action`, `expected_details_line` | baseline | At most one failure in 30, and the judge's reason for it is a wording choice, not a rule |
+| `synthetic-without-booking-service-0` | baseline | Same action and the same kind of reply in all 3 runs, no details line |
+
+Do not merge if any of these happens:
+
+- A real-scenario reply contains the details line, or a reply anywhere asks
+  for a mobile number or makes one a condition of the showing.
+- A reply gives the details line for a showing the case lists with "details
+  added" (`synthetic-reconfirm-details-added-2`, or any `details_line`
+  failure where the line is present): the link would ask a booked lead to
+  book again. Or a reply confirming a virtual tour carries it (`synthetic-virtual-confirmed-0`).
+- An `expected_booking` failure in an "after" run: sending that decision would
+  book, move or cancel something the reply does not say.
+- `states_tour_time` fails in more than one of the "after" replies that would
+  book or move a showing: the check a later change would rely on to send such
+  replies automatically would then hold too many back, or the instruction is
+  not being followed.
+- Real-scenario judge passes drop by three or more on either sample, or a new
+  code-check failure appears there.
+- `synthetic-own-late-2` or `synthetic-own-parking-2` escalates or offers the
+  lead their own showing again.
+
+Record the result as experiment 18 in the log above, before deciding.
 
 ## Where the data lives
 

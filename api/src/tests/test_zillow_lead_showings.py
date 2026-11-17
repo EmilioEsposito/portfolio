@@ -260,10 +260,14 @@ async def test_a_booking_through_the_lead_link_shows_in_that_thread_only(world, 
     alex_case, alex_meta = await lead_case(ALEX_THREAD)
     robin_case, robin_meta = await lead_case(ROBIN_THREAD)
 
-    assert alex_case.own_showings == [OwnShowing(unit=UNIT, start=at(16), status="booked")]
-    assert f"{OWN_SHOWINGS_HEADING}\n- {UNIT}: Wednesday, April 14 at 4:00 PM, booked" in (
-        render_case(alex_case)
-    )
+    # Booked on the page with the details and the ticks: nothing left to add.
+    assert alex_case.own_showings == [
+        OwnShowing(unit=UNIT, start=at(16), status="booked", details_added=True)
+    ]
+    assert (
+        f"{OWN_SHOWINGS_HEADING}\n- {UNIT}: Wednesday, April 14 at 4:00 PM, booked, "
+        "details added (text reminders and invite set up)\n"
+    ) in render_case(alex_case)
     assert robin_case.own_showings == []
     assert f"{OWN_SHOWINGS_HEADING}\n- (none)" in render_case(robin_case)
     # The showing both are in still has room, so it is offered to every lead.
@@ -456,6 +460,31 @@ def test_the_evals_and_the_send_check_agree_on_tour_times():
     ]
     for unit, starts in combos:
         assert evals_allow(unit, *starts) == send_allows(unit, *starts), (unit, starts)
+
+
+def test_an_own_showing_says_whether_the_leads_details_are_in():
+    """Not yet only for the provisional place a reply booked, the one the link can complete."""
+    from api.src.showing_bookings.models import Showing, ShowingAttendee
+
+    showing = Showing(unit=UNIT, starts_at=at(16), status="scheduled")
+
+    def own(source: str, consent: datetime | None) -> OwnShowing:
+        attendee = ShowingAttendee(source=source, status="booked", texts_consent_at=consent)
+        return lead_tours._own(attendee, showing)
+
+    assert own("lead_agent", None).details_added is False
+    assert own("lead_agent", NOW).details_added is True  # completed through the link
+    assert own("page", NOW).details_added is True
+
+    case = build_case(
+        weekly_thread(weekly_message(0)),
+        WEEKLY_LISTING_DATA,
+        upto=0,
+        own_showings=[own("lead_agent", None)],
+    )
+    assert f"- {UNIT}: Wednesday, April 14 at 4:00 PM, booked, details not yet added" in (
+        render_case(case)
+    )
 
 
 def test_the_rendered_case_lists_times_by_unit_and_the_own_showing():
