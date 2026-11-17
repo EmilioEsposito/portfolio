@@ -163,5 +163,5 @@ def test_watch_uses_the_same_mailbox(monkeypatch):
     monkeypatch.setattr(gmail, "get_delegated_credentials", delegate)
     monkeypatch.setattr(gmail, "get_gmail_service", Mock())
     gmail.setup_gmail_watch()
-    assert delegate.call_count == 2  # stop existing watch, then start it
+    assert delegate.call_count == 1  # renew directly without stopping
     assert all(c.kwargs["user_email"] == GMAIL_WATCH_MAILBOX for c in delegate.call_args_list)
