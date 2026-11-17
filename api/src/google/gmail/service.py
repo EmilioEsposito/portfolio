@@ -459,7 +459,7 @@ def setup_gmail_watch(
     topic_name: str = "projects/portfolio-450200/topics/gmail-notifications",
 ):
     """
-    Sets up Gmail API push notifications to a Pub/Sub topic.
+    Creates or renews Gmail push notifications without stopping an existing watch.
 
     Args:
         user_id: The user's email address or 'me' for authenticated user
@@ -469,9 +469,6 @@ def setup_gmail_watch(
         The watch response from Gmail API
     """
     try:
-        # Stop any existing watch first
-        stop_gmail_watch(user_id)
-
         # Get delegated credentials with necessary scopes
         credentials = get_delegated_credentials(
             user_email=GMAIL_WATCH_MAILBOX,
@@ -495,8 +492,10 @@ def setup_gmail_watch(
             "labelFilterAction": "include",
         }
 
-        # Start watching the mailbox
-        response = service.users().watch(userId=user_id, body=request).execute()
+        # Renew directly: stopping first would remove coverage if this request fails.
+        # The Google client retries 5xx, 429, rate-limit 403s and transport failures
+        # with randomized exponential backoff (three retries, four attempts total).
+        response = service.users().watch(userId=user_id, body=request).execute(num_retries=3)
         return response
 
     except Exception as e:

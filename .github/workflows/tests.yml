@@ -27,6 +27,7 @@ jobs:
           node scripts/check-node-trust.cjs
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
+      - run: node --test scripts/tests/gmail-watch-refresh.test.mjs
       - run: pnpm test:security
       - run: pnpm --filter web-react-router test
       - run: pnpm --filter web-react-router typecheck
