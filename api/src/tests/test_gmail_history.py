@@ -8,12 +8,12 @@ run in the default (non-live) suite.
 Context: a daily Logfire triage once misread the benign, high-volume "no history
 found after N retries" outcome as an outage. That path is benign (a watch fires
 but ``history.list`` has no in-scope changes) and must not be logged as a
-failure. Genuine transport errors (timeouts) are the alertable case. These tests
+failure. Genuine transport errors (timeouts) retain the checkpoint for retry. These tests
 pin both behaviors, plus the explicit httplib2 timeout that prevents a stalled
 connection from hanging indefinitely.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -29,10 +29,11 @@ async def test_get_email_changes_success_returns_message_ids():
     """When history.list returns history with messages, status is success."""
     mock_service = MagicMock()
     mock_service.users().history().list().execute.return_value = {
+        "historyId": "999",
         "history": [
-            {"messages": [{"id": "m1"}, {"id": "m2"}]},
-            {"messagesAdded": [{"message": {"id": "m3"}}]},
-        ]
+            {"id": "124", "messages": [{"id": "m1"}, {"id": "m2"}]},
+            {"id": "125", "messagesAdded": [{"message": {"id": "m3"}}]},
+        ],
     }
 
     result = await get_email_changes(mock_service, history_id="123")
@@ -44,21 +45,17 @@ async def test_get_email_changes_success_returns_message_ids():
 
 @pytest.mark.asyncio
 async def test_get_email_changes_no_history_is_benign_not_failure():
-    """
-    A watch notification that yields no in-scope history must exhaust the retry
-    loop and return retry_needed with a *benign* reason — never a "failure"
-    string. Sleeps are patched so the exponential backoff doesn't actually wait.
-    """
+    """Successful empty history is benign and immediately acknowledged, without polling."""
     mock_service = MagicMock()
-    # No "history" key on every attempt → the benign "no history found" path.
+    # A successful response may omit history when there are no changes.
     mock_service.users().history().list().execute.return_value = {"historyId": "999"}
 
-    with patch("api.src.google.gmail.service.asyncio.sleep", new=AsyncMock()):
-        result = await get_email_changes(mock_service, history_id="123")
+    result = await get_email_changes(mock_service, history_id="123")
 
-    assert result["status"] == "retry_needed"
+    assert result["status"] == "no_messages"
     assert result["email_message_ids"] == []
-    assert "No retrievable history" in result["reason"]
+    assert result["checkpoint"] == "999"
+    mock_service.users().history().list().execute.assert_called_once()
     # Guard against regressing to the old alarming wording that fooled triage.
     assert "Failed to retrieve history" not in result["reason"]
 
@@ -69,11 +66,12 @@ async def test_get_email_changes_timeout_is_retry_needed_exception():
     mock_service = MagicMock()
     mock_service.users().history().list().execute.side_effect = TimeoutError("timed out")
 
-    with patch("api.src.google.gmail.service.asyncio.sleep", new=AsyncMock()):
-        result = await get_email_changes(mock_service, history_id="123")
+    result = await get_email_changes(mock_service, history_id="123")
 
     assert result["status"] == "retry_needed"
-    assert "Exception fetching history" in result["reason"]
+    assert result["retry_reason"] == "gmail_history_failed"
+    assert "checkpoint" not in result
+    mock_service.users().history().list().execute.assert_called_once()
 
 
 def test_get_gmail_service_sets_explicit_timeout():

@@ -1,214 +1,127 @@
-# Gmail Notification System Documentation
+# Gmail Pub/Sub processing
 
-This document explains how Gmail notifications are handled in the system using Google Pub/Sub.
+`POST /api/google/pubsub/gmail/notifications` verifies the signed Google identity,
+exact audience, configured push service account and fixed mailbox before doing
+any work. Notifications are wake-ups, not message payloads or safe sync cursors.
 
-## Overview
+Google's [`history.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list)
+returns records **after** `startHistoryId`. Querying from the notification's own
+latest ID can omit the change that caused it. An empty successful response is a
+valid no-change result, including immediately after a watch renewal; it must not
+start a 20/40/80-second polling loop or be reported as upstream rate limiting.
 
-The system uses Google Pub/Sub to receive Gmail notifications when new emails arrive. The general flow is:
+## Progress and acknowledgments
 
-1. Gmail API watch function monitors a mailbox
-2. Gmail notifies our Pub/Sub topic when changes occur
-3. Pub/Sub delivers a notification to our webhook endpoint
-4. Our system processes the notification and fetches the new emails
-5. Emails are saved to our database
+The existing `app_settings` table stores the mailbox checkpoint under
+`gmail_history_checkpoint:<mailbox>` with value `{"history_id":"<decimal ID>"}`.
+There is no schema migration and no automatic initialization. Email rows' history
+arrays are not complete processing checkpoints and must not be used as a shortcut.
 
-## Flow Diagram
+For every authenticated notification, including old or duplicate deliveries:
 
-```mermaid
-flowchart TD
-    %% External systems
-    email[Email arrives in Gmail]
-    
-    %% Define the file groupings
-    subgraph gmail_service["api/src/google/gmail/service.py"]
-        get_email_changes["2.1-get_email_changes(service, history_id)"]
-        status_decision{Check for messages}
-        get_email_content["2.2-get_email_content(service, email_message_id)"]
-        process_single_message["2.3.0-process_single_message(email_message)"]
-        extract_email_body["2.3.1-extract_email_body(email_message)"]
-    end
-    
-    subgraph pubsub_routes["api/src/google/pubsub/routes.py"]
-        handle_gmail_notifications["1-handle_gmail_notifications(request, session)"]
-        process_gmail_notification["2.0-process_gmail_notification(pubsub_notification_data, session)"]
-        return_status["3-Return HTTP status code"]
-    end
-    
-    subgraph gmail_db_ops["api/src/google/gmail/db_ops.py"]
-        save_email_message["2.4.0-save_email_message(session, email_message, history_id)"]
-        get_email_by_message_id["2.4.1-get_email_by_message_id(session, email_message_id)"]
-    end
-    
-    %% Define the flow
-    email --> pubsub[Google Pub/Sub]
-    pubsub --> handle_gmail_notifications
-    
-    %% Simplified flow
-    handle_gmail_notifications -- "calls with pubsub_decoded_json" --> process_gmail_notification
-    
-    %% Process notification flow
-    process_gmail_notification -- "calls with history_id" --> get_email_changes
-    
-    %% Status decision now happens in get_email_changes
-    get_email_changes -- "makes" --> status_decision
-    status_decision -- "success: email_message_ids found" --> return_success["Return success result"]
-    status_decision -- "no_messages: no changes" --> return_no_messages["Return no_messages result"]
-    status_decision -- "retry_needed: needs retry" --> return_retry["Return retry_needed result"]
-    
-    %% Different paths based on status
-    return_success -- "returns to" --> process_gmail_notification
-    return_no_messages -- "returns to" --> process_gmail_notification
-    return_retry -- "returns to" --> process_gmail_notification
-    
-    %% For successful results with messages
-    process_gmail_notification -- "for each ID, calls" --> get_email_content
-    get_email_content -- "returns email_message to" --> process_gmail_notification
-    
-    process_gmail_notification -- "calls with email_message" --> process_single_message
-    process_single_message -- "calls" --> extract_email_body
-    extract_email_body -- "returns to" --> process_single_message
-    process_single_message -- "returns processed email_message to" --> process_gmail_notification
-    
-    process_gmail_notification -- "calls with email_message" --> save_email_message
-    save_email_message -- "may call" --> get_email_by_message_id
-    get_email_by_message_id -- "returns to" --> save_email_message
-    save_email_message -- "returns to" --> process_gmail_notification
-    
-    %% Result determination
-    process_gmail_notification -- "returns processing_result to" --> handle_gmail_notifications
-    
-    handle_gmail_notifications --> return_status
-    return_status -- "204: Success/No msgs" --> return_204["Return 204 (Success)"]
-    return_status -- "429: Retry needed" --> return_429["Return 429 (Retry)"]
-    
-    return_429 -- "triggers retry of" --> pubsub
-    
-    %% Styling
-    classDef external fill:#ddd,stroke:#333,stroke-width:1px
-    classDef routes fill:#bfb,stroke:#333,stroke-width:2px
-    classDef gmail fill:#f9f,stroke:#333,stroke-width:2px
-    classDef db fill:#fdb,stroke:#333,stroke-width:2px
-    
-    class email,pubsub external
-    class handle_gmail_notifications,process_gmail_notification,return_status,return_204,return_429 routes
-    class get_email_changes,status_decision,return_success,return_no_messages,return_retry,get_email_content,process_single_message,extract_email_body gmail
-    class save_email_message,get_email_by_message_id db
+1. Read the saved checkpoint. If absent, return 503 with
+   `X-Retry-Reason: gmail_checkpoint_uninitialized`; do not infer it from the wake-up.
+2. Fetch one page (at most 50 history records) starting after that checkpoint.
+   Blocking Google calls run in a worker thread. Successful empty history returns
+   immediately. Provider errors retain the checkpoint and log their HTTP status;
+   an upstream 429 is distinct from a local processing failure.
+3. Fetch/store every changed message and durably enqueue eligible Zillow emails
+   using the existing idempotent queue and freshness policy. Unavailable messages returning 404 must first be recorded in the durable
+   unresolved exception ledger. A 404 does not establish deletion or classification. A failed save or enqueue fails the page.
+4. Only after the whole page succeeds, compare-and-swap the saved checkpoint.
+   Concurrent deliveries may repeat idempotent work but cannot rewind progress.
+   When `nextPageToken` exists, save the last **record** ID, not the mailbox's
+   current head, and return 503 (`gmail_history_remaining`) to request redelivery.
+   The next attempt resumes after that record. Only the final page may save the
+   response's mailbox `historyId` and return 204. Valid no-change pages also return 204.
+
+Processing failures return 503 (or 500 for partial/unhandled failures), never a
+false acknowledgment. All non-2xx outcomes let Pub/Sub retry according to its
+configured subscription policy. Neither a 499 client disconnect nor a failed
+HTTP response alone proves data was dropped: email/queue writes may already have
+committed, and retries are idempotent. The checkpoint remains conservative until
+the page is complete. An invalid/expired history ID (Gmail 404) returns 503 with
+`gmail_history_expired` and requires reconciliation; a newer notification cannot
+repair an unknown gap.
+
+Paging bounds record count, not total processing time. A large individual record
+or slow provider may still exceed a push deadline and be retried. This change
+removes deliberate 140-second idle waits; it does not replace the handler with a
+durable background sync worker. If large pages repeatedly time out, inspect their
+processing before changing deadlines or replaying work.
+
+## Approval required before first rollout
+
+This change deliberately fails closed without a reviewed initial checkpoint.
+Do not deploy it alone and assume the first notification will initialize progress.
+No production checkpoint, backfill, subscription setting or replay is changed by
+this PR.
+
+1. Read the actual subscription acknowledgment deadline, retry policy, retention
+   and any dead-letter policy. Confirm queued notifications have not expired.
+2. With explicit recovery approval, establish a trustworthy baseline: reconcile
+   Gmail against stored message IDs over the possible gap (full sync if the old
+   history has expired). Use storage-only reconciliation first; separately review
+   any lead jobs that should be queued. Replaying notifications can enqueue lead
+   automation, so it is not a read-only diagnostic action.
+3. Select a valid history ID through which all required storage/queue work is
+   confirmed complete. Never choose the latest ID merely to clear retries. Insert
+   the dedicated `app_settings` row once, within an explicitly approved transaction,
+   with that decimal ID as a JSON string. Refuse an existing row rather than overwrite
+   its cursor. Preserve all unrelated settings. Coordinate this with deployment.
+4. Authorize one drain/redelivery, verify page-by-page progress, a 204 for empty
+   history, and persistence/queue outcomes. Watch renewal remains independent and
+   must never move this processing checkpoint.
+
+If rolling this code back, preserve the checkpoint row for investigation; the old
+handler ignores it. Do not reset progress to a new notification or delete the row
+to suppress errors. Such a rollback reinstates the old cursor and polling defects.
+
+## Verification and telemetry
+
+Tests cover empty responses, pagination past the notified ID, provider failures,
+missing/expired checkpoints, concurrent compare-and-swap, failed database writes,
+failed durable enqueues, identity boundaries, and credential-safe logging.
+
+```sh
+./scripts/worktree-test.sh api/src/tests/test_gmail_history_checkpoint.py api/src/tests/test_gmail_db_failures.py api/src/tests/test_pubsub_identity.py api/src/tests/test_pubsub_zillow_enqueue.py api/src/tests/test_pubsub_logging.py
 ```
 
-## Key Functions and Flow
+Authentication logs record authorization presence and fixed outcomes, never
+request headers, bearer-token prefixes, JWT claims or verifier exception text.
 
-### 1. `handle_gmail_notifications`
 
-This is the entry point - a FastAPI route that receives notifications from Google Pub/Sub.
+## Unavailable-message evidence and storage-only recovery
 
-**Responsibilities:**
-- Validate the request is from Google Pub/Sub
-- Extract and decode the message data
-- Pass the decoded data to the processor
-- Return appropriate status code based on processing results
+`app_settings` keys `gmail_unavailable:<mailbox>:<message_id>` retain an explicit
+`unresolved` status, `unknown` classification, first recording time, last observed
+time and an observations map. Each observation includes its source, HTTP status,
+history range and the original per-message history/thread/event metadata. Original
+incident log evidence can be added under separate keys. Atomic merges preserve
+other observations and classification; repeated pages reuse observation keys.
+A new 404 reopens an exception. Nothing automatically resolves or deletes it.
+There is no schema migration: both ledger and checkpoint use the existing table.
 
-**Status Codes:**
-- `204`: Successfully processed or confirmed no messages to process
-- `429`: Temporary failure; Pub/Sub should retry
+A checkpoint means every message in that range was stored/queued under policy OR
+accounted for by committed unresolved evidence. It does not certify unavailable
+contents were processed or deleted. Ledger failure fails the page and prevents
+advancement. Query the ledger independently of the cursor; advancing must never
+remove its audit obligation. Operators should review unresolved records after
+rollout and whenever unavailable-message warnings recur. No automatic replay or
+resolution job is installed. Keep records until an explicit audited resolution.
 
-### 2. `process_gmail_notification`
+`_process_gmail_history(..., storage_only=True)` is an internal, non-HTTP recovery
+path: it stores retrievable content without appending notification IDs to history
+arrays and never enqueues leads. Encountering a Zillow message fails the recovery
+page after saving its content, requiring a separate lead decision before cursor
+initialization. A previously unavailable Zillow message also cannot auto-enqueue
+while its exception is unresolved, even on a normal delivery. Other future mail
+retains the existing processing policy.
 
-This function processes the notification and fetches any new emails.
-
-**Responsibilities:**
-- Get Gmail service with appropriate credentials
-- Fetch message IDs using history ID from the notification
-- Process each message and save to database
-- Return a structured result with processing status
-
-**Return Value Structure:**
-```python
-{
-    "status": "success" | "no_messages" | "retry_needed",
-    "messages": [list_of_processed_messages],
-    "reason": "Explanation of what happened"
-}
-```
-
-### 3. `get_email_changes`
-
-This function fetches the list of message IDs that have changed since a specific history ID and makes the primary status decision.
-
-**Responsibilities:**
-- Query Gmail API for changes since the given history ID
-- Use exponential backoff to handle race conditions 
-- Make the primary status determination:
-  - `success`: Found history and new message IDs
-  - `no_messages`: Found history but no new messages
-  - `retry_needed`: Could not retrieve history (needs retry)
-- Return both status and message IDs in a structured format
-
-**Return Value Structure:**
-```python
-{
-    "status": "success" | "no_messages" | "retry_needed",
-    "email_message_ids": [list_of_message_ids],
-    "reason": "Explanation of what happened"
-}
-```
-
-### 4. `get_email_content` and `process_single_message`
-
-These functions fetch and process individual email messages.
-
-**Responsibilities:**
-- Fetch full message content from Gmail API
-- Extract relevant information (subject, body, etc.)
-- Format into a structure ready for database storage
-
-## Retry Logic and Status Codes
-
-The system is designed to handle temporary failures gracefully:
-
-### When 204 (Success) is Returned
-- When all messages are successfully processed
-- When we've confirmed there are no messages to process for this notification
-- This tells Pub/Sub the message was handled successfully
-
-### When 429 (Too Many Requests) is Returned
-- When Gmail history ID isn't available yet (race condition)
-- When we found message IDs but couldn't process them
-- When unexpected errors occur during processing
-- This tells Pub/Sub to retry the notification later
-- Includes Retry-After header (5 seconds) and X-Retry-Reason header for debugging
-
-## Pub/Sub Configuration
-
-For reliable processing, the Pub/Sub subscription should have:
-- Acknowledgement deadline: At least 120 seconds
-- Retry policy: Exponential backoff (currently 10s min, 600s max)
-
-## Authentication diagnostics
-
-Webhook logs record authorization presence and fixed verification outcomes. Never log
-request headers, bearer-token prefixes, decoded JWT claims, or verifier exception text.
-JWT parser errors can include the original credential, so verification failures also
-use fixed response details and suppress exception chaining before reaching route logging.
-
-## Common Issues and Debugging
-
-- **Same notification appears multiple times**: This is normal if the Gmail API hasn't made the messages available yet. The 429 status code triggers Pub/Sub to retry.
-- **"No new messages found"**: The Gmail API sometimes sends notifications before changes are available. The system will retry until it can access the messages.
-- **Messages not appearing in database**: Check the logs for specific message processing errors.
-
-### Status Flow
-
-Status determinations flow through the system as follows:
-
-1. **Primary Status Decision** - Made in `get_email_changes`:
-   - Determines if history is available and if there are messages to process
-   - This status is passed directly to the caller for "no_messages" and "retry_needed" cases
-
-2. **Status Override** - Only happens in `process_gmail_notification` when needed:
-   - Maintains "success" status if all messages are processed successfully
-   - Overrides to "retry_needed" if message processing fails
-   - Statuses from `get_email_changes` are never overridden for "no_messages" or "retry_needed"
-
-3. **HTTP Response Status** - Determined in `handle_gmail_notifications`:
-   - 204: For "success" and "no_messages" results (acknowledged)
-   - 429: For "retry_needed" results (temporary failure, retry) 
+For first recovery, bound pages and provider reads, record original incident
+observations, and stop on failed storage/evidence writes or any lead needing a
+review. Only initialize after every page in the reviewed incident interval is
+accounted for. Record the start/final history IDs, counts and unresolved IDs in a
+separate recovery manifest, alongside the cursor. Do not equate that bounded
+incident reconciliation with a full historical mailbox audit. Check remaining
+exceptions separately after successful 204 responses and backlog reduction.
