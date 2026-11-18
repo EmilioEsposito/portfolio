@@ -119,7 +119,9 @@ async def test_one_failed_enqueue_fails_the_notification_but_keeps_the_rest(gmai
 async def test_recovery_cannot_trigger_historical_lead(gmail, monkeypatch, storage_only):
     enqueue = AsyncMock()
     monkeypatch.setattr(queue, "enqueue_zillow_email", enqueue)
-    monkeypatch.setattr(routes, "has_unresolved_exception", AsyncMock(return_value=not storage_only))
+    monkeypatch.setattr(
+        routes, "has_unresolved_exception", AsyncMock(return_value=not storage_only)
+    )
     gmail.append(_email("recovered", "a@convo.zillow.com"))
     result = await routes._process_gmail_history(NOTIFICATION, "1", storage_only=storage_only)
     assert result["status"] == "retry_needed"
