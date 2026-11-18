@@ -26,8 +26,8 @@ For every authenticated notification, including old or duplicate deliveries:
    immediately. Provider errors retain the checkpoint and log their HTTP status;
    an upstream 429 is distinct from a local processing failure.
 3. Fetch/store every changed message and durably enqueue eligible Zillow emails
-   using the existing idempotent queue and freshness policy. Deleted messages
-   returning 404 are deliberately skipped. A failed save or enqueue fails the page.
+   using the existing idempotent queue and freshness policy. Unavailable messages returning 404 must first be recorded in the durable
+   unresolved exception ledger. A 404 does not establish deletion or classification. A failed save or enqueue fails the page.
 4. Only after the whole page succeeds, compare-and-swap the saved checkpoint.
    Concurrent deliveries may repeat idempotent work but cannot rewind progress.
    When `nextPageToken` exists, save the last **record** ID, not the mailbox's
@@ -89,3 +89,39 @@ failed durable enqueues, identity boundaries, and credential-safe logging.
 
 Authentication logs record authorization presence and fixed outcomes, never
 request headers, bearer-token prefixes, JWT claims or verifier exception text.
+
+
+## Unavailable-message evidence and storage-only recovery
+
+`app_settings` keys `gmail_unavailable:<mailbox>:<message_id>` retain an explicit
+`unresolved` status, `unknown` classification, first recording time, last observed
+time and an observations map. Each observation includes its source, HTTP status,
+history range and the original per-message history/thread/event metadata. Original
+incident log evidence can be added under separate keys. Atomic merges preserve
+other observations and classification; repeated pages reuse observation keys.
+A new 404 reopens an exception. Nothing automatically resolves or deletes it.
+There is no schema migration: both ledger and checkpoint use the existing table.
+
+A checkpoint means every message in that range was stored/queued under policy OR
+accounted for by committed unresolved evidence. It does not certify unavailable
+contents were processed or deleted. Ledger failure fails the page and prevents
+advancement. Query the ledger independently of the cursor; advancing must never
+remove its audit obligation. Operators should review unresolved records after
+rollout and whenever unavailable-message warnings recur. No automatic replay or
+resolution job is installed. Keep records until an explicit audited resolution.
+
+`_process_gmail_history(..., storage_only=True)` is an internal, non-HTTP recovery
+path: it stores retrievable content without appending notification IDs to history
+arrays and never enqueues leads. Encountering a Zillow message fails the recovery
+page after saving its content, requiring a separate lead decision before cursor
+initialization. A previously unavailable Zillow message also cannot auto-enqueue
+while its exception is unresolved, even on a normal delivery. Other future mail
+retains the existing processing policy.
+
+For first recovery, bound pages and provider reads, record original incident
+observations, and stop on failed storage/evidence writes or any lead needing a
+review. Only initialize after every page in the reviewed incident interval is
+accounted for. Record the start/final history IDs, counts and unresolved IDs in a
+separate recovery manifest, alongside the cursor. Do not equate that bounded
+incident reconciliation with a full historical mailbox audit. Check remaining
+exceptions separately after successful 204 responses and backlog reduction.

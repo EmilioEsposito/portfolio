@@ -45,6 +45,8 @@ async def test_page_checkpoint_never_jumps_to_mailbox_head():
     assert result["added_message_ids"] == ["new"]
     assert result["checkpoint"] == "120"
     assert result["has_more"] is True
+    assert result["message_history"]["changed"][0]["history_id"] == "120"
+    assert result["message_history"]["changed"][0]["event_types"] == ["labelsRemoved"]
 
 
 @pytest.mark.asyncio
@@ -182,6 +184,42 @@ async def test_database_compare_and_swap_cannot_rewind_or_initialize(monkeypatch
         async with session_context() as session:
             value = await session.scalar(select(AppSetting.value).where(AppSetting.key == key))
             assert value == {"history_id": "200"}
+    finally:
+        async with session_context() as session:
+            await session.execute(delete(AppSetting).where(AppSetting.key == key))
+            await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_exception_ledger_preserves_evidence_across_retry_and_concurrency(monkeypatch):
+    import asyncio
+
+    from api.src.google.gmail import exceptions
+
+    prefix = "gmail_unavailable:offline-ledger-test:"
+    monkeypatch.setattr(exceptions, "PREFIX", prefix)
+    key = prefix + "missing"
+    async with session_context() as session:
+        await session.execute(delete(AppSetting).where(AppSetting.key == key))
+        await session.commit()
+    try:
+        await exceptions.record_unavailable(
+            "missing", "original", {"http_status": 404, "logged_at": "2026-11-17T16:45:15Z"}
+        )
+        await asyncio.gather(
+            *[
+                exceptions.record_unavailable("missing", "page-" + str(n), {"history_id": str(n)})
+                for n in range(3)
+            ]
+        )
+        await exceptions.record_unavailable("missing", "page-1", {"history_id": "1"})
+        assert await exceptions.has_unresolved_exception("missing")
+        async with session_context() as session:
+            value = await session.scalar(select(AppSetting.value).where(AppSetting.key == key))
+        assert value["status"] == "unresolved"
+        assert value["classification"] == "unknown"
+        assert len(value["observations"]) == 4
+        assert value["observations"]["original"]["logged_at"] == "2026-11-17T16:45:15Z"
     finally:
         async with session_context() as session:
             await session.execute(delete(AppSetting).where(AppSetting.key == key))

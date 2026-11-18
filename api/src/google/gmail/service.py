@@ -213,7 +213,31 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
             raise ValueError("Gmail history page did not advance")
         message_ids: set[str] = set()
         added_ids: set[str] = set()
+        message_history: dict[str, list[dict]] = {}
         for record in history:
+            touched = {m["id"]: m for m in record.get("messages", [])}
+            for field in ("messagesAdded", "messagesDeleted", "labelsAdded", "labelsRemoved"):
+                touched.update(
+                    {item["message"]["id"]: item["message"] for item in record.get(field, [])}
+                )
+            for mid, message in touched.items():
+                message_history.setdefault(mid, []).append(
+                    {
+                        "history_id": str(record["id"]),
+                        "thread_id": message.get("threadId"),
+                        "event_types": [
+                            field
+                            for field in (
+                                "messagesAdded",
+                                "messagesDeleted",
+                                "labelsAdded",
+                                "labelsRemoved",
+                            )
+                            if any(item["message"]["id"] == mid for item in record.get(field, []))
+                        ],
+                        "label_ids": message.get("labelIds", []),
+                    }
+                )
             message_ids.update(m["id"] for m in record.get("messages", []))
             # Gmail recommends the specific change fields rather than messages.
             for field in ("messagesAdded", "messagesDeleted", "labelsAdded", "labelsRemoved"):
@@ -223,6 +247,7 @@ async def get_email_changes(gmail_service, history_id: str, user_id: str = "me")
             "status": "success" if message_ids else "no_messages",
             "email_message_ids": sorted(message_ids),
             "added_message_ids": sorted(added_ids),
+            "message_history": message_history,
             "checkpoint": checkpoint,
             "has_more": has_more,
             "reason": "Gmail history page retrieved" if history else "No changes after checkpoint",

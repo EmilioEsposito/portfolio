@@ -41,6 +41,7 @@ def gmail(monkeypatch):
         }
 
     by_id = lambda message_id: next(e for e in emails if e["message_id"] == message_id)  # noqa: E731
+    monkeypatch.setattr(routes, "has_unresolved_exception", AsyncMock(return_value=False))
     monkeypatch.setattr(routes, "get_history_checkpoint", AsyncMock(return_value="1"))
     monkeypatch.setattr(routes, "advance_history_checkpoint", AsyncMock())
     monkeypatch.setattr(routes, "get_delegated_credentials", Mock())
@@ -111,3 +112,35 @@ async def test_one_failed_enqueue_fails_the_notification_but_keeps_the_rest(gmai
     # Not "success": the webhook answers non-2xx and Pub/Sub redelivers.
     assert result["status"] == "partial_success_failure"
     assert [m["message_id"] for m in result["messages"]] == ["good"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("storage_only", [False, True])
+async def test_recovery_cannot_trigger_historical_lead(gmail, monkeypatch, storage_only):
+    enqueue = AsyncMock()
+    monkeypatch.setattr(queue, "enqueue_zillow_email", enqueue)
+    monkeypatch.setattr(routes, "has_unresolved_exception", AsyncMock(return_value=not storage_only))
+    gmail.append(_email("recovered", "a@convo.zillow.com"))
+    result = await routes._process_gmail_history(NOTIFICATION, "1", storage_only=storage_only)
+    assert result["status"] == "retry_needed"
+    enqueue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_unavailable_requires_durable_evidence_before_advancement(gmail, monkeypatch, fails):
+    gmail.append(_email("missing", "unknown@example.com"))
+    monkeypatch.setattr(routes, "get_email_content", AsyncMock(return_value=None))
+    record = AsyncMock(side_effect=RuntimeError("ledger down") if fails else None)
+    monkeypatch.setattr(routes, "record_unavailable", record)
+    result = await routes.process_gmail_notification(NOTIFICATION)
+    record.assert_awaited_once()
+    assert record.await_args.args[0] == "missing"
+    assert record.await_args.args[2]["http_status"] == 404
+    if fails:
+        assert result["status"] == "retry_needed"
+        routes.advance_history_checkpoint.assert_not_awaited()
+    else:
+        assert result["status"] == "success"
+        assert "unresolved" in result["reason"]
+        routes.advance_history_checkpoint.assert_awaited_once()
