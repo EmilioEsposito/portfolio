@@ -37,7 +37,11 @@ def signed_notification(monkeypatch):
     monkeypatch.setenv("PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL", IDENTITY)
     monkeypatch.setenv("PUBSUB_AUDIENCE_URL", AUDIENCE)
     delegate = Mock()
-    history = AsyncMock(return_value={"status": "no_messages", "reason": "No changes"})
+    history = AsyncMock(
+        return_value={"status": "no_messages", "reason": "No changes", "checkpoint": "123"}
+    )
+    monkeypatch.setattr(routes, "get_history_checkpoint", AsyncMock(return_value="1"))
+    monkeypatch.setattr(routes, "advance_history_checkpoint", AsyncMock())
     monkeypatch.setattr(routes, "get_delegated_credentials", delegate)
     monkeypatch.setattr(routes, "get_gmail_service", Mock())
     monkeypatch.setattr(routes, "get_email_changes", history)
