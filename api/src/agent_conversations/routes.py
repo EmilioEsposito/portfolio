@@ -27,7 +27,12 @@ from api.src.agent_conversations.models import (
     list_pending_conversations,
     list_user_conversations,
 )
-from api.src.agent_conversations.run_state import lock_conversation, public_run, require_idle
+from api.src.agent_conversations.run_state import (
+    FOLLOW_UPS_KEY,
+    lock_conversation,
+    public_run,
+    require_idle,
+)
 from api.src.agent_conversations.schemas import ApprovalRequest
 from api.src.database.database import DBSession
 from api.src.zillow_leads.identity import is_lead_conversation
@@ -158,6 +163,14 @@ async def get_conversation_messages_endpoint(
     """Get saved progress and authoritative run status in Vercel AI SDK format."""
     conversation = await get_agent_conversation(session, conversation_id, retries=1)
     run = public_run(conversation.metadata_ if conversation else None)
+    if run and conversation:
+        run["can_steer"] = bool(
+            run["status"] == "running"
+            and run.get("accepts_follow_ups")
+            and not run.get("cancel_requested")
+            and conversation.clerk_user_id == user.id
+        )
+        run["follow_ups"] = (conversation.metadata_ or {}).get(FOLLOW_UPS_KEY, [])
     pydantic_messages = await get_conversation_messages(
         conversation_id,
         clerk_user_id=None,
