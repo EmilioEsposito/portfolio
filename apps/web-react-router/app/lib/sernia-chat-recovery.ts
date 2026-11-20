@@ -10,6 +10,8 @@ export interface ChatRunStatus {
   status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
   started_at: string;
   cancel_requested?: boolean;
+  can_steer?: boolean;
+  follow_ups?: { id: string; text: string; included: boolean }[];
 }
 
 export function requestHasSettled(

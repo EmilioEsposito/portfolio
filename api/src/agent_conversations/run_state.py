@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 from sqlalchemy import text
 
+FOLLOW_UPS_KEY = "web_chat_follow_ups"
 RUN_KEY = "web_chat_run"
 
 
