@@ -293,7 +293,7 @@ function ChatView({
   );
   const [sendingFollowUp, setSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
-  const followUpBusy = useRef(false);
+  const followUpRequest = useRef<AbortController | null>(null);
   const followUpKey = `sernia-follow-up-${conversationId}`;
   // Reuse the input ID after an ambiguous HTTP response, including after reload.
   const [attempt, setAttempt] = useState<{
@@ -725,6 +725,7 @@ function ChatView({
     () => () => {
       syncGenerationRef.current += 1;
       syncAbortControllerRef.current?.abort();
+      followUpRequest.current?.abort();
     },
     [],
   );
@@ -957,8 +958,9 @@ function ChatView({
 
   async function sendFollowUp(runId: string) {
     const text = input.trim();
-    if (!text || attachment.hasFiles || followUpBusy.current) return;
-    followUpBusy.current = true;
+    if (!text || attachment.hasFiles || followUpRequest.current) return;
+    const controller = new AbortController();
+    followUpRequest.current = controller;
     setSendingFollowUp(true);
     setFollowUpError(null);
     const next =
@@ -977,6 +979,7 @@ function ChatView({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
+          signal: controller.signal,
           body: JSON.stringify({ request_id: runId, input_id: next.id, text }),
         },
       );
@@ -987,6 +990,7 @@ function ChatView({
         );
       }
       const entry = await response.json();
+      if (controller.signal.aborted) return;
       setServerRun((current) => {
         if (
           !current ||
@@ -1003,15 +1007,18 @@ function ChatView({
       setAttempt(null);
       sessionStorage.removeItem(followUpKey);
     } catch (error) {
+      if (controller.signal.aborted) return;
       setFollowUpError(
         error instanceof Error
           ? error.message
           : "Couldn't confirm the follow-up. Try again.",
       );
     } finally {
-      followUpBusy.current = false;
-      setSendingFollowUp(false);
-      void syncFromServer(true);
+      followUpRequest.current = null;
+      if (!controller.signal.aborted) {
+        setSendingFollowUp(false);
+        void syncFromServer(true);
+      }
     }
   }
 
@@ -1037,7 +1044,7 @@ function ChatView({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (followUpBusy.current) return;
+    if (followUpRequest.current) return;
     if (canSteer && serverRun) {
       await sendFollowUp(serverRun.id);
       return;
@@ -1277,7 +1284,12 @@ function ChatView({
       <div
         ref={messagesContainerRef}
         className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative max-md:pb-[var(--chat-input-h,5rem)]"
-        {...(!hasUnresolvedResponse && attachment.dropTargetProps)}
+        {...(composerLocked
+          ? {
+              onDragOver: (e) => e.preventDefault(),
+              onDrop: (e) => e.preventDefault(),
+            }
+          : attachment.dropTargetProps)}
       >
         {isStandalonePwa && pullDistance > 0 && (
           <div
