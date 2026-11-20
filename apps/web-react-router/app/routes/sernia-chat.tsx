@@ -291,6 +291,35 @@ function ChatView({
     () =>
       (typeof window !== "undefined" && sessionStorage.getItem(draftKey)) || "",
   );
+  const [sendingFollowUp, setSendingFollowUp] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const followUpBusy = useRef(false);
+  const followUpKey = `sernia-follow-up-${conversationId}`;
+  // Reuse the input ID after an ambiguous HTTP response, including after reload.
+  const [attempt, setAttempt] = useState<{
+    runId: string;
+    text: string;
+    id: string;
+  } | null>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(followUpKey) ?? "null");
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (
+      !attempt ||
+      serverRun?.id !== attempt.runId ||
+      !serverRun.follow_ups?.some((entry) => entry.id === attempt.id)
+    )
+      return;
+    setInput((current) => (current.trim() === attempt.text ? "" : current));
+    setAttempt(null);
+    setFollowUpError(null);
+    sessionStorage.removeItem(followUpKey);
+  }, [attempt, followUpKey, serverRun]);
+
   // Persist draft to sessionStorage so it survives component remounts
   useEffect(() => {
     if (input) {
@@ -353,6 +382,19 @@ function ChatView({
             conversationId,
             pendingRequestRef.current?.requestId,
           );
+        const marker = pendingRequestRef.current;
+        if (
+          response.ok &&
+          marker?.requestId &&
+          response.headers.get("X-Sernia-Steering") === "1"
+        ) {
+          setServerRun({
+            id: marker.requestId,
+            status: "running",
+            can_steer: true,
+            started_at: new Date(marker.createdAt ?? Date.now()).toISOString(),
+          });
+        }
         refreshConversations();
         return response;
       },
@@ -479,6 +521,9 @@ function ChatView({
         });
         setServerRun(null);
         setCancelError(null);
+        setFollowUpError(null);
+        setAttempt(null);
+        sessionStorage.removeItem(followUpKey);
         conversationStarted(
           conversationId,
           requestId,
@@ -492,7 +537,7 @@ function ChatView({
         setIsPreparingRequest(false);
       }
     },
-    [conversationId, invalidateServerSync, storePendingRequest],
+    [conversationId, followUpKey, invalidateServerSync, storePendingRequest],
   );
 
   // Re-sync the chat from the DB (the authoritative source). useChat only
@@ -541,7 +586,11 @@ function ChatView({
           pendingRequestRef.current ?? pendingRequestAtStart;
         const run: ChatRunStatus | null = data.run ?? null;
         // A previous turn's snapshot must never replace a just-submitted turn.
-        if (pendingRequest?.requestId && run && run.id !== pendingRequest.requestId)
+        if (
+          pendingRequest?.requestId &&
+          run &&
+          run.id !== pendingRequest.requestId
+        )
           return false;
         if (run?.status === "running") {
           setServerRun(run);
@@ -896,6 +945,88 @@ function ChatView({
   // can keep checking or start a separate conversation from the header.
   const hasUnresolvedResponse = canRecoverResponse || isPreparingRequest;
 
+  const canSteer =
+    !readOnly &&
+    serverRun?.status === "running" &&
+    serverRun.can_steer &&
+    !serverRun.cancel_requested &&
+    !isCancelling &&
+    !isProcessingApproval &&
+    (!pendingRequestMarker?.requestId ||
+      pendingRequestMarker.requestId === serverRun.id);
+
+  async function sendFollowUp(runId: string) {
+    const text = input.trim();
+    if (!text || attachment.hasFiles || followUpBusy.current) return;
+    followUpBusy.current = true;
+    setSendingFollowUp(true);
+    setFollowUpError(null);
+    const next =
+      attempt?.runId === runId && attempt.text === text
+        ? attempt
+        : { runId, text, id: crypto.randomUUID() };
+    try {
+      sessionStorage.setItem(followUpKey, JSON.stringify(next));
+      setAttempt(next);
+      const token = await getToken();
+      const response = await fetch(
+        `${API_BASE}/conversation/${conversationId}/follow-ups`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ request_id: runId, input_id: next.id, text }),
+        },
+      );
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({}))).detail;
+        throw new Error(
+          typeof detail === "string" ? detail : "Couldn't send the follow-up.",
+        );
+      }
+      const entry = await response.json();
+      setServerRun((current) => {
+        if (
+          !current ||
+          current.id !== runId ||
+          current.follow_ups?.some((item) => item.id === entry.id)
+        )
+          return current;
+        return {
+          ...current,
+          follow_ups: [...(current.follow_ups ?? []), entry],
+        };
+      });
+      setInput((current) => (current.trim() === text ? "" : current));
+      setAttempt(null);
+      sessionStorage.removeItem(followUpKey);
+    } catch (error) {
+      setFollowUpError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't confirm the follow-up. Try again.",
+      );
+    } finally {
+      followUpBusy.current = false;
+      setSendingFollowUp(false);
+      void syncFromServer(true);
+    }
+  }
+
+  const composerLocked =
+    status === "submitted" ||
+    status === "streaming" ||
+    isProcessingApproval ||
+    hasUnresolvedResponse;
+  const composerDisabled = sendingFollowUp || (composerLocked && !canSteer);
+  const sendDisabled =
+    composerDisabled ||
+    (canSteer
+      ? !input.trim() || attachment.hasFiles
+      : !input.trim() && (!attachment.hasFiles || !!pendingApproval));
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -906,6 +1037,11 @@ function ChatView({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (followUpBusy.current) return;
+    if (canSteer && serverRun) {
+      await sendFollowUp(serverRun.id);
+      return;
+    }
     if (
       status === "submitted" ||
       status === "streaming" ||
@@ -1141,7 +1277,7 @@ function ChatView({
       <div
         ref={messagesContainerRef}
         className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll overflow-x-hidden overscroll-none pt-4 relative max-md:pb-[var(--chat-input-h,5rem)]"
-        {...attachment.dropTargetProps}
+        {...(!hasUnresolvedResponse && attachment.dropTargetProps)}
       >
         {isStandalonePwa && pullDistance > 0 && (
           <div
@@ -1324,6 +1460,50 @@ function ChatView({
                 follow-up. Actions already completed are not undone.
               </p>
             )}
+          {serverRun?.follow_ups
+            ?.filter(
+              (entry) =>
+                !entry.included ||
+                status === "streaming" ||
+                status === "submitted",
+            )
+            .map((entry) => (
+              <div
+                key={entry.id}
+                role="status"
+                className="ml-auto w-fit max-w-full rounded-lg bg-muted px-3 py-2"
+              >
+                <p className="whitespace-pre-wrap break-words">{entry.text}</p>
+                <small className="text-muted-foreground">
+                  {entry.included
+                    ? "Included in this response"
+                    : serverRun.status === "running"
+                      ? "Queued for the next model request"
+                      : "Response ended before this follow-up was used"}
+                </small>
+                {!entry.included &&
+                  serverRun.status !== "running" &&
+                  !input &&
+                  !readOnly && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      onClick={() => {
+                        setInput(entry.text);
+                        textareaRef.current?.focus();
+                      }}
+                    >
+                      Use as draft
+                    </Button>
+                  )}
+              </div>
+            ))}
+          {followUpError && (
+            <p role="alert" className="text-sm text-destructive">
+              {followUpError}
+            </p>
+          )}
           {cancelError && (
             <p role="alert" className="text-sm text-destructive">
               {cancelError}
@@ -1517,20 +1697,20 @@ function ChatView({
                       handleSubmit();
                     }
                   }}
-                  onPaste={attachment.handlePaste}
+                  onPaste={
+                    hasUnresolvedResponse ? undefined : attachment.handlePaste
+                  }
+                  maxLength={canSteer ? 16000 : undefined}
                   placeholder={
-                    pendingApproval
-                      ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
-                      : "Ask Sernia AI anything..."
+                    canSteer
+                      ? "Add a follow-up while Sernia AI works…"
+                      : pendingApproval
+                        ? "Type feedback to deny pending action… or use the Approve/Deny buttons above."
+                        : "Ask Sernia AI anything..."
                   }
                   className="min-h-0 max-h-[calc(75dvh)] overflow-hidden resize-none rounded-lg py-2 text-base md:text-sm bg-muted"
                   rows={1}
-                  disabled={
-                    status === "submitted" ||
-                    status === "streaming" ||
-                    isProcessingApproval ||
-                    hasUnresolvedResponse
-                  }
+                  disabled={composerDisabled}
                 />
                 {pendingRequestMarker || serverRun?.status === "running" ? (
                   <Button
@@ -1545,18 +1725,17 @@ function ChatView({
                   >
                     <StopCircle className="w-4 h-4" />
                   </Button>
-                ) : (
+                ) : null}
+                {(canSteer ||
+                  (!pendingRequestMarker &&
+                    serverRun?.status !== "running")) && (
                   <Button
                     type="button"
                     onClick={() => handleSubmit()}
                     size="icon"
-                    disabled={
-                      (!input.trim() && !attachment.hasFiles) ||
-                      status === "submitted" ||
-                      isProcessingApproval ||
-                      hasUnresolvedResponse ||
-                      (!!pendingApproval && !input.trim())
-                    }
+                    aria-label={canSteer ? "Send follow-up" : "Send message"}
+                    title={canSteer ? "Send follow-up" : "Send message"}
+                    disabled={sendDisabled}
                     className="h-9 w-9 shrink-0 rounded-lg"
                   >
                     {isProcessingApproval ? (

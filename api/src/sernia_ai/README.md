@@ -190,6 +190,18 @@ to the server-owned task: navigating away, closing the tab, or losing the
 connection does not cancel execution. A bounded queue detaches slow subscribers
 without blocking the agent. Reopening a running conversation polls saved progress.
 
+While a web response is running, the person who started it can send text
+follow-ups from the composer, including after reopening the conversation.
+`POST /api/sernia-ai/conversation/{id}/follow-ups` takes the active
+`request_id`, a client-generated `input_id` UUID for retries, and `text`.
+The producer reads the ordered inbox from the conversation row and uses
+PydanticAI’s `ctx.enqueue(..., priority="asap")` at model-request boundaries.
+A correction arriving during the final answer can trigger another model request
+within the same run. A tool already executing finishes normally. If the run
+pauses for approval or stops before using a follow-up, the chat shows the
+unused text for that response. The operator can use it as feedback or send it
+in a subsequent turn.
+
 `ConversationCheckpoint` uses the same PydanticAI capability hooks as Rentium's
 `TurnCheckpoint`: save after model responses and settled tool steps, using fresh
 sessions and the existing conversation row. These saves do not increment usage

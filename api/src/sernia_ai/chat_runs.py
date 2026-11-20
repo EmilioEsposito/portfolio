@@ -33,6 +33,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.runs import finalize_run, save_failed_run
+from api.src.sernia_ai.steering import ChatSteering
 
 MAX_RUN_SECONDS = 15 * 60
 # Lets an in-flight cancel poll finish before falling back to cancellation.
@@ -46,6 +47,7 @@ def new_run(request_id: str) -> dict[str, Any]:
     return {
         "id": request_id,
         "status": "running",
+        "accepts_follow_ups": True,
         "started_at": now.isoformat(),
         "expires_at": (now + timedelta(seconds=MAX_RUN_SECONDS + 60)).isoformat(),
     }
@@ -176,7 +178,7 @@ class ChatRun:
             deps=self.deps,
             clerk_user_id=self.deps.user_identifier,
             notify_user_id=self.deps.user_identifier,
-            metadata={RUN_KEY: {**self.run, "status": "completed"}},
+            metadata={RUN_KEY: {**self.run, "accepts_follow_ups": False, "status": "completed"}},
             expected_run_id=self.run["id"],
         )
         self.finished = outcome.persisted
@@ -193,7 +195,7 @@ class ChatRun:
             messages or [*self.history, *self.adapter.messages],
             conversation_id=self.deps.conversation_id,
             clerk_user_id=self.deps.user_identifier,
-            metadata={RUN_KEY: {**self.run, "status": status}},
+            metadata={RUN_KEY: {**self.run, "accepts_follow_ups": False, "status": status}},
             expected_run_id=self.run["id"],
         )
         self.finished = True
@@ -214,7 +216,10 @@ class ChatRun:
                         cancellation_token=self.token,
                         timeout=MAX_RUN_SECONDS,
                         usage_limits=UsageLimits(request_limit=50),
-                        capabilities=[ConversationCheckpoint(save=self.checkpoint)],
+                        capabilities=[
+                            ChatSteering(self.run["id"]),
+                            ConversationCheckpoint(save=self.checkpoint),
+                        ],
                         on_complete=self.complete,
                         on_cancel=self.cancelled,
                         metadata={"trigger_source": "api/sernia-ai/chat"},

@@ -7,12 +7,12 @@ gate and retrieved by individual handlers via the SerniaUser dependency.
 """
 
 import json
-from typing import Literal
-from uuid import uuid4
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
 import logfire
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -33,7 +33,12 @@ from api.src.agent_conversations.models import (
     save_agent_conversation,
 )
 from api.src.agent_conversations.push.routes import router as push_router
-from api.src.agent_conversations.run_state import lock_conversation, require_idle
+from api.src.agent_conversations.run_state import (
+    FOLLOW_UPS_KEY,
+    RUN_KEY,
+    lock_conversation,
+    require_idle,
+)
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
 from api.src.sernia_ai.chat_runs import (
@@ -51,6 +56,7 @@ from api.src.sernia_ai.model_config import (
     get_active_thinking_effort,
     get_model_choice,
 )
+from api.src.sernia_ai.steering import queue_follow_up
 from api.src.sernia_ai.triggers.ai_sms_event_trigger import (
     _sanitize_tool_calls,
 )
@@ -146,7 +152,7 @@ async def chat_sernia(
         AGENT_NAME,
         [*history, *accepted_messages],
         clerk_user_id=user.id,
-        metadata={"web_chat_run": run},
+        metadata={RUN_KEY: run, FOLLOW_UPS_KEY: []},
     )
     logfire.info(
         "sernia chat accepted",
@@ -173,12 +179,28 @@ async def chat_sernia(
     response.headers["X-Accel-Buffering"] = "no"
     response.headers["Cache-Control"] = "no-cache, no-transform"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Sernia-Steering"] = "1"
     response.headers["X-Conversation-Id"] = conversation_id
     return response
 
 
 class CancelChatRequest(BaseModel):
     request_id: str = Field(min_length=1, max_length=200)
+
+
+class FollowUpRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=200)
+    input_id: UUID
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16000)]
+
+
+@router.post("/conversation/{conversation_id}/follow-ups")
+async def add_follow_up(
+    conversation_id: str, body: FollowUpRequest, user: SerniaUser = Depends(_get_sernia_user)
+):
+    return await queue_follow_up(
+        conversation_id, body.request_id, str(body.input_id), body.text, user.id
+    )
 
 
 @router.post("/conversation/{conversation_id}/cancel")

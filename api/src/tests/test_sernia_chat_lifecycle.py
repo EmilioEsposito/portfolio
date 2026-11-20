@@ -10,7 +10,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from pydantic_ai import Agent
-from pydantic_ai.messages import ToolReturnPart
+from pydantic_ai.messages import ToolReturnPart, UserPromptPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from sqlalchemy import delete
 from starlette.requests import Request
@@ -76,7 +76,12 @@ async def scenario(monkeypatch):
     cid = f"test-chat-{uuid4()}"
     entered, release = asyncio.Event(), asyncio.Event()
 
+    model_prompts = []
+
     async def stream(history, info):
+        model_prompts.append(
+            [p.content for m in history for p in m.parts if isinstance(p, UserPromptPart)]
+        )
         if any(isinstance(part, ToolReturnPart) for message in history for part in message.parts):
             yield "Finished after the browser left."
         else:
@@ -103,7 +108,9 @@ async def scenario(monkeypatch):
     monkeypatch.setattr(routes, "sernia_agent", agent)
     monkeypatch.setattr(chat_runs, "resolve_active_run_kwargs", config)
     monkeypatch.setattr(runs, "create_logged_task", discard_notification)
-    yield SimpleNamespace(cid=cid, entered=entered, release=release, agent=agent)
+    yield SimpleNamespace(
+        cid=cid, entered=entered, release=release, agent=agent, model_prompts=model_prompts
+    )
     release.set()
     await chat_runs.shutdown_chat_runs()
     async with AsyncSessionFactory() as session:
@@ -154,17 +161,22 @@ async def test_cancel_from_another_worker_preserves_progress_and_allows_followup
     await start(scenario.cid)
     await asyncio.wait_for(scenario.entered.wait(), timeout=10)
     run = (await saved(scenario.cid)).metadata_[chat_runs.RUN_KEY]
+    await follow_up(scenario.cid, run["id"], "Queued when cancelled")
     # Removing only the fast-path token simulates a cancel request on another replica.
     token = chat_runs._tokens.pop((scenario.cid, run["id"]))
     try:
         result = await chat_runs.cancel_run(scenario.cid, run["id"])
         assert result["cancel_requested"] is True
+        with pytest.raises(HTTPException, match="no longer accepting"):
+            await follow_up(scenario.cid, run["id"], "after cancellation")
         await finished()
         assert token.cancelled
     finally:
         chat_runs._tokens.pop((scenario.cid, run["id"]), None)
     result = await messages(scenario.cid)
     assert result["run"]["status"] == "cancelled"
+    assert result["run"]["follow_ups"][0]["included"] is False
+    assert result["run"]["follow_ups"][0]["text"] == "Queued when cancelled"
     assert result["pending"] == []
     assert "test request" in json.dumps(result["messages"])
     scenario.release.set()
@@ -266,3 +278,116 @@ async def test_superseded_worker_cannot_overwrite_current_run(scenario):
                 expected_run_id="previous-worker",
             )
     assert "test request" in json.dumps((await saved(scenario.cid)).messages)
+
+
+async def follow_up(cid, rid, text, *, input_id=None, user=USER):
+    return await routes.add_follow_up(
+        cid, routes.FollowUpRequest(request_id=rid, input_id=input_id or uuid4(), text=text), user
+    )
+
+
+@pytest.mark.asyncio
+async def test_follow_ups_arriving_during_tool_are_ordered_and_idempotent(scenario):
+    rid = str(uuid4())
+    await start(scenario.cid, request_id=rid)
+    await asyncio.wait_for(scenario.entered.wait(), 5)
+    first_id = uuid4()
+    first = "Use November"
+    duplicate = await asyncio.gather(
+        *(follow_up(scenario.cid, rid, first, input_id=first_id) for _ in range(2))
+    )
+    assert duplicate[0] == duplicate[1]
+    with pytest.raises(HTTPException, match="already used"):
+        await follow_up(scenario.cid, rid, "changed", input_id=first_id)
+    with pytest.raises(HTTPException, match="started this response"):
+        await follow_up(scenario.cid, rid, "wrong user", user=SimpleNamespace(id="someone-else"))
+    with pytest.raises(HTTPException, match="ended"):
+        await follow_up(scenario.cid, "old-run", "wrong run")
+    await follow_up(scenario.cid, rid, "Only include paid invoices")
+    scenario.release.set()
+    await finished()
+    data = await messages(scenario.cid)
+    assert data["run"]["status"] == "completed"
+    assert all(entry["included"] for entry in data["run"]["follow_ups"])
+    assert [p["text"] for m in data["messages"] if m["role"] == "user" for p in m["parts"]] == [
+        "test request",
+        first,
+        "Only include paid invoices",
+    ]
+    assert (await saved(scenario.cid)).run_count == 1
+    assert scenario.model_prompts == [
+        ["test request"],
+        ["test request", first, "Only include paid invoices"],
+    ]
+    with pytest.raises(HTTPException, match="no longer accepting"):
+        await follow_up(scenario.cid, rid, "too late")
+    assert (await follow_up(scenario.cid, rid, first, input_id=first_id))["included"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pause", [True, False], ids=["approval", "text"])
+async def test_follow_up_during_final_model_request(scenario, monkeypatch, pause):
+    from pydantic_ai import DeferredToolRequests
+
+    calls = []
+
+    async def model(history, info):
+        calls.append([p.content for m in history for p in m.parts if isinstance(p, UserPromptPart)])
+        if len(calls) == 1:
+            scenario.entered.set()
+            await scenario.release.wait()
+            if pause:
+                yield {0: DeltaToolCall(name="gated", json_args="{}", tool_call_id="approval-id")}
+            else:
+                yield "Initial answer"
+        else:
+            yield "Revised answer"
+
+    agent = Agent(FunctionModel(stream_function=model), output_type=[str, DeferredToolRequests])
+
+    @agent.tool_plain(requires_approval=True)
+    def gated() -> str:
+        raise AssertionError("Approval is required")
+
+    monkeypatch.setattr(routes, "sernia_agent", agent)
+    rid = str(uuid4())
+    await start(scenario.cid, request_id=rid)
+    await asyncio.wait_for(scenario.entered.wait(), 5)
+    await follow_up(scenario.cid, rid, "My correction")
+    scenario.release.set()
+    await finished()
+    data = await messages(scenario.cid)
+    assert data["run"]["status"] == "completed"
+    assert data["run"]["follow_ups"][0]["included"] is (not pause)
+    if pause:
+        assert len(calls) == 1
+        assert data["pending"][0]["tool_call_id"] == "approval-id"
+    else:
+        assert calls == [["test request"], ["test request", "My correction"]]
+        assert data["messages"][-1]["parts"][-1]["text"] == "Revised answer"
+
+
+@pytest.mark.asyncio
+async def test_failure_after_steering_preserves_follow_up(scenario, monkeypatch):
+    async def stream(history, info):
+        if any(
+            isinstance(part, UserPromptPart) and part.content == "Correction"
+            for message in history
+            for part in message.parts
+        ):
+            raise RuntimeError("synthetic failure after steering")
+        scenario.entered.set()
+        await scenario.release.wait()
+        yield "Initial answer"
+
+    monkeypatch.setattr(routes, "sernia_agent", Agent(FunctionModel(stream_function=stream)))
+    rid = str(uuid4())
+    await start(scenario.cid, request_id=rid)
+    await asyncio.wait_for(scenario.entered.wait(), 5)
+    await follow_up(scenario.cid, rid, "Correction")
+    scenario.release.set()
+    await finished()
+    data = await messages(scenario.cid)
+    assert data["run"]["status"] == "failed"
+    assert data["run"]["follow_ups"][0]["included"]
+    assert json.dumps(data["messages"]).count("Correction") == 1
