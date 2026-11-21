@@ -184,7 +184,9 @@ mcp = FastMCP(
     instructions=(
         "Sernia Capital MCP server. Read/write a shared workspace (MEMORY.md, "
         "skills/, areas/), search Gmail / OpenPhone contacts / ClickUp tasks, "
-        "and send SMS/email through an Approve/Reject card. Code-owned fixed "
+        "and send SMS/email through an Approve/Reject card. Use ClickUp for general task requests. "
+        "Use Quo tasks when the user chooses Quo or refers to an existing Quo task. "
+        "Create a task in both only when asked. Code-owned fixed "
         "reminders use list_message_templates and send_templated_message without "
         "a card. Other external sends "
         "without UI approval are not possible — clients that can't render the "

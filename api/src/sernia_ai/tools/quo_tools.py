@@ -48,7 +48,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.toolsets import CombinedToolset
 
-from api.src.open_phone import tenants
+from api.src.open_phone import tasks, tenants
 from api.src.open_phone.service import (
     find_contact_by_phone,
     get_all_contacts,
@@ -1846,6 +1846,33 @@ def _build_quo_toolset():
 
     # --- Custom tools (search_contacts + SMS tools) ---
     custom_toolset = FunctionToolset[SerniaDeps]()
+
+    @custom_toolset.tool_plain
+    async def list_tasks(max_results: tasks.PageSize = 25, page_token: str | None = None) -> dict:
+        """List one page of Quo tasks, including task IDs and the next page token."""
+        return await tasks.list_tasks(client, max_results, page_token)
+
+    @custom_toolset.tool_plain
+    async def get_task(task_id: tasks.TaskId) -> dict:
+        """Read a Quo task by its TK ID, including current title and description."""
+        return await tasks.get_task(client, task_id)
+
+    @custom_toolset.tool_plain
+    async def create_task(task: tasks.NewTask) -> dict:
+        """Create a task when the user chooses Quo. Omit link IDs for an organization-wide task."""
+        return await tasks.create_task(client, task)
+
+    @custom_toolset.tool_plain
+    async def update_task(task_id: tasks.TaskId, change: tasks.TaskChange) -> dict:
+        """Update one aspect of a Quo task per call. For text edits supply both title and
+        description, reading the task first to preserve whichever field the user wants to keep.
+        """
+        return await tasks.update_task(client, task_id, change)
+
+    @custom_toolset.tool_plain(requires_approval=True)
+    async def delete_task(task_id: tasks.TaskId) -> str:
+        """Delete a Quo task by its TK ID after human approval."""
+        return await tasks.delete_task(client, task_id)
 
     @custom_toolset.tool
     async def search_contacts(
