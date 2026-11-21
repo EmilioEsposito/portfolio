@@ -157,12 +157,12 @@ sync the workspace -> save the conversation -> deliver the outcome
 
 | Outcome | Delivered |
 |---------|-----------|
-| Paused for approval | Approval push. No reply. |
+| Paused for approval | Approval push plus an approval prompt in the originating SMS thread. |
 | `NoAction` | Nothing. |
 | Text | SMS reply when the run owns an SMS thread (`deps.sms_reply_recipients`); web push to the person who asked (`notify_user_id`). |
 
 Pushes deep-link to the saved conversation, so they are sent only once the save
-is confirmed. An SMS reply does not wait on the save. The save always uses a
+is confirmed. SMS approval prompts also require a successful save. Ordinary SMS answers can still be delivered if saving fails. The save always uses a
 fresh DB session (the caller's may have sat idle through a long run) and records
 the run's tokens and cost.
 

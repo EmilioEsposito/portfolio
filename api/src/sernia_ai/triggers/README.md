@@ -85,13 +85,15 @@ flowchart TD
 
     AGENT --> SAVE["Save conversation<br/>(modality=sms, upsert)"]
     SAVE --> RESULT{"Pending<br/>approvals?"}
-    RESULT -->|Yes| HITL["agent_conversations/push.notify_pending_approval()"]
+    RESULT -->|Yes| HITL["Send SMS approval prompt and web push"]
     RESULT -->|No| CHECK{"NoAction?"}
     CHECK -->|Yes| LOG["Log reason, no SMS reply"]
     CHECK -->|No| REPLY["runs.send_sms_reply()"]
 ```
 
 ### Post-Approval SMS Reply
+
+A paused SMS run texts the thread with a review link. For one fully displayed action in Emilio’s direct thread, the prompt also accepts exactly `Y` or `Yes` (case-insensitive). The signed inbound webhook must directly answer that specific outgoing prompt in Quo. The stored contact with slug `emilio` identifies the authorized phone. Groups, batches, longer actions and older pauses use the web approval card. Other replies repeat the prompt and preserve the pause. SMS and web decisions claim the same pending calls before execution.
 
 When a team member approves an action in web chat for an AI SMS conversation, the approval endpoint detects `modality="sms"` and sends the agent's result back via SMS:
 

@@ -181,6 +181,7 @@ async def test_approval_resumption_restores_sms_reply_owner(monkeypatch, reply_t
     result = MagicMock(output="Resumed answer")
     resume = AsyncMock(return_value=result)
     monkeypatch.setattr(routes, "get_agent_conversation", AsyncMock(return_value=conv))
+    monkeypatch.setattr(conversation_handler, "claim_sms_conversation_decision", AsyncMock())
     monkeypatch.setattr(conversation_handler, "resume_with_approvals", resume)
     monkeypatch.setattr(
         conversation_handler, "resolve_active_run_kwargs", AsyncMock(return_value={})
