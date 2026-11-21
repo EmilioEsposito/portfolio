@@ -4,6 +4,8 @@ Imported only after the shared router selects a general-agent conversation from
 stored metadata. Zillow approvals never enter this module.
 """
 
+import asyncio
+
 from clerk_backend_api import User
 from fastapi import HTTPException
 from pydantic_ai import capture_run_messages
@@ -23,6 +25,11 @@ from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import sernia_agent
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
 from api.src.sernia_ai.runs import finalize_run, save_failed_run
+from api.src.sernia_ai.sms_approvals import (
+    RESUME_TIMEOUT_SECONDS,
+    STATE_KEY,
+    claim_sms_conversation_decision,
+)
 
 
 async def approve_general_conversation(
@@ -36,39 +43,66 @@ async def approve_general_conversation(
 ):
     clerk_user_id = user.id
     user_name = _display_name(user)
-    captured_messages = None
-    try:
-        reply_to = None
-        if conv and conv.modality == "sms" and conv.metadata_:
-            reply_to = conv.metadata_.get("trigger_group_participants") or conv.metadata_.get(
-                "trigger_phone"
-            )
-
-        deps = SerniaDeps(
-            db_session=session,
-            conversation_id=conversation_id,
-            user_identifier=clerk_user_id,
-            user_name=user_name,
-            user_email=_sernia_email(user),
-            modality="sms" if reply_to else "web_chat",
-            workspace_path=WORKSPACE_PATH,
-            sms_reply_recipients=([reply_to] if isinstance(reply_to, str) else reply_to or []),
+    reply_to = None
+    if conv and conv.modality == "sms" and conv.metadata_:
+        reply_to = conv.metadata_.get("trigger_group_participants") or conv.metadata_.get(
+            "trigger_phone"
         )
 
-        run_kwargs = await resolve_active_run_kwargs()
+    deps = SerniaDeps(
+        db_session=session,
+        conversation_id=conversation_id,
+        user_identifier=clerk_user_id,
+        user_name=user_name,
+        user_email=_sernia_email(user),
+        modality="sms" if reply_to else "web_chat",
+        workspace_path=WORKSPACE_PATH,
+        sms_reply_recipients=([reply_to] if isinstance(reply_to, str) else reply_to or []),
+    )
 
-        with capture_run_messages() as captured_messages:
-            result = await resume_with_approvals(
-                agent=sernia_agent,
-                conversation_id=conversation_id,
-                decisions=decisions,
-                deps=deps,
-                clerk_user_id=None,  # Shared team access
-                session=session,
-                metadata={"trigger_source": "api/sernia-ai/approve"},
-                user_message=body.user_message,
-                **run_kwargs,
-            )
+    if reply_to:
+        await claim_sms_conversation_decision(
+            session,
+            conversation_id,
+            [d.tool_call_id for d in decisions],
+            deny_all=all(not d.approved for d in decisions),
+        )
+    return await resume_general_decision(
+        deps,
+        decisions,
+        clerk_user_id=clerk_user_id,
+        notify_user_id=clerk_user_id,
+        trigger_source="api/sernia-ai/approve",
+        user_message=body.user_message,
+    )
+
+
+async def resume_general_decision(
+    deps: SerniaDeps,
+    decisions: list[ApprovalDecision],
+    *,
+    clerk_user_id: str,
+    trigger_source: str,
+    notify_user_id: str | None = None,
+    user_message: str | None = None,
+):
+    conversation_id = deps.conversation_id
+    captured_messages = None
+    try:
+        async with asyncio.timeout(RESUME_TIMEOUT_SECONDS if deps.sms_reply_recipients else None):
+            run_kwargs = await resolve_active_run_kwargs()
+            with capture_run_messages() as captured_messages:
+                result = await resume_with_approvals(
+                    agent=sernia_agent,
+                    conversation_id=conversation_id,
+                    decisions=decisions,
+                    deps=deps,
+                    clerk_user_id=None,  # Shared team access
+                    session=deps.db_session,
+                    metadata={"trigger_source": trigger_source},
+                    user_message=user_message,
+                    **run_kwargs,
+                )
 
         # Save the approval result (tool outputs + agent follow-up) and deliver
         # it through the shared pipeline. For a conversation that lives in an
@@ -79,7 +113,8 @@ async def approve_general_conversation(
             result,
             deps=deps,
             clerk_user_id=clerk_user_id,
-            notify_user_id=clerk_user_id,
+            notify_user_id=notify_user_id,
+            metadata={STATE_KEY: None} if deps.sms_reply_recipients else None,
         )
         pending = outcome.pending
         tool_results = extract_tool_results(result)
@@ -91,7 +126,7 @@ async def approve_general_conversation(
             "tool_results": tool_results,
             "status": "pending_approval" if pending else "completed",
             "decisions": [
-                {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in body.decisions
+                {"tool_call_id": d.tool_call_id, "approved": d.approved} for d in decisions
             ],
         }
     except (HTTPException, ValueError):

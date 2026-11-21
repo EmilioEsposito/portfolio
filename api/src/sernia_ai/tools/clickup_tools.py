@@ -434,7 +434,7 @@ async def delete_task(
         task_id: The task ID to delete.
     """
     resp = await _clickup_request("DELETE", f"/task/{task_id}")
-    if resp.status_code != 200:
+    if not resp.is_success:
         return f"ClickUp API error (HTTP {resp.status_code}): {resp.text[:300]}"
     return f"Task {task_id} deleted."
 
