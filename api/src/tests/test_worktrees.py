@@ -441,6 +441,46 @@ class WorktreeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("Node 22.23.4+", result.stderr)
 
+    def test_macos_gui_runtime_selects_brew_python_and_preserves_overrides(self) -> None:
+        wrapper = Path(wt.__file__).with_name("worktree-run.sh")
+        gui_bin = self.root / "Xcode.app/Contents/Developer/usr/bin"
+        prefix = self.root / "homebrew"
+        bundle = prefix / "etc/ca-certificates/cert.pem"
+        bundle.parent.mkdir(parents=True)
+        bundle.touch()
+        # Stand-ins let Linux CI exercise the macOS launcher's real PATH resolution.
+        for path, body in (
+            (gui_bin / "uname", "echo Darwin"),
+            (gui_bin / "node", "exit 0"),
+            (gui_bin / "python3", "exit 1"),
+            (prefix / "bin/brew", "exit 0"),
+            (prefix / "bin/python3", 'echo "$SSL_CERT_FILE"; command -v uv; command -v psql'),
+            (prefix / "opt/libpq/bin/psql", "exit 0"),
+            (self.root / ".local/bin/uv", "exit 0"),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"#!/bin/sh\n{body}\n")
+            path.chmod(0o755)
+        (gui_bin / "bash").symlink_to("/bin/bash")
+        (gui_bin / "dirname").symlink_to("/usr/bin/dirname")
+        env = {
+            "HOME": str(self.root),
+            "PATH": str(gui_bin),
+            "HOMEBREW_PREFIX": str(prefix),
+        }
+        output = subprocess.check_output([wrapper, "python3"], env=env, text=True)
+        self.assertEqual(
+            output.splitlines(),
+            list(map(str, (bundle, self.root / ".local/bin/uv", prefix / "opt/libpq/bin/psql"))),
+        )
+        venv = self.root / "venv/bin"
+        venv.mkdir(parents=True)
+        (venv / "python3").write_text('#!/bin/sh\necho "venv $SSL_CERT_FILE"\n')
+        (venv / "python3").chmod(0o755)
+        env.update(PATH=f"{venv}:{env['PATH']}", SSL_CERT_FILE="/explicit/ca.pem")
+        output = subprocess.check_output([wrapper, "python3"], env=env, text=True)
+        self.assertEqual(output.strip(), "venv /explicit/ca.pem")
+
     def test_tampered_state_cannot_target_shared_database(self) -> None:
         checkout = self.checkout()
         state = wt.allocate(checkout)
