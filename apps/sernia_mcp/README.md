@@ -28,6 +28,9 @@ The tool surface mirrors Claude Code's `Read` / `Edit` / `Write` so models that 
 | `quo_search_contacts` | read | Fuzzy search by name, phone, or company |
 | `quo_get_thread_messages` | read | Recent SMS messages with a specific phone number |
 | `quo_list_active_sms_threads` | read | Mirrors the Quo active inbox — non-'done' threads sorted by recency, with one-line snippet |
+| `quo_list_tasks`, `quo_get_task` | read | Find an existing Quo task and its TK ID |
+| `quo_create_task`, `quo_update_task` | write | Manage explicitly selected Quo tasks, including completion, assignment, due date, and conversation links. General task requests use ClickUp. |
+| `quo_delete_task` | **UI-gated** | Review the current task title and ID before deleting it. |
 | `quo_send_sms` | **UI-gated** | Returns Approve/Reject card. No send without click. |
 
 ### Google Workspace
@@ -93,7 +96,7 @@ environment. See the [credential migration and recovery steps](../../api/src/ope
 SERNIA_MCP_DISABLE_AUTH=true uv run fastmcp dev apps src/sernia_mcp/dev_server.py
 ```
 
-Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. The picker lists `quo_send_sms` and `google_send_email`; fill in the form and click Launch to see the approval card. **All upstream sends are mocked** — safe to use any phone/email.
+Spawns an MCP server on :8000 and the FastMCP browser inspector on :8080. Choose `quo_delete_task` and enter `TKdemo` to preview the deletion card, or choose `quo_send_sms` or `google_send_email` to preview a send. The harness mocks task lookups, deletions, and sends.
 
 ## Security model
 

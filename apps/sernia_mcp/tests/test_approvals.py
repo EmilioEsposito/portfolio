@@ -336,3 +336,52 @@ class TestPendingTTL:
             out = await approvals._confirm_send_sms(pending_id="old", decision="approve")
         assert "expired" in out
         send.assert_not_called()
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject", "expired", "different_user"])
+async def test_quo_task_deletion_card(mcp_client, monkeypatch, decision):
+    import httpx
+
+    from sernia_mcp.tools import quo
+
+    methods = []
+
+    def provider(request):
+        assert request.url.path == "/v1/tasks/TKtest"
+        methods.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": {"title": "Call back"}})
+        return httpx.Response(204)
+
+    monkeypatch.setattr(
+        quo,
+        "build_quo_client",
+        lambda: httpx.AsyncClient(
+            base_url="https://quo.test", transport=httpx.MockTransport(provider)
+        ),
+    )
+    card = await mcp_client.call_tool("quo_delete_task", {"task_id": "TKtest"})
+    assert methods == ["GET"]
+    action = next(
+        a
+        for a in _card_actions(card.structured_content)
+        if a["arguments"]["decision"] == ("reject" if decision == "reject" else "approve")
+    )
+    args = action["arguments"]
+    with pytest.raises(ToolError, match="Unknown tool"):
+        await mcp_client.call_tool("_confirm_delete_quo_task", args)
+    if decision == "expired":
+        approvals._PENDING[args["pending_id"]]["created_at"] -= approvals._PENDING_TTL_SECONDS + 1
+        with pytest.raises(ToolError, match="expired"):
+            await mcp_client.call_tool(action["tool"], args)
+    elif decision == "different_user":
+        monkeypatch.setattr(approvals, "_task_approver", lambda: "other@example.test")
+        with pytest.raises(ToolError, match="another user"):
+            await mcp_client.call_tool(action["tool"], args)
+        assert methods == ["GET"]
+        return
+    else:
+        await mcp_client.call_tool(action["tool"], args)
+    with pytest.raises(ToolError, match="already decided"):
+        await mcp_client.call_tool(action["tool"], args)
+    assert methods == (["GET", "DELETE"] if decision == "approve" else ["GET"])
