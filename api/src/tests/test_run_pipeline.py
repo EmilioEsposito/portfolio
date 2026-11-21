@@ -123,11 +123,21 @@ class TestTextOutcome:
 
 class TestPausedForApproval:
     @pytest.mark.asyncio
-    async def test_pushes_the_approval_and_sends_no_reply(self, pipeline):
+    async def test_pushes_the_approval_and_texts_the_sms_thread(self, pipeline, monkeypatch):
+        from api.src.sernia_ai import sms_approvals
+
+        monkeypatch.setattr(
+            sms_approvals,
+            "get_contact_by_slug",
+            AsyncMock(return_value=SimpleNamespace(phone_number=PHONE)),
+        )
         outcome = await runs.finalize_run(
             pending_result(), deps=make_deps([PHONE]), clerk_user_id="u", notify_user_id="u"
         )
-        pipeline.sms.assert_not_called()
+        destination, prompt = pipeline.sms.await_args.args
+        assert destination == PHONE and "Reply with just Y or Yes" in prompt
+        assert "send_email" in prompt and "x@example.com" in prompt
+        assert pipeline.persist.await_args.kwargs["metadata"]["sms_approval"]["ref"] in prompt
         assert pipeline.tasks == ["git_sync", "notify_pending_approval"]
         assert [p["tool_name"] for p in outcome.pending] == ["send_email"]
         assert outcome.reply_text is None
@@ -136,7 +146,10 @@ class TestPausedForApproval:
     @pytest.mark.asyncio
     async def test_no_approval_push_when_the_save_failed(self, pipeline):
         pipeline.persist.return_value = False
-        outcome = await runs.finalize_run(pending_result(), deps=make_deps(), clerk_user_id="u")
+        outcome = await runs.finalize_run(
+            pending_result(), deps=make_deps([PHONE]), clerk_user_id="u"
+        )
+        pipeline.sms.assert_not_awaited()
         assert pipeline.tasks == ["git_sync"]
         assert outcome.pending  # still reported to the caller
 

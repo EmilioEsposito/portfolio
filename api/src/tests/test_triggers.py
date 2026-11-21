@@ -1174,8 +1174,8 @@ class TestHandleAiSmsEvent:
             assert agent_call[1]["message_history"] == existing_history
 
     @pytest.mark.asyncio
-    async def test_hitl_sends_notification_not_sms(self):
-        """When agent returns pending approvals, notify team but don't send SMS."""
+    async def test_hitl_texts_web_review_to_internal_sender(self):
+        """An internal sender outside the direct approval flow gets the web review link."""
         mock_result = MagicMock()
         mock_result.output = None
         mock_result.all_messages.return_value = []
@@ -1212,6 +1212,7 @@ class TestHandleAiSmsEvent:
                 "api.src.sernia_ai.triggers.ai_sms_event_trigger._fetch_sms_thread", return_value=[]
             ),
             patch("api.src.sernia_ai.runs.persist_agent_run_result"),
+            patch("api.src.sernia_ai.sms_approvals.get_contact_by_slug", return_value=None),
             patch("api.src.sernia_ai.runs.send_sms_reply") as mock_reply,
             patch("api.src.sernia_ai.runs.notify_pending_approval"),
             patch("api.src.sernia_ai.runs.commit_and_push"),
@@ -1235,8 +1236,9 @@ class TestHandleAiSmsEvent:
                 }
             )
 
-            # Should NOT have sent SMS reply (waiting for approval)
-            mock_reply.assert_not_called()
+            phone, prompt = mock_reply.await_args.args
+            assert phone == "+14155550100"
+            assert "Review and decide" in prompt and "sernia-chat?id=" in prompt
 
 
 # =========================================================================

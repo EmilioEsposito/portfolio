@@ -16,7 +16,7 @@ reply waited on the save.
 
 Delivery rules, applied identically on every path:
 
-- Paused for approval -> push the approval prompt. No reply is sent.
+- Paused for approval -> push the approval prompt and notify the originating SMS thread.
 - ``NoAction`` -> nothing is delivered.
 - Text -> SMS reply when the run owns an SMS thread
   (``deps.sms_reply_recipients``), and a web push to the person who asked
@@ -47,6 +47,7 @@ from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.general_agent import NoAction, sernia_agent
 from api.src.sernia_ai.memory.git_sync import commit_and_push
 from api.src.sernia_ai.model_config import resolve_active_run_kwargs
+from api.src.sernia_ai.sms_approvals import STATE_KEY, approval_prompt, new_sms_approval
 from api.src.utils.background_tasks import create_logged_task
 
 
@@ -140,6 +141,14 @@ async def finalize_run(
     # Memory and notes the agent wrote during the run.
     create_logged_task(commit_and_push(WORKSPACE_PATH), name="git_sync")
 
+    pending = extract_pending_approvals(result)
+    sms_state = None
+    if deps.sms_reply_recipients and pending:
+        sms_state = new_sms_approval(pending)
+        if getattr(result.output, "metadata", None) or getattr(result.output, "calls", None):
+            sms_state["web_review"] = True
+        metadata = {**(metadata or {}), STATE_KEY: sms_state}
+
     persisted = await persist_agent_run_result(
         result,
         conversation_id=conversation_id,
@@ -156,7 +165,6 @@ async def finalize_run(
             conversation_id=conversation_id,
         )
 
-    pending = extract_pending_approvals(result)
     if pending:
         if persisted:
             first = pending[0]
@@ -168,6 +176,10 @@ async def finalize_run(
                 ),
                 name="notify_pending_approval",
             )
+            if sms_state:
+                recipients = deps.sms_reply_recipients
+                prompt, _ = await approval_prompt(conversation_id, recipients, pending, sms_state)
+                await send_sms_reply(recipients[0] if len(recipients) == 1 else recipients, prompt)
         return RunOutcome(persisted=persisted, pending=pending)
 
     output = result.output

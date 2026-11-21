@@ -40,7 +40,10 @@ from pydantic_ai.messages import (
 )
 
 from api.src.agent_conversations.identity import TRIGGER_BOT_ID
-from api.src.agent_conversations.models import get_conversation_messages
+from api.src.agent_conversations.models import (
+    extract_pending_approval_from_messages,
+    get_conversation_messages,
+)
 from api.src.database.database import AsyncSessionFactory
 from api.src.google.common.config import GOOGLE_DELEGATION_EMAIL
 from api.src.open_phone.service import find_contacts_by_phone
@@ -54,6 +57,7 @@ from api.src.sernia_ai.config import (
 )
 from api.src.sernia_ai.deps import SerniaDeps
 from api.src.sernia_ai.runs import RunOutcome, run_and_finalize
+from api.src.sernia_ai.sms_approvals import handle_pending_reply
 from api.src.utils.automation import is_sernia_ai_enabled
 
 # ---------------------------------------------------------------------------
@@ -499,10 +503,8 @@ def _sanitize_tool_calls(messages: list[ModelMessage]) -> list[ModelMessage]:
     the unanswered call is usually *not* the last message, because the answered
     siblings' returns are appended after it.
 
-    Dropping an unanswered call also drops a still-pending HITL approval from
-    this run's view of the history. That is deliberate — a pending approval
-    from an earlier run cannot be resumed by this run anyway, and failing the
-    whole run (no reply to the tenant at all) is far worse.
+    The inbound handler checks stored approvals before trimming or sanitizing.
+    This repair only runs when starting a fresh turn.
 
     Returns a sanitized copy of the message list.
     """
@@ -676,6 +678,20 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
     # messages were sent from other conversations (e.g. web chat tool calls).
     async with AsyncSessionFactory() as session:
         db_history = await get_conversation_messages(conv_id, clerk_user_id=None, session=session)
+        deps = SerniaDeps(
+            db_session=session,
+            conversation_id=conv_id,
+            user_identifier=f"sms:{from_number}",
+            user_name=contact_name,
+            user_email=GOOGLE_DELEGATION_EMAIL,
+            modality="sms",
+            workspace_path=WORKSPACE_PATH,
+            sms_reply_recipients=[from_number],
+        )
+        if pending := extract_pending_approval_from_messages(db_history):
+            await handle_pending_reply(deps, event_data, pending, ai_phone)
+            return
+
         sms_thread = await _fetch_sms_thread(from_number)
 
         merged = _merge_sms_into_history(db_history, sms_thread)
@@ -711,17 +727,6 @@ async def _handle_ai_sms_event(event_data: dict) -> None:
                 f"If you need earlier context, use `db_get_contact_sms_history` "
                 f"or `db_search_sms_history`.]"
             )
-
-        deps = SerniaDeps(
-            db_session=session,
-            conversation_id=conv_id,
-            user_identifier=f"sms:{from_number}",
-            user_name=contact_name,
-            user_email=GOOGLE_DELEGATION_EMAIL,
-            modality="sms",
-            workspace_path=WORKSPACE_PATH,
-            sms_reply_recipients=[from_number],
-        )
 
         outcome = await run_and_finalize(
             message_text + sms_context_hint,
@@ -830,6 +835,19 @@ async def _handle_group_sms(
 
     async with AsyncSessionFactory() as session:
         db_history = await get_conversation_messages(conv_id, clerk_user_id=None, session=session)
+        deps = SerniaDeps(
+            db_session=session,
+            conversation_id=conv_id,
+            user_identifier=f"sms_group:{from_number}",
+            user_name=sender_name,
+            user_email=GOOGLE_DELEGATION_EMAIL,
+            modality="sms",
+            workspace_path=WORKSPACE_PATH,
+            sms_reply_recipients=all_humans,
+        )
+        if pending := extract_pending_approval_from_messages(db_history):
+            await handle_pending_reply(deps, event_data, pending, ai_phone)
+            return
 
         group_thread: list[ModelMessage] = []
         if quo_conv_id:
@@ -887,17 +905,6 @@ async def _handle_group_sms(
                 f" [System: History trimmed — {trimmed_count} older message(s) omitted. "
                 "Use `get_thread_messages` with the participant list for earlier context.]"
             )
-
-        deps = SerniaDeps(
-            db_session=session,
-            conversation_id=conv_id,
-            user_identifier=f"sms_group:{from_number}",
-            user_name=sender_name,
-            user_email=GOOGLE_DELEGATION_EMAIL,
-            modality="sms",
-            workspace_path=WORKSPACE_PATH,
-            sms_reply_recipients=all_humans,
-        )
 
         outcome = await run_and_finalize(
             _group_prompt(sender_name, message_text) + group_hint,
