@@ -1,7 +1,31 @@
 #!/usr/bin/env bash
-# Select the repository Node runtime for this command and its children only.
+# Select installed local tools for this command and its children only.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# GUI worktrees can start with only the macOS system paths, even when the
+# required tools are installed. Keep explicit shell tool choices ahead of fallbacks.
+if [[ "$(uname -s)" == Darwin ]]; then
+  for prefix in "${HOMEBREW_PREFIX:-/opt/homebrew}" /usr/local; do
+    [[ -x "$prefix/bin/brew" ]] || continue
+    export PATH="$PATH:$prefix/bin:$prefix/opt/libpq/bin"
+    # uv-managed Python can otherwise inherit Apple's CA store even when
+    # Homebrew Python passes the bootstrap check with its own OpenSSL defaults.
+    if [[ -r "$prefix/etc/ca-certificates/cert.pem" ]]; then
+      export SSL_CERT_FILE="${SSL_CERT_FILE-$prefix/etc/ca-certificates/cert.pem}"
+    fi
+    if [[ "${1:-}" == python3 && -x "$prefix/bin/python3" ]]; then
+      case "$(command -v python3)" in
+        /usr/bin/python3|*/Contents/Developer/usr/bin/python3|/Library/Developer/CommandLineTools/usr/bin/python3)
+          shift
+          set -- "$prefix/bin/python3" "$@"
+          ;;
+      esac
+    fi
+    break
+  done
+  export PATH="$PATH:$HOME/.local/bin:$HOME/Library/pnpm:/usr/local/bin"
+fi
 
 node_is_compatible() {
   node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 22) ? 0 : 1)' >/dev/null 2>&1 &&

@@ -442,12 +442,12 @@ def provision(path: Path, *, once: bool = False) -> None:
             checkout.root / WEB_DIR / ".env",
             {"BACKEND_PORT": str(state["api_port"]), "VITE_PORT": str(state["web_port"])},
         )
-        run_logged(
-            checkout,
-            [sys.executable, "apps/sernia_mcp/trust/check_python_trust.py", "--require-uv"],
-        )
+        trust_check = ["apps/sernia_mcp/trust/check_python_trust.py", "--require-uv"]
+        print("Checking Python and uv trust…", flush=True)
+        run_logged(checkout, [sys.executable, *trust_check])
         print("Installing Python and Node dependencies…", flush=True)
         run_logged(checkout, ["uv", "sync", "--frozen", "-p", "3.11"])
+        run_logged(checkout, [".venv/bin/python", *trust_check, "--require-certifi"])
         run_logged(
             checkout, ["pnpm", "install", "--frozen-lockfile"], env=dict(os.environ, CI="true")
         )
