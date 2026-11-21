@@ -196,3 +196,16 @@ async def test_clickup_delete_accepts_no_content(monkeypatch):
     monkeypatch.setattr(clickup_tools, "_clickup_request", request)
     assert await clickup_tools.delete_task(None, "demo123") == "Task demo123 deleted."
     request.assert_awaited_once_with("DELETE", "/task/demo123")
+
+
+@pytest.mark.asyncio
+async def test_quo_rejection_is_reported_without_sending_more_parts(monkeypatch):
+    from unittest.mock import Mock
+
+    send = AsyncMock(return_value=httpx.Response(403))
+    error = Mock()
+    monkeypatch.setattr(runs, "send_message", send)
+    monkeypatch.setattr(runs.logfire, "error", error)
+    await runs.send_sms_reply(PHONE, "word " * 150)
+    send.assert_awaited_once()
+    error.assert_called_once_with("sernia run: SMS reply rejected", status_code=403)

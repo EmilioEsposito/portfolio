@@ -79,11 +79,14 @@ async def send_sms_reply(to_phone: str | list[str], message: str) -> None:
     chunks = split_sms(message)
     for chunk in chunks:
         try:
-            await send_message(
+            response = await send_message(
                 message=chunk,
                 to_phone_number=to_phone,
                 from_phone_number=QUO_SERNIA_AI_PHONE_ID,
             )
+            if not response.is_success:
+                logfire.error("sernia run: SMS reply rejected", status_code=response.status_code)
+                return
         except Exception:
             logfire.exception("sernia run: failed to send SMS reply", to_phone=to_phone)
             return
