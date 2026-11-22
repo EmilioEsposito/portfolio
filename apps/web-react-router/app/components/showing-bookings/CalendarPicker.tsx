@@ -194,7 +194,7 @@ export function CalendarPicker({
       )}
       {list?.truncated && (
         <p className="text-xs text-muted-foreground">
-          There are more calendars than are listed here, which is at most {MAX_LISTED}.
+          There are more calendars than the {MAX_LISTED} checked here.
         </p>
       )}
 

@@ -29,6 +29,7 @@ from api.src.tests.showing_helpers import at
 
 JANE = "jane.doe@example.com"
 WINDOW = (at(9), at(21))
+REAL_GOOGLE_CLIENT = google_http.client
 TEAM = Account(TEAM_SUBJECT, TEAM_ACCOUNT, scopes=PICKER_SCOPES)
 
 
@@ -408,7 +409,10 @@ async def test_asking_about_calendars_replaces_an_expired_token_and_raises_a_los
     assert await GoogleCalendar(Tokens(google)).readable([], *WINDOW) == {}
 
 
-def test_the_real_client_is_still_the_only_way_out(monkeypatch):
-    """The lists go through ``google_http.call``, which opens ``google_http.client``."""
+@pytest.mark.asyncio
+async def test_a_list_without_its_mock_fails_loudly_instead_of_reaching_google(google, monkeypatch):
+    tokens = Tokens(google)
+    monkeypatch.setattr(google_http, "client", REAL_GOOGLE_CLIENT)  # refuses under pytest
     with pytest.raises(google_http.LiveGoogleInTests):
-        google_http.client()
+        await GoogleLists(tokens).directory()
+    assert google.requests == []

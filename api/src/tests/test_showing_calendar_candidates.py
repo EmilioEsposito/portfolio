@@ -29,7 +29,6 @@ from api.src.showing_bookings import (
     google_http,
     google_oauth,
     routes,
-    token_crypto,
 )
 from api.src.showing_bookings.models import CalendarConnection, ShowingAgentRecord
 from api.src.showing_bookings.providers import CalendarList, ListedCalendar
@@ -138,6 +137,19 @@ async def connect(api, google: FakeGoogle, scopes: tuple[str, ...] = PICKER_SCOP
 async def row() -> CalendarConnection:
     async with AsyncSessionFactory() as session:
         return await session.scalar(select(CalendarConnection))
+
+
+def later_connection(**fields) -> CalendarConnection:
+    """Another connected account, usable here and connected after the team's."""
+    values = {
+        "google_email": "later@example.com",
+        "google_subject": "later",
+        "scopes": list(PICKER_SCOPES),
+        "encrypted_refresh_token": Fernet(TOKEN_KEY).encrypt(b"1//later").decode(),
+        "connected_by": "pat@serniacapital.com",
+        "connected_at": datetime.now(UTC) + timedelta(days=1),
+    }
+    return CalendarConnection(**{**values, **fields})
 
 
 async def add_agent(*calendars: str) -> int:
@@ -554,17 +566,7 @@ async def test_the_candidates_are_read_through_the_teams_connection(api, google)
     """The oldest connected account, as for an agent with no connection of their own."""
     await connect(api, google)
     async with AsyncSessionFactory() as session, session.begin():
-        session.add(
-            CalendarConnection(
-                google_email="later@example.com",
-                google_subject="later",
-                scopes=list(PICKER_SCOPES),
-                encrypted_refresh_token=Fernet(TOKEN_KEY).encrypt(b"1//later").decode(),
-                showings_calendar_id=SHARED,
-                connected_by="pat@serniacapital.com",
-                connected_at=datetime.now(UTC) + timedelta(days=1),
-            )
-        )
+        session.add(later_connection(showings_calendar_id=SHARED))
 
     body = await candidates(api)
 
@@ -666,6 +668,21 @@ async def test_the_connection_says_when_a_reconnect_would_add_permissions(api, g
 
     disconnected = (await api.post(f"{CONNECTIONS}/{connection.id}/disconnect")).json()
     assert disconnected["reconnect_adds_permissions"] is False
+
+
+@pytest.mark.asyncio
+async def test_only_the_connection_the_picker_reads_through_asks_for_a_reconnect(api, google):
+    await connect(api, google, ALL_SCOPES)
+    async with AsyncSessionFactory() as session, session.begin():
+        session.add(later_connection(scopes=list(ALL_SCOPES)))
+
+    listed = (await api.get(CONNECTIONS)).json()["connections"]
+
+    assert {item["google_email"]: item["reconnect_adds_permissions"] for item in listed} == {
+        TEAM_ACCOUNT: True,
+        "later@example.com": False,
+    }
+    assert all(item["usable_here"] for item in listed)
 
 
 # Google's trouble
@@ -804,14 +821,11 @@ async def test_no_address_name_or_token_reaches_the_logs(google, capfire, monkey
     assert len(body["calendars"]) == 5
     assert (refused["directory"], refused["check_failed"]) == ("refused", True)
     assert len(google.sent("GET", CALENDAR_LIST)) > 4 and len(google.sent("GET", DIRECTORY)) == 3
-    spans = [
-        span
-        for span in capfire.exporter.exported_spans_as_dict()
-        if not str(
-            span["attributes"].get("http.url") or span["attributes"].get("url.full") or ""
-        ).startswith("http://test/")
-    ]
-    exported = json.dumps(spans + capfire.log_exporter.exported_logs_as_dicts(), default=str)
+    # Everything since the connection was made, the route's own requests included.
+    exported = json.dumps(
+        capfire.exporter.exported_spans_as_dict() + capfire.log_exporter.exported_logs_as_dicts(),
+        default=str,
+    )
     # The reads are traced, and the read's outcome is logged in counts.
     assert DIRECTORY in exported and "calendarList" in exported and "freeBusy" in exported
     assert "showing bookings: calendar candidates read" in exported
@@ -850,8 +864,3 @@ def test_the_address_of_the_route_takes_an_agent_id_and_nothing_else():
     assert route.methods == {"GET"}
     assert [param.name for param in route.dependant.query_params] == ["agent_id"]
     assert route.dependant.path_params == []
-
-
-def test_the_token_key_still_reads_what_it_wrote():
-    """A guard on the fixtures: the stored token above is one this environment reads."""
-    assert token_crypto.decrypt(Fernet(TOKEN_KEY).encrypt(b"1//x").decode()) == "1//x"

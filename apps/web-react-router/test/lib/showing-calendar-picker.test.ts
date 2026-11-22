@@ -79,6 +79,9 @@ test("a new agent's own calendar is ticked when it is listed, and follows the em
   assert.deepEqual(selectedCalendars(withEmail(open, SAM)), [SAM]);
   assert.deepEqual(selectedCalendars(withEmail(open, PEPPINO)), [PEPPINO]);
   assert.deepEqual(selectedCalendars(withEmail(open, "someone.else@example.com")), []);
+  // A calendar that cannot be read is never ticked for them.
+  const unreadable = list({ calendars: [calendar(JANE, "Jane Doe", "team", false)] });
+  assert.deepEqual(selectedCalendars(form({ calendars: unreadable }, JANE)), []);
   // Nothing is ticked before the list is here.
   assert.deepEqual(selectedCalendars(form({ calendars: null }, JANE)), []);
 });
@@ -240,10 +243,17 @@ test("a list that could not be read says which it is and leaves the other shown"
     assert.equal(shared.note, null);
     assert.equal(pickerProblem(shown), null);
   }
-  for (const status of Object.keys(notes)) {
+  const sharedNotes: Record<Exclude<ListStatus, "read">, RegExp> = {
+    not_granted: /not allowed to list the calendars shared with team@example\.com yet\. Press Reconnect/,
+    api_off: /Google Calendar API is off/,
+    sharing_off: /refused to list the calendars shared with team@example\.com/,
+    refused: /refused to list the calendars shared with team@example\.com/,
+    failed: /Press Refresh to try again/,
+  };
+  for (const [status, words] of Object.entries(sharedNotes)) {
     const shown = list({ calendar_list: status as ListStatus, calendars: [calendar(JANE, "Jane Doe", "team")] });
     const [team, shared] = pickerGroups(form({ calendars: shown }));
-    assert.ok(shared.note);
+    assert.match(shared.note ?? "", words);
     assert.equal(team.note, null);
     assert.equal(team.rows.length, 1);
     assert.equal(pickerProblem(shown), null);
