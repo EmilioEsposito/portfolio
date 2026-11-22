@@ -189,16 +189,6 @@
           }
         ]
       }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "terminal-notifier -message 'Claude needs your input' -title 'Claude Code' -sound Glass -group 'claude-code'"
-          }
-        ]
-      }
     ]
   },
   "enabledPlugins": {
