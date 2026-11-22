@@ -261,7 +261,7 @@ again reuses it.
 
 ### The calendar picker
 
-`calendar_candidates.candidates` answers which calendars the showing agent form
+`calendar_candidates.py` answers which calendars the showing agent form
 offers (`GET /calendar/candidates`). It reads Google afresh each time through
 the team's connection, as `agents.team_connection` picks it, and only reads:
 
@@ -292,7 +292,7 @@ list, with `readable` true, false, or null when it could not be checked.
 | `check_failed` | Google did not say whether some calendars can be read; those not saved on the agent are left out. |
 
 Google's own wording, names and addresses stay out of the logs, which hold
-counts and these words only. Request tracing records a whole address, query
+counts and these words only. Request tracing records the whole URL, query
 included, and Google's page tokens can hold an email address, so a page after
 the first is not traced.
 
@@ -1230,7 +1230,7 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
   (`{connection, account, problem, directory, calendar_list, check_failed,
   truncated, calendars: [{calendar_id, name, group, readable}]}`, see The
   calendar picker). `agent_id` is left out for a new agent; 404 for no such
-  agent. No email address is ever in the address.
+  agent. No email address is ever in the URL.
 - `GET /agents`, `POST /agents`, `PUT /agents/{id}`,
   `POST /agents/{id}/deactivate` and `.../activate`. A failed check answers
   422 with `detail.problems`.
