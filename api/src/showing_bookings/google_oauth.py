@@ -5,7 +5,7 @@ The client is ``GOOGLE_SHOWINGS_OAUTH_CLIENT_ID`` and
 ``sernia-showings``. Both are read at call time and never logged. It is not the
 client Clerk's Google sign-in uses (README.md says why).
 
-- ``consent_url``: where the browser goes to approve the two calendar permissions.
+- ``consent_url``: where the browser goes to approve the permissions.
 - ``exchange_code``: the callback's one-time code, for the tokens and the
   account that granted them.
 - ``refresh_access_token``: a short-lived access token from a stored refresh
@@ -47,9 +47,17 @@ _ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 # Free/busy of every calendar the account can see, and the calendars the app itself creates.
 FREEBUSY_SCOPE = "https://www.googleapis.com/auth/calendar.events.freebusy"
 APP_CALENDARS_SCOPE = "https://www.googleapis.com/auth/calendar.app.created"
+# A grant without either of these is refused.
 CALENDAR_SCOPES = (FREEBUSY_SCOPE, APP_CALENDARS_SCOPE)
+# What the calendar picker lists, both read-only: the account's own calendar
+# list, and the people in the Workspace directory. Asked for on every connect
+# and never required: a grant without them still connects, and only the picker
+# goes without.
+CALENDAR_LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+DIRECTORY_SCOPE = "https://www.googleapis.com/auth/directory.readonly"
+PICKER_SCOPES = (CALENDAR_LIST_SCOPE, DIRECTORY_SCOPE)
 # openid and email say which account granted access.
-SCOPES = ("openid", "email", *CALENDAR_SCOPES)
+SCOPES = ("openid", "email", *CALENDAR_SCOPES, *PICKER_SCOPES)
 
 CALLBACK_PATH = "/api/showing-bookings/calendar/callback"
 # The sites a connection may start from. The redirect URI is built from one of
@@ -192,7 +200,7 @@ def read_state(value: str | None, *, max_age: int = STATE_MAX_AGE_SECONDS) -> Co
 def consent_url(
     client: OAuthClient, *, redirect_to: str, state: str, login_hint: str | None = None
 ) -> str:
-    """Google's consent screen for the calendar permissions."""
+    """Google's consent screen for the calendar and picker permissions."""
     params = {
         "client_id": client.client_id,
         "redirect_uri": redirect_to,
@@ -226,7 +234,7 @@ class Grant:
 
     @property
     def missing_scopes(self) -> list[str]:
-        """The calendar permissions the person left unticked on Google's screen."""
+        """The required calendar permissions the person left unticked on Google's screen."""
         return [scope for scope in CALENDAR_SCOPES if scope not in self.scopes]
 
 

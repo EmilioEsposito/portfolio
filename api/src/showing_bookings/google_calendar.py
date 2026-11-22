@@ -6,15 +6,18 @@ Written from the Calendar API v3 reference
 - free/busy: ``POST /freeBusy`` with ``timeMin``, ``timeMax`` and ``items``.
   Each calendar in the answer has ``busy`` periods, or ``errors`` when Google
   could not read it. Events marked free are not busy. A calendar with errors,
-  or left out of the answer, is unreadable: never counted as free.
+  or left out of the answer, is unreadable: never counted as free. One query
+  takes at most 50 calendars
+  (https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query),
+  so ``readable``, for the calendar picker, asks 50 at a time.
 - events: ``POST``, ``PATCH`` and ``DELETE`` under ``/calendars/{id}/events``,
   always with ``sendUpdates=all``, so each guest gets the invitation, the
   change or the cancellation by email.
 - the showings calendar: ``POST /calendars`` creates "Sernia showings" once, at
   connect time, and ``GET /calendars/{id}`` checks it still exists.
 
-The two scopes allow free/busy reads and calendars this app created, so the
-app never reads what anyone's events are and never writes to their own calendars.
+The scopes used here allow free/busy reads and calendars this app created, so
+the app never reads what anyone's events are and never writes to their own calendars.
 
 Only ``connections.py`` builds a ``GoogleCalendar``, and only ``outbox.py``
 calls its event methods (``test_showing_boundaries.py``).
@@ -22,12 +25,12 @@ calls its event methods (``test_showing_boundaries.py``).
 
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
-from typing import Protocol
 from urllib.parse import quote
 
 import httpx
 
 from api.src.showing_bookings import google_http
+from api.src.showing_bookings.google_http import AccessTokens
 from api.src.showing_bookings.google_oauth import GrantLost, OAuthError
 from api.src.showing_bookings.providers import BusyBlock, CalendarUnreadable, EventDraft, NotSent
 
@@ -44,17 +47,8 @@ NOT_SHARED = (
     "Google cannot find this calendar, or the connected account cannot see it. "
     "Share its free/busy times with that account."
 )
-
-
-class AccessTokens(Protocol):
-    async def access_token(self, *, fresh: bool = False) -> str:
-        """A current access token; ``fresh`` asks Google for a new one.
-
-        Raises ``google_oauth.GrantLost`` when Google no longer accepts the
-        grant, and ``google_oauth.OAuthError`` when no token can be had now.
-        """
-        ...
-
+# The most calendars one free/busy query takes.
+FREE_BUSY_LIMIT = 50
 
 # Told the outcome of each free/busy read: (every calendar read, the problem).
 ReadRecorder = Callable[[bool, str | None], Awaitable[None]]
@@ -68,6 +62,10 @@ class _BadAnswer(Exception):
     def __init__(self, detail: str):
         super().__init__(detail)
         self.detail = detail
+
+
+# Why a whole free/busy read failed, saying nothing about any one calendar.
+READ_FAILURES = (OAuthError, httpx.HTTPError, _BadAnswer)
 
 
 def _q(calendar_or_event_id: str) -> str:
@@ -168,59 +166,33 @@ class GoogleCalendar:
     async def _call(
         self, method: str, path: str, *, params: dict | None = None, json: dict | None = None
     ) -> httpx.Response:
-        """One request with a current access token. A 401 gets a new token and one
-        more try: Google refuses an expired token before doing anything, so a
-        second try cannot repeat a change."""
-        for fresh in (False, True):
-            token = await self._tokens.access_token(fresh=fresh)
-            async with google_http.client() as client:
-                response = await client.request(
-                    method,
-                    f"{API}{path}",
-                    params=params,
-                    json=json,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-            if response.status_code != 401:
-                break
-        return response
+        return await google_http.call(
+            self._tokens, method, f"{API}{path}", params=params, json=json
+        )
 
     async def _record(self, ok: bool, problem: str | None) -> None:
         if self._on_read is not None:
             await self._on_read(ok, problem)
 
-    async def busy_blocks(
-        self, calendar_ids: Sequence[str], start: datetime, end: datetime
-    ) -> dict[str, list[BusyBlock]]:
-        if start.tzinfo is None or end.tzinfo is None:
-            raise ValueError("Times must be timezone aware.")
-        ids = list(dict.fromkeys(calendar_ids))
-        if not ids:
-            return {}
+    async def _free_busy(
+        self, ids: Sequence[str], start: datetime, end: datetime, **options: int
+    ) -> tuple[dict[str, list[BusyBlock]], dict[str, str]]:
+        """Busy times by calendar for those Google read, and why not for the rest.
+
+        Raises one of ``READ_FAILURES`` when the read as a whole failed.
+        """
         body = {
             "timeMin": start.isoformat(),
             "timeMax": end.isoformat(),
             "items": [{"id": calendar_id} for calendar_id in ids],
+            **options,
         }
-        try:
-            response = await self._call("POST", "/freeBusy", json=body)
-            if response.status_code != 200:
-                raise _BadAnswer(_api_error(response)[1])
-            calendars = _json(response).get("calendars")
-            if not isinstance(calendars, dict):
-                raise _BadAnswer("Google's free/busy answer had no calendars.")
-        except OAuthError as failure:
-            problem = failure.detail
-        except httpx.HTTPError as exc:
-            problem = f"Could not reach Google ({type(exc).__name__})."
-        except _BadAnswer as bad:
-            problem = bad.detail
-        else:
-            problem = None
-        if problem is not None:
-            await self._record(False, problem)
-            raise CalendarUnreadable({calendar_id: problem for calendar_id in ids}, {})
-
+        response = await self._call("POST", "/freeBusy", json=body)
+        if response.status_code != 200:
+            raise _BadAnswer(_api_error(response)[1])
+        calendars = _json(response).get("calendars")
+        if not isinstance(calendars, dict):
+            raise _BadAnswer("Google's free/busy answer had no calendars.")
         folded = {str(key).casefold(): value for key, value in calendars.items()}
         read: dict[str, list[BusyBlock]] = {}
         unreadable: dict[str, str] = {}
@@ -235,11 +207,57 @@ class GoogleCalendar:
                     read[calendar_id] = _blocks(entry.get("busy"), start, end)
                 except (KeyError, TypeError, ValueError):
                     unreadable[calendar_id] = "Google's answer for this calendar could not be read."
+        return read, unreadable
+
+    async def busy_blocks(
+        self, calendar_ids: Sequence[str], start: datetime, end: datetime
+    ) -> dict[str, list[BusyBlock]]:
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("Times must be timezone aware.")
+        ids = list(dict.fromkeys(calendar_ids))
+        if not ids:
+            return {}
+        try:
+            read, unreadable = await self._free_busy(ids, start, end)
+        except READ_FAILURES as failure:
+            problem = (
+                f"Could not reach Google ({type(failure).__name__})."
+                if isinstance(failure, httpx.HTTPError)
+                else failure.detail
+            )
+            await self._record(False, problem)
+            raise CalendarUnreadable({calendar_id: problem for calendar_id in ids}, {}) from None
         summary = "; ".join(f"{key}: {reason}" for key, reason in unreadable.items())
         await self._record(not unreadable, summary[:500] or None)
         if unreadable:
             raise CalendarUnreadable(unreadable, read)
         return read
+
+    async def readable(
+        self, calendar_ids: Sequence[str], start: datetime, end: datetime
+    ) -> dict[str, bool]:
+        """Whether a free/busy read returns each calendar, read exactly as ``busy_blocks`` does.
+
+        For the calendar picker, so the times themselves are dropped and nothing
+        is recorded on the connection: a calendar nobody has shared is not a
+        problem with it. Asked 50 at a time; when a read as a whole fails, its
+        calendars and those not asked yet are left out of the answer. Raises
+        ``GrantLost`` when Google no longer accepts the grant.
+        """
+        ids = list(dict.fromkeys(calendar_ids))
+        found: dict[str, bool] = {}
+        for first in range(0, len(ids), FREE_BUSY_LIMIT):
+            batch = ids[first : first + FREE_BUSY_LIMIT]
+            try:
+                read, unreadable = await self._free_busy(
+                    batch, start, end, calendarExpansionMax=FREE_BUSY_LIMIT
+                )
+            except GrantLost:
+                raise
+            except READ_FAILURES:
+                break
+            found.update(dict.fromkeys(read, True) | dict.fromkeys(unreadable, False))
+        return found
 
     async def _write(self, method: str, path: str, *, json: dict | None = None) -> httpx.Response:
         """A change that tells the guests. Raises ``NotSent`` when nothing reached
