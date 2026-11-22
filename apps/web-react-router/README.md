@@ -44,7 +44,7 @@ and inactive table metadata remain so this UI cleanup does not delete stored dat
 
 ## Sernia public pages
 
-Sernia Capital's public pages (issue #368) will be served on serniacapital.com by
+Sernia Capital's public pages (issue #368) are served on serniacapital.com by
 this same service. They need no sign-in, and they load no Clerk at all, because
 Clerk's production keys belong to eesposito.com.
 
@@ -67,8 +67,7 @@ Clerk's production keys belong to eesposito.com.
   `true`; elsewhere they are on unless it is `false`. While they are off, their
   paths on other hosts answer exactly as an unknown URL does (the app's path
   through Clerk, then the personal 404), and a Sernia host answers the Sernia 404
-  for every path. It is not set anywhere: turning the pages on in production
-  waits for Emilio to approve their wording.
+  for every path.
 - Hosts: `serniacapital.com`, `www.serniacapital.com` and `serniacapital.localhost`.
   `SERNIA_PUBLIC_HOSTS` (comma separated) replaces that list on a deployed server.
   The managed dev launcher passes only allowlisted variables, so neither variable
@@ -89,13 +88,30 @@ Clerk's production keys belong to eesposito.com.
 To check locally, open `http://serniacapital.localhost:<web port>/` or `/privacy`.
 Browsers resolve `*.localhost` to this machine without any hosts-file change.
 
+### The shell
+
+`app/components/sernia-public/shell.tsx` is the header and footer of every Sernia
+page, the 404 included. The wordmark links to `/` only where `/` is the Sernia
+home page: the server says so in the root loader's data, or in the 404 it throws
+(`homeAtRoot`, read by `app/lib/sernia-root.ts`). The `sernia-public` class it sets
+carries the brand colors and the font (`app/app.css`), and changes the theme's text
+and line colors for these pages, in light and dark. Sky (`#5bbdee`) is for drawings
+and underlines, never for text.
+
+The root layout gives these pages their own icons (`public/images/sernia/`) and
+loads Figtree from Google Fonts; the other pages keep theirs, Inter and the install
+manifest. `Figtree fallback` in `app.css` is Arial with Figtree's measurements, so
+the text does not move when the font arrives.
+
 ### The home page and the units list
 
-The Sernia home page has three links, Resident sign-in first (to the residents'
-Buildium portal, since residents type the domain to reach it), then Book a
-showing (`/showings`) and Apply (`/apply`, which stays a Cloudflare redirect, so
-it has no page here and 404s on previews and localhost). Below them is the call
-line; the footer carries the Equal Housing Opportunity line and the policy links.
+Resident sign-in (the residents' Buildium portal) is in the home page's header,
+since residents type the domain to reach it. The page has Book a showing
+(`/showings`), Apply (`/apply`, which stays a Cloudflare redirect, so it has no page
+here and 404s on previews and localhost), the call line, the street drawing
+(`drawings.tsx`, static and decorative), one photo and two short sections. The
+photo is in `public/images/sernia/` at two widths, as WebP with a JPEG fallback;
+`og.png` there is the link preview.
 The page never waits on the units list: its loader reads only
 `GET /api/showing-bookings/public/call-line` (the Turnstile site key, no listings
 or calendars) with a 3-second timeout (`readCallLine` in
@@ -131,9 +147,18 @@ is `noindex` for now. Pure logic
 (times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
 and tested in `test/lib/showing-booking-page.test.ts`.
 
-Turnstile runs on demand (`app/components/sernia-public/turnstile.tsx`): each
-booking and each "Show phone number" gets a fresh token. Outside production the
-API uses Cloudflare's test keys and answers the test secret itself.
+### Turnstile
+
+Each booking and each "Show phone number" sends its own Turnstile token, since a
+token works once. The check takes a few seconds, so one runs ahead of time, once
+the page is idle or at the first sign of use, and its token is held for the click
+that needs it (`app/components/sernia-public/turnstile.tsx`, and
+`app/lib/turnstile-tokens.ts` for the holder, which the call line and the form
+share). A held token counts as expired after 4 of its 5 minutes. A check ahead of
+time runs in an element no one can see or focus, fails silently, and is dropped if
+it would ask the person something; their own check then runs beside what they
+pressed. Outside production the API uses Cloudflare's test keys and answers the
+test secret itself.
 
 ### Browser test
 
@@ -142,8 +167,9 @@ showing, miss a tick, correct the mobile, cancel from the confirmation screen, a
 unknown unit, the way from the Sernia home page through the units list to a
 booking page, a lead adding their details to a showing the lead agent booked by
 email (the script's `lead-booking` command books it), and their link saying
-they are booked afterwards, at the new time once a reply moves it (`lead-move`).
-It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
+they are booked afterwards, at the new time once a reply moves it (`lead-move`),
+and the bot check ahead of time (the number without a new check, a check that
+needs the person, a blocked one). It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks
 every other request that would leave the machine. Before each test
