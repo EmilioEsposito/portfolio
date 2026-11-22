@@ -230,6 +230,9 @@ LATE_NOTICE_FILES = {
     "daily_texts.py",
     "retention.py",
     "lead_email.py",
+    # Sending captured messages by hand, and what each must follow.
+    "captured.py",
+    "told.py",
 }
 
 
