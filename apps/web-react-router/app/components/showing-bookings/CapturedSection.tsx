@@ -181,6 +181,7 @@ export function CapturedSection({
   const [results, setResults] = useState<SendResult[] | null>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
   const sendRef = useRef<HTMLButtonElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,6 +233,8 @@ export function CapturedSection({
     setSending(false);
     setAsking(null);
     onChanged();
+    // The button that was pressed is gone.
+    requestAnimationFrame(() => resultsRef.current?.focus());
   }
 
   return (
@@ -299,7 +302,13 @@ export function CapturedSection({
         </div>
       )}
 
-      <div role="status" aria-live="polite" className={cn(results && "mt-4")}>
+      <div
+        ref={resultsRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className={cn("rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", results && "mt-4")}
+      >
         {results && (
           <>
             <p className="text-sm font-medium">{summarizeSend(results)}</p>

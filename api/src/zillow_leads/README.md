@@ -78,6 +78,9 @@ in by code (`showing_bookings/lead_tours.py`, `case.build_case`):
   the thread is handled with the switch on. It holds no personal data and
   appears only in that thread's links. Each unit's booking link in the case is
   the booking page with it: `<SHOWING_PUBLIC_BASE_URL>/showings/<unit>?t=<token>`.
+  Only where that page answers: a unit the public may not book now (in the booking
+  service's live mode, one that is not ticked; or any, with public booking off)
+  keeps the listing's own link, unless the lead has a showing there already.
   A booking made through it is tied to the thread
   (`showing_attendees.zillow_thread_id`); see the booking service's README.
 - **The lead's own showings.** `LeadCase.own_showings` lists the thread's

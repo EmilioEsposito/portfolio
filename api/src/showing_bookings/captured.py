@@ -36,7 +36,7 @@ test list.
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 import logfire
 from pydantic import BaseModel, ConfigDict, Field
@@ -71,6 +71,7 @@ Outcome = Literal["sent", "waiting", "unknown", "not_sent", "kept", "handled"]
 KEEP_LISTED = timedelta(days=2)
 LIST_LIMIT = 500
 MAX_SENT_AT_ONCE = 200
+MAX_ID = 2**31 - 1  # the column's own limit
 # How long one request delivers for. Whatever is left is pending, and the job
 # every minute takes it.
 DELIVER_FOR_SECONDS = 45
@@ -116,7 +117,9 @@ class CapturedNotice(BaseModel):
 class SendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ids: list[int] = Field(min_length=1, max_length=MAX_SENT_AT_ONCE)
+    ids: list[Annotated[int, Field(ge=1, le=MAX_ID)]] = Field(
+        min_length=1, max_length=MAX_SENT_AT_ONCE
+    )
 
 
 class SendResult(BaseModel):

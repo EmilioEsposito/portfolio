@@ -71,16 +71,16 @@ function WhoRow({
           id={id}
           type="checkbox"
           checked={checked}
-          disabled={disabled || saving}
-          aria-describedby={`${id}-help`}
-          onChange={(event) => onChange?.(event.target.checked)}
+          disabled={disabled}
+          aria-busy={saving}
+          // Not disabled while saving: that would drop the focus.
+          onChange={(event) => {
+            if (!saving) onChange?.(event.target.checked);
+          }}
           className="mt-0.5 size-4 shrink-0 accent-foreground"
         />
         <span className="min-w-0 flex-1">
-          <span className="font-medium">{label}</span>{" "}
-          <span id={`${id}-help`} className="text-muted-foreground">
-            {help}
-          </span>
+          <span className="font-medium">{label}</span> <span className="text-muted-foreground">{help}</span>
         </span>
         {saving && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" aria-label="Saving" />}
       </label>
@@ -368,15 +368,12 @@ function WhatABookingSends({
                   name="send-mode"
                   value={mode}
                   checked={form.send_mode === mode}
-                  aria-describedby={`send-mode-${mode}-help`}
                   onChange={() => onChange({ send_mode: mode })}
                   className="mt-0.5 size-4 shrink-0 accent-foreground"
                 />
                 <span className="min-w-0">
                   <span className="font-medium">{MODE_TITLES[mode]}.</span>{" "}
-                  <span id={`send-mode-${mode}-help`} className="text-muted-foreground">
-                    {MODE_DESCRIPTIONS[mode]}
-                  </span>
+                  <span className="text-muted-foreground">{MODE_DESCRIPTIONS[mode]}</span>
                 </span>
               </label>
               {nested[mode]}

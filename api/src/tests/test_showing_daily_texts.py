@@ -3,8 +3,8 @@
 Each scenario books through the public or team routes, cancels or marks
 attendance through them, runs the job's steps (``holds.send_pending``) as the
 clock moves, and checks the rows in ``showing_notices`` and what the stand-in
-for Quo recorded. Live mode with test sends on: every number here is a made-up
-test recipient, and nothing is sent anywhere.
+for Quo recorded. Test mode: every number here is a made-up one on the test list,
+and nothing is sent anywhere.
 """
 
 from datetime import date, timedelta

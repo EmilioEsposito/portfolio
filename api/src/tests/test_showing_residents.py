@@ -730,7 +730,7 @@ class GatedTexts(RecordingTextSender):
 )
 async def test_the_cancellation_never_overtakes_an_announcement_being_sent(world, refused):
     """Run 1 is calling Quo with the announcement when the showing is cancelled; run 2
-    (the job and "Send pending now" together) must not send the cancellation first."""
+    (the job twice at once) must not send the cancellation first."""
     gated = GatedTexts()
     gated.refuse_resident = refused
     world.texts = gated

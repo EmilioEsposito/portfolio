@@ -485,6 +485,10 @@ async def test_a_captured_cancellation_is_ready_once_what_it_follows_was_sent(wo
             return (await captured._look(session, notice, UNIT, world.now)).state
 
     assert await state() == "no_longer_applies"
+    # At night too, when one that could be sent would wait for the morning.
+    by_day, world.now = world.now, at(22, day=TUESDAY)
+    assert await state() == "no_longer_applies"
+    world.now = by_day
     async with AsyncSessionFactory() as session, session.begin():
         await session.execute(
             update(ShowingNotice)

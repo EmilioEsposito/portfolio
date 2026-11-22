@@ -363,6 +363,10 @@ async def preview(
             problem = copy.last_error
         elif copy.not_before > now:
             later = copy.not_before
+            if copy.channel == "sms":
+                # Waiting for the daytime, it would still be asked as it goes. A calendar
+                # change that waits is waiting for the very event it follows.
+                problem = await told.missing(session, copy, None)
         else:
             problem = delivery_checks.REPLY_NOT_SENT
     else:
@@ -666,11 +670,12 @@ async def _prepare(
     if notice.kind == host_event.MOVED_KIND:
         # The old host's event, named on the notice: never the showing's current one.
         verdict = await host_event.moved_check(session, notice)
-        return (
-            notice.payload.get("event_id")
-            if _settle_cancel_check(notice, verdict, now)
-            else _NOT_NOW
-        )
+        if not _settle_cancel_check(notice, verdict, now):
+            return _NOT_NOW
+        event_id = notice.payload.get("event_id")
+        if by_hand:
+            await _recalendar(session, notice, event_id)
+        return event_id
     if by_hand:
         await _recalendar(session, notice, showing.host_event_id)
     rendered = await host_event.render(

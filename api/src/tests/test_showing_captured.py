@@ -817,7 +817,14 @@ async def test_a_message_that_is_not_there_or_not_captured_is_answered(world, pr
     assert sent[123456789]["outcome"] == "not_sent"
     assert (await one(INVITE)).status == "cancelled"
     async with world.client(team_app(world)) as client:
-        for body in ({"ids": []}, {"ids": list(range(1, 300))}, {"ids": ["x"]}, {}):
+        for body in (
+            {"ids": []},
+            {"ids": list(range(1, 300))},
+            {"ids": ["x"]},
+            {"ids": [0]},
+            {"ids": [2**31]},
+            {},
+        ):
             answer = await client.post(f"{TEAM}/notices/send-captured", json=body)
             assert answer.status_code == 422, body
 
@@ -982,6 +989,29 @@ async def test_a_correction_while_they_wait_leaves_them_to_the_mode(world, produ
     assert [text.to for text in world.texts.sent] == [ALEX_MOBILE]
     assert world.calendar.log == []
     assert (await one(EVENT)).status == (await one(INVITE)).status == "captured"
+
+
+@pytest.mark.asyncio
+async def test_a_join_does_not_send_the_residents_text_that_was_stopped(world, production):
+    """Stopped after it was sent by hand, a join brings it back to follow the mode: capture."""
+    lives_here(world)
+    await book(world)
+    production()
+    await store_settings(public_booking_enabled=True)
+    world.texts.report(ALEX_MOBILE, "undelivered")
+    await send(world)
+    assert (await one(NEW)).status == "cancelled"
+
+    await book(world, robin())
+    await job(world, NOW + timedelta(minutes=10))
+
+    brought = await one(NEW)
+    assert (brought.status, brought.send_approved_at, brought.last_error) == (
+        "captured",
+        None,
+        None,
+    )
+    assert world.texts.to(RESIDENT) == []
 
 
 # Checked again as they go
@@ -1262,6 +1292,28 @@ async def test_after_a_move_the_old_hosts_messages_no_longer_apply(world, produc
     }
     (event,) = world.calendar.events.values()
     assert event.draft.attendees == ["sam.roe@example.com"] and not event.cancelled
+
+
+@pytest.mark.asyncio
+async def test_an_old_hosts_event_sent_by_hand_is_cancelled_by_hand_after_a_move(world, production):
+    await book(world)
+    sam = await add_sam()
+    await send_as_production(world, production, EVENT)
+    await book(world, robin())  # an update for the old host, captured and never sent
+
+    await give_to(world, sam)
+    await job(world, NOW + timedelta(minutes=1))
+
+    found = {}
+    for notice in await listed(world):
+        found.setdefault(notice["kind"], []).append(notice["state"])
+    assert found[host_event.MOVED_KIND] == ["ready"]
+    assert found[EVENT_UPDATE] == ["no_longer_applies"]
+    sent = await outcomes(world, host_event.MOVED_KIND, EVENT)
+    assert sent == {host_event.MOVED_KIND: "sent", EVENT: "sent"}
+    old, new = world.calendar.events.values()
+    assert (old.draft.attendees, old.cancelled) == ([JANE], True)
+    assert (new.draft.attendees, new.cancelled) == (["sam.roe@example.com"], False)
 
 
 @pytest.mark.asyncio
