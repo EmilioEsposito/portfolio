@@ -86,7 +86,7 @@ def host_events(world: PublicWorld) -> list:
 
 
 async def live() -> None:
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
 
 
 # One booking at a time

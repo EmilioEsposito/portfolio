@@ -9,10 +9,12 @@ import {
   bestDayKey,
   bookingBody,
   bookingPlace,
+  cancelInTheTextLine,
   dayKey,
   fieldOrder,
   findOffer,
   firstMarked,
+  fixedLine,
   formatDay,
   formatSpan,
   formatTime,
@@ -23,6 +25,8 @@ import {
   readRefusal,
   refusalAction,
   refusalMessage,
+  sameLinkLine,
+  textedLine,
   ticksMessage,
   unitSummary,
 } from "../../app/lib/showing-booking-page.ts";
@@ -246,4 +250,17 @@ test("only a token-shaped ?t= value is sent to look up a showing booked by email
   for (const value of [null, "", "short", "has space in it 12345", "a".repeat(65), "<script>alert(1)</script>"]) {
     assert.equal(leadTokenOf(value), null, String(value));
   }
+});
+
+test("the page says a text was sent only once it was", () => {
+  const sent = { texted: true, mobile: "•••-•••-••17" };
+  const captured = { ...sent, texted: false };
+  assert.equal(textedLine(sent), "We texted •••-•••-••17.");
+  assert.equal(textedLine(captured), "We'll text •••-•••-••17.");
+  assert.equal(fixedLine(sent), "Done. We texted the confirmation to •••-•••-••17.");
+  assert.equal(fixedLine(captured), "Done. We'll text the confirmation to •••-•••-••17.");
+  assert.equal(sameLinkLine(sent), "The text has the same link.");
+  assert.equal(sameLinkLine(captured), "The text will have the same link.");
+  assert.equal(cancelInTheTextLine(sent), "The text we sent you has a link to cancel this showing.");
+  assert.equal(cancelInTheTextLine(captured), "The text we'll send you has a link to cancel this showing.");
 });

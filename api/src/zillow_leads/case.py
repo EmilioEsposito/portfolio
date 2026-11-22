@@ -297,8 +297,9 @@ def build_case(
     service). The case stores the times either way, never where they came from.
 
     ``booking_links`` replace units' booking links (the booking service's page
-    with this thread's own token), and ``own_showings`` are the thread's own
-    showings. Both come from the booking service, only while it is in use;
+    with this thread's own token; an empty one is no link at all), and
+    ``own_showings`` are the thread's own showings. Both come from the booking
+    service, only while it is in use;
     without them the case is exactly what it was before either existed.
 
     A showing the lead is booked into is not offered back to them: its time is
@@ -318,7 +319,7 @@ def build_case(
     listed = [
         item.model_copy(
             update={
-                "booking_url": links.get(item.unit) or item.booking_url or listing_data.booking_url
+                "booking_url": links.get(item.unit, item.booking_url or listing_data.booking_url)
             }
         )
         for item in listing_data.listings

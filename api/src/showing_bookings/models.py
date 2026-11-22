@@ -1,4 +1,4 @@
-"""Tables for showing bookings. Migrations 0042 to 0046 build the same thing.
+"""Tables for showing bookings. Migrations 0042 to 0050 build the same thing.
 
 Three rules live in the database, so no code path can break them:
 
@@ -38,8 +38,8 @@ from api.src.showing_bookings.schema import (
     CONNECTION_STATUSES,
     DEFAULT_CAPACITY,
     NOTICE_ATTENTIONS,
+    NOTICE_MODES,
     NOTICE_STATUSES,
-    SEND_MODES,
     SHOWING_STATUSES,
 )
 
@@ -285,7 +285,7 @@ class ShowingNotice(Base):
         _one_of("status", NOTICE_STATUSES),
         _one_of("alert_reason", NOTICE_ATTENTIONS),
         CheckConstraint(
-            "mode IS NULL OR mode IN (" + ", ".join(f"'{m}'" for m in SEND_MODES) + ")",
+            "mode IS NULL OR mode IN (" + ", ".join(f"'{m}'" for m in NOTICE_MODES) + ")",
             name="mode",
         ),
         UniqueConstraint(
@@ -340,6 +340,13 @@ class ShowingNotice(Base):
     provider_status: Mapped[str | None] = mapped_column(String, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The team member who sent this captured message by hand (``captured.py``),
+    # by Sernia email, and when. The guard then lets it go in any send mode, in
+    # production. Cleared when the notice is held again for another reason.
+    send_approved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    send_approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # The one alert to the team about this notice (``alerts.py``): when, and
     # why, "failed" or "stuck". Set before the alert goes, so it never goes twice.
     alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

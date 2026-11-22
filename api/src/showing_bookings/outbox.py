@@ -3,12 +3,14 @@
 Every text, calendar event and invite a booking owes is first a row in
 ``showing_notices``, written by ``enqueue`` in the same transaction as the
 booking. ``deliver`` (one row, right after the booking commits) and ``drain``
-(every due row, from a job or the team's "Send pending now") then take each
+(every due row, from the job every minute) then take each
 row through the guard in ``guard.py``:
 
-- skip: send mode is off. Saved as ``skipped``.
 - capture: the row already holds the rendered message. Saved as
-  ``captured``; no provider is called.
+  ``captured``; no provider is called. A person may send it by hand later
+  (``captured.py``), which makes it pending again with ``send_approved_at`` set:
+  the guard then lets it go in any mode, in production, and everything else
+  here happens to it as to any other row.
 - send: in three steps, so a row is never sent twice.
 
   1. Claim, just before this row's own provider call. The row is locked
@@ -73,6 +75,14 @@ under the same lock, just before the guard is asked; when there is no usable
 route it is saved as failed without a send. Any other email the guard would
 send fails with ``no_email_sender``.
 
+A notice about to be really sent whose message follows another (a cancellation, a
+change) is cancelled instead when the other was captured and never sent
+(``told.py``). A notice sent by hand is also checked by
+``delivery_checks.by_hand_problem``: not too late, and still right.
+
+``preview`` says what delivering a captured notice sent by hand would do now,
+changing nothing: the Captured messages list and the send both use it.
+
 ``send_team_alert`` is the one way to the team's alert channel (web push,
 ``push.py``), and pushes only in production.
 """
@@ -83,7 +93,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import logfire
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, inspect, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,6 +104,7 @@ from api.src.showing_bookings import (
     google_http,
     host_event,
     residents,
+    told,
 )
 from api.src.showing_bookings.gmail_thread import GmailThreadSender, LiveGmailInTests
 from api.src.showing_bookings.guard import Decision, decide
@@ -256,7 +267,7 @@ async def drain(
 ) -> DrainReport:
     """Deliver every notice due by ``now``, oldest first. Safe to run twice at once.
 
-    Rows the guard skips or captures are settled together. Rows it would send
+    Rows the guard captures are settled together. Rows it would send
     are claimed one at a time, each just before its own provider call.
     """
     to_send, report = await _settle_due(now=_aware(now), limit=limit)
@@ -318,6 +329,52 @@ def _live_alerter() -> TeamAlerter:
     return PushTeamAlerter()
 
 
+@dataclass(frozen=True)
+class Preview:
+    """What delivering a captured notice sent by hand would do now."""
+
+    # Why it would not be sent, as the row would say; None when it may go.
+    problem: str | None
+    # When it would go at the earliest, when that is not now.
+    later: datetime | None
+    # Whether it would really leave: always in production, and elsewhere only to
+    # the test list.
+    goes_out: bool
+    # As it would be sent, written from things as they are now.
+    recipient: str
+    payload: dict
+
+
+async def preview(
+    session: AsyncSession, notice: ShowingNotice, unit: str, *, now: datetime
+) -> Preview:
+    """Take a copy of a captured notice through every check a delivery makes, as if a
+    person had sent it by hand. Changes and locks nothing."""
+    copy = ShowingNotice(
+        **{column.key: getattr(notice, column.key) for column in inspect(ShowingNotice).columns}
+    )
+    copy.status, copy.last_error, copy.not_before = "pending", None, now
+    copy.send_approved_at = now
+    prepared = await _prepare(session, copy, now, lock=False)
+    unit = await _unit_now(session, copy, notice.showing_id, unit)
+    problem = later = None
+    if prepared is _NOT_NOW:
+        if copy.status != "pending":
+            problem = copy.last_error
+        elif copy.not_before > now:
+            later = copy.not_before
+            if copy.channel == "sms":
+                # Waiting for the daytime, it would still be asked as it goes. A calendar
+                # change that waits is waiting for the very event it follows.
+                problem = await told.missing(session, copy, None)
+        else:
+            problem = delivery_checks.REPLY_NOT_SENT
+    else:
+        problem = await told.missing(session, copy, prepared)
+    goes_out = _ask(copy, unit, await _guard_inputs(session)).action == "send"
+    return Preview(problem, later, goes_out, copy.recipient, dict(copy.payload))
+
+
 # ---------------------------------------------------------------------------
 # Claiming, sending and saving the answer
 # ---------------------------------------------------------------------------
@@ -338,6 +395,8 @@ class _Claimed:
     started_at: datetime
     # The event a calendar change applies to when the payload names none.
     stored_event_id: str | None
+    # A captured notice a person sent by hand.
+    by_hand: bool
 
 
 @dataclass(frozen=True)
@@ -432,21 +491,43 @@ async def _guard_inputs(session: AsyncSession) -> _GuardInputs:
     return await settings_for_delivery(session), current_environment(), read_test_recipients()
 
 
-def _guard(notice: ShowingNotice, unit: str, inputs: _GuardInputs, now: datetime) -> Decision:
-    """Ask the guard about one locked row, and settle it when the answer is skip or capture."""
+def _ask(notice: ShowingNotice, unit: str, inputs: _GuardInputs) -> Decision:
     settings, environment, test_recipients = inputs
-    decision = decide(
+    return decide(
         settings=settings,
         environment=environment,
         unit=unit,
         addresses=_addresses(notice),
         test_recipients=test_recipients,
+        approved=notice.send_approved_at is not None,
     )
+
+
+async def _guard(
+    session: AsyncSession,
+    notice: ShowingNotice,
+    unit: str,
+    event_id: str | None,
+    inputs: _GuardInputs,
+    now: datetime,
+) -> Decision | None:
+    """Ask the guard about one locked row, and settle it when the answer is capture.
+
+    None when the guard would send it but what it follows was never sent
+    (``told.missing``): the row is cancelled.
+    """
+    decision = _ask(notice, unit, inputs)
     if decision.action != "send":
-        notice.mode = settings.send_mode
+        notice.mode = inputs[0].send_mode
         notice.guard_reason = decision.reason
-        notice.status = "skipped" if decision.action == "skip" else "captured"
+        notice.status = "captured"
         notice.delivered_at = now
+        return decision
+    note = await told.missing(session, notice, event_id)
+    if note is not None:
+        notice.status = "cancelled"
+        notice.last_error = note
+        return None
     return decision
 
 
@@ -471,8 +552,15 @@ def _settle_cancel_check(notice: ShowingNotice, verdict: str, now: datetime) -> 
     return False
 
 
-async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
+async def _prepare(
+    session: AsyncSession, notice: ShowingNotice, now: datetime, *, lock: bool = True
+):
     """Get a notice ready to deliver, from things as they are now.
+
+    One a person sent by hand is first checked by
+    ``delivery_checks.by_hand_problem``, and its calendar is looked up again
+    (``host_event.calendar_now``). ``lock`` False reads without locking the
+    showing, for ``preview``.
 
     A notice for one booking (its confirmation text or its invite,
     ``host_event.FOR_A_BOOKING_KINDS``) is cancelled when the attendee is no
@@ -493,6 +581,13 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     sent) or left waiting (a reply not settled). Otherwise the event id it applies to, or None when there is none
     yet, so it is created. Other rows are returned unchanged with None.
     """
+    by_hand = notice.send_approved_at is not None
+    if by_hand:
+        problem = await delivery_checks.by_hand_problem(session, notice, now)
+        if problem is not None:
+            notice.status = "cancelled"
+            notice.last_error = problem
+            return _NOT_NOW
     if notice.kind in residents.TEXT_KINDS:
         return await _prepare_resident_text(session, notice, now)
     if notice.kind in delivery_checks.KINDS:
@@ -529,6 +624,8 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
             notice.last_error = host_event.BOOKING_CANCELLED
             return _NOT_NOW
         if not delivery_checks.reply_unsettled(attendee):
+            if by_hand and notice.kind == host_event.INVITE_KIND:
+                await _recalendar(session, notice, None)
             return None
         # The lead hears nothing before the reply that books the place is settled.
         if starts_at <= now:
@@ -542,12 +639,15 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
             )
         )
         verdict = await host_event.cancel_check(session, notice, event_id=event_id)
-        return event_id if _settle_cancel_check(notice, verdict, now) else _NOT_NOW
+        if not _settle_cancel_check(notice, verdict, now):
+            return _NOT_NOW
+        if by_hand:
+            await _recalendar(session, notice, event_id)
+        return event_id
     if notice.kind not in host_event.SHOWING_LOCKED_KINDS:
         return None
-    showing = await session.scalar(
-        select(Showing).where(Showing.id == notice.showing_id).with_for_update()
-    )
+    this_showing = select(Showing).where(Showing.id == notice.showing_id)
+    showing = await session.scalar(this_showing.with_for_update() if lock else this_showing)
     others = select(ShowingNotice.id).where(
         ShowingNotice.showing_id == notice.showing_id,
         ShowingNotice.kind.in_(host_event.SHOWING_LOCKED_KINDS),
@@ -562,19 +662,29 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
         return _NOT_NOW
     if notice.kind == host_event.CANCEL_KIND:
         verdict = await host_event.cancel_check(session, notice, event_id=showing.host_event_id)
-        return showing.host_event_id if _settle_cancel_check(notice, verdict, now) else _NOT_NOW
+        if not _settle_cancel_check(notice, verdict, now):
+            return _NOT_NOW
+        if by_hand:
+            await _recalendar(session, notice, showing.host_event_id)
+        return showing.host_event_id
     if notice.kind == host_event.MOVED_KIND:
         # The old host's event, named on the notice: never the showing's current one.
         verdict = await host_event.moved_check(session, notice)
-        return (
-            notice.payload.get("event_id")
-            if _settle_cancel_check(notice, verdict, now)
-            else _NOT_NOW
-        )
+        if not _settle_cancel_check(notice, verdict, now):
+            return _NOT_NOW
+        event_id = notice.payload.get("event_id")
+        if by_hand:
+            await _recalendar(session, notice, event_id)
+        return event_id
+    if by_hand:
+        await _recalendar(session, notice, showing.host_event_id)
     rendered = await host_event.render(
         session, showing, calendar_id=notice.payload.get("calendar_id") or "unknown"
     )
     note = host_event.NO_ONE_BOOKED if rendered is None else None
+    if by_hand and rendered is not None:
+        if await host_event.already_says(session, showing, rendered):
+            note = host_event.ALREADY_SAYS
     if rendered is not None and rendered.operation == "create":
         unsure = await session.scalar(
             others.where(
@@ -591,6 +701,13 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
         return _NOT_NOW
     notice.payload = rendered.model_dump(mode="json")
     return showing.host_event_id
+
+
+async def _recalendar(session: AsyncSession, notice: ShowingNotice, event_id: str | None) -> None:
+    """Point a calendar notice sent by hand at the calendar it is for now."""
+    agent_id = await session.scalar(select(Showing.agent_id).where(Showing.id == notice.showing_id))
+    calendar_id = await host_event.calendar_now(session, notice, agent_id, event_id)
+    notice.payload = {**notice.payload, "calendar_id": calendar_id}
 
 
 async def _prepare_resident_text(session: AsyncSession, notice: ShowingNotice, now: datetime):
@@ -645,7 +762,7 @@ async def _unit_now(
 
 
 async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainReport]:
-    """Settle the due rows the guard skips or captures, and list the ones it would send.
+    """Settle the due rows the guard captures, and list the ones it would send.
 
     The rows to send are not claimed here: each is claimed just before its own
     provider call, so a run that stops partway leaves the rest pending.
@@ -675,10 +792,14 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
             inputs = await _guard_inputs(session)
             for notice, unit, _host_event_id, _invite_event_id in rows:
                 showing_before = notice.showing_id
-                if await _prepare(session, notice, now) is _NOT_NOW:
+                prepared = await _prepare(session, notice, now)
+                if prepared is _NOT_NOW:
                     continue
                 unit = await _unit_now(session, notice, showing_before, unit)
-                if _guard(notice, unit, inputs, now).action == "send":
+                decision = await _guard(session, notice, unit, prepared, inputs, now)
+                if decision is None:
+                    continue
+                if decision.action == "send":
                     to_send.append(notice.id)
                 else:
                     _count(report, notice.status)
@@ -688,9 +809,9 @@ async def _settle_due(*, now: datetime, limit: int) -> tuple[list[int], DrainRep
 async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None, str | None]:
     """Claim one due row for sending, asking the guard again, and commit the claim.
 
-    Returns the claimed row; or, when the guard now skips or captures it, the
+    Returns the claimed row; or, when the guard now captures it, the
     status it was settled with; or neither, when the row is not due, already
-    delivered, or held by another run.
+    delivered, held by another run, or cancelled just now.
     """
     async with AsyncSessionFactory() as session, session.begin():
         row = (await session.execute(_due_rows(now).where(ShowingNotice.id == notice_id))).first()
@@ -709,7 +830,9 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
         elif prepared is not None:
             invite_event_id = prepared
         inputs = await _guard_inputs(session)
-        decision = _guard(notice, unit, inputs, now)
+        decision = await _guard(session, notice, unit, prepared, inputs, now)
+        if decision is None:
+            return None, None
         if decision.action != "send":
             return None, notice.status
         notice.mode = inputs[0].send_mode
@@ -731,6 +854,7 @@ async def _claim_one(notice_id: int, *, now: datetime) -> tuple[_Claimed | None,
                     "calendar_event": host_event_id,
                     "calendar_invite": invite_event_id,
                 }.get(notice.channel),
+                by_hand=notice.send_approved_at is not None,
             ),
             None,
         )
@@ -887,11 +1011,20 @@ async def _record(item: _Claimed, outcome: _Outcome, *, now: datetime) -> None:
         and item.channel == "calendar_invite"
         and item.attendee_id is not None
     )
+    # A confirmation text sent by hand whose number Quo refuses: nobody is on the
+    # booking page to be told, so the booking is marked for the team instead.
+    marks_refused = (
+        item.by_hand
+        and item.kind == host_event.CONFIRMATION_KIND
+        and item.attendee_id is not None
+        and outcome.status == "failed"
+        and outcome.provider_status in delivery_checks.NUMBER_REFUSALS
+    )
     async with AsyncSessionFactory() as session, session.begin():
         # Lock order across the module: the attendee, then its notices, then
         # the showing. An invite's id is saved on the attendee, so that row is
         # locked before the notice is updated.
-        if saves_invite_id:
+        if saves_invite_id or marks_refused:
             await session.execute(
                 select(ShowingAttendee.id)
                 .where(ShowingAttendee.id == item.attendee_id)
@@ -922,6 +1055,16 @@ async def _record(item: _Claimed, outcome: _Outcome, *, now: datetime) -> None:
                     .where(ShowingAttendee.id == item.attendee_id)
                     .values(calendar_event_id=outcome.provider_id)
                 )
+        if marks_refused:
+            await session.execute(
+                update(ShowingAttendee)
+                .where(
+                    ShowingAttendee.id == item.attendee_id,
+                    ShowingAttendee.status == "booked",
+                    ShowingAttendee.mobile == item.recipient,
+                )
+                .values(attention_reason="confirmation_refused")
+            )
     log = logfire.info if outcome.status in ("sent", "retry") else logfire.warn
     log(
         "showing notice {status}",

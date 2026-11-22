@@ -61,7 +61,7 @@ async def world(monkeypatch):
 
 
 async def live() -> None:
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
 
 
 async def book(world: PublicWorld, body: dict | None = None, **headers):

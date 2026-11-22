@@ -2,14 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { CircleAlert, FlaskConical, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import { Label } from "~/components/ui/label";
-import { Switch } from "~/components/ui/switch";
 import {
   type AgentCalendar,
   type BookedPerson,
   type BookedShowing,
-  type BookingSettings,
   type CalendarStatus,
+  type SettingsView,
   type ShowingsView,
   type UnitOffers,
   CALENDAR_STATUS_LABELS,
@@ -20,6 +18,7 @@ import {
   describeResidentAttention,
   describeShowingCancel,
   formatWhen,
+  heldBackNote,
   leadAgentLine,
 } from "~/lib/showing-bookings";
 import {
@@ -38,56 +37,6 @@ const STATUS_STYLES: Record<CalendarStatus, string> = {
   unreadable: "border-red-300 text-red-700 dark:border-red-900 dark:text-red-400",
   inactive: "border-muted-foreground/40 text-muted-foreground",
 };
-
-function LeadAgentSwitch({
-  on,
-  saving,
-  error,
-  onChange,
-}: {
-  on: boolean;
-  saving: boolean;
-  error: string | null;
-  onChange: (on: boolean) => void;
-}) {
-  return (
-    <div className="mt-4 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <Label htmlFor="lead-agent-open-times" className="text-sm font-medium">
-            Zillow lead agent books showings
-          </Label>
-          <p id="lead-agent-open-times-help" className="text-sm leading-6 text-muted-foreground">
-            On, its email replies offer the times below, and each lead gets their own booking link. When a person
-            approves a reply that agrees, moves or cancels a showing, it is booked, moved or cancelled here, and the
-            host and the unit&rsquo;s residents are told. Off, its replies offer no times and nothing is booked from
-            email. Leave it off until the booking pages are live, since the links open there.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 pt-0.5">
-          {saving && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-          <Switch
-            id="lead-agent-open-times"
-            checked={on}
-            disabled={saving}
-            aria-describedby="lead-agent-open-times-help"
-            onCheckedChange={onChange}
-          />
-        </div>
-      </div>
-      <p role="status" className="mt-2 text-sm font-medium">
-        {on
-          ? "On: the lead agent offers these times and books showings."
-          : "Off: the lead agent offers no times and books nothing."}
-      </p>
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
 
 function UnitItem({ unit }: { unit: UnitOffers }) {
   const [all, setAll] = useState(false);
@@ -254,13 +203,19 @@ function BookedItem({
   );
 }
 
-export function ShowingsSection() {
+export function ShowingsSection({
+  settings,
+  onChanged,
+}: {
+  /** The saved settings, so a confirmation can say what is not really sent; null until they are read. */
+  settings: SettingsView | null;
+  /** Something here queued messages, so the lists of messages are out of date. */
+  onChanged: () => void;
+}) {
   const api = useShowingBookingsApi();
   const [view, setView] = useState<ShowingsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [switching, setSwitching] = useState(false);
-  const [switchError, setSwitchError] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionDone, setActionDone] = useState<string | null>(null);
@@ -278,6 +233,9 @@ export function ShowingsSection() {
     void load();
   }, [load]);
 
+  const note = (unit: string) =>
+    settings ? heldBackNote(settings.settings, settings.is_production, unit) : "";
+
   async function act(path: string, done: string) {
     setActing(path);
     setActionError(null);
@@ -285,6 +243,7 @@ export function ShowingsSection() {
     const result = await api<CancelResult>(path, { method: "POST" }, "Could not cancel");
     if (result.ok) {
       setActionDone(done);
+      onChanged();
       await load();
     } else {
       setActionError(result.message);
@@ -293,12 +252,12 @@ export function ShowingsSection() {
   }
 
   async function cancelShowing(showing: BookedShowing) {
-    if (!view || !window.confirm(describeShowingCancel(showing, view.send_mode))) return;
+    if (!view || !window.confirm(describeShowingCancel(showing, note(showing.unit)))) return;
     await act(`/showings/${showing.id}/cancel`, `Cancelled the showing of ${showing.unit} on ${formatWhen(showing.starts_at)}.`);
   }
 
   async function removePerson(showing: BookedShowing, person: BookedPerson) {
-    if (!view || !window.confirm(describeRemoval(showing, person, view.send_mode))) return;
+    if (!view || !window.confirm(describeRemoval(showing, person, note(showing.unit)))) return;
     await act(
       `/showings/${showing.id}/attendees/${person.id}/remove`,
       `Removed ${person.name} from the showing of ${showing.unit}.`,
@@ -312,6 +271,7 @@ export function ShowingsSection() {
     const result = await api<T>(path, init, fallback);
     if (result.ok) {
       setActionDone(done(result.body));
+      onChanged();
       await load();
     } else {
       setActionError(result.message);
@@ -343,31 +303,8 @@ export function ShowingsSection() {
   async function booked(message: string) {
     setActionError(null);
     setActionDone(message);
+    onChanged();
     await load();
-  }
-
-  async function setLeadAgent(on: boolean) {
-    if (!view) return;
-    if (
-      on &&
-      !window.confirm(
-        view.open_times.sample_calendar_in_use
-          ? "Some times below come from a made-up calendar. Have the lead agent offer them to leads here anyway?"
-          : "The Zillow lead agent will offer these times to leads, and replies you approve will book, move and cancel showings. Turn it on?",
-      )
-    ) {
-      return;
-    }
-    setSwitching(true);
-    setSwitchError(null);
-    const result = await api<BookingSettings>(
-      "/settings/lead-agent",
-      { method: "PUT", body: JSON.stringify({ lead_agent_uses_open_times: on }) },
-      "Could not change what the lead agent offers",
-    );
-    if (result.ok) setView({ ...view, lead_agent_uses_open_times: result.body.lead_agent_uses_open_times });
-    else setSwitchError(result.message);
-    setSwitching(false);
   }
 
   const times = view?.open_times;
@@ -408,13 +345,6 @@ export function ShowingsSection() {
 
       {view && times && (
         <>
-          <LeadAgentSwitch
-            on={view.lead_agent_uses_open_times}
-            saving={switching}
-            error={switchError}
-            onChange={(on) => void setLeadAgent(on)}
-          />
-
           {times.sample_calendar_in_use && (
             <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
               <FlaskConical className="mt-1 size-4 shrink-0" aria-hidden="true" />
@@ -460,7 +390,7 @@ export function ShowingsSection() {
           )}
 
           <h4 className="mt-5 text-sm font-semibold">Booked, from the last 3 days to 14 days ahead</h4>
-          <AddBooking units={times.units} mode={view.send_mode} api={api} onBooked={booked} />
+          <AddBooking units={times.units} note={note} api={api} onBooked={booked} />
           {view.booked.length === 0 ? (
             <p className="mt-1 text-sm text-muted-foreground">No showings are booked.</p>
           ) : (

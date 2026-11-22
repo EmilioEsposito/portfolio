@@ -24,7 +24,9 @@ import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
 // A lead whose showing the lead agent booked in their email thread opens the
 // page with their own link (`?t=`): the loader then finds that place, and the
 // page shows the time already booked and asks only for their details. Once
-// their details are in, it says they are booked, with when and where.
+// their details are in, it says they are booked, with when and where. Their link
+// works for a unit that is no longer open to others too: the unit then answers
+// 404, and what the page needs of it comes with their place instead.
 
 const NOINDEX = { name: "robots", content: "noindex" };
 
@@ -54,29 +56,29 @@ export async function loader({ params, request }: Route.LoaderArgs): Promise<Boo
   } catch {
     throw data(null, { status: 503, statusText: "Service Unavailable" });
   }
-  if (response.status === 404) throw data(null, { status: 404, statusText: "Not Found" });
-  if (!response.ok) throw data(null, { status: 503, statusText: "Service Unavailable" });
-  const unit = (await response.json()) as UnitPage;
-  return { ...unit, lead_booking: await leadBooking(unitPath, new URL(request.url).searchParams.get("t")) };
+  if (!response.ok && response.status !== 404) throw data(null, { status: 503, statusText: "Service Unavailable" });
+  const token = leadTokenOf(new URL(request.url).searchParams.get("t"));
+  // The place booked for this lead's email thread, when the link's token has one
+  // at this unit: the page then asks only for their details, or says they are
+  // booked when the details are in. Without one, it is the normal booking form.
+  const place = token ? await withToken<LeadBooking>(`${unitPath}/lead-booking`, token) : null;
+  const unit = response.ok
+    ? ((await response.json()) as UnitPage)
+    : token && place && (await withToken<UnitPage>(`${unitPath}/lead-booking/unit`, token));
+  if (!unit) throw data(null, { status: 404, statusText: "Not Found" });
+  return { ...unit, lead_booking: place };
 }
 
-/**
- * The place booked for this lead's email thread, when the link's token has one
- * at this unit: the page then asks only for their details, or says they are
- * booked when the details are in. The token goes in the request body, never in
- * the API's path or query. Anything but a 200 means the normal booking form.
- */
-async function leadBooking(unitPath: string, value: string | null): Promise<LeadBooking | null> {
-  const token = leadTokenOf(value);
-  if (!token) return null;
+/** Asks the API with the lead's token, in the request body, never in its path or query. Null for anything but a 200. */
+async function withToken<T>(path: string, token: string): Promise<T | null> {
   try {
-    const response = await fetch(`${unitPath}/lead-booking`, {
+    const response = await fetch(path, {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify({ lead_token: token }),
       signal: AbortSignal.timeout(15_000),
     });
-    return response.ok ? ((await response.json()) as LeadBooking) : null;
+    return response.ok ? ((await response.json()) as T) : null;
   } catch {
     return null;
   }

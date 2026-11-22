@@ -97,7 +97,7 @@ async def go_live(monkeypatch) -> None:
     """Texts and invites to Alex really go, to the stand-ins; everything else is captured."""
     monkeypatch.setenv("SHOWING_TEST_PHONES", ALEX_MOBILE)
     monkeypatch.setenv("SHOWING_TEST_EMAILS", ALEX_EMAIL)
-    await store_settings(lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test")
 
 
 async def with_details(lead: Lead) -> ShowingAttendee:
@@ -960,8 +960,25 @@ async def test_the_link_says_they_are_booked_once_the_details_are_in(lead):
         "ends_at": "2027-04-14T20:30:00Z",
         "timezone": "America/New_York",
         "details_added": True,
+        "texted": False,
     }
     assert answer.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_the_link_says_the_text_went_only_once_it_did(lead, monkeypatch):
+    """Captured: the page must not say that a text with the cancel link was sent."""
+    await with_details(lead)
+    token = await lead_links.token_for_thread(THREAD)
+    assert (await read_place(lead, token)).json()["texted"] is False
+    async with AsyncSessionFactory() as session, session.begin():
+        await session.execute(
+            update(ShowingNotice)
+            .where(ShowingNotice.kind == "prospect_confirmation")
+            .values(status="sent")
+        )
+
+    assert (await read_place(lead, token)).json()["texted"] is True
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""The team's showing booking API: settings, the notice list, "Send pending now", and who may call.
+"""The team's showing booking API: settings, the notice list, the job run by hand, and who may call.
 
 Uses the test database. Sign-in is replaced by a stand-in Sernia user, except
 in the auth tests at the end, which run the real check with Clerk mocked.
@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.dependencies.models import Dependant
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
@@ -35,7 +35,7 @@ LISTED_UNIT = "991-A"  # made up, and removed after each test
 DEFAULTS = {
     "send_mode": "capture",
     "live_units": [],
-    "test_sends_enabled": False,
+    "live_all_units": False,
     "lead_agent_uses_open_times": False,
     "public_booking_enabled": None,
     "public_limits": {
@@ -86,6 +86,17 @@ async def api():
         yield client
 
 
+async def every_listing() -> list[dict]:
+    """Every rental listing in this database, as the tab lists them."""
+    async with AsyncSessionFactory() as session:
+        rows = await session.execute(
+            select(RentalListingRecord.unit, RentalListingRecord.address).order_by(
+                RentalListingRecord.unit
+            )
+        )
+        return [{"unit": unit, "address": address} for unit, address in rows]
+
+
 async def stored() -> dict | None:
     async with AsyncSessionFactory() as session:
         row = await session.get(AppSetting, SETTINGS_KEY)
@@ -109,8 +120,9 @@ async def test_settings_start_in_capture_and_say_where_they_run(api, monkeypatch
         "is_production": False,
         "test_recipients": ["t…@example.com", "•••-0150"],
         "public_booking_on": True,
-        "public_booking_default": True,
+        "listings": await every_listing(),
     }
+    assert {"unit": LISTED_UNIT, "address": "991 Example St"} in response.json()["listings"]
 
 
 @pytest.mark.asyncio
@@ -122,7 +134,7 @@ async def test_production_is_reported_as_production(api, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_save_stores_live_units_as_their_listings_spell_them(api):
-    new = {**DEFAULTS, "send_mode": "live", "live_units": ["991-a"], "test_sends_enabled": True}
+    new = {**DEFAULTS, "send_mode": "live", "live_units": ["991-a"]}
 
     response = await api.patch(
         "/api/showing-bookings/settings", json={"settings": new, "based_on": DEFAULTS}
@@ -148,8 +160,84 @@ async def test_a_unit_with_no_listing_is_refused(api):
 
 
 @pytest.mark.asyncio
+async def test_a_live_unit_whose_listing_is_gone_never_stops_a_save(api):
+    """It stays live until someone unticks it; only a newly ticked unit must be listed."""
+    await store_settings(**{**DEFAULTS, "send_mode": "live", "live_units": ["404-Z", LISTED_UNIT]})
+    shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
+    assert shown["live_units"] == ["404-Z", LISTED_UNIT]
+
+    async def save(**changes):
+        before = (await api.get("/api/showing-bookings/settings")).json()["settings"]
+        return await api.patch(
+            "/api/showing-bookings/settings",
+            json={"settings": {**before, **changes}, "based_on": before},
+        )
+
+    to_capture = await save(send_mode="capture")
+    assert to_capture.status_code == 200, to_capture.text
+    assert to_capture.json()["live_units"] == ["404-Z", LISTED_UNIT]
+    another = await save(live_units=["404-Z", "405-Z"])
+    assert another.status_code == 422 and "405-Z" in another.json()["detail"]
+    assert "404-Z" not in another.json()["detail"]
+    unticked = await save(live_units=[LISTED_UNIT])
+    assert unticked.json()["live_units"] == [LISTED_UNIT]
+    back = await save(live_units=["404-Z", LISTED_UNIT])
+    assert back.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_all_units_and_the_ticks_are_both_saved(api):
+    new = {**DEFAULTS, "send_mode": "live", "live_units": [LISTED_UNIT], "live_all_units": True}
+
+    response = await api.patch(
+        "/api/showing-bookings/settings", json={"settings": new, "based_on": DEFAULTS}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == new == await stored()
+
+
+@pytest.mark.asyncio
+async def test_an_old_row_is_shown_and_saved_as_what_it_meant(api):
+    """No data migration: the row as production has it, then a save over it."""
+    await store_settings(
+        send_mode="live",
+        live_units=[],
+        test_sends_enabled=True,
+        lead_agent_uses_open_times=True,
+        public_booking_enabled=True,
+    )
+
+    shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
+
+    old = {**DEFAULTS, "lead_agent_uses_open_times": True, "public_booking_enabled": True}
+    assert shown == {**old, "send_mode": "test"}
+    saved = await api.patch(
+        "/api/showing-bookings/settings",
+        json={"settings": {**shown, "send_mode": "capture"}, "based_on": shown},
+    )
+    assert saved.status_code == 200, saved.text
+    assert await stored() == old
+
+
+@pytest.mark.asyncio
+async def test_a_tab_left_open_from_before_still_saves(api):
+    """The dropped key is accepted and ignored, on a save too."""
+    before = {**DEFAULTS, "test_sends_enabled": False}
+    del before["live_all_units"]
+
+    response = await api.patch(
+        "/api/showing-bookings/settings",
+        json={"settings": {**before, "send_mode": "off"}, "based_on": before},
+    )
+
+    assert response.status_code == 200, response.text
+    assert await stored() == DEFAULTS
+
+
+@pytest.mark.asyncio
 async def test_a_save_from_a_stale_screen_is_refused(api):
-    await store_settings(send_mode="off", live_units=[], test_sends_enabled=False)
+    await store_settings(send_mode="test", live_units=[])
 
     response = await api.patch(
         "/api/showing-bookings/settings",
@@ -157,7 +245,7 @@ async def test_a_save_from_a_stale_screen_is_refused(api):
     )
 
     assert response.status_code == 409
-    assert (await stored())["send_mode"] == "off"
+    assert (await stored())["send_mode"] == "test"
 
 
 @pytest.mark.asyncio
@@ -165,7 +253,7 @@ async def test_a_save_from_a_stale_screen_is_refused(api):
     "change",
     [
         {"send_mode": "loud"},
-        {"test_sends_enabled": "true"},
+        {"live_all_units": "true"},
         {"live_units": [" "]},
         {"surprise": True},
     ],
@@ -183,7 +271,7 @@ async def test_invalid_settings_are_not_saved(api, change):
 
 
 async def queue_notices() -> tuple[int, int]:
-    """A text and an invite, due now: "Send pending now" runs on the real clock."""
+    """A text and an invite, due now: the job run by hand uses the real clock."""
     showing = await add_showing(await add_agent(), starts_at=at(16))
     queued_at = datetime.now(UTC)
     async with AsyncSessionFactory() as session:
@@ -259,7 +347,19 @@ async def test_an_email_notice_shows_its_subject_and_body(api):
 
 
 @pytest.mark.asyncio
-async def test_send_pending_runs_the_sending_step_once(api):
+async def test_in_production_the_job_is_not_run_by_hand(api, monkeypatch):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+    await queue_notices()
+
+    response = await api.post("/api/showing-bookings/notices/send-pending")
+
+    assert response.status_code == 403
+    body = (await api.get("/api/showing-bookings/notices")).json()
+    assert {n["status"] for n in body} == {"pending"}
+
+
+@pytest.mark.asyncio
+async def test_outside_production_the_job_is_run_once_by_hand(api):
     await queue_notices()
 
     response = await api.post("/api/showing-bookings/notices/send-pending")
@@ -310,8 +410,9 @@ async def test_without_a_sign_in_every_route_is_refused_and_nothing_runs(monkeyp
             authenticate_request=lambda request, options: SimpleNamespace(is_signed_in=False)
         ),
     )
-    drain = AsyncMock()
+    drain, deliver = AsyncMock(), AsyncMock()
     monkeypatch.setattr(outbox, "drain", drain)
+    monkeypatch.setattr(outbox, "deliver", deliver)
     transport = httpx.ASGITransport(app=app(signed_in=False))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         calls = [
@@ -321,11 +422,14 @@ async def test_without_a_sign_in_every_route_is_refused_and_nothing_runs(monkeyp
                 json={"settings": {**DEFAULTS, "send_mode": "live"}, "based_on": DEFAULTS},
             ),
             client.get("/api/showing-bookings/notices"),
+            client.get("/api/showing-bookings/notices/captured"),
+            client.post("/api/showing-bookings/notices/send-captured", json={"ids": [1]}),
             client.post("/api/showing-bookings/notices/send-pending"),
         ]
         for call in calls:
             assert (await call).status_code == 401
     drain.assert_not_called()
+    deliver.assert_not_called()
     assert await stored() is None
 
 

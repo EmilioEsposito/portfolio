@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { UnitOffers } from "../../app/lib/showing-bookings.ts";
+import { type UnitOffers, heldBackNote } from "../../app/lib/showing-bookings.ts";
 import {
   type TeamBookingForm,
   attendanceAfter,
@@ -91,22 +91,25 @@ test("a unit, a time and a name are all the form needs", () => {
 });
 
 test("the tab asks first only when something reaches the caller", () => {
-  assert.equal(describeTeamBooking(form(), "live"), null);
-  assert.equal(describeTeamBooking(form({ mobile: "412-555-0119" }), "live"), null);
+  const modes = { live_units: [], live_all_units: false, lead_agent_uses_open_times: false };
+  const capture = heldBackNote({ ...modes, send_mode: "capture" }, true, "320-03");
+  const live = heldBackNote({ ...modes, send_mode: "live" }, true, "320-03");
+  assert.equal(describeTeamBooking(form(), capture), null);
+  assert.equal(describeTeamBooking(form({ mobile: "412-555-0119" }), capture), null);
   assert.equal(
-    describeTeamBooking(form({ mobile: "412-555-0119", email: "casey@example.com", texts: true }), "live"),
+    describeTeamBooking(form({ mobile: "412-555-0119", email: "casey@example.com", texts: true }), ""),
     "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a confirmation text at " +
       "412-555-0119 now, then a calendar invite at casey@example.com once it is delivered.",
   );
   assert.equal(
-    describeTeamBooking(form({ mobile: "412-555-0119", texts: true }), "capture"),
+    describeTeamBooking(form({ mobile: "412-555-0119", texts: true }), capture),
     "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a confirmation text at " +
-      "412-555-0119 now. Capture mode: it is kept under Messages, not sent.",
+      "412-555-0119 now. Capture mode: these are kept under Captured messages, not sent.",
   );
   assert.equal(
-    describeTeamBooking(form({ email: "casey@example.com" }), "off"),
+    describeTeamBooking(form({ email: "casey@example.com" }), live),
     "Book Casey Morgan for 320-03 on Wed, Apr 14, 4:00 PM? Casey Morgan gets a calendar invite at " +
-      "casey@example.com and no texts. Send mode is off: nothing goes out.",
+      "casey@example.com and no texts. 320-03 is not ticked for Live mode: these are captured, not sent.",
   );
 });
 

@@ -25,7 +25,11 @@ The provisioner prints the assigned preview URL and configures the API proxy.
 - `/systems/leasing-leads`: Zillow Leads Agent architecture, listing-data flow, planned booking integration, and evaluation links. Public and server-rendered; verified Sernia users also see management links.
 - `/systems/leasing-leads/listings`: authenticated rental listing data tab; no conversation pane.
 - `/systems/leasing-leads/settings`: dedicated lead batching and email-approval settings.
-- `/systems/leasing-leads/bookings`: authenticated booking settings placeholder.
+- `/systems/leasing-leads/bookings`: authenticated Booking settings tab: who can book, what a
+  booking sends, captured messages and sending them by hand, the messages' history, calendar
+  connections, showing agents and showings (`app/components/showing-bookings/`; what it decides is
+  in `app/lib/showing-bookings.ts`, unit tested). Its loader says whether this environment serves
+  the public booking pages (`SERNIA_PUBLIC_PAGES_ENABLED`), which the API does not know.
 
 The public architecture and these operator pages share route-backed navigation
 tabs. `/sernia-rental-listings` redirects to the listing tab; the legacy
@@ -142,7 +146,11 @@ small print come from the API. With a lead's own link (`?t=`), the loader also
 asks the API for the place booked in their email thread: the page then asks only
 for their details, or, once they are in, says "You're booked" with when and
 where, and shows the call line for someone the text never reached. It holds no
-cancel link, since a lead's link can be forwarded. The page
+cancel link, since a lead's link can be forwarded. That link works for a unit that
+is no longer open to others: the unit answers 404, and the loader reads what the
+page shows from `lead-booking/unit`. The page says "We texted" a number only once
+the API says the text went (`texted`), and "We'll text" while it is captured or
+waiting. The page
 is `noindex` for now. Pure logic
 (times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
 and tested in `test/lib/showing-booking-page.test.ts`.
@@ -168,8 +176,9 @@ unknown unit, the way from the Sernia home page through the units list to a
 booking page, a lead adding their details to a showing the lead agent booked by
 email (the script's `lead-booking` command books it), and their link saying
 they are booked afterwards, at the new time once a reply moves it (`lead-move`),
-and the bot check ahead of time (the number without a new check, a check that
-needs the person, a blocked one). It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
+and working for a unit closed to others (`close-units`), and the bot check ahead of time
+(the number without a new check, a check that needs the person, a blocked one).
+It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks
 every other request that would leave the machine. Before each test

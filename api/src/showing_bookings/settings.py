@@ -1,10 +1,12 @@
-"""The send mode setting, kept in ``app_settings`` under ``showing_bookings_config``.
+"""The booking settings, kept in ``app_settings`` under ``showing_bookings_config``.
 
-- ``send_mode``: "off" skips every notice, "capture" renders and keeps it
-  without calling a provider, "live" lets the guard (``guard.py``) send it.
-- ``live_units``: the units whose notices really go out in production.
-- ``test_sends_enabled``: in live mode, also send notices addressed only to
-  the test recipients in ``SHOWING_TEST_PHONES`` and ``SHOWING_TEST_EMAILS``.
+- ``send_mode``: what a booking's texts and calendar invites do (``guard.py``).
+  "test" sends only to the test list (``SHOWING_TEST_PHONES`` and
+  ``SHOWING_TEST_EMAILS``) and captures the rest. "capture" sends nothing: each
+  message is rendered and kept until a person sends it (``captured.py``). "live"
+  sends to real people, in production, for the units that are live.
+- ``live_units``: the units that are live, as their listings spell them.
+- ``live_all_units``: every unit is live, including ones added later.
 - ``lead_agent_uses_open_times``: the Zillow lead agent offers the open times
   computed here (``lead_tours.py``) instead of none. Off by default, and a row
   that cannot be read counts as off.
@@ -16,14 +18,22 @@
   address may make (``PublicLimits``). Kept here rather than in the repo,
   which is public.
 
+In live mode the public and the lead agent are offered only the units that are
+live (``unit_open``).
+
+A row saved before ``send_mode`` had a test mode reads as what it meant: "off"
+is "capture"; "live" with test sends on and no live units is "test"; any other
+row keeps its mode. The dropped key, ``test_sends_enabled``, is ignored.
+
 A preview database is a copy of production's rows, so whatever this row says,
-outside production the guard sends nothing but test sends.
+outside production the guard sends to nobody but the test list.
 """
 
 import os
+from typing import Any
 
 import logfire
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,11 +66,26 @@ class ShowingBookingSettings(BaseModel):
 
     send_mode: SendMode = "capture"
     live_units: list[str] = Field(default_factory=list)
-    test_sends_enabled: StrictBool = False
+    live_all_units: StrictBool = False
     lead_agent_uses_open_times: StrictBool = False
     # None: the environment's default (``public_booking_on``).
     public_booking_enabled: StrictBool | None = None
     public_limits: PublicLimits = Field(default_factory=PublicLimits)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_an_old_row(cls, value: Any) -> Any:
+        """A row from before test mode, as what it meant then (the module's docstring)."""
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        test_sends = value.pop("test_sends_enabled", False)
+        mode = value.get("send_mode")
+        if mode == "off":
+            value["send_mode"] = "capture"
+        elif mode == "live" and test_sends is True and not value.get("live_units"):
+            value["send_mode"] = "test"
+        return value
 
     @field_validator("live_units")
     @classmethod
@@ -73,6 +98,23 @@ class ShowingBookingSettings(BaseModel):
             if unit.casefold() not in {seen.casefold() for seen in cleaned}:
                 cleaned.append(unit)
         return cleaned
+
+
+def unit_is_live(settings: ShowingBookingSettings, unit: str) -> bool:
+    """Whether the settings tick ``unit`` for live mode, whatever the mode is now."""
+    return settings.live_all_units or unit.strip().casefold() in {
+        live.casefold() for live in settings.live_units
+    }
+
+
+def unit_open(settings: ShowingBookingSettings, unit: str) -> bool:
+    """Whether the public and the lead agent may book ``unit``.
+
+    In live mode only a unit that is live, since someone booked into another
+    would get no text at all. In test and capture mode, every unit on offer.
+    The team's own actions, existing showings and their links never ask this.
+    """
+    return settings.send_mode != "live" or unit_is_live(settings, unit)
 
 
 async def read_settings(session: AsyncSession) -> ShowingBookingSettings:
@@ -92,14 +134,10 @@ async def settings_for_delivery(session: AsyncSession) -> ShowingBookingSettings
         return ShowingBookingSettings()
 
 
-def public_booking_default(environment: str) -> bool:
-    """Unset means off in production and on everywhere else."""
-    return environment != "production"
-
-
 def public_booking_on(settings: ShowingBookingSettings, environment: str) -> bool:
+    """Unset means off in production and on everywhere else."""
     if settings.public_booking_enabled is None:
-        return public_booking_default(environment)
+        return environment != "production"
     return settings.public_booking_enabled
 
 
@@ -113,7 +151,7 @@ def _env_list(name: str) -> list[str]:
 
 
 def read_test_recipients() -> frozenset[str]:
-    """The test phone numbers (E.164) and email addresses, read at call time.
+    """The test list: phone numbers (E.164) and email addresses, read at call time.
 
     An entry that is not a valid US mobile number or email address is
     ignored, so a typo can only narrow who receives test sends.

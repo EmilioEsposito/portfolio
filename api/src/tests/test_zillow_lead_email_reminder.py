@@ -85,9 +85,7 @@ async def set_route(conversation_id: str, **changes) -> None:
 
 
 async def go_live(**fields) -> None:
-    await store_settings(
-        lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True, **fields
-    )
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test", **fields)
 
 
 def live_to_the_thread(monkeypatch) -> None:
@@ -459,12 +457,27 @@ def test_the_relay_rule_is_the_lead_agents_own():
 
 
 @pytest.mark.asyncio
-async def test_live_outside_production_is_captured_unless_the_thread_is_a_test_recipient(
-    lead, monkeypatch
-):
+async def test_test_mode_captures_unless_the_thread_is_a_test_recipient(lead, monkeypatch):
     await booked_by_email(lead)
     monkeypatch.setenv("SHOWING_TEST_EMAILS", "pat@example.com")
     await go_live()
+
+    await lead.world.send_pending(EVENING)
+
+    (notice,) = await email_notices()
+    assert (notice.status, notice.mode, notice.guard_reason) == (
+        "captured",
+        "test",
+        "not_test_recipient",
+    )
+    assert lead.world.emails.sent == []
+
+
+@pytest.mark.asyncio
+async def test_live_outside_production_is_captured_whoever_it_is_to(lead, monkeypatch):
+    await booked_by_email(lead)
+    live_to_the_thread(monkeypatch)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="live", live_all_units=True)
 
     await lead.world.send_pending(EVENING)
 
