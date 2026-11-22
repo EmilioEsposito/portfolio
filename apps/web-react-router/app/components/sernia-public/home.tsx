@@ -75,8 +75,14 @@ export function SerniaHome({ data }: { data: SerniaHomeData }) {
             >
               {HEADING}
             </h1>
-            <p className="text-[1.12rem] text-foreground/85">
-              We're a local, responsive team renting apartments around Pittsburgh.
+            <p className="max-w-[62ch] text-[1.12rem] text-foreground/85">
+              We provide quality apartments in the Pittsburgh area. We have local roots and a highly responsive,
+              well-coordinated team. We only manage properties we own, so your questions and repairs don't wait on an
+              outside owner's approval.{" "}
+              <a href={ZILLOW_REVIEWS_URL} className={cn(TEXT_LINK, "whitespace-nowrap text-foreground")}>
+                Read our Zillow reviews
+              </a>
+              .
             </p>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -131,26 +137,15 @@ export function SerniaHome({ data }: { data: SerniaHomeData }) {
               className="block h-auto w-full rounded-[10px] bg-muted"
             />
           </picture>
-          <div className="grid gap-8 md:gap-10">
-            <section className="grid gap-2.5">
-              <h2 className={SUBHEADING}>What renters say about us</h2>
-              <p>Our past and current renters review us on Zillow.</p>
-              <p>
-                <a href={ZILLOW_REVIEWS_URL} className={TEXT_LINK}>
-                  Read our Zillow reviews
-                </a>
-              </p>
-            </section>
-            <section className="grid gap-2.5">
-              <h2 className={SUBHEADING}>Already live with us?</h2>
-              <p>Pay rent and send repair requests in the resident portal.</p>
-              <p>
-                <a href={RESIDENT_PORTAL_URL} className={TEXT_LINK}>
-                  Resident sign-in
-                </a>
-              </p>
-            </section>
-          </div>
+          <section className="grid gap-2.5">
+            <h2 className={SUBHEADING}>Already live with us?</h2>
+            <p>Pay rent and send repair requests in the resident portal.</p>
+            <p>
+              <a href={RESIDENT_PORTAL_URL} className={TEXT_LINK}>
+                Resident sign-in
+              </a>
+            </p>
+          </section>
         </div>
       </div>
     </SerniaPublicShell>
