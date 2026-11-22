@@ -183,7 +183,10 @@ class TestPrompts:
     def test_the_details_line_is_forbidden_without_the_section(self):
         policy = " ".join(agent.load_policy().split())
         assert "Without that section, never write this line." in policy
-        assert 'unless that time is listed there with "details added"' in policy
+        assert (
+            'unless that time, or the showing it moves, is listed there with "details added"'
+            in policy
+        )
 
     def test_the_policy_never_makes_a_mobile_a_condition(self):
         assert "Never ask for a mobile number or make one" in agent.load_policy()

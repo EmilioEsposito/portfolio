@@ -659,8 +659,8 @@ without them keeps the fingerprint it had before they existed.
 `synthetic.py` holds made-up scenarios for that part of the case: a lead who
 booked through their own link (running late, asking about parking), one whose
 showing the team cancelled, a showing others booked that a new lead can join,
-a time open at one unit only, a time confirmed by email, a move, a
-cancellation, a booked lead asking to reconfirm (with their details in, and
+a time open at one unit only, a time confirmed by email, a cancellation, a
+booked lead asking to move or to reconfirm (each with their details in, and
 with a provisional place), a lead who would rather not give a mobile number, and one case
 built as production builds it with the switch off. Being invented, they live
 in the repository, and `test_zillow_eval_synthetic.py` checks each case and a
@@ -685,8 +685,8 @@ move the lead's showing is also checked for `states_tour_time` (its words give
 the time in the policy's form) and `tour_time_allowed`. That reply, and one
 that restates the lead's own booked showing in that form, is checked for
 `details_line`: the line with the lead's own link for that unit is required
-while the showing's details are not in, and forbidden once the case lists it
-with "details added"; a reply confirming a virtual tour must not carry it (nothing is booked for the link to complete). These read what code would do from the case (`checks.booking_change`, the
+while the showing's details are not in, and forbidden once the case lists it,
+or the showing the reply moves, with "details added"; a reply confirming a virtual tour must not carry it (nothing is booked for the link to complete). These read what code would do from the case (`checks.booking_change`, the
 same rules as `showing_bookings/lead_bookings.py`); a case without the
 own-showings section books nothing, as production with the switch off.
 
@@ -791,8 +791,8 @@ What to compare:
 | Real scenarios: failed code checks | baseline (none in experiment 17) | None new |
 | Real scenarios: the details-line search | empty | Empty |
 | Real scenarios: judge passes, each sample of 30 | baseline under main's instructions | Not lower by more than two, and no new fail citing a line in the diff |
-| Synthetic, 3 runs of 10: `expected_booking`, `states_tour_time`, `details_line`, `tour_time_allowed` | mostly failing: main's policy has no details line or fixed form | No failures |
-| Synthetic: `expected_action`, `expected_details_line` | baseline | At most one failure in 30, and the judge's reason for it is a wording choice, not a rule |
+| Synthetic, 3 runs of 14: `expected_booking`, `states_tour_time`, `details_line`, `tour_time_allowed` | mostly failing: main's policy has no details line or fixed form | No failures |
+| Synthetic: `expected_action`, `expected_details_line` | baseline | At most one failure in 42, and the judge's reason for it is a wording choice, not a rule |
 | `synthetic-without-booking-service-0` | baseline | Same action and the same kind of reply in all 3 runs, no details line |
 
 Do not merge if any of these happens:
@@ -800,9 +800,12 @@ Do not merge if any of these happens:
 - A real-scenario reply contains the details line, or a reply anywhere asks
   for a mobile number or makes one a condition of the showing.
 - A reply gives the details line for a showing the case lists with "details
-  added" (`synthetic-reconfirm-details-added-2`, or any `details_line`
-  failure where the line is present): the link would ask a booked lead to
-  book again. Or a reply confirming a virtual tour carries it (`synthetic-virtual-confirmed-0`).
+  added", or for a move of one (`synthetic-reconfirm-details-added-2`,
+  `synthetic-move-2`, or any `details_line` failure where the line is
+  present): the link would ask a lead whose details are in to add them. Or a
+  reply confirming a virtual tour carries it (`synthetic-virtual-confirmed-0`).
+- `details_line` or `expected_details_line` fails in any run of
+  `synthetic-move-2` or `synthetic-move-provisional-2`.
 - An `expected_booking` failure in an "after" run: sending that decision would
   book, move or cancel something the reply does not say.
 - `states_tour_time` fails in more than one of the "after" replies that would
