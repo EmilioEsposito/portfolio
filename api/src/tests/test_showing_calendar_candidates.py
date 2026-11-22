@@ -146,7 +146,7 @@ def later_connection(**fields) -> CalendarConnection:
         "google_subject": "later",
         "scopes": list(PICKER_SCOPES),
         "encrypted_refresh_token": Fernet(TOKEN_KEY).encrypt(b"1//later").decode(),
-        "connected_by": "pat@serniacapital.com",
+        "connected_by": "pat@example.com",
         "connected_at": datetime.now(UTC) + timedelta(days=1),
     }
     return CalendarConnection(**{**values, **fields})
