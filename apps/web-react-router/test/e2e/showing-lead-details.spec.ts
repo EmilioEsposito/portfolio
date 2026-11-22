@@ -9,7 +9,7 @@
 import type { Page } from "@playwright/test";
 
 import { formatWhen } from "../../app/lib/showing-booking-page.ts";
-import { bookByEmail, expect, moveByEmail, readRows, resetDatabase, test } from "./fixtures.ts";
+import { bookByEmail, closeUnits, expect, moveByEmail, readRows, resetDatabase, test } from "./fixtures.ts";
 import { UNIT } from "./setup.ts";
 
 test.beforeEach(() => {
@@ -27,7 +27,7 @@ async function expectBooked(page: Page, token: string, startsAt: string) {
   await expect(facts).toContainText(day);
   await expect(facts).toContainText(time.replace(/ [AP]M$/, ""));
   await expect(facts).toContainText(`900 Example Ave, unit ${UNIT}`);
-  await expect(facts).toContainText("The text we sent you has a link to cancel this showing.");
+  await expect(facts).toContainText("The text we'll send you has a link to cancel this showing.");
   await expect(facts).toContainText("Didn't get the text? Call us.");
   // No form, and no cancel link or token anywhere in what the server sent.
   await expect(page.getByRole("button", { name: /Book|Add my details/ })).toHaveCount(0);
@@ -67,7 +67,7 @@ test("a lead adds their details to the showing booked by email", async ({ page }
   await page.getByRole("button", { name: "Add my details" }).click();
 
   await expect(page.getByRole("heading", { level: 1, name: "Your showing is booked" })).toBeFocused();
-  await expect(page.getByText("We texted •••-•••-••23.")).toBeVisible();
+  await expect(page.getByText("We'll text •••-•••-••23.")).toBeVisible();
   expect(requests.filter((url) => url.includes("/api/")).every((url) => !url.includes(token))).toBe(true);
 
   const rows = readRows();
@@ -127,4 +127,28 @@ test("a lead who added their details sees they are booked, at the new time after
   // Another thread's link, or none, still opens the normal booking page.
   await page.goto(`/showings/${UNIT}?t=${"x".repeat(22)}`);
   await expect(page.getByRole("heading", { level: 1, name: "Book an in-person showing" })).toBeVisible();
+});
+
+test("a lead's own link works for a unit that is no longer open to others", async ({ page }) => {
+  const { token } = bookByEmail();
+  closeUnits();
+
+  const others = await page.goto(`/showings/${UNIT}`);
+  expect(others?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1, name: "This unit is not open for showings" })).toBeVisible();
+  await page.goto("/showings");
+  await expect(page.getByRole("link", { name: new RegExp(UNIT) })).toHaveCount(0);
+
+  const own = await page.goto(`/showings/${UNIT}?t=${token}`);
+  expect(own?.status()).toBe(200);
+  await expect(page.getByRole("heading", { level: 1, name: "Add your details" })).toBeVisible();
+  await page.getByLabel("Name").fill("Jordan Lee");
+  await page.getByLabel("Mobile").fill("412-555-0123");
+  await page.getByLabel("Email").fill("jordan@example.com");
+  const ticks = page.getByRole("group", { name: "To book online, tick each box" }).getByRole("checkbox");
+  for (const box of await ticks.all()) await box.check();
+  await page.getByRole("button", { name: "Add my details" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Your showing is booked" })).toBeFocused();
+  expect(readRows().attendees[0]).toMatchObject({ mobile: "+14125550123", status: "booked" });
 });

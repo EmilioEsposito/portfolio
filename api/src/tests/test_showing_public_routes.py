@@ -131,7 +131,7 @@ async def test_unset_means_off_in_production_and_on_elsewhere(world, monkeypatch
 async def test_the_tab_switches_public_booking_and_keeps_it_through_a_send_mode_save(world):
     async with world.client(world.team_app()) as client:
         view = (await client.get("/api/showing-bookings/settings")).json()
-        assert (view["public_booking_on"], view["public_booking_default"]) == (True, True)
+        assert view["public_booking_on"] is True
         assert view["settings"]["public_booking_enabled"] is None
 
         closed = await client.put(
@@ -144,15 +144,21 @@ async def test_the_tab_switches_public_booking_and_keeps_it_through_a_send_mode_
         stale = view["settings"]
         saved = await client.patch(
             "/api/showing-bookings/settings",
-            json={"settings": {**stale, "send_mode": "off"}, "based_on": stale},
+            json={"settings": {**stale, "send_mode": "test"}, "based_on": stale},
         )
         assert saved.status_code == 200, saved.text
         assert saved.json()["public_booking_enabled"] is False
 
-        back = await client.put(
+        # Saved as on or off; nothing goes back to unset.
+        unset = await client.put(
             "/api/showing-bookings/settings/public-booking", json={"public_booking_enabled": None}
         )
+        assert unset.status_code == 422
+        back = await client.put(
+            "/api/showing-bookings/settings/public-booking", json={"public_booking_enabled": True}
+        )
         assert back.json()["public_booking_on"] is True
+        assert back.json()["settings"]["public_booking_enabled"] is True
     assert await every_route(world) != [404] * 6
 
 
@@ -362,9 +368,7 @@ async def test_bookings_per_ip_address_come_from_the_settings_row(world):
 async def test_a_cap_on_all_page_bookings_a_day_comes_from_the_settings_row(world):
     await store_settings(public_limits={"bookings_per_day": 2})
     assert (await book(world, booking(at(16)))).status_code == 201
-    await store_settings(
-        send_mode="live", test_sends_enabled=True, public_limits={"bookings_per_day": 2}
-    )
+    await store_settings(send_mode="test", public_limits={"bookings_per_day": 2})
     world.texts.refuse(ROBIN_MOBILE, "invalid_number")
     withdrawn = await book(world, booking(at(17), mobile=ROBIN_MOBILE, email=ROBIN_EMAIL))
     assert withdrawn.status_code == 422  # withdrawn bookings count too
@@ -493,12 +497,78 @@ async def test_the_number_route_refuses_in_production_without_a_secret(world, mo
     assert refusal(answer) == (503, "unavailable", [])
 
 
+# Whether the confirmation text went, which is all the page may say
+
+
+async def lookup(world, token: str) -> dict:
+    answer = await post(world, f"{PUBLIC}/bookings/lookup", {"cancel_token": token})
+    assert answer.status_code == 200, answer.text
+    return answer.json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("settings", "quo", "confirmation", "texted"),
+    [
+        ({"send_mode": "capture"}, None, "captured", False),
+        ({"send_mode": "test"}, None, "sent", True),
+        ({"send_mode": "test"}, "unavailable", "pending", False),
+        ({"send_mode": "test"}, "lost", "unknown", True),
+    ],
+)
+async def test_the_answer_says_whether_the_text_went(world, settings, quo, confirmation, texted):
+    await store_settings(**settings)
+    if quo == "unavailable":
+        world.texts.refuse(ALEX_MOBILE, "unavailable", retryable=True)
+    if quo == "lost":
+        world.texts.lose_answer(ALEX_MOBILE)
+
+    booked = (await book(world)).json()
+
+    assert (booked["confirmation"], booked["booking"]["texted"]) == (confirmation, texted)
+    assert (await lookup(world, booked["cancel_token"]))["texted"] is texted
+
+
+@pytest.mark.asyncio
+async def test_a_text_that_waited_counts_once_it_goes(world):
+    await store_settings(send_mode="test")
+    world.texts.refuse(ALEX_MOBILE, "unavailable", retryable=True)
+    token = (await book(world)).json()["cancel_token"]
+    assert (await lookup(world, token))["texted"] is False
+
+    world.texts.accept(ALEX_MOBILE)
+    await world.send_pending(NOW + timedelta(minutes=2))
+
+    assert (await lookup(world, token))["texted"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_corrected_mobile_says_whether_the_new_text_went(world, monkeypatch):
+    """The first text was sent; the one to the corrected number is captured."""
+    await store_settings(send_mode="test")
+    token = (await book(world)).json()["cancel_token"]
+    assert (await lookup(world, token))["texted"] is True
+    await store_settings(send_mode="capture")
+
+    fixed = await post(
+        world, f"{PUBLIC}/bookings/mobile", {"cancel_token": token, "mobile": ROBIN_MOBILE}
+    )
+
+    assert (fixed.json()["mobile"], fixed.json()["texted"]) == ("•••-•••-••18", False)
+    assert (await lookup(world, token))["texted"] is False
+    await store_settings(send_mode="test")
+    again = await post(
+        world, f"{PUBLIC}/bookings/mobile", {"cancel_token": token, "mobile": CASEY_MOBILE}
+    )
+    assert (again.json()["mobile"], again.json()["texted"]) == ("•••-•••-••19", True)
+
+
 # Correcting the mobile
 
 
 @pytest.mark.asyncio
 async def test_a_corrected_mobile_gets_the_confirmation_and_the_held_notices(world):
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     world.texts.report(ALEX_MOBILE, "undelivered")
     token = (await book(world)).json()["cancel_token"]
     await world.send_pending(NOW + timedelta(minutes=1))
@@ -558,7 +628,7 @@ async def test_the_mobile_can_be_corrected_twice(world):
 
 @pytest.mark.asyncio
 async def test_a_refused_correction_keeps_the_old_number(world):
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     token = (await book(world)).json()["cancel_token"]
     world.texts.refuse(ROBIN_MOBILE, "unreachable_number")
 
@@ -589,7 +659,7 @@ async def test_a_correction_needs_a_new_valid_number(world, mobile, code):
 
 @pytest.mark.asyncio
 async def test_a_withdrawn_booking_cannot_be_corrected(world):
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
     world.texts.refuse(ALEX_MOBILE, "invalid_number")
     await book(world)
     _, (alex,), _ = await rows()

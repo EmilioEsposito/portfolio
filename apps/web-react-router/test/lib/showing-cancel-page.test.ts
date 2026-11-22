@@ -20,6 +20,7 @@ const view = (patch: Partial<BookingView> = {}): BookingView => ({
   ends_at: "2027-04-14T20:30:00Z",
   timezone: "America/New_York",
   mobile: "•••-•••-••17",
+  texted: true,
   corrections_left: 2,
   started: false,
   cancelled_by_team: false,

@@ -93,7 +93,7 @@ async def world(monkeypatch):
 
 
 async def live() -> None:
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
 
 
 def lives_here(world: PublicWorld, mobile: str = RESIDENT, name: str = "Morgan Ellis"):
@@ -957,7 +957,7 @@ async def test_released_on_time_nothing_is_alerted(world):
 
 
 @pytest.mark.asyncio
-async def test_captured_or_skipped_notices_are_never_alerted_about(world):
+async def test_captured_notices_are_never_alerted_about(world, monkeypatch):
     alerter = RecordingAlerter()
     lives_here(world)
     await book(world)
@@ -966,7 +966,8 @@ async def test_captured_or_skipped_notices_are_never_alerted_about(world):
     _, _, notices = await rows()
     assert {n.status for n in notices} == {"captured"}
 
-    await store_settings(send_mode="off")
+    await store_settings(send_mode="test")
+    monkeypatch.setenv("SHOWING_TEST_PHONES", "")
     await book(world, robin(at(17, day=WEDNESDAY + timedelta(days=1))))
     await run(world, EVENING + timedelta(hours=3), alerter)
     assert alerter.alerts == []
@@ -1088,6 +1089,7 @@ async def test_no_public_answer_changes_or_mentions_reminders_or_hosts(world):
         "ends_at",
         "timezone",
         "mobile",
+        "texted",
         "corrections_left",
         "started",
         "cancelled_by_team",

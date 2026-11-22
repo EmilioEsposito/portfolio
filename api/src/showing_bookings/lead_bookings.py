@@ -512,7 +512,7 @@ async def _prepare(
         )
     try:
         async with AsyncSessionFactory() as session:
-            listing, rules = await bookings._listing(session, want.unit, now)
+            listing, rules = await bookings._listing(session, want.unit, now, only_open=True)
             moving = await _moving(session, others)
 
         async def unchanged(session: AsyncSession) -> None:

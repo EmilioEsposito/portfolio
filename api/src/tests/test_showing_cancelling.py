@@ -79,7 +79,7 @@ async def world(monkeypatch):
 
 
 async def live() -> None:
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
 
 
 def robin_body(start=None) -> dict:
@@ -369,6 +369,7 @@ async def test_no_cancel_answer_shows_another_attendee(world):
         "ends_at",
         "timezone",
         "mobile",
+        "texted",
         "corrections_left",
         "started",
         "cancelled_by_team",
@@ -496,7 +497,6 @@ async def test_the_showings_list_names_the_people_and_who_needs_a_call(world):
         ("Alex Parker", "412-555-0117", ALEX_EMAIL, True, None),
         ("Robin Lee", "412-555-0118", ROBIN_EMAIL, True, "confirmation_undelivered"),
     ]
-    assert view["send_mode"] == "live"
 
 
 # The unit goes off the market

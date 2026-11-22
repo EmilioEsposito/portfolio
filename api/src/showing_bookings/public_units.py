@@ -1,5 +1,6 @@
 """The units on offer, as the public list at ``/showings`` shows them, and what the call
-line needs on a page with no unit (``call_line``).
+line needs on a page with no unit (``call_line``). In live mode, only the units that
+are live (``settings.unit_open``).
 
 One call to ``open_times.open_times`` covers every unit on offer, so the
 agents' calendars are read once per connection for the whole list (and that
@@ -19,6 +20,7 @@ from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.showing_bookings import open_times, turnstile, wording
 from api.src.showing_bookings.bookings import Refused
+from api.src.showing_bookings.settings import settings_for_delivery, unit_open
 
 
 class UnitOnOffer(BaseModel):
@@ -68,12 +70,15 @@ async def units_on_offer(*, now: datetime) -> UnitsOnOffer:
         async with AsyncSessionFactory() as session:
             listings = await listings_service.read_listings(session)
             found = await open_times.open_times(now=now, session=session)
+            settings = await settings_for_delivery(session)
     except RentalDataInvalid:
         logfire.exception("showing bookings: rental data fails its checks")
         raise Refused(503, "unavailable", "Booking is not available right now.") from None
     by_unit = {listing.unit: listing for listing in listings}
     units = []
     for offers in found.units:
+        if not unit_open(settings, offers.unit):
+            continue
         listing = by_unit[offers.unit]
         earliest, latest = listing.next_lease_start_earliest, listing.next_lease_start_latest
         units.append(

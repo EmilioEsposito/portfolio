@@ -27,14 +27,17 @@ Channel = Literal["sms", "calendar_event", "calendar_invite", "email"]
 # pending: waiting to be delivered. held: waiting for the notice it waits for
 # (``waits_for_notice_id``, a prospect's confirmation text) to be reported
 # delivered; ``holds.release_held`` makes it pending or cancels it. Then
-# exactly one of: captured (rendered and kept, no provider called), sent,
-# failed (the provider refused or never got it), unknown (it may have gone
-# out; never retried), skipped (send mode off), cancelled (never sent: the
-# booking was withdrawn or its confirmation text was not delivered).
+# exactly one of: captured (rendered and kept, no provider called; a person may
+# still send it by hand, ``captured.py``), sent, failed (the provider refused or
+# never got it), unknown (it may have gone out; never retried), skipped (rows
+# from when the send mode could be off), cancelled (never sent: the booking was
+# withdrawn or its confirmation text was not delivered).
 NoticeStatus = Literal[
     "pending", "held", "captured", "sent", "failed", "unknown", "skipped", "cancelled"
 ]
-SendMode = Literal["off", "capture", "live"]
+SendMode = Literal["test", "capture", "live"]
+# The mode saved on a delivered row. "off" is only on rows from when it was one.
+NoticeMode = Literal["off", "test", "capture", "live"]
 # Why a notice needs the team: it failed (or may have gone out) and will not be
 # tried again, or it has not gone out ten minutes after it was due.
 NoticeAttention = Literal["failed", "stuck"]
@@ -46,7 +49,7 @@ ATTENDANCES: tuple[str, ...] = get_args(Attendance)
 ATTENDEE_SOURCES: tuple[str, ...] = get_args(AttendeeSource)
 CHANNELS: tuple[str, ...] = get_args(Channel)
 NOTICE_STATUSES: tuple[str, ...] = get_args(NoticeStatus)
-SEND_MODES: tuple[str, ...] = get_args(SendMode)
+NOTICE_MODES: tuple[str, ...] = get_args(NoticeMode)
 NOTICE_ATTENTIONS: tuple[str, ...] = get_args(NoticeAttention)
 
 # Showings last 30 minutes and take up to 4 parties unless a showing says otherwise.
@@ -210,8 +213,11 @@ class Notice(BaseModel):
     wording: str
     payload: dict
     status: NoticeStatus
-    mode: SendMode | None
+    mode: NoticeMode | None
     guard_reason: str | None
+    # Who sent a captured message by hand, and when; empty for any other.
+    send_approved_by: str | None = None
+    send_approved_at: datetime | None = None
     not_before: datetime
     attempts: int
     provider_status: str | None

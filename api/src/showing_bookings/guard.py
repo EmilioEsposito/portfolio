@@ -1,15 +1,19 @@
 """Whether a notice really goes out, decided by one pure function.
 
-A notice is sent only when the send mode is "live" and either
+Outside production a notice is sent only when every address it reaches is on
+the test list, and only in test mode or when a person approved it. That holds
+whatever the settings row says, because a preview's database is a copy of
+production's, and it is decided first, so nothing after it can send more.
 
-(a) this is production and the showing's unit is one of the live units, or
-(b) test sends are switched on and every address the notice reaches is a
-    test recipient.
+In production:
 
-Send mode "off" skips the notice. Everything else is captured: rendered and
-kept on its row, with no provider called. Outside production only (b) can
-send, whatever the settings row says, because a preview's database is a copy
-of production's.
+- A notice a person approved for sending (``captured.py``) goes, in any mode.
+- test: goes when every address it reaches is on the test list.
+- capture: never goes.
+- live: goes when the showing's unit is live (ticked, or all units).
+
+Everything that does not go is captured: rendered and kept on its row, with no
+provider called.
 
 Everything the decision depends on is an argument, so each branch is tested
 without a database, a clock or environment variables.
@@ -20,15 +24,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 from api.src.showing_bookings.schema import normalize_email, normalize_us_mobile
-from api.src.showing_bookings.settings import ShowingBookingSettings
+from api.src.showing_bookings.settings import ShowingBookingSettings, unit_is_live
 
-Action = Literal["skip", "capture", "send"]
+Action = Literal["capture", "send"]
 Reason = Literal[
-    "send_mode_off",
     "send_mode_capture",
     "live_unit",
+    "all_units_live",
     "test_recipient",
+    "approved",
     "unit_not_live",
+    "not_test_recipient",
     "not_production",
 ]
 
@@ -61,24 +67,35 @@ def decide(
     unit: str,
     addresses: Iterable[str],
     test_recipients: frozenset[str],
+    approved: bool = False,
 ) -> Decision:
-    """Skip, capture or send one notice.
+    """Capture or send one notice.
 
     ``addresses`` is everyone the notice would reach: the phone number of a
     text, or every guest of a calendar event, so an invite that also names
-    someone outside the test list is never a test send.
+    someone outside the test list is never a test send. ``approved``: a person
+    sent this captured notice by hand.
     """
-    if settings.send_mode == "off":
-        return Decision("skip", "send_mode_off")
-    if settings.send_mode == "capture":
-        return Decision("capture", "send_mode_capture")
-    production = environment == PRODUCTION
-    live_units = {live.casefold() for live in settings.live_units}
-    if production and unit.strip().casefold() in live_units:
-        return Decision("send", "live_unit")
-    if settings.test_sends_enabled and is_test_send(addresses, test_recipients):
-        return Decision("send", "test_recipient")
-    return Decision("capture", "unit_not_live" if production else "not_production")
+    to_test_list = is_test_send(addresses, test_recipients)
+    mode = settings.send_mode
+    if environment != PRODUCTION and not to_test_list:
+        # Nobody but the test list, ever; the reason only says why.
+        if mode == "live" or approved:
+            return Decision("capture", "not_production")
+        return Decision("capture", "not_test_recipient" if mode == "test" else "send_mode_capture")
+    if approved:
+        return Decision("send", "approved" if environment == PRODUCTION else "test_recipient")
+    if mode == "test":
+        if to_test_list:
+            return Decision("send", "test_recipient")
+        return Decision("capture", "not_test_recipient")
+    if mode == "live":
+        if environment != PRODUCTION:
+            return Decision("capture", "not_production")
+        if unit_is_live(settings, unit):
+            return Decision("send", "all_units_live" if settings.live_all_units else "live_unit")
+        return Decision("capture", "unit_not_live")
+    return Decision("capture", "send_mode_capture")
 
 
 def would_send(
@@ -88,6 +105,7 @@ def would_send(
     unit: str,
     addresses: Iterable[str],
     test_recipients: frozenset[str],
+    approved: bool = False,
 ) -> bool:
     """Whether a notice for ``unit`` reaching ``addresses`` would really be sent now:
     exactly when ``decide`` answers send. For a notice that lists several units'
@@ -99,6 +117,7 @@ def would_send(
             unit=unit,
             addresses=addresses,
             test_recipients=test_recipients,
+            approved=approved,
         ).action
         == "send"
     )

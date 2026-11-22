@@ -21,6 +21,12 @@ event itself, and the new host's event starts afresh: the showing's
 longer count (``since_last_move``). ``moved_check`` decides at delivery
 whether there is an old event to cancel.
 
+A host event notice sent by hand (``captured.py``) is rendered the same way, so
+several captured for one showing end as one correct event: the first creates
+it, and one that would change nothing is not sent (``already_says``). It goes to
+the calendar the event is on, or, when there is none yet, to the one the
+host's connection writes to now (``calendar_now``).
+
 Rendering only reads; ``outbox.py`` saves what was rendered on the notice and
 is the only code that hands it to a calendar. Nothing here imports the outbox.
 """
@@ -31,8 +37,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from api.src.showing_bookings import wording
+from api.src.showing_bookings import agents, wording
 from api.src.showing_bookings.models import (
+    CalendarConnection,
     Showing,
     ShowingAgentRecord,
     ShowingAttendee,
@@ -40,6 +47,9 @@ from api.src.showing_bookings.models import (
 )
 from api.src.showing_bookings.schema import CalendarPayload
 
+# A showings calendar that names no connected account: the outbox cannot
+# write to it, so a notice on it that would be sent fails visibly.
+NO_SHOWINGS_CALENDAR = "no-showings-calendar"
 CREATE_KIND = "host_event"
 UPDATE_KIND = "host_event_update"
 # The notices rendered from the showing at delivery.
@@ -50,6 +60,7 @@ MOVED_KIND = "host_event_moved"
 # The host notices delivered under a lock on their showing.
 SHOWING_LOCKED_KINDS = KINDS | {CANCEL_KIND, MOVED_KIND}
 HOST_CHANGED = "Not sent: the showing moved to another host."
+ALREADY_SAYS = "Not sent: the host's event already says this."
 INVITE_KIND = "prospect_invite"
 CONFIRMATION_KIND = "prospect_confirmation"
 # Notices that are for one booking only: checked when delivered, first try or
@@ -84,6 +95,67 @@ def since_last_move(showing_id: int):
         .scalar_subquery()
     )
     return ShowingNotice.id > last_move
+
+
+async def before_last_move(session: AsyncSession, notice: ShowingNotice) -> bool:
+    """Whether a host notice was for an earlier host than the showing's own now."""
+    return not await session.scalar(
+        select(ShowingNotice.id).where(
+            ShowingNotice.id == notice.id, since_last_move(notice.showing_id)
+        )
+    )
+
+
+async def showings_calendar(session: AsyncSession, agent: ShowingAgentRecord) -> str:
+    """The showings calendar an agent's events are written to now."""
+    rows = list(await session.scalars(select(CalendarConnection)))
+    connection = agents.connection_for(agent, rows)
+    if connection is not None and connection.showings_calendar_id:
+        return connection.showings_calendar_id
+    return NO_SHOWINGS_CALENDAR
+
+
+async def calendar_now(
+    session: AsyncSession, notice: ShowingNotice, agent_id: int, event_id: str | None
+) -> str:
+    """The calendar a notice sent by hand is for, which may not be the one it was
+    captured with: the one ``event_id`` is on, else the one the host's connection
+    writes to now, else its own."""
+    own = notice.payload.get("calendar_id") or NO_SHOWINGS_CALENDAR
+    if event_id:
+        made_on = await session.scalar(
+            select(ShowingNotice.payload["calendar_id"].astext)
+            .where(ShowingNotice.status == "sent", ShowingNotice.provider_id == event_id)
+            .order_by(ShowingNotice.id)
+            .limit(1)
+        )
+        return made_on or own
+    host = await session.get(ShowingAgentRecord, agent_id)
+    current = await showings_calendar(session, host) if host is not None else own
+    return own if current == NO_SHOWINGS_CALENDAR else current
+
+
+async def already_says(session: AsyncSession, showing: Showing, rendered: CalendarPayload) -> bool:
+    """Whether the host's event was last sent exactly as ``rendered``."""
+    if not showing.host_event_id:
+        return False
+    last = await session.scalar(
+        select(ShowingNotice.payload)
+        .where(
+            ShowingNotice.showing_id == showing.id,
+            ShowingNotice.kind.in_(KINDS),
+            ShowingNotice.status == "sent",
+            since_last_move(showing.id),
+        )
+        .order_by(ShowingNotice.delivered_at.desc(), ShowingNotice.id.desc())
+        .limit(1)
+    )
+    if last is None:
+        return False
+    # Creating the event or changing it, it says the same.
+    how = {"operation", "event_id"}
+    sent = CalendarPayload.model_validate(last)
+    return sent.model_dump(exclude=how) == rendered.model_dump(exclude=how)
 
 
 async def booked_guests(session: AsyncSession, showing_id: int) -> list[wording.Guest]:

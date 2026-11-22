@@ -40,6 +40,8 @@ export type BookingView = {
   ends_at: string;
   timezone: string;
   mobile: string | null;
+  /** The confirmation text to that mobile went out, or may have; false while it is captured or waiting. */
+  texted: boolean;
   corrections_left: number;
   /** The start has passed: it can no longer be cancelled or changed online. */
   started: boolean;
@@ -67,6 +69,8 @@ export type LeadBooking = {
   timezone: string;
   /** False while the page asks for their details; true when it says they are booked. */
   details_added: boolean;
+  /** Their confirmation text went out, or may have. */
+  texted: boolean;
 };
 
 /** What the booking page's loader answers: the unit, and the lead's own place when the link has one. */
@@ -82,6 +86,34 @@ export type TeamPhone = { phone: string; display: string; extension: string; tel
 
 /** A refusal's `detail`. `fields` maps a form field to the line shown beside it. */
 export type Refusal = { status: number; code: string; message: string; fields: Record<string, string> };
+
+// ---------------------------------------------------------------------------
+// The confirmation text, said only as it stands
+// ---------------------------------------------------------------------------
+
+/** "We texted •••-•••-••17.", or that we will while it has not gone. */
+export function textedLine(view: Pick<BookingView, "texted" | "mobile">): string {
+  return view.texted ? `We texted ${view.mobile}.` : `We'll text ${view.mobile}.`;
+}
+
+/** After a number is fixed. */
+export function fixedLine(view: Pick<BookingView, "texted" | "mobile">): string {
+  return view.texted
+    ? `Done. We texted the confirmation to ${view.mobile}.`
+    : `Done. We'll text the confirmation to ${view.mobile}.`;
+}
+
+/** Beside the confirmation screen's own cancel link. */
+export function sameLinkLine(view: Pick<BookingView, "texted">): string {
+  return view.texted ? "The text has the same link." : "The text will have the same link.";
+}
+
+/** On a lead's own link once they are booked, which holds no cancel link itself. */
+export function cancelInTheTextLine(place: Pick<LeadBooking, "texted">): string {
+  return place.texted
+    ? "The text we sent you has a link to cancel this showing."
+    : "The text we'll send you has a link to cancel this showing.";
+}
 
 // ---------------------------------------------------------------------------
 // Times

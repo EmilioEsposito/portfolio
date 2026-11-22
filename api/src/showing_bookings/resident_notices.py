@@ -174,6 +174,9 @@ async def bring_back(
             waits_for_notice_id=waits_for_notice_id,
             last_error=None,
             not_before=now,
+            # Stopped after a person sent it by hand, it follows the mode again.
+            send_approved_by=None,
+            send_approved_at=None,
         ),
         execution_options={"synchronize_session": False},
     )

@@ -7,7 +7,6 @@ import {
   type AgentCalendar,
   type BookedPerson,
   type BookedShowing,
-  type SendMode,
   type UnitOffers,
   formatWhen,
 } from "~/lib/showing-bookings";
@@ -45,12 +44,13 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 /** "Add a booking" for someone who called: a unit, one of its open times, and the caller. */
 export function AddBooking({
   units,
-  mode,
+  note,
   api,
   onBooked,
 }: {
   units: UnitOffers[];
-  mode: SendMode;
+  /** What is not really sent for a unit, for the question before booking. */
+  note: (unit: string) => string;
   api: Api;
   onBooked: (message: string) => Promise<void>;
 }) {
@@ -92,7 +92,7 @@ export function AddBooking({
       setError(`Add ${missing.join(", ")}.`);
       return;
     }
-    const question = describeTeamBooking(form, mode);
+    const question = describeTeamBooking(form, note(form.unit));
     if (question && !window.confirm(question)) return;
     setSaving(true);
     setError(null);
