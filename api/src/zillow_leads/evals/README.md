@@ -331,6 +331,7 @@ result is used to tune the system, the test split has become part of dev.
 | 17 | Confirming run before merge. One rule added since 16: a fact sheet that says a detail is "not on file" is escalated, not answered with "we do not have it" | same 30 as 11 | 21 / 3 / 6 | By the judge: 28 of 30 pass; 20 of 30 on the first sample. By action, the same as 16 in all 30. On the first sample 28 of 30: the dimensions question is escalated again, and one case with a rented unit moved from no reply to escalate, as it has between earlier runs. No code check fails in either sample |
 | 18 | Policy for a lead's own showing (issue #368, pull request #410): an own booked showing is a confirmed tour, a confirmed time is stated in one fixed form, and a details line with the lead's own link while the case lists own showings. Run against main's instructions and then the branch's, same code | both samples of 17, and 13 made-up booking scenarios 3 times | Second sample 21 / 3 / 6 before and after; first sample 18 / 4 / 8 before, 18 / 3 / 9 after | By the judge: 26 → 27 of 30 on the second sample, 22 → 22 on the first. Made-up set: 25 of 32 distinct outputs pass. Not merged as run: one real reply carried the details line without the own-showings section, and the move scenario left it out 3 of 3 |
 | 19 | The details-line sentence from 18 reworded: it names the "This lead's own showings" section, ties the "details added" exception to the time the reply confirms, and forbids the line without the section. Made-up threads about 412-01 now carry that unit in their subject. Only the "after" half was run, compared with 18's "before" | same as 18 | Second sample 21 / 3 / 6; first sample 20 / 2 / 8 | By the judge: 26 → 26 of 30 on the second sample, 22 → 23 on the first. Made-up set: 24 of 29 distinct outputs pass. No real reply carries the details line; the move scenario still leaves it out 3 of 3 |
+| 20 | A moved showing keeps the lead's details (pull request #421), so the details line is left out when the time confirmed, "or the showing it moves", is listed with "details added". The move scenario now expects no line, one scenario moves a showing without details, and the made-up cases no longer list the lead's own showing as open or booked. Only the "after" half was run, compared with 19's "after" | both samples of 17, and 14 made-up booking scenarios 3 times | Second sample 21 / 3 / 6, no case changed; first sample 19 / 2 / 9, three cases changed | By the judge: 26 → 28 of 30 on the second sample, 23 → 22 on the first. Made-up set: 29 of 33 distinct outputs pass. Both move scenarios right 3 of 3. One condition failed as written: `clarification_leads` failed once on the second sample, where 19 had none |
 
 Experiment 1 was never annotated. The change before experiment 2 was chosen
 from the model's own escalation questions, which asked for facts the case
@@ -420,12 +421,52 @@ judge, reading the same sentence, says the line is required for the new
 time, so the wording is not ambiguous to it; the agent seems to treat a move
 of a showing that had its details as needing none. That is not one of the
 conditions for not merging, but it misses the bar for `expected_details_line`.
-Left for the owner: whether to name moves in the sentence, or accept that a
-lead who moves by email adds their details again only when asked.
+Left for the owner then: whether to name moves in the sentence, or accept that
+a lead who moves by email adds their details again only when asked. Settled
+since: a moved showing keeps the lead's details (#421), so the line is no longer
+needed there, and the sentence now says so (experiment 20).
 
-Open question for Emilio, raised by the judge in 18: should the first tour
-rule ("offer only those booked times" when a tour is booked for the unit)
-apply when a lead moves their own showing? The policy was not changed for it.
+The judge asked in 18 whether the first tour rule ("offer only those booked
+times" when a tour is booked for the unit) applies when a lead moves their
+own showing. Settled in code, not in the policy: the case leaves the lead's
+own showing out of the booked tours and the open times (#421), so it is
+never one of those times.
+
+Experiment 20 runs the sentence with "or the showing it moves". The move
+scenario left the details line out and the one moving a showing without
+details carried it, in all three runs; `details_line`,
+`expected_details_line`, `expected_booking`, `states_tour_time` and
+`tour_time_allowed` never failed. No real reply carries the line, and none
+asks the lead for a mobile. `expected_action` failed once in 42: the lead whose
+showing the team cancelled was escalated, because the same time is listed as
+open. The judge calls that wrong under an existing rule, so it also misses the
+bar for `expected_action`, though nothing in the new words bears on it. That
+scenario was answered with a reply in all three runs of 19.
+
+On the real cases the new words should not matter: none has the own-showings
+section. What differs from 19 is one code check and three actions.
+`clarification_leads` failed on one reply of the second sample, which put a
+"no longer available" line and the clarification in one paragraph. The
+check passed for that case in every earlier run; another case failed it in the
+same way in 18's "after". Three first-sample
+cases changed action, more than the one or two the table allows: an offer the
+case lacks (escalate again, a case that has gone both ways), a layout question
+beside an already agreed tour (escalated for the first time in five runs) and
+a lead relying on a move-in offer the case lacks (answered for the first time
+in five runs). The judge fails the last two. Of its six new fails, the other
+four are a case it also failed in 18's "before", one that kept the decision it
+failed in 18's "after", one whose action is the same in all five runs, and one
+reply that called off an agreed tour. All cite older rules, against seven
+fixed. With one run per version, this says the new words were not involved; it
+does not show that these outputs are noise.
+
+A correction to 18 and 19. Both readings called the new judge fails run-to-run
+variation. Three of the first-sample cases that 19 counts as new fails had
+also failed in 18's "after" and passed in its "before", which the
+reading did not say. In 20 two of the three pass. The third has failed in all
+three runs since the booking policy, for a different older rule each time. The
+rented-unit case, counted as a known flipper, has escalated in all three as
+well; it also escalated in 17.
 
 The split was made after experiment 2. Both samples are all in dev.
 
