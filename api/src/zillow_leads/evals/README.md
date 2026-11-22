@@ -457,8 +457,32 @@ in five runs). The judge fails the last two. Of its six new fails, the other
 four are a case it also failed in 18's "before", one that kept the decision it
 failed in 18's "after", one whose action is the same in all five runs, and one
 reply that called off an agreed tour. All cite older rules, against seven
-fixed. With one run per version, this says the new words were not involved; it
-does not show that these outputs are noise.
+fixed. With one run per version, this gives no sign that the new words were
+involved, and does not show that these outputs are noise.
+
+A paired repeat test was added after that condition failed. Its criterion was
+fixed before it ran. The case that failed the check, the three whose action
+changed and the made-up one whose action failed were each run 8 times under
+the policy on `main` (old) and 8 times under the new one, in turn, with the
+same code and fixtures and no judge. The wording would count as the likely
+cause if the new policy had 5 or more bad outcomes above the old one's
+pooled, or failed `clarification_leads` 3 or more times above it.
+
+| Case | Bad outcome | Old policy | New policy |
+|---|---|---|---|
+| The `clarification_leads` failure | that check fails | 0 of 8 | 0 of 8 |
+| An offer the case lacks | action other than 19's (reply) | 6 of 8 | 6 of 8 |
+| A layout question beside an agreed tour | action other than 19's (reply) | 4 of 8 | 4 of 8 |
+| A move-in offer the case lacks | action other than 19's (escalate) | 0 of 8 | 1 of 8 |
+| `synthetic-cancelled-by-team-2` | action other than expected (reply) | 0 of 8 | 0 of 8 |
+| Pooled | | 10 of 40 | 11 of 40 |
+
+The difference is 1 pooled and 0 on the check, so neither part of the criterion
+is met: no sign that the wording caused it, which is not proof. No call errored
+and none was dropped. The test is small, and these cases were picked for having
+gone wrong, so it would not show a small effect or one on other cases. Two of
+the cases are unstable under both policies: one takes 19's action a quarter of
+the time, the other half. The condition stays failed as written.
 
 A correction to 18 and 19. Both readings called the new judge fails run-to-run
 variation. Three of the first-sample cases that 19 counts as new fails had
