@@ -270,8 +270,9 @@ async def test_a_booking_through_the_lead_link_shows_in_that_thread_only(world, 
     ) in render_case(alex_case)
     assert robin_case.own_showings == []
     assert f"{OWN_SHOWINGS_HEADING}\n- (none)" in render_case(robin_case)
-    # The showing both are in still has room, so it is offered to every lead.
+    # The showing both are in still has room, so it is offered to every other lead.
     assert BookedTour(unit=UNIT, start=at(16)) in robin_case.booked_tours
+    assert BookedTour(unit=UNIT, start=at(16)) not in alex_case.booked_tours
     # Robin's own link is a different token.
     assert robin_case.listings[0].booking_url != alex_case.listings[0].booking_url
 

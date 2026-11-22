@@ -5,6 +5,7 @@ import { CallLine } from "~/components/sernia-public/call-line";
 import {
   type BookingResult,
   type BookingView,
+  type LeadBooking,
   NETWORK_MESSAGE,
   PUBLIC_API,
   bookingPlace,
@@ -12,6 +13,45 @@ import {
   readRefusal,
 } from "~/lib/showing-booking-page";
 import { cancelPath } from "~/lib/showing-cancel-page";
+
+/** When and where, as every confirmation screen shows them. */
+function WhenAndWhere({
+  view,
+}: {
+  view: Pick<BookingView, "starts_at" | "ends_at" | "timezone" | "address" | "unit">;
+}) {
+  return (
+    <dl className="space-y-3 rounded-lg border p-4 text-[15px]">
+      <div>
+        <dt className="text-sm text-muted-foreground">When</dt>
+        <dd className="font-medium">{formatSpan(view.starts_at, view.ends_at, view.timezone)}</dd>
+      </div>
+      <div>
+        <dt className="text-sm text-muted-foreground">Where</dt>
+        <dd className="font-medium">{bookingPlace(view)}</dd>
+      </div>
+    </dl>
+  );
+}
+
+/**
+ * A lead's own link (`?t=`) when their details are already in: when and where,
+ * that the text has the link to cancel, and the call line for someone the text
+ * never reached. The page holds no cancel link itself: a lead's link can be
+ * forwarded.
+ */
+export function ShowingAlreadyBooked({ place, siteKey }: { place: LeadBooking; siteKey: string | null }) {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">You're booked</h1>
+      <WhenAndWhere view={place} />
+      <p className="leading-7 text-muted-foreground">
+        Plans changed? The text we sent you has a link to cancel this showing.
+      </p>
+      <CallLine siteKey={siteKey} lead="Didn't get the text?" tail="." />
+    </div>
+  );
+}
 
 /**
  * After booking: when and where, the number we texted with "Wrong number?
@@ -94,16 +134,7 @@ export function ShowingBooked({ result, siteKey }: { result: BookingResult; site
         Your showing is booked
       </h1>
 
-      <dl className="space-y-3 rounded-lg border p-4 text-[15px]">
-        <div>
-          <dt className="text-sm text-muted-foreground">When</dt>
-          <dd className="font-medium">{formatSpan(view.starts_at, view.ends_at, view.timezone)}</dd>
-        </div>
-        <div>
-          <dt className="text-sm text-muted-foreground">Where</dt>
-          <dd className="font-medium">{bookingPlace(view)}</dd>
-        </div>
-      </dl>
+      <WhenAndWhere view={view} />
 
       <div className="space-y-3">
         <p className="leading-7">

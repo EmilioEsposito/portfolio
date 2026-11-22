@@ -83,7 +83,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import logfire
-from sqlalchemy import select, update
+from sqlalchemy import and_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -392,7 +392,19 @@ async def _mark_interrupted(session: AsyncSession, now: datetime) -> int:
 
 def _due_rows(now: datetime):
     """Due, pending rows that no run is sending, oldest first, locked for the
-    transaction. Rows another run has locked are skipped, never waited on."""
+    transaction. Rows another run has locked are skipped, never waited on.
+
+    A booking's own notices for a place whose reply is not settled
+    (``delivery_checks.reply_unsettled``) are left out until the showing starts,
+    so the ones a stopped process left behind never fill a run's limit.
+    """
+    waits_for_the_reply = and_(
+        ShowingNotice.kind.in_(host_event.FOR_A_BOOKING_KINDS),
+        ShowingAttendee.status == "booked",
+        Showing.status == "scheduled",
+        Showing.starts_at > now,
+        delivery_checks.reply_unsettled_clause(),
+    )
     return (
         select(
             ShowingNotice,
@@ -406,6 +418,7 @@ def _due_rows(now: datetime):
             ShowingNotice.status == "pending",
             ShowingNotice.not_before <= now,
             ShowingNotice.sending_started_at.is_(None),
+            waits_for_the_reply.is_not(True),
         )
         .order_by(ShowingNotice.not_before, ShowingNotice.id)
         .with_for_update(of=ShowingNotice, skip_locked=True)
@@ -465,7 +478,10 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     ``host_event.FOR_A_BOOKING_KINDS``) is cancelled when the attendee is no
     longer booked or the showing no longer scheduled. That covers a retry: a
     send that was under way when the booking was cancelled, then failed and
-    was put back to pending, never goes out later.
+    was put back to pending, never goes out later. One for a place the lead
+    agent booked for a reply that is not settled
+    (``delivery_checks.reply_unsettled``) waits, left as it is, and is cancelled
+    once the showing has started (``_due_rows`` leaves it out until then).
 
     A host event notice is rendered from its showing under the showing's
     lock; a cancellation (the host's event or a prospect's invite) is checked
@@ -473,8 +489,8 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
 
     Returns ``_NOT_NOW`` when the row is not delivered in this run: cancelled
     (no one booked, an earlier create may have gone out, or there is no event
-    to cancel) or put off a minute (another notice for the event is being
-    sent). Otherwise the event id it applies to, or None when there is none
+    to cancel), put off a minute (another notice for the event is being
+    sent) or left waiting (a reply not settled). Otherwise the event id it applies to, or None when there is none
     yet, so it is created. Other rows are returned unchanged with None.
     """
     if notice.kind in residents.TEXT_KINDS:
@@ -499,16 +515,26 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     if notice.kind in host_event.FOR_A_BOOKING_KINDS:
         row = (
             await session.execute(
-                select(ShowingAttendee.status, Showing.status)
+                select(ShowingAttendee, Showing.status, Showing.starts_at)
                 .join(Showing, Showing.id == ShowingAttendee.showing_id)
                 .where(ShowingAttendee.id == notice.attendee_id)
+                .execution_options(populate_existing=True)
             )
         ).first()
-        if row is not None and (row[0] != "booked" or row[1] != "scheduled"):
+        if row is None:
+            return None
+        attendee, showing_status, starts_at = row
+        if attendee.status != "booked" or showing_status != "scheduled":
             notice.status = "cancelled"
             notice.last_error = host_event.BOOKING_CANCELLED
             return _NOT_NOW
-        return None
+        if not delivery_checks.reply_unsettled(attendee):
+            return None
+        # The lead hears nothing before the reply that books the place is settled.
+        if starts_at <= now:
+            notice.status = "cancelled"
+            notice.last_error = delivery_checks.REPLY_NOT_SENT
+        return _NOT_NOW
     if notice.kind == host_event.INVITE_CANCEL_KIND:
         event_id = await session.scalar(
             select(ShowingAttendee.calendar_event_id).where(

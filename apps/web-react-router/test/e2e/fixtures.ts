@@ -58,7 +58,7 @@ export type Rows = {
   }[];
 };
 
-function database(command: "reset" | "rows" | "lead-booking"): unknown {
+function database(command: "reset" | "rows" | "lead-booking" | "lead-move"): unknown {
   const output = execFileSync(PYTHON, ["-m", "scripts.showing_browser_test", command], {
     cwd: REPO_ROOT,
     env: apiEnvironment(),
@@ -73,6 +73,8 @@ export const resetDatabase = () => database("reset");
 export const readRows = () => database("rows") as Rows;
 /** A made-up Zillow thread booked into the unit by email, as a sent reply does: its link token and the start. */
 export const bookByEmail = () => database("lead-booking") as { token: string; starts_at: string };
+/** That thread's showing moved to another open time, as a sent reply does: the same token and the new start. */
+export const moveByEmail = () => database("lead-move") as { token: string; starts_at: string };
 
 /** How many times the page ran the bot check. */
 export function turnstileRuns(page: Page): Promise<number> {

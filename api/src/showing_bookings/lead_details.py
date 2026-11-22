@@ -1,4 +1,4 @@
-"""A lead adds their details to a showing the lead agent booked in their email thread.
+"""What a lead's own link shows on a unit's booking page, and adding their details there.
 
 A place the lead agent books from a reply (``lead_bookings.py``) is
 provisional: a name, the Zillow thread, maybe a mobile from the thread, no
@@ -8,11 +8,15 @@ the token finds the provisional place, and the page shows the time already
 booked with the usual short form (name, mobile, email, the ticks) instead of
 the time picker.
 
-- ``provisional(unit, token)``: the place's unit, address, start and end and
-  time zone. Nothing about the host or anyone else in the showing. 404
-  ``no_booking`` when the token's thread holds no provisional place at that
-  unit, or the lead agent's switch is off: the page then shows the normal
-  booking form.
+- ``place(unit, token)``: the place's unit, address, start and end, time zone,
+  and whether the lead's details are in (``details_added``). Nothing about the
+  host or anyone else in the showing, no name and no cancel token. With a
+  provisional place, the page asks for the details. With none but a place that
+  has them (the lead completed it, booked it through the link, or a move by
+  email kept them), the page says they are booked, with when and where and
+  that the text has the link to cancel. 404 ``no_booking`` when the token's
+  thread holds neither at that unit, or the lead agent's switch is off: the
+  page then shows the normal booking form.
 - ``complete(unit, body)``: the fields and ticks are checked as for a page
   booking, then Turnstile, then, under the booking locks, the page's limits
   (not counting this place) and the place again. The same attendee gets the
@@ -39,7 +43,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.rental_listings import service as listings_service
-from api.src.showing_bookings import bookings, holds, host_event, lead_bookings, outbox, wording
+from api.src.showing_bookings import (
+    bookings,
+    delivery_checks,
+    holds,
+    host_event,
+    lead_bookings,
+    outbox,
+    wording,
+)
 from api.src.showing_bookings.models import (
     Showing,
     ShowingAgentRecord,
@@ -61,40 +73,56 @@ class LeadTokenRequest(BaseModel):
     lead_token: str = ""
 
 
-class ProvisionalView(BaseModel):
-    """The place the lead agent booked, as the "add your details" page shows it."""
+class LeadPlaceView(BaseModel):
+    """The lead's own place, as their link's page shows it."""
 
     unit: str
     address: str
     starts_at: datetime
     ends_at: datetime
     timezone: str
+    # False while the page asks for their details; true when it says they are booked.
+    details_added: bool
 
 
 def _no_booking() -> bookings.Refused:
     return bookings.Refused(404, "no_booking", NO_BOOKING)
 
 
-async def _find(
-    session: AsyncSession, unit: str, token: str | None, now: datetime, *, lock: bool = False
-) -> tuple[ShowingAttendee, Showing] | None:
-    """The token's thread's provisional place at ``unit``: booked by the lead
-    agent, no details yet, its showing scheduled and ahead."""
-    thread_id = await lead_links.thread_for_token(token, session)
-    if thread_id is None:
-        return None
-    query = (
+def _provisional(attendee: ShowingAttendee) -> bool:
+    """Booked by the lead agent, and the lead's details not in yet."""
+    return attendee.source == "lead_agent" and attendee.texts_consent_at is None
+
+
+def _places(thread_id: str, unit: str, now: datetime):
+    """The thread's booked places at ``unit``, their showings scheduled and ahead."""
+    return (
         select(ShowingAttendee, Showing)
         .join(Showing, Showing.id == ShowingAttendee.showing_id)
         .where(
             ShowingAttendee.zillow_thread_id == thread_id,
-            ShowingAttendee.source == "lead_agent",
             ShowingAttendee.status == "booked",
             Showing.status == "scheduled",
             Showing.starts_at > now,
             func.lower(Showing.unit) == unit.strip().casefold(),
         )
-        .order_by(Showing.starts_at, ShowingAttendee.id)
+    )
+
+
+async def _find(
+    session: AsyncSession, unit: str, token: str | None, now: datetime, *, lock: bool = False
+) -> tuple[ShowingAttendee, Showing] | None:
+    """The token's thread's place at ``unit`` that the lead agent booked: the one
+    still without details when there is one, else the first."""
+    thread_id = await lead_links.thread_for_token(token, session)
+    if thread_id is None:
+        return None
+    query = (
+        _places(thread_id, unit, now)
+        .where(ShowingAttendee.source == "lead_agent")
+        .order_by(
+            ShowingAttendee.texts_consent_at.is_not(None), Showing.starts_at, ShowingAttendee.id
+        )
         .limit(1)
     )
     if lock:
@@ -103,22 +131,42 @@ async def _find(
     return (row[0], row[1]) if row is not None else None
 
 
-async def provisional(unit: str, body: LeadTokenRequest, *, now: datetime) -> ProvisionalView:
-    """The provisional place for the "add your details" page. Raises ``Refused`` 404."""
+async def place(unit: str, body: LeadTokenRequest, *, now: datetime) -> LeadPlaceView:
+    """The lead's own place for their link's page. Raises ``Refused`` 404.
+
+    A provisional place first; else the first with the lead's details (an email
+    and recorded consent to texts). Never one kept from a move whose reply is
+    not settled: the lead may not have heard of it yet.
+    """
     if not await lead_bookings.enabled():
         raise _no_booking()
     async with AsyncSessionFactory() as session:
-        found = await _find(session, unit, body.lead_token, now)
-        if found is None or found[0].texts_consent_at is not None:
+        thread_id = await lead_links.thread_for_token(body.lead_token, session)
+        if thread_id is None:
+            raise _no_booking()
+        query = _places(thread_id, unit, now).order_by(Showing.starts_at, ShowingAttendee.id)
+        rows = (await session.execute(query)).all()
+        found = next((row for row in rows if _provisional(row[0])), None) or next(
+            (
+                row
+                for row in rows
+                if row[0].email
+                and row[0].texts_consent_at is not None
+                and not delivery_checks.reply_unsettled(row[0])
+            ),
+            None,
+        )
+        if found is None:
             raise _no_booking()
         rules = await listings_service.read_showing_rules(session)
-    _, showing = found
-    return ProvisionalView(
+    attendee, showing = found
+    return LeadPlaceView(
         unit=showing.unit,
         address=showing.address,
         starts_at=showing.starts_at,
         ends_at=showing.ends_at,
         timezone=rules.timezone,
+        details_added=not _provisional(attendee),
     )
 
 

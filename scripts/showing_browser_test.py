@@ -3,6 +3,7 @@
     uv run python -m scripts.showing_browser_test reset
     uv run python -m scripts.showing_browser_test rows
     uv run python -m scripts.showing_browser_test lead-booking
+    uv run python -m scripts.showing_browser_test lead-move
 
 ``reset`` makes the database ready for a run: it removes every showing,
 attendee and notice, puts the send mode back to capture with the default
@@ -15,6 +16,8 @@ JSON, for the test to check what a booking left. ``lead-booking`` turns the
 lead agent's switch on and books a made-up Zillow thread into ``UNIT``'s first
 open time the way a sent reply does (``lead_bookings.prepare_reply``), then
 prints the thread's link token and the start, for the "add your details" page.
+``lead-move`` moves that showing to another open time the same way, as a sent
+reply that agrees one does, and prints the token and the new start.
 
 It refuses to run in production or against a database that is not on this
 machine, because ``reset`` deletes showing data. Point it at a disposable
@@ -169,7 +172,7 @@ async def rows() -> dict:
 LEAD_THREAD = "browser-test-thread"
 
 
-async def lead_booking() -> dict:
+async def lead_booking(*, moving: bool = False) -> dict:
     from datetime import UTC, datetime
 
     from sqlalchemy import select
@@ -187,13 +190,14 @@ async def lead_booking() -> dict:
         row.value = {**row.value, "lead_agent_uses_open_times": True}
         await session.commit()
         found = await open_times.offers_for_unit(UNIT, now=now, session=session)
-    start = found.offers[0].start
+    # A move's new time is one the thread has no showing at yet: the first new one.
+    start = next(offer.start for offer in found.offers if not moving or offer.kind == "new")
     token = await lead_links.token_for_thread(LEAD_THREAD, now=now)
     prepared = await lead_bookings.prepare_reply(
-        conversation_id="browser-test-conversation",
+        conversation_id=f"browser-test-conversation{'-move' if moving else ''}",
         thread_id=LEAD_THREAD,
         lead=LeadFacts(name="Jordan Lee", unit=UNIT),
-        tour=TourState(status="confirmed", start=start),
+        tour=TourState(status="rescheduled" if moving else "confirmed", start=start),
         listed_units=[UNIT],
         now=now,
     )
@@ -205,7 +209,7 @@ async def lead_booking() -> dict:
 
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["reset", "rows", "lead-booking"])
+    parser.add_argument("command", choices=["reset", "rows", "lead-booking", "lead-move"])
     args = parser.parse_args(arguments)
     try:
         check_target()
@@ -215,8 +219,8 @@ def main(arguments: list[str] | None = None) -> int:
     if args.command == "reset":
         asyncio.run(reset())
         print(json.dumps({"unit": UNIT}))
-    elif args.command == "lead-booking":
-        print(json.dumps(asyncio.run(lead_booking())))
+    elif args.command in ("lead-booking", "lead-move"):
+        print(json.dumps(asyncio.run(lead_booking(moving=args.command == "lead-move"))))
     else:
         print(json.dumps(asyncio.run(rows())))
     return 0

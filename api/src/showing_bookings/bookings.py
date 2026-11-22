@@ -38,7 +38,7 @@ import hmac
 import json
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -514,6 +514,18 @@ def visit_of(showing: Showing, rules: ShowingRules) -> wording.Visit:
     )
 
 
+def _place_waits_for(confirmation: ShowingNotice | None, source: str) -> int | None:
+    """The confirmation text a booking's host event and residents' text wait for, if any.
+
+    None with no confirmation text (no texts, or no mobile), and for a place
+    booked from the lead agent's reply (``lead_agent``), where the email told
+    the lead: it stands whatever happens to the text, so only the invite waits.
+    """
+    if confirmation is None or source == "lead_agent":
+        return None
+    return confirmation.id
+
+
 async def _enqueue_booking_notices(
     session: AsyncSession,
     *,
@@ -523,12 +535,15 @@ async def _enqueue_booking_notices(
     kind: str,
     rules: ShowingRules,
     now: datetime,
+    replaces: Sequence[datetime] = (),
 ) -> ShowingNotice | None:
     """The confirmation text, and the host's event and the invite held behind it.
 
     Someone booked without texts (or with no mobile) gets no text, and nothing
     is held: the host's event, and the invite when there is an email, are due
-    now. No email, no invite.
+    now. No email, no invite. A place booked from the lead agent's reply holds
+    only the invite (``_place_waits_for``). With ``replaces`` (the starts of the
+    showings this one replaces) the text says it is a move.
     """
     visit = visit_of(showing, rules)
     link = cancel_url(attendee.cancel_token)
@@ -542,10 +557,13 @@ async def _enqueue_booking_notices(
             attendee_id=attendee.id,
             recipient=attendee.mobile,
             recipient_key=f"attendee:{attendee.id}",
-            payload=TextPayload(body=wording.confirmation_text(visit, link)),
+            payload=TextPayload(
+                body=wording.moved_confirmation_text(visit, replaces, link)
+                if replaces
+                else wording.confirmation_text(visit, link)
+            ),
             now=now,
         )
-    held_by = confirmation.id if confirmation is not None else None
     calendar_id = await _showings_calendar(session, host)
     # As things stand now; the outbox renders it again when it is delivered.
     host_payload = await host_event.render(session, showing, calendar_id=calendar_id)
@@ -561,7 +579,7 @@ async def _enqueue_booking_notices(
         ),
         payload=host_payload,
         now=now,
-        waits_for_notice_id=held_by,
+        waits_for_notice_id=_place_waits_for(confirmation, attendee.source),
     )
     if not attendee.email:
         return confirmation
@@ -584,7 +602,7 @@ async def _enqueue_booking_notices(
             attendees=[attendee.email],
         ),
         now=now,
-        waits_for_notice_id=held_by,
+        waits_for_notice_id=confirmation.id if confirmation is not None else None,
     )
     return confirmation
 
@@ -681,7 +699,8 @@ class Person:
     """Who a booking is for, however it was made.
 
     The page always has a mobile, an email and consent to texts. The team may
-    have a name alone, and the Zillow lead agent a name and a thread. A
+    have a name alone, and the Zillow lead agent a name and a thread, or the
+    details kept from the showing a lead moved (``lead_bookings.py``). A
     confirmation text is queued only with ``texts_accepted`` and a mobile;
     without one nothing is held behind it.
     """
@@ -693,6 +712,10 @@ class Person:
     texts_accepted: bool = False
     # Where consent to texts was given: the page's address, or who on the team took it.
     consent_page: str | None = None
+    # When consent was given and to which wording, when it was given earlier (a
+    # moved showing keeps the record as it is). Empty: now, the current wording.
+    consent_at: datetime | None = None
+    consent_version: str | None = None
     confirmations: tuple[RequirementConfirmation, ...] = ()
     lead_token: str | None = None
     zillow_thread_id: str | None = None
@@ -726,6 +749,7 @@ async def place_booking(
     now: datetime,
     checks: Callable[[AsyncSession], Awaitable[None]] | None = None,
     hold_notices_until: datetime | None = None,
+    replaces: Sequence[datetime] = (),
 ) -> Placed:
     """Book ``person`` at ``start``, or into the showing already there, in one transaction.
 
@@ -738,17 +762,27 @@ async def place_booking(
 
     The unit's residents are looked up first, outside the transaction, as that
     may read Quo. A new showing queues their text, held behind the confirmation
-    text, or due at once (in the daytime) when there is none; a join brings back
-    an announcement stopped with an earlier failed confirmation the same way. A
-    lookup that went wrong marks the showing and never stops the booking.
+    text, or due at once (in the daytime) when there is none (or the booking is
+    the lead agent's: ``_place_waits_for``); a join brings back an announcement
+    stopped with an earlier failed confirmation the same way. A lookup that went
+    wrong marks the showing and never stops the booking.
 
     ``hold_notices_until`` keeps this booking's notices that are due now (the
-    host's event, the residents' text) from going out before that time. The
+    host's event, the residents' text, and the lead's own confirmation text)
+    from going out before that time. The
     lead agent books before its reply is sent and passes it, so a reply that
     then fails to send can cancel the booking before anything went out
     (``lead_bookings.py``); ``release_notices`` lets them go once it is sent.
+    The lead's own text and invite also wait, whatever the time, until the
+    reply is settled (``delivery_checks.reply_unsettled``). ``replaces`` are the
+    starts of the showings this one replaces, for the text's wording.
     """
     texted = person.texts_accepted and person.mobile is not None
+    consent_at = consent_version = None
+    if texted and person.consent_at is not None:
+        consent_at, consent_version = person.consent_at, person.consent_version
+    elif texted:
+        consent_at, consent_version = now, wording.TEXTS_CONSENT_VERSION
     # Read before the transaction, as it may reach Quo; used only for a new showing.
     found = await resident_notices.find_for(listing.unit, start, rules)
     keys = [BOOKING_LOCK, f"showing:{listing.unit.casefold()}:{start.astimezone(UTC).isoformat()}"]
@@ -823,8 +857,8 @@ async def place_booking(
                 email=person.email,
                 source=person.source,
                 texts_accepted=texted,
-                texts_consent_at=now if texted else None,
-                texts_consent_version=wording.TEXTS_CONSENT_VERSION if texted else None,
+                texts_consent_at=consent_at,
+                texts_consent_version=consent_version,
                 texts_consent_page=person.consent_page if texted else None,
                 requirement_confirmations=[
                     item.model_dump(mode="json") for item in person.confirmations
@@ -847,9 +881,9 @@ async def place_booking(
                 kind=check.kind,
                 rules=rules,
                 now=now,
+                replaces=replaces,
             )
-            # No confirmation text (no texts, or no mobile): nothing to wait for.
-            held_by = confirmation.id if confirmation is not None else None
+            held_by = _place_waits_for(confirmation, attendee.source)
             residents_notice_id = None
             if check.kind == "new":
                 announced = await resident_notices.queue_new_showing(

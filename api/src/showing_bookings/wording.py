@@ -8,6 +8,8 @@
   listing's dates does not change what a person agreed to.
 - What a booking sends (``NOTICES_VERSION``): the prospect's confirmation
   text, the host's calendar event and the prospect's own invite.
+- The confirmation text when a lead moved their showing by email and the new
+  place keeps their details (``MOVED_VERSION``).
 - What a cancellation sends (``CANCELLATION_VERSION``): the prospect's text
   confirming their own cancellation, the text when the team cancels (or the
   unit goes off the market), and the cancelled event and invite.
@@ -40,6 +42,7 @@ from api.src.rental_listings.schema import RentalListing
 CONFIRMATIONS_VERSION = "v1"
 TEXTS_CONSENT_VERSION = "v1"
 NOTICES_VERSION = "v1"
+MOVED_VERSION = "v1"
 CANCELLATION_VERSION = "v1"
 RESIDENT_VERSION = "v1"
 REMINDER_VERSION = "v1"
@@ -150,10 +153,14 @@ def _clock(moment: datetime) -> str:
     return f"{moment:%I:%M %p}".lstrip("0")
 
 
+def _day_and_time(moment: datetime, timezone: str) -> str:
+    start = _local(moment, timezone)
+    return f"{start:%a}, {start:%b} {start.day} at {_clock(start)}"
+
+
 def when(visit: Visit) -> str:
     """ "Wed, Apr 14 at 4:00 PM", in the showing's time zone."""
-    start = _local(visit.starts_at, visit.timezone)
-    return f"{start:%a}, {start:%b} {start.day} at {_clock(start)}"
+    return _day_and_time(visit.starts_at, visit.timezone)
 
 
 def place(visit: Visit) -> str:
@@ -172,6 +179,19 @@ def confirmation_text(visit: Visit, cancel_url: str) -> str:
     return (
         f"Sernia Capital: your in-person showing is booked for {when(visit)} "
         f"at {place(visit)}.\nTo cancel: {cancel_url}\nReply STOP to opt out."
+    )
+
+
+def moved_confirmation_text(visit: Visit, replaces: Sequence[datetime], cancel_url: str) -> str:
+    """The confirmation text for a showing a lead moved by email, when the new place
+    keeps their details: the new day, time and place, the showing it replaces
+    (by its start; rarely more than one), and the cancel link (``MOVED_VERSION``)."""
+    old = [_day_and_time(start, visit.timezone) for start in sorted(replaces)]
+    earlier = f"showing on {old[0]}" if len(old) == 1 else f"showings on {' and '.join(old)}"
+    return (
+        f"Sernia Capital: your in-person showing has moved to {when(visit)} "
+        f"at {place(visit)}. It replaces your {earlier}.\n"
+        f"To cancel: {cancel_url}\nReply STOP to opt out."
     )
 
 

@@ -233,8 +233,14 @@ class ShowingAttendee(Base):
     # or never sent can find and cancel it. Empty for every other booking.
     lead_conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     # When the lead agent's reply that booked or confirmed this place was sent.
-    # Empty while it has not been (or may not have been: ``reply_uncertain``).
+    # Empty while it has not been (or may not have been: the next field).
     lead_reply_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # When that reply's send ended with no certain answer, so it may have gone
+    # out. Kept apart from ``attention_reason`` (``reply_uncertain``), which a
+    # confirmation text that did not reach the number replaces.
+    lead_reply_uncertain_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     # The token in the link the lead agent sent, when the booking came through one.
