@@ -91,8 +91,9 @@ from api.src.showing_bookings.schema import RequirementConfirmation, normalize_u
 from api.src.showing_bookings.settings import read_settings
 from api.src.zillow_leads.agent import LeadFacts, TourState
 
-# How long a booking's host event and residents' text wait for the reply's
-# send. Gmail answers in seconds; the hold only has to outlast it.
+# How long a booking's host event and residents' text (and the lead's own text,
+# for a move that kept their details) wait for the reply's send. Gmail answers in
+# seconds; the hold only has to outlast it.
 HOLD = timedelta(minutes=5)
 # The attendee's name when the thread gives none.
 PLACEHOLDER_NAME = "Zillow lead"

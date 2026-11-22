@@ -122,7 +122,11 @@ does), so a unit not on offer, or booking switched off, is a 404 page. The
 booking, a corrected mobile and the team's number go from the browser straight
 to `/api/showing-bookings/public/...`, so the API sees the person's own IP
 address, user agent and `Signature-Agent` header. The ticks' wording and the
-small print come from the API. The page is `noindex` for now. Pure logic
+small print come from the API. With a lead's own link (`?t=`), the loader also
+asks the API for the place booked in their email thread: the page then asks only
+for their details, or, once they are in, says "You're booked" with when and
+where. It holds no cancel link, since a lead's link can be forwarded. The page
+is `noindex` for now. Pure logic
 (times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
 and tested in `test/lib/showing-booking-page.test.ts`.
 
@@ -135,9 +139,10 @@ API uses Cloudflare's test keys and answers the test secret itself.
 `test/e2e/` holds the repository's browser test (Playwright, Chromium only): book a
 showing, miss a tick, correct the mobile, cancel from the confirmation screen, an
 unknown unit, the way from the Sernia home page through the units list to a
-booking page, and a lead adding their details to a showing the lead agent
-booked by email (the script's `lead-booking` command books it). It builds the app,
-starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
+booking page, a lead adding their details to a showing the lead agent booked by
+email (the script's `lead-booking` command books it), and their link saying
+they are booked afterwards, at the new time once a reply moves it (`lead-move`).
+It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks
 every other request that would leave the machine. Before each test

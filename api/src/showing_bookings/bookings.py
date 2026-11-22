@@ -778,6 +778,11 @@ async def place_booking(
     starts of the showings this one replaces, for the text's wording.
     """
     texted = person.texts_accepted and person.mobile is not None
+    consent_at = consent_version = None
+    if texted and person.consent_at is not None:
+        consent_at, consent_version = person.consent_at, person.consent_version
+    elif texted:
+        consent_at, consent_version = now, wording.TEXTS_CONSENT_VERSION
     # Read before the transaction, as it may reach Quo; used only for a new showing.
     found = await resident_notices.find_for(listing.unit, start, rules)
     keys = [BOOKING_LOCK, f"showing:{listing.unit.casefold()}:{start.astimezone(UTC).isoformat()}"]
@@ -852,10 +857,8 @@ async def place_booking(
                 email=person.email,
                 source=person.source,
                 texts_accepted=texted,
-                texts_consent_at=(person.consent_at or now) if texted else None,
-                texts_consent_version=(person.consent_version or wording.TEXTS_CONSENT_VERSION)
-                if texted
-                else None,
+                texts_consent_at=consent_at,
+                texts_consent_version=consent_version,
                 texts_consent_page=person.consent_page if texted else None,
                 requirement_confirmations=[
                     item.model_dump(mode="json") for item in person.confirmations
