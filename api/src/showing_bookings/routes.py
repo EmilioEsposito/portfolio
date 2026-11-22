@@ -20,6 +20,9 @@ Signed-in Sernia users only, on every route.
   once and save the result.
 - ``POST /calendar/connections/{id}/disconnect``: revoke the grant at Google,
   then mark the connection revoked.
+- ``GET /calendar/candidates``: the calendars the agent form offers, read from
+  Google afresh, with every calendar saved on the agent in ``agent_id``
+  (``calendar_candidates.py``).
 - ``PUT /settings/lead-agent``: switch the lead agent's use of open times on or
   off, changing nothing else in the settings.
 - ``PUT /settings/public-booking``: open booking to the public, close it, or
@@ -62,8 +65,10 @@ from api.src.showing_bookings import (
     agents,
     alerts,
     bookings,
+    calendar_candidates,
     cancelling,
     connections,
+    google_oauth,
     holds,
     open_times,
     team_actions,
@@ -310,6 +315,9 @@ class ConnectionView(BaseModel):
     # client here, or no key to read its token (as in a preview).
     usable_here: bool
     unusable_reason: str | None
+    # True when reconnecting would add a permission the calendar picker uses:
+    # on the connection it reads through, when one was not granted.
+    reconnect_adds_permissions: bool
 
 
 class ConnectionsView(BaseModel):
@@ -332,8 +340,11 @@ class ConnectStart(BaseModel):
     url: str
 
 
-def _connection_view(connection: CalendarConnection) -> ConnectionView:
+def _connection_view(
+    connection: CalendarConnection, rows: list[CalendarConnection]
+) -> ConnectionView:
     reason = connections.unusable_reason(connection)
+    picked = agents.team_connection(rows)
     return ConnectionView(
         id=connection.id,
         google_email=connection.google_email,
@@ -346,6 +357,12 @@ def _connection_view(connection: CalendarConnection) -> ConnectionView:
         last_error=connection.last_error,
         usable_here=reason is None,
         unusable_reason=reason,
+        reconnect_adds_permissions=(
+            reason is None
+            and picked is not None
+            and picked.id == connection.id
+            and not set(google_oauth.PICKER_SCOPES) <= set(connection.scopes)
+        ),
     )
 
 
@@ -360,16 +377,20 @@ def _sernia_email(user: User) -> str:
     return user.id
 
 
+async def _connection_rows(session: AsyncSession) -> list[CalendarConnection]:
+    return list(await session.scalars(select(CalendarConnection)))
+
+
 async def _connection_view_by_id(session: AsyncSession, connection_id: int) -> ConnectionView:
     connection = await session.get(CalendarConnection, connection_id)
     if connection is None:
         raise HTTPException(404, "No such calendar connection.")
-    return _connection_view(connection)
+    return _connection_view(connection, await _connection_rows(session))
 
 
 @router.get("/calendar/connections", response_model=ConnectionsView)
 async def list_connections(session: DBSession):
-    rows = await session.scalars(
+    found = await session.scalars(
         # Working ones first, then lost ones, which need a reconnect, then disconnected ones.
         select(CalendarConnection).order_by(
             case(
@@ -380,11 +401,12 @@ async def list_connections(session: DBSession):
             CalendarConnection.google_email,
         )
     )
+    rows = list(found)
     problem = connections.setup_problem()
     return ConnectionsView(
         can_connect=problem is None,
         setup_problem=problem,
-        connections=[_connection_view(row) for row in rows],
+        connections=[_connection_view(row, rows) for row in rows],
     )
 
 
@@ -424,6 +446,14 @@ async def disconnect_connection(
     except connections.CannotDisconnect as refused:
         raise HTTPException(409, str(refused)) from None
     return await _connection_view_by_id(session, connection_id)
+
+
+@router.get("/calendar/candidates", response_model=calendar_candidates.CalendarCandidates)
+async def list_calendar_candidates(agent_id: int | None = None):
+    try:
+        return await calendar_candidates.candidates(agent_id, now=datetime.now(UTC))
+    except LookupError:
+        raise HTTPException(404, "No such showing agent.") from None
 
 
 # ---------------------------------------------------------------------------
@@ -528,10 +558,6 @@ def _agent_view(record: ShowingAgentRecord, rows: list[CalendarConnection]) -> A
         reads_through=connection.google_email if connection is not None else None,
         **agents.as_agent(record).model_dump(),
     )
-
-
-async def _connection_rows(session: AsyncSession) -> list[CalendarConnection]:
-    return list(await session.scalars(select(CalendarConnection)))
 
 
 def _refused(invalid: agents.AgentInvalid) -> HTTPException:

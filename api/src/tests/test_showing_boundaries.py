@@ -3,12 +3,13 @@
 - Only ``outbox.py`` imports the Quo sender (``quo.py``). Only
   ``connections.py`` imports the Google calendar adapter
   (``google_calendar.py``), which it hands out as a ``CalendarSource`` through
-  ``calendar_for_connection``.
+  ``calendar_for_connection``, and the reader of the calendar picker's lists
+  (``google_lists.py``), which only ever reads.
 - Only ``outbox.py`` uses a sending method: a text (``send_text``,
   ``send_group_text``, ``text_status``) or an event write (``create_event``, ``update_event``,
   ``cancel_event``), called or merely referenced. Reading busy times is open to
   any file. Creating the showings calendar at connect time is not an event write.
-- Only the two Google files name Google's hosts, so no other file reaches
+- Only the three Google files name Google's hosts, so no other file reaches
   Google, and only a sender module talks to the repo's provider packages
   (``api.src.open_phone`` and ``api.src.google``). The one reader,
   ``quo_contacts.py``, lists contacts for the resident lookup, sends nothing
@@ -41,6 +42,7 @@ SENDERS = {
     "api.src.showing_bookings.push": {OUTBOX},
     "api.src.showing_bookings.gmail_thread": {OUTBOX},
     "api.src.showing_bookings.google_calendar": {"connections.py"},
+    "api.src.showing_bookings.google_lists": {"connections.py"},
     "api.src.showing_bookings.quo_contacts": {"residents.py"},
 }
 SENDER_FILES = {"quo.py", "google_calendar.py", "push.py", "gmail_thread.py"}
@@ -54,7 +56,7 @@ READER_FILES = {"quo_contacts.py"}
 PURE_PROVIDER_MODULES = ("api.src.open_phone.tenants",)
 PROVIDER_PACKAGES = ("api.src.open_phone", "api.src.google", "api.src.agent_conversations.push")
 GOOGLE_HOSTS = ("googleapis.com", "accounts.google.com")
-GOOGLE_FILES = {"google_calendar.py", "google_oauth.py"}
+GOOGLE_FILES = {"google_calendar.py", "google_lists.py", "google_oauth.py"}
 GENERAL_SENDERS = {"send_message", "create_calendar_event"}
 EVENT_WRITES = {"create_event", "update_event", "cancel_event"}
 SENDING_METHODS = {
@@ -171,6 +173,22 @@ def test_only_the_google_files_reach_google():
     for name, text in texts().items():
         if name not in GOOGLE_FILES:
             assert names_a_google_host(text) == [], name
+
+
+def test_the_calendar_pickers_files_only_read():
+    trees = sources()
+    for name in ("google_lists.py", "calendar_candidates.py"):
+        assert uses_a_method(trees[name], SENDING_METHODS) == [], name
+        assert uses_a_general_sender(trees[name]) == [], name
+        # Only reads the database, and only GETs from Google.
+        assert uses_a_method(trees[name], {"commit", "execute", "flush"}) == [], name
+    methods = {
+        node.value
+        for node in ast.walk(trees["google_lists.py"])
+        if isinstance(node, ast.Constant)
+        and node.value in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    }
+    assert methods == {"GET"}
 
 
 def test_nothing_uses_the_repos_general_senders():

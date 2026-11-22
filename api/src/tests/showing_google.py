@@ -1,7 +1,8 @@
-"""A stand-in for Google's OAuth and Calendar endpoints, behind ``httpx.MockTransport``. Not a test module.
+"""A stand-in for Google's OAuth, Calendar and People endpoints, behind ``httpx.MockTransport``.
+Not a test module.
 
-``FakeGoogle`` answers the requests ``google_oauth.py`` and
-``google_calendar.py`` make, shaped as Google's documentation describes, and
+``FakeGoogle`` answers the requests ``google_oauth.py``, ``google_calendar.py``
+and ``google_lists.py`` make, shaped as Google's documentation describes, and
 keeps every request so a test can read what was sent. Install it with
 ``fake.install(monkeypatch)``; nothing leaves the process.
 
@@ -28,11 +29,16 @@ TEAM_ACCOUNT = "team@example.com"
 TEAM_SUBJECT = "100000000000000000001"
 ORIGIN = "http://localhost:5173"
 REDIRECT_URI = f"{ORIGIN}{google_oauth.CALLBACK_PATH}"
+# A grant as it was before the calendar picker, which still has to work everywhere.
 ALL_SCOPES = (
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     *google_oauth.CALENDAR_SCOPES,
 )
+PICKER_SCOPES = (*ALL_SCOPES, *google_oauth.PICKER_SCOPES)
+CALENDAR_LIST = "/calendar/v3/users/me/calendarList"
+DIRECTORY = "/v1/people:listDirectoryPeople"
+FREE_BUSY = "/calendar/v3/freeBusy"
 
 
 def configure(monkeypatch, *, key: str | None = TOKEN_KEY) -> None:
@@ -57,6 +63,41 @@ def id_token(claims: dict) -> str:
         return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
 
     return f"{part({'alg': 'RS256', 'kid': 'test'})}.{part(claims)}.c2lnbmF0dXJl"
+
+
+def person(name: str | None, *addresses: str, **metadata) -> dict:
+    """A directory person as the People API gives one: the first address is the
+    primary one unless ``metadata`` says otherwise, and the rest are aliases."""
+    mark = metadata or {"primary": True, "sourcePrimary": True}
+    emails = [{"value": address, "metadata": {"verified": True}} for address in addresses]
+    if emails:
+        emails[0]["metadata"] |= mark
+    return {
+        "resourceName": f"people/{name}",
+        **({"names": [{"displayName": name, "metadata": {"primary": True}}]} if name else {}),
+        **({"emailAddresses": emails} if emails else {}),
+    }
+
+
+def people_error(status: int, reason: str | None, message: str) -> httpx.Response:
+    """An error as the People API answers it, with Google's ``ErrorInfo`` when it gives a reason."""
+    info = {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": reason,
+        "domain": "googleapis.com",
+        "metadata": {"service": "people.googleapis.com"},
+    }
+    return httpx.Response(
+        status,
+        json={
+            "error": {
+                "code": status,
+                "message": message,
+                "status": "PERMISSION_DENIED",
+                **({"details": [info]} if reason else {}),
+            }
+        },
+    )
 
 
 @dataclass
@@ -93,8 +134,17 @@ class FakeGoogle:
     busy: dict[str, list[BusyEvent]] = field(default_factory=dict)
     # Calendars free/busy reports an error for, by id: Google's reason.
     unreadable: dict[str, str] = field(default_factory=dict)
-    # Answers forced for a request, by (method, path): a response or an exception.
-    forced: dict[tuple[str, str], httpx.Response | Exception] = field(default_factory=dict)
+    # The connected account's calendar list, and the Workspace directory, as Google's entries.
+    calendar_list: list[dict] = field(default_factory=list)
+    people: list[dict] = field(default_factory=list)
+    # The most entries a page of either holds, below what the request asks for.
+    page_limit: int = 1000
+    # Answers forced for a request, by (method, path): a response, an exception, or a
+    # list of them for the requests in turn, where None is answered as usual.
+    forced: dict[
+        tuple[str, str],
+        httpx.Response | Exception | list[httpx.Response | Exception | None],
+    ] = field(default_factory=dict)
     access_lifetime: int = 3599
     issued: int = 0
     # Every code and token handed out, so a test can check none of them leaks.
@@ -167,6 +217,8 @@ class FakeGoogle:
         self.requests.append(request)
         path = self._path(request)
         forced = self.forced.get((request.method, path))
+        if isinstance(forced, list):
+            forced = forced.pop(0) if forced else None
         if isinstance(forced, Exception):
             raise forced
         if forced is not None:
@@ -178,6 +230,8 @@ class FakeGoogle:
             return self._revoke(request)
         if host == "www.googleapis.com" and path.startswith("/calendar/v3/"):
             return self._calendar_api(request, path.removeprefix("/calendar/v3"))
+        if host == "people.googleapis.com" and path == DIRECTORY:
+            return self._directory(request)
         return httpx.Response(404, json={"error": {"code": 404, "message": "Not Found"}})
 
     def _issue_access(self, account: Account) -> str:
@@ -264,12 +318,61 @@ class FakeGoogle:
             },
         )
 
-    def _calendar_api(self, request: httpx.Request, path: str) -> httpx.Response:
+    def _account(self, request: httpx.Request) -> Account | None:
         bearer = request.headers.get("authorization", "").removeprefix("Bearer ")
-        account = self.access_tokens.get(bearer)
+        return self.access_tokens.get(bearer)
+
+    def _page(self, request: httpx.Request, entries: list[dict], size: int, key: str) -> dict:
+        """One page of ``entries``. The token names the last entry given, address and all,
+        as Google's can, so a test can check it is not logged."""
+        token = request.url.params.get("pageToken")
+
+        def address(entry: dict, at: int) -> str:
+            emails = entry.get("emailAddresses") or [{}]
+            return entry.get("id") or emails[0].get("value") or str(at)
+
+        addresses = [address(entry, at) for at, entry in enumerate(entries)]
+        first = addresses.index(token.removeprefix("after-")) + 1 if token else 0
+        last = first + min(size, self.page_limit)
+        page = {key: entries[first:last]}
+        if last < len(entries):
+            page["nextPageToken"] = f"after-{addresses[last - 1]}"
+        return page
+
+    def _directory(self, request: httpx.Request) -> httpx.Response:
+        account = self._account(request)
+        if account is None:
+            return people_error(401, None, "Request had invalid authentication credentials.")
+        if google_oauth.DIRECTORY_SCOPE not in account.scopes:
+            return people_error(
+                403,
+                "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+                "Request had insufficient authentication scopes.",
+            )
+        params = request.url.params
+        if not params.get("readMask") or not params.get("sources"):
+            return people_error(400, None, "readMask and sources are required.")
+        size = int(params.get("pageSize", 100))
+        if not 1 <= size <= 1000:
+            return people_error(400, None, "pageSize must be from 1 to 1000.")
+        return httpx.Response(200, json=self._page(request, self.people, size, "people"))
+
+    def _calendar_api(self, request: httpx.Request, path: str) -> httpx.Response:
+        account = self._account(request)
         if account is None:
             return self._error(401, "authError", "Invalid Credentials")
         parts = path.strip("/").split("/")
+        if request.method == "GET" and parts == ["users", "me", "calendarList"]:
+            if google_oauth.CALENDAR_LIST_SCOPE not in account.scopes:
+                return self._error(403, "insufficientPermissions", "Insufficient Permission")
+            size = min(int(request.url.params.get("maxResults", 100)), 250)
+            return httpx.Response(
+                200,
+                json={
+                    "kind": "calendar#calendarList",
+                    **self._page(request, self.calendar_list, size, "items"),
+                },
+            )
         if request.method == "POST" and parts == ["freeBusy"]:
             return self._freebusy(self.body(request))
         if parts == ["calendars"] and request.method == "POST":
@@ -310,8 +413,14 @@ class FakeGoogle:
         start = datetime.fromisoformat(query["timeMin"])
         end = datetime.fromisoformat(query["timeMax"])
         calendars = {}
-        for item in query["items"]:
+        for index, item in enumerate(query["items"]):
             calendar_id = item["id"]
+            if index >= 50:
+                calendars[calendar_id] = {
+                    "errors": [{"domain": "global", "reason": "tooManyCalendarsRequested"}],
+                    "busy": [],
+                }
+                continue
             if calendar_id in self.unreadable:
                 calendars[calendar_id] = {
                     "errors": [{"domain": "global", "reason": self.unreadable[calendar_id]}],

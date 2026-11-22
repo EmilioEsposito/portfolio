@@ -27,7 +27,7 @@ How a provider reports trouble decides what the outbox does next:
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -88,6 +88,32 @@ class CalendarUnreadable(Exception):
         super().__init__(f"Could not read calendar(s): {names}")
         self.unreadable = unreadable
         self.busy = busy
+
+
+# How reading one of Google's two lists for the calendar picker went:
+# "not_granted" (the connection lacks the permission), "api_off" (the API is
+# off in the app's Google Cloud project), "sharing_off" (the Workspace does not
+# share its directory with apps), "refused" (Google said no, and not why) or
+# "failed" (no answer, or a limit: trying again may work).
+ListStatus = Literal["read", "not_granted", "api_off", "sharing_off", "refused", "failed"]
+
+
+@dataclass(frozen=True)
+class ListedCalendar:
+    calendar_id: str  # for a person, their primary email address
+    name: str
+    # The connected account's own calendar.
+    own: bool = False
+
+
+@dataclass(frozen=True)
+class CalendarList:
+    """One of the lists behind the calendar picker, with the entries read before any trouble."""
+
+    status: ListStatus
+    entries: tuple[ListedCalendar, ...] = ()
+    # Google has more than was read.
+    more: bool = False
 
 
 class EventDraft(BaseModel):

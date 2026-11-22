@@ -100,9 +100,10 @@ only when every number is a test recipient.
 `test_showing_boundaries.py` fails if another file uses a sending method (a
 text, a group text, or a calendar event write, which invites people), if the
 Quo sender is imported anywhere but `outbox.py` or the Google calendar adapter
-anywhere but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
-which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py` and
-`google_calendar.py` names Google's hosts, or if anything here uses the repo's
+or the calendar picker's lists (`google_lists.py`, which only reads) anywhere
+but `connections.py`, if the Quo contact reader (`quo_contacts.py`,
+which sends nothing) is imported anywhere but `residents.py`, if a file other than `google_oauth.py`,
+`google_calendar.py` and `google_lists.py` names Google's hosts, or if anything here uses the repo's
 general `send_message` or `create_calendar_event`, which have no guard. The
 team's alert channel (`push.py`) is held to the same rule: only `outbox.py`
 imports it or calls `send_alert`, and the reminders, host's texts and alerts
@@ -198,10 +199,7 @@ agents share with it; an agent with a Sernia sign-in may connect their own.
    `POST /calendar/connect` answers with Google's consent URL for the OAuth
    client in the Google Cloud project `sernia-showings`, which is Internal:
    only serniacapital.com accounts can approve it, with no Google review. It
-   asks for offline access to two calendar permissions,
-   `calendar.events.freebusy` (free/busy of every calendar the account can
-   see) and `calendar.app.created` (calendars the app itself creates), plus
-   `openid` and `email` to learn which account approved.
+   asks for offline access to the permissions below.
 2. Google sends the browser to `/api/showing-bookings/calendar/callback`, the
    module's one route without sign-in (`calendar_callback.py`). The request
    carries no sign-in, so who started the connection travels in `state`:
@@ -209,12 +207,24 @@ agents share with it; an agent with a Sernia sign-in may connect their own.
    nonce, signed with `SESSION_SECRET_KEY` and good for ten minutes. A
    missing, altered or expired state saves nothing.
 3. The callback trades Google's one-time code for tokens, checks that both
-   calendar permissions were granted, makes sure the account has a calendar
+   required permissions were granted, makes sure the account has a calendar
    named "Sernia showings" (created once; a reconnect keeps it), and saves the
    row with the refresh token encrypted. It answers with a small page that
    sends the browser back to the tab with the result, such as
    `?calendar=connected`. A page, not a redirect status, because the web
    server's `/api` proxy follows redirects itself.
+
+| Permission | Why | Required |
+| --- | --- | --- |
+| `openid`, `email` | which account approved | yes |
+| `calendar.events.freebusy` | free/busy of every calendar the account can see | yes |
+| `calendar.app.created` | the showings calendar, which the app creates | yes |
+| `calendar.calendarlist.readonly` | the calendar picker: the calendars on the account's own list | no |
+| `directory.readonly` | the calendar picker: the people in the Workspace directory, by name and email address | no |
+
+A grant without the last two connects as before and everything but the picker
+works with it. A connection made before the picker keeps working as it is; its
+card says when a Reconnect would add them (`reconnect_adds_permissions`).
 
 The redirect URI is built from an allowed origin, never from a request header:
 `https://eesposito.com`, `https://dev.eesposito.com` or `http://localhost` on
@@ -248,6 +258,54 @@ someone presses Reconnect.
 "Disconnect" revokes the grant at Google, then marks the row `revoked` and
 drops its token; the showings calendar stays in the account, and connecting
 again reuses it.
+
+### The calendar picker
+
+`calendar_candidates.candidates` answers which calendars the showing agent form
+offers (`GET /calendar/candidates`). It reads Google afresh each time through
+the team's connection, as `agents.team_connection` picks it, and only reads:
+
+1. The people in the Workspace directory, by their main calendar (its id is
+   the person's primary email address), and the account's own calendar list,
+   both to the last page (`google_lists.py`). A calendar in both is in the
+   team's group. Left out: the account's own calendar, every connection's
+   showings calendar, and Google's virtual calendars (ids ending
+   `@group.v.calendar.google.com`). At most 500 are kept, shared ones first,
+   and `truncated` says when there were more.
+2. A free/busy read of each over the next day, 50 at a time, read exactly as
+   availability reads them (`GoogleCalendar.readable`). Only a calendar that
+   comes back is offered. The times are dropped and nothing is recorded on the
+   connection.
+
+Every calendar saved on the agent in `agent_id` is in the answer whatever
+happens: in its group, or as `saved` under its address when it is in neither
+list, with `readable` true, false, or null when it could not be checked.
+
+| Answer | When |
+| --- | --- |
+| `connection` is `none`, `lost` or `unusable` | No account is connected, Google no longer accepts it, or this environment cannot use it (`problem`). Google is not asked. |
+| `directory` or `calendar_list` is `not_granted` | The connection's saved permissions lack it, or Google says so. The other list is still read. |
+| ... `api_off` | The API is off in the Google Cloud project. |
+| ... `sharing_off` | Google says the Workspace does not share its directory with apps. |
+| ... `refused` | Google said no, and not why. |
+| ... `failed` | Google did not answer, or set a limit. Trying again may work. |
+| `check_failed` | Google did not say whether some calendars can be read; those not saved on the agent are left out. |
+
+Google's own wording, names and addresses stay out of the logs, which hold
+counts and these words only. Request tracing records a whole address, query
+included, and Google's page tokens can hold an email address, so a page after
+the first is not traced.
+
+Setup, once, for the team to be listed:
+
+- The People API must be enabled in the `sernia-showings` project, beside the
+  Google Calendar API.
+- The Workspace must share its directory with apps: Google Admin console,
+  Directory, Directory settings, Sharing settings, External Directory Sharing,
+  "Organization data and authenticated user basic profile fields"
+  ([Google's note](https://developers.google.com/people/v1/directory)). A
+  change can take up to 24 hours.
+- A team member presses Reconnect and leaves every box ticked.
 
 ### Usable here
 
@@ -307,7 +365,17 @@ one agent.
 - No connection chosen means the team's: the oldest connection that is
   connected. An agent added before any calendar is connected is read once one
   is.
-- An agent with no calendars listed counts as busy.
+- An agent with no calendars listed counts as busy, and so does one with a
+  calendar that cannot be read.
+- The form ticks calendars from the calendar picker (above) and takes no typed
+  address. A new agent's own calendar, the one at their email, is ticked while
+  it is listed and follows the email until a tick is changed by hand. A ticked
+  or saved calendar always stays in the list, so a save drops none that was not
+  unticked: one that cannot be read is marked "Can't read: counts as busy".
+- The form always saves no connection, so the team's reads every agent. The
+  column and the rules above are kept.
+- Where no connection is usable, as in a preview, no calendar can be picked;
+  Load sample agents adds two that have one.
 - Deactivating keeps the row, so past showings still name the agent, and gives
   them no new showings. Showings already booked keep their host.
 
@@ -1157,6 +1225,12 @@ Mounted at `/api/showing-bookings`, every route behind the Sernia sign-in:
 - `POST /calendar/connect`: `{origin, account?}`, Google's consent URL;
   `account` preselects the account for a reconnect.
 - `POST /calendar/connections/{id}/check` and `.../disconnect`.
+- `GET /calendar/candidates?agent_id=`: the calendars the agent form offers,
+  read from Google afresh, with every calendar saved on that agent
+  (`{connection, account, problem, directory, calendar_list, check_failed,
+  truncated, calendars: [{calendar_id, name, group, readable}]}`, see The
+  calendar picker). `agent_id` is left out for a new agent; 404 for no such
+  agent. No email address is ever in the address.
 - `GET /agents`, `POST /agents`, `PUT /agents/{id}`,
   `POST /agents/{id}/deactivate` and `.../activate`. A failed check answers
   422 with `detail.problems`.
@@ -1245,6 +1319,11 @@ or Google. `test_showing_google_oauth.py` and `test_showing_google_calendar.py`
 cover the Google code without a database; `test_showing_calendar_connections.py`
 covers connecting, using and disconnecting end to end, including that no
 token, code or secret reaches the logs or the browser.
+`test_showing_google_lists.py` covers the picker's reads without a database
+(pages, limits, each refusal, 50 calendars at a time), and
+`test_showing_calendar_candidates.py` the route: what is offered and left out,
+the calendars saved on an agent in every state, a connection without the
+picker's permissions, each kind of Google's trouble, and what reaches the logs.
 `test_showing_open_times.py` holds the design's worked example and each rule;
 `test_showing_agents.py` the agents, Showings and switch routes;
 `test_showing_lead_tours.py` the tour source and that the lead agent offers no
