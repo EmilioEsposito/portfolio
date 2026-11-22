@@ -5,8 +5,9 @@ try or retry, under the lock on the notice:
 
 - A prospect's reminder goes only while the person is still booked, the
   showing still scheduled and not started, and the number still one we text
-  (a mobile, texts accepted, and no sign it is wrong). It goes to the mobile
-  on the booking now, so a corrected number gets it.
+  (``can_text``: a mobile, texts accepted, no sign it is wrong, and not a place
+  whose lead agent's reply is not settled). It goes to the mobile on the
+  booking now, so a corrected number gets it.
 - The residents' reminder lists only the showings it was queued for that are
   still scheduled and not started; with none left it is not sent.
 - A lead's reminder by email (``LEAD_EMAIL_REMINDER_KIND``) goes only while
@@ -128,12 +129,32 @@ class Verdict:
 GO = Verdict()
 
 
+def reply_unsettled(attendee: ShowingAttendee) -> bool:
+    """A place the lead agent booked for a reply whose send is not settled: neither
+    sent nor possibly sent (uncertain), so the lead may never have heard of it.
+
+    The process that booked it is about to send the reply, or stopped before it
+    did. Nothing is texted to the lead about such a place, even when it kept
+    their details from the showing it replaces (``lead_bookings.py``). A lead
+    who completed it through their own link (``lead_token``) knows of it.
+    """
+    return bool(
+        attendee.source == "lead_agent"
+        and attendee.lead_conversation_id is not None
+        and attendee.lead_token is None
+        and attendee.lead_reply_sent_at is None
+        and attendee.lead_reply_uncertain_at is None
+    )
+
+
 def can_text(attendee: ShowingAttendee) -> bool:
-    """A mobile, texts accepted, and no sign the number is wrong."""
+    """A mobile, texts accepted, no sign the number is wrong, and not a place whose
+    reply is not settled (``reply_unsettled``)."""
     return bool(
         attendee.mobile
         and attendee.texts_accepted
         and attendee.attention_reason not in WRONG_NUMBER
+        and not reply_unsettled(attendee)
     )
 
 

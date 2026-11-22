@@ -718,6 +718,7 @@ async def test_the_link_reads_the_provisional_place_and_nothing_else(lead):
         "starts_at": "2027-04-14T20:00:00Z",
         "ends_at": "2027-04-14T20:30:00Z",
         "timezone": "America/New_York",
+        "details_added": False,
     }
     assert answer.headers["cache-control"] == "no-store"
 
@@ -818,7 +819,8 @@ async def test_completed_details_cannot_be_completed_twice(lead):
 
     assert first.status_code == 201
     assert (second.status_code, second.json()["detail"]["code"]) == (409, "already_completed")
-    assert (read.status_code, read.json()["detail"]["code"]) == (404, "no_booking")
+    # The link's page now says they are booked (test_zillow_lead_moves.py).
+    assert read.status_code == 200 and read.json()["details_added"] is True
     _, attendees, notices = await rows()
     assert attendees[0].mobile == ALEX_MOBILE
     assert len(by_kind(notices)["prospect_confirmation"]) == 1

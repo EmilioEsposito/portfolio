@@ -56,9 +56,8 @@ export type BookingResult = {
 };
 
 /**
- * `POST /units/{unit}/lead-booking`: the place the lead agent booked in the
- * lead's email thread, before they added their details. Their own place,
- * nothing about anyone else.
+ * `POST /units/{unit}/lead-booking`: the place booked for the lead's email
+ * thread. Their own place, nothing about anyone else.
  */
 export type LeadBooking = {
   unit: string;
@@ -66,9 +65,11 @@ export type LeadBooking = {
   starts_at: string;
   ends_at: string;
   timezone: string;
+  /** False while the page asks for their details; true when it says they are booked. */
+  details_added: boolean;
 };
 
-/** What the booking page's loader answers: the unit, and the lead's provisional place when the link has one. */
+/** What the booking page's loader answers: the unit, and the lead's own place when the link has one. */
 export type BookingPageData = UnitPage & { lead_booking: LeadBooking | null };
 
 /** A `?t=` value worth asking the API about: the token alphabet the API accepts, at a sane length. */

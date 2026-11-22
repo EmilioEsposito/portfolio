@@ -465,7 +465,9 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     ``host_event.FOR_A_BOOKING_KINDS``) is cancelled when the attendee is no
     longer booked or the showing no longer scheduled. That covers a retry: a
     send that was under way when the booking was cancelled, then failed and
-    was put back to pending, never goes out later.
+    was put back to pending, never goes out later. One for a place the lead
+    agent booked for a reply that is not settled
+    (``delivery_checks.reply_unsettled``) waits, left as it is.
 
     A host event notice is rendered from its showing under the showing's
     lock; a cancellation (the host's event or a prospect's invite) is checked
@@ -473,8 +475,8 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
 
     Returns ``_NOT_NOW`` when the row is not delivered in this run: cancelled
     (no one booked, an earlier create may have gone out, or there is no event
-    to cancel) or put off a minute (another notice for the event is being
-    sent). Otherwise the event id it applies to, or None when there is none
+    to cancel), put off a minute (another notice for the event is being
+    sent) or left waiting (a reply not settled). Otherwise the event id it applies to, or None when there is none
     yet, so it is created. Other rows are returned unchanged with None.
     """
     if notice.kind in residents.TEXT_KINDS:
@@ -499,16 +501,21 @@ async def _prepare(session: AsyncSession, notice: ShowingNotice, now: datetime):
     if notice.kind in host_event.FOR_A_BOOKING_KINDS:
         row = (
             await session.execute(
-                select(ShowingAttendee.status, Showing.status)
+                select(ShowingAttendee, Showing.status)
                 .join(Showing, Showing.id == ShowingAttendee.showing_id)
                 .where(ShowingAttendee.id == notice.attendee_id)
+                .execution_options(populate_existing=True)
             )
         ).first()
-        if row is not None and (row[0] != "booked" or row[1] != "scheduled"):
+        if row is None:
+            return None
+        attendee, showing_status = row
+        if attendee.status != "booked" or showing_status != "scheduled":
             notice.status = "cancelled"
             notice.last_error = host_event.BOOKING_CANCELLED
             return _NOT_NOW
-        return None
+        # The lead hears nothing before the reply that books the place is settled.
+        return _NOT_NOW if delivery_checks.reply_unsettled(attendee) else None
     if notice.kind == host_event.INVITE_CANCEL_KIND:
         event_id = await session.scalar(
             select(ShowingAttendee.calendar_event_id).where(
