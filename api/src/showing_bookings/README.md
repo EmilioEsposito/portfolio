@@ -890,9 +890,10 @@ scheduled and ahead), the page shows that time and the usual form without
 the picker. With none but a place that has the details (completed, booked
 through the link, or kept from a move whose reply is settled), the page says
 "You're booked", with when and where and that the text has a link to cancel.
-With neither, it is the normal form. `POST /units/{unit}/lead-booking/details` checks the fields and
-ticks as for a page booking, Turnstile, the page's limits (not counting this
-place), then under the locks (shared booking lock, mobile, email, thread)
+With neither, it is the normal form.
+
+`POST /units/{unit}/lead-booking/details` checks the fields and ticks as for a
+page booking, Turnstile, the page's limits (not counting this place), then under the locks (shared booking lock, mobile, email, thread)
 saves the details and the consent record on the same attendee and queues the
 confirmation text with the invite held behind it, plus a host event update
 held behind it when the host's event already went out. The confirmation is
