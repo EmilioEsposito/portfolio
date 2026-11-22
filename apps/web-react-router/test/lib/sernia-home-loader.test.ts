@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { forgetReadAhead } from "~/lib/read-ahead.server";
 import { readCallLine } from "~/lib/showing-units.server";
 import { loader } from "~/routes/_index";
 
-// The Sernia home page's loader reads only the call line's route, and renders
-// without the call line when that route is off, slow or failing.
+// The Sernia home page's loader waits only for the call line's route, and
+// renders without the call line when that route is off, slow or failing. With
+// it open, the units list is read ahead, without waiting for it.
 
 for (const name of ["SERNIA_PUBLIC_HOSTS", "SERNIA_PUBLIC_PAGES_ENABLED", "RAILWAY_ENVIRONMENT_NAME"]) {
   delete process.env[name];
@@ -24,19 +26,40 @@ async function withFetch(answer: Answer, run: (calls: string[]) => Promise<void>
     await run(calls);
   } finally {
     globalThis.fetch = realFetch;
+    forgetReadAhead();
   }
 }
 
-const home = (origin = "https://serniacapital.com") => loader({ url: new URL(`${origin}/`) } as never);
+const home = (origin = "https://serniacapital.com", headers: HeadersInit = {}) =>
+  loader({ url: new URL(`${origin}/`), request: new Request(`${origin}/`, { headers }) } as never);
 
-test("with the call line's route open, the home page shows the call line, and reads nothing else", async () => {
+const PATHS = (calls: string[]) => calls.map((url) => new URL(url).pathname.replace("/api/showing-bookings/public", ""));
+
+test("with the call line's route open, the home page shows it and does not wait for the list it reads ahead", async () => {
   await withFetch(
-    async () => Response.json({ turnstile_site_key: "1x00000000000000000000AA" }),
+    // The list never answers.
+    async (url) =>
+      url.endsWith("/units") ? new Promise(() => {}) : Response.json({ turnstile_site_key: "1x00000000000000000000AA" }),
     async (calls) => {
       assert.deepEqual(await home(), { serniaHome: { bookingOpen: true, turnstileSiteKey: "1x00000000000000000000AA" } });
-      assert.equal(calls.length, 1);
-      assert.match(calls[0], /\/api\/showing-bookings\/public\/call-line$/);
-      assert.ok(!calls.some((url) => url.includes("/public/units")));
+      assert.deepEqual(PATHS(calls), ["/call-line", "/units"]);
+    },
+  );
+});
+
+test("a bot's visit, or one with booking off, reads no list ahead", async () => {
+  await withFetch(
+    async () => Response.json({ turnstile_site_key: null }),
+    async (calls) => {
+      await home(undefined, { "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" });
+      assert.deepEqual(PATHS(calls), ["/call-line"]);
+    },
+  );
+  await withFetch(
+    async () => Response.json({ detail: "Not Found" }, { status: 404 }),
+    async (calls) => {
+      await home();
+      assert.deepEqual(PATHS(calls), ["/call-line"]);
     },
   );
 });
