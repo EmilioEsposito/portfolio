@@ -541,6 +541,23 @@ def notice_label(kind: str) -> str:
     return words[:1].upper() + words[1:]
 
 
+def notice_text(channel: str, payload: dict) -> str:
+    """What a notice says: a text's body, an email's subject and body, or an event's details."""
+    if channel == "sms":
+        return payload.get("body", "")
+    if channel == "email":
+        return f"Subject: {payload.get('subject', '')}\n\n{payload.get('body', '')}"
+    action = {"create": "New event", "update": "Changed event", "cancel": "Cancelled event"}
+    lines = [f"{action.get(payload.get('operation'), 'Event')}: {payload.get('summary', '')}"]
+    if payload.get("location"):
+        lines.append(payload["location"])
+    if payload.get("description"):
+        lines.append(payload["description"])
+    if payload.get("attendees"):
+        lines.append("Guests: " + ", ".join(payload["attendees"]))
+    return "\n".join(lines)
+
+
 def alert_title(reason: str) -> str:
     return "Showing message failed" if reason == "failed" else "Showing message stuck"
 

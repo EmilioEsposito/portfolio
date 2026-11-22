@@ -4,6 +4,7 @@
     uv run python -m scripts.showing_browser_test rows
     uv run python -m scripts.showing_browser_test lead-booking
     uv run python -m scripts.showing_browser_test lead-move
+    uv run python -m scripts.showing_browser_test close-units
 
 ``reset`` makes the database ready for a run: it removes every showing,
 attendee and notice, puts the send mode back to capture with the default
@@ -18,6 +19,8 @@ open time the way a sent reply does (``lead_bookings.prepare_reply``), then
 prints the thread's link token and the start, for the "add your details" page.
 ``lead-move`` moves that showing to another open time the same way, as a sent
 reply that agrees one does, and prints the token and the new start.
+``close-units`` sets live mode with no unit ticked, so no unit may be booked by
+the public; outside production that mode sends nothing.
 
 It refuses to run in production or against a database that is not on this
 machine, because ``reset`` deletes showing data. Point it at a disposable
@@ -207,9 +210,25 @@ async def lead_booking(*, moving: bool = False) -> dict:
     return {"token": token, "starts_at": start.isoformat()}
 
 
+async def close_units() -> dict:
+    from sqlalchemy import select
+
+    from api.src.database.app_settings import AppSetting
+    from api.src.database.database import AsyncSessionFactory
+    from api.src.showing_bookings.settings import SETTINGS_KEY
+
+    async with AsyncSessionFactory() as session:
+        row = await session.scalar(select(AppSetting).where(AppSetting.key == SETTINGS_KEY))
+        row.value = {**row.value, "send_mode": "live", "live_units": [], "live_all_units": False}
+        await session.commit()
+        return {"send_mode": row.value["send_mode"]}
+
+
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["reset", "rows", "lead-booking", "lead-move"])
+    parser.add_argument(
+        "command", choices=["reset", "rows", "lead-booking", "lead-move", "close-units"]
+    )
     args = parser.parse_args(arguments)
     try:
         check_target()
@@ -221,6 +240,8 @@ def main(arguments: list[str] | None = None) -> int:
         print(json.dumps({"unit": UNIT}))
     elif args.command in ("lead-booking", "lead-move"):
         print(json.dumps(asyncio.run(lead_booking(moving=args.command == "lead-move"))))
+    elif args.command == "close-units":
+        print(json.dumps(asyncio.run(close_units())))
     else:
         print(json.dumps(asyncio.run(rows())))
     return 0

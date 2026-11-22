@@ -449,7 +449,7 @@ async def cancel_by_token(
                 showing_id=showing.id,
                 showing_cancelled=showing.status == "cancelled",
             )
-        view = bookings.view_of(showing, attendee, rules.timezone, now)
+        view = await bookings.view_of(session, showing, attendee, rules.timezone, now)
     await _deliver_texts(queued + host, now=now, texts=texts)
     return view
 

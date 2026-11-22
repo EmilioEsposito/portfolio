@@ -54,7 +54,6 @@ from api.src.rental_listings import service as listings_service
 from api.src.rental_listings.checks import RentalDataInvalid
 from api.src.rental_listings.schema import RentalListing, ShowingRules
 from api.src.showing_bookings import (
-    agents,
     holds,
     host_event,
     host_texts,
@@ -66,7 +65,6 @@ from api.src.showing_bookings import (
     wording,
 )
 from api.src.showing_bookings.models import (
-    CalendarConnection,
     Showing,
     ShowingAgentRecord,
     ShowingAttendee,
@@ -81,7 +79,7 @@ from api.src.showing_bookings.schema import (
     normalize_email,
     normalize_us_mobile,
 )
-from api.src.showing_bookings.settings import PublicLimits, settings_for_delivery
+from api.src.showing_bookings.settings import PublicLimits, settings_for_delivery, unit_open
 from api.src.utils.phone_config import PhoneConfigError, team_phone, us_phone_display
 from api.src.zillow_leads import lead_links
 
@@ -90,9 +88,7 @@ DEFAULT_PUBLIC_BASE_URL = "https://serniacapital.com"
 TEAM_EXTENSION_ENV = "SERNIA_TEAM_PHONE_EXTENSION"
 DEFAULT_TEAM_EXTENSION = "1"
 MAX_MOBILE_CORRECTIONS = 2
-# A showings calendar that names no connected account: the outbox cannot
-# write to it, so in live mode such a notice fails visibly instead of waiting.
-NO_SHOWINGS_CALENDAR = "no-showings-calendar"
+NO_SHOWINGS_CALENDAR = host_event.NO_SHOWINGS_CALENDAR
 CONFIRMATION_KIND = host_event.CONFIRMATION_KIND
 HOST_EVENT_KIND = host_event.CREATE_KIND
 HOST_UPDATE_KIND = host_event.UPDATE_KIND
@@ -123,6 +119,7 @@ class Refused(Exception):
 
 
 NUMBER_REFUSED = "We couldn't text this number. Check it, or call us instead."
+UNIT_NOT_OPEN = "This unit is not open for showings."
 
 
 @dataclass(frozen=True)
@@ -209,9 +206,14 @@ def _confirmations_version(confirmations: list[wording.Confirmation]) -> str:
 
 
 async def _listing(
-    session: AsyncSession, unit: str, now: datetime
+    session: AsyncSession, unit: str, now: datetime, *, only_open: bool
 ) -> tuple[RentalListing, ShowingRules]:
-    """The unit's listing and the rules; ``Refused`` 404 unless it is on offer."""
+    """The unit's listing and the rules; ``Refused`` 404 unless it is on offer.
+
+    ``only_open``: for the public and the lead agent, a unit they may not book now
+    (``settings.unit_open``) is not on offer either. The team's bookings, and
+    someone's details for a place they already have, do not ask that.
+    """
     try:
         rules = await listings_service.read_showing_rules(session)
         listings = await listings_service.read_listings(session)
@@ -221,17 +223,25 @@ async def _listing(
     listing = next((item for item in listings if item.unit.casefold() == unit.casefold()), None)
     today = now.astimezone(ZoneInfo(rules.timezone)).date()
     if listing is None or not open_times.on_offer(listing, today):
-        raise Refused(404, "unknown_unit", "This unit is not open for showings.")
+        raise Refused(404, "unknown_unit", UNIT_NOT_OPEN)
+    if only_open and not unit_open(await settings_for_delivery(session), listing.unit):
+        raise Refused(404, "unknown_unit", UNIT_NOT_OPEN)
     return listing, rules
 
 
-async def unit_page(unit: str, *, now: datetime) -> UnitPage:
+async def unit_page(unit: str, *, now: datetime, for_a_place: bool = False) -> UnitPage:
+    """What the booking page shows. ``for_a_place``: for someone who already has a
+    place there (``lead_details.unit_for_place``), so with no times to pick, and
+    whether or not the unit may be booked now."""
+    offers: list[open_times.Offer] = []
     async with AsyncSessionFactory() as session:
-        listing, rules = await _listing(session, unit, now)
-        try:
-            found = await open_times.offers_for_unit(listing.unit, now=now, session=session)
-        except (LookupError, RentalDataInvalid):
-            raise Refused(404, "unknown_unit", "This unit is not open for showings.") from None
+        listing, rules = await _listing(session, unit, now, only_open=not for_a_place)
+        if not for_a_place:
+            try:
+                found = await open_times.offers_for_unit(listing.unit, now=now, session=session)
+            except (LookupError, RentalDataInvalid):
+                raise Refused(404, "unknown_unit", UNIT_NOT_OPEN) from None
+            offers = found.offers
     confirmations = wording.confirmations_for(listing)
     return UnitPage(
         unit=listing.unit,
@@ -252,7 +262,7 @@ async def unit_page(unit: str, *, now: datetime) -> UnitPage:
                 preferred=offer.preferred,
                 places_left=offer.places_left,
             )
-            for offer in found.offers
+            for offer in offers
         ],
     )
 
@@ -290,6 +300,9 @@ class BookingView(BaseModel):
     ends_at: datetime
     timezone: str
     mobile: str | None  # all but the last two digits hidden
+    # The confirmation text to that mobile went out, or may have. False while it is
+    # captured or waiting, when the page must not say that we texted it.
+    texted: bool
     corrections_left: int
     # The showing's start has passed, so it can no longer be cancelled or changed here.
     started: bool
@@ -302,7 +315,7 @@ class BookingResult(BaseModel):
     # "join" when the person joined a showing already booked.
     kind: str
     # The confirmation text's status right after sending: "sent", "captured",
-    # "pending" (Quo will be tried again), "unknown" or "skipped".
+    # "pending" (Quo will be tried again) or "unknown".
     confirmation: str | None
     booking: BookingView
 
@@ -485,7 +498,7 @@ _RECHECK_MESSAGES = {
 
 def _time_gone(code: str) -> Refused:
     if code == "unknown_unit":
-        return Refused(404, "unknown_unit", "This unit is not open for showings.")
+        return Refused(404, "unknown_unit", UNIT_NOT_OPEN)
     if code == "full":
         return Refused(409, "full", _RECHECK_MESSAGES["full"], {"start": "That showing is full."})
     return Refused(
@@ -494,14 +507,6 @@ def _time_gone(code: str) -> Refused:
         "That time is no longer open. Pick another time.",
         {"start": "That time is no longer open."},
     )
-
-
-async def _showings_calendar(session: AsyncSession, agent: ShowingAgentRecord) -> str:
-    rows = list(await session.scalars(select(CalendarConnection)))
-    connection = agents.connection_for(agent, rows)
-    if connection is not None and connection.showings_calendar_id:
-        return connection.showings_calendar_id
-    return NO_SHOWINGS_CALENDAR
 
 
 def visit_of(showing: Showing, rules: ShowingRules) -> wording.Visit:
@@ -564,7 +569,7 @@ async def _enqueue_booking_notices(
             ),
             now=now,
         )
-    calendar_id = await _showings_calendar(session, host)
+    calendar_id = await host_event.showings_calendar(session, host)
     # As things stand now; the outbox renders it again when it is delivered.
     host_payload = await host_event.render(session, showing, calendar_id=calendar_id)
     await outbox.enqueue(
@@ -607,8 +612,24 @@ async def _enqueue_booking_notices(
     return confirmation
 
 
-def view_of(
-    showing: Showing, attendee: ShowingAttendee, timezone: str, now: datetime
+async def was_texted(session: AsyncSession, attendee: ShowingAttendee) -> bool:
+    """Whether a confirmation text to the mobile on the booking went out, or may have."""
+    return bool(
+        await session.scalar(
+            select(ShowingNotice.id)
+            .where(
+                ShowingNotice.attendee_id == attendee.id,
+                ShowingNotice.kind == CONFIRMATION_KIND,
+                ShowingNotice.recipient == attendee.mobile,
+                ShowingNotice.status.in_(["sent", "unknown"]),
+            )
+            .limit(1)
+        )
+    )
+
+
+async def view_of(
+    session: AsyncSession, showing: Showing, attendee: ShowingAttendee, timezone: str, now: datetime
 ) -> BookingView:
     booked = attendee.status == "booked" and showing.status == "scheduled"
     reason = attendee.cancel_reason if attendee.status == "cancelled" else showing.cancel_reason
@@ -620,6 +641,7 @@ def view_of(
         ends_at=showing.ends_at,
         timezone=timezone,
         mobile=masked_mobile(attendee.mobile),
+        texted=await was_texted(session, attendee),
         corrections_left=max(0, MAX_MOBILE_CORRECTIONS - attendee.mobile_corrections),
         started=showing.starts_at <= now,
         cancelled_by_team=not booked and reason in ("team", "off_market"),
@@ -636,7 +658,7 @@ async def book(
 ) -> BookingResult:
     """Book ``body.start`` at ``unit`` or join the showing already there. Raises ``Refused``."""
     async with AsyncSessionFactory() as session:
-        listing, rules = await _listing(session, unit, now)
+        listing, rules = await _listing(session, unit, now, only_open=True)
         settings = await settings_for_delivery(session)
     checked = _check_fields(body, listing, now)
     await _check_turnstile(body.turnstile_token, facts.ip)
@@ -686,11 +708,13 @@ async def book(
             422, "number_refused", NUMBER_REFUSED, {"mobile": "We couldn't text this number."}
         )
     await deliver_host_text(placed.host_text_id, now=now, texts=texts)
+    async with AsyncSessionFactory() as session:
+        view = await view_of(session, showing, attendee, rules.timezone, now)
     return BookingResult(
         cancel_token=attendee.cancel_token,
         kind=placed.kind,
         confirmation=status,
-        booking=view_of(showing, attendee, rules.timezone, now),
+        booking=view,
     )
 
 
@@ -1219,7 +1243,7 @@ async def booking_by_token(token: str, *, now: datetime) -> BookingView:
     async with AsyncSessionFactory() as session:
         attendee, showing = await by_token(session, token)
         rules = await listings_service.read_showing_rules(session)
-    return view_of(showing, attendee, rules.timezone, now)
+        return await view_of(session, showing, attendee, rules.timezone, now)
 
 
 class _Superseded(Exception):
@@ -1323,7 +1347,15 @@ async def correct_mobile(
                         & (ShowingNotice.last_error != WITHDRAWN_NOTE)
                     ),
                 )
-                .values(status="held", waits_for_notice_id=confirmation.id, last_error=None),
+                # Sent by hand or not, it now follows the mode again: the text it
+                # waits for is a new one, which nobody sent by hand.
+                .values(
+                    status="held",
+                    waits_for_notice_id=confirmation.id,
+                    last_error=None,
+                    send_approved_by=None,
+                    send_approved_at=None,
+                ),
                 execution_options={"synchronize_session": False},
             )
             # The residents' announcement may have been handed to someone else

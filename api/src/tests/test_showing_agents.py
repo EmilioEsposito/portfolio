@@ -193,7 +193,6 @@ async def test_the_showings_section_shows_offers_booked_showings_and_the_sample_
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["lead_agent_uses_open_times"] is False
     found = body["open_times"]
     # No calendar is connected here, so the made-up week stands in, and says so.
     assert found["sample_calendar_in_use"] is True
@@ -227,7 +226,7 @@ async def test_the_showings_section_says_why_a_unit_has_no_times(api, monkeypatc
 
 @pytest.mark.asyncio
 async def test_the_lead_agent_switch_changes_only_itself(api):
-    await store_settings(send_mode="off", live_units=[], test_sends_enabled=True)
+    await store_settings(send_mode="live", live_units=["320-03"], live_all_units=True)
 
     response = await api.put(
         "/api/showing-bookings/settings/lead-agent", json={"lead_agent_uses_open_times": True}
@@ -235,9 +234,9 @@ async def test_the_lead_agent_switch_changes_only_itself(api):
 
     assert response.status_code == 200
     assert response.json() == {
-        "send_mode": "off",
-        "live_units": [],
-        "test_sends_enabled": True,
+        "send_mode": "live",
+        "live_units": ["320-03"],
+        "live_all_units": True,
         "lead_agent_uses_open_times": True,
         "public_booking_enabled": None,
         "public_limits": {
@@ -248,7 +247,7 @@ async def test_the_lead_agent_switch_changes_only_itself(api):
         },
     }
     shown = (await api.get("/api/showing-bookings/settings")).json()["settings"]
-    assert shown["lead_agent_uses_open_times"] is True and shown["send_mode"] == "off"
+    assert shown["lead_agent_uses_open_times"] is True and shown["send_mode"] == "live"
 
 
 @pytest.mark.asyncio
@@ -257,7 +256,7 @@ async def test_a_send_mode_save_keeps_the_lead_agent_switch_as_stored(api):
     before = {
         "send_mode": "capture",
         "live_units": [],
-        "test_sends_enabled": False,
+        "live_all_units": False,
         "lead_agent_uses_open_times": False,
         "public_booking_enabled": None,
         "public_limits": {
@@ -274,8 +273,8 @@ async def test_a_send_mode_save_keeps_the_lead_agent_switch_as_stored(api):
 
     response = await api.patch(
         "/api/showing-bookings/settings",
-        json={"settings": {**before, "send_mode": "off"}, "based_on": before},
+        json={"settings": {**before, "send_mode": "test"}, "based_on": before},
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {**before, "send_mode": "off", "lead_agent_uses_open_times": True}
+    assert response.json() == {**before, "send_mode": "test", "lead_agent_uses_open_times": True}

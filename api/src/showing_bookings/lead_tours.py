@@ -13,6 +13,9 @@ exactly what it was before any of this existed.
   host's name: ``TourSlot.agent`` stays empty.
 - ``booked``: the showings already booked that have room, by unit.
 
+Both leave out a unit the lead agent may not book now (``settings.unit_open``: in
+live mode, one that is not live).
+
 Only times that pass the lead agent's own fixed rules (``within_showing_rules``:
 its 24-hour floor, the window, blackout dates) are passed on, joins included.
 ``tours_for_case`` filters open times by the same rules again but not booked
@@ -24,7 +27,9 @@ to the lead's thread:
 
 - ``booking_links``: each unit's booking page with the thread's own token
   (``zillow_leads.lead_links``), ``<public base URL>/showings/<unit>?t=<token>``.
-  A booking made through it is tied to the thread (``bookings.book``).
+  A booking made through it is tied to the thread (``bookings.book``). Only for a
+  page that would answer (``_page_answers``); for any other unit the case falls
+  back to the listing's own link, unless that is such a page too.
 - ``own_showings``: the thread's own upcoming showings, booked or cancelled,
   from the attendee rows tied to it. Unit, start, and whether it is still
   booked or who cancelled it; nothing about the host or anyone else booked.
@@ -46,7 +51,13 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import bookings
 from api.src.showing_bookings.models import Showing, ShowingAttendee
 from api.src.showing_bookings.open_times import open_times
-from api.src.showing_bookings.settings import read_settings
+from api.src.showing_bookings.settings import (
+    ShowingBookingSettings,
+    current_environment,
+    public_booking_on,
+    read_settings,
+    unit_open,
+)
 from api.src.zillow_leads import lead_links
 from api.src.zillow_leads.case import (
     BookedTour,
@@ -63,10 +74,13 @@ class BookingTourSource:
 
     async def tours(self, listing_data: ListingData, now: datetime) -> Tours:
         today = now.astimezone(ZoneInfo(listing_data.timezone)).date()
+        async with AsyncSessionFactory() as session:
+            settings = await read_settings(session)
         units = [
             listing.unit
             for listing in listing_data.listings
-            if listing.rented_on is None or listing.rented_on > today
+            if (listing.rented_on is None or listing.rented_on > today)
+            and unit_open(settings, listing.unit)
         ]
         if not units:
             return Tours()
@@ -115,6 +129,32 @@ def lead_link(unit: str, token: str) -> str:
     return f"{base}/showings/{quote(unit, safe='')}?{urlencode({'t': token})}"
 
 
+def _page_answers(settings: ShowingBookingSettings, unit: str, has_place: bool) -> bool:
+    """Whether a unit's booking page answers a lead: public booking is on, and the
+    unit may be booked or the lead already has a place there, which it then shows."""
+    return public_booking_on(settings, current_environment()) and (
+        has_place or unit_open(settings, unit)
+    )
+
+
+def _is_unit_page(url: str) -> bool:
+    """Whether a listing's own link is a unit's page of this site."""
+    return url.startswith(f"{bookings.public_base_url()}/showings/")
+
+
+def _links(
+    settings: ShowingBookingSettings, listing_data: ListingData, token: str, booked: set[str]
+) -> dict[str, str]:
+    """Each unit's link for one lead; empty for a unit to be given no link at all."""
+    links: dict[str, str] = {}
+    for listing in listing_data.listings:
+        if _page_answers(settings, listing.unit, listing.unit.casefold() in booked):
+            links[listing.unit] = lead_link(listing.unit, token)
+        elif _is_unit_page(listing.booking_url or listing_data.booking_url):
+            links[listing.unit] = ""
+    return links
+
+
 async def lead_booking_for(
     source: TourSource, thread_id: str, listing_data: ListingData, now: datetime
 ) -> LeadBooking | None:
@@ -129,6 +169,7 @@ async def lead_booking_for(
     try:
         token = await lead_links.token_for_thread(thread_id, now=now)
         async with AsyncSessionFactory() as session:
+            settings = await read_settings(session)
             rows = (
                 await session.execute(
                     select(ShowingAttendee, Showing)
@@ -146,11 +187,11 @@ async def lead_booking_for(
     except Exception:
         logfire.exception("zillow lead: lead's booking links and showings unreadable")
         return None
+    own_showings = [_own(attendee, showing) for attendee, showing in rows]
+    booked = {own.unit.casefold() for own in own_showings if own.status == "booked"}
     return LeadBooking(
-        booking_links={
-            listing.unit: lead_link(listing.unit, token) for listing in listing_data.listings
-        },
-        own_showings=[_own(attendee, showing) for attendee, showing in rows],
+        booking_links=_links(settings, listing_data, token, booked),
+        own_showings=own_showings,
     )
 
 

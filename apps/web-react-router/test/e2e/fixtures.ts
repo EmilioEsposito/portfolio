@@ -58,7 +58,7 @@ export type Rows = {
   }[];
 };
 
-function database(command: "reset" | "rows" | "lead-booking" | "lead-move"): unknown {
+function database(command: "reset" | "rows" | "lead-booking" | "lead-move" | "close-units"): unknown {
   const output = execFileSync(PYTHON, ["-m", "scripts.showing_browser_test", command], {
     cwd: REPO_ROOT,
     env: apiEnvironment(),
@@ -75,6 +75,8 @@ export const readRows = () => database("rows") as Rows;
 export const bookByEmail = () => database("lead-booking") as { token: string; starts_at: string };
 /** That thread's showing moved to another open time, as a sent reply does: the same token and the new start. */
 export const moveByEmail = () => database("lead-move") as { token: string; starts_at: string };
+/** Live mode with no unit ticked: no unit may be booked by the public. */
+export const closeUnits = () => database("close-units");
 
 /** How many times the page ran the bot check. */
 export function turnstileRuns(page: Page): Promise<number> {

@@ -719,6 +719,7 @@ async def test_the_link_reads_the_provisional_place_and_nothing_else(lead):
         "ends_at": "2027-04-14T20:30:00Z",
         "timezone": "America/New_York",
         "details_added": False,
+        "texted": False,
     }
     assert answer.headers["cache-control"] == "no-store"
 
@@ -765,7 +766,7 @@ async def test_completing_the_details_sends_the_confirmation_and_the_invite(lead
 async def test_completed_details_are_live_texted_to_a_test_number(lead, monkeypatch):
     monkeypatch.setenv("SHOWING_TEST_PHONES", ALEX_MOBILE)
     token = await provisional(lead)
-    await store_settings(lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test")
 
     async with lead.world.client() as client:
         answer = await client.post(
@@ -781,7 +782,7 @@ async def test_completed_details_are_live_texted_to_a_test_number(lead, monkeypa
 async def test_a_refused_number_undoes_the_details_and_keeps_the_place(lead, monkeypatch):
     monkeypatch.setenv("SHOWING_TEST_PHONES", ALEX_MOBILE)
     token = await provisional(lead)
-    await store_settings(lead_agent_uses_open_times=True, send_mode="live", test_sends_enabled=True)
+    await store_settings(lead_agent_uses_open_times=True, send_mode="test")
     lead.world.texts.refuse(ALEX_MOBILE, "invalid_number")
 
     async with lead.world.client() as client:

@@ -12,12 +12,14 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+from api.src.database.app_settings import AppSetting
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import outbox
 from api.src.showing_bookings.fakes import InMemoryCalendar, RecordingTextSender
 from api.src.showing_bookings.models import Showing, ShowingAttendee, ShowingNotice
 from api.src.showing_bookings.quo import QuoTextSender
 from api.src.showing_bookings.schema import CalendarPayload, EmailPayload, TextPayload
+from api.src.showing_bookings.settings import SETTINGS_KEY
 from api.src.tests.showing_helpers import (
     PROSPECT_PHONE,
     TEAM_EMAIL,
@@ -203,14 +205,60 @@ async def test_capture_keeps_the_rendered_text_and_calls_no_provider(showing):
 
 
 @pytest.mark.asyncio
-async def test_off_skips_the_notice(showing):
-    await store_settings(send_mode="off")
+async def test_an_old_row_that_was_off_captures(showing):
+    await store_settings(send_mode="off", live_units=[UNIT], test_sends_enabled=True)
     notice = await queue_text(showing)
     texts = RecordingTextSender()
 
-    assert (await outbox.drain(now=NOW, texts=texts)).skipped == 1
+    assert (await outbox.drain(now=NOW, texts=texts)).captured == 1
     assert texts.sent == []
-    assert (await row(notice)).status == "skipped"
+    saved = await row(notice)
+    assert (saved.status, saved.mode) == ("captured", "capture")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row_value", [{"send_mode": "loud"}, {"surprise": True}, ["not a row"]])
+async def test_a_settings_row_that_does_not_read_captures(showing, monkeypatch, row_value):
+    production(monkeypatch)
+    async with AsyncSessionFactory() as session:
+        await session.merge(AppSetting(key=SETTINGS_KEY, value=row_value))
+        await session.commit()
+    notice = await queue_text(showing, to=TEAM_PHONE)
+    texts = RecordingTextSender()
+
+    assert (await outbox.drain(now=NOW, texts=texts)).captured == 1
+    assert texts.sent == [] and (await row(notice)).status == "captured"
+
+
+@pytest.mark.asyncio
+async def test_all_units_sends_for_any_unit_in_production(showing, monkeypatch):
+    production(monkeypatch)
+    await live(live_all_units=True)
+    notice = await queue_text(showing)
+    texts = RecordingTextSender()
+
+    assert (await outbox.drain(now=NOW, texts=texts)).sent == 1
+    assert (await row(notice)).guard_reason == "all_units_live"
+
+
+@pytest.mark.asyncio
+async def test_test_mode_in_production_texts_only_the_test_list(showing, monkeypatch):
+    production(monkeypatch)
+    await store_settings(send_mode="test", live_units=[UNIT], live_all_units=True)
+    to_team = await queue_text(showing, to=TEAM_PHONE, key="agent:1", kind="agent_heads_up")
+    to_prospect = await queue_text(showing)
+    texts = RecordingTextSender()
+
+    report = await outbox.drain(now=NOW, texts=texts)
+
+    assert (report.sent, report.captured) == (1, 1)
+    assert [text.to for text in texts.sent] == [TEAM_PHONE]
+    assert ((await row(to_team)).mode, (await row(to_team)).guard_reason) == (
+        "test",
+        "test_recipient",
+    )
+    kept = await row(to_prospect)
+    assert (kept.status, kept.mode, kept.guard_reason) == ("captured", "test", "not_test_recipient")
 
 
 @pytest.mark.asyncio
@@ -220,7 +268,7 @@ async def test_live_in_the_row_but_not_production_is_still_captured(
 ):
     if environment:
         monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", environment)
-    await live(live_units=[UNIT], test_sends_enabled=True)
+    await live(live_units=[UNIT], live_all_units=True)
     notice = await queue_text(showing)
     texts = RecordingTextSender()
 
@@ -253,7 +301,7 @@ async def test_a_live_unit_in_production_is_sent(showing, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_outside_production_only_the_test_recipient_is_texted(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     to_team = await queue_text(showing, to=TEAM_PHONE, key="agent:1", kind="agent_heads_up")
     to_prospect = await queue_text(showing)
     texts = RecordingTextSender()
@@ -433,7 +481,7 @@ async def test_a_notice_waits_for_its_not_before(showing):
 
 @pytest.mark.asyncio
 async def test_two_runs_at_once_send_each_notice_once(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     ids = [
         await queue_text(showing, to=TEAM_PHONE, key=f"agent:{n}", body=f"Text {n}")
         for n in range(8)
@@ -451,7 +499,7 @@ async def test_two_runs_at_once_send_each_notice_once(showing):
 
 @pytest.mark.asyncio
 async def test_a_send_cut_off_midway_becomes_unknown_and_is_not_sent_again(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     notice = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
     texts = RecordingTextSender()
     # A run claims the row and stops before calling Quo, as a restart would.
@@ -483,7 +531,7 @@ class DiesOnFirstSend(RecordingTextSender):
 
 @pytest.mark.asyncio
 async def test_a_run_that_dies_mid_batch_leaves_the_rows_it_had_not_reached(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     first, *rest = [
         await queue_text(showing, to=TEAM_PHONE, key=f"agent:{n}", body=f"Text {n}")
         for n in range(4)
@@ -518,7 +566,7 @@ async def test_a_run_that_dies_mid_batch_leaves_the_rows_it_had_not_reached(show
 @pytest.mark.asyncio
 async def test_settling_and_claiming_are_separate_steps(showing):
     """A capture is settled in the batch; a send is claimed only when its turn comes."""
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     to_team = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
     to_prospect = await queue_text(showing)
 
@@ -539,7 +587,7 @@ async def test_settling_and_claiming_are_separate_steps(showing):
 
 @pytest.mark.asyncio
 async def test_deliver_sends_one_due_notice_once(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     now_notice = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
     later = await queue_text(
         showing, to=TEAM_PHONE, key="agent:2", not_before=NOW + timedelta(hours=1)
@@ -555,7 +603,7 @@ async def test_deliver_sends_one_due_notice_once(showing):
 
 @pytest.mark.asyncio
 async def test_a_sent_texts_status_is_read_back_and_saved(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     sent = await queue_text(showing, to=TEAM_PHONE, key="agent:1")
     captured = await queue_text(showing, key="attendee:1")
     texts = RecordingTextSender()
@@ -602,7 +650,7 @@ async def queue_event(showing_id, kind, payload, *, channel="calendar_event", at
 
 @pytest.mark.asyncio
 async def test_the_hosts_event_is_created_then_changed_by_its_saved_id(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     calendar = InMemoryCalendar()
     await queue_event(showing, "host_event_created", event("create", [TEAM_EMAIL]))
     await outbox.drain(now=NOW, calendar=calendar)
@@ -622,7 +670,7 @@ async def test_the_hosts_event_is_created_then_changed_by_its_saved_id(showing):
 
 @pytest.mark.asyncio
 async def test_a_prospects_invite_is_saved_on_the_attendee(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     attendee = await add_attendee(showing)
     calendar = InMemoryCalendar()
     await queue_event(
@@ -640,7 +688,7 @@ async def test_a_prospects_invite_is_saved_on_the_attendee(showing):
 
 @pytest.mark.asyncio
 async def test_a_change_to_an_event_not_yet_created_waits(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     notice = await queue_event(showing, "host_event_updated", event("update", [TEAM_EMAIL]))
 
     assert (await outbox.drain(now=NOW, calendar=InMemoryCalendar())).retrying == 1
@@ -649,14 +697,14 @@ async def test_a_change_to_an_event_not_yet_created_waits(showing):
 
 @pytest.mark.asyncio
 async def test_an_invite_naming_anyone_outside_the_test_list_is_captured(showing):
-    await live(test_sends_enabled=True)
+    await store_settings(send_mode="test")
     calendar = InMemoryCalendar()
     notice = await queue_event(
         showing, "host_event_created", event("create", [TEAM_EMAIL, "alex@example.com"])
     )
 
     assert (await outbox.drain(now=NOW, calendar=calendar)).captured == 1
-    assert calendar.log == [] and (await row(notice)).guard_reason == "not_production"
+    assert calendar.log == [] and (await row(notice)).guard_reason == "not_test_recipient"
 
 
 @pytest.mark.asyncio

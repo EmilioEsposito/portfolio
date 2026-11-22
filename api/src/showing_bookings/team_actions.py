@@ -174,7 +174,7 @@ async def book_for_caller(
     the consent record's page.
     """
     async with AsyncSessionFactory() as session:
-        listing, rules = await bookings._listing(session, body.unit, now)
+        listing, rules = await bookings._listing(session, body.unit, now, only_open=False)
     start, name, mobile, email = _check_fields(body)
     placed = await bookings.place_booking(
         listing,
@@ -378,7 +378,7 @@ async def change_host(
             )
             queued += late
 
-            calendar_id = await bookings._showings_calendar(session, agent)
+            calendar_id = await host_event.showings_calendar(session, agent)
             payload = await host_event.render(session, showing, calendar_id=calendar_id)
             if payload is not None:
                 for notice in waiting:
