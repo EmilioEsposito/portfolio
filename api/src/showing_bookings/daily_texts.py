@@ -11,7 +11,7 @@ catches up after a missed run.
   (recipient key ``agent:<id>:morning:<day>``). The guard judges a notice by
   one unit, so the text lists only the showings it would really send for to
   the agent's number (``delivery_checks.morning_selection``) and is attached to
-  the first of them; with none, it lists them all and is captured or skipped. A
+  the first of them; with none, it lists them all and is captured. A
   morning missed past noon is not sent; an agent with no mobile gets none.
   It is written again when it is delivered (``delivery_checks``), so it lists
   the day as it is then. It names no prospect and no phone number.

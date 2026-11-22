@@ -94,7 +94,7 @@ async def world(monkeypatch):
 
 
 async def live() -> None:
-    await store_settings(send_mode="live", test_sends_enabled=True)
+    await store_settings(send_mode="test")
 
 
 def lives_here(world: PublicWorld, name: str = "Morgan Ellis", mobile: str = RESIDENT, **fields):
@@ -1051,7 +1051,7 @@ async def test_capture_mode_keeps_the_resident_texts_and_sends_nothing(world):
 
 
 @pytest.mark.asyncio
-async def test_live_mode_captures_a_group_text_with_one_roommate_not_a_test_recipient(world):
+async def test_test_mode_captures_a_group_text_with_one_roommate_not_a_test_recipient(world):
     await live()
     lives_here(world, "Morgan Ellis", OUTSIDER)
     lives_here(world, "Riley Chen", RESIDENT)
@@ -1060,7 +1060,7 @@ async def test_live_mode_captures_a_group_text_with_one_roommate_not_a_test_reci
     await world.send_pending()
 
     text = await one(NEW)
-    assert (text.status, text.guard_reason) == ("captured", "not_production")
+    assert (text.status, text.guard_reason) == ("captured", "not_test_recipient")
     assert world.texts.to(RESIDENT) == world.texts.to(OUTSIDER) == []
     assert len(world.texts.to(ALEX_MOBILE)) == 1  # the confirmation, to a test recipient
 

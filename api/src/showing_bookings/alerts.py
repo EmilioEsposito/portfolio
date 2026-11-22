@@ -6,13 +6,14 @@ A notice needs the team (``attention``) when:
   either way it will not be tried again. Not a prospect's confirmation text
   whose number Quo refused: the person was told on the booking page at once,
   and the booking is withdrawn or marked for the team on the Showings section.
+  One sent by hand (``captured.py``) counts, as nobody is on the page by then.
 - stuck: it was due ten minutes ago and has neither gone out nor been
   captured, skipped or cancelled (``pending``, and no send is under way; a
   send cut off midway becomes unknown after ten minutes and counts as failed).
   Or it is still held ten minutes after the five-minute wait for its
   confirmation's delivery report ran out: fifteen minutes after that text went.
 
-A notice merely captured or skipped is never alerted about.
+A notice merely captured is never alerted about.
 
 ``check(now=)`` is the last step of the job every minute
 (``holds.send_pending``), after the drain, so a notice the drain has just
@@ -63,6 +64,7 @@ def attention_of(
             notice.status == "failed"
             and notice.kind == CONFIRMATION_KIND
             and notice.provider_status in holds.NUMBER_REFUSALS
+            and notice.send_approved_at is None
         )
         return None if refused else "failed"
     if notice.status == "pending":
@@ -84,6 +86,7 @@ def _needs_team(now: datetime, holder):
             ShowingNotice.status == "failed",
             ShowingNotice.kind == CONFIRMATION_KIND,
             ShowingNotice.provider_status.in_(holds.NUMBER_REFUSALS),
+            ShowingNotice.send_approved_at.is_(None),
         ),
     )
     stuck = and_(

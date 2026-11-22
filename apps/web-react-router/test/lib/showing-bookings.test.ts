@@ -3,23 +3,34 @@ import test from "node:test";
 
 import {
   type BookingSettings,
+  type CapturedNotice,
   type DrainReport,
+  type SendResult,
+  type SettingsView,
   CONNECT_RESULTS,
+  MODE_LABELS,
+  SEND_MODES,
   STATUS_LABELS,
+  afterSaving,
+  capturedLine,
   cleanSettings,
   connectResult,
   connectionActions,
   describeLastRead,
   describeDrain,
   describeGuard,
-  describeMode,
+  describeSendResult,
   formatWhen,
+  heldBackNote,
   humanize,
+  isTicked,
+  joinWords,
+  liveStartQuestion,
   needsAttention,
   describeNeedingTeam,
   noticesNeedingTeam,
   type Notice,
-  parseUnits,
+  pickedNotices,
   cleanAgent,
   clock,
   describeAttention,
@@ -35,17 +46,39 @@ import {
   noticeRecipients,
   refusalMessage,
   refusalProblems,
+  rightNow,
   sameSettings,
-  startsLiveSends,
+  sendQuestion,
+  summarizeSend,
+  tickUnit,
+  unitTicks,
+  untickedNote,
 } from "../../app/lib/showing-bookings.ts";
 
 const settings = (patch: Partial<BookingSettings> = {}): BookingSettings => ({
   send_mode: "capture",
   live_units: [],
-  test_sends_enabled: false,
+  live_all_units: false,
   lead_agent_uses_open_times: false,
   ...patch,
 });
+
+const LISTINGS = [
+  { unit: "320-03", address: "320 Example St" },
+  { unit: "320-05", address: "320 Example St" },
+  { unit: "412-01", address: "412 Example St" },
+];
+
+const view = (patch: Partial<BookingSettings> = {}, over: Partial<SettingsView> = {}): SettingsView => ({
+  settings: settings(patch),
+  environment: "production",
+  is_production: true,
+  test_recipients: ["•••-0150"],
+  public_booking_on: true,
+  listings: LISTINGS,
+  ...over,
+});
+const PREVIEW = { environment: "portfolio-pr-1", is_production: false };
 
 const report = (patch: Partial<DrainReport> = {}): DrainReport => ({
   captured: 0,
@@ -58,34 +91,261 @@ const report = (patch: Partial<DrainReport> = {}): DrainReport => ({
   ...patch,
 });
 
-test("units are read from commas or lines, trimmed, without repeats in any case", () => {
-  assert.deepEqual(parseUnits(" 320-03, 12-A\n12-a ,, 320-04 "), ["320-03", "12-A", "320-04"]);
-  assert.deepEqual(parseUnits("   "), []);
+test("units are ticked and unticked in any case, and the others stay", () => {
+  assert.deepEqual(tickUnit(["320-03"], "12-A", true), ["320-03", "12-A"]);
+  assert.deepEqual(tickUnit(["320-03", "12-a"], "12-A", true), ["320-03", "12-A"]);
+  assert.deepEqual(tickUnit(["320-03", "12-a"], "12-A", false), ["320-03"]);
+  assert.ok(isTicked(["12-a"], "12-A") && !isTicked(["12-a"], "12-B"));
 });
 
-test("two settings that differ only in spacing or repeated units are the same", () => {
+test("every rental listing can be ticked, and a ticked unit whose listing is gone stays to be unticked", () => {
+  assert.deepEqual(
+    unitTicks(LISTINGS, ["320-05", "404-Z"], ["412-01"]).map((each) => [each.unit, each.listed]),
+    [["320-03", true], ["320-05", true], ["412-01", true], ["404-Z", false]],
+  );
+  // Unticked and not saved yet: still shown, so the edit can be seen.
+  assert.deepEqual(unitTicks([], ["404-Z"], []).map((each) => each.unit), ["404-Z"]);
+  assert.deepEqual(unitTicks([], [], []), []);
+});
+
+test("two settings that differ only in the order or spelling of ticks are the same", () => {
+  assert.ok(sameSettings(settings({ live_units: ["320-03", "12-A"] }), settings({ live_units: ["12-A", "320-03"] })));
   assert.ok(sameSettings(settings({ live_units: ["320-03", " 320-03"] }), settings({ live_units: ["320-03"] })));
   assert.ok(!sameSettings(settings(), settings({ send_mode: "live" })));
+  assert.ok(!sameSettings(settings(), settings({ live_all_units: true })));
+  assert.ok(!sameSettings(settings(), settings({ live_units: ["320-03"] })));
   assert.deepEqual(cleanSettings(settings({ live_units: [" 12-A ", "12-a"] })).live_units, ["12-A"]);
 });
 
-test("each mode says what it does, and live outside production says it still captures", () => {
-  assert.match(describeMode("off", { is_production: false }), /skipped/);
-  assert.match(describeMode("capture", { is_production: true }), /sends nothing/);
-  assert.match(describeMode("live", { is_production: false }), /Here, only test sends go out/);
-  assert.match(describeMode("live", { is_production: true }), /Other units' messages are captured/);
+test("the modes are offered in the order test, capture, live", () => {
+  assert.deepEqual([...SEND_MODES], ["test", "capture", "live"]);
+  // A message from when the mode could be off still has a label.
+  assert.equal(MODE_LABELS.off, "Off");
 });
 
-test("only a save that starts real sends in production asks for a second look", () => {
+test("words are joined as they are said", () => {
+  assert.equal(joinWords([]), "");
+  assert.equal(joinWords(["320-03"]), "320-03");
+  assert.equal(joinWords(["320-03", "412-01"]), "320-03 and 412-01");
+  assert.equal(joinWords(["320-03", "320-05", "412-01"]), "320-03, 320-05 and 412-01");
+});
+
+test("right now says who can book and what is sent, from the saved settings", () => {
+  const says = (patch: Partial<BookingSettings>, over: Partial<SettingsView> = {}, pagesOn = true) =>
+    rightNow(view(patch, over), pagesOn);
+  assert.equal(
+    says({}),
+    "Your team and the public can book. Nothing is sent until you send it from Captured messages.",
+  );
+  assert.equal(
+    says({ lead_agent_uses_open_times: true }),
+    "Your team, the public and Zillow leads can book. Nothing is sent until you send it from Captured messages.",
+  );
+  assert.match(says({ lead_agent_uses_open_times: true }, { public_booking_on: false }), /^Your team and Zillow leads can book\./);
+  assert.match(says({}, { public_booking_on: false }), /^Your team can book\./);
+  assert.equal(
+    says({ send_mode: "test" }),
+    "Your team and the public can book. Only the test list is texted. Everything else is captured.",
+  );
+  assert.match(says({ send_mode: "test" }, { test_recipients: [] }), /No test list is set here, so nobody is texted\. Everything is captured\.$/);
+  assert.match(says({ send_mode: "live", live_units: ["320-03"] }), /Real people are texted for 320-03 only\.$/);
+  assert.match(says({ send_mode: "live", live_units: ["320-03", "412-01"] }), /texted for 320-03 and 412-01 only\.$/);
+  assert.match(says({ send_mode: "live", live_all_units: true, live_units: ["320-03"] }), /Real people are texted for every unit\.$/);
+});
+
+test("with no unit ticked, live closes every unit, so only the team can book", () => {
+  assert.equal(
+    rightNow(view({ send_mode: "live", lead_agent_uses_open_times: true }), true),
+    "Your team can book. No unit is ticked, so nobody is texted.",
+  );
+});
+
+test("while the public pages answer 404 the public is not said to book", () => {
+  assert.match(rightNow(view(), false), /^Your team can book\./);
+  assert.match(rightNow(view({ lead_agent_uses_open_times: true }), false), /^Your team and Zillow leads can book\./);
+});
+
+test("outside production right now never says real people are texted", () => {
+  for (const patch of [{ live_units: ["320-03"] }, { live_all_units: true }, {}]) {
+    const line = rightNow(view({ send_mode: "live", ...patch }, PREVIEW), true);
+    assert.match(line, /This is not production, so nobody is texted\. Everything is captured\.$/);
+  }
+  assert.match(rightNow(view({ send_mode: "test" }, PREVIEW), true), /Only the test list is texted\./);
+});
+
+test("unsaved edits are said as they would be, keeping the saved switches", () => {
+  const saved = view({ lead_agent_uses_open_times: true });
+  const form = settings({ send_mode: "live", live_units: ["320-03"], lead_agent_uses_open_times: true });
+  assert.equal(
+    afterSaving(saved, form, true),
+    "Your team, the public and Zillow leads can book. Real people are texted for 320-03 only.",
+  );
+  assert.equal(rightNow(saved, true), rightNow(view({ lead_agent_uses_open_times: true }), true));
+});
+
+test("only a save that starts real sends in production asks, and names the units", () => {
   const live = (patch: Partial<BookingSettings> = {}) => settings({ send_mode: "live", ...patch });
-  assert.ok(startsLiveSends(settings(), live({ live_units: ["320-03"] }), true));
-  assert.ok(startsLiveSends(live({ live_units: ["320-03"] }), live({ live_units: ["320-03", "12-A"] }), true));
-  assert.ok(startsLiveSends(live(), live({ test_sends_enabled: true }), true));
-  assert.ok(!startsLiveSends(settings(), live({ live_units: ["320-03"] }), false));
-  assert.ok(!startsLiveSends(live({ live_units: ["320-03"] }), live({ live_units: ["320-03"] }), true));
-  assert.ok(!startsLiveSends(live({ live_units: ["320-03", "12-A"] }), live({ live_units: ["12-a"] }), true));
-  assert.ok(!startsLiveSends(settings(), live(), true));
-  assert.ok(!startsLiveSends(live({ live_units: ["320-03"] }), settings({ send_mode: "off" }), true));
+  assert.equal(
+    liveStartQuestion(settings(), live({ live_units: ["320-03", "412-01"] }), true),
+    "This starts real texts and calendar invites for 320-03 and 412-01. Save?",
+  );
+  // Only the ones it starts.
+  assert.equal(
+    liveStartQuestion(live({ live_units: ["320-03"] }), live({ live_units: ["320-03", "12-A"] }), true),
+    "This starts real texts and calendar invites for 12-A. Save?",
+  );
+  // A tick saved while the mode was another one starts now.
+  assert.match(
+    liveStartQuestion(settings({ live_units: ["320-03"] }), live({ live_units: ["320-03"] }), true) ?? "",
+    /for 320-03\. Save\?$/,
+  );
+  assert.match(
+    liveStartQuestion(settings({ send_mode: "test" }), live({ live_all_units: true }), true) ?? "",
+    /for every unit, including ones added later\. Save\?$/,
+  );
+  assert.match(liveStartQuestion(live({ live_units: ["320-03"] }), live({ live_all_units: true }), true) ?? "", /every unit/);
+  const none: [BookingSettings, BookingSettings, boolean][] = [
+    [settings(), live({ live_units: ["320-03"] }), false],
+    [live({ live_units: ["320-03"] }), live({ live_units: ["320-03"] }), true],
+    [live({ live_units: ["320-03", "12-A"] }), live({ live_units: ["12-a"] }), true],
+    [live({ live_all_units: true }), live({ live_units: ["320-03"] }), true],
+    [live({ live_all_units: true }), live({ live_all_units: true, live_units: ["320-03"] }), true],
+    [settings(), live(), true],
+    [settings(), settings({ send_mode: "test" }), true],
+    [live({ live_units: ["320-03"] }), settings(), true],
+  ];
+  for (const [saved, next, production] of none) assert.equal(liveStartQuestion(saved, next, production), null);
+});
+
+test("unticking a live unit says what happens to the showings booked there", () => {
+  const live = (patch: Partial<BookingSettings> = {}) => settings({ send_mode: "live", ...patch });
+  assert.equal(
+    untickedNote(live({ live_units: ["320-03", "320-05"] }), live({ live_units: ["320-03"] }), LISTINGS),
+    "Showings already booked at 320-05 stay, and their messages are captured.",
+  );
+  assert.equal(
+    untickedNote(live({ live_all_units: true }), live({ live_units: ["320-03"] }), LISTINGS),
+    "Showings already booked at 320-05 and 412-01 stay, and their messages are captured.",
+  );
+  assert.equal(untickedNote(live({ live_units: ["320-03"] }), live({ live_all_units: true }), LISTINGS), null);
+  assert.equal(untickedNote(live({ live_units: ["320-03"] }), live({ live_units: ["320-03", "412-01"] }), LISTINGS), null);
+  assert.equal(untickedNote(live({ live_units: ["320-03"] }), settings(), LISTINGS), null);
+  assert.equal(untickedNote(settings({ live_units: ["320-03"] }), live(), LISTINGS), null);
+});
+
+test("a confirmation says what is not really sent, by mode and unit", () => {
+  assert.equal(heldBackNote(settings(), true, "320-03"), " Capture mode: these are kept under Captured messages, not sent.");
+  assert.match(heldBackNote(settings({ send_mode: "test" }), true, "320-03"), /only messages to the test list are sent/);
+  const live = settings({ send_mode: "live", live_units: ["320-03"] });
+  assert.equal(heldBackNote(live, true, "320-03"), "");
+  assert.equal(heldBackNote(live, true, "412-01"), " 412-01 is not ticked for Live mode: these are captured, not sent.");
+  assert.equal(heldBackNote(settings({ send_mode: "live", live_all_units: true }), true, "412-01"), "");
+  assert.match(heldBackNote(live, false, "320-03"), /Outside production these are captured/);
+});
+
+const captured = (patch: Partial<CapturedNotice> = {}): CapturedNotice => ({
+  id: 1,
+  kind: "prospect_confirmation",
+  kind_label: "Prospect's confirmation",
+  channel: "sms",
+  unit: "320-03",
+  showing_starts_at: "2027-04-14T20:00:00Z",
+  to: "Alex Parker, 412-555-0117",
+  wording: "Sernia Capital: your in-person showing is booked.",
+  conversation_id: null,
+  state: "ready",
+  reason: null,
+  note: null,
+  waits_for_notice_id: null,
+  confirmation_on_its_way: false,
+  goes_out: true,
+  captured_at: "2027-04-13T18:00:00Z",
+  ...patch,
+});
+
+test("ready messages are ticked until someone unticks them, and no other can be", () => {
+  const list = [
+    captured({ id: 1 }),
+    captured({ id: 2 }),
+    captured({ id: 3, state: "too_late" }),
+    captured({ id: 4, state: "no_longer_applies" }),
+  ];
+  assert.deepEqual(pickedNotices(list, new Set()).map((each) => each.id), [1, 2]);
+  assert.deepEqual(pickedNotices(list, new Set([2, 3])).map((each) => each.id), [1]);
+});
+
+test("a captured message says why it is grayed, or why it would wait", () => {
+  const none = new Set<number>();
+  assert.equal(capturedLine(captured(), none), null);
+  assert.equal(
+    capturedLine(captured({ state: "no_longer_applies", reason: "The booking was cancelled." }), none),
+    "The booking was cancelled.",
+  );
+  // It waits for its confirmation only while both are ticked, or while that is on its way.
+  const invite = captured({ id: 2, kind: "prospect_invite", waits_for_notice_id: 1 });
+  assert.equal(capturedLine(invite, new Set([1, 2])), "Goes once the confirmation is delivered.");
+  assert.equal(capturedLine(invite, new Set([2])), null);
+  assert.equal(
+    capturedLine(captured({ confirmation_on_its_way: true }), none),
+    "Goes once the confirmation is delivered.",
+  );
+  const residents = captured({ note: "Residents get texts only between 8 AM and 9 PM.", waits_for_notice_id: 1 });
+  assert.equal(capturedLine(residents, none), "Residents get texts only between 8 AM and 9 PM.");
+  assert.equal(
+    capturedLine(residents, new Set([1])),
+    "Residents get texts only between 8 AM and 9 PM. Goes once the confirmation is delivered.",
+  );
+});
+
+test("the question before sending says how many go to real people", () => {
+  assert.equal(sendQuestion([captured()], true), "1 message goes to a real person. Once sent, it can't be taken back.");
+  assert.match(sendQuestion([captured(), captured({ id: 2 })], true), /^2 messages go to real people\./);
+  const kept = captured({ id: 2, goes_out: false });
+  const none = "No message goes to real people: outside production only the test list can be reached.";
+  assert.equal(sendQuestion([captured()], false), `${none} 1 message goes to the test list.`);
+  assert.equal(sendQuestion([captured(), kept], false), `${none} 1 message goes to the test list. 1 message stays captured.`);
+  assert.equal(sendQuestion([kept], false), `${none} It stays captured.`);
+  assert.equal(sendQuestion([kept, { ...kept, id: 3 }], false), `${none} They stay captured.`);
+});
+
+const sent = (patch: Partial<SendResult> = {}): SendResult => ({
+  id: 1,
+  kind_label: "Prospect's confirmation",
+  unit: "320-03",
+  showing_starts_at: "2027-04-14T20:00:00Z",
+  to: "Alex Parker, 412-555-0117",
+  outcome: "sent",
+  detail: "",
+  waits_until: null,
+  ...patch,
+});
+
+test("what happened to each message is said plainly", () => {
+  assert.equal(describeSendResult(sent()), "Sent.");
+  assert.equal(
+    describeSendResult(sent({ outcome: "waiting", detail: "Goes once the confirmation is delivered." })),
+    "Waiting. Goes once the confirmation is delivered.",
+  );
+  assert.equal(
+    describeSendResult(
+      sent({
+        outcome: "waiting",
+        detail: "Residents get texts only between 8 AM and 9 PM.",
+        waits_until: "2027-04-14T12:00:00Z",
+      }),
+    ),
+    "Waiting until Wed, Apr 14, 8:00 AM. Residents get texts only between 8 AM and 9 PM.",
+  );
+  assert.equal(
+    describeSendResult(sent({ outcome: "not_sent", detail: "The booking was cancelled." })),
+    "Not sent. The booking was cancelled.",
+  );
+  assert.equal(
+    summarizeSend([sent(), sent({ id: 2 }), sent({ id: 3, outcome: "waiting" }), sent({ id: 4, outcome: "not_sent" })]),
+    "2 sent, 1 waiting, 1 not sent.",
+  );
+  assert.equal(summarizeSend([sent({ outcome: "kept" }), sent({ outcome: "handled" })]), "1 still captured, 1 already handled.");
+  assert.equal(summarizeSend([]), "Nothing was sent.");
 });
 
 test("a run of the sending step is summed up in one line", () => {
@@ -109,6 +369,8 @@ test("held and cancelled messages have labels", () => {
 test("the guard's reasons read as words, never claim an outcome, and unknown ones pass through", () => {
   assert.equal(describeGuard("not_production"), "Outside production");
   assert.equal(describeGuard("live_unit"), "Live unit in production");
+  assert.equal(describeGuard("approved"), "Sent by a person");
+  assert.equal(describeGuard("not_test_recipient"), "Not on the test list");
   assert.equal(describeGuard("something_new"), "something_new");
   assert.equal(describeGuard(null), "");
 });
@@ -193,7 +455,7 @@ test("a connection offers only the buttons that can work here", () => {
 });
 
 test("the lead agent's switch is part of the settings and compares in any key order", () => {
-  const reordered = { lead_agent_uses_open_times: true, test_sends_enabled: false, live_units: [], send_mode: "capture" } as const;
+  const reordered = { lead_agent_uses_open_times: true, live_all_units: false, live_units: [], send_mode: "capture" } as const;
   assert.ok(sameSettings(settings({ lead_agent_uses_open_times: true }), { ...reordered, live_units: [] }));
   assert.ok(!sameSettings(settings(), settings({ lead_agent_uses_open_times: true })));
 });
@@ -255,18 +517,19 @@ const PEOPLE = [
 const SHOWING = { unit: "320-03", starts_at: "2027-04-14T20:00:00Z", host_name: "Jane Doe", people: PEOPLE };
 
 test("a team cancellation says what it changes and sends", () => {
-  const all = describeShowingCancel(SHOWING, "live");
+  const all = describeShowingCancel(SHOWING, "");
   assert.match(all, /^Cancel the showing of 320-03 on .* for the 2 people booked\?/);
   assert.match(all, /1 of them get a cancellation text with a link to the units open for showings/);
   assert.match(all, /Jane Doe's event is cancelled\.$/);
-  assert.match(describeShowingCancel({ ...SHOWING, people: [PEOPLE[0]] }, "live"), /the 1 person booked\? Each gets/);
-  assert.match(describeShowingCancel(SHOWING, "capture"), /Capture mode: these are kept under Messages, not sent\.$/);
-  assert.match(describeShowingCancel(SHOWING, "off"), /none of these go out\.$/);
+  assert.match(describeShowingCancel({ ...SHOWING, people: [PEOPLE[0]] }, ""), /the 1 person booked\? Each gets/);
+  const note = heldBackNote(settings(), true, "320-03");
+  assert.match(describeShowingCancel(SHOWING, note), /Capture mode: these are kept under Captured messages, not sent\.$/);
+  assert.match(describeRemoval(SHOWING, PEOPLE[0], note), /Captured messages, not sent\.$/);
 
-  const one = describeRemoval(SHOWING, PEOPLE[0], "live");
+  const one = describeRemoval(SHOWING, PEOPLE[0], "");
   assert.match(one, /^Remove Alex Parker from the showing of 320-03/);
   assert.match(one, /Alex Parker gets a cancellation text, their calendar invite is withdrawn, and Jane Doe's event is updated\.$/);
-  const last = describeRemoval({ ...SHOWING, people: [PEOPLE[1]] }, PEOPLE[1], "live");
+  const last = describeRemoval({ ...SHOWING, people: [PEOPLE[1]] }, PEOPLE[1], "");
   assert.match(last, /Robin Lee gets no text, .*the showing is cancelled, with Jane Doe's event\.$/);
 });
 
@@ -305,8 +568,8 @@ test("reminders by email count among the reminders queued", () => {
 
 test("a number known to be wrong is not counted as texted", () => {
   const wrong = { ...PEOPLE[0], attention_reason: "confirmation_undelivered" };
-  assert.match(describeRemoval({ ...SHOWING, people: [wrong] }, wrong, "live"), /Alex Parker gets no text, /);
-  assert.match(describeShowingCancel({ ...SHOWING, people: [wrong] }, "live"), /0 of them get a cancellation text/);
+  assert.match(describeRemoval({ ...SHOWING, people: [wrong] }, wrong, ""), /Alex Parker gets no text, /);
+  assert.match(describeShowingCancel({ ...SHOWING, people: [wrong] }, ""), /0 of them get a cancellation text/);
 });
 
 test("a place booked by email says so, and whether the details arrived", () => {

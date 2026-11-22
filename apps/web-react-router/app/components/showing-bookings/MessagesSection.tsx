@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCw, Send } from "lucide-react";
+import { Loader2, Play, RefreshCw } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -34,12 +34,14 @@ const STATUS_STYLES: Record<Notice["status"], string> = {
 
 function NoticeItem({ notice }: { notice: Notice }) {
   const conversation = noticeLeadConversation(notice);
+  const byHand = notice.send_approved_by && notice.send_approved_at;
   const details = [
     notice.mode && `Mode: ${MODE_LABELS[notice.mode]}`,
     // "Send mode off" or "capture" would only repeat the mode.
     !notice.guard_reason?.startsWith("send_mode_") && describeGuard(notice.guard_reason),
     notice.attempts > 0 && `Attempts: ${notice.attempts}`,
     notice.provider_status && `Provider: ${notice.provider_status}`,
+    byHand && `By hand: ${notice.send_approved_by}, ${formatWhen(notice.send_approved_at ?? null)}`,
   ].filter(Boolean);
   return (
     <li
@@ -99,11 +101,23 @@ function NoticeItem({ notice }: { notice: Notice }) {
   );
 }
 
-export function MessagesSection() {
+/** The history: every message, whatever happened to it. */
+export function MessagesSection({
+  isProduction,
+  changes,
+  onChanged,
+}: {
+  /** Null until the settings are read. */
+  isProduction: boolean | null;
+  /** Counts what changed elsewhere on the tab, so the list is read again. */
+  changes: number;
+  /** The job was run here, so the captured messages are out of date. */
+  onChanged: () => void;
+}) {
   const api = useShowingBookingsApi();
   const [notices, setNotices] = useState<Notice[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
@@ -118,23 +132,23 @@ export function MessagesSection() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, changes]);
 
-  async function sendPending() {
-    setSending(true);
+  async function runTheJob() {
+    setRunning(true);
     setError(null);
     setLastRun(null);
-    const result = await api<DrainReport>("/notices/send-pending", { method: "POST" }, "Could not run the sending step");
+    const result = await api<DrainReport>("/notices/send-pending", { method: "POST" }, "Could not run the job");
     if (result.ok) {
       setLastRun(describeDrain(result.body));
       await load();
+      onChanged();
     } else {
       setError(result.message);
     }
-    setSending(false);
+    setRunning(false);
   }
 
-  const pending = notices?.filter((notice) => notice.status === "pending").length ?? 0;
   const needingTeam = notices ? describeNeedingTeam(notices) : null;
 
   return (
@@ -150,20 +164,42 @@ export function MessagesSection() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="gap-2" disabled={loading || sending} onClick={() => void load()}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={loading || running}
+            onClick={() => void load()}
+            aria-label="Reload messages"
+          >
             <RefreshCw className={cn("size-4", loading && "animate-spin")} aria-hidden="true" />
             Reload
           </Button>
-          <Button size="sm" className="gap-2" disabled={sending || loading} onClick={() => void sendPending()}>
-            {sending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
-            Send pending now{pending > 0 ? ` (${pending})` : ""}
-          </Button>
+          {isProduction === false && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={running || loading}
+              aria-describedby="run-job-help"
+              onClick={() => void runTheJob()}
+            >
+              {running ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="size-4" aria-hidden="true" />
+              )}
+              Run the every-minute job once
+            </Button>
+          )}
         </div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        Send pending now releases or stops the messages held for a confirmation text, queues the reminders due, then runs
-        the sending step once, as the job every minute does. Each message still goes through the send mode above.
-      </p>
+      {isProduction === false && (
+        <p id="run-job-help" className="mt-3 text-xs leading-5 text-muted-foreground">
+          In production this job runs every minute. Here it is off: run it to release or stop the messages held for a
+          confirmation text, queue the reminders due and deliver what is due, by the settings above.
+        </p>
+      )}
       <p role="status" aria-live="polite" className="mt-2 text-sm">
         {lastRun && `Last run: ${lastRun}`}
       </p>
@@ -185,7 +221,7 @@ export function MessagesSection() {
       )}
       {notices !== null && notices.length === 0 && (
         <p className="mt-4 rounded-lg border border-dashed p-4 text-sm leading-6 text-muted-foreground">
-          No messages yet. Bookings will add them here once booking is built.
+          No messages yet. Bookings add them here.
         </p>
       )}
       {notices !== null && notices.length > 0 && (

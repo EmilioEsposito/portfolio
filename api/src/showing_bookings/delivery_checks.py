@@ -34,6 +34,11 @@ try or retry, under the lock on the notice:
   was not cancelled, is not marked a no-show, and is still a number we text,
   to the mobile on the booking now, and only from 8 AM to 9 PM.
 
+A captured message a person sends by hand (``captured.py``) gets one check more,
+``by_hand_problem``, first in the same place: it is not too late (``too_late``,
+the one rule for that, which the Captured messages list and the send use too),
+and what it says still stands.
+
 Nothing here imports the outbox or sends anything; the outbox applies the
 answer (``Verdict``).
 """
@@ -45,7 +50,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.src.showing_bookings import guard, lead_email, residents, wording
+from api.src.showing_bookings import guard, host_event, lead_email, residents, wording
 from api.src.showing_bookings.lead_email import RouteProblem
 from api.src.showing_bookings.models import (
     Showing,
@@ -87,6 +92,10 @@ KINDS = REMINDER_KINDS | HOST_TEXT_KINDS | DAILY_TEXT_KINDS
 # A booking whose confirmation text could not reach the number: it is texted
 # nothing more (``cancelling.will_text``).
 WRONG_NUMBER = frozenset({"confirmation_undelivered", "confirmation_refused"})
+# Quo's refusals of a number, as ``quo.py`` and ``fakes.py`` name them.
+NUMBER_REFUSALS = frozenset({"opted_out", "invalid_number", "unreachable_number"})
+# The texts to a prospect that their showing is cancelled (``cancelling.py``).
+CANCELLED_TEXT_KINDS = frozenset({"prospect_cancelled", "prospect_cancelled_by_team"})
 
 BOOKING_CANCELLED = "Not sent: the booking was cancelled."
 STARTED = "Not sent: the showing had started."
@@ -104,6 +113,8 @@ SWITCH_OFF = "Not sent: the lead agent's bookings are switched off."
 NO_SHOW = "Not sent: this person was marked a no-show."
 MORNING_MISSED = "Not sent: the morning had passed."
 NOTHING_TODAY = "Not sent: the host has no showing left today."
+APPLY_MISSED = "Not sent: the showing was more than two days ago."
+NUMBER_CHANGED = "Not sent: the booking's mobile was changed after this was written."
 
 MORNING = time(8, 0)
 # A morning text not sent by noon is not sent at all.
@@ -167,6 +178,64 @@ def can_text(attendee: ShowingAttendee) -> bool:
         and attendee.attention_reason not in WRONG_NUMBER
         and not reply_unsettled(attendee)
     )
+
+
+# ---------------------------------------------------------------------------
+# A captured message sent by hand
+# ---------------------------------------------------------------------------
+
+
+async def too_late(session: AsyncSession, notice: ShowingNotice, now: datetime) -> str | None:
+    """Why a captured message can no longer be sent by hand, or None while it can.
+
+    The one place that says when each kind is too late:
+
+    - the apply text: two days after the showing's start, as it is owed for;
+    - the host's morning text: noon of its day;
+    - the residents' reminder, which lists a day's showings: the start of the
+      last one it lists;
+    - everything else: the showing's start. A cancelled showing keeps its start,
+      so its cancellations can be sent until then too.
+    """
+    starts_at = await session.scalar(
+        select(Showing.starts_at).where(Showing.id == notice.showing_id)
+    )
+    # Read without the payload's model: one cleared after 12 months no longer fits it.
+    payload = notice.payload
+    if notice.kind == APPLY_KIND:
+        return APPLY_MISSED if now >= starts_at + APPLY_LOOKBACK else None
+    if notice.kind == HOST_MORNING_KIND:
+        _, day = _morning_of(notice.recipient_key)
+        ends = _morning_ends(day, payload.get("daytime_timezone") or "UTC")
+        return MORNING_MISSED if now >= ends else None
+    if notice.kind == RESIDENT_REMINDER_KIND:
+        last = await session.scalar(
+            select(func.max(Showing.starts_at)).where(
+                Showing.id.in_(payload.get("showing_ids") or [])
+            )
+        )
+        return STARTED if now >= (last or starts_at) else None
+    return STARTED if now >= starts_at else None
+
+
+async def by_hand_problem(
+    session: AsyncSession, notice: ShowingNotice, now: datetime
+) -> str | None:
+    """Why a message a person sends by hand does not go, beyond what any message is
+    checked for when it is delivered; None when there is nothing more."""
+    late = await too_late(session, notice, now)
+    if late is not None:
+        return late
+    if notice.kind == host_event.CONFIRMATION_KIND or notice.kind in CANCELLED_TEXT_KINDS:
+        attendee = await session.get(ShowingAttendee, notice.attendee_id or 0)
+        if attendee is None or not can_text(attendee):
+            return NOT_TEXTED
+        if attendee.mobile != notice.recipient:
+            return NUMBER_CHANGED
+    if notice.kind in host_event.KINDS | {host_event.CANCEL_KIND}:
+        if await host_event.before_last_move(session, notice):
+            return host_event.HOST_CHANGED
+    return None
 
 
 def _daytime(notice: ShowingNotice, now: datetime) -> Verdict:
@@ -300,6 +369,11 @@ async def _resident_reminder(
     return _daytime(notice, now)
 
 
+def named_agent(recipient_key: str) -> int:
+    """The agent a host's notice names in its recipient key, ``agent:<id>...``."""
+    return int(recipient_key.split(":")[1])
+
+
 async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime) -> Verdict:
     showing = await session.get_one(Showing, notice.showing_id)
     if showing.starts_at <= now:
@@ -311,7 +385,7 @@ async def _host_text(session: AsyncSession, notice: ShowingNotice, now: datetime
         # Each says something about the host it names, true only while it still
         # holds: "now yours" while they host it, "no longer yours" while they do
         # not. A quick move back (A to B to A) makes the older one false.
-        named = int(notice.recipient_key.split(":")[1])
+        named = named_agent(notice.recipient_key)
         if notice.kind == HOST_MOVED_TO_KIND and named != showing.agent_id:
             return Verdict(cancel=MOVED_AGAIN)
         if notice.kind == HOST_MOVED_FROM_KIND and named == showing.agent_id:
@@ -348,6 +422,10 @@ def _morning_of(recipient_key: str) -> tuple[int, date]:
     return int(agent_id), date.fromisoformat(day)
 
 
+def _morning_ends(day: date, timezone: str) -> datetime:
+    return datetime.combine(day, MORNING_ENDS, ZoneInfo(timezone))
+
+
 async def day_showings(
     session: AsyncSession, agent_id: int, day: date, timezone: str, now: datetime
 ) -> list[tuple[Showing, int]]:
@@ -376,16 +454,20 @@ async def day_showings(
 
 
 async def morning_selection(
-    session: AsyncSession, showings: list[tuple[Showing, int]], mobile: str
+    session: AsyncSession,
+    showings: list[tuple[Showing, int]],
+    mobile: str,
+    *,
+    approved: bool = False,
 ) -> list[tuple[Showing, int]]:
     """The showings a host's morning text lists, from the day's ``showings``.
 
     The guard judges a notice by the unit of the showing it is attached to, and
     this text lists several. So it lists only the showings the guard would really
-    send for to ``mobile`` now (live mode, and the unit live in production or the
-    number a test recipient), and is attached to the first of them; when there are
-    none it lists them all and is captured or skipped as usual. Never a list
-    mixing showings the guard would send for and ones it would not."""
+    send for to ``mobile`` now, and is attached to the first of them; when there are
+    none it lists them all and is captured as usual. Never a list mixing showings
+    the guard would send for and ones it would not. Sent by hand (``approved``) it
+    lists them all, as the guard then lets every unit through."""
     settings = await settings_for_delivery(session)
     environment = current_environment()
     test_recipients = read_test_recipients()
@@ -398,6 +480,7 @@ async def morning_selection(
             unit=item[0].unit,
             addresses=[mobile],
             test_recipients=test_recipients,
+            approved=approved,
         )
     ]
     return sent_for or showings
@@ -425,7 +508,7 @@ async def _host_morning(session: AsyncSession, notice: ShowingNotice, now: datet
     payload = TextPayload.model_validate(notice.payload)
     timezone = payload.daytime_timezone or "UTC"
     agent_id, day = _morning_of(notice.recipient_key)
-    if now >= datetime.combine(day, MORNING_ENDS, ZoneInfo(timezone)):
+    if now >= _morning_ends(day, timezone):
         return Verdict(cancel=MORNING_MISSED)
     showings = await day_showings(session, agent_id, day, timezone, now)
     if not showings:
@@ -435,7 +518,9 @@ async def _host_morning(session: AsyncSession, notice: ShowingNotice, now: datet
     )
     if not mobile:
         return Verdict(cancel=NO_HOST_MOBILE)
-    showings = await morning_selection(session, showings, mobile)
+    showings = await morning_selection(
+        session, showings, mobile, approved=notice.send_approved_at is not None
+    )
     notice.recipient = mobile
     # Attached to the first showing it lists, which the guard then judges.
     notice.showing_id = showings[0][0].id

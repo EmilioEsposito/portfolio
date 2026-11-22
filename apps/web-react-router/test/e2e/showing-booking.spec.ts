@@ -72,7 +72,7 @@ test("book a showing through to the confirmation screen", async ({ page }) => {
 
   await expect(page.getByRole("heading", { level: 1, name: "Your showing is booked" })).toBeFocused();
   await expect(page.getByText("900 Example Ave, unit 900-01")).toBeVisible();
-  await expect(page.getByText("We texted •••-•••-••17.")).toBeVisible();
+  await expect(page.getByText("We'll text •••-•••-••17.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Cancel this showing" })).toHaveAttribute(
     "href",
     /^\/showings\/cancel\/[\w-]+$/,
@@ -156,7 +156,7 @@ test("correct the mobile from the confirmation screen, twice at most", async ({ 
   await fillDetails(page, { name: "Casey Moore", mobile: "(412) 555-0118", email: "casey@example.com" });
   for (const box of await ticks(page).all()) await box.check();
   await page.getByRole("button", { name: "Book in-person showing" }).click();
-  await expect(page.getByText("We texted •••-•••-••18.")).toBeVisible();
+  await expect(page.getByText("We'll text •••-•••-••18.")).toBeVisible();
 
   await page.getByRole("button", { name: "Fix it" }).click();
   const mobile = page.getByLabel("Your mobile");
@@ -169,8 +169,8 @@ test("correct the mobile from the confirmation screen, twice at most", async ({ 
 
   await mobile.fill("412-555-0119");
   await page.getByRole("button", { name: "Text this number" }).click();
-  await expect(page.getByText("We texted •••-•••-••19.")).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Done. We texted the confirmation to •••-•••-••19.");
+  await expect(page.getByText("We'll text •••-•••-••19.")).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Done. We'll text the confirmation to •••-•••-••19.");
 
   let rows = readRows();
   expect(rows.attendees.map((a) => [a.mobile, a.mobile_corrections])).toEqual([["+14125550119", 1]]);
@@ -183,7 +183,7 @@ test("correct the mobile from the confirmation screen, twice at most", async ({ 
   await page.getByRole("button", { name: "Fix it" }).click();
   await page.getByLabel("Your mobile").fill("412-555-0120");
   await page.getByRole("button", { name: "Text this number" }).click();
-  await expect(page.getByText("We texted •••-•••-••20.")).toBeVisible();
+  await expect(page.getByText("We'll text •••-•••-••20.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Fix it" })).toHaveCount(0);
   await expect(page.getByText("To change the number again, call us.")).toBeVisible();
   rows = readRows();

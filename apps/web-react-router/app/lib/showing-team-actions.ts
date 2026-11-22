@@ -5,7 +5,6 @@ import {
   type AgentCalendar,
   type BookedPerson,
   type BookedShowing,
-  type SendMode,
   type UnitOffers,
   describeOffer,
   formatWhen,
@@ -96,17 +95,12 @@ export function missingFields(form: TeamBookingForm): string[] {
   return missing;
 }
 
-function modeNote(mode: SendMode): string {
-  if (mode === "capture") return " Capture mode: it is kept under Messages, not sent.";
-  if (mode === "off") return " Send mode is off: nothing goes out.";
-  return "";
-}
-
 /**
  * The confirmation before a booking for a caller, or null when nothing reaches anyone outside
- * the team (a name alone: only the host's event).
+ * the team (a name alone: only the host's event). ``note``: what is not really sent
+ * (``heldBackNote``).
  */
-export function describeTeamBooking(form: TeamBookingForm, mode: SendMode): string | null {
+export function describeTeamBooking(form: TeamBookingForm, note: string): string | null {
   const body = bookingBody(form);
   if (!body.texts && !body.email) return null;
   const who = body.name || "The caller";
@@ -116,7 +110,7 @@ export function describeTeamBooking(form: TeamBookingForm, mode: SendMode): stri
       ? `${who} gets a confirmation text at ${body.mobile} now, then a calendar invite at ${body.email} once it is delivered.`
       : `${who} gets a confirmation text at ${body.mobile} now.`
     : `${who} gets a calendar invite at ${body.email} and no texts.`;
-  return `Book ${who} for ${when}? ${sends}${modeNote(mode)}`;
+  return `Book ${who} for ${when}? ${sends}${note}`;
 }
 
 const NOTICE_LABELS: Record<string, string> = {
