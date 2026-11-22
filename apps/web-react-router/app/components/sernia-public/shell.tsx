@@ -1,45 +1,91 @@
-import { isRouteErrorResponse, NavLink } from "react-router";
+import { isRouteErrorResponse, Link, NavLink, useRouteError, useRouteLoaderData } from "react-router";
 
+import { LogoMark } from "~/components/sernia-public/drawings";
 import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
+import { serniaRoot } from "~/lib/sernia-root";
 import { cn } from "~/lib/utils";
+
+const COLUMN = "mx-auto w-full max-w-3xl px-4 sm:px-6";
+/** The home page's column, for its sections inside the shell. */
+export const SERNIA_WIDE_COLUMN = "mx-auto w-full max-w-[1080px] px-[18px] sm:px-6";
+
+const FOOTER_LINK = "inline-block py-1 underline underline-offset-[3px] hover:text-foreground";
 
 /**
  * Header and footer for Sernia Capital's public pages. Nothing from the
- * personal site (sidebar, navigation, branding) appears here.
+ * personal site (sidebar, navigation, branding) appears here. Its
+ * `sernia-public` class carries the brand colors and font (app.css).
  */
-export function SerniaPublicShell({ children }: { children: React.ReactNode }) {
+export function SerniaPublicShell({
+  children,
+  wide = false,
+  action,
+}: {
+  children: React.ReactNode;
+  /** For the home page: a wider column, and the page lays itself out from edge to edge. */
+  wide?: boolean;
+  /** At the end of the header, across from the wordmark. */
+  action?: React.ReactNode;
+}) {
+  const column = wide ? SERNIA_WIDE_COLUMN : COLUMN;
   return (
-    <div className="flex min-h-[calc(100dvh-var(--env-banner-h,0px))] flex-col bg-background text-foreground">
+    <div className="sernia-public flex min-h-[calc(100dvh-var(--env-banner-h,0px))] flex-col bg-background text-foreground">
       <header className="border-b">
-        <div className="mx-auto flex h-14 w-full max-w-3xl items-center px-4 sm:px-6">
-          <p className="text-base font-semibold tracking-tight">{SERNIA_NAME}</p>
+        <div
+          className={cn(column, "flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 sm:min-h-[72px]")}
+        >
+          <Wordmark />
+          {action}
         </div>
       </header>
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 sm:px-6 sm:py-14">{children}</main>
+      <main className={wide ? "flex-1" : cn(COLUMN, "flex-1 py-10 sm:py-14")}>{children}</main>
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p>Equal Housing Opportunity</p>
-          <nav aria-label="Policies" className="flex gap-5">
-            <FooterLink to="/privacy">Privacy</FooterLink>
-            <FooterLink to="/sms-terms">SMS Terms</FooterLink>
-          </nav>
+        <div className={cn(column, "flex flex-wrap items-center gap-x-7 gap-y-1 py-6 text-[0.93rem] text-muted-foreground")}>
+          <p className="py-1">{SERNIA_NAME}, Pittsburgh, PA</p>
+          <p className="py-1">Equal Housing Opportunity</p>
+          <div className="flex gap-5 md:ml-auto">
+            <a href={`mailto:${SERNIA_CONTACT_EMAIL}`} className={FOOTER_LINK}>
+              Email us
+            </a>
+            <nav aria-label="Policies" className="flex gap-5">
+              <FooterLink to="/privacy">Privacy</FooterLink>
+              <FooterLink to="/sms-terms">SMS Terms</FooterLink>
+            </nav>
+          </div>
         </div>
       </footer>
     </div>
   );
 }
 
+/** The logo and name, a link to the home page on the hosts where `/` is it. */
+function Wordmark() {
+  const home = serniaRoot(useRouteError(), useRouteLoaderData("root"))?.homeAtRoot ?? false;
+  const className = "flex items-center gap-2.5 text-[1.05rem] font-bold sm:gap-3 sm:text-[1.15rem]";
+  const content = (
+    <>
+      <LogoMark className="size-[34px] shrink-0 sm:size-[38px]" />
+      {SERNIA_NAME}
+    </>
+  );
+  return home ? (
+    <Link
+      to="/"
+      className={cn(
+        className,
+        "rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring",
+      )}
+    >
+      {content}
+    </Link>
+  ) : (
+    <p className={className}>{content}</p>
+  );
+}
+
 function FooterLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        cn(
-          "inline-block py-1 underline-offset-4 hover:text-foreground hover:underline",
-          isActive && "text-foreground",
-        )
-      }
-    >
+    <NavLink to={to} className={({ isActive }) => cn(FOOTER_LINK, isActive && "text-foreground")}>
       {children}
     </NavLink>
   );

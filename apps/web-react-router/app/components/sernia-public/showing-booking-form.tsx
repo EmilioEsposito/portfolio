@@ -76,7 +76,7 @@ export function ShowingBookingForm({
   const [focusTarget, setFocusTarget] = useState<{ name: string } | null>(null);
   const refs = useRef<Record<string, HTMLElement | null>>({});
   const bookButton = useRef<HTMLButtonElement>(null);
-  const turnstile = useTurnstile(unit.turnstile_site_key);
+  const turnstile = useTurnstile(unit.turnstile_site_key, { needed: unit.offers.length > 0 || leadPlace !== null });
   const id = useId();
 
   const order = useMemo(() => fieldOrder(unit.confirmations), [unit.confirmations]);

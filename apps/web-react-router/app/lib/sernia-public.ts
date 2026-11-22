@@ -26,10 +26,16 @@ export const DEFAULT_SERNIA_PUBLIC_HOSTS = [
 export const SERNIA_PUBLIC_API_PREFIX = "/api/showing-bookings/public/";
 
 /**
- * Data on the 404 the root middleware throws for a Sernia host, so the error
- * page and meta can tell it apart from React Router's own 404.
+ * Marks the data on the 404 the root middleware throws for a Sernia host, so
+ * the error page and meta can tell it apart from React Router's own 404.
  */
 export const SERNIA_NOT_FOUND = "sernia-public-not-found";
+
+export type SerniaNotFound = {
+  reason: typeof SERNIA_NOT_FOUND;
+  /** Whether `/` on this host is the Sernia home page. */
+  homeAtRoot: boolean;
+};
 
 const PUBLIC_PAGE_PATHS = ["/showings", "/privacy", "/sms-terms"];
 const PUBLIC_PAGE_PREFIXES = ["/showings/"];
