@@ -16,8 +16,8 @@ JSON, for the test to check what a booking left. ``lead-booking`` turns the
 lead agent's switch on and books a made-up Zillow thread into ``UNIT``'s first
 open time the way a sent reply does (``lead_bookings.prepare_reply``), then
 prints the thread's link token and the start, for the "add your details" page.
-``lead-move`` moves that showing to a later open time the same way, as a sent
-reply that agrees another time does, and prints the token and the new start.
+``lead-move`` moves that showing to another open time the same way, as a sent
+reply that agrees one does, and prints the token and the new start.
 
 It refuses to run in production or against a database that is not on this
 machine, because ``reset`` deletes showing data. Point it at a disposable
@@ -191,7 +191,7 @@ async def lead_booking(*, moving: bool = False) -> dict:
         await session.commit()
         found = await open_times.offers_for_unit(UNIT, now=now, session=session)
     # A move's new time is one the thread has no showing at yet: the first new one.
-    start = next(offer.start for offer in found.offers if not moving or (offer.kind == "new"))
+    start = next(offer.start for offer in found.offers if not moving or offer.kind == "new")
     token = await lead_links.token_for_thread(LEAD_THREAD, now=now)
     prepared = await lead_bookings.prepare_reply(
         conversation_id=f"browser-test-conversation{'-move' if moving else ''}",
