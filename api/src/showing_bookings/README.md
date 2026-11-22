@@ -876,6 +876,8 @@ read again under the booking locks; one that changed meanwhile holds the reply
   never go while the reply is unsettled, and neither does a reminder, an apply
   text or a cancellation text about the place. A process that stopped before
   the send therefore texts the lead nothing until a person decides the card.
+  The run every minute leaves such a text and invite out before its limit, so
+  they never hold up other messages, and stops them once the showing starts.
 - A definite failure cancels the place before anything went, with no text.
 - If Quo refuses the number, or the text is undelivered, the place stands,
   marked for the team (`confirmation_refused`, `confirmation_undelivered`), and

@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import (
@@ -31,6 +31,7 @@ from api.src.showing_bookings import (
     delivery_checks,
     lead_bookings,
     open_times,
+    outbox,
     resident_notices,
     wording,
 )
@@ -526,6 +527,76 @@ async def test_a_stopped_process_never_texts_the_lead(lead, monkeypatch):
     # The team is told once that the text is waiting; the reply's card is still theirs to decide.
     assert [alert.title for alert in alerter.alerts] == ["Showing message stuck"]
     assert "Prospect's confirmation for unit 320-03" in alerter.alerts[0].body
+
+
+@pytest.mark.asyncio
+async def test_a_text_waiting_for_its_reply_takes_no_room_in_a_run(lead, monkeypatch):
+    """It is the oldest due notice, and a run limited to one still delivers the next."""
+    await go_live(monkeypatch)
+    await with_details(lead)
+    await stopped_after_booking(lead)
+
+    report = await outbox.drain(
+        now=lead.world.now + 6 * MINUTE,
+        texts=lead.world.texts,
+        calendar=lead.world.calendar,
+        emails=lead.world.emails,
+        limit=1,
+    )
+
+    assert report.total == 1
+    _, new = await places()
+    kinds = await notices_of(new.id)
+    assert [n.status for n in kinds["prospect_confirmation"]] == ["pending"]
+
+
+@pytest.mark.asyncio
+async def test_a_text_still_waiting_when_the_showing_starts_is_stopped(lead, monkeypatch):
+    await go_live(monkeypatch)
+    await with_details(lead)
+    first = texts_to_the_lead(lead)
+    await stopped_after_booking(lead)
+
+    await lead.world.send_pending(at(17) - MINUTE)
+    _, new = await places()
+    assert [n.status for n in (await notices_of(new.id))["prospect_confirmation"]] == ["pending"]
+
+    for minutes in (0, 1):
+        await lead.world.send_pending(at(17) + minutes * MINUTE)
+
+    kinds = await notices_of(new.id)
+    (text,) = kinds["prospect_confirmation"]
+    assert (text.status, text.last_error) == ("cancelled", delivery_checks.REPLY_NOT_SENT)
+    assert [n.status for n in kinds["prospect_invite"]] == ["cancelled"]
+    assert not any("has moved to" in body for body in texts_to_the_lead(lead)[len(first) :])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "values",
+    [
+        {},
+        {"lead_reply_sent_at": at(9)},
+        {"lead_reply_uncertain_at": at(9)},
+        {"lead_token": "AbCdEfGhIjKlMnOpQrStUv"},
+        {"source": "page"},
+        {"lead_conversation_id": None},
+    ],
+)
+async def test_the_unsettled_rule_reads_the_same_in_sql(lead, values):
+    await with_details(lead)
+    await stopped_after_booking(lead)
+    _, new = await places()
+    if values:
+        await change(new.id, **values)
+
+    async with AsyncSessionFactory() as session:
+        place = await session.get_one(ShowingAttendee, new.id)
+        in_sql = await session.scalar(
+            select(delivery_checks.reply_unsettled_clause()).where(ShowingAttendee.id == new.id)
+        )
+
+    assert in_sql is delivery_checks.reply_unsettled(place) is (not values)
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.showing_bookings import guard, lead_email, residents, wording
@@ -144,6 +144,17 @@ def reply_unsettled(attendee: ShowingAttendee) -> bool:
         and attendee.lead_token is None
         and attendee.lead_reply_sent_at is None
         and attendee.lead_reply_uncertain_at is None
+    )
+
+
+def reply_unsettled_clause():
+    """The SQL for ``reply_unsettled``."""
+    return and_(
+        ShowingAttendee.source == "lead_agent",
+        ShowingAttendee.lead_conversation_id.is_not(None),
+        ShowingAttendee.lead_token.is_(None),
+        ShowingAttendee.lead_reply_sent_at.is_(None),
+        ShowingAttendee.lead_reply_uncertain_at.is_(None),
     )
 
 
