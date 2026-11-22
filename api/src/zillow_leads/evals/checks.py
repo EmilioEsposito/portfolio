@@ -25,7 +25,7 @@ LINK = re.compile(r"https?://[^\s<>\"')\]]+")
 # How the line offering a text reminder starts. The policy has a reply that
 # confirms a tour carry it, with the lead's own link after it on the same
 # line, while the case lists the lead's own showings, unless the case lists
-# that showing with its details added.
+# that showing, or the one it moves, with its details added.
 DETAILS_LINE = "To get a text reminder and a calendar invite, add your details here:"
 
 
@@ -157,8 +157,11 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
                 "states_tour_time": states_tour_time(case, outcome),
                 "tour_time_allowed": change.start in allowed_tour_times(case, change.unit),
             }
-        # For a reply that confirms a time, new or the lead's own showing restated:
-        # the details line when that showing's details are not in, and never when they are.
+        # For a reply that confirms a time, new, moved or the lead's own showing
+        # restated: the details line when that showing's details are not in, and
+        # never when they are. A moved showing keeps the details of the one it
+        # replaces (``lead_bookings``), so for a move the lead's other booked
+        # places at the unit count as well as the time confirmed.
         place = _confirmed_place(case, outcome)
         if place and (change.action in ("book", "move") or states_tour_time(case, outcome)):
             unit, start = place
@@ -170,7 +173,7 @@ class ReplyChecks(Evaluator[LeadCase, Reply | NoReply | Escalate, dict]):
             added = any(
                 own.status == "booked"
                 and own.unit.casefold() == unit.casefold()
-                and own.start == start
+                and (own.start == start or change.action == "move")
                 and own.details_added
                 for own in case.own_showings or []
             )
