@@ -12,22 +12,40 @@ import { PYTHON, REPO_ROOT, apiEnvironment } from "./setup.ts";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "serniacapital.localhost"]);
 const TURNSTILE_SCRIPT = /^https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js/;
 
-// Stands in for Cloudflare's api.js: each execute answers with a fresh token
-// through the widget's callback, as a browser that passes the check would see.
+/**
+ * How the stand-in for Turnstile answers a check: `pass` with a fresh token at
+ * once, as most browsers get; `ask` puts a button in the widget's container,
+ * as a check that needs the person does, and passes when it is pressed; `hang`
+ * never answers.
+ */
+export type TurnstileAnswer = "pass" | "ask" | "hang";
+
+// Stands in for Cloudflare's api.js.
 const FAKE_TURNSTILE = `
-window.__turnstile = { renders: [], executions: 0 };
+window.__turnstile = { widgets: [], executions: 0, answer: window.__turnstileAnswer ?? "pass" };
 window.turnstile = {
   render(container, options) {
-    const id = "widget-" + (window.__turnstile.renders.push(options));
-    return id;
+    return "widget-" + window.__turnstile.widgets.push({ container, options });
   },
   execute(id) {
-    const options = window.__turnstile.renders[Number(id.split("-")[1]) - 1];
+    const widget = window.__turnstile.widgets[Number(id.split("-")[1]) - 1];
     const n = ++window.__turnstile.executions;
-    setTimeout(() => options.callback("browser-test-token-" + n), 20);
+    const pass = () => widget.options.callback("browser-test-token-" + n);
+    const answer = window.__turnstile.answer;
+    if (answer === "hang") return;
+    setTimeout(() => {
+      if (answer === "pass") return pass();
+      widget.options["before-interactive-callback"]?.();
+      widget.challenge = document.createElement("button");
+      widget.challenge.type = "button";
+      widget.challenge.textContent = "Stand-in challenge";
+      widget.challenge.onclick = pass;
+      widget.container.append(widget.challenge);
+    }, 20);
   },
-  reset() {},
-  remove() {},
+  remove(id) {
+    window.__turnstile.widgets[Number(id.split("-")[1]) - 1].challenge?.remove();
+  },
 };
 `;
 
@@ -78,9 +96,33 @@ export const moveByEmail = () => database("lead-move") as { token: string; start
 /** Live mode with no unit ticked: no unit may be booked by the public. */
 export const closeUnits = () => database("close-units");
 
-/** How many times the page ran the bot check. */
+type TurnstileWindow = { __turnstile?: { executions: number; answer: TurnstileAnswer }; __turnstileAnswer?: TurnstileAnswer };
+
+/** How many times the page ran the bot check, ahead of time or for a person. */
 export function turnstileRuns(page: Page): Promise<number> {
-  return page.evaluate(() => (window as unknown as { __turnstile?: { executions: number } }).__turnstile?.executions ?? 0);
+  return page.evaluate(() => (window as unknown as TurnstileWindow).__turnstile?.executions ?? 0);
+}
+
+/** How the stand-in answers from now on, on this page and any it opens later. */
+export async function answerTurnstile(page: Page, answer: TurnstileAnswer) {
+  const set = (value: TurnstileAnswer) => {
+    const target = window as unknown as TurnstileWindow;
+    target.__turnstileAnswer = value;
+    if (target.__turnstile) target.__turnstile.answer = value;
+  };
+  await page.addInitScript(set, answer);
+  await page.evaluate(set, answer);
+}
+
+/** The Turnstile tokens the page sends to the API, as it sends them. */
+export function sentTokens(page: Page): string[] {
+  const tokens: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() !== "POST" || !request.url().includes("/api/showing-bookings/public/")) return;
+    const token = (request.postDataJSON() as { turnstile_token?: string } | null)?.turnstile_token;
+    if (token) tokens.push(token);
+  });
+  return tokens;
 }
 
 export const test = base.extend<{ blocked: string[] }>({
