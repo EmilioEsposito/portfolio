@@ -304,6 +304,52 @@ async def search_tasks(
 
 
 # ---------------------------------------------------------------------------
+# Custom field ID validation
+# ---------------------------------------------------------------------------
+#
+# The agent copies field UUIDs out of get_maintenance_field_options. Models
+# sometimes splice segments of two neighbouring UUIDs into one that doesn't
+# exist (e.g. Property Address's prefix + Permission to Enter's suffix).
+# ClickUp then rejects the whole write with HTTP 404 FIELD_058 / FIELD_343,
+# which trips the error-level alert. Checking IDs against the list's real
+# fields first lets the tool return a precise, self-correcting message
+# without a failing API call. Validation fails open: if the field lookup
+# itself errors, the original request proceeds unchanged.
+
+LIST_FIELD_IDS_CACHE_TTL_SECONDS = 300
+_list_field_ids_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+async def _list_field_names_by_id(list_id: str) -> dict[str, str] | None:
+    """Return ``{field_id: field_name}`` for a list, or None if lookup fails."""
+    cached = _list_field_ids_cache.get(list_id)
+    if cached is not None and time.monotonic() - cached[0] < LIST_FIELD_IDS_CACHE_TTL_SECONDS:
+        return cached[1]
+    try:
+        resp = await _clickup_request("GET", f"/list/{list_id}/field")
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        return None
+    fields = {
+        str(f["id"]): str(f.get("name") or "(unnamed)")
+        for f in resp.json().get("fields", [])
+        if f.get("id")
+    }
+    _list_field_ids_cache[list_id] = (time.monotonic(), fields)
+    return fields
+
+
+def _unknown_field_ids_message(unknown: list[str], valid: dict[str, str]) -> str:
+    valid_lines = "\n".join(f"  - {name}: {field_id}" for field_id, name in valid.items())
+    return (
+        "Not sent to ClickUp: unknown custom field ID(s) "
+        f"{', '.join(unknown)}. Copy field IDs exactly from this list's fields "
+        f"(do not combine parts of different IDs):\n{valid_lines}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Write tools (require approval)
 # ---------------------------------------------------------------------------
 
@@ -344,6 +390,11 @@ async def create_task(
         dt = datetime.fromisoformat(due_date)
         body["due_date"] = int(dt.timestamp() * 1000)
     if custom_fields is not None:
+        valid = await _list_field_names_by_id(list_id)
+        if valid is not None:
+            unknown = [str(f.get("id")) for f in custom_fields if str(f.get("id")) not in valid]
+            if unknown:
+                return _unknown_field_ids_message(unknown, valid)
         body["custom_fields"] = custom_fields
 
     resp = await _clickup_request("POST", f"/list/{list_id}/task", json=body)
@@ -415,6 +466,16 @@ async def set_task_custom_field(
         field_id: The custom field UUID.
         value: The value to set. For drop_down fields use the option UUID.
     """
+    try:
+        task_resp: httpx.Response | None = await _clickup_request("GET", f"/task/{task_id}")
+    except httpx.HTTPError:
+        task_resp = None
+    if task_resp is not None and task_resp.status_code == 200:
+        list_id = (task_resp.json().get("list") or {}).get("id")
+        valid = await _list_field_names_by_id(str(list_id)) if list_id else None
+        if valid is not None and field_id not in valid:
+            return _unknown_field_ids_message([field_id], valid)
+
     resp = await _clickup_request(
         "POST", f"/task/{task_id}/field/{field_id}", json={"value": value}
     )
