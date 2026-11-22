@@ -29,6 +29,7 @@ from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import (
     cancelling,
     delivery_checks,
+    holds,
     lead_bookings,
     open_times,
     outbox,
@@ -548,6 +549,28 @@ async def test_a_text_waiting_for_its_reply_takes_no_room_in_a_run(lead, monkeyp
     _, new = await places()
     kinds = await notices_of(new.id)
     assert [n.status for n in kinds["prospect_confirmation"]] == ["pending"]
+
+
+@pytest.mark.asyncio
+async def test_an_invite_waiting_for_its_reply_takes_no_room_in_a_run(lead, monkeypatch):
+    """Its confirmation is the oldest one holding anything, and a run limited to one
+    still releases what another booking's confirmation holds."""
+    await go_live(monkeypatch)
+    monkeypatch.setenv("SHOWING_TEST_PHONES", f"{ALEX_MOBILE},{ROBIN_MOBILE}")
+    await with_details(lead)
+    await stopped_after_booking(lead)
+    async with lead.world.client() as client:
+        robin = booking(at(15), name="Robin Lee", mobile="412-555-0118", email=ROBIN_EMAIL)
+        answer = await client.post(f"{PUBLIC}/units/{UNIT}/bookings", json=robin)
+    assert answer.status_code == 201, answer.text
+    (theirs,) = [place for place in await places() if place.name == "Robin Lee"]
+    assert "held" in {n.status for n in (await notices_of(theirs.id))["prospect_invite"]}
+    monkeypatch.setattr(holds, "HOLDERS_PER_RUN", 1)
+
+    report = await holds.release_held(now=lead.world.now + MINUTE, texts=lead.world.texts)
+
+    assert report.released > 0
+    assert "held" not in {n.status for n in (await notices_of(theirs.id))["prospect_invite"]}
 
 
 @pytest.mark.asyncio

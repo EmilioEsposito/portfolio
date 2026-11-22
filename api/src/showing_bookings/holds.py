@@ -37,6 +37,7 @@ from typing import TypeVar
 import logfire
 from sqlalchemy import exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import delivery_checks, outbox, resident_notices
@@ -178,13 +179,23 @@ async def _decide(holder: ShowingNotice, now: datetime, texts: TextSender | None
 
 
 async def release_held(*, now: datetime, texts: TextSender | None = None) -> HoldReport:
-    """Release or stop the held notices whose confirmation text has an answer. Takes ``now``."""
+    """Release or stop the held notices whose confirmation text has an answer. Takes ``now``.
+
+    A text not sent yet has none, and may wait for days (a place whose reply is
+    not settled, ``delivery_checks.reply_unsettled``): it is left out before the
+    limit, so those never fill a run.
+    """
     report = HoldReport()
+    confirmation = aliased(ShowingNotice)
     async with AsyncSessionFactory() as session, session.begin():
         holder_ids = list(
             await session.scalars(
                 select(ShowingNotice.waits_for_notice_id)
-                .where(ShowingNotice.status == "held")
+                .outerjoin(confirmation, confirmation.id == ShowingNotice.waits_for_notice_id)
+                .where(
+                    ShowingNotice.status == "held",
+                    confirmation.status.is_distinct_from("pending"),
+                )
                 .distinct()
                 .limit(HOLDERS_PER_RUN)
             )
