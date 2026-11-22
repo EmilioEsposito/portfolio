@@ -46,7 +46,8 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   await expect(footer.getByText("Sernia Capital, Pittsburgh, PA")).toBeVisible();
   await expect(footer.getByText("Equal Housing Opportunity")).toBeVisible();
   await expect(footer.getByRole("link", { name: "Email us" })).toHaveAttribute("href", "mailto:all@serniacapital.com");
-  await expect(page.getByRole("navigation", { name: "Policies" }).getByRole("link")).toHaveText(["Privacy", "SMS Terms"]);
+  const policies = page.getByRole("navigation", { name: "Policies" }).getByRole("link");
+  await expect(policies).toHaveText(["Privacy"]);
   // The call line is there, and the number is not in the page until it is asked for.
   await expect(page.getByRole("button", { name: "Show phone number" })).toBeVisible();
   expect(await page.content()).not.toContain(`${TEAM_PHONE.slice(2, 5)}-${TEAM_PHONE.slice(5, 8)}-${TEAM_PHONE.slice(8)}`);
@@ -56,6 +57,7 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   await links.nth(0).click();
   await expect(page).toHaveURL("/showings");
   await expect(page.getByRole("heading", { level: 1, name: "Book a showing" })).toBeVisible();
+  await expect(policies).toHaveText(["Privacy", "SMS Terms"]);
   await expect(page).toHaveTitle("Book a showing | Sernia Capital");
   const row = page.getByRole("list", { name: "Units for rent" }).getByRole("link", { name: /900 Example Ave, unit 900-01/ });
   await expect(row).toHaveAttribute("href", `/showings/${UNIT}`);
@@ -75,6 +77,28 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   await expect(header).toHaveText(["Sernia Capital", "Resident sign-in"]);
   // The only outside request any Sernia page makes is for its font.
   expect(blocked.filter((origin) => origin !== "https://fonts.googleapis.com")).toEqual([]);
+});
+
+test("a click shows at once, and a page load has the list in its HTML", async ({ page }) => {
+  await page.goto("/");
+  // Hold back the navigation's answer: the line across the top is there while it is out.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/showings.data*", async (route) => {
+    await held;
+    await route.continue();
+  });
+  const line = page.getByRole("progressbar", { name: "Opening the page" });
+  await expect(line).toHaveCount(0);
+  await page.getByRole("main").getByRole("link", { name: "Book a showing" }).click();
+  await expect(line).toBeVisible();
+  release();
+  await expect(page.getByRole("list", { name: "Units for rent" })).toBeVisible();
+  await expect(line).toHaveCount(0);
+
+  // A page load has the list in its HTML, for search engines and anything else without scripts.
+  const response = await page.request.get(`http://localhost:${WEB_PORT}/showings`, { headers: { "user-agent": "Googlebot/2.1" } });
+  expect(await response.text()).toContain("Lease starts between ");
 });
 
 test("the wordmark links to / only where / is the Sernia home page", async ({ page }) => {

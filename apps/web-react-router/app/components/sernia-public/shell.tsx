@@ -1,4 +1,4 @@
-import { isRouteErrorResponse, Link, NavLink, useRouteError, useRouteLoaderData } from "react-router";
+import { isRouteErrorResponse, Link, NavLink, useNavigation, useRouteError, useRouteLoaderData } from "react-router";
 
 import { LogoMark } from "~/components/sernia-public/drawings";
 import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
@@ -30,6 +30,7 @@ export function SerniaPublicShell({
   const column = wide ? SERNIA_WIDE_COLUMN : COLUMN;
   return (
     <div className="sernia-public flex min-h-[calc(100dvh-var(--env-banner-h,0px))] flex-col bg-background text-foreground">
+      <OpeningLine />
       <header className="border-b">
         <div
           className={cn(column, "flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 sm:min-h-[72px]")}
@@ -49,12 +50,25 @@ export function SerniaPublicShell({
             </a>
             <nav aria-label="Policies" className="flex gap-5">
               <FooterLink to="/privacy">Privacy</FooterLink>
-              <FooterLink to="/sms-terms">SMS Terms</FooterLink>
+              {/* The booking form and the privacy policy link to these too; the home page has no need to. */}
+              {!wide && <FooterLink to="/sms-terms">SMS Terms</FooterLink>}
             </nav>
           </div>
         </div>
       </footer>
     </div>
+  );
+}
+
+/** A line across the top from the moment a link is clicked until its page opens. */
+function OpeningLine() {
+  if (useNavigation().state === "idle") return null;
+  return (
+    <div
+      role="progressbar"
+      aria-label="Opening the page"
+      className="sernia-opening fixed inset-x-0 top-0 z-50 h-[3px] origin-left bg-sernia-sky"
+    />
   );
 }
 
