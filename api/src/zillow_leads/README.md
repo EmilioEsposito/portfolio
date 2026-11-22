@@ -217,8 +217,8 @@ and the lead gets a text saying the showing moved, and a new invite, once the
 reply is settled as sent or uncertain. They get no text that the old one is
 cancelled. Their link then opens a page that says "You're booked". The send
 card's sentence about the move is the same either way; `showing_booking` records
-`details_kept`. The policy does not know of this yet: a reply that moves such a
-showing still carries the details line. See
+`details_kept`. The policy has no details line on a reply that moves such a
+showing. See
 [the booking service's README](../showing_bookings/README.md#showings-booked-by-email).
 
 ### The policy for booked showings
@@ -233,9 +233,9 @@ with the switch off is told what it was told before. What they add:
   states it once as "Wednesday, April 14 at 4:00 PM" (this one applies to
   every case). With the own-showings section, a reply confirming an in-person tour also carries
   the lead's own link on the line "To get a text reminder and a calendar
-  invite, add your details here: <link>", unless that showing is listed with
-  "details added" (the link would only show the booking form again), and
-  never makes a mobile number a condition of the showing.
+  invite, add your details here: <link>", unless that time, or the showing it
+  moves, is listed with "details added" (the link would only say they are
+  booked), and never makes a mobile number a condition of the showing.
 - `record.md` (lead agent only): with the own-showings section, `confirmed` or
   `rescheduled` only for a time this reply confirms (or the lead's own booked
   showing, unchanged), `start` exactly that time, `lead.unit` the listing's
