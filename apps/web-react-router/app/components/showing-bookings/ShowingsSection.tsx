@@ -55,11 +55,13 @@ function LeadAgentSwitch({
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <Label htmlFor="lead-agent-open-times" className="text-sm font-medium">
-            Zillow lead agent offers these times
+            Zillow lead agent books showings
           </Label>
           <p id="lead-agent-open-times-help" className="text-sm leading-6 text-muted-foreground">
-            This changes what the lead agent offers leads. On, its replies offer the open times below and the showings
-            that have room. Off, it offers no times, as it does today.
+            On, its email replies offer the times below, and each lead gets their own booking link. When a person
+            approves a reply that agrees, moves or cancels a showing, it is booked, moved or cancelled here, and the
+            host and the unit&rsquo;s residents are told. Off, its replies offer no times and nothing is booked from
+            email. Leave it off until the booking pages are live, since the links open there.
           </p>
         </div>
         <div className="flex items-center gap-2 pt-0.5">
@@ -74,7 +76,9 @@ function LeadAgentSwitch({
         </div>
       </div>
       <p role="status" className="mt-2 text-sm font-medium">
-        {on ? "On: the lead agent offers these times." : "Off: the lead agent offers no times."}
+        {on
+          ? "On: the lead agent offers these times and books showings."
+          : "Off: the lead agent offers no times and books nothing."}
       </p>
       {error && (
         <p role="alert" className="mt-2 text-sm text-destructive">
@@ -349,7 +353,7 @@ export function ShowingsSection() {
       !window.confirm(
         view.open_times.sample_calendar_in_use
           ? "Some times below come from a made-up calendar. Have the lead agent offer them to leads here anyway?"
-          : "The Zillow lead agent will start offering these times to leads. Turn it on?",
+          : "The Zillow lead agent will offer these times to leads, and replies you approve will book, move and cancel showings. Turn it on?",
       )
     ) {
       return;
