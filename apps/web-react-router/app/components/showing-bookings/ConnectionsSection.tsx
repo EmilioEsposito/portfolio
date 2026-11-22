@@ -99,6 +99,13 @@ function ConnectionItem({
         </p>
       )}
 
+      {connection.reconnect_adds_permissions && (
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">
+          Reconnect to let the showing agent form list the team&rsquo;s calendars and those shared with this account. All
+          else works without it.
+        </p>
+      )}
+
       {(actions.check || actions.reconnect || actions.disconnect) && (
         <div className="mt-4 flex flex-wrap gap-2">
           {actions.check && (

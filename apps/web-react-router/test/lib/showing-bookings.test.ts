@@ -29,10 +29,10 @@ import {
   describeResidentAttention,
   describeShowingCancel,
   describeWindows,
+  eachOnce,
   newAgent,
   noticeLeadConversation,
   noticeRecipients,
-  parseCalendars,
   refusalMessage,
   refusalProblems,
   sameSettings,
@@ -153,7 +153,7 @@ test("the server's reason for a refusal is shown when it gives one", () => {
 test("the callback's result is shown only when this tab knows it", () => {
   assert.deepEqual(connectResult("connected"), { code: "connected", ...CONNECT_RESULTS.connected });
   assert.equal(connectResult("missing_permissions")?.ok, false);
-  assert.match(connectResult("missing_permissions")?.message ?? "", /both calendar permissions/);
+  assert.match(connectResult("missing_permissions")?.message ?? "", /free\/busy and Sernia showings calendar permissions are both needed/);
   assert.equal(connectResult("toString"), null);
   assert.equal(connectResult("something_else"), null);
   assert.equal(connectResult(null), null);
@@ -198,12 +198,14 @@ test("the lead agent's switch is part of the settings and compares in any key or
   assert.ok(!sameSettings(settings(), settings({ lead_agent_uses_open_times: true })));
 });
 
-test("calendar addresses are read from lines or commas, each once", () => {
-  assert.deepEqual(parseCalendars(" jane@example.com,\nJANE@example.com ; team@example.com "), [
-    "jane@example.com",
+test("calendar addresses are kept as first spelled, each once in any case", () => {
+  assert.deepEqual(eachOnce(["Jane@example.com", "team@example.com", "jane@EXAMPLE.com", ""]), [
+    "Jane@example.com",
     "team@example.com",
   ]);
-  assert.deepEqual(parseCalendars(""), []);
+  // Never split: an address with a comma in it is one calendar.
+  assert.deepEqual(eachOnce(["odd,one@example.com"]), ["odd,one@example.com"]);
+  assert.deepEqual(eachOnce([]), []);
 });
 
 test("an agent is sent trimmed, with an empty mobile as none and short times", () => {

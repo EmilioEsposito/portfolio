@@ -410,7 +410,14 @@ async def test_the_list_says_which_connections_can_be_used_here(api, google):
         "last_error": None,
         "usable_here": True,
         "unusable_reason": None,
+        # Connected before the calendar picker, and the one it reads through.
+        "reconnect_adds_permissions": True,
     }
+    assert [by_id[row]["reconnect_adds_permissions"] for row in (other_key, lost, revoked)] == [
+        False,
+        False,
+        False,
+    ]
     assert by_id[other_key]["usable_here"] is False
     assert "another key" in by_id[other_key]["unusable_reason"]
     assert (by_id[lost]["status"], by_id[lost]["usable_here"]) == ("lost", False)

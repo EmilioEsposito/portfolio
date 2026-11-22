@@ -7,6 +7,8 @@
 - Using one: ``calendar_for_connection`` is the ``CalendarSource`` for a
   connection. ``calendar_for_showings_calendar`` finds the connection whose
   showings calendar a calendar notice names; the outbox sends through it.
+- The calendar picker: ``picker_source`` gives what it reads through a
+  connection (``calendar_candidates.py``).
 - Looking after one: ``check_connection`` reads the account's own free/busy
   once and saves the result; ``disconnect`` revokes the grant at Google, then
   marks the row revoked.
@@ -34,6 +36,7 @@ from sqlalchemy.dialects.postgresql import insert
 from api.src.database.database import AsyncSessionFactory
 from api.src.showing_bookings import google_oauth, token_crypto
 from api.src.showing_bookings.google_calendar import GoogleCalendar, ShowingsCalendarError
+from api.src.showing_bookings.google_lists import GoogleLists
 from api.src.showing_bookings.models import CalendarConnection
 from api.src.showing_bookings.providers import (
     BusyBlock,
@@ -229,6 +232,23 @@ def calendar_for_connection(connection: CalendarConnection) -> CalendarSource:
     return GoogleCalendar(tokens, on_read=partial(_record_read, connection.id))
 
 
+@dataclass(frozen=True)
+class PickerSource:
+    """What the calendar picker reads through one connection, saving nothing on its row."""
+
+    lists: GoogleLists
+    calendar: GoogleCalendar
+
+
+def picker_source(connection: CalendarConnection) -> PickerSource:
+    """Raises ``ConnectionUnusable`` when the connection cannot be used here."""
+    problem = _problem(connection)
+    if problem is not None:
+        raise ConnectionUnusable(problem.detail)
+    tokens = _ConnectionTokens(connection.id, connection.encrypted_refresh_token)
+    return PickerSource(GoogleLists(tokens), GoogleCalendar(tokens))
+
+
 async def calendar_for_showings_calendar(calendar_id: str) -> CalendarSource:
     """The calendar of the connection whose "Sernia showings" calendar is ``calendar_id``.
 
@@ -295,8 +315,9 @@ async def complete_connect(
     """Finish a connection from Google's callback, and say how it went.
 
     Nothing is saved unless the state is valid, Google granted both calendar
-    permissions, and the account has the showings calendar. Connecting an
-    account again updates its row and keeps its showings calendar.
+    permissions, and the account has the showings calendar. The picker's
+    permissions are saved when granted and not needed. Connecting an account
+    again updates its row and keeps its showings calendar.
     """
     try:
         started = google_oauth.read_state(state)

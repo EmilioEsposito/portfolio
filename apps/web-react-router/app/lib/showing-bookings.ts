@@ -288,6 +288,8 @@ export interface CalendarConnection {
   // client here, or no key to read its token (as in a preview).
   usable_here: boolean;
   unusable_reason: string | null;
+  // Reconnecting would add a permission the showing agent form's calendar picker uses.
+  reconnect_adds_permissions: boolean;
 }
 
 export interface ConnectionsView {
@@ -311,7 +313,8 @@ export const CONNECT_RESULTS = {
   denied: { ok: false, message: "Nothing was connected: the request was cancelled on Google's screen." },
   missing_permissions: {
     ok: false,
-    message: "Nothing was connected: both calendar permissions are needed. Connect again and leave both ticked on Google's screen.",
+    message:
+      "Nothing was connected: the free/busy and Sernia showings calendar permissions are both needed. Connect again and leave every box ticked on Google's screen.",
   },
   expired: { ok: false, message: "Nothing was connected: it took more than ten minutes. Start again." },
   invalid: { ok: false, message: "Nothing was connected: the link back from Google was not valid. Start again from this tab." },
@@ -388,14 +391,11 @@ export function newAgent(): ShowingAgent {
   };
 }
 
-/** Calendar addresses typed one per line or separated by commas: trimmed, each once. */
-export function parseCalendars(text: string): string[] {
-  const found: string[] = [];
-  for (const piece of text.split(/[\s,;]+/)) {
-    const value = piece.trim();
-    if (value && !found.some((seen) => seen.toLowerCase() === value.toLowerCase())) found.push(value);
-  }
-  return found;
+/** Calendar addresses, each once in any case, as first spelled. */
+export function eachOnce(calendars: string[]): string[] {
+  return calendars.filter(
+    (value, at) => value && calendars.findIndex((seen) => seen.toLowerCase() === value.toLowerCase()) === at,
+  );
 }
 
 function shortClock(value: string): string {
@@ -411,7 +411,7 @@ export function cleanAgent(agent: ShowingAgent): ShowingAgent {
     name: agent.name.trim(),
     email: agent.email.trim(),
     mobile: agent.mobile?.trim() ? agent.mobile.trim() : null,
-    busy_calendar_ids: parseCalendars(agent.busy_calendar_ids.join("\n")),
+    busy_calendar_ids: eachOnce(agent.busy_calendar_ids),
     weekly_hours: windows(agent.weekly_hours),
     preferred_windows: windows(agent.preferred_windows),
   };
