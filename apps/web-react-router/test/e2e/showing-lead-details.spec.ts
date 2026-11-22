@@ -28,6 +28,7 @@ async function expectBooked(page: Page, token: string, startsAt: string) {
   await expect(facts).toContainText(time.replace(/ [AP]M$/, ""));
   await expect(facts).toContainText(`900 Example Ave, unit ${UNIT}`);
   await expect(facts).toContainText("The text we sent you has a link to cancel this showing.");
+  await expect(facts).toContainText("Didn't get the text? Call us.");
   // No form, and no cancel link or token anywhere in what the server sent.
   await expect(page.getByRole("button", { name: /Book|Add my details/ })).toHaveCount(0);
   await expect(page.getByRole("textbox")).toHaveCount(0);

@@ -36,10 +36,11 @@ function WhenAndWhere({
 
 /**
  * A lead's own link (`?t=`) when their details are already in: when and where,
- * and that the text has the link to cancel. The page holds no cancel link
- * itself: a lead's link can be forwarded.
+ * that the text has the link to cancel, and the call line for someone the text
+ * never reached. The page holds no cancel link itself: a lead's link can be
+ * forwarded.
  */
-export function ShowingAlreadyBooked({ place }: { place: LeadBooking }) {
+export function ShowingAlreadyBooked({ place, siteKey }: { place: LeadBooking; siteKey: string | null }) {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">You're booked</h1>
@@ -47,6 +48,7 @@ export function ShowingAlreadyBooked({ place }: { place: LeadBooking }) {
       <p className="leading-7 text-muted-foreground">
         Plans changed? The text we sent you has a link to cancel this showing.
       </p>
+      <CallLine siteKey={siteKey} lead="Didn't get the text?" tail="." />
     </div>
   );
 }

@@ -92,7 +92,7 @@ export default function ShowingBookingPage({ loaderData }: Route.ComponentProps)
     return <ShowingBooked result={booked} siteKey={unit.turnstile_site_key} />;
   }
   if (leadPlace?.details_added) {
-    return <ShowingAlreadyBooked place={leadPlace} />;
+    return <ShowingAlreadyBooked place={leadPlace} siteKey={unit.turnstile_site_key} />;
   }
 
   return (

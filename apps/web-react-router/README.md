@@ -125,7 +125,8 @@ address, user agent and `Signature-Agent` header. The ticks' wording and the
 small print come from the API. With a lead's own link (`?t=`), the loader also
 asks the API for the place booked in their email thread: the page then asks only
 for their details, or, once they are in, says "You're booked" with when and
-where. It holds no cancel link, since a lead's link can be forwarded. The page
+where, and shows the call line for someone the text never reached. It holds no
+cancel link, since a lead's link can be forwarded. The page
 is `noindex` for now. Pure logic
 (times in the unit's time zone, refusals) is in `app/lib/showing-booking-page.ts`
 and tested in `test/lib/showing-booking-page.test.ts`.
