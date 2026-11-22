@@ -15,6 +15,7 @@ import {
   unitSummary,
 } from "~/lib/showing-booking-page";
 import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/lib/sernia-public-seo";
+import { unitForPage } from "~/lib/showing-units.server";
 
 // Book an in-person showing of one unit. The unit is read here on the server,
 // so a unit that is not on offer (or booking switched off, which the API
@@ -47,24 +48,17 @@ export function headers() {
 
 export async function loader({ params, request }: Route.LoaderArgs): Promise<BookingPageData> {
   const unitPath = `${backendUrl()}${PUBLIC_API}/units/${encodeURIComponent(params.unit)}`;
-  let response: Response;
-  try {
-    response = await fetch(unitPath, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch {
-    throw data(null, { status: 503, statusText: "Service Unavailable" });
-  }
-  if (!response.ok && response.status !== 404) throw data(null, { status: 503, statusText: "Service Unavailable" });
+  const found = await unitForPage(params.unit, request);
+  if (found.status === "unavailable") throw data(null, { status: 503, statusText: "Service Unavailable" });
   const token = leadTokenOf(new URL(request.url).searchParams.get("t"));
   // The place booked for this lead's email thread, when the link's token has one
   // at this unit: the page then asks only for their details, or says they are
   // booked when the details are in. Without one, it is the normal booking form.
   const place = token ? await withToken<LeadBooking>(`${unitPath}/lead-booking`, token) : null;
-  const unit = response.ok
-    ? ((await response.json()) as UnitPage)
-    : token && place && (await withToken<UnitPage>(`${unitPath}/lead-booking/unit`, token));
+  const unit =
+    found.status === "open"
+      ? found.page
+      : token && place && (await withToken<UnitPage>(`${unitPath}/lead-booking/unit`, token));
   if (!unit) throw data(null, { status: 404, statusText: "Not Found" });
   return { ...unit, lead_booking: place };
 }

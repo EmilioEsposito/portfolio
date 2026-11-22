@@ -472,6 +472,26 @@ body {
   height: calc(var(--chat-vh, 100dvh) - var(--env-banner-h, 0px));
 }
 
+/* The line across the top of Sernia's public pages while the next one opens. */
+@keyframes sernia-opening {
+  from {
+    transform: scaleX(0.08);
+  }
+  to {
+    transform: scaleX(0.92);
+  }
+}
+
+.sernia-opening {
+  animation: sernia-opening 4s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sernia-opening {
+    animation: none;
+  }
+}
+
 @keyframes sernia-thinking-orbit {
   to {
     transform: rotate(360deg);

@@ -116,17 +116,28 @@ here and 404s on previews and localhost), the call line, the street drawing
 (`drawings.tsx`, static and decorative), one photo and two short sections. The
 photo is in `public/images/sernia/` at two widths, as WebP with a JPEG fallback;
 `og.png` there is the link preview.
-The page never waits on the units list: its loader reads only
+The page never waits on the units list: its loader waits only for
 `GET /api/showing-bookings/public/call-line` (the Turnstile site key, no listings
 or calendars) with a 3-second timeout (`readCallLine` in
 `app/lib/showing-units.server.ts`). Off, slow or failing, the page renders at
-once without the call line.
+once without the call line. The footer links to the SMS terms on the other pages
+only.
 
 `/showings` lists the units on offer from `GET /api/showing-bookings/public/units`,
 read on the server (`app/lib/showing-units.server.ts`): address, unit, asking
 rent and lease start, each row a link to the unit's booking page, in address
 order. The lease start comes worded by the API, by the same rule as the booking
 form's tick. The page is indexable, with its canonical on serniacapital.com.
+
+The API takes a second or two to answer with the units, so nothing a visitor
+clicks waits for it. A line across the top shows from the click until the next page
+opens (`OpeningLine` in `shell.tsx`), and the list page opens before its list is
+read: the list follows in the same response, after a placeholder (a bot gets the
+whole page at once). Each page also starts the read for the next one
+(`app/lib/read-ahead.server.ts`): the home page the list, the list its first six
+booking pages. A navigation inside the site uses an answer up to a minute old; a
+page load always asks the API. A booking is checked again when it is made, so an
+answer a minute old cannot book a time that has gone.
 
 While public booking is off the API answers 404: `/showings` says no units are
 open for online booking right now, and the home page leaves out the call line,
