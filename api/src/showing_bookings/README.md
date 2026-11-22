@@ -389,6 +389,9 @@ With it on, `BookingTourSource` answers `zillow_leads.tours.TourSource`:
   `TourSlot` with its unit, which the case lists under that unit. No host's
   name is passed on.
 - booked: the showings with room, by unit, which the lead policy offers first.
+  A showing the lead is booked into themselves is left out of both lists for
+  their own case (`case.build_case`, from the own showings below), so it is
+  never offered back to them; a reply may still state its time.
 
 and `lead_booking_for` adds what belongs to the lead's thread:
 
@@ -448,7 +451,7 @@ tokens; a cancel token travels in the body for the same reason.
 | `GET /call-line` | `{turnstile_site_key}` and nothing else, for the call line on a page with no unit (the Sernia home page). Reads no listings and no calendars, so the page can answer at once; the 404 while the switch is off tells the page to leave the call line out. |
 | `GET /units/{unit}` | the listing's unit key, address, rent, showing length, time zone, the confirmations with their wording and version, `confirmations_version`, the consent small print, the privacy and SMS terms paths, the Turnstile site key, and the offers in order (`start`, `join`, `preferred`, `places_left`). No host names. 404 `unknown_unit` for a unit not on offer. |
 | `POST /units/{unit}/bookings` | `{start, name, mobile, email, confirmations: {lease_start, pets, texts}, turnstile_token, confirmations_version?, lead_token?}`. 201 with the cancel token, `kind` (`new` or `join`), the confirmation text's status and the booking as below. |
-| `POST /units/{unit}/lead-booking` | `{lead_token}`: the place the lead agent booked by email for the token's thread at this unit, while the lead has not added their details: `{unit, address, starts_at, ends_at, timezone}`, nothing else. 404 `no_booking` otherwise, or with the lead agent's switch off. See Showings booked by email below. |
+| `POST /units/{unit}/lead-booking` | `{lead_token}`: the place booked for the token's thread at this unit: `{unit, address, starts_at, ends_at, timezone, details_added}`, nothing else. `details_added` is false for the place the lead agent booked by email while the lead has not added their details, and true when they are in. 404 `no_booking` with neither, or with the lead agent's switch off. See Showings booked by email below. |
 | `POST /units/{unit}/lead-booking/details` | The booking form's body without `start`, plus `lead_token`: completes that place with the lead's details. 201 with the same answer as a booking, `kind` `details`; 409 `already_completed`; 404 `no_booking`. |
 | `POST /bookings/lookup` | `{cancel_token}`: status, unit, address, start and end, time zone, the mobile with all but the last two digits hidden, the corrections left, `started` (the start has passed) and `cancelled_by_team` (cancelled by the team or because the unit went off the market). |
 | `POST /bookings/mobile` | `{cancel_token, mobile}`: texts the confirmation to the new number, at most twice per booking; the same answer as the lookup. |
@@ -502,14 +505,18 @@ tokens; a cancel token travels in the body for the same reason.
    Zillow lead agent. It takes a `Person` (name, source, and optionally a
    mobile, an email, consent to texts, the form's confirmations, a lead
    token or Zillow thread) and an optional `checks(session)` run under the
-   locks, which is how the page applies its limits. It looks up the unit's
+   locks, which is how the page applies its limits and a moved showing checks
+   that the old place has not changed. It looks up the unit's
    residents itself, before its transaction (`resident_notices.find_for`, which
    may read Quo), so every source tells them the same way: a new showing
    queues their text held behind the confirmation text, or due at once (in the
    daytime) when the booking has none; a join brings back an announcement
    stopped with an earlier failed confirmation, held behind this booking's
    confirmation or due at once without one; a lookup that went wrong marks the
-   showing and never stops the booking.
+   showing and never stops the booking. A place booked from the lead agent's
+   reply stands whatever happens to its confirmation text (the email told the
+   lead), so only its invite waits for that text; its host notice and the
+   residents' text do not.
 4. After the commit the confirmation text is delivered at once. If Quo refuses
    the number (invalid, unreachable or opted out) the booking is withdrawn:
    the attendee is cancelled with `cancel_reason` `number_refused`, a showing
@@ -627,6 +634,7 @@ because phones and mail scanners open links to preview them.
 | --- | --- | --- | --- | --- |
 | A prospect cancels, others still booked | cancelled, `prospect` | stays | a text confirming it, with the unit's booking page; invite withdrawn | updated |
 | The last prospect cancels | cancelled, `prospect` | cancelled, `prospect` | the same | cancelled |
+| A lead moved their showing by email: the old place | cancelled, `prospect` | stays, or cancelled (`prospect`) when they were the last | no text; invite withdrawn | updated, or cancelled when they were the last |
 | The team removes one attendee | cancelled, `team` | cancelled when they were the last | the team's cancellation text, with the units on offer; invite withdrawn | updated, or cancelled when they were the last |
 | The team cancels a showing | each cancelled, `team` | cancelled, `team` | the same | cancelled |
 | The unit goes off the market | each cancelled, `off_market` | cancelled, `off_market` | the same | cancelled |
@@ -642,10 +650,16 @@ because phones and mail scanners open links to preview them.
 - Texts go only to an attendee with a mobile who accepted texts and whose
   confirmation text was not reported undelivered or refused
   (`attention_reason`); a number known to be wrong is not texted again, though
-  the invite is still withdrawn. A prospect's
-  or the team's cancellation text is delivered at once; calendar changes go
-  with the job every minute. Off-market cancellations queue everything for the
-  job.
+  the invite is still withdrawn. Nor is a lead about a place whose reply never
+  went (`delivery_checks.reply_unsettled`), which they never heard of. A
+  prospect's or the team's cancellation text is delivered at once; calendar
+  changes go with the job every minute. Off-market cancellations queue
+  everything for the job.
+- A showing that moved texts the lead no cancellation: the old place is
+  cancelled with `moved` (`cancelling.cancel_attendee`), which leaves out that
+  one text and nothing else. The invite is withdrawn, and the host's and the
+  residents' notices are those of any cancellation. A real cancellation by the
+  lead still texts them.
 - Up to the start. A prospect cancelling after it is refused with 409
   `started`; so is the team (409 on its routes).
 - Twice is safe: a second call finds nothing booked, changes nothing and
@@ -698,6 +712,11 @@ something:
 | captured (capture mode has no report) or skipped | released at once |
 | refused or otherwise failed, or cancelled | cancelled; the booking is marked for the team |
 | pending, or unknown for less than 5 minutes | left held |
+
+A confirmation or an invite for a place the lead agent booked also waits,
+whatever its time, until the reply that books the place is settled: sent, or
+possibly sent (see Showings booked by email). Such a row stays as it is, and
+counts as stuck ten minutes after it was due, so the team is alerted.
 
 The status is read from Quo through `outbox.refresh_text_status`.
 `holds.send_pending(now=)` runs, in order, `release_held`,
@@ -814,32 +833,69 @@ table of which decision does what, and the order around a send).
   go in one transaction; it cancels the place with
   reason `reply_not_sent` when Gmail refused it (its notices are stopped
   before they go, so there is nothing to undo), or marks it `reply_uncertain`
-  when the send's result is unknown.
+  and saves `lead_reply_uncertain_at` when the send's result is unknown.
 - A thread holds at most one upcoming place per unit. Confirming another time
-  there books the new one first and cancels the old one (reason `prospect`)
-  after the send; a cancellation in the thread cancels with reason `prospect`
-  (`cancelling.cancel_attendee`), with the same texts to the residents and the
-  host as any cancellation. Every step is safe to repeat.
+  there books the new one first and cancels the old one (reason `prospect`,
+  with no text to the lead) after the send; a cancellation in the thread
+  cancels with reason `prospect` (`cancelling.cancel_attendee`), with the same
+  texts to the lead, the residents and the host as any cancellation. Every
+  step is safe to repeat.
 - `plan_reply` says what sending a reply would do without changing anything;
   the lead agent puts it on the send card, holds a card whose statement went
   stale, and applies nothing when a person sends edited words.
 - A place is in one of three states: never sent (cleaned up), sent
   (`lead_reply_sent_at`: kept, whatever happens to the reply's card
-  afterwards) or uncertain (`reply_uncertain`: kept and marked). A place this
-  conversation booked and never sent (`lead_conversation_id`, no details,
-  neither sent nor uncertain) is still the reply's own booking: a later
-  approval recovers it, and a definite send failure, a rejection or an edited
-  send cancels it. A place booked through the lead's link, by an earlier sent
-  reply, or whose own reply was sent, never is.
+  afterwards) or uncertain (`lead_reply_uncertain_at`: kept and marked; the
+  mark itself, `reply_uncertain`, gives way to one about the confirmation
+  text). A place this conversation booked and never sent
+  (`lead_conversation_id`, not completed through the link, neither sent nor
+  uncertain: `delivery_checks.reply_unsettled`) is still the reply's own
+  booking: a later approval recovers it, and a definite send failure, a
+  rejection or an edited send cancels it. A place booked through the lead's
+  link, by an earlier sent reply, or whose own reply was sent, never is.
+
+A moved showing keeps the lead's details (`lead_bookings._moving`). When a
+place being moved has them (a mobile, an email and recorded consent to texts)
+and its number is not known to be wrong (`attention_reason` is neither
+`confirmation_undelivered` nor `confirmation_refused`), the new place takes
+over the name, mobile, email, the consent record (accepted, when, version,
+page, as given then) and the requirement confirmations. Its source is
+`lead_agent`. What says how the old place was completed (the link's token, the
+browser) stays with the old one. Otherwise the new place is provisional. With
+several old places, the one with the latest consent counts. The old places are
+read again under the booking locks; one that changed meanwhile holds the reply
+(`place_changed`) to be approved again.
+
+- The confirmation text says it is a move: the new day, time and place, the
+  showing it replaces, the cancel link and the STOP line
+  (`wording.moved_confirmation_text`, version `MOVED_VERSION`, the same kind
+  of notice as any confirmation). The invite waits behind its delivery.
+- Nothing reaches the lead before the reply is settled. The text and the invite
+  are held like the place's other notices and go when the reply is sent, or
+  after the five minutes when its result is uncertain. Beyond that hold they
+  never go while the reply is unsettled, and neither does a reminder, an apply
+  text or a cancellation text about the place. A process that stopped before
+  the send therefore texts the lead nothing until a person decides the card.
+  The run every minute leaves such a text and invite out before its limit, so
+  they never hold up other messages, and stops them once the showing starts.
+- A definite failure cancels the place before anything went, with no text.
+- If Quo refuses the number, or the text is undelivered, the place stands,
+  marked for the team (`confirmation_refused`, `confirmation_undelivered`), and
+  the invite is not sent. The host's event and the residents' text do not wait
+  for the text. The reminder the evening before then goes by email.
 
 The lead adds their details (`lead_details.py`). The reply's link carries the
 thread's token; on that unit's page the web app's loader asks
 `POST /units/{unit}/lead-booking` with the token in the body. When the thread
 holds a provisional place there (source `lead_agent`, no consent saved yet,
 scheduled and ahead), the page shows that time and the usual form without
-the picker. `POST /units/{unit}/lead-booking/details` checks the fields and
-ticks as for a page booking, Turnstile, the page's limits (not counting this
-place), then under the locks (shared booking lock, mobile, email, thread)
+the picker. With none but a place that has the details (completed, booked
+through the link, or kept from a move whose reply is settled), the page says
+"You're booked", with when and where and that the text has a link to cancel.
+With neither, it is the normal form.
+
+`POST /units/{unit}/lead-booking/details` checks the fields and ticks as for a
+page booking, Turnstile, the page's limits (not counting this place), then under the locks (shared booking lock, mobile, email, thread)
 saves the details and the consent record on the same attendee and queues the
 confirmation text with the invite held behind it, plus a host event update
 held behind it when the host's event already went out. The confirmation is
@@ -847,7 +903,8 @@ delivered at once; the held notices are released by the usual rules. If Quo
 refuses the number, the details are undone, the held notices stopped, and the
 place stays booked (422 `number_refused`, so another number can be tried). A
 completed place answers 409 `already_completed`. Neither route returns
-anything about the host or anyone else booked.
+anything about the host or anyone else booked, and the first returns no name
+and no cancel token.
 
 The Showings section marks such a place "Booked by email with the lead agent"
 with "details not added yet" or "details added" (`details_pending`) and a
@@ -868,7 +925,7 @@ missed evening while the showing is still ahead.
 
 | Reminder | Kind | Goes to | Says |
 | --- | --- | --- | --- |
-| The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong | when, where, and the cancel link |
+| The prospect's | `prospect_reminder`, one per booking | someone still booked, with a mobile, who accepted texts and whose number is not known to be wrong (and not for a place whose lead agent's reply is not settled) | when, where, and the cancel link |
 | The residents' | `resident_reminder`, one per unit and day (recipient key `residents:<day>`) | the unit's residents, found afresh that evening by the announcement's own lookup, one group text for roommates | the times of the next day's scheduled showings there, in order |
 | A lead's, by email | `lead_email_reminder`, one per booking, channel `email` | a place the Zillow lead agent booked in an email thread whose confirming reply was sent (`lead_reply_sent_at`), for a lead with no mobile we text; only while `lead_agent_uses_open_times` is on | when, where, the cancel link, and the lead's own link to add their details, as a plain-text reply in their Zillow thread |
 
@@ -1249,6 +1306,14 @@ production, a live send to a test recipient once across repeated runs, Gmail's
 answers, the live sender refusing under pytest and its own logic with Gmail
 mocked; and the Messages list.
 
+`test_zillow_lead_moves.py` covers a showing moved by email that keeps the
+lead's details: what the new place takes over; the moved text and the invite
+waiting for the send, past the hold too; a refused, an uncertain and an
+interrupted send; a refused or undelivered number; no cancellation text for the
+old place and one for a real cancellation; when the details are not kept; the
+old place changing meanwhile; the link's "You're booked" state and what it
+never shows; and the lead's own showing left out of what they are offered.
+
 `test_showing_daily_texts.py` covers the host's morning text (at 7:59 and
 8:00, after a missed morning and past noon, one and three showings, an agent
 hosting none, an agent without a mobile, a showing cancelled before and after
@@ -1270,4 +1335,5 @@ logged with the step's name.
 ## Later steps
 
 - A text to the team when a connection is lost; today it is an error-level log.
-- The lead policy's line about the details link, with an eval run.
+- The lead policy's sentence for a moved showing that keeps the lead's details
+  (no details line then), with an eval run.
