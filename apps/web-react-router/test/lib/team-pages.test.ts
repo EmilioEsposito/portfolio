@@ -101,6 +101,7 @@ test("the admin's pages show only to the admin", () => {
   for (const url of ["/team/chat", "/team/leads", "/team/tenants", "/team/scheduler", "/team/hitl-chat", "/team/hitl-queue"]) {
     assert.ok(everyone.includes(url), url);
   }
+  assert.ok(everyone.includes("/team/tasks"));
   for (const section of TEAM_SECTIONS) assert.ok(section.description.length > 0, section.url);
 });
 

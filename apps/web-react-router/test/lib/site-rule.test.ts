@@ -150,6 +150,8 @@ const TEAM_CALLS: Record<(typeof TEAM_API_PATHS)[number], string[]> = {
   "/api/rental-listings": ["/api/rental-listings"],
   "/api/rental-listings/": ["/api/rental-listings/history?limit=50", "/api/rental-listings/listings/900-01"],
   "/api/zillow-leads/settings": ["/api/zillow-leads/settings"],
+  "/api/team-tasks": ["/api/team-tasks"],
+  "/api/team-tasks/": ["/api/team-tasks/clickup/86abc1/status", "/api/team-tasks/quo/TKone/status"],
   "/api/contacts/slug/sernia": ["/api/contacts/slug/sernia"],
   "/api/open_phone/tenants": ["/api/open_phone/tenants"],
   "/api/open_phone/send_message": ["/api/open_phone/send_message"],
@@ -245,6 +247,7 @@ test("the team's pages are at the addresses the backend links to", () => {
   for (const path of [
     "/team",
     "/team/chat",
+    "/team/tasks",
     "/team/settings",
     "/team/admin",
     "/team/tenants",

@@ -47,6 +47,9 @@ export const TEAM_API_PATHS = [
   "/api/rental-listings/",
   // The lead agent's settings.
   "/api/zillow-leads/settings",
+  // Tasks: the open ClickUp and Quo tasks, and completing one.
+  "/api/team-tasks",
+  "/api/team-tasks/",
   // Message tenants: the sender's contact, the tenants, and sending.
   "/api/contacts/slug/sernia",
   "/api/open_phone/tenants",

@@ -49,6 +49,7 @@ is the URL prefix of each package's routes; "none" means it serves no routes.
 | `sernia_ai/` | Sernia | `/api/sernia-ai` |
 | `showing_bookings/` | Sernia | `/api/showing-bookings` |
 | `task_ai/` | Sernia | none; a concept note |
+| `team_tasks/` | Sernia | `/api/team-tasks` (the team's Tasks page: open ClickUp and Quo tasks) |
 | `zillow_leads/` | Sernia | `/api/zillow-leads`, `/api/sernia-ai/zillow-leads` |
 | `apscheduler_service/` | Shared | `/api/apscheduler` |
 | `cron.py` | Shared | `/api/cron` |

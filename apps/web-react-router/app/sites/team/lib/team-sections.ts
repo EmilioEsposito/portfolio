@@ -5,6 +5,7 @@ import {
   Home,
   Inbox,
   LayoutList,
+  ListChecks,
   MessagesSquare,
   Settings,
   ShieldCheck,
@@ -44,6 +45,12 @@ export const TEAM_SECTIONS: TeamSection[] = [
     description: "Zillow leads: listing data, the agent's settings and showing bookings.",
     url: "/team/leads",
     icon: Inbox,
+  },
+  {
+    title: "Tasks",
+    description: "Open ClickUp maintenance tasks and Quo tasks: see them, and mark them complete.",
+    url: "/team/tasks",
+    icon: ListChecks,
   },
   {
     title: "Message tenants",
