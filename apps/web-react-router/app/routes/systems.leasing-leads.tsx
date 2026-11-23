@@ -6,7 +6,7 @@ const tabs = [
   { to: "/systems/leasing-leads", label: "Architecture", public: true },
   { to: "/systems/leasing-leads/listings", label: "Rental listing data" },
   { to: "/systems/leasing-leads/settings", label: "Agent settings" },
-  { to: "/systems/leasing-leads/bookings", label: "Booking settings", upcoming: true },
+  { to: "/systems/leasing-leads/bookings", label: "Booking settings" },
 ];
 
 export default function ZillowLeadsLayout() {
@@ -32,7 +32,6 @@ export default function ZillowLeadsLayout() {
             )}
           >
             {tab.label}
-            {tab.upcoming && <span className="rounded border border-dashed px-1.5 py-0.5 text-[10px] font-normal">In progress</span>}
           </NavLink>
         ))}
       </nav>
