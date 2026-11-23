@@ -1,5 +1,10 @@
 # HITL (Human-in-the-Loop) Agents
 
+A Sernia staff demo, not part of the public portfolio: every route requires a
+Sernia sign-in (`SerniaUser`), and approved messages go out as real SMS through
+Quo. It keeps its `/api/ai-demos/hitl-agent/*` URLs; `api/index.py` mounts it.
+The public eesposito.com demos are in [`../portfolio/`](../portfolio/README.md).
+
 Agents with tools that require user approval before execution.
 
 ## How It Works
@@ -12,6 +17,7 @@ Agents with tools that require user approval before execution.
 
 - `hitl_sms_agent.py` - SMS agent with `send_sms` tool (`requires_approval=True`)
 - `routes.py` - API endpoints for chat, approval, and history
+- `agent_run_patching.py` - Saves each `hitl_sms_agent.run()` result to the conversation store
 
 ## Key Exports
 
