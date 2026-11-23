@@ -16,6 +16,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "~/components/ui/sidebar";
+import { NotificationsButton, NotificationsSidebarItem } from "~/sites/team/components/team-device";
 import { TeamWordmark } from "~/sites/team/components/team-wordmark";
 import { isTeamAdmin } from "~/sites/team/lib/team-access";
 import { isCurrentSection, TEAM_HOME, visibleSections } from "~/sites/team/lib/team-sections";
@@ -71,14 +72,16 @@ export function TeamNavItems() {
   );
 }
 
-/** The account button, and a link to the public site. */
+/** Where notifications stand on this device, a link to the public site, and the account button. */
 export function TeamAccount() {
   const data = useRouteLoaderData(TEAM_LAYOUT_ROUTE) as TeamLayoutData | undefined;
   const { user } = useUser();
   const { state, isMobile } = useSidebar();
   const collapsed = state === "collapsed" && !isMobile;
+  const close = useCloseOnPhone();
   return (
     <SidebarMenu>
+      <NotificationsSidebarItem onOpen={close} />
       {data?.publicSiteHref && (
         <SidebarMenuItem>
           <SidebarMenuButton asChild tooltip="Public site">
@@ -133,7 +136,7 @@ export function TeamSidebar() {
   );
 }
 
-/** The bar above a team page: on a phone, the menu button and the wordmark. */
+/** The bar above a team page: on a phone, the menu button, the wordmark and the notifications bell. */
 export function TeamTopBar() {
   const { toggleSidebar } = useSidebar();
   return (
@@ -143,6 +146,7 @@ export function TeamTopBar() {
         <span className="sr-only">Open the team menu</span>
       </Button>
       <TeamWordmark linked className="text-sm [&_svg]:size-6" />
+      <NotificationsButton word className="ml-auto" />
     </div>
   );
 }

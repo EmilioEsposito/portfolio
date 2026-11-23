@@ -6,8 +6,10 @@ import type { Route } from "./+types/layout";
 import { EnvBanner } from "~/components/env-banner";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { retireRootServiceWorkerOnce } from "~/lib/retire-root-service-worker";
+import { TeamDeviceBanner, TeamDeviceProvider } from "~/sites/team/components/team-device";
 import { TeamGuard } from "~/sites/team/components/team-guard";
 import { TeamSidebar, TeamTopBar, type TeamLayoutData } from "~/sites/team/components/team-nav";
+import { keepInstallPrompt } from "~/sites/team/lib/install-prompt";
 import { isSerniaHomeRequest, isSerniaHost, rootRequestMode } from "~/sites/site";
 
 // The layout of every team page (/team and /team/*). Each page under it sits
@@ -60,6 +62,8 @@ export default function TeamLayout() {
   const root = useRouteLoaderData("root") as ClerkRootData | undefined;
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
   useEffect(retireRootServiceWorkerOnce, []);
+  // The browser may offer its install prompt before anyone has signed in.
+  useEffect(() => keepInstallPrompt(), []);
   const banner = <EnvBanner railwayEnvironmentName={root?.railwayEnvironmentName} />;
 
   // The only Clerk provider on the site, in the team's own layout so that no
@@ -74,22 +78,27 @@ export default function TeamLayout() {
 function TeamPages({ banner, ownSidebar }: { banner: React.ReactNode; ownSidebar: boolean }) {
   return (
     <TeamGuard banner={banner}>
-      <OpeningLine />
-      {ownSidebar ? (
-        <>
-          {banner}
-          <Outlet />
-        </>
-      ) : (
-        <SidebarProvider>
-          <TeamSidebar />
-          <SidebarInset className="min-w-0 overflow-x-clip">
+      {/* One notification subscription and one set of reminders for every team page. */}
+      <TeamDeviceProvider>
+        <OpeningLine />
+        {ownSidebar ? (
+          <>
             {banner}
-            <TeamTopBar />
+            {/* A page with its own sidebar fills the screen, so it places TeamDeviceBanner itself. */}
             <Outlet />
-          </SidebarInset>
-        </SidebarProvider>
-      )}
+          </>
+        ) : (
+          <SidebarProvider>
+            <TeamSidebar />
+            <SidebarInset className="min-w-0 overflow-x-clip">
+              {banner}
+              <TeamTopBar />
+              <TeamDeviceBanner />
+              <Outlet />
+            </SidebarInset>
+          </SidebarProvider>
+        )}
+      </TeamDeviceProvider>
     </TeamGuard>
   );
 }

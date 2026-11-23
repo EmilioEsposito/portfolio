@@ -73,7 +73,7 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 
 - **Use separate keypairs per environment** during recovery to limit exposure across environments. Keep each private/public pair together and renew browser subscriptions after changing it. For private capture without printing keys, use the [credential recovery playbook](../../../../docs/credentials/README.md); do not run the legacy print-to-terminal generator in an agent session.
 - **localhost vs deployed**: Different browser origins = completely separate push subscriptions. Subscribing on localhost won't affect prod.
-- **Duplicate notifications**: You'll only get notified by environments where you clicked the bell icon. A conversation on prod doesn't exist on dev, so no duplicates.
+- **Duplicate notifications**: You'll only get notified by environments where you turned notifications on. A conversation on prod doesn't exist on dev, so no duplicates.
 
 ## Files
 
@@ -81,10 +81,13 @@ Output is in `.env`-ready format — copy directly into local `.env` and Railway
 |------|---------|
 | `models.py` | `WebPushSubscription` SQLAlchemy model — stores browser push endpoints |
 | `service.py` | Subscription CRUD + targeted response push, and team-wide approval/alert push |
-| `routes.py` | 3 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe` |
-| `apps/web-react-router/public/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
-| `apps/web-react-router/public/manifest.json` | PWA manifest — enables "Add to Home Screen" on mobile |
-| `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe |
+| `routes.py` | 4 endpoints: `GET /push/vapid-public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test` |
+| `apps/web-react-router/public/team/sw.js` | Service worker — handles focus-aware push display and notification deeplinks (no caching) |
+| `apps/web-react-router/public/team/manifest.json` | PWA manifest and its 192 and 512 pixel icons — lets a browser offer installing, and "Add to Home Screen" on iOS |
+| `apps/web-react-router/app/sites/team/hooks/use-push-notifications.ts` | React hook for SW registration, permission, subscribe/unsubscribe. One instance for all team pages |
+| `apps/web-react-router/app/sites/team/components/team-device.tsx` | What every team page shows: the bell with its status, the panel with the buttons, and the banner that asks |
+| `apps/web-react-router/app/sites/team/lib/team-device.ts` | What the device can do, where notifications stand on it, and which reminder to show (no React) |
+| `apps/web-react-router/app/sites/team/lib/install-prompt.ts` | Keeps the browser's own install prompt (Chrome, Edge) until a page offers it |
 
 ## Endpoints
 
@@ -95,17 +98,37 @@ All under `/api/sernia-ai/push/`, gated by `_sernia_gate` (requires `@serniacapi
 | `/push/vapid-public-key` | GET | Returns VAPID public key for `PushManager.subscribe()` |
 | `/push/subscribe` | POST | Saves browser push subscription to DB |
 | `/push/unsubscribe` | POST | Removes subscription |
+| `/push/test` | POST | Sends a test notification to the caller's own devices, nobody else's |
+
+## What a team page shows
+
+Every team page carries a bell with a dot and a word: green "On", red "Off" or
+"Blocked", grey where the browser cannot notify. The bell reports; it never
+switches anything. It opens a panel whose buttons are named for what they do
+("Turn on notifications", "Send a test", "Turn off", "Install app").
+
+Until notifications are on, a banner on every team page asks: on Android and
+desktop its button brings up the browser's own permission prompt; on an iPhone
+or iPad in a browser tab it opens the Add to Home Screen steps; where the
+browser has blocked the site it explains how to allow it. Once notifications
+are on, a phone whose browser offers installing gets an "Install app" banner
+(the browser's own prompt). "Not now" puts a banner away for a week, the
+second time for good. Turning notifications off in the panel puts it away at
+once. The choice is kept in the browser (`sernia-team-reminders`).
 
 ## iOS Notes
 
 - Web Push only works on **iOS Safari 16.4+** when installed as a **standalone PWA** (Add to Home Screen)
 - The `manifest.json` + `apple-mobile-web-app-capable` meta tag in `root.tsx` enables this
-- The React hook detects iOS + non-standalone → shows "Install app for notifications" hint
+- An iPhone's browser tab has no `PushManager` at all, so iOS in a tab is checked for before push support: it is asked to use the Home Screen, never told its browser cannot notify
+- iOS shows its permission prompt only while handling a tap, so the hook asks for permission first thing in the click
+- An iPad's desktop-style user agent is recognized by its touch screen; iOS before 16.4 is told it cannot notify
 
 ## Debugging
 
-- **Chrome DevTools** → Application → Service Workers: verify `sw.js` registered
-- **Chrome DevTools** → Application → Manifest: verify `manifest.json` detected
+- **Chrome DevTools** → Application → Service Workers: verify `/team/sw.js` registered
+- **Chrome DevTools** → Application → Manifest: verify `/team/manifest.json` detected and installable
+- **"Send a test"** in the notifications panel pushes to the signed-in user's devices only
 - **DB check**: `SELECT * FROM web_push_subscriptions;` to see active subscriptions
 - **Push not arriving?**: Check `VAPID_PRIVATE_KEY` is set, check Logfire for `web push send error`
 - **404/410, or VAPID key mismatch after a key rotation**: subscription can never succeed again — auto-cleaned by `notify_all_sernia_users` / `notify_user_push` (logged as `web push subscription expired` with a `reason`)

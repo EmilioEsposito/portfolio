@@ -156,6 +156,15 @@ test("the installed app and its service worker belong to /team", () => {
   // Without the trailing slash, so the installed app also counts the team home
   // at /team as its own page.
   assert.equal(manifest.scope, "/team");
+  // A browser offers to install only with icons of the sizes it asks for,
+  // and each is the size the manifest says it is (read from the PNG header).
+  for (const size of [192, 512]) {
+    const icon = manifest.icons.find((entry: { sizes: string }) => entry.sizes === `${size}x${size}`);
+    assert.ok(icon, `a ${size}px icon`);
+    const png = readFileSync(new URL(icon.src.slice(1), PUBLIC));
+    assert.equal(png.readUInt32BE(16), size);
+    assert.equal(png.readUInt32BE(20), size);
+  }
 });
 
 type FakeRegistration = {

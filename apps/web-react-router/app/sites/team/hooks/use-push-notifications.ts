@@ -7,6 +7,7 @@ import {
   TEAM_SERVICE_WORKER_URL,
   whenActive,
 } from "~/sites/team/lib/push-subscription";
+import { readDevice, type DeviceFacts } from "~/sites/team/lib/team-device";
 
 const API_BASE = "/api/sernia-ai";
 
@@ -24,42 +25,50 @@ async function fetchPublicKey(token: string): Promise<string> {
   return publicKey;
 }
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<{ outcome: "accepted" | "dismissed" }>;
-}
+/** What went wrong with the last thing the person asked for, in words for them. */
+export type PushFailure = "turn-on" | "turn-off";
 
-interface PushNotificationState {
-  isSupported: boolean;
+export interface PushNotificationState {
+  /** What this browser can do; null until the page has opened in it. */
+  device: DeviceFacts | null;
   permission: NotificationPermission | "unsupported";
   isSubscribed: boolean;
-  isLoading: boolean;
-  needsInstall: boolean;
-  /** "safari" | "chrome" | null — which iOS browser, for install instructions */
-  iosBrowser: "safari" | "chrome" | null;
-  /** True when push is available but user hasn't subscribed yet — show a prompt */
-  shouldPrompt: boolean;
-  /** True when the browser offers a PWA install prompt (Android Chrome) */
-  canInstall: boolean;
-  subscribe: () => Promise<void>;
-  unsubscribe: () => Promise<void>;
-  /** Trigger the browser's native PWA install prompt (Android Chrome) */
-  promptInstall: () => Promise<void>;
+  /** The subscription has been checked against the signed-in user at least once. */
+  checked: boolean;
+  /** Turning on or off is under way, after the person asked for it. */
+  busy: boolean;
+  failure: PushFailure | null;
+  /** Resolves true once this device is subscribed for the signed-in user. */
+  subscribe: () => Promise<boolean>;
+  /** Resolves true once this device is no longer subscribed. */
+  unsubscribe: () => Promise<boolean>;
+  /** Reads the browser's permission again, after the person changed it in its settings. */
+  recheckPermission: () => void;
+  /** Sends a test notification to the signed-in user's own devices. */
+  sendTest: () => Promise<boolean>;
 }
 
+/** Push works in this browser as it is opened now (on iOS, only from the Home Screen). */
+function canPush(device: DeviceFacts | null): device is DeviceFacts {
+  return device !== null && device.pushSupported && !(device.ios && !device.standalone);
+}
+
+/**
+ * This browser's notification subscription for the signed-in team member.
+ * One instance serves every team page (see TeamDeviceProvider): two would
+ * race each other over the same subscription.
+ */
 export function usePushNotifications(): PushNotificationState {
   const { getToken, isSignedIn, userId } = useAuth();
-  const [isSupported, setIsSupported] = useState(false);
+  const [device, setDevice] = useState<DeviceFacts | null>(null);
   const [permission, setPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [needsInstall, setNeedsInstall] = useState(false);
-  const [iosBrowser, setIosBrowser] = useState<"safari" | "chrome" | null>(
-    null,
-  );
-  const [canInstall, setCanInstall] = useState(false);
-  const deferredInstallPrompt = useRef<BeforeInstallPromptEvent | null>(null);
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<PushFailure | null>(null);
+  const usable = canPush(device);
   // Clerk can transition directly between identities. Serialize subscription
   // ownership updates so an older user's request cannot finish last and take
   // the endpoint back from the current user.
@@ -74,56 +83,39 @@ export function usePushNotifications(): PushNotificationState {
     return task;
   }, []);
 
-  // Capture the beforeinstallprompt event (Android Chrome / desktop Chrome)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handler = (e: Event) => {
-      e.preventDefault(); // Prevent Chrome's default mini-infobar
-      deferredInstallPrompt.current = e as BeforeInstallPromptEvent;
-      setCanInstall(true);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+  const recheckPermission = useCallback(() => {
+    if (typeof Notification !== "undefined") setPermission(Notification.permission);
   }, []);
 
-  // Check platform support on mount. Subscription ownership is reconciled in
-  // the identity-aware effect below rather than inferred from browser state.
+  // What the browser can do, read once the page is open in it. Whose the
+  // subscription is gets settled in the identity-aware effect below, not
+  // inferred from browser state.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const supported = "serviceWorker" in navigator && "PushManager" in window;
-    setIsSupported(supported);
-
-    if (!supported) return;
-
-    // iOS detection: Web Push requires standalone mode (Add to Home Screen)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator &&
-        (navigator as { standalone?: boolean }).standalone === true);
-
-    if (isIOS && !isStandalone) {
-      setNeedsInstall(true);
-      // CriOS = Chrome on iOS, everything else on iOS is Safari WebKit
-      setIosBrowser(/CriOS/.test(navigator.userAgent) ? "chrome" : "safari");
+    const facts = readDevice(navigator, window, window);
+    setDevice(facts);
+    if (!canPush(facts)) {
+      // Nothing to check: it cannot be subscribed here.
+      setChecked(true);
       return;
     }
-
-    setPermission(Notification.permission);
-  }, []);
+    recheckPermission();
+    // The permission changes outside the page, in the browser's settings;
+    // coming back to the page is when to look again.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") recheckPermission();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [recheckPermission]);
 
   // A PushSubscription belongs to the signed-in Clerk identity, not merely to
   // the browser profile. Re-assert that mapping on mount/account changes and
   // invalidate it locally on logout. Unknown or mismatched legacy ownership is
   // rotated instead of risking delivery of another user's private alerts.
   useEffect(() => {
-    if (!isSupported || needsInstall) return;
+    if (!usable) return;
 
     let cancelled = false;
-    setIsLoading(true);
     const updateSubscribed = (value: boolean) => {
       if (!cancelled) setIsSubscribed(value);
     };
@@ -197,26 +189,27 @@ export function usePushNotifications(): PushNotificationState {
         updateSubscribed(false);
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) setChecked(true);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [
-    enqueuePushOperation,
-    getToken,
-    isSignedIn,
-    isSupported,
-    needsInstall,
-    userId,
-  ]);
+  }, [enqueuePushOperation, getToken, isSignedIn, usable, userId]);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || isLoading || !isSignedIn || !userId) return;
-    setIsLoading(true);
+    if (!usable || busy || !isSignedIn || !userId) return false;
+    setBusy(true);
+    setFailure(null);
 
     try {
+      // Asked first, straight from the click: iOS shows its prompt only while
+      // handling a tap, and the queue below may wait on an earlier check.
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm !== "granted") return false;
+
+      let subscribed = false;
       await enqueuePushOperation(async () => {
         // Register service worker
         const registration = await navigator.serviceWorker.register(
@@ -224,11 +217,6 @@ export function usePushNotifications(): PushNotificationState {
           { scope: TEAM_SERVICE_WORKER_SCOPE },
         );
         await whenActive(registration);
-
-        // Request notification permission
-        const perm = await Notification.requestPermission();
-        setPermission(perm);
-        if (perm !== "granted") return;
 
         // Fetch VAPID public key
         const token = await getToken();
@@ -275,24 +263,22 @@ export function usePushNotifications(): PushNotificationState {
 
         localStorage.setItem(PUSH_USER_STORAGE_KEY, userId);
         setIsSubscribed(true);
+        subscribed = true;
       });
+      return subscribed;
     } catch (err) {
       console.error("Push subscribe error:", err);
+      setFailure("turn-on");
+      return false;
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
-  }, [
-    enqueuePushOperation,
-    getToken,
-    isLoading,
-    isSignedIn,
-    isSupported,
-    userId,
-  ]);
+  }, [busy, enqueuePushOperation, getToken, isSignedIn, usable, userId]);
 
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || isLoading) return;
-    setIsLoading(true);
+    if (!usable || busy) return false;
+    setBusy(true);
+    setFailure(null);
 
     try {
       await enqueuePushOperation(async () => {
@@ -333,39 +319,46 @@ export function usePushNotifications(): PushNotificationState {
         localStorage.removeItem(PUSH_USER_STORAGE_KEY);
         setIsSubscribed(false);
       });
+      return true;
     } catch (err) {
       console.error("Push unsubscribe error:", err);
+      // The browser's own subscription ends before the API is told, so a
+      // failure here can leave this device off already.
+      const registration = await navigator.serviceWorker
+        .getRegistration(TEAM_SERVICE_WORKER_SCOPE)
+        .catch(() => undefined);
+      const left = (await registration?.pushManager.getSubscription().catch(() => null)) ?? null;
+      if (left) setFailure("turn-off");
+      return left === null;
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
-  }, [enqueuePushOperation, getToken, isLoading, isSupported]);
+  }, [busy, enqueuePushOperation, getToken, usable]);
 
-  const promptInstall = useCallback(async () => {
-    if (!deferredInstallPrompt.current) return;
-    const { outcome } = await deferredInstallPrompt.current.prompt();
-    if (outcome === "accepted") {
-      setCanInstall(false);
-      deferredInstallPrompt.current = null;
+  const sendTest = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return false;
+      const response = await fetch(`${API_BASE}/push/test`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return response.ok;
+    } catch {
+      return false;
     }
-  }, []);
-
-  // Show a prompt when push is available but user hasn't opted in yet.
-  // On desktop/Android: supported + not subscribed + permission not yet denied
-  // On iOS standalone: same (needsInstall is false once installed)
-  const shouldPrompt =
-    isSupported && !needsInstall && !isSubscribed && permission !== "denied";
+  }, [getToken]);
 
   return {
-    isSupported,
+    device,
     permission,
     isSubscribed,
-    isLoading,
-    needsInstall,
-    iosBrowser,
-    shouldPrompt,
-    canInstall,
+    checked,
+    busy,
+    failure,
     subscribe,
     unsubscribe,
-    promptInstall,
+    recheckPermission,
+    sendTest,
   };
 }

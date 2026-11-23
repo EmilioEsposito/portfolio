@@ -8,7 +8,7 @@ import { useAuth, useUser } from "@clerk/react-router";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useScrollToBottom } from "~/sites/team/hooks/use-scroll-to-bottom";
-import { usePushNotifications } from "~/sites/team/hooks/use-push-notifications";
+import { NotificationsButton, TeamDeviceBanner } from "~/sites/team/components/team-device";
 import { useVisualViewportHeight } from "~/sites/team/hooks/use-visual-viewport-height";
 import {
   usePullToRefresh,
@@ -30,10 +30,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Bell,
-  BellOff,
-  Share,
-  Download,
   Phone,
   Upload,
   Menu,
@@ -2050,16 +2046,14 @@ function SystemInstructionsView({
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Chat header with sidebar toggle, admin tabs, push notifications
+// Chat header with sidebar toggle, admin tabs, the notifications bell
 // ---------------------------------------------------------------------------
 
 function ChatHeader({
   isAdmin,
-  push,
   onNewConversation,
 }: {
   isAdmin: boolean;
-  push: ReturnType<typeof usePushNotifications>;
   onNewConversation: () => void;
 }) {
   const { toggleSidebar, isMobile } = useSidebar();
@@ -2085,39 +2079,7 @@ function ChatHeader({
         )}
       </div>
       <div className="flex items-center gap-0.5 shrink-0">
-        {push.isSupported && !push.needsInstall && (
-          <Button
-            variant={push.shouldPrompt ? "outline" : "ghost"}
-            size="icon"
-            className={cn("h-8 w-8", push.shouldPrompt && "animate-pulse")}
-            onClick={push.isSubscribed ? push.unsubscribe : push.subscribe}
-            disabled={push.isLoading || push.permission === "denied"}
-            title={
-              push.permission === "denied"
-                ? "Notifications blocked — update browser settings"
-                : push.isSubscribed
-                  ? "Disable push notifications"
-                  : "Enable push notifications"
-            }
-          >
-            {push.isSubscribed ? (
-              <Bell className="w-4 h-4" />
-            ) : (
-              <BellOff className="w-4 h-4 text-muted-foreground" />
-            )}
-          </Button>
-        )}
-        {push.canInstall && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={push.promptInstall}
-            title="Install Sernia Capital app"
-          >
-            <Download className="w-4 h-4" />
-          </Button>
-        )}
+        <NotificationsButton />
         <Button
           variant="ghost"
           size="icon"
@@ -2165,7 +2127,6 @@ export default function SerniaChatPage() {
   );
   const [conversationModality, setConversationModality] =
     useState<string>("web_chat");
-  const push = usePushNotifications();
   const intendedConversationIdRef = useRef(conversationId);
   const conversationLoadGenerationRef = useRef(0);
   const conversationLoadAbortRef = useRef<AbortController | null>(null);
@@ -2414,21 +2375,10 @@ export default function SerniaChatPage() {
           >
             <ChatHeader
               isAdmin={isAdmin}
-              push={push}
               onNewConversation={startNewConversation}
             />
 
-            {/* iOS install banner */}
-            {push.needsInstall && (
-              <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/50 text-xs text-muted-foreground">
-                <Share className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  {push.iosBrowser === "chrome"
-                    ? "For notifications: tap Share (top right) → Add to Home Screen"
-                    : "For notifications: tap Share (bottom center) → Add to Home Screen"}
-                </span>
-              </div>
-            )}
+            <TeamDeviceBanner />
 
             <TabsContent
               value="chat"
