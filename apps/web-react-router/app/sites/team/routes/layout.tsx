@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { data, Outlet, useMatches, useRouteLoaderData } from "react-router";
+import { data, Outlet, useMatches, useNavigation, useRouteLoaderData } from "react-router";
 
 import type { Route } from "./+types/layout";
 import { EnvBanner } from "~/components/env-banner";
@@ -39,6 +39,18 @@ export function loader({ url }: Route.LoaderArgs): TeamLayoutData {
 /** Team pages that bring their own sidebar (the conversation sidebar) set this `handle`. */
 export type TeamPageHandle = { ownSidebar?: boolean };
 
+/** A line across the top from the moment a link is clicked until its page opens. */
+function OpeningLine() {
+  if (useNavigation().state === "idle") return null;
+  return (
+    <div
+      role="progressbar"
+      aria-label="Opening the page"
+      className="sernia-brand sernia-opening fixed inset-x-0 top-0 z-50 h-[3px] origin-left bg-sernia-sky"
+    />
+  );
+}
+
 export default function TeamLayout() {
   const root = useRouteLoaderData("root") as { railwayEnvironmentName?: string } | undefined;
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
@@ -47,6 +59,7 @@ export default function TeamLayout() {
 
   return (
     <TeamGuard banner={banner}>
+      <OpeningLine />
       {ownSidebar ? (
         <>
           {banner}
