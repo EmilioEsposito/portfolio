@@ -94,6 +94,7 @@ dev = [
     "ipython>=9.2.0",
     "ipykernel",
     "ruff>=0.15.20",
+    "pytest-xdist==3.8.0",
 ]
 
 [tool.uv]

@@ -205,5 +205,17 @@ jobs:
       - name: Seed database
         run: uv run python api/seed_db.py
 
+      - name: Clone the seeded database for each worker
+        env:
+          PGPASSWORD: portfolio
+        run: |
+          for worker in gw0 gw1; do
+            createdb -h localhost -U portfolio --template=portfolio "portfolio_$worker"
+          done
+
       - name: Run tests
-        run: uv run pytest -p no:cacheprovider --tb=short -q
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: >-
+          uv run pytest -p scripts.ci_pytest_worker -p no:cacheprovider
+          --tb=short -q --durations=20 -n 2 --dist=loadfile --max-worker-restart=0

@@ -624,6 +624,7 @@ async def test_a_disconnect_google_does_not_confirm_changes_nothing(api, google,
         ("lost", TOKEN_KEY, TOKEN_KEY, "calendar_lost"),
         ("revoked", None, TOKEN_KEY, "calendar_not_connected"),
     ],
+    ids=["wrong-key", "no-key", "lost", "revoked"],
 )
 async def test_an_unusable_connection_reads_as_unreadable_and_refuses_changes(
     google, monkeypatch, status, key, env_key, reason
