@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureCurrentPushSubscription } from "../../app/sites/team/lib/push-subscription.ts";
+import { ensureCurrentPushSubscription, whenActive } from "../../app/sites/team/lib/push-subscription.ts";
 
 const key = new Uint8Array([4, 251, 255, 19]);
 const encoded = Buffer.from(key).toString("base64url");
@@ -64,3 +64,50 @@ test("browser rejection is surfaced instead of reporting successful renewal", as
   await assert.rejects(ensureCurrentPushSubscription(f.manager, encoded), /user gesture/);
   assert.deepEqual(f.events, ["unsubscribe"]);
 });
+
+// A worker whose state the test moves along, as the browser would.
+function fakeWorker(state: ServiceWorkerState) {
+  const listeners = new Set<() => void>();
+  return {
+    state,
+    addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    become(next: ServiceWorkerState) {
+      this.state = next;
+      for (const listener of [...listeners]) listener();
+    },
+    listening: () => listeners.size,
+  };
+}
+const asWorker = (worker: ReturnType<typeof fakeWorker>) => worker as unknown as ServiceWorker;
+
+test("an active worker is ready at once", async () => {
+  const registration = { active: asWorker(fakeWorker("activated")), installing: null, waiting: null };
+  assert.equal(await whenActive(registration), registration);
+});
+
+test("a worker still installing is waited for, on a page it does not control", async () => {
+  // The team home at /team is outside the /team/ scope, so nothing here may
+  // depend on the page being controlled: only on this registration's worker.
+  const worker = fakeWorker("installing");
+  const registration = { active: null, installing: asWorker(worker), waiting: null };
+  let ready = false;
+  const waiting = whenActive(registration).then(() => (ready = true));
+  worker.become("installed");
+  await Promise.resolve();
+  assert.equal(ready, false);
+  worker.become("activating");
+  worker.become("activated");
+  await waiting;
+  assert.equal(ready, true);
+  assert.equal(worker.listening(), 0);
+});
+
+test("a worker that fails to install is reported, not waited for forever", async () => {
+  const worker = fakeWorker("installing");
+  const waiting = whenActive({ active: null, installing: asWorker(worker), waiting: null });
+  worker.become("redundant");
+  await assert.rejects(waiting, /did not install/);
+  await assert.rejects(whenActive({ active: null, installing: null, waiting: null }), /did not install/);
+});
+

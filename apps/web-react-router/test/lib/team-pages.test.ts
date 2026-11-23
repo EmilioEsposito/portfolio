@@ -153,7 +153,9 @@ test("the installed app and its service worker belong to /team", () => {
   assert.equal(existsSync(new URL("manifest.json", PUBLIC)), false);
   const manifest = JSON.parse(readFileSync(new URL("team/manifest.json", PUBLIC), "utf8"));
   assert.equal(manifest.start_url, "/team/chat");
-  assert.equal(manifest.scope, "/team/");
+  // Without the trailing slash, so the installed app also counts the team home
+  // at /team as its own page.
+  assert.equal(manifest.scope, "/team");
 });
 
 type FakeRegistration = {

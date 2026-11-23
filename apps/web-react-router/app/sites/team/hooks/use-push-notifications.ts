@@ -4,6 +4,7 @@ import {
   ensureCurrentPushSubscription,
   TEAM_SERVICE_WORKER_SCOPE,
   TEAM_SERVICE_WORKER_URL,
+  whenActive,
 } from "~/sites/team/lib/push-subscription";
 
 const API_BASE = "/api/sernia-ai";
@@ -222,7 +223,7 @@ export function usePushNotifications(): PushNotificationState {
           TEAM_SERVICE_WORKER_URL,
           { scope: TEAM_SERVICE_WORKER_SCOPE },
         );
-        await navigator.serviceWorker.ready;
+        await whenActive(registration);
 
         // Request notification permission
         const perm = await Notification.requestPermission();
@@ -295,8 +296,12 @@ export function usePushNotifications(): PushNotificationState {
 
     try {
       await enqueuePushOperation(async () => {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
+        // The team's own registration, which need not control this page.
+        const registration = await navigator.serviceWorker.getRegistration(
+          TEAM_SERVICE_WORKER_SCOPE,
+        );
+        const subscription =
+          (await registration?.pushManager.getSubscription()) ?? null;
 
         if (subscription) {
           const endpoint = subscription.endpoint;
