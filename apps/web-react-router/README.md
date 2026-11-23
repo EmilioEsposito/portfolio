@@ -1,6 +1,7 @@
 # Portfolio web app
 
-React Router v8 framework mode with React 19, Tailwind, Clerk, and a FastAPI backend.
+React Router v8 framework mode with React 19, Tailwind, Clerk (for the Sernia team's
+pages only), and a FastAPI backend.
 
 ## Development
 
@@ -23,6 +24,12 @@ The provisioner prints the assigned preview URL and configures the API proxy.
 One build serves eesposito.com and serniacapital.com, so the code is laid out by
 the site it serves. `~/` resolves to `app/`.
 
+| Domain | Serves | Sign-in |
+|---|---|---|
+| eesposito.com | The portfolio: home, AI demos, `/systems/*` write-ups (`/systems/leasing-leads` included), `/sitemap.xml`, `/robots.txt`. Everything else is the portfolio's 404, `/team` included. | None. No Clerk script and no Clerk request. |
+| serniacapital.com | Sernia's public pages (`/`, `/showings`, `/showings/*`, `/privacy`, `/sms-terms`), `/robots.txt` (disallows `/team`), and the team's pages under `/team`. Everything else is the Sernia 404. `www.serniacapital.com/team...` redirects (308) to the same address on `serniacapital.com`; the public pages answer on `www` as they are. | `/team` only. |
+| dev.eesposito.com, PR previews, localhost | The portfolio, the Sernia public pages at their paths, and `/team`, since the team's pages are served on any host outside production. | `/team` only. |
+
 ```text
 app/
   root.tsx                  the document and each site's shell
@@ -30,12 +37,13 @@ app/
   sites/
     site.ts                 which site answers a request (server.js and vite.config.ts use it too)
     root-request.server.ts  the root middleware and loader, per site
-    sernia-root.ts          whether a page is a Sernia page, as the browser reads it
+    sernia-root.ts          which site a page is, as the browser reads it
     home.tsx                `/`: the Sernia home page on a Sernia host, the portfolio's elsewhere
     not-found.tsx           unknown URLs, so a Sernia host answers its own 404
-    portfolio/              eesposito.com: public pages, AI demos, /systems write-ups
+    robots.txt.ts           robots.txt, by host
+    portfolio/              eesposito.com: public pages, AI demos, /systems write-ups; no Clerk
     sernia-public/          serniacapital.com: no sign-in and no Clerk
-    team/                   signed-in Sernia staff tools
+    team/                   serniacapital.com/team: the signed-in Sernia staff pages
   components/ lib/ hooks/   code more than one site uses
 ```
 
@@ -45,30 +53,81 @@ uses lives in `app/components`, `app/lib` or `app/hooks`. A site never imports
 another site's folder; the files directly under `app/sites/` may import any site.
 Routes are listed in `app/routes.ts`, not discovered from file names.
 `test/lib/site-layout.test.ts` checks that no site imports another's folder, that
-nothing the Sernia public pages import loads Clerk, and that every route module
-in a site's `routes/` is listed in `app/routes.ts`.
+nothing the portfolio or the Sernia public pages import loads Clerk, and that
+every route module in a site's `routes/` is listed in `app/routes.ts`.
+`test/lib/site-rule.test.ts` checks that every team route is under `/team` inside
+the team layout and that nothing else is.
 
-The team's tools keep their current URLs (`/sernia-chat`, `/systems/leasing-leads/*`
-and so on) and their sign-in requirements. The Zillow Leads Agent tabs are the
-team's layout; its public Architecture tab is the portfolio's page. The root
-layout configures Clerk and theme support, except for the Sernia public pages.
+## The team's pages (`/team`)
+
+The Sernia team's signed-in pages, at fixed addresses the backend links to
+(`api/src/utils/team_links.py`). Old staff addresses (`/sernia-chat`,
+`/message-tenants`, `/systems/leasing-leads/bookings` and so on) do not exist
+and have no redirects.
+
+| Page | Address |
+|---|---|
+| Team home: what is waiting for a person, every team page, the notifications prompt | `/team` |
+| Sernia AI chat (`?id=<conversation>`) | `/team/chat` |
+| General agent settings | `/team/settings` |
+| All conversations | `/team/admin` |
+| Message tenants | `/team/tenants` |
+| Scheduler | `/team/scheduler` |
+| Lead agent: overview, listing data, agent settings, booking settings | `/team/leads`, `/team/leads/listings`, `/team/leads/settings`, `/team/leads/bookings` |
+| HITL demo chat and approval queue | `/team/hitl-chat`, `/team/hitl-queue` |
+
+- Where: on a Sernia host always, whether or not the public pages are switched
+  on, and on any other host only outside production (`RAILWAY_ENVIRONMENT_NAME`
+  is not `production`). In production a team path on another host answers the
+  portfolio's 404.
+- Sign-in is scoped to `/team`. The root route (`app/root.tsx`, through
+  `app/sites/root-request.server.ts`) runs `clerkMiddleware`, `rootAuthLoader`
+  and `<ClerkProvider>` for team requests and nothing else. Clerk's keys come
+  from the environment (`CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`); its
+  production instance has to be on serniacapital.com for sign-in to work there.
+- The team layout (`app/sites/team/routes/layout.tsx`) holds the one guard: a
+  signed-in user with a verified `@serniacapital.com` address gets in. Signed
+  out, the page is a Sernia sign-in page (Clerk's sign-in window), which the
+  server renders from Clerk's state before Clerk's script loads. Any other
+  account is told so and can sign out. The API checks every request on its own.
+  The decision is `app/sites/team/lib/team-access.ts`; the pages it shows are
+  `app/sites/team/components/team-gate.tsx`; both are tested without Clerk.
+- Navigation: most pages get the team sidebar (`team-nav.tsx`, built from the
+  sidebar primitives in `app/components/ui/sidebar.tsx`) with the Sernia
+  wordmark, every team page, the account button and a link to the public site.
+  The chat, its settings and the conversations table keep their conversation
+  sidebar, which holds the same links. A page that brings its own sidebar sets
+  `handle = { ownSidebar: true }`. General agent settings and all
+  conversations show only to the admin, as before.
+- Team pages are `noindex`, and robots.txt on a Sernia host disallows `/team`.
+- The team home reads `GET /api/sernia-ai/conversations/history?limit=50`, the
+  list the chat's sidebar loads, and lists the conversations with `has_pending`.
+- The lead agent overview (`/team/leads`) and the portfolio's write-up
+  (`/systems/leasing-leads`) render the same `app/components/leasing-overview.tsx`.
+- Installed app and notifications: the manifest and service worker are
+  `public/team/manifest.json` and `public/team/sw.js`, so the worker's scope is
+  `/team/` and the installed app opens `/team/chat`. Only team pages link the
+  manifest and carry the home-screen app tags. Portfolio and team pages
+  unregister the worker the staff app used to register at the site root, and
+  drop its push subscription (`app/lib/retire-root-service-worker.ts`).
+
+To open the team's pages locally, run `pnpm dev` (or `pnpm dev-with-fastapi`)
+and go to `http://localhost:<web port>/team` or
+`http://serniacapital.localhost:<web port>/team`. Sign-in uses the development
+Clerk instance in `apps/web-react-router/.env`.
 
 ## Public experiences
 
 - `/`: portfolio and selected work.
 - `/multi-agent-chat`: agent showcase with streamed execution activity.
-- `/systems/leasing-leads`: Zillow Leads Agent architecture, listing-data flow, planned booking integration, and evaluation links. Public and server-rendered; verified Sernia users also see management links.
-- `/systems/leasing-leads/listings`: authenticated rental listing data tab; no conversation pane.
-- `/systems/leasing-leads/settings`: dedicated lead batching and email-approval settings.
-- `/systems/leasing-leads/bookings`: authenticated Booking settings tab: who can book, what a
-  booking sends, captured messages and sending them by hand, the messages' history, calendar
-  connections, showing agents and showings (`app/sites/team/components/showing-bookings/`; what it
-  decides is in `app/sites/team/lib/showing-bookings.ts`, unit tested). Its loader says whether this environment serves
-  the public booking pages (`SERNIA_PUBLIC_PAGES_ENABLED`), which the API does not know.
-
-The public architecture and these operator pages share route-backed navigation
-tabs. The legacy `/sernia-settings#zillow-leads` link redirects to Agent settings.
+- `/systems/leasing-leads`: Zillow Leads Agent architecture, who is told what about a showing, what is left to people, and evaluation links. Public and server-rendered, with no sign-in; a line points Sernia staff to `https://serniacapital.com/team`.
 - `/calendly`: meeting scheduling.
+
+The team's Booking settings page (`/team/leads/bookings`) covers who can book, what a
+booking sends, captured messages and sending them by hand, the messages' history, calendar
+connections, showing agents and showings (`app/sites/team/components/showing-bookings/`; what it
+decides is in `app/sites/team/lib/showing-bookings.ts`, unit tested). Its loader says whether this
+environment serves the public booking pages (`SERNIA_PUBLIC_PAGES_ENABLED`), which the API does not know.
 
 The retired `/ai-email-responder` and `/ai-email-responder/architecture` URLs
 permanently redirect to `/systems/leasing-leads`. Their fictional drafting API
@@ -83,8 +142,8 @@ and inactive table metadata remain so this UI cleanup does not delete stored dat
 ## Sernia public pages
 
 Sernia Capital's public pages (issue #368) are served on serniacapital.com by
-this same service. They need no sign-in, and they load no Clerk at all, because
-Clerk's production keys belong to eesposito.com.
+this same service. They need no sign-in, and they load no Clerk at all; only the
+team's pages under `/team` do.
 
 - Paths: `/showings`, `/showings/*`, `/privacy` and `/sms-terms` on any host, and
   the home page at `/` on a Sernia host only. There are `/privacy`, `/sms-terms`,
@@ -104,25 +163,22 @@ Clerk's production keys belong to eesposito.com.
 - Switch: `SERNIA_PUBLIC_PAGES_ENABLED`, read on every request. In production
   (`RAILWAY_ENVIRONMENT_NAME` is `production`) the pages are off unless it is
   `true`; elsewhere they are on unless it is `false`. While they are off, their
-  paths on other hosts answer exactly as an unknown URL does (the app's path
-  through Clerk, then the personal 404), and a Sernia host answers the Sernia 404
-  for every path.
+  paths on other hosts answer exactly as an unknown URL does (the portfolio's
+  404), and a Sernia host answers the Sernia 404 for every path but `/team` and
+  `/robots.txt`.
 - Hosts: `serniacapital.com`, `www.serniacapital.com` and `serniacapital.localhost`.
   `SERNIA_PUBLIC_HOSTS` (comma separated) replaces that list on a deployed server.
   The managed dev launcher passes only allowlisted variables, so neither variable
   reaches `pnpm dev`; locally the pages are on and the default hosts apply.
 - `app/sites/site.ts` makes every decision, and
   `app/sites/root-request.server.ts` applies it in the root middleware and loader.
-  A request to a Sernia host, or to a Sernia public path on any host while the
-  pages are on, skips `clerkMiddleware`, `rootAuthLoader` and `<ClerkProvider>`.
-  Previews and localhost therefore show the pages at the same paths.
-- On a Sernia host every other path answers 404 with the Sernia layout.
-  `app/sites/not-found.tsx` sends unknown URLs through the root middleware so this also
-  holds for them; other hosts get the same 404 page as before.
-- On a Sernia host the `/api` proxy forwards only `/api/showing-bookings/public/`
-  and answers 404 for anything else, in `server.js` and in `vite.config.ts`,
-  whether or not the pages are on. `server.js` imports the helper as TypeScript,
-  which Node 22.18+ strips at load, and the Dockerfile copies it into the image.
+  Only a team request runs `clerkMiddleware`, `rootAuthLoader` and
+  `<ClerkProvider>`. Previews and localhost show the pages at the same paths.
+- On a Sernia host every other path (but `/team` and `/robots.txt`) answers 404
+  with the Sernia layout. `app/sites/not-found.tsx` sends unknown URLs through the
+  root middleware so this also holds for them; other hosts get the portfolio's 404.
+- On a Sernia host the `/api` proxy forwards the public booking API and the
+  team's API paths only; see "Configuration and API proxy" below.
 
 To check locally, open `http://serniacapital.localhost:<web port>/` or `/privacy`.
 Browsers resolve `*.localhost` to this machine without any hosts-file change.
@@ -138,9 +194,15 @@ and line colors for these pages, in light and dark. Sky (`#5bbdee`) is for drawi
 and underlines, never for text.
 
 The root layout gives these pages their own icons (`public/images/sernia/`) and
-loads Figtree from Google Fonts; the other pages keep theirs, Inter and the install
-manifest. `Figtree fallback` in `app.css` is Arial with Figtree's measurements, so
-the text does not move when the font arrives.
+loads Figtree from Google Fonts; the portfolio keeps its icon and Inter, and the
+team's pages use Sernia's icons with Inter and the install manifest.
+`Figtree fallback` in `app.css` is Arial with Figtree's measurements, so the text
+does not move when the font arrives.
+
+The header and the footer have a quiet Team link to the team's pages: `/team`
+where this host serves them, `https://serniacapital.com/team` from production
+eesposito.com (`teamHref` in the root data and the Sernia 404). It is a full
+page load, since the team's pages run Clerk.
 
 ### The home page and the units list
 
@@ -224,6 +286,12 @@ email (the script's `lead-booking` command books it), and their link saying
 they are booked afterwards, at the new time once a reply moves it (`lead-move`),
 and working for a unit closed to others (`close-units`), and the bot check ahead of time
 (the number without a new check, a check that needs the person, a blocked one).
+`team-area.spec.ts` checks the team's sign-in page and 404 on the Sernia host,
+the Team link, that portfolio and Sernia public pages make no request to Clerk,
+the portfolio's `/systems/leasing-leads` without tabs, and the proxy rule. The
+web server gets made-up Clerk keys whose Clerk host does not exist, so every team
+page is signed out and Clerk's script is blocked: what a signed-in team member
+sees is not covered.
 It builds the app, starts the API and `node server.js` with a clean environment (`test/e2e/setup.ts`:
 made-up keys only, no secret, capture mode), opens the page on
 `serniacapital.localhost`, answers Turnstile's script in the browser and blocks
@@ -260,6 +328,20 @@ All browser API requests use relative `/api/*` URLs:
 | Development | `vite.config.ts` | Worktree API port, or localhost:8000 |
 | Railway | `server.js` | `CUSTOM_RAILWAY_BACKEND_URL` |
 | Docker Compose | `server.js` | `http://fastapi:8000` |
+
+Both proxies apply one rule, `isApiProxyAllowed` in `app/sites/site.ts`. Other
+hosts forward every `/api` path. A Sernia host forwards only the public booking
+API (`/api/showing-bookings/public/`) and the paths the team's pages call
+(`TEAM_API_PATHS`: `/api/sernia-ai/`, `/api/showing-bookings/` including the
+calendar callback Google sends the browser to, `/api/rental-listings`,
+`/api/zillow-leads/settings`, `/api/contacts/slug/sernia`,
+`/api/open_phone/tenants`, `/api/open_phone/send_message`, `/api/schedulers/`
+and `/api/ai-demos/hitl-agent/`), checked as received and after resolving `..`;
+anything else answers 404. A new API call from a team page needs its path added
+there. `server.js` imports the rule as TypeScript, which Node 22.18+ strips at
+load, and the Dockerfile copies it into the image. `server.js` serves
+`build/client` without redirecting a folder to its trailing slash, because
+`build/client/team/` holds the service worker and `/team` is a page.
 
 See [AI showcase backend documentation](../../api/src/ai_demos/README.md) for
 model configuration, execution events, and abuse controls.

@@ -1,5 +1,8 @@
-// Minimal service worker for Sernia Capital PWA push notifications.
-// No caching — only handles worker lifecycle and push notifications.
+// Minimal service worker for the Sernia team's pages (scope /team/): push
+// notifications only, no caching. The team pages register it from
+// /team/sw.js, so it controls nothing outside /team/.
+
+const CHAT_PATH = "/team/chat";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -23,7 +26,7 @@ async function shouldShowNotification(data) {
     try {
       const clientUrl = new URL(client.url);
       return (
-        clientUrl.pathname === "/sernia-chat" &&
+        clientUrl.pathname === CHAT_PATH &&
         clientUrl.searchParams.get("id") === data.conversation_id
       );
     } catch {
@@ -80,16 +83,24 @@ self.addEventListener("push", (event) => {
   );
 });
 
+function isChat(url) {
+  try {
+    return new URL(url).pathname === CHAT_PATH;
+  } catch {
+    return false;
+  }
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const url = event.notification.data?.url || "/sernia-chat";
+  const url = event.notification.data?.url || CHAT_PATH;
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-      // Focus an existing sernia-chat tab if one exists.
+      // Focus an existing chat tab if one exists.
       for (const client of windowClients) {
-        if (client.url.includes("/sernia-chat") && "focus" in client) {
+        if (isChat(client.url) && "focus" in client) {
           // Tell the page to refresh conversation data before navigating.
           client.postMessage({
             type: "notification-click",

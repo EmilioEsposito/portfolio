@@ -160,7 +160,7 @@ function BookedItem({
                       <>
                         {" · "}
                         <a
-                          href={`/sernia-chat?id=${encodeURIComponent(person.lead_conversation_id)}`}
+                          href={`/team/chat?id=${encodeURIComponent(person.lead_conversation_id)}`}
                           className="underline underline-offset-4"
                         >
                           conversation

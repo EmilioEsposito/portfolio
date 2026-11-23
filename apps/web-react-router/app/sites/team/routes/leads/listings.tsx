@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBlocker } from "react-router";
 import { useAuth } from "@clerk/react-router";
 import {
-  Building,
   ExternalLink,
   Globe,
   History,
@@ -14,7 +13,7 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
+import { teamTitle } from "~/sites/team/lib/team-meta";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/ui/card";
@@ -54,8 +53,7 @@ const HISTORY_LIMIT = 50;
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Rental Listings | Sernia" },
-    { name: "robots", content: "noindex, nofollow" },
+    { title: teamTitle("Rental listing data") },
     {
       name: "description",
       content: "Edit each unit's listing and the showing rules.",
@@ -1354,20 +1352,14 @@ function RentalUnitsScreen() {
 
 export default function SerniaRentalUnitsPage() {
   return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Sernia sign-in required"
-      icon={<Building className="h-16 w-16 text-muted-foreground" />}
-    >
-      <section>
-        <header className="pb-4">
-          <h2 className="text-2xl font-semibold">Rental listing data</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Listing facts and showing rules used by the lead agent.
-          </p>
-        </header>
-        <RentalUnitsScreen />
-      </section>
-    </AuthGuard>
+    <section>
+      <header className="pb-4">
+        <h2 className="text-2xl font-semibold">Rental listing data</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Listing facts and showing rules used by the lead agent.
+        </p>
+      </header>
+      <RentalUnitsScreen />
+    </section>
   );
 }

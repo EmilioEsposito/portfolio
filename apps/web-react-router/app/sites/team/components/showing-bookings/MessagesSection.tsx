@@ -61,7 +61,7 @@ function NoticeItem({ notice }: { notice: Notice }) {
               <>
                 {" · in the lead's Zillow thread ("}
                 <a
-                  href={`/sernia-chat?id=${encodeURIComponent(conversation)}`}
+                  href={`/team/chat?id=${encodeURIComponent(conversation)}`}
                   className="underline underline-offset-4"
                 >
                   conversation

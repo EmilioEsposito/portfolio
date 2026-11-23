@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
-import { ensureCurrentPushSubscription } from "~/sites/team/lib/push-subscription";
+import {
+  ensureCurrentPushSubscription,
+  PUSH_USER_STORAGE_KEY,
+  TEAM_SERVICE_WORKER_SCOPE,
+  TEAM_SERVICE_WORKER_URL,
+  whenActive,
+} from "~/sites/team/lib/push-subscription";
 
 const API_BASE = "/api/sernia-ai";
-const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
 
 async function fetchPublicKey(token: string): Promise<string> {
   const response = await fetch(`${API_BASE}/push/vapid-public-key`, {
@@ -124,7 +129,9 @@ export function usePushNotifications(): PushNotificationState {
     };
 
     const reconcileIdentity = async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
+      const registration = await navigator.serviceWorker.getRegistration(
+        TEAM_SERVICE_WORKER_SCOPE,
+      );
       let subscription =
         (await registration?.pushManager.getSubscription()) ?? null;
       const boundUserId = localStorage.getItem(PUSH_USER_STORAGE_KEY);
@@ -212,8 +219,11 @@ export function usePushNotifications(): PushNotificationState {
     try {
       await enqueuePushOperation(async () => {
         // Register service worker
-        const registration = await navigator.serviceWorker.register("/sw.js");
-        await navigator.serviceWorker.ready;
+        const registration = await navigator.serviceWorker.register(
+          TEAM_SERVICE_WORKER_URL,
+          { scope: TEAM_SERVICE_WORKER_SCOPE },
+        );
+        await whenActive(registration);
 
         // Request notification permission
         const perm = await Notification.requestPermission();
@@ -286,8 +296,12 @@ export function usePushNotifications(): PushNotificationState {
 
     try {
       await enqueuePushOperation(async () => {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
+        // The team's own registration, which need not control this page.
+        const registration = await navigator.serviceWorker.getRegistration(
+          TEAM_SERVICE_WORKER_SCOPE,
+        );
+        const subscription =
+          (await registration?.pushManager.getSubscription()) ?? null;
 
         if (subscription) {
           const endpoint = subscription.endpoint;

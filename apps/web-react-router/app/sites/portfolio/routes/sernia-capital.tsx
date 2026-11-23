@@ -159,12 +159,6 @@ export default function SerniaCapital() {
                 Building-wide announcements by SMS, with role-based access so
                 property managers can reach the right tenants.
               </p>
-              <Link
-                to="/message-tenants"
-                className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Open app <ExternalLink className="h-3 w-3" />
-              </Link>
             </CardContent>
           </Card>
 

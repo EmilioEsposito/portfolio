@@ -14,9 +14,10 @@ import {
   Moon,
   Building,
   Sun,
-  MessagesSquare,
-  ShieldCheck,
+  Bot,
   ClipboardCheck,
+  LogIn,
+  Siren,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSidebar } from "~/components/ui/sidebar";
@@ -27,6 +28,7 @@ import { useTheme } from "next-themes";
 import { cn } from "~/lib/utils";
 import { Switch } from "~/components/ui/switch";
 import { Label } from "~/components/ui/label";
+import { TEAM_HOME_URL } from "~/sites/site";
 
 import {
   Sidebar,
@@ -116,9 +118,16 @@ export function AppSidebar() {
       items: [
         {
           type: "navigation",
-          title: "Sernia AI general agent",
-          url: "/sernia-chat",
+          title: "Sernia Capital systems",
+          url: "/sernia-capital",
           icon: Building,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          type: "navigation",
+          title: "Sernia AI general agent",
+          url: "/systems/sernia-ai",
+          icon: Bot,
           onClick: toggleSidebarIfMobile,
         },
         {
@@ -130,38 +139,24 @@ export function AppSidebar() {
         },
         {
           type: "navigation",
-          title: "Message Tenants",
-          url: "/message-tenants",
-          icon: MessagesSquare,
-          onClick: toggleSidebarIfMobile,
-        },
-        {
-          type: "navigation",
-          title: "HITL Agent Chat",
-          url: "/hitl-agent-chat",
-          icon: ShieldCheck,
-          onClick: toggleSidebarIfMobile,
-        },
-        {
-          type: "navigation",
-          title: "HITL Approval Queue",
-          url: "/hitl-agent-workflow",
+          title: "Leasing agent evals",
+          url: "/systems/leasing-evals",
           icon: ClipboardCheck,
           onClick: toggleSidebarIfMobile,
         },
-        // Tenant Mass Messaging - deprecated, superset functionality in Message Tenants
-        // {
-        //   type: "navigation",
-        //   title: "Tenant Mass Messaging",
-        //   url: "/tenant-mass-messaging",
-        //   icon: Building,
-        //   onClick: toggleSidebarIfMobile,
-        // },
         {
           type: "navigation",
-          title: "Scheduler Admin",
-          url: "/scheduler",
-          icon: Calendar,
+          title: "Emergency SMS routing",
+          url: "/systems/emergency-routing",
+          icon: Siren,
+          onClick: toggleSidebarIfMobile,
+        },
+        {
+          // The team's signed-in pages live on serniacapital.com.
+          type: "navigation",
+          title: "Team sign-in",
+          url: TEAM_HOME_URL,
+          icon: LogIn,
           onClick: toggleSidebarIfMobile,
         },
       ],
@@ -254,8 +249,8 @@ export function AppSidebar() {
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild tooltip={item.title}>
                         {item.type === "navigation" ? (
-                          // Use regular anchor for API routes to go through Vite proxy
-                          item.url.startsWith("/api") ? (
+                          // A plain anchor for API routes (through the proxy) and other sites.
+                          item.url.startsWith("/api") || /^https?:\/\//.test(item.url) ? (
                             <a href={item.url} onClick={item.onClick}>
                               <item.icon />
                               <span>{item.title}</span>

@@ -1,3 +1,63 @@
+/**
+ * The team's service worker (public/team/sw.js). Served from /team/, so its
+ * scope is /team/: it controls the pages under /team/ and nothing else. The
+ * team home at /team itself is outside that scope; the install manifest
+ * (public/team/manifest.json) covers it too.
+ */
+export const TEAM_SERVICE_WORKER_URL = "/team/sw.js";
+export const TEAM_SERVICE_WORKER_SCOPE = "/team/";
+
+/** Where the browser remembers which signed-in user its push subscription belongs to. */
+export const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
+
+type SubscriptionHolder = {
+  pushManager: { getSubscription(): Promise<{ unsubscribe(): Promise<boolean> } | null> };
+};
+
+/**
+ * Ends this browser's team push subscription and forgets whose it was, for a
+ * browser no team member is signed in on. The push service then refuses the
+ * endpoint, and the API drops it the next time it sends. Answers whether there
+ * was a subscription to end.
+ */
+export async function revokeTeamPush(
+  serviceWorker: { getRegistration(scope: string): Promise<SubscriptionHolder | undefined> },
+  storage: Pick<Storage, "removeItem">,
+): Promise<boolean> {
+  const registration = await serviceWorker.getRegistration(TEAM_SERVICE_WORKER_SCOPE);
+  const subscription = (await registration?.pushManager.getSubscription()) ?? null;
+  if (subscription) await subscription.unsubscribe();
+  storage.removeItem(PUSH_USER_STORAGE_KEY);
+  return subscription !== null;
+}
+
+type ActivatingRegistration = Pick<ServiceWorkerRegistration, "active" | "installing" | "waiting">;
+
+/**
+ * Resolves once this registration has an active worker, which a push
+ * subscription needs. Not `navigator.serviceWorker.ready`: that waits for a
+ * registration that controls the current page, and the team home at `/team`
+ * is outside the `/team/` scope, so on a new browser it would never resolve.
+ */
+export function whenActive<T extends ActivatingRegistration>(registration: T): Promise<T> {
+  if (registration.active) return Promise.resolve(registration);
+  const worker = registration.installing ?? registration.waiting;
+  if (!worker) return Promise.reject(new Error("The notification worker did not install"));
+  return new Promise((resolve, reject) => {
+    const settle = () => {
+      if (worker.state === "activated") {
+        worker.removeEventListener("statechange", settle);
+        resolve(registration);
+      } else if (worker.state === "redundant") {
+        worker.removeEventListener("statechange", settle);
+        reject(new Error("The notification worker did not install"));
+      }
+    };
+    worker.addEventListener("statechange", settle);
+    settle();
+  });
+}
+
 function decodePublicKey(publicKey: string): Uint8Array<ArrayBuffer> {
   if (!publicKey) throw new Error("Notification key is not configured");
   const base64 = publicKey.replace(/-/g, "+").replace(/_/g, "/");

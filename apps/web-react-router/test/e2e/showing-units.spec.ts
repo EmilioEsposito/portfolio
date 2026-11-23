@@ -23,11 +23,12 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   }
   await expect(page.locator('link[rel="manifest"]')).toHaveCount(0);
 
-  // Residents sign in from the header; the rest is in the page.
+  // Residents sign in from the header, beside a quiet link for the team; the rest is in the page.
   const header = page.getByRole("banner").getByRole("link");
-  await expect(header).toHaveText(["Sernia Capital", "Resident sign-in"]);
+  await expect(header).toHaveText(["Sernia Capital", "Team", "Resident sign-in"]);
   await expect(header.nth(0)).toHaveAttribute("href", "/");
-  await expect(header.nth(1)).toHaveAttribute("href", PORTAL);
+  await expect(header.nth(1)).toHaveAttribute("href", "/team");
+  await expect(header.nth(2)).toHaveAttribute("href", PORTAL);
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { level: 1 })).toHaveText("Apartments in Bloomfield and Shadyside");
   const links = main.getByRole("link");
@@ -71,10 +72,10 @@ test("from the home page to the units list to a unit's booking page", async ({ p
   await expect(page.getByRole("group", { name: /^Times on / })).toBeVisible();
 
   // Only the home page has the sign-in button; the wordmark leads back to it.
-  await expect(header).toHaveText(["Sernia Capital"]);
-  await header.click();
+  await expect(header).toHaveText(["Sernia Capital", "Team"]);
+  await header.first().click();
   await expect(page).toHaveURL("/");
-  await expect(header).toHaveText(["Sernia Capital", "Resident sign-in"]);
+  await expect(header).toHaveText(["Sernia Capital", "Team", "Resident sign-in"]);
   // The only outside request any Sernia page makes is for its font.
   expect(blocked.filter((origin) => origin !== "https://fonts.googleapis.com")).toEqual([]);
 });
@@ -107,10 +108,10 @@ test("the wordmark links to / only where / is the Sernia home page", async ({ pa
   expect(missing?.status()).toBe(404);
   await expect(page.getByRole("banner").getByRole("link", { name: "Sernia Capital" })).toHaveAttribute("href", "/");
 
-  // The same pages on another host, where / is another site's.
+  // The same pages on another host, where / is another site's: only the Team link is a link.
   await page.goto(`http://localhost:${WEB_PORT}/privacy`);
-  await expect(page.getByRole("banner")).toHaveText("Sernia Capital");
-  await expect(page.getByRole("banner").getByRole("link")).toHaveCount(0);
+  await expect(page.getByRole("banner").getByText("Sernia Capital")).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("link")).toHaveText(["Team"]);
 });
 
 test("nothing on the home page is wider than the screen, in light or dark", async ({ page }) => {

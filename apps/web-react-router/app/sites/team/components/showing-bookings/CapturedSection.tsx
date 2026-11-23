@@ -118,7 +118,7 @@ function CapturedItem({
           {notice.conversation_id && (
             <p className="mt-1 text-sm">
               <a
-                href={`/sernia-chat?id=${encodeURIComponent(notice.conversation_id)}`}
+                href={`/team/chat?id=${encodeURIComponent(notice.conversation_id)}`}
                 className="underline underline-offset-4"
               >
                 Conversation

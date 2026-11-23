@@ -1,0 +1,106 @@
+import {
+  Bot,
+  CalendarClock,
+  ClipboardCheck,
+  Home,
+  Inbox,
+  LayoutList,
+  MessagesSquare,
+  Settings,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
+
+// The team's pages as the navigation and the team home list them. The paths
+// are the backend's too (api/src/utils/team_links.py), so they do not change
+// without it.
+
+export type TeamSection = {
+  title: string;
+  /** One line on what the page is for, on the team home. */
+  description: string;
+  url: string;
+  icon: LucideIcon;
+  /** Shown only to the admin, as before the move. */
+  adminOnly?: boolean;
+};
+
+export const TEAM_HOME: TeamSection = {
+  title: "Team home",
+  description: "What needs a person, and every team page.",
+  url: "/team",
+  icon: Home,
+};
+
+export const TEAM_SECTIONS: TeamSection[] = [
+  {
+    title: "Sernia AI",
+    description: "Ask the general agent, and answer the conversations waiting for a person.",
+    url: "/team/chat",
+    icon: Bot,
+  },
+  {
+    title: "Lead agent",
+    description: "Zillow leads: listing data, the agent's settings and showing bookings.",
+    url: "/team/leads",
+    icon: Inbox,
+  },
+  {
+    title: "Message tenants",
+    description: "Text a group of tenants, chosen by building, unit or lease.",
+    url: "/team/tenants",
+    icon: MessagesSquare,
+  },
+  {
+    title: "Scheduler",
+    description: "See, run and remove scheduled jobs.",
+    url: "/team/scheduler",
+    icon: CalendarClock,
+  },
+  {
+    title: "HITL demo chat",
+    description: "The human-in-the-loop demo agent, which asks before it sends.",
+    url: "/team/hitl-chat",
+    icon: ShieldCheck,
+  },
+  {
+    title: "HITL approval queue",
+    description: "Approve or reject what the demo agent is waiting to do.",
+    url: "/team/hitl-queue",
+    icon: ClipboardCheck,
+  },
+  {
+    title: "General agent settings",
+    description: "Sernia AI's triggers, schedule and model.",
+    url: "/team/settings",
+    icon: Settings,
+    adminOnly: true,
+  },
+  {
+    title: "All conversations",
+    description: "Every Sernia AI conversation in one table.",
+    url: "/team/admin",
+    icon: LayoutList,
+    adminOnly: true,
+  },
+];
+
+/** The lead agent's pages, shown as tabs under /team/leads. */
+export const LEAD_TABS = [
+  { url: "/team/leads", title: "Overview" },
+  { url: "/team/leads/listings", title: "Rental listing data" },
+  { url: "/team/leads/settings", title: "Agent settings" },
+  { url: "/team/leads/bookings", title: "Booking settings" },
+] as const;
+
+/** The sections a user sees: every one, less the admin's unless they are the admin. */
+export function visibleSections(admin: boolean): TeamSection[] {
+  return TEAM_SECTIONS.filter((section) => admin || !section.adminOnly);
+}
+
+/** Whether a section is the current page or the page holds it: /team/leads for /team/leads/bookings. */
+export function isCurrentSection(section: TeamSection, pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, "").toLowerCase() || "/";
+  if (section.url === TEAM_HOME.url) return path === section.url;
+  return path === section.url || path.startsWith(`${section.url}/`);
+}

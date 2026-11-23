@@ -1,15 +1,13 @@
-import type { Route } from "./+types/sernia-settings";
+import type { Route } from "./+types/settings";
 import { useState, useEffect, useCallback } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useAuth } from "@clerk/react-router";
-import { AuthGuard } from "~/sites/team/components/auth-guard";
 import { Button } from "~/components/ui/button";
 import { Switch } from "~/components/ui/switch";
 import { Label } from "~/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
 import {
-  Building,
   Loader2,
   ArrowLeft,
   Save,
@@ -18,12 +16,17 @@ import {
 } from "lucide-react";
 import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
+import { teamTitle } from "~/sites/team/lib/team-meta";
+import type { TeamPageHandle } from "./layout";
 
 const API_BASE = "/api/sernia-ai";
 
+// This page brings its own sidebar: the conversations, with the team's navigation.
+export const handle: TeamPageHandle = { ownSidebar: true };
+
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "Sernia Settings" },
+    { title: teamTitle("General agent settings") },
     { name: "description", content: "Configure Sernia AI triggers and schedule." },
   ];
 }
@@ -121,11 +124,6 @@ function SettingsMobileSidebarToggle() {
 export default function SerniaSettingsPage() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const legacyZillowLink = location.hash === "#zillow-leads";
-  useEffect(() => {
-    if (legacyZillowLink) navigate("/systems/leasing-leads/settings", { replace: true });
-  }, [legacyZillowLink, navigate]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,8 +171,8 @@ export default function SerniaSettingsPage() {
   }, [getToken]);
 
   useEffect(() => {
-    if (!legacyZillowLink) fetchSettings();
-  }, [fetchSettings, legacyZillowLink]);
+    fetchSettings();
+  }, [fetchSettings]);
 
   // Save
   const handleSave = async () => {
@@ -244,22 +242,17 @@ export default function SerniaSettingsPage() {
 
   const handleSelectConversation = useCallback(
     (convId: string) => {
-      navigate(`/sernia-chat?id=${convId}`);
+      navigate(`/team/chat?id=${convId}`);
     },
     [navigate]
   );
 
   const handleNewConversation = useCallback(() => {
-    navigate("/sernia-chat");
+    navigate("/team/chat");
   }, [navigate]);
 
   return (
-    <AuthGuard
-      requireDomain="serniacapital.com"
-      message="Admin access required"
-      icon={<Building className="w-16 h-16 text-muted-foreground" />}
-    >
-      <SidebarProvider>
+    <SidebarProvider>
         <ConversationSidebar
           onSelectConversation={handleSelectConversation}
           onNewConversation={handleNewConversation}
@@ -273,7 +266,7 @@ export default function SerniaSettingsPage() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
-            onClick={() => navigate("/sernia-chat")}
+            onClick={() => navigate("/team/chat")}
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
@@ -520,14 +513,13 @@ export default function SerniaSettingsPage() {
 
               <p className="text-sm text-muted-foreground">
                 Zillow lead batching and email approval are configured in{" "}
-                <Link to="/systems/leasing-leads/settings" className="text-foreground underline underline-offset-4">Zillow Leads Agent settings</Link>.
+                <Link to="/team/leads/settings" className="text-foreground underline underline-offset-4">the lead agent's settings</Link>.
               </p>
             </div>
           )}
         </div>
       </div>
         </SidebarInset>
-      </SidebarProvider>
-    </AuthGuard>
+    </SidebarProvider>
   );
 }
