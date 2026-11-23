@@ -78,8 +78,16 @@ async def verify_open_phone_signature(request: Request):
         raise HTTPException(403, "QUO_WEBHOOK_SECRET not configured")
     data = await request.body()
     # Parse the fields from the openphone-signature header.
-    signature = request.headers["openphone-signature"]
+    # Missing or malformed headers come from unsigned callers (scanners, rogue
+    # clients); reject them as 403 rather than surfacing a 500 KeyError/IndexError.
+    signature = request.headers.get("openphone-signature")
+    if not signature:
+        logfire.warn("OpenPhone webhook missing openphone-signature header")
+        raise HTTPException(403, "Missing signature")
     fields = signature.split(";")
+    if len(fields) < 4:
+        logfire.warn("OpenPhone webhook malformed openphone-signature header")
+        raise HTTPException(403, "Malformed signature")
     timestamp = fields[2]
     provided_digest = fields[3]
 
