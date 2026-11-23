@@ -107,3 +107,23 @@ async def test_recent_thread_on_later_page_is_not_hidden(monkeypatch):
         result = await q.list_active_threads_impl(c, max_results=1)
     assert len(pages) == 2
     assert "CNnew" in result and "CNold" not in result
+
+
+def test_thread_readers_expose_the_sms_and_conversation_for_task_links():
+    msg = {
+        "_kind": "message",
+        "id": "ACleak",
+        "conversationId": "CNthread",
+        "text": "Leaking",
+        "from": A,
+        "to": [B],
+    }
+    for line in (
+        q._render_thread([msg], [], "Tenant", A, {}),
+        q._render_group_thread_from_db([msg], [A, B], {}),
+        q._format_group_activity_line(msg, {}),
+    ):
+        assert "Message ID ACleak · Conversation ID CNthread" in line
+        assert "Leaking" in line
+    # A stored webhook event ID is not a Quo activity ID.
+    assert "Message ID" not in q._format_group_activity_line({**msg, "id": "EVevent"}, {})

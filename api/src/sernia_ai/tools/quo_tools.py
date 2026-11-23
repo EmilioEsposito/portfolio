@@ -756,6 +756,7 @@ async def _fetch_group_thread_from_events_table(
             {
                 "_kind": "call" if is_call else "message",
                 "id": msg_id,
+                "conversationId": conv_id,
                 "createdAt": r.event_timestamp.isoformat() if r.event_timestamp else "",
                 "text": r.message_text,
                 "from": r.from_number,
@@ -808,7 +809,7 @@ def _render_group_thread_from_db(
                 phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones
             )
             text = (item.get("text") or "(no text)")[:500]
-            lines.append(f"[{created}] {sender_name} → {to_names}: {text}")
+            lines.append(f"[{created}]{_message_ids(item)} {sender_name} → {to_names}: {text}")
 
     return "\n".join(lines)
 
@@ -1100,6 +1101,16 @@ async def _fetch_one_to_one_thread(
     return msg_data.get("data", []), call_data.get("data", [])
 
 
+def _message_ids(item: dict) -> str:
+    """Identify the source SMS and thread for Quo task links."""
+    labels = []
+    if isinstance(activity_id := item.get("id"), str) and activity_id.startswith("AC"):
+        labels.append(f"Message ID {activity_id}")
+    if conversation_id := item.get("conversationId"):
+        labels.append(f"Conversation ID {conversation_id}")
+    return f" [{' · '.join(labels)}]" if labels else ""
+
+
 def _render_thread(
     messages: list[dict],
     calls: list[dict],
@@ -1159,7 +1170,7 @@ def _render_thread(
             if len(text) > 500:
                 text = text[:500] + "..."
 
-            lines.append(f"[{created}] {sender_name} → {recipient_name}: {text}")
+            lines.append(f"[{created}]{_message_ids(item)} {sender_name} → {recipient_name}: {text}")
 
     return "\n".join(lines)
 
@@ -1183,7 +1194,7 @@ def _format_group_activity_line(
     )
     to_phones = item.get("to") or []
     to_names = ", ".join(phone_map.get(p, p) if phone_map.get(p, p) != p else p for p in to_phones)
-    return f"[{created}] {sender_name} → {to_names}: {text}"
+    return f"[{created}]{_message_ids(item)} {sender_name} → {to_names}: {text}"
 
 
 async def get_thread_messages_impl(
