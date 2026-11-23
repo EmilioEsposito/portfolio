@@ -1,0 +1,35 @@
+import { buildUrl } from "~/sites/portfolio/lib/seo";
+
+function getPublicPages(): string[] {
+  return [
+    "/",
+    "/sernia-capital",
+    "/tools-and-workflow",
+    "/systems/sernia-ai",
+    "/systems/emergency-routing",
+    "/systems/leasing-leads",
+    "/systems/leasing-evals",
+  ];
+}
+
+export function loader() {
+  const pages = getPublicPages();
+
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${pages
+  .map(
+    (page) => `  <url>
+    <loc>${buildUrl(page)}</loc>
+  </url>`,
+  )
+  .join("\n")}
+</urlset>`;
+
+  return new Response(sitemap, {
+    headers: {
+      "Content-Type": "application/xml",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+}

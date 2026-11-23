@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { NETWORK_MESSAGE, SERVER_MESSAGE, type BookingView } from "../../app/lib/showing-booking-page.ts";
+import { NETWORK_MESSAGE, SERVER_MESSAGE, type BookingView } from "../../app/sites/sernia-public/lib/showing-booking-page.ts";
 import {
   UNITS_PATH,
   UNKNOWN_MESSAGE,
@@ -10,7 +10,7 @@ import {
   cancelState,
   readCancelAnswer,
   unitPath,
-} from "../../app/lib/showing-cancel-page.ts";
+} from "../../app/sites/sernia-public/lib/showing-cancel-page.ts";
 
 const view = (patch: Partial<BookingView> = {}): BookingView => ({
   status: "booked",

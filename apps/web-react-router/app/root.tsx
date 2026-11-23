@@ -18,24 +18,24 @@ import { ThemeProvider } from "next-themes";
 
 import type { Route } from "./+types/root";
 import "./app.css";
-import { SITE_OWNER, DEFAULT_META } from "~/lib/seo";
-import { Navbar } from "~/components/navbar";
+import { SITE_OWNER, DEFAULT_META } from "~/sites/portfolio/lib/seo";
+import { Navbar } from "~/sites/portfolio/components/navbar";
 import { SidebarProvider, SidebarInset } from "~/components/ui/sidebar";
-import { AppSidebar } from "~/components/app-sidebar";
+import { AppSidebar } from "~/sites/portfolio/components/app-sidebar";
 import { Toaster } from "~/components/ui/toaster";
 import { cn } from "~/lib/utils";
 import { EnvBanner } from "~/components/env-banner";
-import { SerniaPublicError, SerniaPublicShell } from "~/components/sernia-public/shell";
-import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
-import { isSerniaPublicPath } from "~/lib/sernia-public";
-import { SERNIA_NAME, serniaErrorMeta } from "~/lib/sernia-public-seo";
-import { serniaRoot } from "~/lib/sernia-root";
+import { SerniaPublicError, SerniaPublicShell } from "~/sites/sernia-public/components/shell";
+import { createRootMiddleware, loadRoot } from "~/sites/root-request.server";
+import { isSerniaPublicPath } from "~/sites/site";
+import { SERNIA_NAME, serniaErrorMeta } from "~/sites/sernia-public/lib/seo";
+import { serniaRoot } from "~/sites/sernia-root";
 
 // Sernia Capital's public pages (serniacapital.com, and their paths on any
 // host while they are switched on) load no Clerk at all and use their own
-// layout, icons and font. ~/lib/sernia-public decides which requests those
+// layout, icons and font. ~/sites/site decides which requests those
 // are; the server tells the browser through the root loader data or the 404 it
-// throws, which ~/lib/sernia-root reads.
+// throws, which ~/sites/sernia-root reads.
 
 export function meta({ error, loaderData }: Route.MetaArgs) {
   if (serniaRoot(error, loaderData)) {

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { data, UNSAFE_ErrorResponseImpl as ErrorResponseImpl } from "react-router";
 
-import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
-import { serniaRoot } from "~/lib/sernia-root";
-import { serniaHomeMeta } from "~/components/sernia-public/home";
+import { createRootMiddleware, loadRoot } from "~/sites/root-request.server";
+import { serniaRoot } from "~/sites/sernia-root";
+import { serniaHomeMeta } from "~/sites/sernia-public/components/home";
 
 // What the server says about a Sernia page, as the browser reads it: whether
 // it is one, and whether `/` on its host is the Sernia home page.

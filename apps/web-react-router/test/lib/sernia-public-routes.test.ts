@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createRequestHandler, type MiddlewareFunction, type ServerBuild } from "react-router";
 
-import { createRootMiddleware, loadRoot } from "~/lib/root-request.server";
-import * as catchAllRoute from "~/routes/$";
-import * as indexRoute from "~/routes/_index";
-import * as serniaLayoutRoute from "~/routes/_sernia-public";
-import * as privacyRoute from "~/routes/_sernia-public.privacy";
+import { createRootMiddleware, loadRoot } from "~/sites/root-request.server";
+import * as catchAllRoute from "~/sites/not-found";
+import * as indexRoute from "~/sites/home";
+import * as serniaLayoutRoute from "~/sites/sernia-public/routes/layout";
+import * as privacyRoute from "~/sites/sernia-public/routes/privacy";
 
 // Runs the root's real middleware and loader, the Sernia layout, the privacy
 // page and the catch-all route through React Router's request handler: the
@@ -57,15 +57,15 @@ const build = {
         ErrorBoundary: () => null,
       },
     },
-    "routes/_sernia-public": { id: "routes/_sernia-public", parentId: "root", module: serniaLayoutRoute },
-    "routes/_sernia-public.privacy": {
-      id: "routes/_sernia-public.privacy",
-      parentId: "routes/_sernia-public",
+    "sites/sernia-public/routes/layout": { id: "sites/sernia-public/routes/layout", parentId: "root", module: serniaLayoutRoute },
+    "sites/sernia-public/routes/privacy": {
+      id: "sites/sernia-public/routes/privacy",
+      parentId: "sites/sernia-public/routes/layout",
       path: "privacy",
       module: privacyRoute,
     },
-    "routes/_index": { id: "routes/_index", parentId: "root", index: true, module: indexRoute },
-    "routes/$": { id: "routes/$", parentId: "root", path: "*", module: catchAllRoute },
+    "sites/home": { id: "sites/home", parentId: "root", index: true, module: indexRoute },
+    "sites/not-found": { id: "sites/not-found", parentId: "root", path: "*", module: catchAllRoute },
   },
   assets: {},
   basename: "/",
@@ -91,7 +91,7 @@ async function request(url: string, init?: RequestInit) {
 
 // What the browser asks for when a link moves from another page to /privacy:
 // the root revalidates and the Sernia layout's loader runs.
-const PRIVACY_DATA = "/privacy.data?_routes=root,routes/_sernia-public";
+const PRIVACY_DATA = "/privacy.data?_routes=root,sites/sernia-public/routes/layout";
 
 test("outside production the pages render without Clerk, on any host", async () => {
   for (const origin of ["http://localhost:5293", "https://serniacapital.com"]) {
@@ -119,7 +119,7 @@ test("in production the pages stay off, and their paths answer like an unknown U
 
     // A client navigation's data request gets the same 404 and no Sernia data.
     const data = await request(`https://eesposito.com${PRIVACY_DATA}`);
-    const unknownData = await request("https://eesposito.com/unknown.data?_routes=root,routes/$");
+    const unknownData = await request("https://eesposito.com/unknown.data?_routes=root,sites/not-found");
     assert.deepEqual([data.status, data.clerk], [404, true]);
     assert.deepEqual([unknownData.status, unknownData.clerk], [404, true]);
     assert.doesNotMatch(data.body, /serniaPublic|sernia-public-not-found/);
@@ -180,7 +180,7 @@ async function withApi(status: 200 | 404, run: (calls: string[]) => Promise<void
 }
 
 // What the browser asks for when a link moves to /: React Router names the root's data `/_.data`.
-const HOME_DATA = "/_.data?_routes=root,routes/_index";
+const HOME_DATA = "/_.data?_routes=root,sites/home";
 
 test("on a Sernia host / is the Sernia home page, without Clerk", async () => {
   await withApi(200, async (calls) => {

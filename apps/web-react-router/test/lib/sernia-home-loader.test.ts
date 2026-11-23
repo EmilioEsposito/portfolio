@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { forgetReadAhead } from "~/lib/read-ahead.server";
-import { readCallLine } from "~/lib/showing-units.server";
-import { loader } from "~/routes/_index";
+import { forgetReadAhead } from "~/sites/sernia-public/lib/read-ahead.server";
+import { readCallLine } from "~/sites/sernia-public/lib/showing-units.server";
+import { loader } from "~/sites/home";
 
 // The Sernia home page's loader waits only for the call line's route, and
 // renders without the call line when that route is off, slow or failing. With

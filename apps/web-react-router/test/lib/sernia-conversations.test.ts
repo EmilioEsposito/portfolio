@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   mergeConversationSummaries,
   type ConversationSummary,
-} from "../../app/lib/sernia-conversations.ts";
+} from "../../app/sites/team/lib/sernia-conversations.ts";
 
 const conversation = (
   id: string,

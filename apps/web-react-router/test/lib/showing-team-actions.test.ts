@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { type UnitOffers, heldBackNote } from "../../app/lib/showing-bookings.ts";
+import { type UnitOffers, heldBackNote } from "../../app/sites/team/lib/showing-bookings.ts";
 import {
   type TeamBookingForm,
   attendanceAfter,
@@ -16,7 +16,7 @@ import {
   missingFields,
   refusalFields,
   timeOptions,
-} from "../../app/lib/showing-team-actions.ts";
+} from "../../app/sites/team/lib/showing-team-actions.ts";
 
 const START = "2027-04-14T20:00:00Z"; // Wed, Apr 14, 4:00 PM Eastern
 
