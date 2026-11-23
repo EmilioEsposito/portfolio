@@ -24,13 +24,13 @@ SERNIA_OPERATIONS = frozenset(
         "clickup",
         "contact",
         "google",
-        "hitl_agents",
         "open_phone",
         "prefect",
         "rental_listings",
         "sernia_ai",
         "showing_bookings",
         "task_ai",
+        "team_tasks",
         "zillow_leads",
     }
 )

@@ -42,8 +42,6 @@ def test_every_team_page_is_under_team():
         "LEAD_LISTINGS_PATH": "/team/leads/listings",
         "LEAD_SETTINGS_PATH": "/team/leads/settings",
         "LEAD_BOOKINGS_PATH": "/team/leads/bookings",
-        "HITL_CHAT_PATH": "/team/hitl-chat",
-        "HITL_QUEUE_PATH": "/team/hitl-queue",
     }
 
 

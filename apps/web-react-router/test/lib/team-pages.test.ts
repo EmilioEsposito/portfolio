@@ -98,9 +98,10 @@ test("the admin's pages show only to the admin", () => {
   const admin = visibleSections(true).map((section) => section.url);
   assert.deepEqual(admin, TEAM_SECTIONS.map((section) => section.url));
   assert.ok(!everyone.includes("/team/settings") && !everyone.includes("/team/admin"));
-  for (const url of ["/team/chat", "/team/leads", "/team/tenants", "/team/scheduler", "/team/hitl-chat", "/team/hitl-queue"]) {
+  for (const url of ["/team/chat", "/team/leads", "/team/tenants", "/team/scheduler"]) {
     assert.ok(everyone.includes(url), url);
   }
+  assert.ok(everyone.includes("/team/tasks"));
   for (const section of TEAM_SECTIONS) assert.ok(section.description.length > 0, section.url);
 });
 

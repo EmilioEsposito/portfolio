@@ -48,12 +48,11 @@ export default [
     layout("sites/team/routes/layout.tsx", [
       index("sites/team/routes/home.tsx"),
       route("chat", "sites/team/routes/chat.tsx"),
+      route("tasks", "sites/team/routes/tasks.tsx"),
       route("settings", "sites/team/routes/settings.tsx"),
       route("admin", "sites/team/routes/admin.tsx"),
       route("tenants", "sites/team/routes/tenants.tsx"),
       route("scheduler", "sites/team/routes/scheduler.tsx"),
-      route("hitl-chat", "sites/team/routes/hitl-chat.tsx"),
-      route("hitl-queue", "sites/team/routes/hitl-queue.tsx"),
       route("leads", "sites/team/routes/leads/layout.tsx", [
         index("sites/team/routes/leads/overview.tsx"),
         route("listings", "sites/team/routes/leads/listings.tsx"),

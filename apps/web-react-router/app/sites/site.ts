@@ -47,14 +47,15 @@ export const TEAM_API_PATHS = [
   "/api/rental-listings/",
   // The lead agent's settings.
   "/api/zillow-leads/settings",
+  // Tasks: the open ClickUp and Quo tasks, and completing one.
+  "/api/team-tasks",
+  "/api/team-tasks/",
   // Message tenants: the sender's contact, the tenants, and sending.
   "/api/contacts/slug/sernia",
   "/api/open_phone/tenants",
   "/api/open_phone/send_message",
   // The scheduler page: list, run and delete jobs.
   "/api/schedulers/",
-  // The HITL demo chat and its approval queue.
-  "/api/ai-demos/hitl-agent/",
 ] as const;
 
 /** Where the team's pages are for someone on a host that does not serve them. */

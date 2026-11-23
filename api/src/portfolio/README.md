@@ -22,7 +22,4 @@ All agents use GPT-5.6 Luna through OpenRouter with low reasoning. See
 | `swagger_schema.py` | Inlines `$ref`s in the demos' request schemas for the API docs page |
 
 The public-key model (`DEMO_MODEL`) and the demo model settings stay in
-`api/src/utils/llm.py`, which also holds the operations key and serves the
-Sernia HITL demo. That demo,
-`/api/ai-demos/hitl-agent/*`, needs a Sernia sign-in and lives in
-[`../hitl_agents/`](../hitl_agents/README.md).
+`api/src/utils/llm.py`, which also holds the operations key.
