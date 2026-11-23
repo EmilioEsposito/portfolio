@@ -118,6 +118,15 @@ for (const site of ["portfolio", "sernia-public"]) {
   });
 }
 
+test("the root loads Clerk on the server only, so no page outside /team downloads its code", () => {
+  // root.tsx is in every page's bundle. Its middleware and loader run Clerk on
+  // the server for team requests; the provider, which the browser downloads,
+  // is in the team's layout.
+  const clerk = importsOf(readFileSync(`${APP}root.tsx`, "utf8")).filter((specifier) => specifier.startsWith("@clerk/"));
+  assert.deepEqual(clerk, ["@clerk/react-router/server"]);
+  assert.match(readFileSync(`${APP}sites/team/routes/layout.tsx`, "utf8"), /<ClerkProvider\b/);
+});
+
 test("the Clerk check sees an import of @clerk/*, also through shared code", () => {
   assert.deepEqual(importsOf(`import { useAuth } from "@clerk/react-router";`), ["@clerk/react-router"]);
   // The team's pages do use Clerk, so the check is not blind to it.
