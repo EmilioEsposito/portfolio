@@ -4,12 +4,36 @@ import { Link, useBlocker } from "react-router";
 import { Loader2, Save } from "lucide-react";
 import { AuthGuard } from "~/components/auth-guard";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Switch } from "~/components/ui/switch";
 
 const endpoint = "/api/zillow-leads/settings";
-type Settings = { debounce_seconds: number; require_approval: boolean };
+type Settings = {
+  debounce_seconds: number;
+  require_approval: boolean;
+  auto_send_new_booking: boolean;
+  auto_send_reschedule: boolean;
+  auto_send_cancellation: boolean;
+};
+// The replies that change a showing, each sent automatically only when ticked.
+const bookingReplies = [
+  { key: "auto_send_new_booking", label: "Book a new showing" },
+  { key: "auto_send_reschedule", label: "Reschedule a showing" },
+  { key: "auto_send_cancellation", label: "Cancel a showing" },
+] as const;
+const settingKeys = ["debounce_seconds", "require_approval", ...bookingReplies.map((item) => item.key)] as const;
+
+function pick(data: Settings): Settings {
+  return {
+    debounce_seconds: data.debounce_seconds,
+    require_approval: data.require_approval,
+    auto_send_new_booking: Boolean(data.auto_send_new_booking),
+    auto_send_reschedule: Boolean(data.auto_send_reschedule),
+    auto_send_cancellation: Boolean(data.auto_send_cancellation),
+  };
+}
 
 export const meta = () => [
   { title: "Agent settings | Zillow Leads Agent" },
@@ -26,11 +50,12 @@ function LeadSettingsForm() {
   const [saved, setSaved] = useState<Settings | null>(null);
   const [form, setForm] = useState<Settings | null>(null);
   const [automationEnabled, setAutomationEnabled] = useState<boolean | null>(null);
+  const [booksShowings, setBooksShowings] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const dirty = Boolean(saved && form && (saved.debounce_seconds !== form.debounce_seconds || saved.require_approval !== form.require_approval));
+  const dirty = Boolean(saved && form && settingKeys.some((key) => saved[key] !== form[key]));
   const valid = Boolean(form && Number.isInteger(form.debounce_seconds) && form.debounce_seconds >= 60 && form.debounce_seconds <= 3600);
 
   const load = useCallback(async () => {
@@ -42,10 +67,11 @@ function LeadSettingsForm() {
       const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error("Could not load settings. Try again.");
       const data = await response.json();
-      const settings = { debounce_seconds: data.debounce_seconds, require_approval: data.require_approval };
+      const settings = pick(data);
       setSaved(settings);
       setForm(settings);
       setAutomationEnabled(data.automation_enabled);
+      setBooksShowings(data.books_showings ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load settings.");
     } finally {
@@ -80,7 +106,7 @@ function LeadSettingsForm() {
         body: JSON.stringify({ settings: form, based_on: saved }),
       });
       if (!response.ok) throw new Error(await refusal(response));
-      const settings: Settings = await response.json();
+      const settings = pick(await response.json());
       setSaved(settings);
       setForm(settings);
       setSuccess(true);
@@ -113,6 +139,24 @@ function LeadSettingsForm() {
                   ? "Every proposed reply waits for the team to review and approve it."
                   : "New eligible replies are sent automatically. Exceptions still go to the team; existing drafts remain pending."}
               </p>
+              <fieldset disabled={form.require_approval} className="mt-5 border-t pt-5" aria-describedby="booking-replies-help">
+                <legend className="sr-only">Replies that change a showing</legend>
+                <p className={form.require_approval ? "text-sm font-medium text-muted-foreground" : "text-sm font-medium"}>Send automatically when a reply would:</p>
+                <div className="mt-3 space-y-3">
+                  {bookingReplies.map(({ key, label }) => (
+                    <div key={key} className="flex items-center gap-3">
+                      <Checkbox id={`lead-${key}`} checked={form[key]} onCheckedChange={(checked) => { setForm({ ...form, [key]: checked === true }); setSuccess(false); }} />
+                      <Label htmlFor={`lead-${key}`} className={form.require_approval ? "font-normal text-muted-foreground" : "font-normal"}>{label}</Label>
+                    </div>
+                  ))}
+                </div>
+                <p id="booking-replies-help" className="mt-3 text-sm leading-6 text-muted-foreground">
+                  {form.require_approval
+                    ? "Human approval is on, so these replies wait for the team too. Turn it off to choose."
+                    : "Unticked replies wait for the team. A reply that books or reschedules is sent only if it states the new time."}
+                </p>
+                {booksShowings === false && <p className="mt-2 text-sm leading-6 text-muted-foreground">Replies do not change showings right now: the lead agent’s switch in <Link to="/systems/leasing-leads/bookings" className="text-foreground underline underline-offset-4">Booking settings</Link> is off.</p>}
+              </fieldset>
             </div>
             <div className="space-y-2">
               <Label htmlFor="lead-debounce">Wait before processing a thread (seconds)</Label>

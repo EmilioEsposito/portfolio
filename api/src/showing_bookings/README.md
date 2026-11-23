@@ -991,9 +991,13 @@ booking transaction, as it may read Quo.
 only while `lead_agent_uses_open_times` is on (the zillow_leads README has the
 table of which decision does what, and the order around a send).
 
-- Only a person sends a reply that changes a booking: the lead agent's
-  automatic send holds any reply for which `plan_reply` answers a change.
-- A reply a person approves that confirms an in-person time at a listed unit
+- A person sends a reply that changes a booking, unless the lead agent's
+  settings let that kind go automatically (a new booking, a move, a
+  cancellation, each its own setting, off until saved). The automatic send
+  holds any other reply for which `plan_reply` answers a change, and one that
+  books or moves without stating the booked time.
+- A reply that confirms an in-person time at a listed unit, approved by a
+  person or sent automatically,
   calls `place_booking` just before it is sent, with a `Person` of source
   `lead_agent`: the thread's name or "Zillow lead", the thread id, the
   conversation id (`lead_conversation_id`), no email, no consent to texts,

@@ -24,7 +24,8 @@ is made here, in code, from facts the lead cannot influence:
   ``lead_agent_uses_open_times`` is on (``showing_bookings/lead_bookings.py``).
   A reply that confirms a time books it just before it is sent, and is not
   sent if the time is refused; see ``apply_approval``. The automatic send
-  never sends a reply that would change a booking (``auto_reply``).
+  sends a reply that would change a booking only when the setting for its
+  kind is on, and books it the same way (``auto_reply``).
 
 A conversation saved by this module is marked with ``HANDLER``. Approvals for
 it are applied here (``apply_approval``) and never resume a model: the reply
