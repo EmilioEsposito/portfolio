@@ -3,6 +3,12 @@
 The retired general-agent flag must never enable sends in this agent. Only an
 explicit write to SETTINGS_KEY can turn off approval. The existing queue's
 batching window is preserved when the new setting has not been saved yet.
+
+With approval off, a reply that would book, move or cancel a showing still
+waits for a person unless its own setting is on (``auto_send_new_booking``,
+``auto_send_reschedule``, ``auto_send_cancellation``, all off until saved).
+They change nothing while approval is on. ``auto_reply.booking_hold`` reads
+them.
 """
 
 import logfire
@@ -15,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.database.app_settings import AppSetting
 from api.src.database.database import DBSession
+from api.src.showing_bookings import lead_bookings
 from api.src.utils.automation import is_sernia_ai_enabled
 from api.src.utils.clerk import verify_serniacapital_user
 from api.src.zillow_leads.config import (
@@ -30,6 +37,11 @@ class LeadSettings(BaseModel):
 
     debounce_seconds: int = Field(default=DEFAULT_ZILLOW_DEBOUNCE_SECONDS, ge=60, le=3600)
     require_approval: StrictBool = DEFAULT_ZILLOW_REQUIRE_APPROVAL
+    # With approval off only: send a reply that books a new showing, moves one
+    # or cancels one without a person. Off, such a reply waits on its card.
+    auto_send_new_booking: StrictBool = False
+    auto_send_reschedule: StrictBool = False
+    auto_send_cancellation: StrictBool = False
 
 
 async def read_settings(session: AsyncSession) -> LeadSettings:
@@ -70,6 +82,9 @@ router = APIRouter(prefix="/zillow-leads", dependencies=[Depends(verify_serniaca
 
 class SettingsView(LeadSettings):
     automation_enabled: bool
+    # Whether replies can change a showing at all (the booking service's switch
+    # ``lead_agent_uses_open_times``). Off, the three booking settings do nothing.
+    books_showings: bool
 
 
 @router.get("/settings", response_model=SettingsView)
@@ -77,7 +92,9 @@ async def get_settings(session: DBSession):
     try:
         settings = await read_settings(session)
         return SettingsView(
-            **settings.model_dump(), automation_enabled=await is_sernia_ai_enabled()
+            **settings.model_dump(),
+            automation_enabled=await is_sernia_ai_enabled(),
+            books_showings=await lead_bookings.enabled(),
         )
     except Exception:
         logfire.exception("zillow lead: settings could not be loaded")
