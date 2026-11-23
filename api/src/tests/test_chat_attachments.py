@@ -174,19 +174,14 @@ async def test_valid_streamed_body():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "module,handler",
-    [("api.src.sernia_ai.routes", "chat_sernia"), ("api.src.hitl_agents.routes", "chat")],
-)
-async def test_both_routes_reject_before_history_or_provider(monkeypatch, module, handler):
-    import importlib
+async def test_chat_route_rejects_before_history_or_provider(monkeypatch):
+    from api.src.sernia_ai import routes
 
-    routes = importlib.import_module(module)
     history = AsyncMock(side_effect=AssertionError("Database must not be reached"))
     monkeypatch.setattr(routes, "get_conversation_messages", history)
     raw = json.dumps(body(file_part(b"<html>spoof</html>"))).encode()
     user = SimpleNamespace(id="test-user", first_name="Test", last_name="User")
     with pytest.raises(HTTPException) as error:
-        await getattr(routes, handler)(request([raw]), user=user, session=None)
+        await routes.chat_sernia(request([raw]), user=user, session=None)
     assert error.value.status_code == 400
     history.assert_not_called()

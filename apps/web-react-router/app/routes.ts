@@ -52,8 +52,6 @@ export default [
       route("admin", "sites/team/routes/admin.tsx"),
       route("tenants", "sites/team/routes/tenants.tsx"),
       route("scheduler", "sites/team/routes/scheduler.tsx"),
-      route("hitl-chat", "sites/team/routes/hitl-chat.tsx"),
-      route("hitl-queue", "sites/team/routes/hitl-queue.tsx"),
       route("leads", "sites/team/routes/leads/layout.tsx", [
         index("sites/team/routes/leads/overview.tsx"),
         route("listings", "sites/team/routes/leads/listings.tsx"),

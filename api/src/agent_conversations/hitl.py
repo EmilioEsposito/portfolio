@@ -2,7 +2,7 @@
 Shared HITL (Human-in-the-Loop) utilities for all agents.
 
 Agent-agnostic helpers for extracting pending approvals and resuming
-agents with approval decisions. Used by hitl_sms_agent and sernia_agent.
+agents with approval decisions. Used by sernia_agent.
 """
 
 import dataclasses
