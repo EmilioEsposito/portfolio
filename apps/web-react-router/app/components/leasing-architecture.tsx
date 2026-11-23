@@ -75,7 +75,7 @@ const nodes: Node[] = [
   },
   {
     id: "calendars", title: "Calendars", subtitle: "Each showing agent’s own", icon: CalendarDays, tone: "booking", box: [24, 474, 185, 96],
-    detail: "Each showing agent connects a Google calendar. Anything busy on it blocks that agent, and a calendar that cannot be read counts as busy, never free.",
+    detail: "Each showing agent connects a Google calendar. Anything busy on it blocks that agent, and a calendar that cannot be read counts as busy.",
   },
   {
     id: "open", title: "Open times", subtitle: "Free agents + showing rules", icon: CalendarDays, tone: "booking", box: [264, 474, 200, 96],
@@ -95,7 +95,7 @@ const nodes: Node[] = [
   },
   {
     id: "leadEmail", title: "Lead booked by email", subtitle: "Email only, until they add details", icon: Mail, tone: "told", box: [24, 838, 222, 112],
-    detail: "This lead has the confirming email and nothing else. A phone number that appeared in a Zillow email is never texted, because the lead has not agreed to texts. The evening before, they get a reminder by email in the same thread, with a link to cancel. Once they add a mobile number and email through their own link, they are treated like any other lead.",
+    detail: "This lead has only the confirming email. A phone number that appeared in a Zillow email is never texted, because the lead has not agreed to texts. The evening before, they get a reminder by email in the same thread, with a link to cancel. Once they add a mobile number and email through their own link, they are treated like any other lead.",
   },
   {
     id: "leadDetails", title: "Lead with details", subtitle: "Confirmation text + calendar invite", icon: Smartphone, tone: "told", box: [346, 838, 222, 112],
