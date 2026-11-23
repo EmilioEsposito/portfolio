@@ -113,7 +113,7 @@ Resident sign-in (the residents' Buildium portal) is in the home page's header,
 since residents type the domain to reach it. The page has Book a showing
 (`/showings`), Apply (`/apply`, which stays a Cloudflare redirect, so it has no page
 here and 404s on previews and localhost), the call line, the street drawing
-(`drawings.tsx`, static and decorative), one photo and two short sections. The
+(`drawings.tsx`, static and decorative), one photo and a section for residents. The
 photo is in `public/images/sernia/` at two widths, as WebP with a JPEG fallback;
 `og.png` there is the link preview.
 The page never waits on the units list: its loader waits only for
