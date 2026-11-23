@@ -30,6 +30,7 @@ SERNIA_OPERATIONS = frozenset(
         "sernia_ai",
         "showing_bookings",
         "task_ai",
+        "team_tasks",
         "zillow_leads",
     }
 )
