@@ -154,7 +154,8 @@ test("a click moves an open team chat tab to the notification's conversation", a
   ]);
 });
 
-// The app icon's badge: the number of this app's notifications still showing.
+// The app icon's badge: the notifications shown since the app was last opened
+// and still showing.
 
 function badging({ showing }) {
   const badges = [];
@@ -166,8 +167,33 @@ function badging({ showing }) {
       badges.push("cleared");
     },
   };
-  self.registration.getNotifications = async () => showing();
+  // The browser hands back notifications with the data they were shown with.
+  self.registration.getNotifications = async () =>
+    showing().map((shown) => (shown.options ? { data: shown.options.data } : shown));
   return badges;
+}
+
+/** Cache Storage, which is where the worker keeps when the app was last opened. */
+function withStore() {
+  const kept = new Map();
+  globalThis.caches = {
+    open: async () => ({
+      match: async (key) => (kept.has(key) ? new Response(kept.get(key)) : undefined),
+      put: async (key, response) => void kept.set(key, await response.text()),
+    }),
+  };
+  return () => delete globalThis.caches;
+}
+
+async function appOpened() {
+  let completion;
+  handlers.message({
+    data: { type: "app-opened" },
+    waitUntil(promise) {
+      completion = promise;
+    },
+  });
+  await completion;
 }
 
 function withoutBadging() {
@@ -212,11 +238,14 @@ test("a notification suppressed for the focused conversation sets no badge", asy
 });
 
 test("a click, or a notification put away, counts again what is still showing", async () => {
-  let showing = [{ tag: "approval-a" }, { tag: "alert-b" }];
+  let showing = [
+    { tag: "approval-a", data: { shownAt: 1 } },
+    { tag: "alert-b", data: { shownAt: 2 } },
+  ];
   const badges = badging({ showing: () => showing });
 
   // The clicked one is closed before the count.
-  showing = [{ tag: "alert-b" }];
+  showing = [{ tag: "alert-b", data: { shownAt: 2 } }];
   await clickNotification({ conversation_id: "conversation-123" }, []);
   assert.deepEqual(badges, [1]);
 
@@ -230,6 +259,60 @@ test("a click, or a notification put away, counts again what is still showing", 
   });
   await completion;
   assert.deepEqual(badges, [1, "cleared"]);
+  withoutBadging();
+});
+
+test("opening the app stops the notifications shown until then from counting", async () => {
+  shownNotifications.length = 0;
+  const badges = badging({ showing: () => shownNotifications });
+  const withoutStore = withStore();
+  self.clients.matchAll = async () => [];
+
+  await dispatchResponsePush();
+  await dispatchResponsePush();
+  assert.deepEqual(badges, [1, 2]);
+
+  // The app is opened. Its two notifications stay in the notification
+  // centre, and the badge goes.
+  await appOpened();
+  assert.deepEqual(badges, [1, 2, "cleared"]);
+
+  // The next one counts alone, not as a third.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await dispatchResponsePush();
+  assert.equal(shownNotifications.length, 3);
+  assert.deepEqual(badges, [1, 2, "cleared", 1]);
+
+  // Putting an old one away does not bring the other old one back.
+  shownNotifications.shift();
+  let completion;
+  handlers.notificationclose({
+    notification: { data: {} },
+    waitUntil(promise) {
+      completion = promise;
+    },
+  });
+  await completion;
+  assert.deepEqual(badges, [1, 2, "cleared", 1, 1]);
+
+  // Any other message leaves the count alone.
+  handlers.message({ data: { type: "something-else" }, waitUntil() {} });
+  assert.equal(badges.length, 5);
+  withoutStore();
+  withoutBadging();
+});
+
+test("a notification shown by an older worker, with no time on it, never counts", async () => {
+  const badges = badging({ showing: () => [{ tag: "old", data: {} }, { tag: "older" }] });
+  let completion;
+  handlers.notificationclose({
+    notification: { data: {} },
+    waitUntil(promise) {
+      completion = promise;
+    },
+  });
+  await completion;
+  assert.deepEqual(badges, ["cleared"]);
   withoutBadging();
 });
 

@@ -31,6 +31,18 @@ export async function revokeTeamPush(
   return subscription !== null;
 }
 
+/**
+ * Tells the team's service worker that a team page is open and visible, so
+ * the notifications shown until now stop counting toward the app icon's
+ * badge (public/team/sw.js). Does nothing in a browser with no worker yet.
+ */
+export async function tellWorkerAppOpened(serviceWorker: {
+  getRegistration(scope: string): Promise<{ active?: { postMessage(message: unknown): void } | null } | undefined>;
+}): Promise<void> {
+  const registration = await serviceWorker.getRegistration(TEAM_SERVICE_WORKER_SCOPE);
+  registration?.active?.postMessage({ type: "app-opened" });
+}
+
 type ActivatingRegistration = Pick<ServiceWorkerRegistration, "active" | "installing" | "waiting">;
 
 /**

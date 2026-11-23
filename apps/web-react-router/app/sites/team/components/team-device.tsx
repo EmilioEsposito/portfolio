@@ -13,6 +13,7 @@ import {
   subscribeToInstallOffer,
   type InstallOffer,
 } from "~/sites/team/lib/install-prompt";
+import { tellWorkerAppOpened } from "~/sites/team/lib/push-subscription";
 import {
   bannerFor,
   clearAppBadge,
@@ -107,10 +108,13 @@ export function TeamDeviceProvider({ children }: { children: React.ReactNode }) 
     setNow(Date.now());
   }, []);
 
-  // Opening the app is opening its notifications: the badge goes.
+  // Opening the app is opening its notifications: the badge goes, and the
+  // worker stops counting the ones shown until now.
   useEffect(() => {
     const clear = () => {
-      if (document.visibilityState === "visible") clearAppBadge(navigator);
+      if (document.visibilityState !== "visible") return;
+      clearAppBadge(navigator);
+      if ("serviceWorker" in navigator) void tellWorkerAppOpened(navigator.serviceWorker).catch(() => {});
     };
     clear();
     document.addEventListener("visibilitychange", clear);

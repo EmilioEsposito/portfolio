@@ -144,11 +144,13 @@ the installed app and Chrome share storage, so a tab already reads as on.
 
 ### The app icon's badge
 
-The badge counts the notifications not yet opened; opening the app clears it.
-The service worker sets it to the number of this app's notifications still
-showing (`registration.getNotifications()`) after showing one, after a click,
-and on `notificationclose` where the browser fires it. A team page clears it
-whenever it becomes visible. The Badging API exists in Home Screen apps on
+The badge counts the notifications shown since the app was last opened and
+still showing; opening the app clears it. Opening the app does not close its
+notifications, so a team page that becomes visible clears the badge and tells
+the service worker (`app-opened`), which keeps that moment in Cache Storage
+and counts only notifications shown after it (each carries `shownAt` in its
+data). The worker recounts after showing one, after a click, and on
+`notificationclose` where the browser fires it. The Badging API exists in Home Screen apps on
 iOS/iPadOS 16.4+ and installed apps in desktop Chrome and Edge; Chrome on
 Android has none and shows its own dot while a notification is unread. Every
 call is feature-detected and never throws.

@@ -12,16 +12,45 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// The app icon's badge counts this app's notifications still showing, that
-// is, not yet opened; opening the app clears it (the team pages do that).
+// The app icon's badge counts the notifications shown since the app was last
+// opened and still showing. Opening the app does not close its notifications,
+// so the moment it was opened is kept (a team page says so, see "message"
+// below) and only notifications shown after it count. Without that, putting
+// one old notification away, or the next push, would bring the others back
+// into the count.
 // The Badging API is in Home Screen apps on iOS 16.4+ and installed apps in
 // desktop Chrome and Edge; elsewhere (Chrome on Android shows its own dot)
 // this does nothing.
+const BADGE_STATE = "sernia-team-badge";
+const OPENED_AT = "/team/__app-opened-at";
+
+// Kept in Cache Storage, the one store a worker that keeps no pages has at
+// hand: the worker itself is stopped and restarted between pushes.
+async function appOpenedAt() {
+  try {
+    const kept = await (await caches.open(BADGE_STATE)).match(OPENED_AT);
+    return kept ? Number(await kept.text()) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function rememberAppOpened() {
+  try {
+    await (await caches.open(BADGE_STATE)).put(OPENED_AT, new Response(String(Date.now())));
+  } catch {
+    // Without the store every notification still showing counts, as before.
+  }
+}
+
 async function syncBadge() {
   try {
     const badging = self.navigator;
     if (!badging || typeof badging.setAppBadge !== "function") return;
-    const showing = await self.registration.getNotifications();
+    const openedAt = await appOpenedAt();
+    const showing = (await self.registration.getNotifications()).filter(
+      (notification) => (notification.data?.shownAt ?? 0) > openedAt
+    );
     if (showing.length > 0) {
       await badging.setAppBadge(showing.length);
     } else if (typeof badging.clearAppBadge === "function") {
@@ -98,7 +127,8 @@ self.addEventListener("push", (event) => {
         icon: "/favicon.png",
         badge: "/favicon.png",
         tag,
-        data,
+        // When it was shown, for the badge: see syncBadge.
+        data: { ...data, shownAt: Date.now() },
         requireInteraction: isApproval,
       });
       await syncBadge();
@@ -146,4 +176,10 @@ self.addEventListener("notificationclick", (event) => {
 // Dismissed without opening it (where the browser says so): count the rest.
 self.addEventListener("notificationclose", (event) => {
   event.waitUntil(syncBadge());
+});
+
+// A team page is open and visible: what was shown until now has been seen.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "app-opened") return;
+  event.waitUntil(rememberAppOpened().then(syncBadge));
 });
