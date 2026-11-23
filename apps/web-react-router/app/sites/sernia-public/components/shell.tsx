@@ -1,6 +1,6 @@
 import { isRouteErrorResponse, Link, NavLink, useNavigation, useRouteError, useRouteLoaderData } from "react-router";
 
-import { LogoMark } from "~/sites/sernia-public/components/drawings";
+import { LogoMark } from "~/components/sernia-logo";
 import { SERNIA_CONTACT_EMAIL, SERNIA_NAME } from "~/sites/sernia-public/lib/seo";
 import { serniaRoot } from "~/sites/sernia-root";
 import { cn } from "~/lib/utils";
@@ -28,6 +28,7 @@ export function SerniaPublicShell({
   action?: React.ReactNode;
 }) {
   const column = wide ? SERNIA_WIDE_COLUMN : COLUMN;
+  const teamHref = serniaRoot(useRouteError(), useRouteLoaderData("root"))?.teamHref ?? "/team";
   return (
     <div className="sernia-public flex min-h-[calc(100dvh-var(--env-banner-h,0px))] flex-col bg-background text-foreground">
       <OpeningLine />
@@ -36,7 +37,10 @@ export function SerniaPublicShell({
           className={cn(column, "flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 sm:min-h-[72px]")}
         >
           <Wordmark />
-          {action}
+          <div className="flex items-center gap-x-5">
+            <TeamLink href={teamHref} className="py-2 text-[0.93rem] text-muted-foreground" />
+            {action}
+          </div>
         </div>
       </header>
       <main className={wide ? "flex-1" : cn(COLUMN, "flex-1 py-10 sm:py-14")}>{children}</main>
@@ -53,6 +57,7 @@ export function SerniaPublicShell({
               {/* The booking form and the privacy policy link to these too; the home page has no need to. */}
               {!wide && <FooterLink to="/sms-terms">SMS Terms</FooterLink>}
             </nav>
+            <TeamLink href={teamHref} className={FOOTER_LINK} />
           </div>
         </div>
       </footer>
@@ -94,6 +99,18 @@ function Wordmark() {
     </Link>
   ) : (
     <p className={className}>{content}</p>
+  );
+}
+
+/**
+ * The way to the team's signed-in pages. A full page load, since they run
+ * Clerk and these pages do not.
+ */
+function TeamLink({ href, className }: { href: string; className?: string }) {
+  return (
+    <a href={href} className={cn("hover:text-foreground", className)}>
+      Team
+    </a>
   );
 }
 

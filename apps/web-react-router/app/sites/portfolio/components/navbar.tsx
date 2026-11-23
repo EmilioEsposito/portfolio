@@ -1,20 +1,13 @@
 "use client";
 
 import { Button } from "~/components/ui/button";
-import { GitIcon, LinkedInIcon, UserIcon } from "./icons";
+import { GitIcon, LinkedInIcon } from "./icons";
 import { Menu } from "lucide-react";
 import { Link } from "react-router";
 import { useSidebar } from "~/components/ui/sidebar";
-import {
-  SignInButton,
-  Show,
-  UserButton,
-  useUser,
-} from "@clerk/react-router";
 
 export const Navbar = () => {
   const { toggleSidebar } = useSidebar();
-  const { user } = useUser();
   return (
     <div className="p-2 flex flex-row gap-2 justify-between items-center">
       <div className="flex gap-2 items-center">
@@ -45,23 +38,6 @@ export const Navbar = () => {
             <LinkedInIcon />
           </Button>
         </Link>
-
-        {/* Clerk Buttons */}
-        <Show when="signed-out">
-          <SignInButton mode="modal">
-            <Button variant="outline">
-              <UserIcon />
-              &nbsp;Login
-            </Button>
-          </SignInButton>
-        </Show>
-        <Show when="signed-in">
-          <div className="flex items-center gap-2">
-            {user?.firstName}
-            <UserButton />
-          </div>
-        </Show>
-
       </div>
     </div>
   );
