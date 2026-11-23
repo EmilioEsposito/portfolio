@@ -52,6 +52,11 @@ async def test_expected_tools_exposed():
         "clickup_list_lists",
         "clickup_get_tasks",
         "clickup_get_maintenance_field_options",
+        "quo_list_tasks",
+        "quo_get_task",
+        "quo_create_task",
+        "quo_update_task",
+        "quo_delete_task",
         "quo_create_contact",
         "quo_send_sms",
         "google_send_email",
@@ -60,6 +65,7 @@ async def test_expected_tools_exposed():
     assert not missing, f"Missing tools from /tools/list: {missing}"
 
     # Hidden backend tools must NOT appear in tools/list.
+    assert "_confirm_delete_quo_task" not in names
     assert "_confirm_send_sms" not in names
     assert "_confirm_send_email" not in names
 

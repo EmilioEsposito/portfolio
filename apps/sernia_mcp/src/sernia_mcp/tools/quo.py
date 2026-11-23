@@ -4,11 +4,15 @@ Send tools live in ``approvals.py`` — they use the FastMCPApp pattern for
 deterministic server-side enforcement (tool-visibility split).
 """
 
+from contextlib import asynccontextmanager
 from typing import Literal
 
+import httpx
 from fastmcp.exceptions import ToolError
 
+from sernia_mcp.clients.quo import build_quo_client
 from sernia_mcp.core.errors import CoreError
+from sernia_mcp.core.quo import tasks
 from sernia_mcp.core.quo.contact_writes import (
     CustomField,
     Email,
@@ -180,3 +184,47 @@ async def quo_create_contact(
         )
     except CoreError as e:
         raise ToolError(f"quo_create_contact failed: {e}") from e
+
+
+@asynccontextmanager
+async def task_client():
+    """Use the service's rate-limited client and report provider failures over MCP."""
+    try:
+        async with build_quo_client() as client:
+            yield client
+    except httpx.HTTPStatusError as error:
+        raise ToolError(f"Quo task request failed (HTTP {error.response.status_code}).") from error
+    except httpx.RequestError as error:
+        raise ToolError(
+            "Quo did not confirm the task request. Check the task before retrying."
+        ) from error
+
+
+@mcp.tool
+async def quo_list_tasks(max_results: tasks.PageSize = 25, page_token: str | None = None) -> dict:
+    """List one page of Quo tasks, including task IDs and the next page token."""
+    async with task_client() as client:
+        return await tasks.list_tasks(client, max_results, page_token)
+
+
+@mcp.tool
+async def quo_get_task(task_id: tasks.TaskId) -> dict:
+    """Read a Quo task by its TK ID, including current title and description."""
+    async with task_client() as client:
+        return await tasks.get_task(client, task_id)
+
+
+@mcp.tool
+async def quo_create_task(task: tasks.NewTask) -> dict:
+    """Create a task when the user chooses Quo. Omit link IDs for an organization-wide task."""
+    async with task_client() as client:
+        return await tasks.create_task(client, task)
+
+
+@mcp.tool
+async def quo_update_task(task_id: tasks.TaskId, change: tasks.TaskChange) -> dict:
+    """Update one aspect of a Quo task per call. For text edits supply both title and
+    description, reading the task first to preserve whichever field the user wants to keep.
+    """
+    async with task_client() as client:
+        return await tasks.update_task(client, task_id, change)

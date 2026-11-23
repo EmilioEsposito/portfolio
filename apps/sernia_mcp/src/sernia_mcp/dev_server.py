@@ -8,12 +8,12 @@ What this does:
 
   * Spawns the MCP server on :8000 and the FastMCP dev UI on :8080.
   * Browser opens automatically. The picker lists the ``@app.ui()`` tools
-    (``quo_send_sms``, ``google_send_email``). Pick one, fill in the form,
+    (including ``quo_delete_task``, ``quo_send_sms``, and ``google_send_email``). Pick one, fill in the form,
     launch.
   * The approval card renders. Click Approve or Reject; the inspector panel
     shows the ``CallTool → _confirm_send_*`` traffic.
 
-All upstream sends are MOCKED. Nothing hits OpenPhone or Gmail — safe to
+Quo task lookups, deletions, and upstream sends are MOCKED. Nothing hits OpenPhone or Gmail — safe to
 exercise with any phone/email. Mocks print to stdout so you can confirm what
 *would* have happened.
 
@@ -22,6 +22,9 @@ This file is a dev harness ONLY. Not wired into the production server.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
+import httpx
 from fastmcp import FastMCP
 
 from sernia_mcp.core.types import EmailSendResult, SmsResult, SmsRouting
@@ -75,6 +78,20 @@ async def _fake_send_email_core(
     )
 
 
+@asynccontextmanager
+async def _fake_task_client():
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": {"title": "Demo follow-up"}})
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(
+        base_url="https://quo.test", transport=httpx.MockTransport(respond)
+    ) as client:
+        yield client
+
+
+approvals.task_client = _fake_task_client
 approvals.resolve_sms_routing_core = _fake_resolve_sms_routing_core  # type: ignore[assignment]
 approvals.send_sms_core = _fake_send_sms_core  # type: ignore[assignment]
 approvals.send_email_core = _fake_send_email_core  # type: ignore[assignment]
