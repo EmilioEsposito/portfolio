@@ -1170,7 +1170,9 @@ def _render_thread(
             if len(text) > 500:
                 text = text[:500] + "..."
 
-            lines.append(f"[{created}]{_message_ids(item)} {sender_name} → {recipient_name}: {text}")
+            lines.append(
+                f"[{created}]{_message_ids(item)} {sender_name} → {recipient_name}: {text}"
+            )
 
     return "\n".join(lines)
 
