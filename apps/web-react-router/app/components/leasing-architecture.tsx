@@ -1,7 +1,6 @@
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, TouchList as ReactTouchList } from "react";
 import {
-  ArrowDown,
-  ArrowUp,
   CalendarCheck,
   CalendarDays,
   Database,
@@ -15,10 +14,11 @@ import {
   Smartphone,
   UserRoundCheck,
   Users,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 
 type NodeId =
   | "ad" | "general" | "listings" | "editor"
@@ -164,12 +164,63 @@ const selectedColor: Record<Tone, string> = {
   told: "border-violet-600 bg-violet-50 dark:bg-violet-950/60",
 };
 const tones = ["listing", "lead", "booking", "told"] as const;
-// The node each phone tab opens on.
-const tabStart: Record<Tone, NodeId> = { listing: "general", lead: "agent", booking: "open", told: "leadDetails" };
+
+// On a screen too narrow for the whole diagram, it is drawn this wide inside a
+// frame that scrolls both ways, so the text stays readable and every branch is
+// still on the one picture. The reader zooms between the frame's own width (the
+// whole diagram at once) and the widest.
+const START_WIDTH = 880;
+const WIDEST = 1120;
+const ZOOM_STEP = 1.3;
+
+function spread(touches: ReactTouchList) {
+  return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+}
 
 export default function LeasingArchitecture() {
   const [selected, setSelected] = useState<NodeId>("agent");
+  // The drawn width in a narrow frame; null fits the frame. Ignored when the
+  // whole diagram fits, where it is always the frame's width.
+  const [width, setWidth] = useState<number | null>(START_WIDTH);
+  const frame = useRef<HTMLDivElement>(null);
+  const drawing = useRef<SVGSVGElement>(null);
+  // The point of the diagram that stays put while the width changes.
+  const anchor = useRef<{ rx: number; ry: number; x: number; y: number } | null>(null);
+  const pinch = useRef<{ spread: number; width: number } | null>(null);
   const markerId = useId().replaceAll(":", "");
+
+  // Change the drawn width, keeping the point at (x, y) in the frame where it is.
+  function zoomTo(wanted: number, at?: { x: number; y: number }) {
+    const el = frame.current;
+    if (!el) return;
+    const x = at?.x ?? el.clientWidth / 2;
+    const y = at?.y ?? el.clientHeight / 2;
+    anchor.current = { rx: (el.scrollLeft + x) / el.scrollWidth, ry: (el.scrollTop + y) / el.scrollHeight, x, y };
+    const next = Math.min(wanted, WIDEST);
+    setWidth(next <= el.clientWidth + 1 ? null : next);
+  }
+  function zoomBy(factor: number) {
+    const drawn = drawing.current?.getBoundingClientRect().width;
+    if (drawn) zoomTo(drawn * factor);
+  }
+  // In a narrow frame, start on the selected step, with the steps around it in view.
+  useLayoutEffect(() => {
+    const el = frame.current;
+    const start = nodes.find((node) => node.id === selected);
+    if (!el || !start || el.scrollWidth <= el.clientWidth) return;
+    const scale = el.scrollWidth / 1120;
+    el.scrollLeft = (start.box[0] + start.box[2] / 2) * scale - el.clientWidth / 2;
+    el.scrollTop = (start.box[1] + start.box[3] / 2) * scale - el.clientHeight / 2;
+    // Only once, when the diagram first appears.
+  }, []);
+  useLayoutEffect(() => {
+    const el = frame.current;
+    const kept = anchor.current;
+    if (!el || !kept) return;
+    el.scrollLeft = kept.rx * el.scrollWidth - kept.x;
+    el.scrollTop = kept.ry * el.scrollHeight - kept.y;
+    anchor.current = null;
+  }, [width]);
   const active = nodes.find((node) => node.id === selected)!;
   const connected = new Set<NodeId>([selected]);
   for (const edge of edges) {
@@ -179,7 +230,7 @@ export default function LeasingArchitecture() {
     }
   }
 
-  function nodeButton(node: Node, compact = false) {
+  function nodeButton(node: Node) {
     const Icon = node.icon;
     return (
       <button
@@ -188,18 +239,17 @@ export default function LeasingArchitecture() {
         aria-controls={`${markerId}-detail`}
         onClick={() => setSelected(node.id)}
         className={cn(
-          "flex h-full w-full flex-col justify-center rounded-xl border-2 bg-background px-4 text-left transition-colors",
+          "flex h-full w-full flex-col justify-center rounded-xl border-2 bg-background px-4 py-2 text-left transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          compact ? "min-h-20 py-3" : "py-2",
           selected === node.id ? selectedColor[node.tone] : "border-border hover:border-foreground/40",
           !connected.has(node.id) && "text-muted-foreground",
         )}
       >
         <span className="flex items-center gap-2">
-          <Icon className={cn("shrink-0", color[node.tone], compact ? "size-4" : "size-5")} aria-hidden="true" />
-          <span className={cn("font-semibold leading-snug", compact ? "text-sm" : "text-[17px]")}>{node.title}</span>
+          <Icon className={cn("size-5 shrink-0", color[node.tone])} aria-hidden="true" />
+          <span className="text-[17px] font-semibold leading-snug">{node.title}</span>
         </span>
-        <span className={cn("mt-1.5 leading-snug text-muted-foreground", compact ? "text-xs" : "text-[14px]")}>{node.subtitle}</span>
+        <span className="mt-1.5 text-[14px] leading-snug text-muted-foreground">{node.subtitle}</span>
       </button>
     );
   }
@@ -219,98 +269,67 @@ export default function LeasingArchitecture() {
     );
   }
 
-  const byId = (id: NodeId) => nodes.find((node) => node.id === id)!;
-
-  function mobileRow(ids: NodeId[]) {
-    return (
-      <div className="grid gap-2">
-        {ids.map((id, index) => {
-          const node = byId(id);
-          // The button fills its own wrapper, so the arrow above it is not counted in its height.
-          return <div key={id}>{index > 0 && <ArrowDown className={cn("mx-auto my-2 size-4", color[node.tone])} aria-hidden="true" />}<div>{nodeButton(node, true)}</div></div>;
-        })}
-      </div>
-    );
-  }
-
-  // A fork on a phone: what leads in, then the branches side by side.
-  function mobileFork(label: string, ids: [NodeId, NodeId]) {
-    const tone = byId(ids[0]).tone;
-    return (
-      <>
-        <p className={cn("my-2 flex items-center justify-center gap-1.5 text-xs font-medium", color[tone])}><ArrowDown className="size-4" aria-hidden="true" />{label}</p>
-        <div className="grid grid-cols-2 gap-2">{ids.map((id) => <div key={id}>{nodeButton(byId(id), true)}</div>)}</div>
-      </>
-    );
-  }
+  const zoomButton = "inline-flex size-8 items-center justify-center rounded-md border bg-background text-foreground disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <figure id="booking" className="@container scroll-mt-6 overflow-clip rounded-2xl border bg-muted/10" aria-label="Leasing architecture">
-      <p className="border-b px-5 py-3 text-xs text-muted-foreground">Select a step to read what happens there.</p>
-      <svg viewBox="0 0 1120 980" className="hidden w-full @3xl:block" role="group" aria-label="Listing updates, lead replies, the two ways a showing is booked, and who is told about it">
-        <defs>
-          {tones.map((tone) => (
-            <marker key={tone} id={`${markerId}-${tone}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse" className={color[tone]}>
-              <path d="M1 1L9 5L1 9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </marker>
-          ))}
-        </defs>
-        {bands.map((band) => (
-          <text key={band.tone} x="24" y={band.y} fill="currentColor" fontSize="13" fontWeight="600" letterSpacing="0.06em" className={cn("uppercase", color[band.tone])}>
-            {band.text}
-          </text>
-        ))}
-        {edges.filter((edge) => edge.from !== selected && edge.to !== selected).map(edgePath)}
-        {edges.filter((edge) => edge.from === selected || edge.to === selected).map(edgePath)}
-        {nodes.map((node) => (
-          <foreignObject key={node.id} x={node.box[0]} y={node.box[1]} width={node.box[2]} height={node.box[3]} className="overflow-visible">
-            {nodeButton(node)}
-          </foreignObject>
-        ))}
-      </svg>
-      <Tabs
-        defaultValue="lead"
-        onValueChange={(value) => setSelected(tabStart[value as Tone])}
-        className="p-4 @3xl:hidden"
+      <div className="flex items-center justify-between gap-3 border-b px-5 py-2.5 text-xs text-muted-foreground">
+        <p>Select a step to read what happens there.<span className="@3xl:hidden"> Scroll to move around, or zoom out to see it all.</span></p>
+        <div className="flex shrink-0 gap-1.5 @3xl:hidden">
+          <button type="button" className={zoomButton} onClick={() => zoomBy(1 / ZOOM_STEP)} disabled={width === null} aria-label="Zoom out"><ZoomOut className="size-4" aria-hidden="true" /></button>
+          <button type="button" className={zoomButton} onClick={() => zoomBy(ZOOM_STEP)} disabled={width !== null && width >= WIDEST} aria-label="Zoom in"><ZoomIn className="size-4" aria-hidden="true" /></button>
+        </div>
+      </div>
+      <div
+        ref={frame}
+        // Two fingers zoom the diagram, not the page; one finger scrolls it.
+        className="max-h-[62vh] overflow-auto [touch-action:pan-x_pan-y] @3xl:max-h-none @3xl:overflow-visible @3xl:[touch-action:auto]"
+        onTouchStart={(event) => {
+          const drawn = drawing.current?.getBoundingClientRect().width;
+          if (event.touches.length === 2 && drawn) pinch.current = { spread: spread(event.touches), width: drawn };
+        }}
+        onTouchMove={(event) => {
+          const el = frame.current;
+          const began = pinch.current;
+          if (!el || !began || event.touches.length !== 2) return;
+          const box = el.getBoundingClientRect();
+          zoomTo((began.width * spread(event.touches)) / began.spread, {
+            x: (event.touches[0].clientX + event.touches[1].clientX) / 2 - box.left,
+            y: (event.touches[0].clientY + event.touches[1].clientY) / 2 - box.top,
+          });
+        }}
+        onTouchEnd={() => { pinch.current = null; }}
+        onTouchCancel={() => { pinch.current = null; }}
       >
-        <TabsList className="mb-3 grid w-full grid-cols-4">
-          <TabsTrigger value="listing">Listings</TabsTrigger>
-          <TabsTrigger value="lead">Inquiries</TabsTrigger>
-          <TabsTrigger value="booking">Booking</TabsTrigger>
-          <TabsTrigger value="told">Who’s told</TabsTrigger>
-        </TabsList>
-        <TabsContent value="listing" aria-label="Listing maintenance">
-          <h3 className="mb-3 text-sm font-semibold text-teal-700 dark:text-teal-400">Keep listings current</h3>
-          {mobileRow(["ad", "general", "listings"])}
-          <p className="my-2 text-center text-xs text-muted-foreground">Also updated through</p>
-          {nodeButton(byId("editor"), true)}
-        </TabsContent>
-        <TabsContent value="lead" aria-label="Lead conversation">
-          <h3 className="mb-3 text-sm font-semibold text-blue-700 dark:text-blue-400">Answer the inquiry</h3>
-          {mobileRow(["inquiry", "inbox", "agent"])}
-          {mobileFork("One of", ["reply", "team"])}
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">The agent is given the listing facts and the open times. A reply carries the booking link, or confirms a time the lead agreed to.</p>
-        </TabsContent>
-        <TabsContent value="booking" aria-label="Open times and the two ways a showing is booked">
-          <h3 className="mb-3 text-sm font-semibold text-amber-700 dark:text-amber-400">Book a showing</h3>
-          {mobileRow(["calendars", "open"])}
-          {mobileFork("Booked one of two ways", ["page", "email"])}
-          <ArrowDown className="mx-auto my-2 size-4 text-amber-600" aria-hidden="true" />
-          {nodeButton(byId("booked"), true)}
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">Showing rules shape the open times. A booked showing leaves them, and the next reply knows about it.</p>
-        </TabsContent>
-        <TabsContent value="told" aria-label="Who is told about a booked showing">
-          <h3 className="mb-3 text-sm font-semibold text-violet-700 dark:text-violet-400">Who is told</h3>
-          {nodeButton(byId("leadDetails"), true)}
-          <p className="my-2 flex items-center justify-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-400"><ArrowUp className="size-4" aria-hidden="true" />once they add their details</p>
-          <div className="grid gap-2">
-            {nodeButton(byId("leadEmail"), true)}
-            {nodeButton(byId("host"), true)}
-            {nodeButton(byId("residents"), true)}
-          </div>
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">Everyone here is told when a showing is booked, and again when it changes.</p>
-        </TabsContent>
-      </Tabs>
+        <svg
+          ref={drawing}
+          viewBox="0 0 1120 980"
+          style={{ "--drawn": width === null ? "100%" : `${width}px` } as CSSProperties}
+          className="block w-[var(--drawn)] max-w-none @3xl:w-full"
+          role="group"
+          aria-label="Listing updates, lead replies, the two ways a showing is booked, and who is told about it"
+        >
+          <defs>
+            {tones.map((tone) => (
+              <marker key={tone} id={`${markerId}-${tone}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse" className={color[tone]}>
+                <path d="M1 1L9 5L1 9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </marker>
+            ))}
+          </defs>
+          {bands.map((band) => (
+            <text key={band.tone} x="24" y={band.y} fill="currentColor" fontSize="13" fontWeight="600" letterSpacing="0.06em" className={cn("uppercase", color[band.tone])}>
+              {band.text}
+            </text>
+          ))}
+          {edges.filter((edge) => edge.from !== selected && edge.to !== selected).map(edgePath)}
+          {edges.filter((edge) => edge.from === selected || edge.to === selected).map(edgePath)}
+          {nodes.map((node) => (
+            <foreignObject key={node.id} x={node.box[0]} y={node.box[1]} width={node.box[2]} height={node.box[3]} className="overflow-visible">
+              {nodeButton(node)}
+            </foreignObject>
+          ))}
+        </svg>
+      </div>
       <figcaption id={`${markerId}-detail`} aria-live="polite" aria-atomic="true" className="grid gap-2 border-t bg-background px-5 py-5 sm:grid-cols-[12rem_1fr] sm:gap-5 @3xl:sticky @3xl:bottom-0">
         <p className={cn("font-semibold", color[active.tone])}>{active.title}</p>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{active.detail}</p>
