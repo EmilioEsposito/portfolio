@@ -28,7 +28,21 @@ test("the number shows without waiting for a new check, once the page has been i
 
   // A check started from here on would never answer.
   await answerTurnstile(page, "hang");
+  // Hold the API response across idle callbacks to exercise the in-flight reveal.
+  let releaseResponse!: () => void;
+  const responseGate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+  await page.route("**/api/showing-bookings/public/team-phone", async (route) => {
+    await responseGate;
+    await route.continue();
+  });
   await showNumber(page).click();
+  try {
+    await expect.poll(() => tokens.length).toBe(1);
+    await page.evaluate(() => new Promise((resolve) => requestIdleCallback(() => requestIdleCallback(resolve))));
+    expect(await turnstileRuns(page)).toBe(1);
+  } finally {
+    releaseResponse();
+  }
   await expect(number(page)).toHaveAttribute("href", `tel:${TEAM_PHONE},1`);
   expect(tokens).toEqual(["browser-test-token-1"]);
 
