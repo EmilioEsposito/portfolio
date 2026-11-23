@@ -81,8 +81,10 @@ and have no redirects.
   is not `production`). In production a team path on another host answers the
   portfolio's 404.
 - Sign-in is scoped to `/team`. The root route (`app/root.tsx`, through
-  `app/sites/root-request.server.ts`) runs `clerkMiddleware`, `rootAuthLoader`
-  and `<ClerkProvider>` for team requests and nothing else. Clerk's keys come
+  `app/sites/root-request.server.ts`) runs `clerkMiddleware` and
+  `rootAuthLoader` on the server for team requests and nothing else. The
+  team's layout (`app/sites/team/routes/layout.tsx`) renders `<ClerkProvider>`
+  from the root loader's data, so only team pages download Clerk's code. Clerk's keys come
   from the environment (`CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`); its
   production instance has to be on serniacapital.com for sign-in to work there.
 - The team layout (`app/sites/team/routes/layout.tsx`) holds the one guard: a
@@ -172,8 +174,8 @@ team's pages under `/team` do.
   reaches `pnpm dev`; locally the pages are on and the default hosts apply.
 - `app/sites/site.ts` makes every decision, and
   `app/sites/root-request.server.ts` applies it in the root middleware and loader.
-  Only a team request runs `clerkMiddleware`, `rootAuthLoader` and
-  `<ClerkProvider>`. Previews and localhost show the pages at the same paths.
+  Only a team request runs `clerkMiddleware` and `rootAuthLoader`, and only
+  the team's layout renders `<ClerkProvider>`. Previews and localhost show the pages at the same paths.
 - On a Sernia host every other path (but `/team` and `/robots.txt`) answers 404
   with the Sernia layout. `app/sites/not-found.tsx` sends unknown URLs through the
   root middleware so this also holds for them; other hosts get the portfolio's 404.
@@ -343,5 +345,5 @@ load, and the Dockerfile copies it into the image. `server.js` serves
 `build/client` without redirecting a folder to its trailing slash, because
 `build/client/team/` holds the service worker and `/team` is a page.
 
-See [AI showcase backend documentation](../../api/src/ai_demos/README.md) for
+See [AI showcase backend documentation](../../api/src/portfolio/README.md) for
 model configuration, execution events, and abuse controls.
