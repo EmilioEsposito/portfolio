@@ -7,11 +7,15 @@ turns those decisions into bookings, only while the setting
 ``lead_agent_uses_open_times`` is on. With it off, or unreadable, every
 function here does nothing and answers None.
 
-Only a person sends a reply that changes a booking: the automatic send holds
-any reply for which ``plan_reply`` answers a change (``Plan.person_sends``),
-until a check that the reply's words name the booked time exists, with an
-eval run. When a person approves a reply (``handle.apply_approval``),
-``prepare_reply`` runs just before the send:
+A person sends a reply that changes a booking, unless the lead agent's
+settings let that kind go automatically (``zillow_leads.settings``: a new
+booking, a move, a cancellation, each its own setting, all off until saved).
+The automatic send holds any other reply for which ``plan_reply`` answers a
+change (``Plan.person_sends``), and one that books or moves without stating
+the booked time in the policy's form (``Plan.time_not_stated``). When a person
+approves a reply (``handle.apply_approval``), or the automatic send is about
+to send one (``auto_reply.maybe_send_reply``), ``prepare_reply`` runs just
+before the send:
 
 - A reply whose tour is ``confirmed`` or ``rescheduled``, in person, with a
   start and a unit the case lists, books the lead into that showing through
@@ -169,6 +173,9 @@ class Prepared:
     refusal_message: str | None = None
     # The conversation whose reply this is.
     conversation_id: str | None = None
+    # The place was booked by an earlier attempt at this reply that stopped
+    # before its send was known, and found again now.
+    recovered: bool = False
     # Filled in by ``after_send``.
     sent: SendResult | None = None
     cancelled: list[int] = field(default_factory=list)
@@ -193,6 +200,25 @@ class Prepared:
         if self.action == "cancel":
             return f"This reply cancels the lead's showing at {self.unit}."
         return self.problem()
+
+    def unsent_note(self) -> str | None:
+        """One line for the team when this reply's send failed or is not known,
+        once ``after_send`` has settled it. None when nothing needs saying."""
+        booked_here = self.action in ("booked", "moved")
+        if self.sent == "failed":
+            if booked_here and self.cancelled:
+                return "The reply was not sent, so the showing booked for it was cancelled."
+            if self.action == "cancel":
+                return "The reply was not sent, so the showing was not cancelled."
+        if self.sent == "uncertain":
+            if booked_here:
+                return (
+                    "The reply may not have gone out. The showing stays booked, "
+                    "marked on the Showings section."
+                )
+            if self.action == "cancel":
+                return "The reply may not have gone out. The showing was cancelled."
+        return None
 
     def record(self) -> dict[str, Any]:
         """What the conversation keeps, under ``showing_booking``."""
@@ -368,8 +394,37 @@ class Plan:
 
     def person_sends(self) -> str:
         """Why the automatic send holds this reply for a person."""
-        verb = {"book": "books", "move": "moves", "cancel": "cancels"}[self.action]
-        return f"This reply {verb} a showing, so a person sends it."
+        return f"This reply {self._verb()} a showing, so a person sends it."
+
+    def time_not_stated(self, timezone: str) -> str:
+        """Why the automatic send holds a reply that books or moves without
+        giving the time code would book, in the policy's form."""
+        return (
+            f"This reply {self._verb()} a showing but does not give the time as "
+            f"{_when(self.start, timezone)}, so a person sends it."
+        )
+
+    def if_unsent(self, timezone: str) -> str:
+        """For the card left while an automatic send is under way: what the
+        reply does to the showing, and what to check if it never went out."""
+        if self.action == "book":
+            return (
+                f"This reply books unit {self.unit} for {_short(self.start, timezone)}. "
+                "If it did not go out, cancel that showing on the Booking settings tab."
+            )
+        if self.action == "move":
+            return (
+                f"This reply moves their showing of {self.unit} to "
+                f"{_short(self.start, timezone)}. If it did not go out, check their "
+                "showings on the Booking settings tab."
+            )
+        return (
+            f"This reply cancels their showing of {self.unit}. If it went out and the "
+            "showing is still booked, cancel it on the Booking settings tab."
+        )
+
+    def _verb(self) -> str:
+        return {"book": "books", "move": "moves", "cancel": "cancels"}[self.action]
 
     def not_applied(self) -> str:
         """The result line when a person sent edited words, so nothing was applied."""
@@ -499,6 +554,7 @@ async def _prepare(
             want.start,
             to_cancel=others,
             conversation_id=conversation_id,
+            recovered=True,
             **await _recovered(same[0]),
         )
     if same:

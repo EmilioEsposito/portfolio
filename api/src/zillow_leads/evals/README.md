@@ -492,6 +492,19 @@ three runs since the booking policy, for a different older rule each time. The
 rented-unit case, counted as a known flipper, has escalated in all three as
 well; it also escalated in 17.
 
+Experiment 21 is the run behind sending booking replies automatically. The
+Agent settings tab now lets a reply that books, moves or cancels a showing go
+without a person, each kind by its own setting, and one that books or moves goes
+only when `states_tour_time` holds (`auto_reply.booking_hold`). The made-up
+booking set was run three times under the current instructions, with no prompt
+change. In all three runs the five replies that would book or move a showing
+gave the time in the fixed form (15 of 15) at a time the case allows
+(`tour_time_allowed`, 15 of 15), `expected_booking` and `expected_action` never
+failed, and no code check failed. So the check holds back none of these replies,
+and what code would book is what the reply says. This covers made-up cases only:
+no real case has the own-showings section yet, so the first real replies of each
+kind are worth reading before its box is ticked.
+
 The split was made after experiment 2. Both samples are all in dev.
 
 ## First error analysis

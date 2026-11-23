@@ -126,26 +126,43 @@ the agent's decisions (`showing_bookings/lead_bookings.py`). The agent still
 has no tools and the case gains nothing private; who a reply goes to, the
 approval flow and the one-send reservation are unchanged.
 
-**Only a person sends a reply that changes a booking.** With the switch on,
-the automatic send works out what sending would do before it reserves
-anything. A reply that would book, move or cancel a showing is held as a
-reply that fails a check is: nothing is reserved, booked or sent, and the send
-card, which already says "Sending this books …", gains "This reply books a
-showing, so a person sends it." (or "moves", or "cancels"); the conversation
-records `auto_delivery: needs_review`. A reply that changes nothing (no tour,
-a virtual tour, a time already booked for the thread) is sent automatically as
-before. The reason: the booked time is the agent's structured start time, and
-the automatic send does not check that the reply's words name it.
-`auto_reply.states_tour_time` is that check (below); the evals report it, and
-once they show the agent keeps the form, a later change can let a reply that
-passes it go automatically. With the switch off nothing here runs: `handle_thread`,
-`apply_approval` and `maybe_send_reply` behave as before, which
-`test_zillow_lead_bookings.py` and the case snapshot test check.
+**A reply that changes a booking waits for a person unless its kind is
+ticked.** The Agent settings tab has three boxes under the approval switch:
+send automatically when a reply would book a new showing, reschedule one, or
+cancel one (`settings.LeadSettings`: `auto_send_new_booking`,
+`auto_send_reschedule`, `auto_send_cancellation`). All are off until saved, and
+they do nothing while approval is on. With the switch on, the automatic send
+works out what sending would do before it reserves anything
+(`auto_reply.booking_hold`):
+
+- **Its kind is not ticked.** The reply is held as one that fails a check is:
+  nothing is reserved, booked or sent, and the send card, which already says
+  "Sending this books …", gains "This reply books a showing, so a person sends
+  it." (or "moves", or "cancels"); the conversation records
+  `auto_delivery: needs_review`.
+- **Ticked, but it books or moves without stating the time.** The booked time is
+  the agent's structured start time, so the reply's words must give that time in
+  the policy's form (`auto_reply.states_tour_time`, below). One that does not is
+  held the same way, with "This reply books a showing but does not give the time
+  as Wednesday, April 14 at 4:00 PM, so a person sends it." A cancellation names
+  no time to check.
+- **Ticked, and it may go.** The showing is booked just before the send, as for
+  an approval, and before the send is reserved: a refused time leaves the draft
+  on its card for a person, with the reason. Once the send's result is known the
+  booking is settled as an approved one is (`lead_bookings.after_send`). If
+  Gmail refuses the reply, or its result is unknown, the note goes on the
+  inspect-only card the automatic send leaves ("The reply was not sent, so the
+  showing booked for it was cancelled."), which stays pending.
+
+A reply that changes nothing (no tour, a virtual tour, a time already booked for
+the thread) is sent automatically as before. With the switch off nothing here
+runs: `handle_thread`, `apply_approval` and `maybe_send_reply` behave as before,
+which `test_zillow_lead_bookings.py` and the case snapshot test check.
 
 | Decision | What happens to the thread's showing at the decision's unit |
 | --- | --- |
-| A reply a person sends unchanged, with the tour `confirmed` or `rescheduled`, in person, with a start and a listed unit | Booked through `place_booking` (source `lead_agent`) just before the send. Already booked there at that time: nothing new. Booked there at another time: a move, the old place cancelled after the send with no text to the lead. |
-| A reply a person sends unchanged, with the tour `cancelled` | Cancelled after the send (reason `prospect`). |
+| A reply sent unchanged (by a person, or automatically when its kind is ticked), with the tour `confirmed` or `rescheduled`, in person, with a start and a listed unit | Booked through `place_booking` (source `lead_agent`) just before the send. Already booked there at that time: nothing new. Booked there at another time: a move, the old place cancelled after the send with no text to the lead. |
+| A reply sent unchanged, with the tour `cancelled` | Cancelled after the send (reason `prospect`). |
 | A reply that is rejected | Nothing booked; a place booked for it by a run that stopped before sending is cancelled. |
 | `no_reply` recording the tour as `cancelled` | Cancelled at once (reason `prospect`): nothing waits for a send. |
 | `escalate` recording the tour as `cancelled` | Nothing; the card lists the times still booked, for the person to cancel. |
@@ -246,8 +263,8 @@ with the switch off is told what it was told before. What they add:
 
 `auto_reply.states_tour_time(case, reply)` checks that the reply's words
 contain the outcome's `tour.start`, in the case's time zone, in that fixed
-form (`case.tour_time_words`). It is not called by the automatic send. The
-evals report it, with the details line and what code would book, on every
+form (`case.tour_time_words`). The automatic send requires it of a reply that
+would book or move a showing. The evals report it, with the details line and what code would book, on every
 reply that would book or move the lead's showing; `evals/README.md` ("Checking
 the booking policy before it merges") is the run that decides whether these
 prompt lines merge. `test_zillow_lead_instructions_change.py` checks that the
@@ -327,7 +344,9 @@ Shared services have independent owners:
 - **Approval is configurable for this agent only.** With approval on, replies
   wait in `/sernia-chat`. With it off, new replies may be sent automatically;
   pending drafts are not swept up. Escalations and team follow-ups remain tasks
-  for a person. NoReply sends nothing.
+  for a person. NoReply sends nothing. A reply that would book, move or cancel a
+  showing still waits unless its own box is ticked (see "Showings agreed by
+  email").
 - **Automatic sends are reserved before Gmail is called.** `auto_approved_sends`
   allows one automatic attempt per original RFC Message-ID. The send card is
   replaced with an inspect-only task before the external call. A timeout or
