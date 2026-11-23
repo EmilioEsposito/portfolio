@@ -14,7 +14,8 @@ code is outside it.
 | [Zillow Leads Agent](https://eesposito.com/systems/leasing-leads) | Answers from reviewed rental listings, with configurable approval for replies. Showing bookings are planned. | [Lead agent guide](api/src/zillow_leads/README.md) |
 | [Public agent demo](https://eesposito.com/multi-agent-chat) | Routed chat with a visible execution trace. | [Demo agents](api/src/ai_demos/README.md) |
 
-Operational records and tools require authentication. Public demos use separate,
+Operational records and tools require authentication; the team signs in at
+serniacapital.com/team, and eesposito.com has no sign-in. Public demos use separate,
 limited tools and a capped inference credential; request, concurrency, time, and
 model budgets bound public usage. See [public AI controls](api/src/utils/README.md).
 
@@ -30,7 +31,7 @@ production telemetry.
 
 | Path | Responsibility |
 | --- | --- |
-| [`apps/web-react-router/`](apps/web-react-router/README.md) | React Router web app: portfolio, demos, and operator UI. |
+| [`apps/web-react-router/`](apps/web-react-router/README.md) | React Router web app: the portfolio and demos (eesposito.com), Sernia's public pages, and the team's signed-in pages at serniacapital.com/team. |
 | [`api/`](api/README.md) | FastAPI backend, integrations, agents, and scheduled jobs. |
 | [`apps/sernia_mcp/`](apps/sernia_mcp/README.md) | Independent MCP service with Clerk OAuth and its own dependencies. |
 | [`apps/my-expo-app/`](apps/my-expo-app/README.md) | Expo / React Native client. |
@@ -38,7 +39,8 @@ production telemetry.
 | [`scripts/`](scripts/README.md) | Development configuration and worktree tooling. |
 | [`logfire/`](logfire/) | Versioned [alert snapshots](logfire/alerts/README.md) and [dashboards](logfire/dashboards/README.md). |
 
-The web app uses React, TypeScript, Tailwind, shadcn/ui, and Clerk. The API uses
+The web app uses React, TypeScript, Tailwind, shadcn/ui, and Clerk (on the team's
+pages only). The API uses
 PydanticAI, SQLAlchemy, PostgreSQL, and APScheduler, with OpenRouter for inference
 and Logfire for observability. Production runs on Railway with Neon Postgres. The
 API runs in Railway's `us-west2` because the Neon project is in AWS `us-west-2`

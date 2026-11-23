@@ -31,6 +31,15 @@ in-process schedules do not run while asleep. Existing integration behavior is p
 - Deletes the Neon database branch
 - Railway auto-cleans up the PR environment
 
+## Web app in a PR environment
+
+The web preview (`https://react-router-portfolio-pr-<PR_NUMBER>.up.railway.app/`)
+serves the portfolio, Sernia's public pages at their paths, and the team's
+signed-in pages at `/team`, since `/team` is served on any host outside
+production. Sign-in there uses the development Clerk instance. In production the
+team's pages are at `https://serniacapital.com/team` only. See
+[the web app's README](../apps/web-react-router/README.md).
+
 ## Required Secrets & Variables
 
 | Type | Name | Description |
