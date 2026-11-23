@@ -56,7 +56,7 @@ separate recovery process. Never log the token or put it in a query string.
 
 ## Private chat attachments
 
-Sernia AI and authenticated HITL chat validate attachments server-side before
+Sernia AI chat validates attachments server-side before
 provider dispatch or message persistence. Only inline base64 JPEG, PNG, GIF, WebP
 and PDF are accepted. Image decoding/PDF structure must match the declared type;
 remote URLs, path-like filenames and mismatched extensions are rejected. Filenames

@@ -14,7 +14,6 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 DEMO_MODEL_ID = "openai/gpt-5.6-luna"
-OPERATIONS_MODEL = f"openrouter:{DEMO_MODEL_ID}"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 

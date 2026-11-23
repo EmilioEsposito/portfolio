@@ -42,7 +42,6 @@ is the URL prefix of each package's routes; "none" means it serves no routes.
 | `clickup/` | Sernia | none; scheduled jobs |
 | `contact/` | Sernia | `/api/contacts` |
 | `google/` | Sernia | `/api/google` |
-| `hitl_agents/` | Sernia | `/api/ai-demos/hitl-agent` (staff demo) |
 | `open_phone/` | Sernia | `/api/open_phone` |
 | `prefect/` | Sernia | none; a Prefect example nothing imports |
 | `rental_listings/` | Sernia | `/api/rental-listings` |

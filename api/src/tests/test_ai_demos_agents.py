@@ -1,5 +1,5 @@
 """
-Live agent tests moved from their service modules under ``api/src/portfolio/`` and ``api/src/hitl_agents/``.
+Live agent tests moved from their service modules under ``api/src/portfolio/``.
 
 These tests hit real LLM APIs (and, for the graph tests, real downstream
 tools), so they are marked ``live`` and only run when explicitly requested:
@@ -7,15 +7,12 @@ tools), so they are marked ``live`` and only run when explicitly requested:
     pytest -m live api/src/tests/test_ai_demos_agents.py -v -s
 """
 
-import asyncio
 import json
 
 import pytest
-from pydantic_ai import Agent
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.hitl_agents.agent_run_patching import patch_run_with_persistence
 from api.src.portfolio.chat_emilio.agent import agent as emilio_agent
 from api.src.portfolio.chat_weather.agent import ChatContext
 from api.src.portfolio.chat_weather.agent import agent as weather_agent
@@ -29,28 +26,6 @@ from api.src.portfolio.multi_agent_chat.graph import (
     MultiAgentState,
     multi_agent_graph,
 )
-
-# ---------------------------------------------------------------------------
-# From api/src/hitl_agents/agent_run_patching.py
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
-async def test_agent_run_with_persistence():
-    agent = Agent(
-        name="test_agent",
-        model="gpt-4o-mini",
-        system_prompt="You are a test agent.",
-        output_type=str,
-    )
-    patch_run_with_persistence(agent)
-    result = await agent.run(
-        user_prompt="Hello, world!",
-        deps={"conversation_id": "123"},
-    )
-    print(f"Result: {result}")
-
 
 # ---------------------------------------------------------------------------
 # From api/src/portfolio/chat_emilio/agent.py (was ``test_agent``)
@@ -173,8 +148,3 @@ def build_test_vercel_request(payload: dict) -> Request:
     }
 
     return Request(scope, receive)
-
-
-if __name__ == "__main__":
-    # Runner moved from api/src/hitl_agents/agent_run_patching.py
-    asyncio.run(test_agent_run_with_persistence())
