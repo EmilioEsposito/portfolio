@@ -79,7 +79,7 @@ async def test_chat_response_notification_has_preview_and_is_user_targeted(monke
         title="Sernia AI",
         body="First line. Second line.",
         data={
-            "url": "/sernia-chat?id=conversation-123",
+            "url": "/team/chat?id=conversation-123",
             "conversation_id": "conversation-123",
             "type": "response",
         },
@@ -506,7 +506,7 @@ async def test_send_push_notification():
         count = await session.scalar(select(func.count()).select_from(WebPushSubscription))
 
     assert count and count > 0, (
-        "No subscriptions in DB. Go to /sernia-chat and click the bell icon first."
+        "No subscriptions in DB. Go to /team/chat and click the bell icon first."
     )
 
     print(f"\nSending test push to {count} subscription(s)...")
@@ -514,7 +514,7 @@ async def test_send_push_notification():
     await notify_all_sernia_users(
         title="Live Test from pytest",
         body="If you see this, push notifications work!",
-        data={"url": "/sernia-chat", "conversation_id": "pytest-test"},
+        data={"url": "/team/chat", "conversation_id": "pytest-test"},
     )
 
     print("Sent! Check your device for the notification.")

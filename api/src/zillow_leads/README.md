@@ -15,8 +15,8 @@ runs, and has been removed; Git history holds it if needed. The remaining
 identifiers remain stable across the package move.
 
 - [Public architecture](https://eesposito.com/systems/leasing-leads)
-- [Rental listings editor](https://eesposito.com/systems/leasing-leads/listings) (verified Sernia account)
-- [Lead trigger settings](https://eesposito.com/systems/leasing-leads/settings) (verified Sernia account)
+- [Rental listings editor](https://serniacapital.com/team/leads/listings) (verified Sernia account)
+- [Lead trigger settings](https://serniacapital.com/team/leads/settings) (verified Sernia account)
 - [General agent](../sernia_ai/README.md)
 - [Evaluation method, commands, and experiment log](evals/README.md)
 
@@ -338,14 +338,14 @@ Shared services have independent owners:
   policy tells it not to repeat internal notes; do not put secrets or sensitive
   resident information there.
 - **Separate model configuration.** `LEAD_AGENT_MODEL` in `agent.py` controls
-  this agent. The general agent's model setting in `/sernia-settings` does not.
+  this agent. The general agent's model setting in `/team/settings` does not.
 - **Fixed routing.** `handle.py` derives the reply route from the latest lead
   message before inference. Only a Zillow relay is allowed (`relay.py`).
   Approving or editing the text cannot redirect the recipient. The booking
   service's reminder by email goes only to that stored route, checked again by
   the same rule.
 - **Approval is configurable for this agent only.** With approval on, replies
-  wait in `/sernia-chat`. With it off, new replies may be sent automatically;
+  wait in `/team/chat`. With it off, new replies may be sent automatically;
   pending drafts are not swept up. Escalations and team follow-ups remain tasks
   for a person. NoReply sends nothing. A reply that would book, move or cancel a
   showing still waits unless its own box is ticked (see "Showings agreed by
@@ -378,17 +378,18 @@ Before the new key exists, the legacy batching window is preserved, but its
 old ignored approval value is never inherited. The general settings API rejects
 legacy Zillow writes and points callers to the dedicated endpoint.
 
-The UI tabs are Architecture, Rental listing data, Agent settings, and Booking
-settings. Management tabs require a verified Sernia account. The old listings
-URL redirects; `/sernia-settings#zillow-leads` redirects to the new Agent settings
-page rather than depending on scrolling an asynchronously rendered form.
+The UI tabs are Architecture (`/team/leads`), Rental listing data
+(`/team/leads/listings`), Agent settings (`/team/leads/settings`), and Booking
+settings (`/team/leads/bookings`), on the team site. Management tabs require a
+verified Sernia account. The public write-up stays at
+`https://eesposito.com/systems/leasing-leads`.
 
 ## Rental listing data
 
 The owning [rental-listings guide](../rental_listings/README.md) defines the
 schema, API, approval rules, and history. All three maintenance paths are built:
 
-1. A person edits `/systems/leasing-leads/listings`, including showing rules and history.
+1. A person edits `/team/leads/listings`, including showing rules and history.
 2. The general agent uses `sernia_ai/tools/rental_listing_tools.py`.
 3. The standalone Sernia MCP service calls the same authenticated API.
 

@@ -6,7 +6,7 @@ Usage:
 Requires:
     - VAPID keys in .env
     - At least one subscription in web_push_subscriptions table
-      (subscribe via the bell icon in /sernia-chat first)
+      (subscribe via the bell icon in /team/chat first)
 """
 
 import asyncio
@@ -36,7 +36,7 @@ async def main():
 
     if not subs:
         print("No subscriptions found in web_push_subscriptions table.")
-        print("Go to /sernia-chat and click the bell icon to subscribe first.")
+        print("Go to /team/chat and click the bell icon to subscribe first.")
         return
 
     print(f"Found {len(subs)} subscription(s):")
@@ -51,7 +51,7 @@ async def main():
         {
             "title": "Test from Sernia AI",
             "body": "Push notifications are working!",
-            "data": {"url": "/sernia-chat", "conversation_id": "test"},
+            "data": {"url": "/team/chat", "conversation_id": "test"},
         }
     )
 

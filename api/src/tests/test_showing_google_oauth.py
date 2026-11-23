@@ -91,9 +91,14 @@ def test_a_state_older_than_ten_minutes_is_refused(monkeypatch):
     assert refused.value.reason == "expired"
 
 
-def test_a_state_naming_an_origin_off_the_list_is_refused():
+@pytest.mark.parametrize(
+    # eesposito.com: a connection started there before the team pages moved.
+    "origin",
+    ["https://elsewhere.example.com", "https://eesposito.com"],
+)
+def test_a_state_naming_an_origin_off_the_list_is_refused(origin):
     forged = google_oauth._serializer().dumps(
-        {"u": "user_test", "b": TEAM_MEMBER, "o": "https://elsewhere.example.com", "n": "x" * 22}
+        {"u": "user_test", "b": TEAM_MEMBER, "o": origin, "n": "x" * 22}
     )
     with pytest.raises(google_oauth.StateRejected) as refused:
         google_oauth.read_state(forged)
@@ -106,13 +111,15 @@ def test_a_state_naming_an_origin_off_the_list_is_refused():
 @pytest.mark.parametrize(
     "origin, allowed",
     [
-        ("https://eesposito.com", "https://eesposito.com"),
+        ("https://serniacapital.com", "https://serniacapital.com"),
         ("https://dev.eesposito.com/", "https://dev.eesposito.com"),
         ("http://localhost:5173", "http://localhost:5173"),
         ("http://localhost", "http://localhost"),
-        ("http://eesposito.com", None),
-        ("https://eesposito.com.example.com", None),
-        ("https://www.eesposito.com", None),
+        # The portfolio site no longer serves the team pages.
+        ("https://eesposito.com", None),
+        ("http://serniacapital.com", None),
+        ("https://serniacapital.com.example.com", None),
+        ("https://www.serniacapital.com", None),
         ("https://react-router-portfolio-pr-1.up.railway.app", None),
         ("http://127.0.0.1:5173", None),
         ("http://localhost:5173/systems", None),
@@ -126,9 +133,14 @@ def test_origins_come_from_the_allow_list(origin, allowed):
 
 
 def test_a_redirect_uri_is_built_only_on_an_allowed_origin():
-    assert google_oauth.redirect_uri("https://eesposito.com") == (
-        "https://eesposito.com/api/showing-bookings/calendar/callback"
+    assert google_oauth.redirect_uri("https://serniacapital.com") == (
+        "https://serniacapital.com/api/showing-bookings/calendar/callback"
     )
+    assert google_oauth.redirect_uri("https://dev.eesposito.com") == (
+        "https://dev.eesposito.com/api/showing-bookings/calendar/callback"
+    )
+    with pytest.raises(ValueError):
+        google_oauth.redirect_uri("https://eesposito.com")
     with pytest.raises(ValueError):
         google_oauth.redirect_uri("https://elsewhere.example.com")
     with pytest.raises(ValueError):

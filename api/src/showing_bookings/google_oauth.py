@@ -34,6 +34,7 @@ import httpx
 from itsdangerous import BadData, SignatureExpired, URLSafeTimedSerializer
 
 from api.src.showing_bookings import google_http
+from api.src.utils import team_links
 
 CLIENT_ID_ENV = "GOOGLE_SHOWINGS_OAUTH_CLIENT_ID"
 CLIENT_SECRET_ENV = "GOOGLE_SHOWINGS_OAUTH_CLIENT_SECRET"
@@ -60,10 +61,12 @@ PICKER_SCOPES = (CALENDAR_LIST_SCOPE, DIRECTORY_SCOPE)
 SCOPES = ("openid", "email", *CALENDAR_SCOPES, *PICKER_SCOPES)
 
 CALLBACK_PATH = "/api/showing-bookings/calendar/callback"
-# The sites a connection may start from. The redirect URI is built from one of
-# these, never from what a request says about itself. Google accepts only the
-# redirect URIs registered on the client, so a localhost port must be listed there too.
-ALLOWED_ORIGINS = frozenset({"https://eesposito.com", "https://dev.eesposito.com"})
+# The sites a connection may start from: the team pages' sites,
+# https://serniacapital.com and https://dev.eesposito.com, and localhost. The
+# redirect URI is built from one of these, never from what a request says about
+# itself. Google accepts only the redirect URIs registered on the client, so a
+# localhost port must be listed there too.
+ALLOWED_ORIGINS = frozenset({team_links.PRODUCTION_BASE_URL, team_links.DEVELOPMENT_BASE_URL})
 _LOCALHOST = re.compile(r"http://localhost(?::\d{1,5})?")
 STATE_MAX_AGE_SECONDS = 600
 _STATE_SALT = "showing-bookings.calendar-connect"
@@ -136,7 +139,7 @@ def redirect_uri(origin: str) -> str:
     allowed = allowed_origin(origin)
     if allowed is None:
         raise ValueError(
-            "Calendars can be connected only from eesposito.com, dev.eesposito.com or localhost."
+            "Calendars can be connected only from serniacapital.com, dev.eesposito.com or localhost."
         )
     return f"{allowed}{CALLBACK_PATH}"
 

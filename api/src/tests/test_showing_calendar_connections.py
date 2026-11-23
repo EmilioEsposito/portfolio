@@ -141,7 +141,7 @@ def result_of(page: httpx.Response) -> str:
     assert (address.scheme, address.netloc, address.path, address.fragment) == (
         "",
         "",
-        "/systems/leasing-leads/bookings",
+        "/team/leads/bookings",
         "calendar-connections",
     )
     return parse_qs(address.query)["calendar"][0]
@@ -360,12 +360,19 @@ async def test_without_the_key_or_the_client_nothing_can_be_connected(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "origin",
-    ["https://react-router-portfolio-pr-12.up.railway.app", "https://elsewhere.example.com", ""],
+    [
+        "https://eesposito.com",
+        "https://react-router-portfolio-pr-12.up.railway.app",
+        "https://elsewhere.example.com",
+        "",
+    ],
 )
 async def test_a_connection_starts_only_from_an_allowed_site(api, google, origin):
     response = await api.post("/api/showing-bookings/calendar/connect", json={"origin": origin})
     assert response.status_code == 400
-    assert "eesposito.com" in response.json()["detail"]
+    assert response.json()["detail"] == (
+        "Calendars can be connected only from serniacapital.com, dev.eesposito.com or localhost."
+    )
 
 
 @pytest.mark.asyncio

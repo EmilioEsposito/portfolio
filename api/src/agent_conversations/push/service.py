@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.src.agent_conversations.push.models import WebPushSubscription
 from api.src.database.database import AsyncSessionFactory, provide_session
+from api.src.utils import team_links
 
 _RAILWAY_ENV = os.getenv("RAILWAY_ENVIRONMENT_NAME", "")
 VAPID_CLAIMS_EMAIL = os.environ.get("VAPID_CLAIM_EMAIL", "mailto:admin@serniacapital.com")
@@ -326,7 +327,7 @@ async def notify_chat_response(
         return
 
     data = {
-        "url": f"/sernia-chat?id={conversation_id}",
+        "url": team_links.chat_path(conversation_id),
         "conversation_id": conversation_id,
         "type": "response",
     }
@@ -370,7 +371,7 @@ async def notify_pending_approval(
     body = ", ".join(body_parts) if body_parts else "Action requires your approval"
 
     data = {
-        "url": f"/sernia-chat?id={conversation_id}",
+        "url": team_links.chat_path(conversation_id),
         "conversation_id": conversation_id,
         "tool_name": tool_name,
         "type": "approval",
@@ -390,7 +391,7 @@ async def notify_trigger_alert(
 ) -> None:
     """Send a push notification for a trigger-created conversation (not HITL approval)."""
     data = {
-        "url": f"/sernia-chat?id={conversation_id}",
+        "url": team_links.chat_path(conversation_id),
         "conversation_id": conversation_id,
         "type": "alert",
         "trigger_source": trigger_source,

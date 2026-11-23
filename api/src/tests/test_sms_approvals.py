@@ -187,7 +187,7 @@ async def test_review_link_when_sms_cannot_authorize(monkeypatch, recipients, pe
         AsyncMock(return_value=SimpleNamespace(phone_number=PHONE)),
     )
     prompt, eligible = await approvals.approval_prompt("test", recipients, pending, state)
-    assert not eligible and "sernia-chat?id=test" in prompt and "Reply" not in prompt
+    assert not eligible and "/team/chat?id=test" in prompt and "Reply" not in prompt
 
 
 @pytest.mark.asyncio
