@@ -8,7 +8,7 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
-from api.src.ai_demos.multi_agent_chat import routes
+from api.src.portfolio.multi_agent_chat import routes
 
 
 def request() -> Request:
@@ -159,7 +159,7 @@ async def test_split_adapter_provider_error_is_safe_and_actionable(monkeypatch, 
 
 @pytest.mark.asyncio
 async def test_router_and_specialist_share_one_inference_budget(monkeypatch):
-    from api.src.ai_demos.multi_agent_chat import graph
+    from api.src.portfolio.multi_agent_chat import graph
 
     seen = []
 

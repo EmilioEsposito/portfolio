@@ -166,7 +166,7 @@ def test_chat_emilio_endpoint_multiple_messages(client, monkeypatch):
     """Test real adapter serialization with a deterministic local model."""
     from pydantic_ai.models.test import TestModel
 
-    from api.src.ai_demos.chat_emilio.agent import agent
+    from api.src.portfolio.chat_emilio.agent import agent
 
     monkeypatch.setattr(
         agent, "_model", TestModel(custom_output_text="I am Emilio's portfolio assistant.")

@@ -36,7 +36,8 @@ from api.src.agent_conversations.models import (
     list_user_conversations,
     persist_agent_run_result,
 )
-from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
+from api.src.database.database import DBSession
+from api.src.hitl_agents.hitl_sms_agent import (
     ApprovalDecision,
     HITLAgentContext,
     extract_pending_approvals,
@@ -44,7 +45,6 @@ from api.src.ai_demos.hitl_agents.hitl_sms_agent import (
     hitl_sms_agent,
     resume_with_approvals,
 )
-from api.src.database.database import DBSession
 from api.src.utils.chat_attachments import read_chat_request
 from api.src.utils.clerk import SerniaUser
 

@@ -11,10 +11,10 @@ from pydantic_ai.ui.vercel_ai.request_types import SubmitMessage
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.src.ai_demos.chat_weather.agent import ChatContext, agent
-from api.src.utils.input_sanitization import sanitize_request_json
+from api.src.portfolio.chat_weather.agent import ChatContext, agent
+from api.src.portfolio.input_sanitization import sanitize_request_json
+from api.src.portfolio.swagger_schema import expand_json_schema
 from api.src.utils.llm import demo_usage_limits
-from api.src.utils.swagger_schema import expand_json_schema
 
 router = APIRouter(prefix="/chat-weather", tags=["ai"])
 

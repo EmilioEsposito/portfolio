@@ -176,7 +176,7 @@ async def test_valid_streamed_body():
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "module,handler",
-    [("api.src.sernia_ai.routes", "chat_sernia"), ("api.src.ai_demos.hitl_agents.routes", "chat")],
+    [("api.src.sernia_ai.routes", "chat_sernia"), ("api.src.hitl_agents.routes", "chat")],
 )
 async def test_both_routes_reject_before_history_or_provider(monkeypatch, module, handler):
     import importlib
