@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { SidebarProvider, SidebarInset, useSidebar } from "~/components/ui/sidebar";
 import { ConversationSidebar } from "~/sites/team/components/conversation-sidebar";
+import { TeamDeviceBanner } from "~/sites/team/components/team-device";
 import { teamTitle } from "~/sites/team/lib/team-meta";
 import type { TeamPageHandle } from "./layout";
 
@@ -295,6 +296,8 @@ export default function SerniaSettingsPage() {
             </Button>
           </div>
         </div>
+
+        <TeamDeviceBanner />
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from api.src.agent_conversations.push.service import (
-    notify_all_sernia_users,
+    notify_user_push,
     remove_subscription,
     save_subscription,
 )
@@ -88,10 +88,15 @@ async def unsubscribe(
 async def send_test_push(
     user: User = Depends(_get_sernia_user),
 ):
-    """Send a test push notification to all subscribed devices."""
-    await notify_all_sernia_users(
-        title="Test from Sernia AI",
-        body=f"Push notifications are working! Triggered by {user.first_name or 'unknown'}.",
-        data={"url": team_links.CHAT_PATH, "conversation_id": "test"},
+    """Send a test notification to the signed-in user's own devices.
+
+    The team pages offer this next to "Turn on notifications", so that a person
+    can see their device receive one. Nobody else is notified.
+    """
+    await notify_user_push(
+        clerk_user_id=user.id,
+        title="Sernia Capital",
+        body="Test notification: this device will be told when a conversation needs you.",
+        data={"url": team_links.CHAT_PATH},
     )
     return {"status": "sent"}
