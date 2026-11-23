@@ -868,7 +868,7 @@ async def test_a_failed_send_alerts_the_team_once(world):
         "Prospect's reminder for unit 320-03, showing Wed, Apr 14 at 4:00 PM. It failed and "
         "will not be tried again. Check it under Messages on the Booking settings tab."
     )
-    assert alert.url == "/systems/leasing-leads/bookings"
+    assert alert.url == "/team/leads/bookings"
     for number in (ALEX_MOBILE, JANE_MOBILE, "555"):
         assert number not in alert.body + alert.title
     (notice,) = await notices_with_alerts()

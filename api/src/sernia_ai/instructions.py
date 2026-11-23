@@ -256,9 +256,9 @@ def once_per_run(
 
 @once_per_run
 def inject_context(ctx: RunContext[SerniaDeps]) -> str:
-    from api.src.sernia_ai.config import FRONTEND_BASE_URL
+    from api.src.utils import team_links
 
-    deeplink = f"{FRONTEND_BASE_URL}/sernia-chat?id={ctx.deps.conversation_id}"
+    deeplink = team_links.team_url(team_links.chat_path(ctx.deps.conversation_id))
     return (
         f"Current Date and Time: {format_current_datetime()}. "
         f"Speaking with {ctx.deps.user_name} ({ctx.deps.user_email}) via {ctx.deps.modality}. "

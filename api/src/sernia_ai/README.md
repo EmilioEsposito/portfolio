@@ -20,8 +20,8 @@ resuming the general agent.
 | General agent, tools, memory, model selection | `general_agent.py`, `instructions.py`, `tools/`, `model_config.py` |
 | Lead case, reply decision, fixed recipient, approval | [`../zillow_leads/`](../zillow_leads/README.md) |
 | Listing schema, validation, history, HTTP API | [`../rental_listings/`](../rental_listings/README.md) |
-| Listing editor | `/systems/leasing-leads/listings`; standalone page with Sernia authentication |
-| Lead batching and email approval | `/systems/leasing-leads/settings`; dedicated agent settings; separate from general automation |
+| Listing editor | `/team/leads/listings`; standalone page with Sernia authentication |
+| Lead batching and email approval | `/team/leads/settings`; dedicated agent settings; separate from general automation |
 | Zillow email queue | [`../zillow_leads/queue.py`](../zillow_leads/QUEUE.md) |
 | General-agent SMS and scheduled triggers | [`triggers/`](triggers/README.md) |
 | Offline lead evaluations and private review data | [`../zillow_leads/evals/`](../zillow_leads/evals/README.md) |

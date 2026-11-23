@@ -296,7 +296,8 @@ agents share with it; an agent with a Sernia sign-in may connect their own.
 
 ### Connecting
 
-1. A signed-in team member presses Connect on the Booking settings tab.
+1. A signed-in team member presses Connect on the Booking settings tab
+   (`/team/leads/bookings`).
    `POST /calendar/connect` answers with Google's consent URL for the OAuth
    client in the Google Cloud project `sernia-showings`, which is Internal:
    only serniacapital.com accounts can approve it, with no Google review. It
@@ -328,10 +329,13 @@ works with it. A connection made before the picker keeps working as it is; its
 card says when a Reconnect would add them (`reconnect_adds_permissions`).
 
 The redirect URI is built from an allowed origin, never from a request header:
-`https://eesposito.com`, `https://dev.eesposito.com` or `http://localhost` on
-any port. Google accepts only redirect URIs registered on the client:
+`https://serniacapital.com`, `https://dev.eesposito.com` or `http://localhost`
+on any port, the sites that serve the team pages (`api/src/utils/team_links.py`).
+`https://eesposito.com` is refused. Google accepts only redirect URIs
+registered on the client, so each must be listed on it in the Google Cloud
+console (project `sernia-showings`, Credentials, the OAuth client):
 
-- `https://eesposito.com/api/showing-bookings/calendar/callback`
+- `https://serniacapital.com/api/showing-bookings/calendar/callback`
 - `https://dev.eesposito.com/api/showing-bookings/calendar/callback`
 - `http://localhost:5173/api/showing-bookings/calendar/callback`, plus a
   worktree's own web port to connect from that worktree
@@ -1412,7 +1416,7 @@ active agent but the host and shows the reason when one is refused.
 Attendance refuses 404 `unknown_attendee`, 409 `not_booked` for a cancelled
 booking and 409 `not_started` before the start.
 
-The Booking settings tab (`/systems/leasing-leads/bookings`) starts with a line
+The Booking settings tab (`/team/leads/bookings`) starts with a line
 saying what happens right now, from the saved settings (and what it will be,
 while there are unsaved edits). Then:
 

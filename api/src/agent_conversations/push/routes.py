@@ -16,6 +16,7 @@ from api.src.agent_conversations.push.service import (
     save_subscription,
 )
 from api.src.database.database import DBSession
+from api.src.utils import team_links
 
 router = APIRouter(prefix="/push", tags=["sernia-ai-push"])
 
@@ -91,6 +92,6 @@ async def send_test_push(
     await notify_all_sernia_users(
         title="Test from Sernia AI",
         body=f"Push notifications are working! Triggered by {user.first_name or 'unknown'}.",
-        data={"url": "/sernia-chat", "conversation_id": "test"},
+        data={"url": team_links.CHAT_PATH, "conversation_id": "test"},
     )
     return {"status": "sent"}

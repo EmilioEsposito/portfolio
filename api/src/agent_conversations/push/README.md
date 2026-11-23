@@ -32,7 +32,7 @@ When a browser subscribes, it returns an endpoint URL on its vendor's push servi
 The browser subscribes through the W3C Push API and saves its endpoint and keys
 through the authenticated API. `service.py` encrypts notifications with VAPID and
 sends them to the browser vendor's push service. The service worker displays the
-notification and opens `/sernia-chat?id=…` when it is clicked.
+notification and opens `/team/chat?id=…` (`team_links.chat_path`) when it is clicked.
 
 For web-chat completions, the service worker suppresses the OS notification
 when the matching conversation is already focused. Both agents use the same

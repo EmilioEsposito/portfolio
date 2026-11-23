@@ -43,6 +43,7 @@ from api.src.showing_bookings import holds, outbox, wording
 from api.src.showing_bookings.host_event import CONFIRMATION_KIND
 from api.src.showing_bookings.models import Showing, ShowingNotice
 from api.src.showing_bookings.providers import TeamAlerter
+from api.src.utils import team_links
 
 STUCK_AFTER = timedelta(minutes=10)
 # Held: the five-minute wait for a delivery report, then ten more minutes.
@@ -50,7 +51,7 @@ HELD_STUCK_AFTER = holds.REPORT_WAIT + STUCK_AFTER
 LOOKBACK = timedelta(days=2)
 PER_RUN = 20
 # Where the alert opens: the Booking settings tab, whose Messages list shows it.
-TAB_PATH = "/systems/leasing-leads/bookings"
+TAB_PATH = team_links.LEAD_BOOKINGS_PATH
 FAILED_STATUSES = ("failed", "unknown")
 
 

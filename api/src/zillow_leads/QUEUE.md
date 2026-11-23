@@ -5,7 +5,7 @@ Zillow lead processing through a **durable queue**. When an email from `zillow.c
 Zillow email does not start the general Sernia agent. That agent has tools and access to company data, and a lead's email is text written by a stranger; the lead agent has no tools and sees nothing private. Replies either wait for approval or use the dedicated automatic-delivery path, according to the lead agent’s own settings. Code fixes the Zillow relay recipient. See the package README for delivery checks and recovery behavior.
 
 Batching and email approval are configured in the **Agent settings** tab
-(`/systems/leasing-leads/settings`), backed by `zillow_lead_config`. Approval
+(`/team/leads/settings`), backed by `zillow_lead_config`. Approval
 defaults on. The legacy batching window is inherited until the new setting is
 saved, but the old ignored `require_approval` value is never inherited.
 
