@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/react-router";
-import { ensureCurrentPushSubscription } from "~/sites/team/lib/push-subscription";
+import {
+  ensureCurrentPushSubscription,
+  TEAM_SERVICE_WORKER_SCOPE,
+  TEAM_SERVICE_WORKER_URL,
+} from "~/sites/team/lib/push-subscription";
 
 const API_BASE = "/api/sernia-ai";
 const PUSH_USER_STORAGE_KEY = "sernia-push-user-id";
@@ -124,7 +128,9 @@ export function usePushNotifications(): PushNotificationState {
     };
 
     const reconcileIdentity = async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
+      const registration = await navigator.serviceWorker.getRegistration(
+        TEAM_SERVICE_WORKER_SCOPE,
+      );
       let subscription =
         (await registration?.pushManager.getSubscription()) ?? null;
       const boundUserId = localStorage.getItem(PUSH_USER_STORAGE_KEY);
@@ -212,7 +218,10 @@ export function usePushNotifications(): PushNotificationState {
     try {
       await enqueuePushOperation(async () => {
         // Register service worker
-        const registration = await navigator.serviceWorker.register("/sw.js");
+        const registration = await navigator.serviceWorker.register(
+          TEAM_SERVICE_WORKER_URL,
+          { scope: TEAM_SERVICE_WORKER_SCOPE },
+        );
         await navigator.serviceWorker.ready;
 
         // Request notification permission

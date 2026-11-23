@@ -1,7 +1,8 @@
 {
   "name": "Sernia Capital",
   "short_name": "Sernia",
-  "start_url": "/sernia-chat",
+  "start_url": "/team/chat",
+  "scope": "/team/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",

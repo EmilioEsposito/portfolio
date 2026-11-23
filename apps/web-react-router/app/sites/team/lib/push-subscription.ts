@@ -1,3 +1,11 @@
+/**
+ * The team's service worker (public/team/sw.js). Served from /team/, so its
+ * scope is /team/: it controls the team's pages and nothing else, and the
+ * install manifest (public/team/manifest.json) has the same scope.
+ */
+export const TEAM_SERVICE_WORKER_URL = "/team/sw.js";
+export const TEAM_SERVICE_WORKER_SCOPE = "/team/";
+
 function decodePublicKey(publicKey: string): Uint8Array<ArrayBuffer> {
   if (!publicKey) throw new Error("Notification key is not configured");
   const base64 = publicKey.replace(/-/g, "+").replace(/_/g, "/");
