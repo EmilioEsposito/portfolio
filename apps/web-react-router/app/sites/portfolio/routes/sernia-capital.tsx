@@ -6,16 +6,15 @@ import {
   Bot,
   AlertTriangle,
   Calendar,
+  CalendarCheck,
   MessageSquare,
-  Mail,
-  ExternalLink,
 } from "lucide-react";
 import { buildUrl, generateCanonicalLink, generatePageMeta } from "~/sites/portfolio/lib/seo";
 export const meta = () =>
   generatePageMeta({
     title: "Sernia Capital systems",
     description:
-      "AI agents and software Emilio Esposito builds for Sernia Capital: property operations, emergency SMS routing, leasing follow-ups, and tenant communications.",
+      "AI agents and software Emilio Esposito builds for Sernia Capital: property operations, emergency SMS routing, rental inquiries, showing scheduling, and tenant communications.",
     path: "/sernia-capital",
   });
 export const links = () => [generateCanonicalLink(buildUrl("/sernia-capital"))];
@@ -35,9 +34,15 @@ export default function SerniaCapital() {
         className="mb-16 scroll-mt-6"
       >
         <P className="mt-4 text-muted-foreground">
-          A few systems I've built to help run our properties, from urgent
-          tenant messages to leasing follow-ups. Most are part of our daily
-          operations; others are still in development.
+          A few systems I've built to help run our properties at{" "}
+          <a
+            href="https://serniacapital.com/"
+            className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+          >
+            Sernia Capital
+          </a>
+          , from urgent tenant messages to rental inquiries and showings. All
+          of them run in production.
         </P>
 
         <div className="mt-8 grid gap-4 md:grid-cols-2">
@@ -166,25 +171,33 @@ export default function SerniaCapital() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold flex items-center gap-2 text-base">
-                  <Mail className="h-4 w-4 text-purple-500" />
-                  Showing booking
+                  <CalendarCheck className="h-4 w-4 text-purple-500" />
+                  Showing Scheduler
                 </h2>
-                <Badge variant="outline" className="text-xs">
-                  In Development
+                <Badge variant="secondary" className="text-xs">
+                  Production
                 </Badge>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Planned: prospects choose a showing using shared-calendar availability
-                and the listing’s showing rules. Bookings will coordinate
-                calendar events and resident notice.
+                Prospects book a showing on{" "}
+                <a
+                  href="https://serniacapital.com/showings"
+                  className="text-foreground underline underline-offset-4 hover:text-foreground/80 transition-colors"
+                >
+                  serniacapital.com
+                </a>{" "}
+                or by email. Open times come from the showing agents’ calendars
+                and each listing’s showing rules. A booking puts the showing on
+                the host’s calendar, confirms with the prospect, and gives
+                residents notice by text.
               </p>
               <Link
-                to="/systems/leasing-leads#booking"
-                className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                to="/systems/leasing-leads"
+                className="mt-3 inline-flex text-sm underline underline-offset-4"
               >
-                See the booking plan <ExternalLink className="h-3 w-3" />
+                How showings are booked
               </Link>
             </CardContent>
           </Card>

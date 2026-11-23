@@ -145,8 +145,8 @@ export function PersonalHome() {
           />
         </div>
         <p className="mt-8 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
-          I build AI products, help engineering teams put AI to work, and
-          operate businesses that give me a direct stake in the software I ship.
+          I build AI products, help engineering teams put AI to work, and run a
+          rental business on software I wrote.
         </p>
         <div className="mt-7 flex flex-wrap gap-6">
           <a
@@ -220,10 +220,16 @@ export function PersonalHome() {
             Building the systems behind it.
           </h3>
           <p className="mt-5 leading-7 text-muted-foreground">
-            I co-founded and operate a 40-unit residential real estate
-            portfolio. I also build the software we use to manage
-            communications, respond to urgent issues, and follow up with
-            prospective tenants.
+            I co-founded and operate a{" "}
+            <a
+              href="https://serniacapital.com/"
+              className="text-foreground underline underline-offset-4"
+            >
+              40-unit residential real estate portfolio
+            </a>
+            . I also build the software we use to manage communications,
+            respond to urgent issues, answer rental inquiries, and book
+            showings.
           </p>
           <div className="mt-7 rounded-xl bg-muted/60 p-6">
             <p className="text-sm text-muted-foreground">In daily operations</p>
