@@ -115,8 +115,12 @@ async def test_partial_success_only_retries_failed_recipient(requests_db):
     retry = await read(rows[1].id)
     assert retry.next_attempt_at >= d.utcnow() + timedelta(seconds=35)
     await due(rows[1].id)
+    first_round = list(posts)
     await asyncio.gather(*(d.process_delivery(r.id, client) for r in rows))
-    assert posts == [NUMBERS[0], NUMBERS[1], NUMBERS[1]]
+    # The first round posts to both at once, in either order; the second only
+    # to the one that was told to retry.
+    assert sorted(first_round) == sorted(NUMBERS[:2])
+    assert posts[len(first_round) :] == [NUMBERS[1]]
     assert (await d.report(request_id)).accepted == 2
     repeated = await d.dispatch("Changed retry text", source_key=source, numbers=["+15555550999"])
     assert repeated.accepted == 2 and len(repeated.recipients) == 2
