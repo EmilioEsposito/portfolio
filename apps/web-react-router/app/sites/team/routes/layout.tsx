@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { ClerkProvider } from "@clerk/react-router";
 import { data, Outlet, useMatches, useNavigation, useRouteLoaderData } from "react-router";
 
 import type { Route } from "./+types/layout";
@@ -36,6 +37,9 @@ export function loader({ url }: Route.LoaderArgs): TeamLayoutData {
   return { publicSiteHref: isSerniaHost(url.host) ? null : "https://serniacapital.com/" };
 }
 
+/** The root loader's data on a team page: what Clerk's provider reads, plus the environment name. */
+type ClerkRootData = React.ComponentProps<typeof ClerkProvider>["loaderData"] & { railwayEnvironmentName?: string };
+
 /** Team pages that bring their own sidebar (the conversation sidebar) set this `handle`. */
 export type TeamPageHandle = { ownSidebar?: boolean };
 
@@ -52,11 +56,22 @@ function OpeningLine() {
 }
 
 export default function TeamLayout() {
-  const root = useRouteLoaderData("root") as { railwayEnvironmentName?: string } | undefined;
+  // The root loader ran Clerk for this request and carries its state.
+  const root = useRouteLoaderData("root") as ClerkRootData | undefined;
   const ownSidebar = useMatches().some((match) => (match.handle as TeamPageHandle | undefined)?.ownSidebar);
   useEffect(retireRootServiceWorkerOnce, []);
   const banner = <EnvBanner railwayEnvironmentName={root?.railwayEnvironmentName} />;
 
+  // The only Clerk provider on the site, in the team's own layout so that no
+  // other page downloads Clerk's code. Signing out keeps the person on /team.
+  return (
+    <ClerkProvider loaderData={root} afterSignOutUrl="/team">
+      <TeamPages banner={banner} ownSidebar={ownSidebar} />
+    </ClerkProvider>
+  );
+}
+
+function TeamPages({ banner, ownSidebar }: { banner: React.ReactNode; ownSidebar: boolean }) {
   return (
     <TeamGuard banner={banner}>
       <OpeningLine />

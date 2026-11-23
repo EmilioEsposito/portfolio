@@ -10,7 +10,6 @@ import {
   useRouteLoaderData,
   type ShouldRevalidateFunctionArgs,
 } from "react-router";
-import { ClerkProvider } from "@clerk/react-router";
 import { clerkMiddleware, rootAuthLoader } from "@clerk/react-router/server";
 import { ThemeProvider } from "next-themes";
 
@@ -34,9 +33,10 @@ import { rootSite, serniaRoot } from "~/sites/sernia-root";
 
 // Three sites share this root (~/sites/site decides which one a request is):
 // the portfolio, Sernia Capital's public pages and the Sernia team's pages
-// under /team. Only the team's pages run Clerk: its middleware, its root
-// loader and <ClerkProvider>. The portfolio and the Sernia public pages load
-// no Clerk script and make no Clerk request. The server tells the browser
+// under /team. Only the team's pages run Clerk: its middleware and its root
+// loader here, on the server, and <ClerkProvider> in the team's layout. The
+// portfolio and the Sernia public pages download no Clerk code, load no Clerk
+// script and make no Clerk request. The server tells the browser
 // which site a page is through the root loader data (`site`) or the Sernia
 // 404 it throws, which ~/sites/sernia-root reads.
 
@@ -175,15 +175,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App({ loaderData }: Route.ComponentProps) {
   switch (loaderData.site) {
     case "team":
-      // The only Clerk on the site. The team layout supplies the guard, the
-      // navigation and the banner. Signing out keeps the person on /team.
+      // The team layout (app/sites/team/routes/layout.tsx) supplies Clerk's
+      // provider, the guard, the navigation and the banner. The provider is
+      // there, not here, so only the team's pages download Clerk's code.
       return (
-        <ClerkProvider loaderData={loaderData} afterSignOutUrl="/team">
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <Toaster />
-            <Outlet />
-          </ThemeProvider>
-        </ClerkProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <Toaster />
+          <Outlet />
+        </ThemeProvider>
       );
     case "sernia-public":
       // The Sernia layout route supplies the header and footer.
